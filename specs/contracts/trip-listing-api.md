@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.1.0
+2.2.0
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -115,6 +115,8 @@ The Trip Listing API enables transport providers (truckers) to post available tr
 **Authentication**: Required — browse-all is restricted to Buyer and Admin (F-36). Truckers see only their own trips; farmers, other roles, and unauthenticated callers receive 403.
 
 Cancelled trips are never listed, for any role: a trip with `status: cancelled` (status update) or with `deletedAt` (soft delete) is omitted, the same trips `GET /trips/{id}` answers with `404`. `status=cancelled` returns an empty page (`trips: []`, `hasMore: false`). These trips are dropped after DynamoDB applies `limit`, so a page can hold fewer than `limit` trips while `hasMore` is `true`.
+
+Open trips that have left are not listed (2.2.0, L-7). A trip has left once its departure day is over in Ethiopia (Africa/Addis_Ababa, UTC+3 all year): `departureDate` is the instant of Ethiopia midnight on the day the trucker picked, and trucks run late, so a trip stays listed all of its day. The browse of `status=open` (the default) therefore returns only trips with `departureDate` at or after the start of today in Ethiopia (21:00 UTC the day before). The cutoff is part of the DynamoDB key condition on the `StatusDepartureDateIndex` sort key, not a filter: departed trips are never read and never leave a page short. The string compare is exact because `departureDate` is stored as UTC with milliseconds (1.3.0). Not affected: the trucker's own list (`truckerId`, the trucker sees every trip; the apps mark a passed day as "Date passed"), `GET /trips/{id}` (orders and the live trip still read the trip), and the other statuses. A `nextToken` read before the cutoff moved (Ethiopia midnight between two pages) still works: that page starts at the token and drops the trips that have left. The apps apply the same cutoff to their cached open trips, so an offline phone does not offer a truck that left either.
 
 **Query Parameters**:
 
@@ -347,7 +349,7 @@ holds `quantity / 100` quintals.
 
 | When | What |
 |---|---|
-| order create (`POST /sync`, `entityType: order`) | The trip must be `open` or `matched`, depart at least 24 hours ahead (`ORDER_VALIDATION`) and have `remainingQuintals` of at least the order's quintals, else `TRIP_CAPACITY_EXCEEDED` (permanent on clients since `sync-protocol.md` 1.17.0; before 2.0.0 the check was against `capacity`). Nothing is reserved yet. |
+| order create (`POST /sync`, `entityType: order`) | The trip must be `open` or `matched`, depart at least 24 hours ahead (`ORDER_VALIDATION`) and have `remainingQuintals` of at least the order's quintals, else `TRIP_CAPACITY_EXCEEDED` (permanent on clients since `sync-protocol.md` 1.17.0; before 2.0.0 the check was against `capacity`). Nothing is reserved yet. Whatever `COMMITMENTS_ENABLED`, a trip that has left (its Ethiopia day is over, 2.2.0) is refused first with `ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; choose another trip.`, so a phone's stale offline cache cannot book it. |
 | buyer `payment_submitted` | Refused with `ORDER_VALIDATION: This trip is no longer available; place a new order.` when the trip is no longer `open` or `matched`, has less room than the order, or departs in under 12 hours. Permanent; the client reverts the order. |
 | funding (`→ funded`) | The order's quintals are reserved in one conditional write on the trip's `remainingQuintals` (never below 0), and the order id is added to `bookedOrderIds`; at 0 the status becomes `matched`. A trip with no room or already cancelled sends the order to `awaiting_transport` (`trip_full` / `trip_cancelled`) instead, and the farmer is not asked. |
 | the trucker's accept (`truckerResponse: accept`) | The booking is verified and confirmed in the same transaction as the order write (`acceptedOrderIds`). |
@@ -367,8 +369,8 @@ The buyers paid for that date, price and route.
 deliveries are cancelled, and unpaid orders are left to the payment gate. The hourly order cron
 repeats the cascade for orders it missed.
 
-**Browse is unchanged**: `GET /trips` lists `open` trips as before. Clients read `remainingQuintals`
-for the free room.
+**Browse is unchanged** by bookings: `GET /trips` lists `open` trips as before (since 2.2.0 only
+those that have not left). Clients read `remainingQuintals` for the free room.
 
 ---
 
@@ -393,11 +395,11 @@ for the free room.
 
 | Query | Index Used | Key Condition | Filter |
 |-------|-----------|---------------|--------|
-| All open trips by departure | StatusDepartureDateIndex | PK=`open`, SK between dates | — |
-| Open trips from specific woreda | StatusDepartureDateIndex | PK=`open`, SK between dates | `fromWoreda = X` |
-| Open trips to specific woreda | StatusDepartureDateIndex | PK=`open`, SK between dates | `toWoreda = X` |
-| Open trips with capacity filter | StatusDepartureDateIndex | PK=`open`, SK between dates | `capacity >= X` |
-| Open trips with price filter | StatusDepartureDateIndex | PK=`open`, SK between dates | `pricePerQuintal <= X` |
+| All open trips by departure | StatusDepartureDateIndex | PK=`open`, SK >= start of today in Ethiopia (2.2.0) | none |
+| Open trips from specific woreda | StatusDepartureDateIndex | PK=`open`, SK >= start of today in Ethiopia | `fromWoreda = X` |
+| Open trips to specific woreda | StatusDepartureDateIndex | PK=`open`, SK >= start of today in Ethiopia | `toWoreda = X` |
+| Open trips with capacity filter | StatusDepartureDateIndex | PK=`open`, SK >= start of today in Ethiopia | `capacity >= X` |
+| Open trips with price filter | StatusDepartureDateIndex | PK=`open`, SK >= start of today in Ethiopia | `pricePerQuintal <= X` |
 | Single trip by ID | Primary Key | PK=`tripId` | — |
 
 **Note**: Woreda, capacity, and price filters use DynamoDB FilterExpression (post-query filtering). This is acceptable because:
@@ -503,9 +505,10 @@ Common route patterns:
 | 1.6.0 | 2026-10-23 | Account under review (FRD-04, rule 11): a create from a trucker at risk tier CRITICAL is refused with `FRAUD_ACCOUNT_HELD` after the field rules and before the write, nothing written; permanent on clients (already handled since `sync-protocol.md` 1.18.0); updates and deletes not gated |
 | 2.0.0 | 2026-10-26 | Bookings (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): `TripDto` gains `bookedQuintals` and `remainingQuintals` (null on old rows, read as `capacity`), the row also `bookedOrderIds` and `acceptedOrderIds`; capacity is reserved per order at funding (atomic on `remainingQuintals`), verified at the trucker's accept and released when the order leaves the trip; order create refuses a trip departing in under 24 hours and a quantity above `remainingQuintals` (`TRIP_CAPACITY_EXCEEDED`), and `payment_submitted` a trip no longer open or matched, too small, or departing in under 12 hours (`ORDER_VALIDATION: This trip is no longer available; place a new order.`); `matched` means fully booked and is set by the system (a client `status: matched` is refused), `open → inTransit` is allowed with bookings; once booked `departureDate`, `pricePerQuintal`, `fromWoreda` and `toWoreda` are frozen and `capacity` may not drop below `bookedQuintals` (`TRIP_HAS_BOOKINGS`); cancelling (update or delete) is refused with `TRIP_HAS_BOOKINGS` while an order on the trip is `pickup_confirmed` or `in_transit`, otherwise funded and accepted orders move to `awaiting_transport` (`trip_cancelled`) with their pending deliveries cancelled and unpaid orders left alone; browse unchanged |
 | 2.1.0 | 2026-10-31 | Create and update accept `destinationLatitude` and `destinationLongitude` (both or neither, inside Ethiopia's box). No client sent a destination point before, so no trip had one and the live track had no drop-off point: the buyer's arrival window and the trucker's "about 12:35" never showed. Mobile and web send the point of the place picked in Create trip. A booked trip's stored point is frozen with the route; a missing one may be added |
+| 2.2.0 | 2026-11-04 | Trips that left (L-7): seen live, `GET /trips?status=open` listed departures from 2026-07-14 to 2026-11-01 as open. The browse of `open` now returns only trips with `departureDate` at or after the start of today in Ethiopia (Africa/Addis_Ababa), so a trip stays listed all of its day; the cutoff is in the key condition, not a filter; a `nextToken` from before Ethiopia midnight still works. The trucker's own list, `GET /trips/{id}` and other statuses are unchanged. An order create naming a trip that has left is refused with `ORDER_TRIP_NOT_ELIGIBLE` whatever `COMMITMENTS_ENABLED` (`order-lifecycle.md` 2.3.0, `sync-protocol.md` 1.34.0). Mobile and web apply the same cutoff to their open trips (cache and web reads), mark a trucker's open trip with a passed day as "Date passed" with the trips still ahead listed first, and check a chosen truck (open, not left, room for the quantity) before an order is placed. The cutoff uses the device clock; the apps keep no server time offset |
 
 ---
 
-**Last Updated**: 2026-10-31
-**Version**: 2.1.0
+**Last Updated**: 2026-11-04
+**Version**: 2.2.0
 **Status**: Draft (Phase R4.1)

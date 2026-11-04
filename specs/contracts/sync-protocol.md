@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.33.0
+1.34.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -527,7 +527,7 @@ their own text too.
 | `TRIP_CAPACITY_EXCEEDED:` | `order` create or update naming a trip | The trip has no room left for this order: an order refusal. |
 | `CROP_HAS_ACTIVE_ORDERS:` | `crop_listing` delete, or a quantity below what active orders hold | The listing has funded or accepted orders. |
 | `APP_UPDATE_REQUIRED:` | `order` commands from an app below the server's minimum (the minimum-version gate, spec K1, ESC-25). Clients also handle it defensively on `crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent` and `match_event` operations: kept pending, never reverted. | This build must be updated. |
-| `ORDER_DEADLINE_PASSED:`, `ORDER_TRIP_NOT_ELIGIBLE:`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | `order` operations (permanent since 1.10.0; `ORDER_DEADLINE_PASSED` sent since 1.29.0) | The deadline passed; the named truck cannot take the order; no more trucks may be tried. |
+| `ORDER_DEADLINE_PASSED:`, `ORDER_TRIP_NOT_ELIGIBLE:`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | `order` operations (permanent since 1.10.0; `ORDER_DEADLINE_PASSED` sent since 1.29.0; `ORDER_TRIP_NOT_ELIGIBLE` sent since 1.34.0 on an `order` create naming a trip that has left, `trip-listing-api.md` 2.2.0) | The deadline passed; the named truck cannot take the order; no more trucks may be tried. |
 
 Mobile client (sync queue):
 
@@ -833,6 +833,7 @@ handling ships with LT-08, and no client sends the entity before it.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.34.0 | 2026-11-04 | Orders on a trip that left (L-7, `order-lifecycle.md` 2.3.0, `trip-listing-api.md` 2.2.0): the server sends `ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; choose another trip.` on an `order` create naming a trip whose departure day is over in Ethiopia, flag on or off. Clients already treat the code as permanent (1.10.0) and give it its own text on a refused create (1.17.0, `errorTripNotEligible`): the mobile queue removes the local order and explains it, web shows the same text. No client change; no new code |
 | 1.33.0 | 2026-11-04 | Typed handoff code (T-1, `delivery-verification-api.md` 1.22.0): a delivery `pickedUp` or `delivered` update may carry `scannedQrCode` in place of `scannedQrNonce` (allowed in `data`, never stored); new permanent `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED` and `DELIVERY_CODE_GPS_REQUIRED`, rejected and reverted by the mobile queue and shown by web with their own en, am and om text; mismatches and locks write `QR_HANDOFF_FAILURE`. Trucker clients: Stop sharing in trip mode sends a `declined` `location_ping` before the phone stops (no server change). |
 | 1.32.0 | 2026-10-28 | Location pings, clients (LT-08): mobile queues `location_ping` with the capture time in the idempotency key, fills a batch with pings only after every other operation, sends one probe ping per sync for a trip whose pings are deferred, rejects `LOCATION_*` errors for good without announcing or counting them (`LOCATION_SHARING_ENDED` also stops sharing), coalesces over 24 waiting pings to one `fix` per trip and clock hour plus every event, and drops a trip's waiting pings when its pickup is refused for good; web posts each ping at once with the same rules. No server change |
 | 1.31.0 | 2026-10-28 | Location pings (LT-05, `live-trip-api.md` 1.0.0): new create-only entity `location_ping` (the trucker's check-ins and sharing events after pickup), accepted from the trip's trucker while a delivery on the trip is on the road or left it after `capturedAt` (late offline pings kept); `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` are permanent errors, not reverted; `LOCATION_NOT_ACTIVE` answers `deferred` (no delivery on the road yet, another still pending, or a delivery written earlier in the same batch); a resend of the same `entityId` and `kind` is `success`; clients handle it from LT-08 |
@@ -868,4 +869,4 @@ handling ships with LT-08, and no client sends the entity before it.
 ---
 
 **Last Updated**: 2026-11-04
-**Version**: 1.33.0
+**Version**: 1.34.0

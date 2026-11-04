@@ -6273,6 +6273,7 @@ public partial class SyncFunction
             if (tripError != null)
             {
                 return tripError.StartsWith("TRIP_CAPACITY_EXCEEDED", StringComparison.Ordinal)
+                    || tripError.StartsWith(OrderCommitment.TripNotEligibleCode, StringComparison.Ordinal)
                     ? new SyncOperationResult { OperationId = operation.OperationId, Status = "error", Message = tripError }
                     : OrderValidationError(operation, tripError);
             }
@@ -8484,6 +8485,15 @@ public partial class SyncFunction
             || !string.Equals(tripTruckerId, truckerId, StringComparison.Ordinal))
         {
             return "truckerId must be the trucker on the trip.";
+        }
+
+        // L-7: a trip whose Ethiopia day is over has left, whatever the flag. A buyer's phone
+        // may still list it from an old cache, offline, and queue an order on it. The trip's
+        // own code, which clients treat as permanent and explain ("choose again").
+        if (TryParseDepartureDateUtc(AttrString(trip, "departureDate"), requireIsoShape: false, out var leftUtc)
+            && TripDeparture.HasDeparted(leftUtc, nowUtc))
+        {
+            return $"{OrderCommitment.TripNotEligibleCode}: This trip has already left; choose another trip.";
         }
 
         // ESC-15/17: the farmer and the trucker each get a window to answer before the truck

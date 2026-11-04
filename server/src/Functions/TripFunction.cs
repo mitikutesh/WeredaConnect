@@ -75,6 +75,10 @@ public class TripFunction
     ///
     /// SIM-31: cancelled or soft-deleted trips (the ones GET /trips/{id} answers with 404)
     /// are never listed, for any role; status=cancelled returns an empty page.
+    ///
+    /// L-7: the browse of open trips leaves out the ones whose Ethiopia day is over
+    /// (<see cref="ITripRepository.QueryTripsAsync"/>). A trucker's own list and
+    /// GET /trips/{id} still return them.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetTripsAsync(
         APIGatewayProxyRequest request,

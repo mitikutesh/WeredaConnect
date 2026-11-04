@@ -535,6 +535,26 @@ public class TripFunctionTests
         Assert.Contains("\"trip\":", response.Body);
     }
 
+    [Theory]
+    [InlineData("buyer-default", "buyer")]
+    [InlineData("trucker-789", "trucker")]
+    public async Task HandleGetTripById_OpenTripThatLeftDaysAgo_IsStillReturned(string userId, string role)
+    {
+        // L-7 hides a departed open trip from the browse only: its orders, the buyer's
+        // live trip and the trucker's own screens still read it by id.
+        var trip = CreateTripItem("trip-001");
+        trip["departureDate"] = DateTime.UtcNow.AddDays(-10)
+            .ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        _mockTripRepo.GetByIdAsync("trip-001").Returns(trip);
+
+        var pathParams = new Dictionary<string, string> { { "id", "trip-001" } };
+        var request = MakeAuthenticatedGetRequest(userId, role, "/trips/trip-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("trip-001", response.Body);
+    }
+
     [Fact]
     public async Task HandleGetTripById_NotFound_Returns404()
     {

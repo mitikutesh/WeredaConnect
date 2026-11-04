@@ -1,6 +1,7 @@
 using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
+using WeredaConnect.Server.Helpers;
 
 namespace WeredaConnect.Server.Data;
 
@@ -20,11 +21,14 @@ public sealed class TripRepository : ITripRepository
 {
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _tableName;
+    private readonly TimeProvider _clock;
 
-    public TripRepository(IAmazonDynamoDB dynamoDb, string tableName)
+    /// <param name="clock">The browse cutoff's clock (L-7); the system clock when null.</param>
+    public TripRepository(IAmazonDynamoDB dynamoDb, string tableName, TimeProvider? clock = null)
     {
         _dynamoDb = dynamoDb ?? throw new ArgumentNullException(nameof(dynamoDb));
         _tableName = tableName ?? throw new ArgumentNullException(nameof(tableName));
+        _clock = clock ?? TimeProvider.System;
     }
 
     /// <inheritdoc />
@@ -61,6 +65,34 @@ public sealed class TripRepository : ITripRepository
             ScanIndexForward = true // ascending by departureDate (soonest first)
         };
 
+        // L-7: an open trip whose Ethiopia day is over has left (trucks run late, so a trip
+        // stays listed all of its day). The cutoff is on the sort key, so DynamoDB skips the
+        // departed trips instead of reading and filtering them, and a page is never left empty
+        // by them. departureDate is stored UTC with milliseconds (SIM-60), so it compares as
+        // a string. Other statuses keep every departure (a trip in transit left days ago).
+        string? dropBefore = null;
+        if (queryStatus == "open")
+        {
+            var cutoff = TripDeparture.CutoffIso(_clock.GetUtcNow().UtcDateTime);
+            var keyFrom = cutoff;
+            // A page token read before the cutoff moved (Ethiopia midnight came between two
+            // pages) can sit below it, and DynamoDB refuses a start key outside the key
+            // condition. The condition then starts at the token and the departed trips on
+            // that page are dropped below.
+            if (exclusiveStartKey != null
+                && exclusiveStartKey.TryGetValue("departureDate", out var startDeparture)
+                && startDeparture.S is { } startDate
+                && string.CompareOrdinal(startDate, cutoff) < 0)
+            {
+                keyFrom = startDate;
+                dropBefore = cutoff;
+            }
+
+            request.KeyConditionExpression += " AND #departureDate >= :departureCutoff";
+            request.ExpressionAttributeNames["#departureDate"] = "departureDate";
+            request.ExpressionAttributeValues[":departureCutoff"] = new AttributeValue { S = keyFrom };
+        }
+
         if (exclusiveStartKey != null)
         {
             request.ExclusiveStartKey = exclusiveStartKey;
@@ -95,6 +127,9 @@ public sealed class TripRepository : ITripRepository
         var response = await _dynamoDb.QueryAsync(request);
 
         var items = response.Items
+            .Where(item => dropBefore == null
+                || (item.TryGetValue("departureDate", out var departure)
+                    && string.CompareOrdinal(departure.S, dropBefore) >= 0))
             .Select(CropRepository.FromItem)
             .ToList();
 
