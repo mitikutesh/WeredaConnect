@@ -316,7 +316,9 @@ class _TripModeScreenState extends State<TripModeScreen> {
   }
 
   Future<void> _showDropoffQr(Delivery delivery) async {
-    final open = widget.onShowDropoffQr ?? openDropoffQr;
+    final open = widget.onShowDropoffQr ??
+        (BuildContext context, Delivery d) =>
+            openDropoffQr(context, d, userId: _engine?.userId ?? '');
     await open(context, delivery);
     if (mounted) _reload();
   }

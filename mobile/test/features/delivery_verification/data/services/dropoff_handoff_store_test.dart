@@ -108,7 +108,8 @@ void main() {
       isNull,
     );
 
-    expect(logs, isNotEmpty);
+    // Only the error's type is logged.
+    expect(logs, ['[Delivery] kept handoff unreadable: FormatException']);
     expect(logs.join(), isNot(contains('eyJ')));
   });
 

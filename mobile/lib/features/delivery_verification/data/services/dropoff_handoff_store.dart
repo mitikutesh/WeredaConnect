@@ -70,7 +70,7 @@ bool handoffNoLongerNeeded(DeliveryStatus status) =>
 /// Android keystore; on web the browser's storage, as the QR signing key),
 /// the newest [maxDeliveries] kept. Never in memory only: the drop-off can be
 /// days after the pickup and the app restarts in between. It never logs what
-/// it holds.
+/// it holds: a failure logs the error's type only.
 class SecureDropoffHandoffStore implements DropoffHandoffStore {
   SecureDropoffHandoffStore({FlutterSecureStorage? storage})
       : _storage = storage ??
@@ -106,8 +106,8 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
   Future<KeptHandoff?> read(String userId, String deliveryId) async {
     try {
       return KeptHandoff.fromJson((await _load(userId))[deliveryId]);
-    } on Object {
-      debugPrint('[Delivery] kept handoff unreadable');
+    } on Object catch (e) {
+      debugPrint('[Delivery] kept handoff unreadable: ${e.runtimeType}');
       return null;
     }
   }
@@ -122,9 +122,9 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
     final Map<String, Object?> all;
     try {
       all = await _load(userId);
-    } on Object {
+    } on Object catch (e) {
       // Writing now would replace the other kept handoffs with this one.
-      debugPrint('[Delivery] handoff not kept: storage unreadable');
+      debugPrint('[Delivery] handoff not kept: ${e.runtimeType}');
       return;
     }
     // Re-inserted last, so the oldest entries are the first ones.
@@ -144,8 +144,8 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
     final Map<String, Object?> all;
     try {
       all = await _load(userId);
-    } on Object {
-      debugPrint('[Delivery] kept handoffs not cleared: storage unreadable');
+    } on Object catch (e) {
+      debugPrint('[Delivery] kept handoffs not cleared: ${e.runtimeType}');
       return;
     }
     final before = all.length;
@@ -164,8 +164,8 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
       for (final key in keys) {
         await _storage.delete(key: key);
       }
-    } on Object {
-      debugPrint('[Delivery] kept handoffs not cleared');
+    } on Object catch (e) {
+      debugPrint('[Delivery] kept handoffs not cleared: ${e.runtimeType}');
     }
   }
 
@@ -176,8 +176,8 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
       } else {
         await _storage.write(key: _key(userId), value: jsonEncode(all));
       }
-    } on Object {
-      debugPrint('[Delivery] kept handoffs not saved');
+    } on Object catch (e) {
+      debugPrint('[Delivery] kept handoffs not saved: ${e.runtimeType}');
     }
   }
 }

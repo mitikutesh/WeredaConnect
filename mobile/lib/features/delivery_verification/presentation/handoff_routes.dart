@@ -30,15 +30,19 @@ Future<void> openPickupScan(BuildContext context, Delivery delivery) =>
     );
 
 /// The trucker's drop-off QR for the buyer (T-3): the farmer's token kept
-/// from this phone's pickup scan, or only the code typed at pickup. Without
-/// one (picked up on another phone, or before this app version) it says so.
+/// from this phone's pickup scan, or only the code typed at pickup, read for
+/// the signed-in [userId]. Nothing opens for anyone but the delivery's
+/// trucker. Without a kept one (picked up on another phone, or before this
+/// app version) it says so.
 Future<void> openDropoffQr(
   BuildContext context,
   Delivery delivery, {
+  required String userId,
   DropoffHandoffStore? store,
 }) async {
+  if (userId.isEmpty || userId != delivery.truckerId) return;
   final kept = await (store ?? SecureDropoffHandoffStore())
-      .read(delivery.truckerId, delivery.deliveryId);
+      .read(userId, delivery.deliveryId);
   if (!context.mounted) return;
   if (kept == null) {
     final l10n = AppLocalizations.of(context)!;
@@ -51,7 +55,7 @@ Future<void> openDropoffQr(
     MaterialPageRoute(
       builder: (_) => QrGenerateScreen.dropoff(
         delivery: delivery,
-        userId: delivery.truckerId,
+        userId: userId,
         dropoff: kept,
       ),
     ),

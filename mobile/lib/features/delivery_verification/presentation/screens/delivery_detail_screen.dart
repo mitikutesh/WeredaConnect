@@ -315,7 +315,8 @@ class DeliveryDetailScreen extends StatelessWidget {
       actions.add(
         FilledButton.icon(
           key: const Key('delivery_dropoff_qr'),
-          onPressed: () => openDropoffQr(context, delivery),
+          onPressed: () =>
+              openDropoffQr(context, delivery, userId: currentUserId),
           icon: const Icon(Icons.qr_code_2),
           label: Text(l10n.deliveryShowDropoffQr),
           style: _primaryStyle,

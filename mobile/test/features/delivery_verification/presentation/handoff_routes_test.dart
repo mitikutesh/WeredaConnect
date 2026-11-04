@@ -27,7 +27,11 @@ Delivery _delivery() => Delivery()
 void main() {
   final l10n = lookupAppLocalizations(const Locale('en'));
 
-  Future<void> open(WidgetTester tester, DropoffHandoffStore store) async {
+  Future<void> open(
+    WidgetTester tester,
+    DropoffHandoffStore store, {
+    String userId = 'trucker-1',
+  }) async {
     await tester.pumpWidget(
       MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -36,8 +40,12 @@ void main() {
         home: Scaffold(
           body: Builder(
             builder: (context) => TextButton(
-              onPressed: () =>
-                  openDropoffQr(context, _delivery(), store: store),
+              onPressed: () => openDropoffQr(
+                context,
+                _delivery(),
+                userId: userId,
+                store: store,
+              ),
               child: const Text('go'),
             ),
           ),
@@ -67,5 +75,25 @@ void main() {
 
     expect(find.byType(QrGenerateScreen), findsNothing);
     expect(find.text(l10n.deliveryDropoffQrMissing), findsOneWidget);
+  });
+
+  testWidgets('nothing opens for anyone but the delivery\'s trucker',
+      (tester) async {
+    final store = MemoryDropoffHandoffStore();
+    // Kept under another account on this phone: still not shown.
+    for (final userId in ['buyer-1', 'trucker-1']) {
+      await store.keep(
+        userId,
+        'delivery-12345678',
+        const KeptHandoff(code: '757555978'),
+      );
+    }
+
+    for (final userId in ['buyer-1', 'f-1', '']) {
+      await open(tester, store, userId: userId);
+
+      expect(find.byType(QrGenerateScreen), findsNothing, reason: userId);
+      expect(find.text(l10n.deliveryDropoffQrMissing), findsNothing);
+    }
   });
 }
