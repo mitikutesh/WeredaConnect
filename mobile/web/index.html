@@ -32,8 +32,96 @@
 
   <title>WeredaConnect</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- The loading splash: on a 3G link the app's code takes most of a
+       minute to arrive, and the page was white until then. This shows at
+       once (no file to fetch: inline style, inline mark, system fonts) and
+       leaves on Flutter's first frame. Flutter replaces this viewport tag
+       with its own when it starts. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    #wc-splash {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 24px;
+      background: #F5F4EE;
+      color: #15201A;
+      font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans",
+        "Noto Sans Ethiopic", "Nyala", "Ebrima", "Kefa", sans-serif;
+      text-align: center;
+    }
+    #wc-splash .wc-mark {
+      width: 56px;
+      height: 56px;
+      border-radius: 17px;
+      background: #1E5B3E;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 10px;
+    }
+    #wc-splash .wc-name {
+      margin: 0 0 6px;
+      font-size: 20px;
+      font-weight: 800;
+    }
+    #wc-splash p {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.5;
+      color: #4A544E;
+    }
+    #wc-splash .wc-bar {
+      width: 120px;
+      height: 4px;
+      margin-top: 14px;
+      border-radius: 2px;
+      background: #E3EEE6;
+      overflow: hidden;
+    }
+    #wc-splash .wc-bar::after {
+      content: "";
+      display: block;
+      width: 40%;
+      height: 100%;
+      border-radius: 2px;
+      background: #1E5B3E;
+      animation: wc-slide 1.2s ease-in-out infinite;
+    }
+    @keyframes wc-slide {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(250%); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #wc-splash .wc-bar::after { animation: none; width: 100%; }
+    }
+  </style>
 </head>
 <body>
+  <div id="wc-splash" role="status">
+    <div class="wc-mark" aria-hidden="true">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="#FFFFFF">
+        <path d="M19 15.18V7c0-2.21-1.79-4-4-4s-4 1.79-4 4v10c0 1.1-.9 2-2 2s-2-.9-2-2V8.82C8.16 8.4 9 7.3 9 6c0-1.66-1.34-3-3-3S3 4.34 3 6c0 1.3.84 2.4 2 2.82V17c0 2.21 1.79 4 4 4s4-1.79 4-4V7c0-1.1.9-2 2-2s2 .9 2 2v8.18c-1.16.41-2 1.51-2 2.82 0 1.66 1.34 3 3 3s3-1.34 3-3c0-1.3-.84-2.4-2-2.82z"/>
+      </svg>
+    </div>
+    <h1 class="wc-name">WeredaConnect</h1>
+    <p lang="en">Loading…</p>
+    <p lang="am">በመጫን ላይ…</p>
+    <p lang="om">Fe'amaa jira…</p>
+    <div class="wc-bar" aria-hidden="true"></div>
+  </div>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var splash = document.getElementById('wc-splash');
+      if (splash) splash.remove();
+    }, { once: true });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
