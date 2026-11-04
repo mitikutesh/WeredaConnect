@@ -89,6 +89,7 @@ enum AppErrorCode {
   /// or delivery was undone.
   deliveryCodeMismatch,
   deliveryCodeLocked,
+  deliveryCodeLockedDropoff,
   deliveryCodeGpsRequired,
 
   /// ESC-06: an accepted order may be cancelled only after a transport
@@ -329,6 +330,8 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.deliveryDisputeExpired => l10n.deliveryErrorDisputeExpired,
     AppErrorCode.deliveryCodeMismatch => l10n.deliveryErrorCodeMismatch,
     AppErrorCode.deliveryCodeLocked => l10n.deliveryErrorCodeLocked,
+    AppErrorCode.deliveryCodeLockedDropoff =>
+      l10n.deliveryErrorCodeLockedDropoff,
     AppErrorCode.deliveryCodeGpsRequired => l10n.deliveryErrorCodeGpsRequired,
     AppErrorCode.orderCancelNotAllowed => l10n.errorOrderCancelNotAllowed,
     AppErrorCode.contactLocked => l10n.contactClosedNote,
@@ -447,11 +450,13 @@ AppErrorCode syncRejectionErrorCode({
 
 /// The code of a typed handoff code refusal (T-1).
 AppErrorCode _deliveryCodeErrorCode(String message) =>
-    message.startsWith(deliveryCodeLockedCode)
-        ? AppErrorCode.deliveryCodeLocked
-        : message.startsWith(deliveryCodeGpsRequiredCode)
-            ? AppErrorCode.deliveryCodeGpsRequired
-            : AppErrorCode.deliveryCodeMismatch;
+    message.startsWith(deliveryCodeLockedDropoffCode)
+        ? AppErrorCode.deliveryCodeLockedDropoff
+        : message.startsWith(deliveryCodeLockedCode)
+            ? AppErrorCode.deliveryCodeLocked
+            : message.startsWith(deliveryCodeGpsRequiredCode)
+                ? AppErrorCode.deliveryCodeGpsRequired
+                : AppErrorCode.deliveryCodeMismatch;
 
 /// Convenience: classify and localize in one step from a caught error.
 String localizeError(Object error, AppLocalizations l10n) =>

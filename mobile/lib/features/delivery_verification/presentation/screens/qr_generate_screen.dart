@@ -64,6 +64,11 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
   bool _isGenerating = true;
   bool _showCode = false;
 
+  /// The delivery left pending meanwhile (picked up, maybe synced from the
+  /// trucker's phone first): its nonce is the drop-off's secret now, so the
+  /// farmer's screen makes no new one (the server ignores one anyway).
+  bool _pastPickup = false;
+
   bool get _isDropoff => widget.dropoff != null;
 
   @override
@@ -81,8 +86,36 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
     _generateToken();
   }
 
+  /// The freshest status the phone can get (the local copy on mobile, the
+  /// API on web), else the one the screen was opened with.
+  Future<bool> _leftPending() async {
+    var status = widget.delivery.status;
+    try {
+      final latest = await widget.repository!.getDeliveryById(
+        widget.delivery.deliveryId,
+        userId: widget.userId,
+      );
+      if (latest != null) status = latest.status;
+    } on Object catch (_) {
+      // Offline on web: the copy the screen was opened with decides.
+    }
+    return status != DeliveryStatus.pending;
+  }
+
   Future<void> _generateToken() async {
     setState(() => _isGenerating = true);
+
+    if (await _leftPending()) {
+      if (mounted) {
+        setState(() {
+          _pastPickup = true;
+          _token = null;
+          _code = null;
+          _isGenerating = false;
+        });
+      }
+      return;
+    }
 
     try {
       final (token, nonce) =
@@ -158,8 +191,14 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
                       ),
                       const SizedBox(height: 20),
                       // The code itself, in a white card (none when the
-                      // pickup was confirmed with a typed code).
-                      if (_isDropoff && _token == null)
+                      // pickup was confirmed with a typed code, or already
+                      // happened).
+                      if (_pastPickup)
+                        FwNoteBox(
+                          icon: Icons.check_circle_outline,
+                          child: Text(l10n.deliveryQrAlreadyPickedUp),
+                        )
+                      else if (_isDropoff && _token == null)
                         FwNoteBox(
                           icon: Icons.dialpad,
                           child: Text(l10n.deliveryDropoffCodeOnly),
@@ -255,7 +294,7 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
         ),
       ),
       // The drop-off QR is the farmer's: nothing to regenerate here.
-      bottomNavigationBar: _isDropoff
+      bottomNavigationBar: _isDropoff || _pastPickup
           ? null
           : FwBottomActions(
               children: [

@@ -5170,7 +5170,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryErrorCodeLocked =>
-      'Geejjiba kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa koodii QR iskaanii godhi.';
+      'Geejjiba kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa koodii QR iskaanii godhi, yookaan qonnaan bulaan koodii haaraa akka agarsiisu gaafadhu.';
 
   @override
   String get deliveryErrorCodeGpsRequired =>
@@ -5205,4 +5205,12 @@ class AppLocalizationsOm extends AppLocalizations {
   String tripScanPickupQrFor(String name) {
     return 'QR fudhachuu iskaan: $name';
   }
+
+  @override
+  String get deliveryErrorCodeLockedDropoff =>
+      'Buusuu kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Konkolaachisaan QR buusuu yoo qabaate iskaanii godhi. Yoo hin qabne, deeggarsa qunnami: isaan si fi konkolaachisaa waliin dabarsuu ni mirkaneessu.';
+
+  @override
+  String get deliveryQrAlreadyPickedUp =>
+      'Geejjibni kun duraan fudhatameera, kanaaf koodiin QR haaraan hin uumamu. Konkolaachisaan koodii yeroo fudhachuu argame bitaaf agarsiisa.';
 }

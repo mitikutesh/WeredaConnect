@@ -140,6 +140,10 @@ void main() {
       DeliveryErrorCode.codeLocked,
     ),
     (
+      'DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this drop-off.',
+      DeliveryErrorCode.codeLockedDropoff,
+    ),
+    (
       'DELIVERY_CODE_GPS_REQUIRED: Location is required.',
       DeliveryErrorCode.codeGpsRequired,
     ),

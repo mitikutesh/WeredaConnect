@@ -5022,7 +5022,7 @@
   "@deliveryDropoffQrMissing": {"description": "Trucker (T-3): snackbar when no pickup handoff is kept on this phone"},
   "deliveryErrorCodeMismatch": "The typed code does not match this delivery, so it was not confirmed. Check the code and try again.",
   "@deliveryErrorCodeMismatch": {"description": "Delivery error (T-1, DELIVERY_CODE_MISMATCH): the server refused a typed handoff code"},
-  "deliveryErrorCodeLocked": "Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead.",
+  "deliveryErrorCodeLocked": "Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the farmer to show a new code.",
   "@deliveryErrorCodeLocked": {"description": "Delivery error (T-1, DELIVERY_CODE_LOCKED): five wrong typed codes"},
   "deliveryErrorCodeGpsRequired": "A typed code needs your location. Turn on location and try again.",
   "@deliveryErrorCodeGpsRequired": {"description": "Delivery error (T-1, DELIVERY_CODE_GPS_REQUIRED): a paid delivery's typed code came without GPS"},
@@ -5041,5 +5041,9 @@
   "homeTripLoadFailed": "Could not load your trip. Check your connection and try again.",
   "@homeTripLoadFailed": {"description": "Trucker home (T-6): trip card when the trip cannot be read, with Retry"},
   "tripScanPickupQrFor": "Scan pickup QR: {name}",
-  "@tripScanPickupQrFor": {"description": "Trip detail, owner (T-2): button per pickup still waiting; name is the farmer", "placeholders": {"name": {"type": "String"}}}
+  "@tripScanPickupQrFor": {"description": "Trip detail, owner (T-2): button per pickup still waiting; name is the farmer", "placeholders": {"name": {"type": "String"}}},
+  "deliveryErrorCodeLockedDropoff": "Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker's drop-off QR if they have one. If not, contact support: they can confirm the handoff with you and the trucker.",
+  "@deliveryErrorCodeLockedDropoff": {"description": "Delivery error (T-1, DELIVERY_CODE_LOCKED_DROPOFF): five wrong typed codes at a trucker's drop-off, whose code cannot be renewed; the way out is the trucker's QR or support"},
+  "deliveryQrAlreadyPickedUp": "This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.",
+  "@deliveryQrAlreadyPickedUp": {"description": "Farmer QR screen (T-1): the delivery left pending meanwhile, so no new QR (nonce) is made; the trucker shows the pickup code at the drop-off"}
 }

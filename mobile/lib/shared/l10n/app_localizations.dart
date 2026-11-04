@@ -8828,7 +8828,7 @@ abstract class AppLocalizations {
   /// Delivery error (T-1, DELIVERY_CODE_LOCKED): five wrong typed codes
   ///
   /// In en, this message translates to:
-  /// **'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead.'**
+  /// **'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the farmer to show a new code.'**
   String get deliveryErrorCodeLocked;
 
   /// Delivery error (T-1, DELIVERY_CODE_GPS_REQUIRED): a paid delivery's typed code came without GPS
@@ -8884,6 +8884,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Scan pickup QR: {name}'**
   String tripScanPickupQrFor(String name);
+
+  /// Delivery error (T-1, DELIVERY_CODE_LOCKED_DROPOFF): five wrong typed codes at a trucker's drop-off, whose code cannot be renewed; the way out is the trucker's QR or support
+  ///
+  /// In en, this message translates to:
+  /// **'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR if they have one. If not, contact support: they can confirm the handoff with you and the trucker.'**
+  String get deliveryErrorCodeLockedDropoff;
+
+  /// Farmer QR screen (T-1): the delivery left pending meanwhile, so no new QR (nonce) is made; the trucker shows the pickup code at the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.'**
+  String get deliveryQrAlreadyPickedUp;
 }
 
 class _AppLocalizationsDelegate

@@ -4992,7 +4992,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryErrorCodeLocked =>
-      'ለዚህ ርክክብ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ QR ኮዱን ይቃኙ።';
+      'ለዚህ ርክክብ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ QR ኮዱን ይቃኙ፣ ወይም ገበሬው አዲስ ኮድ እንዲያሳይ ይጠይቁ።';
 
   @override
   String get deliveryErrorCodeGpsRequired =>
@@ -5027,4 +5027,12 @@ class AppLocalizationsAm extends AppLocalizations {
   String tripScanPickupQrFor(String name) {
     return 'የማንሳት QR ቃኝ: $name';
   }
+
+  @override
+  String get deliveryErrorCodeLockedDropoff =>
+      'ለዚህ ማውረጃ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። ሹፌሩ የማውረጃ QR ካለው ይቃኙት። ከሌለው ድጋፍ ሰጪን ያግኙ፤ ርክክቡን ከእርስዎና ከሹፌሩ ጋር ማረጋገጥ ይችላሉ።';
+
+  @override
+  String get deliveryQrAlreadyPickedUp =>
+      'ይህ ርክክብ አስቀድሞ ተነስቷል፣ ስለዚህ አዲስ QR ኮድ አይፈጠርም። ሹፌሩ ከማንሳቱ የተገኘውን ኮድ ለገዢው ያሳያል።';
 }

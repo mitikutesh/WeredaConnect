@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/live_trip/data/repository_trip_progress_reader.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
@@ -79,10 +80,16 @@ void main() {
     );
   });
 
-  RepositoryTripProgressReader reader() => RepositoryTripProgressReader(
+  RepositoryTripProgressReader reader({
+    DropoffHandoffStore? handoffs,
+    DateTime Function()? now,
+  }) =>
+      RepositoryTripProgressReader(
         deliveries: deliveries,
         trips: trips,
         places: places,
+        handoffs: handoffs,
+        now: now,
       );
 
   test('the legs carry the trip destination as their drop-off', () async {
@@ -115,6 +122,41 @@ void main() {
     when(() => trips.getTripById('trip-1')).thenAnswer((_) async => _trip());
     final open = await reader().read('trip-1', userId: 'trucker-1');
     expect(open!.finished, isFalse);
+  });
+
+  // On web each trip read is a request and the engine reads on every tick:
+  // the trip is read again only after a few minutes.
+  test('the trip is read at most every few minutes', () async {
+    var now = DateTime.utc(2026, 10, 28, 6);
+    when(() => trips.getTripById('trip-1')).thenAnswer((_) async => _trip());
+    final r = reader(now: () => now);
+
+    await r.read('trip-1', userId: 'trucker-1');
+    now = now.add(const Duration(minutes: 9));
+    await r.read('trip-1', userId: 'trucker-1');
+    verify(() => trips.getTripById('trip-1')).called(1);
+
+    // A trip cancelled meanwhile is seen once the interval passed.
+    when(() => trips.getTripById('trip-1'))
+        .thenAnswer((_) async => _trip()..status = TripStatus.cancelled);
+    now = now.add(RepositoryTripProgressReader.tripReadInterval);
+    final later = await r.read('trip-1', userId: 'trucker-1');
+    verify(() => trips.getTripById('trip-1')).called(1);
+    expect(later!.tripClosed, isTrue);
+  });
+
+  test('the kept drop-off handoffs of done deliveries are dropped (T-3)',
+      () async {
+    when(() => trips.getTripById('trip-1')).thenAnswer((_) async => _trip());
+    final handoffs = MemoryDropoffHandoffStore();
+    await handoffs.keep('trucker-1', 'd-1', const KeptHandoff(code: '1'));
+    await handoffs.keep('trucker-1', 'd-2', const KeptHandoff(code: '2'));
+
+    // d-1 is delivered, d-2 in transit (setUp).
+    await reader(handoffs: handoffs).read('trip-1', userId: 'trucker-1');
+
+    expect(await handoffs.read('trucker-1', 'd-1'), isNull);
+    expect((await handoffs.read('trucker-1', 'd-2'))?.code, '2');
   });
 
   test('a trip that cannot be read still gives the legs', () async {

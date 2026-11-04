@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
 
 /// Keeps the check-in engine on the signed-in trucker and on the app's
@@ -13,15 +14,22 @@ import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
 /// the engine (the foreground service stops with it); a deleted account also
 /// forgets its sharing state. On web the lifecycle follows the page's
 /// visibility, so the check-in timer runs only while the page is visible.
+///
+/// A sign out (or a deleted account) also drops every kept drop-off handoff
+/// on the device ([handoffs]): on web that storage is the browser's, and a
+/// handoff is the delivery's QR secret.
 class CheckInEngineBinding with WidgetsBindingObserver {
   CheckInEngineBinding({
     required CheckInEngine engine,
     required AuthBloc authBloc,
+    DropoffHandoffStore? handoffs,
   })  : _engine = engine,
-        _authBloc = authBloc;
+        _authBloc = authBloc,
+        _handoffs = handoffs;
 
   final CheckInEngine _engine;
   final AuthBloc _authBloc;
+  final DropoffHandoffStore? _handoffs;
   StreamSubscription<AuthState>? _subscription;
 
   /// Start following the account and the lifecycle.
@@ -47,8 +55,10 @@ class CheckInEngineBinding with WidgetsBindingObserver {
       );
     } else if (state is AuthAccountWiped) {
       unawaited(_engine.signOut(forget: true));
+      unawaited(_handoffs?.forgetAll());
     } else if (state is AuthUnauthenticated) {
       unawaited(_engine.signOut());
+      unawaited(_handoffs?.forgetAll());
     }
   }
 

@@ -166,6 +166,64 @@ void main() {
       expect(find.text('757 555 978'), findsOneWidget);
     });
 
+    // A phone whose copy said pending may open the QR after the pickup
+    // synced: the delivery's nonce is the drop-off's now, so none is made.
+    testWidgets('after pickup the farmer makes no new QR', (tester) async {
+      when(
+        () => repository.getDeliveryById(
+          'delivery-12345678',
+          userId: 'f1',
+        ),
+      ).thenAnswer(
+        (_) async => _delivery()..status = DeliveryStatus.pickedUp,
+      );
+
+      await pump(
+        tester,
+        QrGenerateScreen(
+          delivery: _delivery(),
+          qrService: qr,
+          repository: repository,
+          userId: 'f1',
+        ),
+      );
+
+      expect(find.text(en.deliveryQrAlreadyPickedUp), findsOneWidget);
+      expect(find.byType(QrImageView), findsNothing);
+      expect(find.byKey(const Key('qr_show_code')), findsNothing);
+      expect(find.text(en.deliveryRegenerateQr), findsNothing);
+      verifyNever(() => qr.generateQrToken(any()));
+      verifyNever(
+        () => repository.persistQrNonce(
+          deliveryId: any(named: 'deliveryId'),
+          qrNonce: any(named: 'qrNonce'),
+          userId: any(named: 'userId'),
+        ),
+      );
+    });
+
+    testWidgets('a delivery still pending gets its QR', (tester) async {
+      when(
+        () => repository.getDeliveryById(
+          'delivery-12345678',
+          userId: 'f1',
+        ),
+      ).thenAnswer((_) async => _delivery());
+
+      await pump(
+        tester,
+        QrGenerateScreen(
+          delivery: _delivery(),
+          qrService: qr,
+          repository: repository,
+          userId: 'f1',
+        ),
+      );
+
+      expect(find.byType(QrImageView), findsOneWidget);
+      verify(() => qr.generateQrToken(any())).called(1);
+    });
+
     testWidgets('a typed pickup has only its code to show at the drop-off',
         (tester) async {
       await pump(

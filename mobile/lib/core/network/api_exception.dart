@@ -200,15 +200,19 @@ bool isContactInTextMessage(String? message) =>
 /// Sync rejection prefixes for a pickup or drop-off confirmed with a typed
 /// handoff code (T-1, sync-protocol.md 1.33.0): the code is not the
 /// delivery's, typed codes are locked for that step after five wrong ones
-/// (a scanned QR still works; the farmer's Regenerate unlocks), or a paid
-/// delivery's typed code came without a location. Nothing was written.
+/// (a scanned QR still works; before pickup the farmer's Regenerate
+/// unlocks, a trucker's drop-off has its own code because nothing can renew
+/// it), or a paid delivery's typed code came without a location. Nothing was
+/// written. `DELIVERY_CODE_LOCKED_DROPOFF` starts with
+/// `DELIVERY_CODE_LOCKED`: check it first.
 const String deliveryCodeMismatchCode = 'DELIVERY_CODE_MISMATCH';
 const String deliveryCodeLockedCode = 'DELIVERY_CODE_LOCKED';
+const String deliveryCodeLockedDropoffCode = 'DELIVERY_CODE_LOCKED_DROPOFF';
 const String deliveryCodeGpsRequiredCode = 'DELIVERY_CODE_GPS_REQUIRED';
 
 /// Whether a /sync per-operation error message refuses a typed handoff code
-/// (`DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED` or
-/// `DELIVERY_CODE_GPS_REQUIRED`). Permanent: resending the same code gets the
+/// (`DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED`,
+/// `DELIVERY_CODE_LOCKED_DROPOFF` or `DELIVERY_CODE_GPS_REQUIRED`). Permanent: resending the same code gets the
 /// same answer, so the client undoes its local pickup or delivery instead of
 /// retrying (and never spends more of the five tries by itself).
 bool isDeliveryCodeRejectionMessage(String? message) =>

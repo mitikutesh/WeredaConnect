@@ -12,6 +12,7 @@ import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/handoff_routes.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
@@ -116,6 +117,7 @@ class _TripModeScreenState extends State<TripModeScreen> {
           trips: context.read<TripListingBloc>().repository,
           deliveries: context.read<DeliveryBloc>().repository,
           orders: context.read<OrderBloc>().repository,
+          handoffs: SecureDropoffHandoffStore(),
         );
     _status = _engine?.status ?? const CheckInStatus();
     _statusSub = _engine?.statusStream.listen((status) {

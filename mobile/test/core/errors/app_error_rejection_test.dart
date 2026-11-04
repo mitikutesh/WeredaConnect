@@ -185,6 +185,11 @@ void main() {
           AppErrorCode.deliveryCodeLocked,
         ),
         (
+          'DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this '
+              'drop-off.',
+          AppErrorCode.deliveryCodeLockedDropoff,
+        ),
+        (
           'DELIVERY_CODE_GPS_REQUIRED: Location is required.',
           AppErrorCode.deliveryCodeGpsRequired,
         ),

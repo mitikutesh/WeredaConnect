@@ -36,6 +36,7 @@ import 'package:wereda_connect/features/crop_listing/data/repositories/crop_list
 import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_sync_preflight.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
@@ -148,6 +149,9 @@ Future<void> runMobile({
   // LT-08: the trucker's check-in engine (where the truck is after pickup).
   // Built before the executor, which tells it when the server ended sharing
   // for a trip or refused a pickup for good.
+  // T-3: the trucker's kept drop-off handoffs, dropped once a delivery is
+  // done and at sign out.
+  final dropoffHandoffs = SecureDropoffHandoffStore();
   final checkInEngine = CheckInEngine(
     pings: LocationPingRepository(
       isar: IsarService.instance.db,
@@ -163,6 +167,7 @@ Future<void> runMobile({
         isar: IsarService.instance.db,
         syncQueue: syncQueue,
       ),
+      handoffs: dropoffHandoffs,
     ),
     states: PrefsSharingStateStore(),
     notice: () => checkInNoticeFor(languageProvider.locale),
@@ -224,7 +229,11 @@ Future<void> runMobile({
   )..add(const AuthCheckRequested());
   bindDataUsageToAuth(dataUsageTracker, authBloc);
   // LT-08: only a signed-in trucker shares; a sign out stops the service.
-  CheckInEngineBinding(engine: checkInEngine, authBloc: authBloc).attach();
+  CheckInEngineBinding(
+    engine: checkInEngine,
+    authBloc: authBloc,
+    handoffs: dropoffHandoffs,
+  ).attach();
 
   // SIM-37: when the user changes language in Settings, sync the choice to the
   // server profile so it follows them to other devices. Offline-first: the

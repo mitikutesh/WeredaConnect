@@ -9,6 +9,7 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/live_trip/check_in_engine_binding.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
 import 'package:wereda_connect/features/live_trip/domain/sharing_state.dart';
@@ -39,6 +40,7 @@ void main() {
   late MemorySharingStateStore states;
   late CheckInEngine engine;
   late CheckInEngineBinding binding;
+  late MemoryDropoffHandoffStore handoffs;
 
   setUp(() {
     auth = StreamController<AuthState>.broadcast();
@@ -57,8 +59,12 @@ void main() {
       now: () => clock.now,
       timer: FakeTimers().call,
     );
-    binding = CheckInEngineBinding(engine: engine, authBloc: authBloc)
-      ..attach();
+    handoffs = MemoryDropoffHandoffStore();
+    binding = CheckInEngineBinding(
+      engine: engine,
+      authBloc: authBloc,
+      handoffs: handoffs,
+    )..attach();
   });
 
   tearDown(() async {
@@ -109,6 +115,38 @@ void main() {
     await waitFor(() async => (await states.load('trucker-1')).trips.isEmpty);
 
     expect((await states.load('trucker-1')).trips, isEmpty);
+  });
+
+  // T-3: a kept drop-off handoff is the delivery's QR secret, and on web
+  // its storage is the browser's: none survives a sign out.
+  for (final (name, state) in [
+    ('sign out', const AuthUnauthenticated()),
+    ('a deleted account', const AuthAccountWiped()),
+  ]) {
+    test('$name drops every kept drop-off handoff', () async {
+      auth.add(_signedIn('trucker-1', UserRole.trucker));
+      await handoffs.keep(
+        'trucker-1',
+        'd-1',
+        const KeptHandoff(token: 'tok', code: '757555978'),
+      );
+
+      auth.add(state);
+      Future<bool> dropped() async =>
+          await handoffs.read('trucker-1', 'd-1') == null;
+      await waitFor(dropped);
+
+      expect(await handoffs.read('trucker-1', 'd-1'), isNull);
+    });
+  }
+
+  test('a signed-in trucker keeps them', () async {
+    await handoffs.keep('trucker-1', 'd-1', const KeptHandoff(code: '1'));
+
+    auth.add(_signedIn('trucker-1', UserRole.trucker));
+    await engine.refresh();
+
+    expect(await handoffs.read('trucker-1', 'd-1'), isNotNull);
   });
 
   test('the lifecycle sets visibility', () async {

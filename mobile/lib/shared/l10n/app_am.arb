@@ -3172,7 +3172,7 @@
   "deliveryDropoffCodeOnly": "ማንሳቱን በተተየበ ኮድ ስላረጋገጡ የሚታይ QR የለም። ገዢው በምትኩ ይህን ኮድ ይተይባል።",
   "deliveryDropoffQrMissing": "ይህ ስልክ ለዚህ ርክክብ የማውረጃ ኮድ የለውም። በማንሳት ጊዜ የገበሬውን QR በዚህ ስልክ ሲቃኙ ይቀመጣል።",
   "deliveryErrorCodeMismatch": "የተተየበው ኮድ ከዚህ ርክክብ ጋር አይዛመድም፣ ስለዚህ አልተረጋገጠም። ኮዱን አረጋግጠው እንደገና ይሞክሩ።",
-  "deliveryErrorCodeLocked": "ለዚህ ርክክብ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ QR ኮዱን ይቃኙ።",
+  "deliveryErrorCodeLocked": "ለዚህ ርክክብ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ QR ኮዱን ይቃኙ፣ ወይም ገበሬው አዲስ ኮድ እንዲያሳይ ይጠይቁ።",
   "deliveryErrorCodeGpsRequired": "የተተየበ ኮድ አካባቢዎን ይፈልጋል። የቦታ አገልግሎትን አብርተው እንደገና ይሞክሩ።",
   "tripModeStopSharing": "ማጋራት አቁም",
   "tripModeStopSharingTitle": "ለዚህ ጉዞ ማጋራት ይቁም?",
@@ -3181,5 +3181,7 @@
   "tripModeStoppedText": "ለዚህ ጉዞ ማጋራትን አቁመዋል። የQR ቅኝቶች አሁንም ማንሳትንና ማድረስን ያረጋግጣሉ።",
   "tripModeNotSharingYet": "ቦታዎ ለዚህ ጉዞ ገና አልተጋራም። በመጀመሪያው የማንሳት ቅኝትዎ ይወሰናል።",
   "homeTripLoadFailed": "ጉዞዎን መጫን አልተቻለም። ግንኙነትዎን አረጋግጠው እንደገና ይሞክሩ።",
-  "tripScanPickupQrFor": "የማንሳት QR ቃኝ: {name}"
+  "tripScanPickupQrFor": "የማንሳት QR ቃኝ: {name}",
+  "deliveryErrorCodeLockedDropoff": "ለዚህ ማውረጃ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። ሹፌሩ የማውረጃ QR ካለው ይቃኙት። ከሌለው ድጋፍ ሰጪን ያግኙ፤ ርክክቡን ከእርስዎና ከሹፌሩ ጋር ማረጋገጥ ይችላሉ።",
+  "deliveryQrAlreadyPickedUp": "ይህ ርክክብ አስቀድሞ ተነስቷል፣ ስለዚህ አዲስ QR ኮድ አይፈጠርም። ሹፌሩ ከማንሳቱ የተገኘውን ኮድ ለገዢው ያሳያል።"
 }

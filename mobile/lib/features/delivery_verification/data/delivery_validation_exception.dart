@@ -54,6 +54,10 @@ class DeliveryErrorCode {
   /// delivery.
   static const codeMismatch = deliveryCodeMismatchCode;
   static const codeLocked = deliveryCodeLockedCode;
+
+  /// A trucker's drop-off locked: its code cannot be renewed, so the buyer
+  /// scans the trucker's drop-off QR or contacts support.
+  static const codeLockedDropoff = deliveryCodeLockedDropoffCode;
   static const codeGpsRequired = deliveryCodeGpsRequiredCode;
   static const generic = 'DELIVERY_GENERIC';
 }
@@ -63,6 +67,9 @@ String? deliveryCodeErrorOf(String? message) {
   if (message == null) return null;
   if (message.startsWith(deliveryCodeMismatchCode)) {
     return DeliveryErrorCode.codeMismatch;
+  }
+  if (message.startsWith(deliveryCodeLockedDropoffCode)) {
+    return DeliveryErrorCode.codeLockedDropoff;
   }
   if (message.startsWith(deliveryCodeLockedCode)) {
     return DeliveryErrorCode.codeLocked;

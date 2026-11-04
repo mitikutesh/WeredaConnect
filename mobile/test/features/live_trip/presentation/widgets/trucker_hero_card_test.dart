@@ -236,8 +236,10 @@ void main() {
     // as a load is on board or a pickup is due, not only while sharing.
     testWidgets('a load on board opens trip mode for the trip, not sharing',
         (tester) async {
-      when(() => repository.getMostRelevantTrip('trucker-001'))
-          .thenAnswer((_) async => trip(status: TripStatus.matched));
+      when(() => repository.getMostRelevantTrip('trucker-001')).thenAnswer(
+        (_) async => trip(status: TripStatus.matched)
+          ..departureDate = DateTime.now().toUtc(),
+      );
       await pumpWith(
         tester,
         rows: [harness.liveDelivery(status: DeliveryStatus.pickedUp)],
@@ -270,6 +272,38 @@ void main() {
 
       expect(find.byType(TripModeScreen), findsOneWidget);
     });
+  });
+
+  // Two requests on web: the deliveries and orders are read only once they
+  // can matter, never for a trip days away.
+  testWidgets('a booked trip days away reads no deliveries', (tester) async {
+    final deliveries = MockDeliveryBloc();
+    final deliveryRepo = harness.MockDeliveryRepository();
+    when(() => deliveries.repository).thenReturn(deliveryRepo);
+    when(() => deliveries.state).thenReturn(const DeliveryInitial());
+    when(() => deliveries.stream).thenAnswer((_) => const Stream.empty());
+    when(() => repository.getMostRelevantTrip('trucker-001'))
+        .thenAnswer((_) async => trip(status: TripStatus.matched));
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          BlocProvider<TripListingBloc>.value(value: bloc),
+          BlocProvider<DeliveryBloc>.value(value: deliveries),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: TruckerHeroCard(userId: 'trucker-001')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Matched'), findsOneWidget);
+    verifyNever(
+      () => deliveryRepo.getDeliveriesByUser(any(), role: any(named: 'role')),
+    );
   });
 
   // T-6: offline (or a server error) is not "No active trip".

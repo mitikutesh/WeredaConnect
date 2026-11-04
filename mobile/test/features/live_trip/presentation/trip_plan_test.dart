@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/live_trip/domain/trip_plan.dart';
 
 import 'live_trip_ui_fixtures.dart';
@@ -194,6 +195,31 @@ void main() {
 
       expect(plan.trip, isNull);
       expect(plan.stops, isEmpty);
+    });
+
+    test('the kept drop-off handoffs of done deliveries are dropped (T-3)',
+        () async {
+      final handoffs = MemoryDropoffHandoffStore();
+      for (final id in ['d-1', 'd-2', 'd-3']) {
+        await handoffs.keep(trucker, id, KeptHandoff(code: id));
+      }
+      final loader = loaderFor(
+        deliveries: [
+          for (final (id, status) in [
+            ('d-1', DeliveryStatus.delivered),
+            ('d-2', DeliveryStatus.inTransit),
+            ('d-3', DeliveryStatus.cancelled),
+          ])
+            deliveryFixture(id, status: status, farmer: 'F', buyer: 'B'),
+        ],
+        handoffs: handoffs,
+      );
+
+      await loader.load(tripId, userId: trucker);
+
+      expect(await handoffs.read(trucker, 'd-1'), isNull);
+      expect((await handoffs.read(trucker, 'd-2'))?.code, 'd-2');
+      expect(await handoffs.read(trucker, 'd-3'), isNull);
     });
 
     test('deliveries that cannot be read fail the load', () async {

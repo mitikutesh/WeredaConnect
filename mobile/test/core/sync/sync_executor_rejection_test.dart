@@ -313,6 +313,8 @@ void main() {
       'DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.',
       'DELIVERY_CODE_LOCKED: Too many wrong codes for this delivery. Scan the '
           'QR code, or ask the farmer for a new code.',
+      'DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this drop-off. '
+          "Scan the trucker's drop-off QR, or contact support.",
       'DELIVERY_CODE_GPS_REQUIRED: Location is required to confirm a paid '
           'delivery with a typed code.',
     ]) {

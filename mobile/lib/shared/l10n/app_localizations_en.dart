@@ -5124,7 +5124,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryErrorCodeLocked =>
-      'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead.';
+      'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the farmer to show a new code.';
 
   @override
   String get deliveryErrorCodeGpsRequired =>
@@ -5159,4 +5159,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String tripScanPickupQrFor(String name) {
     return 'Scan pickup QR: $name';
   }
+
+  @override
+  String get deliveryErrorCodeLockedDropoff =>
+      'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR if they have one. If not, contact support: they can confirm the handoff with you and the trucker.';
+
+  @override
+  String get deliveryQrAlreadyPickedUp =>
+      'This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.';
 }

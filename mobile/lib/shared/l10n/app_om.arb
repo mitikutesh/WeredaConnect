@@ -3165,7 +3165,7 @@
   "deliveryDropoffCodeOnly": "Fudhachuu koodii barreeffameen waan mirkaneessiteef QR agarsiifamu hin jiru. Bitaan bakka isaa koodii kana barreessa.",
   "deliveryDropoffQrMissing": "Bilbilli kun geejjiba kanaaf koodii buusuu hin qabu. Yeroo fudhachuu QR qonnaan bulaa bilbila kanaan iskaanii gootu kuufama.",
   "deliveryErrorCodeMismatch": "Koodiin barreeffame geejjiba kana waliin wal hin simu, kanaaf hin mirkanoofne. Koodii mirkaneessiitii irra deebi'ii yaali.",
-  "deliveryErrorCodeLocked": "Geejjiba kanaaf koodiiwwan dogoggoraa baay'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa koodii QR iskaanii godhi.",
+  "deliveryErrorCodeLocked": "Geejjiba kanaaf koodiiwwan dogoggoraa baay'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa koodii QR iskaanii godhi, yookaan qonnaan bulaan koodii haaraa akka agarsiisu gaafadhu.",
   "deliveryErrorCodeGpsRequired": "Koodiin barreeffame bakka kee barbaada. Tajaajila bakkaa banitii irra deebi'ii yaali.",
   "tripModeStopSharing": "Qooduu dhaabi",
   "tripModeStopSharingTitle": "Imala kanaaf qooduun haa dhaabatu?",
@@ -3174,5 +3174,7 @@
   "tripModeStoppedText": "Imala kanaaf qooduu dhaabdeetta. Iskaaniin QR ammallee fudhachuu fi geejjiba ni mirkaneessa.",
   "tripModeNotSharingYet": "Bakki kee imala kanaaf ammaaf hin qoodamne. Iskaanii fudhachuu jalqabaa keetiin murteessama.",
   "homeTripLoadFailed": "Imala kee fe'uun hin danda'amne. Walqunnamtii kee mirkaneessiitii irra deebi'ii yaali.",
-  "tripScanPickupQrFor": "QR fudhachuu iskaan: {name}"
+  "tripScanPickupQrFor": "QR fudhachuu iskaan: {name}",
+  "deliveryErrorCodeLockedDropoff": "Buusuu kanaaf koodiiwwan dogoggoraa baay'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Konkolaachisaan QR buusuu yoo qabaate iskaanii godhi. Yoo hin qabne, deeggarsa qunnami: isaan si fi konkolaachisaa waliin dabarsuu ni mirkaneessu.",
+  "deliveryQrAlreadyPickedUp": "Geejjibni kun duraan fudhatameera, kanaaf koodiin QR haaraan hin uumamu. Konkolaachisaan koodii yeroo fudhachuu argame bitaaf agarsiisa."
 }

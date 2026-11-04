@@ -40,7 +40,8 @@ import 'package:wereda_connect/shared/widgets/clock_text.dart';
 /// Reads the trucker's own trip through the trip repository (Isar on mobile,
 /// the API on web) and, for the next stop, the trucker's deliveries through
 /// the delivery repository (the same read the Action needed card makes, so
-/// the web folds them). A tap opens trip mode while the phone shares the
+/// the web folds them), only once the trip is on the road, shared, or its
+/// departure day came. A tap opens trip mode while the phone shares the
 /// trip, a load is on board (picked up or in transit) or a pickup is due
 /// (T-2: departure day today or past), else the trip. A trip that cannot be
 /// read shows an error with Retry, never "No active trip" (T-6).
@@ -136,7 +137,15 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
       trip ??= await repo.getMostRelevantTrip(widget.userId);
       final routes = await repo.getRecentRoutes(widget.userId);
       if (!mounted) return;
-      final plan = trip == null ? null : await _readPlan(trip);
+      // The deliveries and orders are read only when they can matter (two
+      // requests on web): the trip is on the road or shared, or its
+      // departure day came. A trip days away opens its page anyway.
+      final plan = trip == null ||
+              !(trip.status == TripStatus.inTransit ||
+                  _sharing(trip) ||
+                  _departureCame(trip))
+          ? null
+          : await _readPlan(trip);
       if (!mounted) return;
       final onRoad = plan != null &&
           plan.stops.any(
