@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -23,6 +24,8 @@ import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart'
     if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
@@ -56,6 +59,7 @@ import 'package:wereda_connect/shared/services/place_normalizer.dart';
 import 'package:wereda_connect/shared/widgets/account_menu.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/notification_bell.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// Home screen: the Farmer and Trucker home boards (specs/design-canvas),
 /// the buyer on the farmer's light pattern with buyer content.
@@ -349,7 +353,8 @@ class _LightHomeHeader extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 10, 12, 0),
             child: Row(
               children: [
-                _SyncChip(isOnline: isOnline),
+                // Flexible: with large text the label wraps, never overflows.
+                Flexible(child: _SyncChip(isOnline: isOnline)),
               ],
             ),
           ),
@@ -405,33 +410,37 @@ class _TruckerHomeHeader extends StatelessWidget {
                 ),
               ],
             ),
-            // "Today" beside the chip and the account button, or under them
-            // when the row is too narrow (200% zoom, large text).
-            FwHeaderRow(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              heading: Semantics(
-                header: true,
-                child: Text(
-                  l10n.homeToday,
-                  style: const TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.6,
-                    height: 1.15,
-                    color: Colors.white,
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Semantics(
+                    header: true,
+                    child: Text(
+                      l10n.homeToday,
+                      style: const TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.6,
+                        height: 1.15,
+                        color: Colors.white,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _SyncChip(isOnline: isOnline, dark: true),
-                  if (!SidebarScope.of(context)) ...[
-                    const SizedBox(width: 10),
-                    const AccountButton(dark: true),
-                  ],
+                // Flexible: with large text the label wraps, never overflows.
+                Flexible(
+                  flex: 2,
+                  child: Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: _SyncChip(isOnline: isOnline, dark: true),
+                  ),
+                ),
+                if (!SidebarScope.of(context)) ...[
+                  const SizedBox(width: 10),
+                  const AccountButton(dark: true),
                 ],
-              ),
+              ],
             ),
             const SizedBox(height: 16),
             TruckerHeroCard(
@@ -500,11 +509,68 @@ String homePlaceLine(String woreda, List<Place> places, String languageCode) {
 
 /// The boards' Synced chip: a check on a green tint (soil ground with
 /// pale green on the trucker's dark header); Offline on grey.
-class _SyncChip extends StatelessWidget {
+///
+/// E-5: "Synced" only when online with nothing waiting. On a phone it
+/// follows the sync queue through an Isar watch: "N waiting to sync" while
+/// changes wait (offline too), "Sync Failed" while some failed, Offline
+/// when there is no network. Web has no queue (writes go straight to the
+/// API): the chip follows the browser's network.
+class _SyncChip extends StatefulWidget {
   final bool isOnline;
   final bool dark;
 
   const _SyncChip({required this.isOnline, this.dark = false});
+
+  @override
+  State<_SyncChip> createState() => _SyncChipState();
+}
+
+class _SyncChipState extends State<_SyncChip> {
+  StreamSubscription<({int pending, int failed})>? _countsSub;
+  StreamSubscription<List<ConnectivityResult>>? _webSub;
+  ({int pending, int failed}) _counts = (pending: 0, failed: 0);
+
+  /// The browser's network on web; null until it answered.
+  bool? _webOnline;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      final connectivity = Connectivity();
+      connectivity.checkConnectivity().then(_onWebConnectivity).ignore();
+      _webSub = connectivity.onConnectivityChanged.listen(_onWebConnectivity);
+      return;
+    }
+    SyncQueue? queue;
+    try {
+      queue = context.read<SyncQueue>();
+    } on Object {
+      // No queue above this widget: nothing is counted as waiting.
+      queue = null;
+    }
+    _countsSub = queue?.watchCounts().listen(
+      (counts) {
+        if (mounted) setState(() => _counts = counts);
+      },
+      onError: (Object _) {},
+    );
+  }
+
+  void _onWebConnectivity(List<ConnectivityResult> results) {
+    final online = results.any((r) => r != ConnectivityResult.none);
+    if (mounted) setState(() => _webOnline = online);
+  }
+
+  @override
+  void dispose() {
+    _countsSub?.cancel();
+    _webSub?.cancel();
+    super.dispose();
+  }
+
+  bool get _online =>
+      kIsWeb ? (_webOnline ?? widget.isOnline) : widget.isOnline;
 
   /// On a phone the chip opens what waits to sync (the queue lives there).
   void _showSyncStatus(BuildContext context) {
@@ -518,7 +584,7 @@ class _SyncChip extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => SyncStatusSheet(
-        isOnline: isOnline,
+        isOnline: _online,
         l10n: l10n,
         executor: executor,
       ),
@@ -528,18 +594,41 @@ class _SyncChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final label = isOnline ? l10n.synced : l10n.offline;
-    final (background, foreground) = dark
-        ? isOnline
-            ? (AppTheme.soilCard, AppTheme.soilGreen)
-            : (AppTheme.soilTrack, AppTheme.soilMuted)
-        : isOnline
-            ? (AppTheme.fieldGreenTint, AppTheme.fieldGreen)
-            : (AppTheme.segmentTrack, AppTheme.mutedSteel);
+    final dark = widget.dark;
+    final isOnline = _online;
+    final pending = _counts.pending;
+    final failed = _counts.failed;
+    final (String label, IconData icon) = pending > 0
+        ? (
+            l10n.syncPendingCount(pending),
+            isOnline ? Icons.cloud_upload_outlined : Icons.cloud_off_outlined,
+          )
+        : !isOnline
+            ? (l10n.offline, Icons.cloud_off_outlined)
+            : failed > 0
+                ? (l10n.syncFailed, Icons.sync_problem)
+                : (l10n.synced, Icons.check);
+    final (background, foreground) = pending > 0
+        ? dark
+            ? (AppTheme.soilCard, AppTheme.accentSoft)
+            : (AppTheme.actionCream, AppTheme.actionInk)
+        : !isOnline
+            ? dark
+                ? (AppTheme.soilTrack, AppTheme.soilMuted)
+                : (AppTheme.segmentTrack, AppTheme.mutedSteel)
+            : failed > 0
+                ? (
+                    AppTheme.statusErrorContainer,
+                    AppTheme.onStatusErrorContainer
+                  )
+                : dark
+                    ? (AppTheme.soilCard, AppTheme.soilGreen)
+                    : (AppTheme.fieldGreenTint, AppTheme.fieldGreen);
 
+    // At least 28 tall, taller when the text is scaled up.
     final chip = Container(
       constraints: const BoxConstraints(minHeight: 28),
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
@@ -547,34 +636,37 @@ class _SyncChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            isOnline ? Icons.check : Icons.cloud_off_outlined,
-            size: 13,
-            color: foreground,
-          ),
+          Icon(icon, size: 13, color: foreground),
           const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: foreground,
+          Flexible(
+            child: Text(
+              label,
+              key: const Key('home_sync_chip_label'),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: foreground,
+              ),
             ),
           ),
         ],
       ),
     );
     if (kIsWeb) return chip;
-    // The 28 tall pill in a 48 dp hit area.
+    // One button named by the state ("3 waiting to sync", "Offline",
+    // "Synced"); the chip stays small, the tap area is 48 by 48.
     return Semantics(
       button: true,
-      child: FwTapTarget(
-        onTap: () => _showSyncStatus(context),
+      label: label,
+      excludeSemantics: true,
+      onTap: () => _showSyncStatus(context),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
         child: InkWell(
           key: const Key('home_sync_chip'),
           borderRadius: BorderRadius.circular(999),
           onTap: () => _showSyncStatus(context),
-          child: chip,
+          child: Center(widthFactor: 1, heightFactor: 1, child: chip),
         ),
       ),
     );
@@ -997,21 +1089,59 @@ class _OverviewStatsState extends State<_OverviewStats> {
     }
   }
 
+  void _retry() {
+    setState(() {
+      // Handled here too: a read that fails before the next build has
+      // subscribed would otherwise surface as an uncaught error.
+      _statsFuture = _loadStats(widget.userId, widget.role)..ignore();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final compact = widget.role == UserRole.trucker;
     return FutureBuilder<_HomeStats>(
       future: _statsFuture,
       builder: (context, snapshot) {
+        // E-6: a count not read yet, or one that failed, is never a 0. A
+        // retry reads as loading (the snapshot keeps the old error).
+        final done = snapshot.connectionState == ConnectionState.done;
+        final failed = done && snapshot.hasError;
+        final unknown = !done
+            ? _loadingValue
+            : failed
+                ? _failedValue
+                : null;
         final stats = snapshot.data ?? const _HomeStats();
-        return _DashboardGrid(
-          tiles: _tilesForRole(widget.role, stats),
-          columns: compact ? 3 : 2,
-          gap: compact ? 8 : 10,
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (failed)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: LoadErrorChip(
+                  key: const Key('home_tiles_load_failed'),
+                  message: widget.l10n.homeTilesLoadFailed,
+                  retryLabel: widget.l10n.retry,
+                  onRetry: _retry,
+                ),
+              ),
+            _DashboardGrid(
+              tiles: _tilesForRole(widget.role, stats, unknown: unknown),
+              columns: compact ? 3 : 2,
+              gap: compact ? 8 : 10,
+            ),
+          ],
         );
       },
     );
   }
+
+  /// A tile's value while the stats load.
+  static const _loadingValue = '\u2026';
+
+  /// A tile's value when the stats failed (the error chip says so).
+  static const _failedValue = '-';
 
   Future<_HomeStats> _loadStats(String userId, UserRole role) async {
     if (userId.isEmpty) return const _HomeStats();
@@ -1027,7 +1157,9 @@ class _OverviewStatsState extends State<_OverviewStats> {
         return const _HomeStats();
       }
 
-      // Each call is isolated so one failing endpoint doesn't zero-out all stats.
+      // Each call is isolated so one failing endpoint does not stop the
+      // others; any failure fails the stats below (E-6), never a 0.
+      var failed = false;
       Future<Map<String, dynamic>> safeGet(
         String path, {
         Map<String, dynamic>? queryParameters,
@@ -1039,10 +1171,12 @@ class _OverviewStatsState extends State<_OverviewStats> {
           );
         } on Object catch (e) {
           debugPrint('[OverviewStats] $path failed: $e');
+          failed = true;
           return <String, dynamic>{};
         }
       }
 
+      final _HomeStats stats;
       // One GET per resource, with the same path and params the Recent
       // line and the Action needed card use, so ApiClient folds the
       // concurrent identical reads into a single request (SIM-21).
@@ -1059,7 +1193,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           final orderItems =
               await _fetchOrderPages(safeGet, {'farmerId': userId});
           final crops = _apiItems(await cropsFuture, alt: 'crops');
-          return _HomeStats(
+          stats = _HomeStats(
             listings: crops.length,
             // The API says "available" for an active listing.
             activeListings: _countByStatus(crops, 'available') +
@@ -1090,7 +1224,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
               safeGet('/crops', queryParameters: {'status': 'available'});
           final orderItems =
               await _fetchOrderPages(safeGet, {'buyerId': userId});
-          return _HomeStats(
+          stats = _HomeStats(
             listings: _countApiItems(await cropsFuture, alt: 'crops'),
             activeOrders:
                 _countOrdersByStatus(orderItems, activeOrderStatusNames),
@@ -1118,7 +1252,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           final orderItems =
               await _fetchOrderPages(safeGet, {'truckerId': userId});
           final trips = _apiItems(await tripsFuture, alt: 'trips');
-          return _HomeStats(
+          stats = _HomeStats(
             trips: trips.length,
             matched: _countByStatus(trips, 'matched'),
             escrowEtb: _sumOrders(
@@ -1129,9 +1263,11 @@ class _OverviewStatsState extends State<_OverviewStats> {
             ),
           );
       }
+      if (failed) throw StateError('home stats incomplete');
+      return stats;
     } on Object catch (e) {
       debugPrint('[OverviewStats] Web stats failed: $e');
-      return const _HomeStats();
+      rethrow;
     }
   }
 
@@ -1327,14 +1463,22 @@ class _OverviewStatsState extends State<_OverviewStats> {
           );
       }
     } on Object catch (e) {
+      // E-6: the tiles say it failed, never 0.
       debugPrint('[OverviewStats] Isar stats failed: $e');
-      return const _HomeStats();
+      rethrow;
     }
   }
 
-  List<Widget> _tilesForRole(UserRole role, _HomeStats stats) {
+  /// The role's tiles. With [unknown] (loading or failed) every count and
+  /// amount shows it instead, and no count line under a tile.
+  List<Widget> _tilesForRole(
+    UserRole role,
+    _HomeStats stats, {
+    String? unknown,
+  }) {
     final l10n = widget.l10n;
-    final etb = l10n.etbCurrency(birrText(stats.escrowEtb));
+    final etb = unknown ?? l10n.etbCurrency(birrText(stats.escrowEtb));
+    String count(int value) => unknown ?? '$value';
 
     Widget tile(
       _HomeDest dest, {
@@ -1372,17 +1516,19 @@ class _OverviewStatsState extends State<_OverviewStats> {
           tile(
             _HomeDest.myCrops,
             label: l10n.myCrops,
-            value: '${stats.listings}',
-            sub: l10n.homeTileActiveReserved(
-              stats.activeListings,
-              stats.reservedListings,
-            ),
+            value: count(stats.listings),
+            sub: unknown != null
+                ? null
+                : l10n.homeTileActiveReserved(
+                    stats.activeListings,
+                    stats.reservedListings,
+                  ),
             emphasized: true,
           ),
           tile(
             _HomeDest.orders,
             label: l10n.pendingOrders,
-            value: '${stats.pendingOrders}',
+            value: count(stats.pendingOrders),
             sub: l10n.homeTileWaitingForYou,
           ),
           tile(
@@ -1395,7 +1541,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           tile(
             _HomeDest.deliveries,
             label: l10n.deliveries,
-            value: '${stats.inTransit}',
+            value: count(stats.inTransit),
             sub: l10n.homeTileInTransit,
           ),
         ];
@@ -1406,13 +1552,13 @@ class _OverviewStatsState extends State<_OverviewStats> {
           tile(
             _HomeDest.myTrips,
             label: l10n.myTrips,
-            value: '${stats.trips}',
+            value: count(stats.trips),
             compact: true,
           ),
           tile(
             _HomeDest.myTrips,
             label: l10n.matchedLoads,
-            value: '${stats.matched}',
+            value: count(stats.matched),
             compact: true,
           ),
           tile(
@@ -1430,7 +1576,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           tile(
             _HomeDest.findCrops,
             label: l10n.findCrops,
-            value: '${stats.listings}',
+            value: count(stats.listings),
             sub: l10n.homeTileAvailableNow,
             emphasized: true,
           ),
@@ -1443,7 +1589,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           tile(
             _HomeDest.orders,
             label: l10n.activeOrders,
-            value: '${stats.activeOrders}',
+            value: count(stats.activeOrders),
             sub: l10n.homeTileInProgress,
           ),
           tile(
@@ -1456,7 +1602,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           tile(
             _HomeDest.deliveries,
             label: l10n.deliveries,
-            value: '${stats.inTransit}',
+            value: count(stats.inTransit),
             sub: l10n.homeTileInTransit,
           ),
         ];

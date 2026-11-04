@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
@@ -18,12 +19,19 @@ import 'package:wereda_connect/shared/widgets/status_chip.dart';
 /// quantity as the title, the other party under it, the amount on the right
 /// with the order day, then the status pill. A farmer's unanswered funded
 /// order ends with Reject and Accept, the boards' two-button row.
+///
+/// The amount is the viewer's own (F-1): the buyer's total with the
+/// transport line, the farmer's crop money as "You receive", the trucker's
+/// transport pay. A farmer never sees the buyer's total next to Accept.
 class OrderCard extends StatelessWidget {
   final Order order;
   final VoidCallback? onTap;
   final VoidCallback? onAccept;
   final VoidCallback? onReject;
   final bool isFarmerView;
+
+  /// The trucker of the order looks at it: the amount is the transport pay.
+  final bool isTruckerView;
 
   /// The order's escrow is held for review (FRD-06): an "Under Review" chip,
   /// and no Accept, which the server refuses while it is held (Reject stays).
@@ -33,6 +41,10 @@ class OrderCard extends StatelessWidget {
   /// review: Accept shows disabled until then.
   final bool acceptEnabled;
 
+  /// False while an answer from a card runs: Reject and Accept both show
+  /// disabled, so no second, opposite answer can be sent meanwhile.
+  final bool actionsEnabled;
+
   const OrderCard({
     required this.order,
     super.key,
@@ -40,8 +52,10 @@ class OrderCard extends StatelessWidget {
     this.onAccept,
     this.onReject,
     this.isFarmerView = false,
+    this.isTruckerView = false,
     this.underReview = false,
     this.acceptEnabled = true,
+    this.actionsEnabled = true,
   });
 
   static final NumberFormat _kgFormat = NumberFormat('#,##0', 'en_US');
@@ -50,10 +64,24 @@ class OrderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final day = DateFormat.yMMMd().format(dayInEthiopia(order.createdAt));
-    final amount = l10n.etbCurrency(
-      formatEtbAmount(order.orderTotal ?? order.totalPrice),
-    );
-    final transport = order.transportCost;
+    // A legacy order without cropCost: the crop subtotal, never the total.
+    // A trucker order without a transport cost shows no amount, not 0.
+    final (double? value, String? amountLabel) = isFarmerView
+        ? (
+            farmerEscrowShare(
+              subtotal: order.quantity * order.pricePerUnit,
+              cropCost: order.cropCost,
+            ),
+            l10n.orderYouReceive,
+          )
+        : isTruckerView
+            ? (order.transportCost, l10n.orderYourTransportPay)
+            : (order.orderTotal ?? order.totalPrice, null);
+    final amount =
+        value == null ? null : l10n.etbCurrency(formatEtbAmount(value));
+    // Only the buyer pays the transport on top of the crops.
+    final transport =
+        isFarmerView || isTruckerView ? null : order.transportCost;
     // Show accept/reject buttons only once the order is funded (buyer
     // has paid into escrow). This matches the order detail screen, the
     // repositories, and the server's funded→accepted transition: at
@@ -105,15 +133,26 @@ class OrderCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    amount,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.soilDark,
+                  if (amount != null) ...[
+                    if (amountLabel != null)
+                      Text(
+                        amountLabel,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.mutedSteel,
+                        ),
+                      ),
+                    Text(
+                      amount,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.soilDark,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
+                    const SizedBox(height: 2),
+                  ],
                   Text(
                     day,
                     style: const TextStyle(
@@ -157,7 +196,7 @@ class OrderCard extends StatelessWidget {
                 if (onReject != null)
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: onReject,
+                      onPressed: actionsEnabled ? onReject : null,
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppTheme.soilDark,
                         side: const BorderSide(color: Color(0xFFD6D3C8)),
@@ -179,7 +218,8 @@ class OrderCard extends StatelessWidget {
                   if (onReject != null) const SizedBox(width: 8),
                   Expanded(
                     child: FilledButton(
-                      onPressed: acceptEnabled ? onAccept : null,
+                      onPressed:
+                          acceptEnabled && actionsEnabled ? onAccept : null,
                       style: FilledButton.styleFrom(
                         backgroundColor: AppTheme.soilDark,
                         foregroundColor: Colors.white,

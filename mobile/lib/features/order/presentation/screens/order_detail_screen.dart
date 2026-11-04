@@ -47,6 +47,7 @@ import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
 import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
 /// Full order detail screen (the Buyer · Order detail and Farmer · Answer a
 /// new order boards): the order named in the header with its status, who
@@ -79,6 +80,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   /// Only the newest hold check may change the screen: a reload (the
   /// contact pull, a payment) starts another one.
   int _holdCheck = 0;
+
+  /// The order last loaded. E-6: an action that runs or fails (Accept on a
+  /// lost connection) keeps it on screen, the failure a snackbar; only the
+  /// first load shows the spinner or the error in its place.
+  Order? _shown;
 
   @override
   void initState() {
@@ -169,10 +175,18 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 .read<OrderBloc>()
                 .add(LoadOrderById(orderId: widget.orderId));
           } else if (state is OrderAccepted || state is OrderRejected) {
+            // E-5: sent, or saved on the phone to send later.
+            showSavedOrSent(
+              context,
+              sent: state is OrderAccepted
+                  ? l10n.orderAcceptedSent
+                  : l10n.orderRejectedSent,
+            ).ignore();
             Navigator.of(context).pop();
           } else if (state is TruckerResponded) {
             // ESC-15: stay on the order, which now shows the next step
-            // (Create Delivery after an accept).
+            // (Create Delivery after an accept); said only when it waits.
+            showSavedOrSent(context).ignore();
             context
                 .read<OrderBloc>()
                 .add(LoadOrderById(orderId: widget.orderId));
@@ -191,11 +205,16 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           }
         },
         builder: (context, state) {
-          if (state is SingleOrderLoaded) {
+          if (state is SingleOrderLoaded) _shown = state.order;
+          final order = _shown;
+          if (order != null && order.orderId == widget.orderId) {
+            // An action or a reload runs: the order stays, its actions
+            // wait, Back still works.
             return _OrderDetailBody(
-              order: state.order,
+              order: order,
               underReview: _underReview,
               holdChecked: _holdChecked,
+              busy: state is OrderLoading,
             );
           }
           return SafeArea(
@@ -236,10 +255,16 @@ class _OrderDetailBody extends StatelessWidget {
   /// Whether the hold check has answered; the farmer's Accept waits for it.
   final bool holdChecked;
 
+  /// An action or a reload runs (E-6): a progress line under the header,
+  /// and the actions take no taps until it is done. The header, with
+  /// Back, is never blocked.
+  final bool busy;
+
   const _OrderDetailBody({
     required this.order,
     this.underReview = false,
     this.holdChecked = true,
+    this.busy = false,
   });
 
   @override
@@ -297,6 +322,11 @@ class _OrderDetailBody extends StatelessWidget {
                   userId: userId,
                   farmerAnswering: farmerAnswering,
                 ),
+                if (busy)
+                  const LinearProgressIndicator(
+                    key: Key('order_detail_busy'),
+                    minHeight: 2,
+                  ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                   child: Column(
@@ -409,13 +439,14 @@ class _OrderDetailBody extends StatelessWidget {
                       ],
 
                       // ── Role-based actions ───────────────────────────
-                      ..._buildActions(
+                      for (final action in _buildActions(
                         context,
                         order: order,
                         userId: userId,
                         userRole: userRole,
                         l10n: l10n,
-                      ),
+                      ))
+                        AbsorbPointer(absorbing: busy, child: action),
 
                       // The buyer's money: held in escrow, or the total.
                       if (isBuyer) _BuyerTotalRow(order: order),
@@ -427,13 +458,16 @@ class _OrderDetailBody extends StatelessWidget {
           ),
         ),
       ),
-      bottomNavigationBar: _answerActions(
+      bottomNavigationBar: switch (_answerActions(
         context,
         order: order,
         userId: userId,
         userRole: userRole,
         l10n: l10n,
-      ),
+      )) {
+        final actions? => AbsorbPointer(absorbing: busy, child: actions),
+        null => null,
+      },
     );
   }
 
@@ -1081,8 +1115,15 @@ class _FarmerReceiveCard extends StatelessWidget {
                 ),
               ),
               Text(
+                // A legacy order without cropCost: weight times price, never
+                // the buyer's total (F-1).
                 l10n.etbCurrency(
-                  formatEtbAmount(order.cropCost ?? order.totalPrice),
+                  formatEtbAmount(
+                    farmerEscrowShare(
+                      subtotal: order.quantity * order.pricePerUnit,
+                      cropCost: order.cropCost,
+                    ),
+                  ),
                 ),
                 style: const TextStyle(
                   fontSize: 24,
@@ -1224,15 +1265,17 @@ class _TruckerPayCard extends StatelessWidget {
               ],
             ),
           ),
-          Text(
-            l10n.etbCurrency(formatEtbAmount(order.transportCost ?? 0)),
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.5,
-              color: AppTheme.soilDark,
+          // No transport cost on the order: no amount, not 0.
+          if (order.transportCost case final transport?)
+            Text(
+              l10n.etbCurrency(formatEtbAmount(transport)),
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+                color: AppTheme.soilDark,
+              ),
             ),
-          ),
         ],
       ),
     );

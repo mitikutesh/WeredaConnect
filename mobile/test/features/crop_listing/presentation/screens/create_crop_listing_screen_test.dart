@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -26,6 +29,8 @@ class MockAuthBloc extends Mock implements AuthBloc {}
 class MockCropListingBloc extends Mock implements CropListingBloc {}
 
 class MockGpsCaptureService extends Mock implements GpsCaptureService {}
+
+class MockConnectivityMonitor extends Mock implements ConnectivityMonitor {}
 
 class FakeAuthEvent extends Fake implements AuthEvent {}
 
@@ -133,6 +138,42 @@ void main() {
       expect(find.text('Please enter the quantity'), findsOneWidget);
       expect(find.text('Price is required'), findsOneWidget);
       expect(find.text('Please enter the location'), findsOneWidget);
+    });
+
+    // F-3: quantity in quintals, price per kg: the form says the total.
+    testWidgets('shows the total and the price per quintal as typed',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      final total = find.byKey(const Key('create_listing_total'));
+      expect(total, findsNothing);
+
+      await tester.enterText(
+        find.byKey(const Key('create_listing_quantity')),
+        '12',
+      );
+      await tester.pump();
+      // A quantity alone is no total yet.
+      expect(total, findsNothing);
+
+      await tester.enterText(
+        find.byKey(const Key('create_listing_price')),
+        '42.5',
+      );
+      await tester.pump();
+      // 12 quintals x 100 kg x 42.50 ETB/kg.
+      expect(
+        tester.widget<Text>(total).data,
+        'Total: 51,000 ETB (4,250 ETB per quintal)',
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('create_listing_quantity')),
+        '0',
+      );
+      await tester.pump();
+      expect(total, findsNothing);
     });
 
     testWidgets('shows GPS captured indicator when GPS succeeds',
@@ -302,6 +343,61 @@ void main() {
       expect(save, findsOneWidget);
       expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
     });
+  });
+
+  // E-5: a saved listing says whether it went out or waits on the phone.
+  group('Saved or sent', () {
+    for (final (online, message) in [
+      (true, 'Listing saved successfully'),
+      (false, 'Saved on your phone. It will be sent when you have network.'),
+    ]) {
+      testWidgets('${online ? 'online' : 'offline'}: "$message"',
+          (tester) async {
+        final controller = StreamController<CropListingState>.broadcast();
+        addTearDown(controller.close);
+        when(() => cropListingBloc.stream).thenAnswer((_) => controller.stream);
+        final monitor = MockConnectivityMonitor();
+        when(() => monitor.isConnected()).thenAnswer((_) async => online);
+        await tester.pumpWidget(
+          Provider<ConnectivityMonitor>.value(
+            value: monitor,
+            child: MultiBlocProvider(
+              providers: [
+                BlocProvider<AuthBloc>.value(value: authBloc),
+                BlocProvider<CropListingBloc>.value(value: cropListingBloc),
+              ],
+              child: MaterialApp(
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                home: Scaffold(
+                  body: Builder(
+                    builder: (context) => TextButton(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => CreateCropListingScreen(
+                            gpsCaptureService: mockGpsService,
+                            photoPicker: FakeCropPhotoPicker(),
+                          ),
+                        ),
+                      ),
+                      child: const Text('open'),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+
+        controller.add(CropListingCreated(listing: CropListing()));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(CreateCropListingScreen), findsNothing);
+        expect(find.text(message), findsOneWidget);
+      });
+    }
   });
 
   group('Coordinates when GPS is unavailable (SIM-43)', () {

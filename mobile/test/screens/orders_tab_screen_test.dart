@@ -1,11 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -21,6 +27,8 @@ class MockOrderBloc extends Mock implements OrderBloc {}
 class MockAuthBloc extends Mock implements AuthBloc {}
 
 class FakeOrderEvent extends Fake implements OrderEvent {}
+
+class MockConnectivityMonitor extends Mock implements ConnectivityMonitor {}
 
 const _tokens = AuthTokens(
   accessToken: 'fake-access-token',
@@ -134,4 +142,157 @@ void main() {
       }
     });
   }
+
+  // E-5 and E-6: an Accept from a card says whether it was sent or waits
+  // on the phone; a failed one keeps the list and says why.
+  group('farmer answers from a card', () {
+    late StreamController<OrderState> orderStream;
+    late MockConnectivityMonitor monitor;
+    final en = lookupAppLocalizations(const Locale('en'));
+    final order = Order()
+      ..orderId = 'order-1'
+      ..listingId = 'listing-1'
+      ..buyerId = 'buyer-001'
+      ..farmerId = 'farmer-001'
+      ..buyerName = 'Buyer Bee'
+      ..farmerName = 'Farmer Fikru'
+      ..cropType = 'teff'
+      ..quantity = 100
+      ..pricePerUnit = 85
+      ..totalPrice = 8500
+      ..cropCost = 8500
+      ..status = OrderStatus.funded
+      ..farmerResponse = 'pending'
+      ..createdAt = DateTime.utc(2026, 11)
+      ..version = 1;
+
+    setUp(() {
+      orderStream = StreamController<OrderState>.broadcast();
+      monitor = MockConnectivityMonitor();
+      when(() => monitor.isConnected()).thenAnswer((_) async => true);
+      when(() => orderBloc.stream).thenAnswer((_) => orderStream.stream);
+      when(() => orderBloc.state).thenReturn(OrdersLoaded(orders: [order]));
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'farmer-001',
+          tokens: _tokens,
+          role: UserRole.farmer,
+          userName: 'Farmer',
+        ),
+      );
+    });
+
+    tearDown(() => orderStream.close());
+
+    Future<void> pumpList(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        Provider<ConnectivityMonitor>.value(
+          value: monitor,
+          child: buildScreen(const Locale('en')),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a failed accept keeps the list and says why', (tester) async {
+      await pumpList(tester);
+      await tester.tap(find.text(en.acceptOrder));
+      verify(
+        () => orderBloc.add(
+          const AcceptOrder(orderId: 'order-1', farmerId: 'farmer-001'),
+        ),
+      ).called(1);
+
+      orderStream.add(const OrderLoading());
+      await tester.pump();
+      await tester.pump();
+      expect(find.text(en.acceptOrder), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+
+      orderStream.add(
+        const OrderError(message: 'offline', code: AppErrorCode.network),
+      );
+      await tester.pump();
+      await tester.pump();
+      // The card is still there, not the error view with its Retry.
+      expect(find.text(en.acceptOrder), findsOneWidget);
+      expect(find.text(en.retry), findsNothing);
+      expect(
+        find.text(localizeErrorCode(AppErrorCode.network, en)),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('Reject waits while an Accept from the card runs',
+        (tester) async {
+      await pumpList(tester);
+      await tester.tap(find.text(en.acceptOrder));
+
+      orderStream.add(const OrderLoading());
+      await tester.pump();
+      await tester.pump();
+
+      OutlinedButton reject() => tester.widget<OutlinedButton>(
+            find.widgetWithText(OutlinedButton, en.rejectOrder),
+          );
+      FilledButton accept() => tester.widget<FilledButton>(
+            find.widgetWithText(FilledButton, en.acceptOrder),
+          );
+      expect(reject().onPressed, isNull);
+      expect(accept().onPressed, isNull);
+
+      // No reason sheet can open, so no second (opposite) answer.
+      verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+
+      // The accept failed: both answers are offered again.
+      orderStream.add(
+        const OrderError(message: 'offline', code: AppErrorCode.network),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(reject().onPressed, isNotNull);
+      expect(accept().onPressed, isNotNull);
+    });
+
+    for (final (online, message) in [
+      (true, en.orderAcceptedSent),
+      (false, en.savedOnPhoneWillSend),
+    ]) {
+      testWidgets('an accept ${online ? 'online' : 'offline'}: "$message"',
+          (tester) async {
+        when(() => monitor.isConnected()).thenAnswer((_) async => online);
+        await pumpList(tester);
+        await tester.tap(find.text(en.acceptOrder));
+
+        orderStream.add(const OrderAccepted());
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.text(message), findsOneWidget);
+        // The list is read again.
+        verify(
+          () => orderBloc.add(
+            const LoadUserOrders(userId: 'farmer-001', role: 'farmer'),
+          ),
+        ).called(2);
+      });
+    }
+
+    testWidgets('a load error that is not a card answer shows the error view',
+        (tester) async {
+      await pumpList(tester);
+
+      orderStream.add(
+        const OrderError(message: 'offline', code: AppErrorCode.network),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text(en.retry), findsOneWidget);
+      expect(find.text(en.acceptOrder), findsNothing);
+    });
+  });
 }

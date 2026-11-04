@@ -54,6 +54,15 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
   /// Only the newest read may change the list.
   int _heldRead = 0;
 
+  /// E-6: an Accept or Reject from a card is under way, from the tap until
+  /// the list is loaded again. The list stays on screen meanwhile and when
+  /// the answer fails (a snackbar says why), instead of the loading and
+  /// error views of a reload.
+  bool _cardAction = false;
+
+  /// The list last loaded, shown during [_cardAction].
+  OrdersLoaded? _lastLoaded;
+
   @override
   void initState() {
     super.initState();
@@ -82,6 +91,14 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     final authState = context.read<AuthBloc>().state;
     if (authState is AuthAuthenticated) {
       return authState.role == UserRole.buyer;
+    }
+    return false;
+  }
+
+  bool _isTrucker() {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      return authState.role == UserRole.trucker;
     }
     return false;
   }
@@ -121,7 +138,10 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
   }
 
   void _applyFilter(String? status) {
-    setState(() => _selectedStatus = status);
+    setState(() {
+      _selectedStatus = status;
+      _cardAction = false;
+    });
     final userId = _getUserId();
     if (userId == null) return;
     context.read<OrderBloc>().add(
@@ -239,11 +259,15 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     AppLocalizations l10n,
     OrderState state,
   ) {
-    if (state is OrderLoading) {
+    if (state is OrdersLoaded) _lastLoaded = state;
+    final loaded =
+        state is OrdersLoaded ? state : (_cardAction ? _lastLoaded : null);
+
+    if (loaded == null && state is OrderLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (state is OrderError) {
+    if (loaded == null && state is OrderError) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -276,10 +300,10 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
       );
     }
 
-    if (state is! OrdersLoaded) return _buildEmpty(l10n);
-    if (state.orders.isEmpty) return _buildEmpty(l10n);
+    if (loaded == null || loaded.orders.isEmpty) return _buildEmpty(l10n);
 
     final isFarmer = _isFarmer();
+    final isTrucker = _isTrucker();
     return RefreshIndicator(
       // Preserve the active status tab (not reset to "All"), and hold
       // the refresh spinner until the reload actually finishes.
@@ -297,21 +321,25 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
           20,
           Breakpoints.fabClearance,
         ),
-        itemCount: state.orders.length,
+        itemCount: loaded.orders.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
-          final order = state.orders[index];
+          final order = loaded.orders[index];
           final userId = _getUserId() ?? '';
           return OrderCard(
             order: order,
             isFarmerView: isFarmer,
+            isTruckerView: isTrucker,
             // A cached `held` row is stale once the order moved on.
             underReview: _heldOrderIds.contains(order.orderId) &&
                 orderHoldableStatuses.contains(order.status),
             acceptEnabled: _heldChecked,
+            // Neither answer while one from a card runs.
+            actionsEnabled: state is! OrderLoading,
             onTap: () => _openOrderDetail(order.orderId),
             onAccept: isFarmer
                 ? () {
+                    _cardAction = true;
                     context.read<OrderBloc>().add(
                           AcceptOrder(
                             orderId: order.orderId,
@@ -330,6 +358,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                       reasons: farmerDeclineReasons,
                     );
                     if (reason == null || bloc.isClosed) return;
+                    _cardAction = true;
                     bloc.add(
                       RejectOrder(
                         orderId: order.orderId,
@@ -351,6 +380,22 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
 
     return BlocListener<OrderBloc, OrderState>(
       listener: (context, state) {
+        if (state is OrdersLoaded) _cardAction = false;
+        if (_cardAction && state is OrderError) {
+          // E-6: the answer failed; the list stays, this says why.
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
+          );
+        }
+        if (_cardAction && (state is OrderAccepted || state is OrderRejected)) {
+          // E-5: sent, or saved on the phone to send later.
+          showSavedOrSent(
+            context,
+            sent: state is OrderAccepted
+                ? l10n.orderAcceptedSent
+                : l10n.orderRejectedSent,
+          ).ignore();
+        }
         if (state is OrderAccepted ||
             state is OrderRejected ||
             state is OrderCreated ||
