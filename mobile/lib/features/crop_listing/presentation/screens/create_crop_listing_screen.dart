@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -26,6 +27,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
 
@@ -206,9 +208,8 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
       listener: (context, state) {
         if (state is CropListingCreated) {
           _isSubmitting = false;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(l10n.listingSaved)),
-          );
+          // E-5: saved and sent, or saved on the phone to send later.
+          showSavedOrSent(context, sent: l10n.listingSaved).ignore();
           Navigator.of(context).pop();
         } else if (state is CropListingError) {
           setState(() => _isSubmitting = false);
@@ -299,7 +300,8 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                     )
                   : Text(l10n.save),
             ),
-            FwActionNote(l10n.savedOnPhoneFirstNote),
+            // Web saves straight to the server, nothing waits in a browser.
+            if (!kIsWeb) FwActionNote(l10n.savedOnPhoneFirstNote),
           ],
         ),
       ),

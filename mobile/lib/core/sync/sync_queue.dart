@@ -385,6 +385,17 @@ class SyncQueue {
     return pendingCount + syncingCount;
   }
 
+  /// [getPendingCount] and [getFailedCount] now, and again after every
+  /// change to the queue: an Isar watch, no polling (E-5, the Home sync
+  /// chip).
+  Stream<({int pending, int failed})> watchCounts() =>
+      _isar.syncOperations.watchLazy(fireImmediately: true).asyncMap(
+            (_) async => (
+              pending: await getPendingCount(),
+              failed: await getFailedCount()
+            ),
+          );
+
   /// The operations of [userId] a logout would delete before they reached
   /// the server (E-1). The logout's own predicate (a `{userId}:` idempotency
   /// key, `AuthBloc._clearUserBusinessData`) over every operation not yet

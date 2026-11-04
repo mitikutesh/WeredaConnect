@@ -4894,6 +4894,42 @@ abstract class AppLocalizations {
   /// **'Log out anyway'**
   String get logoutAnyway;
 
+  /// Snackbar (E-5) after an order, a crop listing or an answer to an order was saved while the phone had no network: it waits in the sync queue
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on your phone. It will be sent when you have network.'**
+  String get savedOnPhoneWillSend;
+
+  /// Snackbar (E-5) after the farmer accepted an order with a network
+  ///
+  /// In en, this message translates to:
+  /// **'You accepted the order.'**
+  String get orderAcceptedSent;
+
+  /// Snackbar (E-5) after the farmer declined an order with a network; the buyer is refunded
+  ///
+  /// In en, this message translates to:
+  /// **'You declined the order. The buyer gets the money back.'**
+  String get orderRejectedSent;
+
+  /// Home, At a glance (E-6): the tiles' counts and amounts failed to load; shown with Retry instead of zeros
+  ///
+  /// In en, this message translates to:
+  /// **'These numbers could not be loaded.'**
+  String get homeTilesLoadFailed;
+
+  /// Home, Action needed (E-6): the orders waiting for the user failed to load; shown with Retry instead of no card
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check for orders that need you.'**
+  String get homeActionNeededLoadFailed;
+
+  /// Deliveries tab (E-6): the list failed to load; shown with Retry, unlike the empty state 'No deliveries yet'
+  ///
+  /// In en, this message translates to:
+  /// **'Your deliveries could not be loaded.'**
+  String get deliveriesLoadFailed;
+
   /// Payment notification title with status. {status} is the localized payment status label, not the enum name
   ///
   /// In en, this message translates to:

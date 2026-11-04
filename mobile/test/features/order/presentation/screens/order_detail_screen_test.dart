@@ -7,10 +7,12 @@ import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
+import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -42,6 +44,8 @@ class MockRatingBloc extends Mock implements RatingBloc {}
 class MockRatingRepository extends Mock implements BaseRatingRepository {}
 
 class MockMarketplaceSync extends Mock implements MarketplaceSync {}
+
+class MockConnectivityMonitor extends Mock implements ConnectivityMonitor {}
 
 class FakeOrderEvent extends Fake implements OrderEvent {}
 
@@ -1072,6 +1076,129 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('order_delivery_live_trip')), findsNothing);
+    });
+  });
+
+  // E-5 and E-6: an answer says whether it was sent or waits on the phone,
+  // and an action that fails keeps the order on screen.
+  group('OrderDetailScreen answers and failures', () {
+    late StreamController<OrderState> orderStream;
+    late MockConnectivityMonitor monitor;
+
+    setUp(() {
+      orderStream = StreamController<OrderState>.broadcast();
+      when(() => orderBloc.stream).thenAnswer((_) => orderStream.stream);
+      monitor = MockConnectivityMonitor();
+      when(() => monitor.isConnected()).thenAnswer((_) async => true);
+    });
+
+    tearDown(() => orderStream.close());
+
+    /// The detail pushed over a home page, as the orders list opens it.
+    Future<void> openDetail(WidgetTester tester, Order order) async {
+      when(() => orderBloc.state).thenReturn(SingleOrderLoaded(order: order));
+      await tester.pumpWidget(
+        Provider<ConnectivityMonitor>.value(
+          value: monitor,
+          child: MultiBlocProvider(
+            providers: [
+              BlocProvider<OrderBloc>.value(value: orderBloc),
+              BlocProvider<AuthBloc>.value(value: authBloc),
+              BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
+              BlocProvider<RatingBloc>.value(value: ratingBloc),
+            ],
+            child: MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) => TextButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            const OrderDetailScreen(orderId: 'order-001'),
+                      ),
+                    ),
+                    child: const Text('open'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    final en = lookupAppLocalizations(const Locale('en'));
+    final hero = find.byKey(const Key('order_summary_hero'));
+
+    testWidgets('a failed accept keeps the order and says why', (tester) async {
+      stubAuth(UserRole.farmer, _farmerId);
+      await openDetail(tester, _makeOrder(status: OrderStatus.funded));
+      expect(hero, findsOneWidget);
+
+      orderStream.add(const OrderLoading());
+      await tester.pump();
+      await tester.pump();
+      expect(hero, findsOneWidget);
+      expect(find.byKey(const Key('order_detail_busy')), findsOneWidget);
+
+      orderStream.add(
+        const OrderError(message: 'offline', code: AppErrorCode.network),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(hero, findsOneWidget);
+      expect(find.byKey(const Key('order_detail_busy')), findsNothing);
+      expect(
+        find.text(localizeErrorCode(AppErrorCode.network, en)),
+        findsOneWidget,
+      );
+    });
+
+    for (final (online, accepted, message) in [
+      (true, true, en.orderAcceptedSent),
+      (true, false, en.orderRejectedSent),
+      (false, true, en.savedOnPhoneWillSend),
+      (false, false, en.savedOnPhoneWillSend),
+    ]) {
+      testWidgets(
+          '${accepted ? 'accept' : 'reject'} ${online ? 'online' : 'offline'}'
+          ': "$message", back on the list', (tester) async {
+        when(() => monitor.isConnected()).thenAnswer((_) async => online);
+        stubAuth(UserRole.farmer, _farmerId);
+        await openDetail(tester, _makeOrder(status: OrderStatus.funded));
+
+        orderStream.add(
+          accepted ? const OrderAccepted() : const OrderRejected(),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(OrderDetailScreen), findsNothing);
+        expect(find.text(message), findsOneWidget);
+      });
+    }
+
+    testWidgets('a trucker answer saved offline says it waits', (tester) async {
+      when(() => monitor.isConnected()).thenAnswer((_) async => false);
+      stubAuth(UserRole.trucker, _truckerId);
+      await openDetail(
+        tester,
+        _makeOrder(
+          status: OrderStatus.funded,
+          tripId: _tripId,
+          truckerId: _truckerId,
+          truckerName: 'Trucker Tesfaye',
+        ),
+      );
+
+      orderStream.add(const TruckerResponded(accepted: true));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(OrderDetailScreen), findsOneWidget);
+      expect(find.text(en.savedOnPhoneWillSend), findsOneWidget);
     });
   });
 }

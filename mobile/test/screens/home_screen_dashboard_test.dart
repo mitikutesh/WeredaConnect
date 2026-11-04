@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +10,7 @@ import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -36,6 +39,8 @@ class MockCropListingBloc extends Mock implements CropListingBloc {}
 class MockInboxBloc extends Mock implements InboxBloc {}
 
 class MockSyncExecutor extends Mock implements SyncExecutor {}
+
+class MockSyncQueue extends Mock implements SyncQueue {}
 
 class MockTripListingBloc extends Mock implements TripListingBloc {}
 
@@ -112,7 +117,11 @@ void main() {
   /// Tab indexes the dashboard asked the shell to switch to.
   late List<int> tabRequests;
 
-  Widget buildHomeScreen(UserRole role) {
+  Widget buildHomeScreen(
+    UserRole role, {
+    bool isOnline = false,
+    SyncQueue? syncQueue,
+  }) {
     tabRequests = [];
     when(() => authBloc.state).thenReturn(
       AuthAuthenticated(
@@ -121,7 +130,7 @@ void main() {
         role: role,
       ),
     );
-    return Provider<SyncExecutor>.value(
+    final home = Provider<SyncExecutor>.value(
       value: syncExecutor,
       child: MultiBlocProvider(
         providers: [
@@ -135,11 +144,17 @@ void main() {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
-            body: HomeScreen(isOnline: false, onNavigateToTab: tabRequests.add),
+            body: HomeScreen(
+              isOnline: isOnline,
+              onNavigateToTab: tabRequests.add,
+            ),
           ),
         ),
       ),
     );
+    return syncQueue == null
+        ? home
+        : Provider<SyncQueue>.value(value: syncQueue, child: home);
   }
 
   /// A tall surface so every tile is on screen; 800 wide renders the same
@@ -332,5 +347,100 @@ void main() {
       // Trucker bar: Home · My Trips · Deliveries · Payments
       expect(tabRequests, [1, 3]);
     });
+  });
+
+  // E-5: "Synced" only when online with nothing waiting; the chip follows
+  // the queue through its watch stream.
+  group('the sync chip', () {
+    late StreamController<({int pending, int failed})> counts;
+    late MockSyncQueue queue;
+
+    setUp(() {
+      counts = StreamController<({int pending, int failed})>.broadcast();
+      queue = MockSyncQueue();
+      when(() => queue.watchCounts()).thenAnswer((_) => counts.stream);
+    });
+
+    tearDown(() => counts.close());
+
+    String chipLabel(WidgetTester tester) => tester
+        .widget<Text>(find.byKey(const Key('home_sync_chip_label')))
+        .data!;
+
+    for (final role in UserRole.values) {
+      testWidgets('${role.name}: waiting, synced, failed and offline',
+          (tester) async {
+        useTallSurface(tester, width: 390);
+        await tester.pumpWidget(
+          buildHomeScreen(role, isOnline: true, syncQueue: queue),
+        );
+        await tester.pump();
+
+        counts.add((pending: 3, failed: 0));
+        await tester.pump();
+        await tester.pump();
+        expect(chipLabel(tester), '3 waiting to sync');
+
+        counts.add((pending: 0, failed: 0));
+        await tester.pump();
+        await tester.pump();
+        expect(chipLabel(tester), 'Synced');
+
+        counts.add((pending: 0, failed: 2));
+        await tester.pump();
+        await tester.pump();
+        expect(chipLabel(tester), 'Sync Failed');
+      });
+    }
+
+    testWidgets('offline with changes waiting says how many wait',
+        (tester) async {
+      useTallSurface(tester, width: 390);
+      await tester.pumpWidget(
+        buildHomeScreen(UserRole.farmer, syncQueue: queue),
+      );
+      await tester.pump();
+      expect(chipLabel(tester), 'Offline');
+
+      counts.add((pending: 2, failed: 0));
+      await tester.pump();
+      await tester.pump();
+      expect(chipLabel(tester), '2 waiting to sync');
+    });
+  });
+
+  // E-6: the tiles never show a 0 they did not read.
+  group('the At a glance tiles', () {
+    for (final role in UserRole.values) {
+      testWidgets('${role.name}: a placeholder while loading, then the error',
+          (tester) async {
+        useTallSurface(tester);
+        // No Isar in this test: the stats read fails.
+        await tester.pumpWidget(buildHomeScreen(role));
+        expect(find.text('\u2026'), findsWidgets);
+        expect(find.text('0'), findsNothing);
+
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('home_tiles_load_failed')),
+          findsOneWidget,
+        );
+        expect(find.text('These numbers could not be loaded.'), findsOneWidget);
+        expect(find.text('0'), findsNothing);
+        expect(find.text('0 ETB'), findsNothing);
+        expect(find.text('-'), findsWidgets);
+
+        await tester.tap(
+          find.descendant(
+            of: find.byKey(const Key('home_tiles_load_failed')),
+            matching: find.text('Retry'),
+          ),
+        );
+        await tester.pump();
+        // Retry reads again: the placeholder is back while it does.
+        expect(find.text('\u2026'), findsWidgets);
+        await tester.pumpAndSettle();
+      });
+    }
   });
 }

@@ -12,6 +12,8 @@ import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/sync/idempotency_key_generator.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 
+import '../../helpers/wait_for.dart';
+
 void main() {
   group('SyncQueue', () {
     late Isar isar;
@@ -310,6 +312,32 @@ void main() {
 
       final count = await syncQueue.getPendingCount();
       expect(count, 2); // 1 pending + 1 syncing
+    });
+
+    // E-5: the Home sync chip follows the queue through this watch.
+    test('watchCounts answers at once and after every queue change', () async {
+      final seen = <({int pending, int failed})>[];
+      final sub = syncQueue.watchCounts().listen(seen.add);
+      addTearDown(sub.cancel);
+      await waitFor(() => seen.isNotEmpty);
+      expect(seen.last, (pending: 0, failed: 0));
+
+      await syncQueue.enqueue(
+        userId: 'user-001',
+        entityType: 'trip',
+        entityId: 'trip-watch',
+        action: 'create',
+        data: '{}',
+        operationId: 'op-watch',
+      );
+      await waitFor(() => seen.last.pending == 1);
+      expect(seen.last, (pending: 1, failed: 0));
+
+      for (var i = 0; i < SyncQueue.maxRetries; i++) {
+        await syncQueue.markAsFailed('op-watch');
+      }
+      await waitFor(() => seen.last.failed == 1);
+      expect(seen.last, (pending: 0, failed: 1));
     });
 
     // E-1: what a logout would delete before it reached the server, by the

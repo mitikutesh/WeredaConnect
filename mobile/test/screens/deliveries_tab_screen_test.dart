@@ -9,6 +9,7 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -17,6 +18,8 @@ import 'package:wereda_connect/shared/layout/breakpoints.dart';
 class MockAuthBloc extends Mock implements AuthBloc {}
 
 class MockDeliveryBloc extends Mock implements DeliveryBloc {}
+
+class FakeDeliveryEvent extends Fake implements DeliveryEvent {}
 
 Delivery _delivery({
   String id = 'del-12345678',
@@ -45,6 +48,8 @@ Delivery _delivery({
 void main() {
   late MockAuthBloc authBloc;
   late MockDeliveryBloc deliveryBloc;
+
+  setUpAll(() => registerFallbackValue(FakeDeliveryEvent()));
 
   setUp(() {
     authBloc = MockAuthBloc();
@@ -102,6 +107,45 @@ void main() {
       expect(find.text('No deliveries yet'), findsOneWidget);
       expect(find.textContaining('Selam Traders'), findsNothing);
       expect(find.textContaining('Almaz Bekele'), findsNothing);
+    });
+  }
+
+  // E-6: a failed read is not "No deliveries yet".
+  for (final role in UserRole.values) {
+    testWidgets('${role.name}: a failed load says so, with Retry',
+        (tester) async {
+      signIn(role);
+      when(() => deliveryBloc.state)
+          .thenReturn(const DeliveryError(message: 'offline'));
+      when(() => deliveryBloc.add(any())).thenReturn(null);
+      tester.view.physicalSize = const Size(390, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<AuthBloc>.value(value: authBloc),
+            BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(body: DeliveriesTabScreen()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('deliveries_load_failed')), findsOneWidget);
+      expect(
+        find.text('Your deliveries could not be loaded.'),
+        findsOneWidget,
+      );
+      expect(find.text('No deliveries yet'), findsNothing);
+
+      clearInteractions(deliveryBloc);
+      await tester.tap(find.text('Retry'));
+      verify(() => deliveryBloc.add(any())).called(1);
     });
   }
 

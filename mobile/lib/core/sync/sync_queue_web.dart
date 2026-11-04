@@ -32,6 +32,10 @@ class SyncQueue {
 
   Future<int> getFailedCount() async => 0;
 
+  /// No queue on web, so nothing ever waits or fails in it.
+  Stream<({int pending, int failed})> watchCounts() =>
+      Stream.value((pending: 0, failed: 0));
+
   /// No queue on web: a write goes straight to the API, so a logout never
   /// deletes an unsent change (E-1).
   Future<int> getUnsentCountForUser(String userId) async => 0;

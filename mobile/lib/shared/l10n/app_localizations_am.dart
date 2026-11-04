@@ -2595,6 +2595,24 @@ class AppLocalizationsAm extends AppLocalizations {
   String get logoutAnyway => 'ቢሆንም ውጣ';
 
   @override
+  String get savedOnPhoneWillSend => 'በስልክዎ ላይ ተቀምጧል። ኔትወርክ ሲኖር ይላካል።';
+
+  @override
+  String get orderAcceptedSent => 'ትዕዛዙን ተቀብለዋል።';
+
+  @override
+  String get orderRejectedSent => 'ትዕዛዙን ውድቅ አድርገዋል። ገዢው ገንዘቡ ይመለስለታል።';
+
+  @override
+  String get homeTilesLoadFailed => 'እነዚህ ቁጥሮች ሊጫኑ አልቻሉም።';
+
+  @override
+  String get homeActionNeededLoadFailed => 'እርስዎን የሚጠብቁ ትዕዛዞችን ማረጋገጥ አልተቻለም።';
+
+  @override
+  String get deliveriesLoadFailed => 'ማድረሻዎችዎ ሊጫኑ አልቻሉም።';
+
+  @override
   String paymentStatusTitle(String status) {
     return '$status ክፍያ';
   }

@@ -2686,6 +2686,28 @@ class AppLocalizationsOm extends AppLocalizations {
   String get logoutAnyway => 'Haa ta\'u malee ba\'i';
 
   @override
+  String get savedOnPhoneWillSend =>
+      'Bilbila keessan irratti olkaa\'ameera. Yeroo neetworkiin jiru ni ergama.';
+
+  @override
+  String get orderAcceptedSent => 'Ajajicha fudhattaniittu.';
+
+  @override
+  String get orderRejectedSent =>
+      'Ajajicha diddaniittu. Maallaqni bitataaf ni deebi\'a.';
+
+  @override
+  String get homeTilesLoadFailed => 'Lakkoofsonni kun fe\'amuu hin dandeenye.';
+
+  @override
+  String get homeActionNeededLoadFailed =>
+      'Ajajoota isin eeggatan mirkaneessuun hin danda\'amne.';
+
+  @override
+  String get deliveriesLoadFailed =>
+      'Geejjibaleen keessan fe\'amuu hin dandeenye.';
+
+  @override
   String paymentStatusTitle(String status) {
     return 'Kaffaltii $status';
   }

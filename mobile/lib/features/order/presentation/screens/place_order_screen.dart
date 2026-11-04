@@ -26,6 +26,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
 /// Screen for buyers to place an order on a crop listing (the Buyer · Place
 /// order board): the listing in one line, the quantity in kg with minus and
@@ -221,11 +222,12 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 
     return Scaffold(
       body: BlocListener<OrderBloc, OrderState>(
-        listener: (context, state) {
+        listener: (context, state) async {
           if (state is OrderCreated) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(l10n.orderPlacedSuccess)),
-            );
+            // E-5: placed (sent), or saved on the phone to send later. Its
+            // snackbar goes before the request's.
+            await showSavedOrSent(context, sent: l10n.orderPlacedSuccess);
+            if (!context.mounted) return;
             _logOrderCreated(context);
             _fulfillIntentIfCovered(context, l10n);
             Navigator.pushReplacement(

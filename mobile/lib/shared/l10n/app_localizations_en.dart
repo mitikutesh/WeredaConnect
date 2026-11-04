@@ -2671,6 +2671,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get logoutAnyway => 'Log out anyway';
 
   @override
+  String get savedOnPhoneWillSend =>
+      'Saved on your phone. It will be sent when you have network.';
+
+  @override
+  String get orderAcceptedSent => 'You accepted the order.';
+
+  @override
+  String get orderRejectedSent =>
+      'You declined the order. The buyer gets the money back.';
+
+  @override
+  String get homeTilesLoadFailed => 'These numbers could not be loaded.';
+
+  @override
+  String get homeActionNeededLoadFailed =>
+      'Could not check for orders that need you.';
+
+  @override
+  String get deliveriesLoadFailed => 'Your deliveries could not be loaded.';
+
+  @override
   String paymentStatusTitle(String status) {
     return '$status payment';
   }

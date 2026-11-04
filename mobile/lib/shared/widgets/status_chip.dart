@@ -94,3 +94,61 @@ class StatusChip extends StatelessWidget {
     );
   }
 }
+
+/// A read that failed, said as such (E-6): an error pill with [message] and
+/// a [retryLabel] button, never an empty list or a zero that looks like
+/// "none".
+class LoadErrorChip extends StatelessWidget {
+  final String message;
+  final String retryLabel;
+  final VoidCallback onRetry;
+
+  const LoadErrorChip({
+    required this.message,
+    required this.retryLabel,
+    required this.onRetry,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const kind = StatusKind.error;
+    return Container(
+      padding: const EdgeInsetsDirectional.fromSTEB(12, 4, 4, 4),
+      decoration: BoxDecoration(
+        color: kind.background,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline, size: 16, color: kind.foreground),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: kind.foreground,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onRetry,
+            style: TextButton.styleFrom(
+              foregroundColor: kind.foreground,
+              minimumSize: const Size(48, 40),
+              textStyle: const TextStyle(
+                fontFamily: AppTheme.fontFamily,
+                fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            child: Text(retryLabel),
+          ),
+        ],
+      ),
+    );
+  }
+}

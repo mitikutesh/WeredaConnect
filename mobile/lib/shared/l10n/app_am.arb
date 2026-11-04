@@ -2509,6 +2509,12 @@
   "logoutUnpaidPayments": "{count, plural, =1{ለመላክ የሚጠብቅ 1 ክፍያ ይሰረዛል።} other{ለመላክ የሚጠብቁ {count} ክፍያዎች ይሰረዛሉ።}}",
   "logoutOfflineNeedsInternet": "ከመስመር ውጭ ነዎት። እንደገና ለመግባት ኢንተርኔት ያስፈልጋል።",
   "logoutAnyway": "ቢሆንም ውጣ",
+  "savedOnPhoneWillSend": "በስልክዎ ላይ ተቀምጧል። ኔትወርክ ሲኖር ይላካል።",
+  "orderAcceptedSent": "ትዕዛዙን ተቀብለዋል።",
+  "orderRejectedSent": "ትዕዛዙን ውድቅ አድርገዋል። ገዢው ገንዘቡ ይመለስለታል።",
+  "homeTilesLoadFailed": "እነዚህ ቁጥሮች ሊጫኑ አልቻሉም።",
+  "homeActionNeededLoadFailed": "እርስዎን የሚጠብቁ ትዕዛዞችን ማረጋገጥ አልተቻለም።",
+  "deliveriesLoadFailed": "ማድረሻዎችዎ ሊጫኑ አልቻሉም።",
   "paymentStatusTitle": "{status} ክፍያ",
   "@paymentStatusTitle": {
     "description": "Payment notification title with status",

@@ -431,9 +431,13 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     if (state is DeliveryError) {
+      // E-6: a failed read is not "No deliveries yet".
       return _EmptyState(
-        title: l10n.noDeliveries,
-        hint: l10n.deliveryNoDeliveriesHint,
+        key: const Key('deliveries_load_failed'),
+        icon: Icons.error_outline,
+        iconColor: AppTheme.statusError,
+        title: l10n.deliveriesLoadFailed,
+        hint: l10n.checkConnectionRetry,
         action: SizedBox(
           width: 200,
           child: FilledButton(
@@ -531,13 +535,23 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
   }
 }
 
-/// The tab's empty, initial and error states: a truck, a line, a hint.
+/// The tab's empty, initial and error states: a truck (an error mark for
+/// the error), a line, a hint.
 class _EmptyState extends StatelessWidget {
   final String title;
   final String? hint;
   final Widget? action;
+  final IconData icon;
+  final Color? iconColor;
 
-  const _EmptyState({required this.title, this.hint, this.action});
+  const _EmptyState({
+    required this.title,
+    this.hint,
+    this.action,
+    this.icon = Icons.local_shipping_outlined,
+    this.iconColor,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -548,9 +562,9 @@ class _EmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.local_shipping_outlined,
+              icon,
               size: 56,
-              color: AppTheme.textMuted.withAlpha(150),
+              color: iconColor ?? AppTheme.textMuted.withAlpha(150),
             ),
             const SizedBox(height: 16),
             Text(
