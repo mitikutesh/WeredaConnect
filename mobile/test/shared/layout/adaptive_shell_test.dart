@@ -1,4 +1,7 @@
+import 'dart:ui' show Tristate;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -13,6 +16,7 @@ import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/adaptive_shell.dart';
 import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
+import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
@@ -257,6 +261,198 @@ void main() {
       final am = await AppLocalizations.delegate.load(const Locale('am'));
       expect(find.text(am.trucker), findsWidgets);
       expect(find.text('User'), findsNothing);
+    });
+  });
+
+  // A-7: on a wide window the sidebar is the only way to the create button,
+  // Messages, Payments, Settings and Profile. It was missing from the
+  // semantics tree (the tab navigator's modal barrier hid it) and Tab
+  // skipped it (no item could take focus).
+  group('sidebar for screen readers and keyboards', () {
+    void window(WidgetTester tester, Size size) {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+    }
+
+    List<String> destinationLabels(AppLocalizations l10n, UserRole role) => [
+          for (final tab in [
+            ...tabsForRole(role),
+            ...sidebarExtrasForRole(role),
+          ])
+            tab.label(l10n),
+        ];
+
+    Tristate focusOf(WidgetTester tester, String label) => tester
+        .getSemantics(find.bySemanticsLabel(label))
+        .getSemanticsData()
+        .flagsCollection
+        .isFocused;
+
+    void expectFocused(WidgetTester tester, String label) =>
+        expect(focusOf(tester, label), Tristate.isTrue, reason: label);
+
+    void expectNotFocused(WidgetTester tester, String label) =>
+        expect(focusOf(tester, label), isNot(Tristate.isTrue), reason: label);
+
+    for (final role in UserRole.values) {
+      testWidgets('desktop ${role.name}: every item is a focusable button',
+          (tester) async {
+        window(tester, const Size(1300, 900));
+        final semantics = tester.ensureSemantics();
+        await tester.pumpWidget(buildApp(role, userName: 'Almaz'));
+        await tester.pumpAndSettle();
+        final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+        for (final label in destinationLabels(l10n, role)) {
+          expect(
+            tester.getSemantics(find.bySemanticsLabel(label)),
+            matchesSemantics(
+              label: label,
+              isButton: true,
+              isFocusable: true,
+              hasSelectedState: true,
+              isSelected: label == l10n.home,
+              hasTapAction: true,
+              hasFocusAction: true,
+            ),
+            reason: label,
+          );
+        }
+        for (final label in [l10n.settings, 'Almaz']) {
+          expect(
+            tester.getSemantics(find.bySemanticsLabel(label)),
+            matchesSemantics(
+              label: label,
+              isButton: true,
+              isFocusable: true,
+              hasSelectedState: true,
+              hasTapAction: true,
+              hasFocusAction: true,
+            ),
+            reason: label,
+          );
+        }
+        // The role's create button lives only in the desktop sidebar.
+        expect(
+          tester.getSemantics(find.bySemanticsLabel(fabLabels[role]!)),
+          matchesSemantics(
+            label: fabLabels[role],
+            isButton: true,
+            isFocusable: true,
+            hasEnabledState: true,
+            isEnabled: true,
+            hasTapAction: true,
+            hasFocusAction: true,
+          ),
+        );
+        semantics.dispose();
+      });
+    }
+
+    testWidgets('tablet rail: icon items keep their labels', (tester) async {
+      window(tester, const Size(800, 900));
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(buildApp(UserRole.trucker));
+      await tester.pumpAndSettle();
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+      for (final label in [
+        ...destinationLabels(l10n, UserRole.trucker),
+        l10n.settings,
+      ]) {
+        expect(
+          tester.getSemantics(find.bySemanticsLabel(label)),
+          matchesSemantics(
+            label: label,
+            isButton: true,
+            isFocusable: true,
+            hasSelectedState: true,
+            isSelected: label == l10n.home,
+            hasTapAction: true,
+            hasFocusAction: true,
+          ),
+          reason: label,
+        );
+      }
+      semantics.dispose();
+    });
+
+    for (final role in UserRole.values) {
+      testWidgets('desktop ${role.name}: Tab walks the sidebar, then the page',
+          (tester) async {
+        window(tester, const Size(1300, 900));
+        final semantics = tester.ensureSemantics();
+        await tester.pumpWidget(buildApp(role, userName: 'Almaz'));
+        await tester.pumpAndSettle();
+        final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+        final order = [
+          ...destinationLabels(l10n, role),
+          fabLabels[role]!,
+          l10n.settings,
+          'Almaz',
+        ];
+        for (final label in order) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+          expectFocused(tester, label);
+        }
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expectFocused(tester, 'open detail');
+        semantics.dispose();
+      });
+    }
+
+    testWidgets('a focused item shows a ring; Enter and Space open it',
+        (tester) async {
+      window(tester, const Size(1300, 900));
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(buildApp(UserRole.buyer, userName: 'Almaz'));
+      await tester.pumpAndSettle();
+
+      Iterable<Border?> rings(String label) => tester
+          .widgetList<DecoratedBox>(
+            find.descendant(
+              of: find.bySemanticsLabel(label),
+              matching: find.byType(DecoratedBox),
+            ),
+          )
+          .map((box) => (box.decoration as BoxDecoration?)?.border as Border?)
+          .where((border) => border != null);
+
+      expect(rings('Orders'), isEmpty);
+      // Home, Market, then Orders.
+      for (var i = 0; i < 3; i++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+      }
+      expectFocused(tester, 'Orders');
+      expectNotFocused(tester, 'Home');
+      expect(rings('Orders'), isNotEmpty);
+      expect(rings('Home'), isEmpty);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(find.text('orders'), findsOneWidget);
+
+      // Back to the profile tile, the sidebar's last item: Space opens it.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+      final count = [
+        ...tabsForRole(UserRole.buyer),
+        ...sidebarExtrasForRole(UserRole.buyer),
+      ].length;
+      for (var i = 0; i < count + 3; i++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+      }
+      expectFocused(tester, 'Almaz');
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      expect(find.text('profile'), findsOneWidget);
+      semantics.dispose();
     });
   });
 }

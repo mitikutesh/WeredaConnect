@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -205,28 +206,25 @@ class AdaptiveShell extends StatelessWidget {
       floatingActionButton:
           isDesktop ? null : _fab(context, role, onTabRoot: onTabRoot),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      body: Row(
-        children: [
-          // Sidebar / Rail
-          _Sidebar(
-            expanded: isDesktop,
-            selectedIndex: selectedIndex,
-            destinations: dests,
-            accent: AppTheme.roleAccent(role),
-            accentTint: AppTheme.roleAccentTint(role),
-            currentLocation: GoRouterState.of(context).matchedLocation,
-            onSelected: (i) => _onDestinationSelected(context, i, dests),
-            onProfileTap: () => context.go('/profile'),
-            onSettingsTap: () => context.go('/settings'),
-            actionButton: isDesktop
-                ? _fab(context, role, onTabRoot: onTabRoot, expanded: true)
-                : null,
-            role: role,
-          ),
-          // Content: the sidebar lists the account pages, so headers leave
-          // out their account button.
-          Expanded(child: SidebarScope(child: child)),
-        ],
+      body: _SidebarThenPage(
+        sidebar: _Sidebar(
+          expanded: isDesktop,
+          selectedIndex: selectedIndex,
+          destinations: dests,
+          accent: AppTheme.roleAccent(role),
+          accentTint: AppTheme.roleAccentTint(role),
+          currentLocation: GoRouterState.of(context).matchedLocation,
+          onSelected: (i) => _onDestinationSelected(context, i, dests),
+          onProfileTap: () => context.go('/profile'),
+          onSettingsTap: () => context.go('/settings'),
+          actionButton: isDesktop
+              ? _fab(context, role, onTabRoot: onTabRoot, expanded: true)
+              : null,
+          role: role,
+        ),
+        // Content: the sidebar lists the account pages, so headers leave
+        // out their account button.
+        page: SidebarScope(child: child),
       ),
     );
   }
@@ -284,6 +282,104 @@ class ShellPushedRoutesObserver extends NavigatorObserver {
 // ═══════════════════════════════════════════════════════════════════════
 // Private widgets
 // ═══════════════════════════════════════════════════════════════════════
+
+/// The sidebar beside the page, in that order for a screen reader and for
+/// Tab (A-7).
+///
+/// The tab's navigator puts a modal barrier under its page, and a barrier
+/// hides from screen readers everything painted before it in its semantics
+/// container: without a container of its own, the page hid the whole
+/// sidebar. The navigator also focuses the page's scope on every push, so
+/// the first Tab would stay in the page: while nothing is focused, Tab
+/// starts at the sidebar instead.
+class _SidebarThenPage extends StatefulWidget {
+  final Widget sidebar;
+  final Widget page;
+
+  const _SidebarThenPage({required this.sidebar, required this.page});
+
+  @override
+  State<_SidebarThenPage> createState() => _SidebarThenPageState();
+}
+
+class _SidebarThenPageState extends State<_SidebarThenPage> {
+  final FocusNode _sidebar = FocusNode(
+    debugLabel: 'sidebar',
+    skipTraversal: true,
+    canRequestFocus: false,
+  );
+
+  late final Map<Type, Action<Intent>> _actions = {
+    NextFocusIntent: _StartAtSidebarAction(_sidebar),
+  };
+
+  @override
+  void dispose() {
+    _sidebar.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Actions(
+      actions: _actions,
+      child: FocusTraversalGroup(
+        policy: OrderedTraversalPolicy(),
+        child: Row(
+          children: [
+            FocusTraversalOrder(
+              order: const NumericFocusOrder(0),
+              child: FocusTraversalGroup(
+                child: Focus(
+                  focusNode: _sidebar,
+                  child: Semantics(
+                    container: true,
+                    sortKey: const OrdinalSortKey(0),
+                    child: widget.sidebar,
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: FocusTraversalOrder(
+                order: const NumericFocusOrder(1),
+                child: FocusTraversalGroup(
+                  child: Semantics(
+                    container: true,
+                    sortKey: const OrdinalSortKey(1),
+                    child: widget.page,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tab with no item focused (only a page's scope) moves to the sidebar's
+/// first item; any other Tab moves on as usual.
+class _StartAtSidebarAction extends NextFocusAction {
+  final FocusNode sidebar;
+
+  _StartAtSidebarAction(this.sidebar);
+
+  @override
+  bool invoke(NextFocusIntent intent) {
+    if (primaryFocus is FocusScopeNode) {
+      final first = ReadingOrderTraversalPolicy()
+          .sortDescendants(sidebar.traversalDescendants, sidebar)
+          .firstOrNull;
+      if (first != null) {
+        first.requestFocus();
+        return true;
+      }
+    }
+    return super.invoke(intent);
+  }
+}
 
 /// Full sidebar (desktop) or compact rail (tablet).
 class _Sidebar extends StatelessWidget {
@@ -424,7 +520,81 @@ class _SidebarHeader extends StatelessWidget {
   }
 }
 
-class _SidebarItem extends StatefulWidget {
+/// A sidebar entry a keyboard and a screen reader can reach (A-7): it takes
+/// focus in Tab order, Enter or Space opens it, and a 2 px ring in
+/// [focusColor] shows keyboard focus. [builder] draws the entry, told
+/// whether the mouse is over it.
+class _SidebarButton extends StatefulWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final BorderRadius borderRadius;
+  final Color focusColor;
+  final Widget Function(BuildContext context, bool hovered) builder;
+
+  const _SidebarButton({
+    required this.label,
+    required this.onTap,
+    required this.borderRadius,
+    required this.focusColor,
+    required this.builder,
+    this.selected = false,
+  });
+
+  @override
+  State<_SidebarButton> createState() => _SidebarButtonState();
+}
+
+class _SidebarButtonState extends State<_SidebarButton> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  // Enter is a ButtonActivateIntent on the web, Space an ActivateIntent.
+  late final Map<Type, Action<Intent>> _actions = {
+    ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: _activate),
+    ButtonActivateIntent: CallbackAction<ButtonActivateIntent>(
+      onInvoke: _activate,
+    ),
+  };
+
+  Object? _activate(Intent _) {
+    widget.onTap();
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FocusableActionDetector(
+      actions: _actions,
+      mouseCursor: SystemMouseCursors.click,
+      onShowHoverHighlight: (value) => setState(() => _hovered = value),
+      onShowFocusHighlight: (value) => setState(() => _focused = value),
+      child: Semantics(
+        button: true,
+        selected: widget.selected,
+        label: widget.label,
+        onTap: widget.onTap,
+        excludeSemantics: true,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          child: DecoratedBox(
+            position: DecorationPosition.foreground,
+            decoration: BoxDecoration(
+              borderRadius: widget.borderRadius,
+              border: _focused
+                  ? Border.all(color: widget.focusColor, width: 2)
+                  : null,
+            ),
+            child: widget.builder(context, _hovered),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarItem extends StatelessWidget {
   final _NavDestination item;
   final bool selected;
   final bool expanded;
@@ -441,20 +611,13 @@ class _SidebarItem extends StatefulWidget {
     required this.onTap,
   });
 
-  @override
-  State<_SidebarItem> createState() => _SidebarItemState();
-}
-
-class _SidebarItemState extends State<_SidebarItem> {
-  bool _hovered = false;
-
   Widget _icon(Color color, double size) {
     final icon = Icon(
-      widget.selected ? widget.item.selectedIcon : widget.item.icon,
+      selected ? item.selectedIcon : item.icon,
       color: color,
       size: size,
     );
-    if (widget.item.tab != RoleTab.messages) return icon;
+    if (item.tab != RoleTab.messages) return icon;
     return BlocBuilder<InboxBloc, InboxState>(
       builder: (context, state) {
         final unread = state is InboxLoaded ? state.totalUnread : 0;
@@ -471,67 +634,60 @@ class _SidebarItemState extends State<_SidebarItem> {
 
   @override
   Widget build(BuildContext context) {
-    final bgColor = widget.selected
-        ? widget.accentTint
-        : _hovered
-            ? const Color(0xFFF3F1EB)
-            : Colors.transparent;
-    final iconColor = widget.selected ? widget.accent : AppTheme.unselectedNav;
-    final textColor = widget.selected ? widget.accent : AppTheme.unselectedNav;
+    final iconColor = selected ? accent : AppTheme.unselectedNav;
+    final textColor = selected ? accent : AppTheme.unselectedNav;
+    final borderRadius = BorderRadius.circular(12);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
-      child: Semantics(
-        button: true,
-        label: widget.item.label,
-        selected: widget.selected,
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _hovered = true),
-          onExit: (_) => setState(() => _hovered = false),
-          child: GestureDetector(
-            onTap: widget.onTap,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              height: 44,
-              padding: EdgeInsets.symmetric(
-                horizontal: widget.expanded ? 12 : 0,
-              ),
-              decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: widget.expanded
-                  ? Row(
-                      children: [
-                        _icon(iconColor, 20),
-                        const SizedBox(width: 12),
-                        // A long Amharic or Afaan Oromoo label ends in an
-                        // ellipsis instead of pushing out of the sidebar.
-                        Expanded(
-                          child: Text(
-                            widget.item.label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: textColor,
-                              fontSize: 14,
-                              fontWeight: widget.selected
-                                  ? FontWeight.w700
-                                  : FontWeight.w600,
-                            ),
-                          ),
+      child: _SidebarButton(
+        label: item.label,
+        selected: selected,
+        onTap: onTap,
+        borderRadius: borderRadius,
+        focusColor: accent,
+        builder: (context, hovered) => AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          height: 44,
+          padding: EdgeInsets.symmetric(
+            horizontal: expanded ? 12 : 0,
+          ),
+          decoration: BoxDecoration(
+            color: selected
+                ? accentTint
+                : hovered
+                    ? const Color(0xFFF3F1EB)
+                    : Colors.transparent,
+            borderRadius: borderRadius,
+          ),
+          child: expanded
+              ? Row(
+                  children: [
+                    _icon(iconColor, 20),
+                    const SizedBox(width: 12),
+                    // A long Amharic or Afaan Oromoo label ends in an
+                    // ellipsis instead of pushing out of the sidebar.
+                    Expanded(
+                      child: Text(
+                        item.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 14,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.w600,
                         ),
-                      ],
-                    )
-                  : Center(
-                      child: Tooltip(
-                        message: widget.item.label,
-                        child: _icon(iconColor, 22),
                       ),
                     ),
-            ),
-          ),
+                  ],
+                )
+              : Center(
+                  child: Tooltip(
+                    message: item.label,
+                    child: _icon(iconColor, 22),
+                  ),
+                ),
         ),
       ),
     );
@@ -593,93 +749,90 @@ class _SidebarFooter extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           // User profile tile
-          Semantics(
-            button: true,
+          _SidebarButton(
             label: name.isEmpty ? AppLocalizations.of(context)!.profile : name,
-            child: GestureDetector(
-              onTap: onProfileTap,
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: Container(
-                  padding: EdgeInsets.all(expanded ? 8 : 6),
-                  decoration: BoxDecoration(
-                    color: isProfileActive
-                        ? AppTheme.fieldGreenTint
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: expanded
-                      ? Row(
-                          children: [
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Color(0xFFE6ECF5),
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                initials,
-                                style: const TextStyle(
-                                  color: Color(0xFF2E4C7D),
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    name.isNotEmpty ? name : roleName,
-                                    style: const TextStyle(
-                                      color: AppTheme.soilDark,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  Text(
-                                    subtitle,
-                                    style: const TextStyle(
-                                      color: AppTheme.mutedSteel,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        )
-                      : Center(
-                          child: Tooltip(
-                            message: name,
-                            child: Container(
-                              width: 34,
-                              height: 34,
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Color(0xFFE6ECF5),
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                initials,
-                                style: const TextStyle(
-                                  color: Color(0xFF2E4C7D),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
+            selected: isProfileActive,
+            onTap: onProfileTap,
+            borderRadius: BorderRadius.circular(12),
+            focusColor: AppTheme.fieldGreen,
+            builder: (context, _) => Container(
+              padding: EdgeInsets.all(expanded ? 8 : 6),
+              decoration: BoxDecoration(
+                color: isProfileActive
+                    ? AppTheme.fieldGreenTint
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: expanded
+                  ? Row(
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Color(0xFFE6ECF5),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            initials,
+                            style: const TextStyle(
+                              color: Color(0xFF2E4C7D),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                         ),
-                ),
-              ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name.isNotEmpty ? name : roleName,
+                                style: const TextStyle(
+                                  color: AppTheme.soilDark,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                subtitle,
+                                style: const TextStyle(
+                                  color: AppTheme.mutedSteel,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )
+                  : Center(
+                      child: Tooltip(
+                        message: name,
+                        child: Container(
+                          width: 34,
+                          height: 34,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Color(0xFFE6ECF5),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            initials,
+                            style: const TextStyle(
+                              color: Color(0xFF2E4C7D),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
             ),
           ),
         ],
@@ -688,7 +841,7 @@ class _SidebarFooter extends StatelessWidget {
   }
 }
 
-class _SidebarFooterButton extends StatefulWidget {
+class _SidebarFooterButton extends StatelessWidget {
   final IconData icon;
   final IconData? selectedIcon;
   final String label;
@@ -706,67 +859,51 @@ class _SidebarFooterButton extends StatefulWidget {
   });
 
   @override
-  State<_SidebarFooterButton> createState() => _SidebarFooterButtonState();
-}
-
-class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
-  bool _hovered = false;
-
-  @override
   Widget build(BuildContext context) {
-    final color = widget.isActive ? AppTheme.fieldGreen : AppTheme.mutedSteel;
-    final displayIcon =
-        widget.isActive ? (widget.selectedIcon ?? widget.icon) : widget.icon;
-    final bgColor = widget.isActive
-        ? AppTheme.fieldGreenTint
-        : _hovered
-            ? const Color(0xFFF3F1EB)
-            : Colors.transparent;
+    final color = isActive ? AppTheme.fieldGreen : AppTheme.mutedSteel;
+    final displayIcon = isActive ? (selectedIcon ?? icon) : icon;
+    final borderRadius = BorderRadius.circular(10);
 
-    return Semantics(
-      button: true,
-      label: widget.label,
-      selected: widget.isActive,
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: Container(
-            height: 38,
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.expanded ? 10 : 0,
-            ),
-            decoration: BoxDecoration(
-              color: bgColor,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: widget.expanded
-                ? Row(
-                    children: [
-                      Icon(displayIcon, color: color, size: 20),
-                      const SizedBox(width: 10),
-                      Text(
-                        widget.label,
-                        style: TextStyle(
-                          color: color,
-                          fontSize: 13,
-                          fontWeight: widget.isActive
-                              ? FontWeight.w700
-                              : FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  )
-                : Center(
-                    child: Tooltip(
-                      message: widget.label,
-                      child: Icon(displayIcon, color: color, size: 20),
+    return _SidebarButton(
+      label: label,
+      selected: isActive,
+      onTap: onTap,
+      borderRadius: borderRadius,
+      focusColor: AppTheme.fieldGreen,
+      builder: (context, hovered) => Container(
+        height: 38,
+        padding: EdgeInsets.symmetric(
+          horizontal: expanded ? 10 : 0,
+        ),
+        decoration: BoxDecoration(
+          color: isActive
+              ? AppTheme.fieldGreenTint
+              : hovered
+                  ? const Color(0xFFF3F1EB)
+                  : Colors.transparent,
+          borderRadius: borderRadius,
+        ),
+        child: expanded
+            ? Row(
+                children: [
+                  Icon(displayIcon, color: color, size: 20),
+                  const SizedBox(width: 10),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 13,
+                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
                     ),
                   ),
-          ),
-        ),
+                ],
+              )
+            : Center(
+                child: Tooltip(
+                  message: label,
+                  child: Icon(displayIcon, color: color, size: 20),
+                ),
+              ),
       ),
     );
   }

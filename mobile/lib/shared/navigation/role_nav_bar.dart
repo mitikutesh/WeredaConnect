@@ -190,6 +190,14 @@ class RoleCreateButton extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(14),
             ),
+          ).copyWith(
+            // A visible ring for keyboard focus (A-7): the default overlay
+            // barely changes a dark fill.
+            side: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.focused)
+                  ? BorderSide(color: foreground, width: 2)
+                  : null,
+            ),
           ),
           icon: const Icon(Icons.add, size: 20),
           label: label,
