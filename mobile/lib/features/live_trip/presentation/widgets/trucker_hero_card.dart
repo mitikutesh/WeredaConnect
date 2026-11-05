@@ -473,25 +473,33 @@ class _LoadFailedCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return _DarkCard(
-      child: Row(
-        key: const Key('trucker_hero_load_failed'),
-        children: [
-          const Icon(Icons.cloud_off, size: 24, color: AppTheme.soilMuted),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              l10n.homeTripLoadFailed,
-              style: const TextStyle(fontSize: 14, color: Colors.white),
+      // Retry takes half the row at most, so a long label (Afaan Oromo,
+      // large text) wraps instead of pushing the row off the card.
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          key: const Key('trucker_hero_load_failed'),
+          children: [
+            const Icon(Icons.cloud_off, size: 24, color: AppTheme.soilMuted),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                l10n.homeTripLoadFailed,
+                style: const TextStyle(fontSize: 14, color: Colors.white),
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          TextButton(
-            key: const Key('trucker_hero_retry'),
-            onPressed: onRetry,
-            style: TextButton.styleFrom(foregroundColor: AppTheme.accentSoft),
-            child: Text(l10n.retry),
-          ),
-        ],
+            const SizedBox(width: 8),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth / 2),
+              child: TextButton(
+                key: const Key('trucker_hero_retry'),
+                onPressed: onRetry,
+                style:
+                    TextButton.styleFrom(foregroundColor: AppTheme.accentSoft),
+                child: Text(l10n.retry, textAlign: TextAlign.center),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

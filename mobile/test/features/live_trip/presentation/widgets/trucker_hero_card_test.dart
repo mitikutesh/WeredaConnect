@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
@@ -19,6 +20,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/live_trip/presentation/screens/trip_mode_screen.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 
 import '../../live_trip_fixtures.dart';
 import '../../live_trip_harness.dart' as harness;
@@ -327,6 +329,50 @@ void main() {
 
     expect(find.text(l10n.homeTripLoadFailed), findsNothing);
     expect(find.text('Meki → Addis Ababa'), findsOneWidget);
+  });
+
+  // Afaan Oromo at 200% on a 360 dp phone: "Irra Deebi'ii Yaali" wraps in
+  // half the row instead of pushing it off the card.
+  testWidgets('Retry fits in Oromo at 200% text', (tester) async {
+    tester.view.physicalSize = const Size(360, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    when(() => repository.getMostRelevantTrip('trucker-001'))
+        .thenAnswer((_) async => throw StateError('offline'));
+
+    await tester.pumpWidget(
+      BlocProvider<TripListingBloc>.value(
+        value: bloc,
+        child: MaterialApp(
+          // The app's delegates: Material has no Afaan Oromo of its own.
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            FallbackMaterialLocalizationsDelegate(),
+            GlobalWidgetsLocalizations.delegate,
+            FallbackCupertinoLocalizationsDelegate(),
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('om'),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: const Scaffold(
+            body: SingleChildScrollView(
+              child: TruckerHeroCard(userId: 'trucker-001'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    final row =
+        tester.getSize(find.byKey(const Key('trucker_hero_load_failed')));
+    final retry = tester.getSize(find.byKey(const Key('trucker_hero_retry')));
+    expect(retry.width, lessThanOrEqualTo(row.width / 2));
   });
 
   testWidgets('no trip: a quiet line and the recent routes as chips',
