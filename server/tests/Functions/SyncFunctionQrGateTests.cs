@@ -14,10 +14,12 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Functions;
 
 /// <summary>
-/// FUP-42: with no QR nonce on record, the pickup and confirm of a delivery that carries money are
+/// FUP-42: with no QR nonce on record, the drop-off confirm of a delivery that carries money is
 /// deferred, not let through. "Carries money" is decided by the order's own escrow
 /// (<c>escrow-order-{orderId}</c>, strongly consistent) before the <c>DeliveryIndex</c>, so an order
 /// escrow whose link to the delivery failed or lags still needs the QR. A read failure defers.
+/// FRD-11: a pickup at the farm (the trucker's <c>pickedUp</c>, the self-pickup buyer's
+/// <c>delivered</c>) needs the farmer's nonce whatever the money, and no escrow is read for it.
 /// </summary>
 public sealed class SyncFunctionQrGateTests
 {
@@ -52,16 +54,13 @@ public sealed class SyncFunctionQrGateTests
 
     // ---- an order escrow the DeliveryIndex does not know (link failed or lagging) ----
 
-    [Theory]
-    [InlineData("pending", "pickedUp", TruckerId, "trucker")]
-    [InlineData("pickedUp", "delivered", BuyerId, "buyer")]
-    public async Task UnlinkedOrderEscrow_NoNonce_IsDeferred_AndNothingIsWritten(
-        string from, string to, string userId, string role)
+    [Fact]
+    public async Task UnlinkedOrderEscrow_NoNonce_DropOff_IsDeferred_AndNothingIsWritten()
     {
-        SetupDelivery(TruckDelivery(from));
+        SetupDelivery(TruckDelivery("pickedUp"));
         SetupUnlinkedOrderEscrow();
 
-        var result = await SendAsync(to, userId, role);
+        var result = await SendAsync("delivered", BuyerId, "buyer");
 
         result.GetProperty("status").GetString().Should().Be("deferred");
         result.GetProperty("message").GetString().Should().StartWith(NoncePending);
@@ -124,10 +123,10 @@ public sealed class SyncFunctionQrGateTests
     [Fact]
     public async Task UnlinkedOrderEscrow_PastTheDeferWindow_FailsLikeALinkedOne()
     {
-        SetupDelivery(TruckDelivery("pending", createdAt: DateTime.UtcNow.AddDays(-20)));
+        SetupDelivery(TruckDelivery("pickedUp", createdAt: DateTime.UtcNow.AddDays(-20)));
         SetupUnlinkedOrderEscrow();
 
-        var result = await SendAsync("pickedUp", TruckerId, "trucker");
+        var result = await SendAsync("delivered", BuyerId, "buyer");
 
         result.GetProperty("status").GetString().Should().Be("error");
         result.GetProperty("message").GetString().Should()
@@ -170,20 +169,17 @@ public sealed class SyncFunctionQrGateTests
         await AssertNothingWrittenAsync();
     }
 
-    [Theory]
-    [InlineData("pending", "pickedUp", TruckerId, "trucker")]
-    [InlineData("pickedUp", "delivered", BuyerId, "buyer")]
-    public async Task IndexedEscrow_WithoutAnOrderEscrow_NoNonce_IsStillDeferred(
-        string from, string to, string userId, string role)
+    [Fact]
+    public async Task IndexedEscrow_WithoutAnOrderEscrow_NoNonce_DropOff_IsStillDeferred()
     {
         // An escrow paid through POST /escrow/initiate: on the DeliveryIndex, not at the order key.
-        SetupDelivery(TruckDelivery(from));
+        SetupDelivery(TruckDelivery("pickedUp"));
         _escrow.GetByDeliveryIdAsync(DeliveryId).Returns(new Dictionary<string, object>
         {
             { "escrowId", "esc-initiate-1" }, { "deliveryId", DeliveryId }, { "status", "escrowed" }
         });
 
-        var result = await SendAsync(to, userId, role);
+        var result = await SendAsync("delivered", BuyerId, "buyer");
 
         result.GetProperty("status").GetString().Should().Be("deferred");
         result.GetProperty("message").GetString().Should().StartWith(NoncePending);
@@ -194,28 +190,26 @@ public sealed class SyncFunctionQrGateTests
     [Fact]
     public async Task LegacyDeliveryWithoutAnOrder_IndexedEscrow_IsDeferred_AndNoOrderKeyIsRead()
     {
-        SetupDelivery(TruckDelivery("pending", orderId: null));
+        SetupDelivery(TruckDelivery("pickedUp", orderId: null));
         _escrow.GetByDeliveryIdAsync(DeliveryId).Returns(new Dictionary<string, object>
         {
             { "escrowId", "esc-legacy-1" }, { "deliveryId", DeliveryId }, { "status", "escrowed" }
         });
 
-        var result = await SendAsync("pickedUp", TruckerId, "trucker");
+        var result = await SendAsync("delivered", BuyerId, "buyer");
 
         result.GetProperty("status").GetString().Should().Be("deferred");
         await _escrow.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
     }
 
-    [Theory]
-    [InlineData("pending", "pickedUp", TruckerId, "trucker")]
-    [InlineData("pickedUp", "delivered", BuyerId, "buyer")]
-    public async Task NoEscrowAnywhere_NoNonce_PassesAsBefore(
-        string from, string to, string userId, string role)
+    [Fact]
+    public async Task NoEscrowAnywhere_NoNonce_DropOff_PassesAsBefore()
     {
-        // A cash delivery: neither the order key nor the DeliveryIndex finds an escrow.
-        SetupDelivery(TruckDelivery(from));
+        // A cash delivery picked up without a QR before FRD-11: neither the order key nor the
+        // DeliveryIndex finds an escrow, so its drop-off is not stranded.
+        SetupDelivery(TruckDelivery("pickedUp"));
 
-        var result = await SendAsync(to, userId, role);
+        var result = await SendAsync("delivered", BuyerId, "buyer");
 
         result.GetProperty("status").GetString().Should().Be("success");
         await _dynamoDb.Received(1).UpdateItemAsync(
@@ -224,35 +218,176 @@ public sealed class SyncFunctionQrGateTests
         Logs.Should().NotContain("QR_GATE_UNDECIDED");
     }
 
-    [Fact]
-    public async Task NoEscrowAnywhere_SelfPickupConfirm_NoNonce_PassesAsBefore()
-    {
-        SetupDelivery(SelfPickupDelivery("pending"));
-        _crops.GetByIdAsync("listing-fup42").Returns(new Dictionary<string, object>
-        {
-            { "cropId", "listing-fup42" }, { "farmerId", FarmerId }, { "latitude", "9.0" }, { "longitude", "38.7" }
-        });
+    // ---- FRD-11: a pickup at the farm needs the farmer's QR whatever the money ----
 
-        var result = await SendAsync("delivered", BuyerId, "buyer",
-            ("gpsDropoff", JsonSerializer.SerializeToElement(new { latitude = 9.0, longitude = 38.7 })));
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pickup_NoEscrowAnywhere_NoNonce_IsDeferred_WithoutReadingTheEscrow(bool qrSecrets)
+    {
+        // The trucker path. Before FRD-11 a delivery without an escrow (cash) was let through.
+        SetupDelivery(TruckDelivery("pending"));
+
+        var result = await SendAsync("pickedUp", TruckerId, "trucker", qrSecrets);
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        result.GetProperty("message").GetString().Should()
+            .Be("DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. Will retry automatically.");
+        await AssertNothingWrittenAsync();
+        await AssertNoEscrowReadAsync();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SelfPickup_NoEscrowAnywhere_NoNonce_IsDeferred_WithoutReadingTheEscrow(bool qrSecrets)
+    {
+        // The self-pickup path: the buyer's delivered is the pickup at the farm.
+        SetupDelivery(SelfPickupDelivery("pending"));
+        SetupListingAtTheFarm();
+
+        var result = await SendAsync("delivered", BuyerId, "buyer", qrSecrets, GpsAtTheFarm("gpsDropoff"));
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        result.GetProperty("message").GetString().Should().StartWith(NoncePending);
+        await AssertNothingWrittenAsync();
+        await AssertNoEscrowReadAsync();
+    }
+
+    [Fact]
+    public async Task Pickup_WithoutAnEscrowRepository_IsStillDeferred()
+    {
+        // No escrow store wired used to read as "cash" and let every pickup through.
+        SetupDelivery(TruckDelivery("pending"));
+        var function = new SyncFunction(_syncMeta, _crops, _dynamoDb,
+            "test-trips-table", DeliveriesTable, userRepo: Substitute.For<IUserRepository>(),
+            orderRepo: _orders, escrowRepo: null, qrSecretRepo: _qrSecrets);
+
+        var result = await SendWithAsync(function, "pickedUp", TruckerId, "trucker");
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        await AssertNothingWrittenAsync();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pickup_NoNonce_PastTheDeferWindow_IsRefused_MoneyOrNot(bool paid)
+    {
+        SetupDelivery(TruckDelivery("pending", createdAt: DateTime.UtcNow.AddDays(-20)));
+        if (paid)
+        {
+            SetupUnlinkedOrderEscrow();
+        }
+
+        var result = await SendAsync("pickedUp", TruckerId, "trucker", true);
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should()
+            .Be("DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server for this pickup. Contact support.");
+        await AssertNothingWrittenAsync();
+        await AssertNoEscrowReadAsync();
+    }
+
+    [Fact]
+    public async Task SelfPickup_NoNonce_PastTheDeferWindow_IsRefused()
+    {
+        SetupDelivery(SelfPickupDelivery("pending", createdAt: DateTime.UtcNow.AddDays(-20)));
+        SetupListingAtTheFarm();
+
+        var result = await SendAsync("delivered", BuyerId, "buyer", true, GpsAtTheFarm("gpsDropoff"));
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should()
+            .StartWith("DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server for this pickup.");
+        await AssertNothingWrittenAsync();
+    }
+
+    [Fact]
+    public async Task Pickup_ReadFailureCannotHappen_SoNoUndecidedAlarm()
+    {
+        // The pickup reads no escrow, so a failing escrow store neither defers it as undecided
+        // nor alarms; it waits for the farmer's nonce like any pickup.
+        SetupDelivery(TruckDelivery("pending"));
+        _escrow.GetByIdAsync(OrderEscrowId, true)
+            .ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
+
+        var result = await SendAsync("pickedUp", TruckerId, "trucker", true);
+
+        result.GetProperty("message").GetString().Should()
+            .Be("DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. Will retry automatically.");
+        Logs.Should().NotContain("QR_GATE_UNDECIDED");
+    }
+
+    [Fact]
+    public async Task Pickup_NoEscrow_FarmerNonceScanned_Succeeds_AndConsumesThePickupLeg()
+    {
+        SetupDelivery(TruckDelivery("pending"));
+        SetupFarmerNonce("farmer-nonce-1");
+
+        var result = await SendAsync("pickedUp", TruckerId, "trucker", true,
+            ("scannedQrNonce", "farmer-nonce-1"), GpsAtTheFarm("gpsPickup"));
 
         result.GetProperty("status").GetString().Should().Be("success");
-        await _escrow.Received(1).GetByIdAsync(OrderEscrowId, true);
+        await _qrSecrets.Received(1).MarkConsumedAsync(DeliveryId, "pickedUp", "op-fup42");
+        // The fix taken at the scan is stamped on the pickup.
+        await _dynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r => r.TableName == DeliveriesTable
+                && r.ExpressionAttributeNames.Values.Contains("gpsPickup")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SelfPickup_NoEscrow_FarmerNonceScanned_Succeeds_AndConsumesTheDeliveredLeg()
+    {
+        SetupDelivery(SelfPickupDelivery("pending"));
+        SetupListingAtTheFarm();
+        SetupFarmerNonce("farmer-nonce-1");
+
+        var result = await SendAsync("delivered", BuyerId, "buyer", true,
+            ("scannedQrNonce", "farmer-nonce-1"), GpsAtTheFarm("gpsDropoff"));
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        await _qrSecrets.Received(1).MarkConsumedAsync(DeliveryId, "delivered", "op-fup42");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pickup_FarmerNonceAlreadyUsed_IsRefusedAsAReplay(bool selfPickup)
+    {
+        SetupDelivery(selfPickup ? SelfPickupDelivery("pending") : TruckDelivery("pending"));
+        SetupListingAtTheFarm();
+        var leg = selfPickup ? "delivered" : "pickedUp";
+        _qrSecrets.GetAsync(DeliveryId).Returns(new DeliveryQrSecret
+        {
+            DeliveryId = DeliveryId,
+            Nonce = "farmer-nonce-1",
+            IssuedAt = DateTime.UtcNow.AddHours(-1).ToString("o"),
+            ConsumedPickedUpOp = selfPickup ? null : "op-earlier",
+            ConsumedDeliveredOp = selfPickup ? "op-earlier" : null
+        });
+
+        var result = selfPickup
+            ? await SendAsync(leg, BuyerId, "buyer", true,
+                ("scannedQrNonce", "farmer-nonce-1"), GpsAtTheFarm("gpsDropoff"))
+            : await SendAsync(leg, TruckerId, "trucker", true, ("scannedQrNonce", "farmer-nonce-1"));
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().StartWith("DELIVERY_NONCE_REPLAY: ");
+        await AssertNothingWrittenAsync();
     }
 
     // ---- read failures fail closed ----
 
-    [Theory]
-    [InlineData("pending", "pickedUp", TruckerId, "trucker")]
-    [InlineData("pickedUp", "delivered", BuyerId, "buyer")]
-    public async Task OrderEscrowReadFails_IsDeferred_AndNothingIsWritten(
-        string from, string to, string userId, string role)
+    [Fact]
+    public async Task OrderEscrowReadFails_DropOff_IsDeferred_AndNothingIsWritten()
     {
-        SetupDelivery(TruckDelivery(from));
+        SetupDelivery(TruckDelivery("pickedUp"));
         _escrow.GetByIdAsync(OrderEscrowId, true)
             .ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
 
-        var result = await SendAsync(to, userId, role);
+        var result = await SendAsync("delivered", BuyerId, "buyer");
 
         result.GetProperty("status").GetString().Should().Be("deferred");
         result.GetProperty("message").GetString().Should().StartWith(NoncePending);
@@ -267,11 +402,11 @@ public sealed class SyncFunctionQrGateTests
     [Fact]
     public async Task DeliveryIndexReadFails_IsDeferred_AndNothingIsWritten()
     {
-        SetupDelivery(TruckDelivery("pending"));
+        SetupDelivery(TruckDelivery("pickedUp"));
         _escrow.GetByDeliveryIdAsync(DeliveryId)
             .ThrowsAsync(new AmazonDynamoDBException("index unavailable"));
 
-        var result = await SendAsync("pickedUp", TruckerId, "trucker");
+        var result = await SendAsync("delivered", BuyerId, "buyer");
 
         result.GetProperty("status").GetString().Should().Be("deferred");
         result.GetProperty("message").GetString().Should().StartWith(NoncePending);
@@ -282,10 +417,10 @@ public sealed class SyncFunctionQrGateTests
     [Fact]
     public async Task ReadFails_ForALegacyDeliveryWithoutAnOrder_LogsADashForTheOrder()
     {
-        SetupDelivery(TruckDelivery("pending", orderId: null));
+        SetupDelivery(TruckDelivery("pickedUp", orderId: null));
         _escrow.GetByDeliveryIdAsync(DeliveryId).ThrowsAsync(new TimeoutException("slow"));
 
-        var result = await SendAsync("pickedUp", TruckerId, "trucker");
+        var result = await SendAsync("delivered", BuyerId, "buyer");
 
         result.GetProperty("status").GetString().Should().Be("deferred");
         Logs.Should().Contain("QR_GATE_UNDECIDED deliveryId=del-fup42 orderId=- reason=TimeoutException");
@@ -295,11 +430,11 @@ public sealed class SyncFunctionQrGateTests
     public async Task ReadFails_ExceptionTextCannotSpellAnAlarmToken()
     {
         // The detail is free text (it may echo input): MoneyAlarmLog.LogText turns _ into -.
-        SetupDelivery(TruckDelivery("pending"));
+        SetupDelivery(TruckDelivery("pickedUp"));
         _escrow.GetByIdAsync(OrderEscrowId, true)
             .ThrowsAsync(new AmazonDynamoDBException("ORDER_ESCROW_LINK_FAILED spoof"));
 
-        await SendAsync("pickedUp", TruckerId, "trucker");
+        await SendAsync("delivered", BuyerId, "buyer");
 
         Logs.Should().Contain("detail=ORDER-ESCROW-LINK-FAILED spoof");
         Logs.Should().NotContain("ORDER_ESCROW_LINK_FAILED");
@@ -371,6 +506,24 @@ public sealed class SyncFunctionQrGateTests
     private void SetupUnlinkedOrderEscrow() =>
         _escrow.GetByIdAsync(OrderEscrowId, true).Returns(OrderEscrowRow("escrowed"));
 
+    /// <summary>The listing's registered place, which a self-pickup's GPS is checked against.</summary>
+    private void SetupListingAtTheFarm() =>
+        _crops.GetByIdAsync("listing-fup42").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "listing-fup42" }, { "farmerId", FarmerId }, { "latitude", "9.0" }, { "longitude", "38.7" }
+        });
+
+    /// <summary>A fix at the farm, as the scan screen takes it.</summary>
+    private static (string Key, object Value) GpsAtTheFarm(string field) =>
+        (field, JsonSerializer.SerializeToElement(new { latitude = 9.0, longitude = 38.7 }));
+
+    private async Task AssertNoEscrowReadAsync()
+    {
+        await _escrow.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await _escrow.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+        await _escrow.DidNotReceive().GetByDeliveryIdAsync(Arg.Any<string>());
+    }
+
     private void SetupFarmerNonce(string nonce) =>
         _qrSecrets.GetAsync(DeliveryId).Returns(new DeliveryQrSecret
         {
@@ -422,9 +575,9 @@ public sealed class SyncFunctionQrGateTests
         return item;
     }
 
-    private static Dictionary<string, AttributeValue> SelfPickupDelivery(string status)
+    private static Dictionary<string, AttributeValue> SelfPickupDelivery(string status, DateTime? createdAt = null)
     {
-        var item = TruckDelivery(status);
+        var item = TruckDelivery(status, createdAt: createdAt);
         item["truckerId"] = new AttributeValue { S = "" };
         item["tripId"] = new AttributeValue { S = DeliveryId };
         item["deliveryType"] = new AttributeValue { S = "self_pickup" };
@@ -446,13 +599,16 @@ public sealed class SyncFunctionQrGateTests
     private Task<JsonElement> SendAsync(string status, string userId, string role,
         params (string Key, object Value)[] extra) => SendAsync(status, userId, role, qrSecrets: false, extra);
 
-    private async Task<JsonElement> SendAsync(string status, string userId, string role, bool qrSecrets,
+    private Task<JsonElement> SendAsync(string status, string userId, string role, bool qrSecrets,
+        params (string Key, object Value)[] extra) =>
+        SendWithAsync(new SyncFunction(_syncMeta, _crops, _dynamoDb,
+            "test-trips-table", DeliveriesTable, userRepo: Substitute.For<IUserRepository>(),
+            orderRepo: _orders, escrowRepo: _escrow, qrSecretRepo: qrSecrets ? _qrSecrets : null),
+            status, userId, role, extra);
+
+    private async Task<JsonElement> SendWithAsync(SyncFunction function, string status, string userId, string role,
         params (string Key, object Value)[] extra)
     {
-        var function = new SyncFunction(_syncMeta, _crops, _dynamoDb,
-            "test-trips-table", DeliveriesTable, userRepo: Substitute.For<IUserRepository>(),
-            orderRepo: _orders, escrowRepo: _escrow, qrSecretRepo: qrSecrets ? _qrSecrets : null);
-
         var data = new Dictionary<string, object> { { "status", status }, { "version", 1 } };
         foreach (var (key, value) in extra)
         {

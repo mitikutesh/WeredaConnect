@@ -2523,9 +2523,10 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
-    public async Task DeliveryUpdate_PickedUpWithoutGeneratorNonce_AllowsTransition()
+    public async Task DeliveryUpdate_PickedUpWithoutGeneratorNonce_OnAnOldDelivery_IsRefused()
     {
-        // Generator hasn't synced qrNonce yet — offline-first backward compat
+        // FRD-11: no farmer's nonce, no pickup, money or not. A recent delivery waits for the
+        // nonce (deferred, SyncFunctionQrGateTests); this one is past the 14-day window.
         SetupExistingDelivery("del-001", "trucker-001", "pending", 1);
 
         var updateOp = new SyncOperationRequest
@@ -2546,7 +2547,10 @@ public partial class SyncFunctionTests
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        Assert.Contains("success", response.Body);
+        // The body escapes the apostrophe, so the check stops before it.
+        Assert.Contains("DELIVERY_NONCE_MISSING: The farmer", response.Body);
+        Assert.Contains("never reached the server for this pickup.", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -4842,6 +4846,19 @@ public partial class SyncFunctionTests
         return item;
     }
 
+    private const string LegacyFarmerNonce = "farmer-nonce-001";
+
+    /// <summary>
+    /// <see cref="DeliveryItemForOrder"/> with the farmer's nonce on record (this function has no
+    /// secret store, so the legacy on-record nonce counts): a pickup needs it since FRD-11.
+    /// </summary>
+    private static Dictionary<string, AttributeValue> DeliveryItemWithFarmerNonce()
+    {
+        var item = DeliveryItemForOrder();
+        item["qrNonce"] = new AttributeValue { S = LegacyFarmerNonce };
+        return item;
+    }
+
     private static SyncOperationRequest MakeDeliveryUpdateOp(Dictionary<string, object> data, string action = "update") => new()
     {
         OperationId = "op-del-update",
@@ -5285,12 +5302,12 @@ public partial class SyncFunctionTests
     {
         SetupExistingOrder(status: "accepted");
         SetupOrderUpdateSucceeds();
-        SetupDeliveryQuery(DeliveryItemForOrder());
+        SetupDeliveryQuery(DeliveryItemWithFarmerNonce());
 
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
             {
-                { "status", "pickedUp" }, { "version", 1 }
+                { "status", "pickedUp" }, { "scannedQrNonce", LegacyFarmerNonce }, { "version", 1 }
             })), "trucker-001"), _context);
 
         Assert.Contains("success", response.Body);
@@ -5364,12 +5381,12 @@ public partial class SyncFunctionTests
         SetupExistingOrder(status: "accepted");
         _mockOrderRepo.UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
             .ThrowsAsync(new InvalidOperationException("orders table unavailable"));
-        SetupDeliveryQuery(DeliveryItemForOrder());
+        SetupDeliveryQuery(DeliveryItemWithFarmerNonce());
 
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
             {
-                { "status", "pickedUp" }, { "version", 1 }
+                { "status", "pickedUp" }, { "scannedQrNonce", LegacyFarmerNonce }, { "version", 1 }
             })), "trucker-001"), _context);
 
         Assert.Contains("success", response.Body);
