@@ -1,7 +1,7 @@
 # Data Models Contract
 
-**Version**: 1.4.0
-**Last Updated**: 2026-10-31
+**Version**: 1.4.1
+**Last Updated**: 2026-11-06
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
 
@@ -289,7 +289,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `respondedAt` | String? | No | The farmer's answer | server |
 | `rejectionReason` | String? | No | The farmer's text on a reject | farmer |
 | `cancelledAt` | String? | No | | server |
-| `cancelReason` | String? | No | The buyer's text, or a server code (`buyer_withdrew`, `transport_failed_buyer_cancelled`, `farmer_cancelled`, `farmer_response_expired`, `transport_not_arranged`, `escrow_refunded`, `account_deleted`) | buyer or server |
+| `cancelReason` | String? | No | The buyer's text, or a server code (`buyer_withdrew`, `transport_failed_buyer_cancelled`, `farmer_cancelled`, `farmer_response_expired`, `transport_not_arranged`, `escrow_refunded`, `account_deleted`, `listing_out_of_stock`) | buyer or server |
 | `pickupDeadlineAt` | String? | No | When an accepted order nobody picked up counts as a transport failure (order-lifecycle 1.15.0; on a trip order stamped at the trucker's accept since 2.0.0) | server |
 | `adminQueueReason`, `adminQueuedAt` | String? | No | The admin stuck-order queue (`hold_cap`) | server |
 | `contactOpen` | bool | Yes | Whether the parties may reach each other on this order (computed on every read) | server |
@@ -425,6 +425,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.2.0 | 2026-10-31 | Order gains the server-only `pickupPlace` and `dropoffPlace`, stamped at create (order-lifecycle 2.2.0); Isar schema and web mirror | @Server |
 | 1.3.0 | 2026-10-31 | Trip gains `destinationLatitude` and `destinationLongitude` (trip-listing-api 2.1.0), sent on create from the picked place | @Server |
 | 1.4.0 | 2026-10-31 | CropListing gains `photos` (embedded `CropPhoto`, crop-listing-api 1.6.0); Isar schema and web mirror | @Mobile |
+| 1.4.1 | 2026-11-06 | Order `cancelReason` lists the server code `listing_out_of_stock` (a funding that lost the listing's stock, order-lifecycle 2.4.0, ESC-18). No schema change | @Server |
 
 ---
 

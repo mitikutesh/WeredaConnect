@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.6.0
+1.7.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -107,6 +107,7 @@ The Crop Listing API enables farmers to post crop availability (type, quantity, 
 - `401 Unauthorized` — Invalid or expired JWT token
 - `409 Conflict` — Client version behind server version
 - `422 Unprocessable Entity` — Validation error (e.g., quantity > 10,000 quintals)
+- `CROP_HAS_ACTIVE_ORDERS` (1.7.0, per-operation `error` result of `POST /sync`): a `delete`, or an `update` to `status: deleted`, of a listing that orders still depend on (Validation rule 10)
 - `429 Too Many Requests` — Rate limit exceeded (100 req/s per user)
 - `500 Internal Server Error` — Server-side failure
 
@@ -308,7 +309,7 @@ Processing is asynchronous (usually 1 to 3 seconds). Until it finishes, or when 
 | `farmerName` | string | Yes | 1-100 chars | Farmer's display name |
 | `farmerPhone` | string | Yes | E.164 format | Farmer's number, server-stamped at create; returned only to the owning farmer and admins (1.3.0) |
 | `cropType` | enum | Yes | See Crop Types | Type of crop |
-| `quantity` | number | Yes | 0.01-10,000 | Quantity available |
+| `quantity` | number | Yes | 0.01-10,000 | Quantity available: the free stock. A funded order's quintals leave it at funding (1.7.0, rule 10) |
 | `unit` | string | Yes | Fixed: "quintals" | Unit of measurement (100kg) |
 | `pricePerKg` | number | Yes | 0.01-1,000 | Price per kilogram in ETB |
 | `currency` | string | Yes | Fixed: "ETB" | Currency code (Ethiopian Birr) |
@@ -324,6 +325,7 @@ Processing is asynchronous (usually 1 to 3 seconds). Until it finishes, or when 
 | `updatedAt` | string (ISO 8601) | Yes | — | Timestamp when listing was last updated |
 | `deletedAt` | string (ISO 8601) | No | — | Timestamp when listing was soft-deleted |
 | `version` | number | Yes | ≥1 | Optimistic concurrency control version |
+| `stockDecrementedFor`, `stockRestoredFor`, `stockRefusedFor` | string set | No | Server-only | Stored item only: the orders whose funding took stock, whose stock came back, and (1.7.0) whose funding found too little stock and took none. Never sent by clients; not in `GET /crops` |
 | `photoIds` | string[] (UUID) | Yes on create (1.6.0) | 2 to 4, distinct | Sync payload and stored item only: the listing's photos in display order (the first is the cover). Absent on listings made before 1.6.0 |
 | `photos` | object[] | No | none | Read responses only (1.6.0): one entry per `photoIds` element, same order. `GET /crops` gives `{photoId, thumbUrl}`; `GET /crops/{id}` gives `{photoId, thumbUrl, fullUrl}`. Omitted when the listing has no photos |
 
@@ -417,6 +419,12 @@ Processing is asynchronous (usually 1 to 3 seconds). Until it finishes, or when 
    - The server stores the ids as a list of strings. Rendition keys are derived from the listing's own `farmerId` and id, so a listing can only ever show photos that its farmer uploaded for that listing id.
    - The server does not check at create time that the renditions exist: processing is asynchronous and the create may arrive a second after the upload. Clients upload first (mobile: the sync executor holds a crop create until its photos are uploaded; web: upload, then `POST /sync`).
    - Shipped apps older than 1.6.0 send no `photoIds`, so their creates are refused. Accepted while only dev builds exist.
+
+10. **Listings that orders depend on** (1.7.0, ESC-18; `order-lifecycle.md` 2.4.0 Stock at funding):
+   - `quantity` is the free stock. Funding an order takes its quintals out of `quantity` in one conditional write that requires `quantity >= q`, and writes the remainder exactly (orders are kilograms with 2 decimals, so the stock can carry up to 4 after a funding; a restore adds back the same amount); a funding that finds less takes nothing and the order is cancelled with a full refund (`listing_out_of_stock`). So stock that funded and later orders hold is never part of `quantity`, and a farmer's quantity edit cannot drop below it: any value from 0.01 is accepted (rule 2), and an edit made before a funding fails the version check (`SYNC_CONFLICT`) instead of putting the taken stock back.
+   - A `delete`, or an `update` with `status: deleted`, is refused while any order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`: `CROP_HAS_ACTIVE_ORDERS: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.`, nothing written. Orders in any other status (unpaid, failed, cancelled, rejected, or past pickup) do not block. The orders are read through the orders table's `ListingIdIndex` (one query, every page). When they cannot be read the answer is the unprefixed `The listing's orders could not be checked. Please try again later.` (retryable, nothing written).
+   - Behind `COMMITMENTS_ENABLED` (on in dev, off in staging and prod), like `TRIP_HAS_BOOKINGS`: clients handle the code since `sync-protocol.md` 1.17.0, and the flag goes on in staging and prod only after the minimum app version gate (spec K1). Ownership is checked first (`CROP_UNAUTHORIZED`).
+   - Permanent on clients: the mobile queue reverts the listing from `GET /crops/{id}` and shows `errorCropHasActiveOrders`; web shows the same text (`sync-protocol.md` 1.17.0).
 
 ### Client-Side Validation
 
@@ -533,9 +541,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.4.0 | 2026-10-23 | No phone number in listing text (FUP-49): a `description` or `locationName` that holds an Ethiopian mobile number is refused with `CROP_CONTACT_IN_TEXT` on create and on an update that changes it (an unchanged echo is accepted), nothing written; permanent on clients; the forms run the same check first; detector in rule 6b; audio notes are not screened |
 | 1.5.0 | 2026-10-23 | Account under review (FRD-04, rule 8): a create from a farmer at risk tier CRITICAL is refused with `FRAUD_ACCOUNT_HELD` after the field rules and before the fraud listing checks, nothing written; permanent on clients (already handled since `sync-protocol.md` 1.18.0); updates and deletes not gated |
 | 1.6.0 | 2026-10-31 | Crop photos: `POST /crops/{id}/photos` hands out presigned PUT URLs (farmer only, 1 to 4 per call, type and length signed); an S3-triggered processor keeps only a 320 px thumb and a 1024 px full WebP, metadata stripped, original deleted; `photoIds` (2 to 4) required on create (rule 9); `GET /crops` returns `photos[].thumbUrl`, `GET /crops/{id}` adds `photos[].fullUrl` |
+| 1.7.0 | 2026-11-06 | Listings that orders depend on (ESC-18, rule 10): `quantity` is the free stock (exact, never rounded to 2 decimals by the server) and funding takes an order's quintals only when `quantity >= q` (a loser is cancelled with a full refund, `order-lifecycle.md` 2.4.0); server-only `stockRefusedFor` joins `stockDecrementedFor` and `stockRestoredFor`; with `COMMITMENTS_ENABLED`, a `delete` or an update to `status: deleted` is refused with `CROP_HAS_ACTIVE_ORDERS` while an order is `payment_submitted`, `funded`, `awaiting_transport` or `accepted` (orders read through `ListingIdIndex`; unreadable: retryable unprefixed error). No client change (`sync-protocol.md` 1.17.0 already handles the code) |
 
 ---
 
-**Last Updated**: 2026-10-31
-**Version**: 1.6.0
+**Last Updated**: 2026-11-06
+**Version**: 1.7.0
 **Status**: Implemented (Phase R3)

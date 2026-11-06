@@ -1,6 +1,6 @@
 # Feature: Three-Party Escrow, Commitments and Reputation
 
-**Status**: APPROVED 2026-09-30 (decisions D1 to D9 answered in §14, task ESC-00 done); implementation starts with P0. ESC-15 server slice decisions D10 to D15 added 2026-10-26 (§14.1)
+**Status**: APPROVED 2026-09-30 (decisions D1 to D9 answered in §14, task ESC-00 done); implementation starts with P0. ESC-15 server slice decisions D10 to D15 added 2026-10-26 (§14.1); ESC-18 decisions D16 to D18 added 2026-11-06 (§14.2)
 **Tasks**: EPIC ESC in `TASK.md` (ESC-00 to ESC-43, grouped by the phases in §13)
 **Code survey**: `specs/reports/escrow-flow-survey-2026-09-29.md` (every finding with file:line and its owning task)
 **Author**: AI-assisted
@@ -103,6 +103,7 @@ funded -> accepted             farmer accepted AND (trucker accepted OR self-pic
 funded -> awaiting_transport   farmer accepted AND transport failed
 funded -> rejected             farmer declined                               [full refund]
 funded -> cancelled            farmer deadline passed                        [full refund]
+funded -> cancelled            the listing's stock was gone at funding (listing_out_of_stock, D16) [full refund]
 
 awaiting_transport -> accepted     replacement trucker accepted, or buyer chose self-pickup
 awaiting_transport -> cancelled    buyer cancelled, buyer deadline passed, or farmer cancelled [full refund]
@@ -326,7 +327,7 @@ A new table `escrow-ledger` (PK `escrowId`, SK `ref`) holds one row per money mo
 
 **Capacity and stock at funding (F2, F5).**
 - Funding atomically decrements the listing (`quantity >= q`) and reserves trip capacity (`bookedQuintals + q <= capacity`).
-- If the stock loses the race, the order is `rejected` (`listing_out_of_stock`) with a full refund and no farmer penalty.
+- If the stock loses the race, the order is `cancelled` (`listing_out_of_stock`, `cancelledBy: system`, `faultParty: none`) with a full refund and no penalty for anyone (D16; 4.6 lists `listing_out_of_stock` as a cancel reason).
 - If the trip loses, the transport counts as failed, with no trucker penalty.
 - Reservations are idempotent per order, using the same pattern as `stockRestoredFor`. They are released whenever the order leaves the trip.
 
@@ -340,7 +341,7 @@ A new table `escrow-ledger` (PK `escrowId`, SK `ref`) holds one row per money mo
 - **Trip progress.**
   - The trucker can start the trip (`matched -> inTransit`) once at least one of its orders has been picked up.
   - The trip becomes `delivered` when all its deliveries are done or cancelled.
-- **Listings with active orders are protected.** A listing with funded or accepted orders cannot be deleted (`CROP_HAS_ACTIVE_ORDERS`), and its quantity cannot drop below what those orders hold. The farmer must first cancel those orders explicitly, which is penalized.
+- **Listings with active orders are protected.** A listing with funded or accepted orders cannot be deleted (`CROP_HAS_ACTIVE_ORDERS`; ESC-18 blocks it for orders `payment_submitted`, `funded`, `awaiting_transport` or `accepted`, D17), and its quantity cannot drop below what those orders hold (D18). The farmer must first cancel those orders explicitly, which is penalized.
 - **Delivery delete follows the state machine** (M9). After pickup, only an admin can cancel a delivery.
 
 ### 4.11 Reputation
@@ -453,7 +454,7 @@ There is no SMS fallback (D8). A party without a registered push device sees req
 | # | Case | Rule |
 |---|---|---|
 | A1 | Payment sent, webhook never arrives | T2 moves to `payment_failed` after 6h. Reconciliation matches late money by gateway ref and funds the order, or refunds it if the order is gone. |
-| A2 | Two buyers fund the last stock | Atomic decrement. The loser is `rejected` (`listing_out_of_stock`) with a full refund and no farmer penalty. |
+| A2 | Two buyers fund the last stock | Atomic decrement. The loser is `cancelled` (`listing_out_of_stock`, `cancelledBy: system`, `faultParty: none`) with a full refund and no penalty for anyone (D16). |
 | A3 | Two orders fund the last trip capacity | Atomic reservation. The loser's transport counts as failed, with no trucker penalty. |
 | A4 | Buyer pays twice | `ESCROW_024` plus idempotency. A second real payment found by the webhook is refunded automatically. |
 | A5 | Webhook amount differs from `orderTotal` | Rejected (exists today); goes to the admin queue. |
@@ -541,8 +542,8 @@ There is no SMS fallback (D8). A party without a registered push device sees req
 
 | # | Case | Rule |
 |---|---|---|
-| G1 | Listing edited after orders | Order prices stay immutable (exists today); quantity cannot drop below the held stock. |
-| G2 | Listing deleted with active orders | Blocked. |
+| G1 | Listing edited after orders | Order prices stay immutable (exists today); quantity cannot drop below the held stock (D18: `quantity` is the free stock, so this holds by construction). |
+| G2 | Listing deleted with active orders | Blocked (`CROP_HAS_ACTIVE_ORDERS`) while an order is `payment_submitted`, `funded`, `awaiting_transport` or `accepted` (D17). |
 | G3 | Trip date, price or route edited with bookings | Blocked; capacity cannot drop below what is booked. |
 | G4 | Trip departed with no bookings | Closes itself. |
 | G5 | Nothing sets a trip to `matched` today | The first accepted booking sets it. |
@@ -938,3 +939,11 @@ P0 ships on its own and is needed before live money regardless of the rest. P1 a
 | D13 | Command values | `farmerResponse` and `truckerResponse` take `accept` or `decline` (with an optional `declineReason`: `date`, `capacity`, `price`, `route`, `crop_not_ready`, `other`), not the stored response values. |
 | D14 | The trip is full or cancelled at funding, before the farmer answers | The order goes straight to `awaiting_transport` (`trip_full` / `trip_cancelled`) and the farmer is not asked. 4.7 said the order waits `funded` until the farmer accepts; this supersedes it. |
 | D15 | Scope of this slice | Server only, behind `COMMITMENTS_ENABLED` (off everywhere until the client PRs ship). Replacement truck and the switch to self-pickup remain ESC-19 and ESC-20; the exits from `awaiting_transport` are the buyer's cancel, the farmer's no-penalty cancel and the 48 hour deadline. Contracts: `order-lifecycle.md` 2.0.0, `sync-protocol.md` 1.29.0, `trip-listing-api.md` 2.0.0, `escrow-protocol.md` 1.34.0, `data-models.md` 1.1.0. |
+
+### 14.2 Decisions added on 2026-11-06 (ESC-18, listing guards)
+
+| # | Question | Decision |
+|---|---|---|
+| D16 | Is the funding that loses the stock race `rejected` or `cancelled`? | **`cancelled`** with `cancelReason: listing_out_of_stock`, `cancelledBy: system`, `faultParty: none`: no penalty for anyone, full refund (commission included) through the usual cancel refund path. 4.6 already lists `listing_out_of_stock` as a cancel reason; `rejected` stays the farmer's decline (`farmer_declined`), and its texts say so. A2 and 4.9 said `rejected`; this supersedes them. |
+| D17 | Which orders block deleting a listing? | `payment_submitted`, `funded`, `awaiting_transport` and `accepted`. `payment_submitted` is added so a payment in flight never funds a listing deleted a moment before; it resolves within 24 hours. After pickup the listing is no longer needed. Behind `COMMITMENTS_ENABLED`, like `TRIP_HAS_BOOKINGS`. |
+| D18 | What does "quantity cannot drop below the held stock" mean? | Listing `quantity` is the free stock: funding takes an order's quintals out of it. So a farmer's edit only changes the free stock and cannot reach what orders hold; the 0.01 minimum and the version check already enforce it, with no extra runtime check. Contracts: `order-lifecycle.md` 2.4.0, `crop-listing-api.md` 1.7.0, `sync-protocol.md` 1.35.0, `escrow-protocol.md` 1.35.0. |

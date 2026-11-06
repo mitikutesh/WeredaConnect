@@ -56,15 +56,15 @@ Each contract file follows this structure:
 
 | Contract | File | Version | Parties |
 |----------|------|---------|---------|
-| Sync Protocol | `sync-protocol.md` | 1.34.0 | Mobile, Backend |
+| Sync Protocol | `sync-protocol.md` | 1.35.0 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 2.12.0 | Mobile, Backend, Infrastructure |
 | User Entity | `user-entity.md` | 1.2.0 | Mobile, Backend, Infrastructure |
 | Rating API | `rating-api.md` | 1.1.0 | Mobile, Backend, Infrastructure |
-| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.3.0 | Mobile, Backend, Admin |
-| Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 1.34.0 | Mobile, Backend, Admin, Infrastructure, Telebirr Gateway |
+| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.4.0 | Mobile, Backend, Admin |
+| Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 1.35.0 | Mobile, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 1.22.0 | Mobile, Backend |
 | Account Deletion | `account-deletion.md` | 1.4.0 | Mobile, Backend, Infrastructure, Admin |
-| Crop Listing API | `crop-listing-api.md` | 1.6.0 | Mobile, Backend, Infrastructure |
+| Crop Listing API | `crop-listing-api.md` | 1.7.0 | Mobile, Backend, Infrastructure |
 | Trip Listing API | `trip-listing-api.md` | 2.3.0 | Mobile, Backend |
 | Buyer Match API | `match-api.md` | 1.2.0 | Mobile, Backend |
 | Match Events (`match_event` sync entity) | `match-events.md` | n/a | Mobile, Backend |
@@ -72,7 +72,7 @@ Each contract file follows this structure:
 | Notifications API (order, delivery and money inbox + push) | `notifications-api.md` | 1.4.0 | Mobile, Web, Backend, Infrastructure |
 | Live Trip (`location_ping` check-ins, track, admin trail, `truck_nearby`) | `live-trip-api.md` | 1.0.6 | Mobile, Web, Backend, Infrastructure, Admin |
 | In-App Messaging (context-scoped chat) | `messaging.md` | 1.3.0 | Mobile, Backend |
-| Data Models | `data-models.md` | 1.4.0 | Mobile, Backend |
+| Data Models | `data-models.md` | 1.4.1 | Mobile, Backend |
 
 ---
 
@@ -85,5 +85,5 @@ Each contract file follows this structure:
 
 ---
 
-**Last Updated**: 2026-10-26
+**Last Updated**: 2026-11-06
 **Version**: 1.0.0

@@ -173,11 +173,28 @@ public interface IOrderRepository
         string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields = null);
 
     /// <summary>
+    /// ESC-18: <see cref="TryAdvanceStatusAsync"/> that also requires <paramref name="unlessField"/>
+    /// to be absent or different from <paramref name="unlessValue"/> in the same condition, so a
+    /// change that landed after the caller's read (a farmer's accept) refuses the move. Null when
+    /// the order is missing, no longer <paramref name="fromStatus"/>, or carries that value.
+    /// </summary>
+    Task<Dictionary<string, object>?> TryAdvanceStatusUnlessAsync(
+        string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields,
+        string unlessField, string unlessValue);
+
+    /// <summary>
     /// ESC-15: every order of a trip (<c>TripIdIndex</c>, all pages, oldest first), for the trip's
     /// cancellation and the capacity bookkeeping. Deleted and cancelled orders are included; the
     /// caller filters by status.
     /// </summary>
     Task<List<Dictionary<string, object>>> QueryByTripAsync(string tripId);
+
+    /// <summary>
+    /// ESC-18: every order of a crop listing (<c>ListingIdIndex</c>, all pages, oldest first), for
+    /// the listing guards. Eventually consistent like every index read; the caller filters by
+    /// status.
+    /// </summary>
+    Task<List<Dictionary<string, object>>> QueryByListingAsync(string listingId);
 
     /// <summary>
     /// ESC-15: set <paramref name="fields"/> on the order WITHOUT bumping <c>version</c> or touching

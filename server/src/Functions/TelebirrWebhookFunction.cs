@@ -137,6 +137,8 @@ public class TelebirrWebhookFunction
         // ESC-01: order checkouts live in the idempotency table; funding needs the orders
         // and crops tables (stock) and records a transaction-audit row.
         _orderCheckoutRepo = new OrderCheckoutRepository(dynamoDb, idempotencyTable);
+        var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
+        _txAuditRepo = string.IsNullOrEmpty(txAuditTable) ? null : new TransactionAuditRepository(dynamoDb, txAuditTable);
         var ordersTable = Environment.GetEnvironmentVariable("ORDERS_TABLE");
         var cropsTable = Environment.GetEnvironmentVariable("CROPS_TABLE");
         if (!string.IsNullOrEmpty(ordersTable) && !string.IsNullOrEmpty(cropsTable))
@@ -150,12 +152,11 @@ public class TelebirrWebhookFunction
             // so the trips table is read and written here too (TRIPS_TABLE; absent → no stamps).
             var tripsTable = Environment.GetEnvironmentVariable("TRIPS_TABLE");
             var tripRepo = string.IsNullOrEmpty(tripsTable) ? null : new TripRepository(dynamoDb, tripsTable);
+            // ESC-18: a funding that loses the listing's stock ends the order, audited here too.
             _orderFunding = new OrderFundingService(
-                orderRepo, new CropRepository(dynamoDb, cropsTable), orderEscrowService, tripRepo);
+                orderRepo, new CropRepository(dynamoDb, cropsTable), orderEscrowService, tripRepo,
+                txAuditRepo: _txAuditRepo);
         }
-
-        var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
-        _txAuditRepo = string.IsNullOrEmpty(txAuditTable) ? null : new TransactionAuditRepository(dynamoDb, txAuditTable);
 
         _inboxRepo = new WebhookInboxRepository(dynamoDb, idempotencyTable);
         _clock = TimeProvider.System;

@@ -362,6 +362,26 @@ public class NotificationRulesTests
     }
 
     [Fact]
+    public void Cancelled_TheFundingLostTheListingStock_TellsBuyerAndFarmer_NotTheUnaskedTrucker()
+    {
+        // ESC-18 (spec A2): ended by the system right after funding. The buyer hears the order was
+        // cancelled with the money going back; the farmer's open request is closed the same way.
+        var old = TripOrder("funded", (OrderCommitment.FarmerResponseField, "pending"),
+            (OrderCommitment.TruckerResponseField, "not_asked"));
+        var row = With(old, ("status", OrderFundingService.OutOfStockStatus),
+            ("cancelReason", OrderFundingService.OutOfStockReason),
+            (OrderCommitment.CancelledByField, "system"),
+            (OrderCommitment.FaultPartyField, "none"));
+
+        var events = OrderChange(old, row);
+
+        Tells(events, (Buyer, T.OrderCancelled), (Farmer, T.OrderCancelled));
+        For(events, Buyer).Params[P.Reason].Should().Be("listing_out_of_stock");
+        For(events, Buyer).Params[P.CancelledBy].Should().Be("system");
+        For(events, Farmer).Params[P.Reason].Should().Be("listing_out_of_stock");
+    }
+
+    [Fact]
     public void Cancelled_ByTheFarmer_FromAwaitingTransport_LeavesTheFarmerAndTheDecliningTruckerOut()
     {
         var old = TripOrder(OrderCommitment.AwaitingTransportStatus,

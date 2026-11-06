@@ -103,7 +103,8 @@ public partial class SyncFunction
     // it sees CommitmentsEnabled, which an object initializer may set after the constructor.
     private OrderFundingService? _orderFundingInstance;
     private OrderFundingService _orderFunding
-        => _orderFundingInstance ??= new OrderFundingService(_orderRepo, _cropRepo, _orderEscrowService, _tripRepo, CommitmentsEnabled);
+        => _orderFundingInstance ??= new OrderFundingService(
+            _orderRepo, _cropRepo, _orderEscrowService, _tripRepo, CommitmentsEnabled, _transactionAuditRepo);
 
     /// <summary>
     /// ESC-15: sequential farmer → trucker commitments, the awaiting_transport status and the trip
@@ -2727,6 +2728,16 @@ public partial class SyncFunction
                                 Message = $"CROP_INVALID_TRANSITION: Cannot transition from '{currentCropStatus}' to '{newCropStatus}'."
                             };
                         }
+
+                        // ESC-18: an update to 'deleted' is a delete, with the same guard.
+                        if (newCropStatus == "deleted")
+                        {
+                            var removalRefusal = await CheckListingRemovalAllowedAsync(operation, context);
+                            if (removalRefusal != null)
+                            {
+                                return removalRefusal;
+                            }
+                        }
                     }
 
                     // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
@@ -2795,6 +2806,13 @@ public partial class SyncFunction
                             Status = "error",
                             Message = "CROP_UNAUTHORIZED: You can only delete your own crop listings."
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "crop", authenticatedUserId, context);
+                    }
+
+                    // ESC-18: not while orders still depend on the listing.
+                    var removalRefusal = await CheckListingRemovalAllowedAsync(operation, context);
+                    if (removalRefusal != null)
+                    {
+                        return removalRefusal;
                     }
 
                     var deleteResult = await _cropRepo.DeleteAsync(operation.EntityId, clientVersion);
@@ -6825,10 +6843,12 @@ public partial class SyncFunction
                 }
             }
 
-            // 6D: When order transitions to "funded", decrease listing quantity
+            // 6D: an order that becomes "funded" takes its stock. Clients cannot set the
+            // system-managed status, so this is a backstop on the shared funding path: a funding
+            // that lost the listing's stock is ended there with a full refund (ESC-18).
             if (appliedStatus == "funded")
             {
-                await TryDecreaseListingQuantityAsync(existingOrder, context);
+                await _orderFunding.EnsureFundedSideEffectsAsync(updateResult.Value ?? existingOrder, "system", _batchAudit, context);
             }
 
             var newVersion = version + 1;
@@ -6845,15 +6865,14 @@ public partial class SyncFunction
                     operation.EntityId, newVersion, existingOrder, context);
                 if (fundedData != null)
                 {
-                    // System-driven follow-on transition — record it as a system actor.
-                    await EmitTxAuditAsync(context, operation.EntityId, "order", operation.EntityId,
-                        "payment_verified", "payment_submitted", "funded",
-                        ctxOverride: AuditContext.ForSystem());
+                    // The funding is audited inside; a row ended for lack of stock (ESC-18) is one
+                    // version further on.
+                    var fundedVersion = OrderVersionOf(fundedData);
                     return new SyncOperationResult
                     {
                         OperationId = operation.OperationId,
                         Status = "success",
-                        ServerVersion = newVersion + 1,
+                        ServerVersion = fundedVersion > 0 ? fundedVersion : newVersion + 1,
                         ServerData = fundedData
                     };
                 }
@@ -7244,16 +7263,6 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// When an order becomes "funded", take the ordered quantity off the crop listing
-    /// (the listing becomes "reserved" at 0). Idempotent per order and best-effort: a
-    /// failure logs the alarmable ORDER_STOCK_DECREMENT_FAILED token and never blocks
-    /// the order update (ESC-01, <see cref="OrderFundingService.DecrementStockAsync"/>).
-    /// </summary>
-    private Task TryDecreaseListingQuantityAsync(
-        Dictionary<string, object> order, ILambdaContext context)
-        => _orderFunding.DecrementStockAsync(order, context);
-
-    /// <summary>
     /// Whether the environment runs mocked payments (no real Telebirr gateway).
     /// Set by infra for dev/staging (TELEBIRR_MOCK=true); never set in prod or
     /// when the live gateway is enabled.
@@ -7299,11 +7308,18 @@ public partial class SyncFunction
                 return null;
             }
 
+            // System-driven follow-on transition, recorded as a system actor before its side
+            // effects, so an out-of-stock end (ESC-18) follows it in the order's trail.
+            await EmitTxAuditAsync(context, orderId, "order", orderId,
+                "payment_verified", "payment_submitted", "funded",
+                ctxOverride: AuditContext.ForSystem());
+
             // Same side effects as a live Telebirr payment (ESC-01): stock off the listing
-            // and the order escrow, both idempotent per order.
-            await _orderFunding.EnsureFundedSideEffectsAsync(result.Value!, "system", _batchAudit, context);
+            // and the order escrow, both idempotent per order. ESC-18: a funding that lost the
+            // listing's stock ends the order with a full refund; the buyer gets that row back.
+            var effects = await _orderFunding.EnsureFundedSideEffectsAsync(result.Value!, "system", _batchAudit, context);
             context.Logger.LogInformation($"Order {MoneyAlarmLog.LogId(orderId)} auto-funded (mock payments).");
-            return result.Value;
+            return effects.OutOfStockOrder ?? result.Value;
         }
         catch (Exception ex)
         {

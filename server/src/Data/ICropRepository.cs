@@ -51,10 +51,12 @@ public interface ICropRepository
     Task<StockRestoreResult> RestoreStockAsync(string cropId, string orderId, double quintals);
 
     /// <summary>
-    /// ESC-01: take a funded order's stock off the listing (clamped at 0; the listing
-    /// becomes <c>reserved</c> at 0). Idempotent per <paramref name="orderId"/> through the
-    /// listing's <c>stockDecrementedFor</c> set and race-safe (version CAS with retry), so
-    /// a payment redelivery can safely repeat it.
+    /// ESC-01: take a funded order's stock off the listing (the listing becomes <c>reserved</c>
+    /// at 0). Idempotent per <paramref name="orderId"/> through the listing's
+    /// <c>stockDecrementedFor</c> set and race-safe (version CAS with retry), so a payment
+    /// redelivery can safely repeat it. ESC-18: the write requires <c>quantity &gt;= quintals</c>;
+    /// when the listing holds less, nothing is taken, the order is added to the listing's
+    /// <c>stockRefusedFor</c> set and the result is <see cref="StockDecrementResult.InsufficientStock"/>.
     /// </summary>
     Task<StockDecrementResult> TryDecrementStockAsync(string cropId, string orderId, double quintals);
 
@@ -101,6 +103,12 @@ public enum StockDecrementResult
 
     /// <summary>The listing does not exist.</summary>
     ListingNotFound,
+
+    /// <summary>
+    /// ESC-18: the listing holds less than the order needs (another funding took the stock first,
+    /// or it never had enough). Nothing was taken; the funding lost the race.
+    /// </summary>
+    InsufficientStock,
 }
 
 /// <summary>
@@ -115,7 +123,10 @@ public enum StockRestoreResult
     /// <summary>This call gave the stock back.</summary>
     Restored,
 
-    /// <summary>The stock was already given back for this order; nothing changed.</summary>
+    /// <summary>
+    /// The stock was already given back for this order, or (ESC-18) the order's funding was refused
+    /// for lack of stock and took none; nothing changed.
+    /// </summary>
     AlreadyRestored,
 
     /// <summary>The listing does not exist.</summary>

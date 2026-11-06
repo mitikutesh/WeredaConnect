@@ -2289,6 +2289,50 @@ describe('MonitoringStack', () => {
     expect(alarms.filter((a) => a.Properties.AlarmName === 'wereda-connect-dev-order-escrow-problems')).toHaveLength(1);
   });
 
+  test('ESC-18: the Telebirr webhook feeds order-escrow-problems with its refund-schedule failures', () => {
+    const template = monitoringTemplate(true);
+    const WEBHOOK_LG = '/aws/lambda/wereda-connect-dev-telebirr-webhook';
+    const filter = metricFilter(template, WEBHOOK_LG, 'OrderEscrowProblems');
+    const NO_ESCROW_LINE = 'ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId=ord-1 reason=no_escrow';
+    for (const line of [REFUND_SCHEDULE_LINE, NO_ESCROW_LINE]) {
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, line)).toBe(true);
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, `2026-11-06T10:00:00.000Z\t4f1c7a2e-req\terror\t${line}`)).toBe(true);
+    }
+    // The payment-problem tokens stay on their own metric.
+    for (const line of [
+      'ORDER_STOCK_DECREMENT_FAILED orderId=ord-1 listingId=crop-1 reason=insufficient_stock status=farmer_accepted',
+      'Order escrow refund scheduled: orderId=ord-1 reason=listing_out_of_stock',
+    ]) {
+      expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+    }
+    expect(filter.Properties.MetricTransformations[0]).toEqual(
+      expect.objectContaining({ MetricName: 'OrderEscrowProblems', MetricValue: '1' }),
+    );
+    // One alarm for every source, and the webhook alarm explains the insufficient_stock exception.
+    const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm')) as Array<{
+      Properties: { AlarmName: string; AlarmDescription?: string };
+    }>;
+    expect(alarms.filter((a) => a.Properties.AlarmName === 'wereda-connect-dev-order-escrow-problems')).toHaveLength(1);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-order-escrow-problems',
+      Metrics: [customMetric('OrderEscrowProblems', 900)],
+    });
+    const payment = alarms.find((a) => a.Properties.AlarmName === 'wereda-connect-dev-order-payment-problems');
+    expect(payment?.Properties.AlarmDescription).toContain('reason=insufficient_stock');
+    for (const alarm of alarms) {
+      expect([alarm.Properties.AlarmName, (alarm.Properties.AlarmDescription ?? '').length < 1024])
+        .toEqual([alarm.Properties.AlarmName, true]);
+    }
+  });
+
+  test('ESC-18: with the live gateway off there is no webhook log group to filter', () => {
+    const template = monitoringTemplate(false);
+    const filters = Object.values(template.findResources('AWS::Logs::MetricFilter')) as Array<{
+      Properties: { LogGroupName: string };
+    }>;
+    expect(filters.some((f) => f.Properties.LogGroupName === '/aws/lambda/wereda-connect-dev-telebirr-webhook')).toBe(false);
+  });
+
   test('ESC-13: queue alarms count overdue manual payouts and admin-queue entries on escrow-cron', () => {
     const template = monitoringTemplate(false);
     const payouts = metricFilter(template, ESCROW_CRON_LG, 'ManualPayoutsOverdue');
@@ -2620,7 +2664,7 @@ describe('MonitoringStack', () => {
 
   test('ESC-13: every money filter needs a term with an underscore (the server defangs client text by turning _ into -)', () => {
     const patterns = moneyFilterPatterns(monitoringTemplate(true));
-    expect(patterns.length).toBe(14);
+    expect(patterns.length).toBe(15); // ESC-18 added the webhook's refund-schedule filter
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the
