@@ -180,6 +180,28 @@ public class OrderFundingStockRaceTests
     }
 
     [Fact]
+    public async Task OutOfStock_PenalizesNobody()
+    {
+        // Spec 4.11 "not penalized: races the system caused" and D16. Reputation reads only what the
+        // row records: no fault party, a system cancel, and no farmer or trucker answer written (a
+        // decline or an expiry would be counted against them; the farmer was never really asked).
+        _crops.TryDecrementStockAsync(ListingId, "order-a", 5.0).Returns(StockDecrementResult.InsufficientStock);
+
+        var result = await Service().EnsureFundedSideEffectsAsync(FundedOrder("order-a", 500), "telebirr", null, _context);
+
+        var ended = result.OutOfStockOrder!;
+        ended[OrderCommitment.FaultPartyField].Should().Be(OrderCommitment.Party.None);
+        ended[OrderCommitment.CancelledByField].Should().Be(OrderCommitment.Party.System);
+        ended["cancelReason"].Should().Be(OrderFundingService.OutOfStockReason);
+        OrderCommitment.ServerCancelReasons.Should().Contain(OrderFundingService.OutOfStockReason);
+        var fields = _advanced.Single().Fields!;
+        fields.Should().NotContainKey(OrderCommitment.FarmerResponseField)
+            .And.NotContainKey(OrderCommitment.TruckerResponseField)
+            .And.NotContainKey(OrderCommitment.DeclineReasonField)
+            .And.NotContainKey(OrderCommitment.TransportFailureField);
+    }
+
+    [Fact]
     public async Task TwoFundingsThatBothFit_BothWin()
     {
         ListingHolds(10, racers: 2);
