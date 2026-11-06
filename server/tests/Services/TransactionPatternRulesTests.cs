@@ -171,12 +171,31 @@ public class TransactionPatternRulesTests
     [Fact]
     public void KycStructuring_ThirdPaymentInTheBandWithin30Days_Hits()
     {
-        var history = new[] { Paid(9_800m, 10), Paid(9_500m, 20, verified: false), Paid(2_000m, 5) };
+        // This payment (submitted now, so not verified yet) is the third with two funded ones in the band.
+        var history = new[] { Paid(9_800m, 10), Paid(9_500m, 20), Paid(2_000m, 5) };
 
-        var hit = TransactionPatternRules.KycThresholdStructuring(9_990m, history, Now, Settings);
+        var hit = TransactionPatternRules.KycThresholdStructuring(9_990m, history, false, Now, Settings);
 
         hit!.Value.SignalType.Should().Be("KYC_THRESHOLD_STRUCTURING");
         hit.Value.Description.Should().Contain("3 payments between 9,000 and 10,000 ETB in 30 days");
+    }
+
+    [Fact]
+    public void KycStructuring_CheckoutsThatWereNeverVerified_DoNotCount()
+    {
+        // An abandoned checkout on another order is no payment: only funded ones repeat.
+        var history = new[] { Paid(9_800m, 10), Paid(9_500m, 20, verified: false), Paid(9_700m, 3, verified: false) };
+
+        TransactionPatternRules.KycThresholdStructuring(9_990m, history, false, Now, Settings).Should().BeNull();
+    }
+
+    [Fact]
+    public void KycStructuring_FaydaVerifiedBuyer_HasNoGateToDodge()
+    {
+        var history = new[] { Paid(9_800m, 1), Paid(9_700m, 2), Paid(9_600m, 3) };
+
+        TransactionPatternRules.KycThresholdStructuring(9_900m, history, true, Now, Settings).Should().BeNull();
+        TransactionPatternRules.KycThresholdStructuring(9_900m, history, false, Now, Settings).Should().NotBeNull();
     }
 
     [Fact]
@@ -185,7 +204,7 @@ public class TransactionPatternRulesTests
         // Up to and including 10,000 ETB needs no Fayda ID.
         var history = new[] { Paid(10_000m, 1), Paid(9_000m, 2) };
 
-        TransactionPatternRules.KycThresholdStructuring(10_000m, history, Now, Settings).Should().NotBeNull();
+        TransactionPatternRules.KycThresholdStructuring(10_000m, history, false, Now, Settings).Should().NotBeNull();
     }
 
     [Theory]
@@ -195,14 +214,14 @@ public class TransactionPatternRulesTests
     {
         var history = new[] { Paid(9_800m, 1), Paid(9_700m, 2), Paid(9_600m, 3) };
 
-        TransactionPatternRules.KycThresholdStructuring((decimal)amount, history, Now, Settings).Should().BeNull();
+        TransactionPatternRules.KycThresholdStructuring((decimal)amount, history, false, Now, Settings).Should().BeNull();
     }
 
     [Fact]
     public void KycStructuring_TooFewOrTooOld_Misses()
     {
-        TransactionPatternRules.KycThresholdStructuring(9_900m, new[] { Paid(9_800m, 1) }, Now, Settings).Should().BeNull();
-        TransactionPatternRules.KycThresholdStructuring(9_900m, new[] { Paid(9_800m, 1), Paid(9_700m, 31) }, Now, Settings)
+        TransactionPatternRules.KycThresholdStructuring(9_900m, new[] { Paid(9_800m, 1) }, false, Now, Settings).Should().BeNull();
+        TransactionPatternRules.KycThresholdStructuring(9_900m, new[] { Paid(9_800m, 1), Paid(9_700m, 31) }, false, Now, Settings)
             .Should().BeNull();
     }
 
@@ -222,7 +241,7 @@ public class TransactionPatternRulesTests
     [Theory]
     [InlineData(10, 2)] // 20 %
     [InlineData(4, 4)] // 100 % of too few orders: a new user is not flagged
-    [InlineData(1, 1)]
+    [InlineData(1, 1)] // one order cancelled by a new user
     public void CancelAfterFundRate_BelowTheLimitOrTooFewOrders_Misses(int funded, int cancelled)
     {
         TransactionPatternRules.CancelAfterFundRate("trucker", funded, cancelled, Settings).Should().BeNull();
@@ -247,15 +266,17 @@ public class TransactionPatternRulesTests
 
     // ── delivery time impossible for the distance ────────
 
-    // Jimma to Addis Ababa: about 259 km great circle, at least 130 minutes at 120 km/h.
+    // Jimma to Addis Ababa: about 259 km great circle, at least 130 minutes at 120 km/h. The confirm reached
+    // the server at Now; the pickup reached it serverTime before, and the trucker's phone made the pickup scan
+    // captureTime before Now.
     private static DeliveryTimeFacts Trip(
         TimeSpan serverTime, TimeSpan captureTime, double dropoffLat = 9.03, double dropoffLng = 38.74) => new(
         7.67, 36.83, dropoffLat, dropoffLng,
-        Now.AddHours(-1), Now.AddHours(-1) + serverTime,
-        Now.AddHours(-3), Now.AddHours(-3) + captureTime);
+        Now - serverTime, Now,
+        Now - captureTime);
 
     [Fact]
-    public void ImpossibleDeliveryTime_BothClocksSayTooFast_Hits()
+    public void ImpossibleDeliveryTime_PickupArrivalAndCaptureBothTooRecent_Hits()
     {
         var hit = TransactionPatternRules.ImpossibleDeliveryTime(
             Trip(TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(25)), Settings);
@@ -274,10 +295,35 @@ public class TransactionPatternRulesTests
     }
 
     [Fact]
-    public void ImpossibleDeliveryTime_WrongPhoneClockButSlowServerTime_Misses()
+    public void ImpossibleDeliveryTime_TruckerClockBehind_OnlyLengthensTheTrip()
+    {
+        // A phone on a manually set local clock, six hours behind: the pickup capture looks older, never newer.
+        TransactionPatternRules.ImpossibleDeliveryTime(Trip(TimeSpan.FromMinutes(20), TimeSpan.FromHours(6) + TimeSpan.FromMinutes(20)), Settings)
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void ImpossibleDeliveryTime_CaptureAfterArrivalButSlowServerTime_Misses()
     {
         TransactionPatternRules.ImpossibleDeliveryTime(Trip(TimeSpan.FromHours(5), TimeSpan.FromMinutes(-30)), Settings)
             .Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.0, 9.03, 38.74)]
+    [InlineData(7.67, 36.83, 0.0, 0.0)]
+    public void ImpossibleDeliveryTime_APointAtZeroZeroIsNoFix_Skips(double pickupLat, double pickupLng, double dropoffLat, double dropoffLng)
+    {
+        // (0, 0) to Addis Ababa is thousands of km: it would always look impossible.
+        var fast = Trip(TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(20)) with
+        {
+            PickupLat = pickupLat,
+            PickupLng = pickupLng,
+            DropoffLat = dropoffLat,
+            DropoffLng = dropoffLng
+        };
+
+        TransactionPatternRules.ImpossibleDeliveryTime(fast, Settings).Should().BeNull();
     }
 
     [Fact]
@@ -297,7 +343,7 @@ public class TransactionPatternRulesTests
         TransactionPatternRules.ImpossibleDeliveryTime(fast with { DropoffLng = null }, Settings).Should().BeNull();
         TransactionPatternRules.ImpossibleDeliveryTime(fast with { PickedUpAtUtc = null }, Settings).Should().BeNull();
         TransactionPatternRules.ImpossibleDeliveryTime(fast with { PickupCapturedAtUtc = null }, Settings).Should().BeNull();
-        TransactionPatternRules.ImpossibleDeliveryTime(fast with { DeliveredCapturedAtUtc = null }, Settings).Should().BeNull();
+        TransactionPatternRules.ImpossibleDeliveryTime(fast with { ConfirmedAtUtc = null }, Settings).Should().BeNull();
     }
 
     [Fact]
@@ -310,7 +356,7 @@ public class TransactionPatternRulesTests
     }
 
     [Fact]
-    public void DeliveryTimeFactsFrom_ReadsTheWrittenRowAndTheConfirmTimestamp()
+    public void DeliveryTimeFactsFrom_ReadsOnlyTheWrittenRow()
     {
         var confirmedAt = Now.ToString("o", CultureInfo.InvariantCulture);
         var row = new Dictionary<string, AttributeValue>
@@ -322,13 +368,10 @@ public class TransactionPatternRulesTests
             [TransactionPatternRules.PickupCapturedAtField] = new() { S = Now.AddMinutes(-30).ToString("o", CultureInfo.InvariantCulture) }
         };
 
-        var facts = TransactionPatternRules.DeliveryTimeFactsFrom(row, Now.AddMinutes(-2).ToString("o", CultureInfo.InvariantCulture));
+        var facts = TransactionPatternRules.DeliveryTimeFactsFrom(row);
 
         facts.Should().Be(new DeliveryTimeFacts(7.67, 36.83, 9.03, 38.74,
-            Now.AddMinutes(-20), Now, Now.AddMinutes(-30), Now.AddMinutes(-2)));
-        // A confirm timestamp from a fast phone clock is not a capture time.
-        TransactionPatternRules.DeliveryTimeFactsFrom(row, Now.AddMinutes(10).ToString("o", CultureInfo.InvariantCulture))
-            .DeliveredCapturedAtUtc.Should().BeNull();
+            Now.AddMinutes(-20), Now, Now.AddMinutes(-30)));
     }
 
     private static AttributeValue Point(double lat, double lng) => new()

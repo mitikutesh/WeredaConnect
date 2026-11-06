@@ -97,9 +97,10 @@ internal readonly record struct PatternHit(string SignalType, string Description
 internal readonly record struct PaymentSample(decimal AmountEtb, DateTime PaidAtUtc, bool Verified);
 
 /// <summary>
-/// FRD-09: what the delivery row and the confirming operation say about the trip between the two QR
-/// scans. Server times are when the scans reached the server; capture times are when the phones made
-/// them (the sync operation's <c>timestamp</c>), which differ when a phone was offline.
+/// FRD-09: what the written delivery row says about the trip between the two QR scans. The server times
+/// are when the scans reached the server; <see cref="PickupCapturedAtUtc"/> is when the trucker's phone
+/// made the pickup scan (the pickup operation's <c>timestamp</c>), which is earlier when it was offline.
+/// The confirming operation's own <c>timestamp</c> is not used: it comes from the buyer's phone.
 /// </summary>
 internal readonly record struct DeliveryTimeFacts(
     double? PickupLat,
@@ -108,8 +109,7 @@ internal readonly record struct DeliveryTimeFacts(
     double? DropoffLng,
     DateTime? PickedUpAtUtc,
     DateTime? ConfirmedAtUtc,
-    DateTime? PickupCapturedAtUtc,
-    DateTime? DeliveredCapturedAtUtc);
+    DateTime? PickupCapturedAtUtc);
 
 /// <summary>
 /// FRD-09 transaction pattern rules as pure decisions over data the caller read (no I/O, deterministic
@@ -187,19 +187,23 @@ internal static class TransactionPatternRules
 
     /// <summary>
     /// Repeated amounts just under the KYC threshold: this payment is in the band and, with the buyer's
-    /// other payments in the band over the last <c>FRAUD_KYC_BAND_WINDOW_DAYS</c>, makes at least
-    /// <c>FRAUD_KYC_BAND_REPEATS</c>. Submitted payments count, verified or not: the attempt is the pattern.
+    /// other verified (funded) payments in the band over the last <c>FRAUD_KYC_BAND_WINDOW_DAYS</c>, makes
+    /// at least <c>FRAUD_KYC_BAND_REPEATS</c>. A checkout that was submitted and never verified on another
+    /// order does not count. This payment counts as the one that triggers: the rule runs when it is
+    /// submitted, before any gateway can verify it. A buyer who is already Fayda-verified has no gate to
+    /// dodge, so the rule does not run for them.
     /// </summary>
     public static PatternHit? KycThresholdStructuring(
-        decimal amountEtb, IReadOnlyList<PaymentSample> history, DateTime nowUtc, TransactionPatternSettings settings)
+        decimal amountEtb, IReadOnlyList<PaymentSample> history, bool buyerFaydaVerified, DateTime nowUtc,
+        TransactionPatternSettings settings)
     {
-        if (!InKycBand(amountEtb, settings))
+        if (buyerFaydaVerified || !InKycBand(amountEtb, settings))
         {
             return null;
         }
 
         var since = nowUtc.AddDays(-settings.KycBandWindowDays);
-        var count = 1 + history.Count(p => p.PaidAtUtc >= since && InKycBand(p.AmountEtb, settings));
+        var count = 1 + history.Count(p => p.Verified && p.PaidAtUtc >= since && InKycBand(p.AmountEtb, settings));
         if (count < settings.KycBandRepeats)
         {
             return null;
@@ -214,7 +218,10 @@ internal static class TransactionPatternRules
     /// <summary>
     /// Cancel-after-fund rate: of the party's funded orders in the window (this cancel included), the share
     /// the party cancelled reaches <c>FRAUD_CANCEL_RATE_PERCENT</c>, over at least
-    /// <c>FRAUD_CANCEL_RATE_MIN_ORDERS</c> funded orders, so one cancel by a new user never fires.
+    /// <c>FRAUD_CANCEL_RATE_MIN_ORDERS</c> funded orders. Rates count orders: a new user's cancel of one order
+    /// never fires, but a trip cancel counts every paid order it took the transport from, so one cancel of
+    /// a trip carrying at least the minimum of paid orders can fire on its own (each of those buyers lost
+    /// the transport they paid for).
     /// </summary>
     public static PatternHit? CancelAfterFundRate(
         string party, int fundedOrders, int cancelledAfterFund, TransactionPatternSettings settings)
@@ -251,17 +258,20 @@ internal static class TransactionPatternRules
     /// <summary>
     /// Delivery time impossible for the distance: the great circle distance between the pickup and the
     /// drop-off scans, at least <c>FRAUD_DELIVERY_MIN_KM</c>, needs more time at <c>FRAUD_MAX_DELIVERY_KMH</c>
-    /// than the trip took. The trip time is the longer of the server time (scan arrivals) and the capture
-    /// time (when the phones made the scans): a phone offline at pickup syncs the pickup late, which shortens
-    /// the server time but not the capture time, and a phone with a wrong clock skews the capture time but
-    /// not the server time, so only a trip both say was too fast fires. Missing coordinates or times skip.
+    /// than the trip took. The trip ends at the server's <c>confirmedAt</c> and starts at the earlier of the
+    /// pickup's arrival (<c>pickedUpAt</c>) and the trucker's capture time (<c>pickupCapturedAt</c>): a phone
+    /// offline at the farm syncs the pickup late, but its capture time keeps the real start, and a trucker's
+    /// clock set behind only makes the trip look longer (one set ahead is not stored, beyond 5 minutes). No
+    /// time from the buyer's phone is used, so a buyer's clock or client cannot shorten the trip. Missing
+    /// coordinates or times skip, and so does a point at (0, 0), which is a phone with no fix, not a place.
     /// </summary>
     public static PatternHit? ImpossibleDeliveryTime(DeliveryTimeFacts facts, TransactionPatternSettings settings)
     {
         if (facts.PickupLat is not { } pickupLat || facts.PickupLng is not { } pickupLng
             || facts.DropoffLat is not { } dropoffLat || facts.DropoffLng is not { } dropoffLng
+            || IsNoFix(pickupLat, pickupLng) || IsNoFix(dropoffLat, dropoffLng)
             || facts.PickedUpAtUtc is not { } pickedUpAt || facts.ConfirmedAtUtc is not { } confirmedAt
-            || facts.PickupCapturedAtUtc is not { } pickupCaptured || facts.DeliveredCapturedAtUtc is not { } deliveredCaptured)
+            || facts.PickupCapturedAtUtc is not { } pickupCaptured)
         {
             return null;
         }
@@ -272,7 +282,7 @@ internal static class TransactionPatternRules
             return null;
         }
 
-        var tripTime = Max(confirmedAt - pickedUpAt, deliveredCaptured - pickupCaptured);
+        var tripTime = Max(confirmedAt - pickedUpAt, confirmedAt - pickupCaptured);
         var fastest = TimeSpan.FromHours(km / settings.MaxDeliveryKmh);
         if (tripTime >= fastest)
         {
@@ -287,22 +297,18 @@ internal static class TransactionPatternRules
     }
 
     /// <summary>
-    /// The facts of a confirmed delivery from its written row (<c>gpsPickup</c>, <c>gpsDropoff</c>,
-    /// <c>pickedUpAt</c>, <c>confirmedAt</c>, <see cref="PickupCapturedAtField"/>) and the confirming
-    /// operation's <c>timestamp</c>, checked against <c>confirmedAt</c> like the pickup one was.
+    /// The facts of a confirmed delivery from its written row: <c>gpsPickup</c>, <c>gpsDropoff</c>,
+    /// <c>pickedUpAt</c>, <c>confirmedAt</c> and <see cref="PickupCapturedAtField"/>.
     /// </summary>
-    public static DeliveryTimeFacts DeliveryTimeFactsFrom(
-        Dictionary<string, AttributeValue> row, string? deliveredOperationTimestamp)
+    public static DeliveryTimeFacts DeliveryTimeFactsFrom(Dictionary<string, AttributeValue> row)
     {
         var (pickupLat, pickupLng) = Point(row, "gpsPickup");
         var (dropoffLat, dropoffLng) = Point(row, "gpsDropoff");
-        var confirmedAt = ParseUtc(Text(row, "confirmedAt"));
         return new DeliveryTimeFacts(
             pickupLat, pickupLng, dropoffLat, dropoffLng,
             ParseUtc(Text(row, "pickedUpAt")),
-            confirmedAt,
-            ParseUtc(Text(row, PickupCapturedAtField)),
-            confirmedAt is { } arrived ? PlausibleCaptureTime(deliveredOperationTimestamp, arrived) : null);
+            ParseUtc(Text(row, "confirmedAt")),
+            ParseUtc(Text(row, PickupCapturedAtField)));
     }
 
     /// <summary>
@@ -349,6 +355,9 @@ internal static class TransactionPatternRules
         && double.IsFinite(number)
             ? number
             : null;
+
+    /// <summary>(0, 0) is what a phone without a GPS fix reports, in the Gulf of Guinea: not a place.</summary>
+    private static bool IsNoFix(double lat, double lng) => lat == 0 && lng == 0;
 
     private static bool RateReached(int total, int hits, int minTotal, int percent) =>
         total >= minTotal && (long)hits * 100 >= (long)percent * total;

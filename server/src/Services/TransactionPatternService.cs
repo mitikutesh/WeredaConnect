@@ -47,15 +47,17 @@ internal sealed class TransactionPatternService
     /// <summary>
     /// The three buyer payment rules on a submitted payment of <paramref name="orderId"/>: amount above 3
     /// sigma, new account with a large amount, repeated amounts just under the Fayda threshold. One read of
-    /// the buyer's orders (the current order left out of the history); the account age comes from the
-    /// caller, which read the buyer's row for the KYC gate.
+    /// the buyer's orders (the current order left out of the history); the account age and the Fayda flag
+    /// come from the caller, which read the buyer's row for the KYC gate. One payment is not counted twice
+    /// for the same reason: when it is structuring, the new-account signal is not written for it.
     /// </summary>
     public async Task<IReadOnlyList<PatternHit>> CheckPaymentAsync(
-        string buyerId, string orderId, decimal amountEtb, string? accountCreatedAt, DateTime nowUtc)
+        string buyerId, string orderId, decimal amountEtb, string? accountCreatedAt, bool buyerFaydaVerified,
+        DateTime nowUtc)
     {
         var settings = Settings;
         var hits = new List<PatternHit>();
-        if (amountEtb <= 0)
+        if (string.IsNullOrWhiteSpace(buyerId) || amountEtb <= 0)
         {
             return hits;
         }
@@ -79,10 +81,16 @@ internal sealed class TransactionPatternService
             }
         }
 
+        var structuring = TransactionPatternRules.KycThresholdStructuring(
+            amountEtb, history, buyerFaydaVerified, nowUtc, settings);
         Add(hits, TransactionPatternRules.AmountAnomaly(amountEtb, history, settings));
-        Add(hits, TransactionPatternRules.NewAccountLargeAmount(
-            amountEtb, TransactionPatternRules.ParseUtc(accountCreatedAt), nowUtc, settings));
-        Add(hits, TransactionPatternRules.KycThresholdStructuring(amountEtb, history, nowUtc, settings));
+        if (structuring == null)
+        {
+            Add(hits, TransactionPatternRules.NewAccountLargeAmount(
+                amountEtb, TransactionPatternRules.ParseUtc(accountCreatedAt), nowUtc, settings));
+        }
+
+        Add(hits, structuring);
         return hits;
     }
 
@@ -97,7 +105,8 @@ internal sealed class TransactionPatternService
         string userId, string party, IReadOnlyCollection<string> cancelledOrderIds, DateTime nowUtc)
     {
         var settings = Settings;
-        if (_orders == null || cancelledOrderIds.Count == 0 || party is not (Farmer or Trucker))
+        if (_orders == null || string.IsNullOrWhiteSpace(userId) || cancelledOrderIds.Count == 0
+            || party is not (Farmer or Trucker))
         {
             return Array.Empty<PatternHit>();
         }
@@ -129,7 +138,7 @@ internal sealed class TransactionPatternService
     public async Task<IReadOnlyList<PatternHit>> CheckDisputeRateAsync(string buyerId, string escrowId, DateTime nowUtc)
     {
         var settings = Settings;
-        if (_escrows == null)
+        if (_escrows == null || string.IsNullOrWhiteSpace(buyerId))
         {
             return Array.Empty<PatternHit>();
         }
@@ -194,6 +203,13 @@ internal sealed class TransactionPatternService
     {
         var since = nowUtc.AddDays(-settings.WindowDays);
         var rows = new List<Dictionary<string, object>>();
+
+        // QueryOrdersAsync falls back to a table Scan when every id it gets is empty: never send it one.
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return rows;
+        }
+
         Dictionary<string, AttributeValue>? start = null;
         for (var page = 0; page < settings.MaxPages; page++)
         {

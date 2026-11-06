@@ -78,9 +78,9 @@ public class TransactionPatternServiceTests
     [Fact]
     public async Task Payment_ThirdInBandPayment_HitsStructuringOnly()
     {
-        BuyerOrders(Order("o-1", 9_700m, 3), Order("o-2", 9_900m, 12, verified: false), Order("o-3", 1_500m, 20));
+        BuyerOrders(Order("o-1", 9_700m, 3), Order("o-2", 9_900m, 12), Order("o-3", 1_500m, 20));
 
-        var hits = await Service().CheckPaymentAsync(BuyerId, "o-now", 9_800m, Iso(Now.AddYears(-1)), Now);
+        var hits = await Service().CheckPaymentAsync(BuyerId, "o-now", 9_800m, Iso(Now.AddYears(-1)), false, Now);
 
         hits.Select(h => h.SignalType).Should().Equal("KYC_THRESHOLD_STRUCTURING");
         // The buyer's own GSI, one page: no Scan and no other partition.
@@ -93,22 +93,59 @@ public class TransactionPatternServiceTests
         // A retried payment of o-now: its own row (already payment_submitted) must not count as a repeat.
         BuyerOrders(Order("o-now", 9_800m, 0), Order("o-1", 9_700m, 3));
 
-        var hits = await Service().CheckPaymentAsync(BuyerId, "o-now", 9_800m, Iso(Now.AddYears(-1)), Now);
+        var hits = await Service().CheckPaymentAsync(BuyerId, "o-now", 9_800m, Iso(Now.AddYears(-1)), false, Now);
 
         hits.Should().BeEmpty();
     }
 
+    private void TwoEarlierPaymentsInTheBand(bool verified) =>
+        BuyerOrders(Order("o-6", 9_500m, 2, verified: verified), Order("o-7", 9_600m, 3, verified: verified));
+
     [Fact]
-    public async Task Payment_AllThreeRulesCanHitTogether_InOrder()
+    public async Task Payment_StructuringOnANewAccount_IsNotAlsoTheNewAccountSignal()
     {
-        var settings = TransactionPatternSettings.Default with { NewAccountLargeEtb = 5_000m };
-        BuyerOrders(Order("o-1", 1_000m, 1), Order("o-2", 1_100m, 1), Order("o-3", 900m, 2), Order("o-4", 1_000m, 2),
-            Order("o-5", 1_050m, 3), Order("o-6", 9_500m, 2, verified: false), Order("o-7", 9_600m, 3, verified: false));
+        // One payment, one reason: a 3 day old account's third funded-band payment is structuring only.
+        TwoEarlierPaymentsInTheBand(verified: true);
 
-        var hits = await Service(settings).CheckPaymentAsync(BuyerId, "o-now", 9_900m, Iso(Now.AddDays(-3)), Now);
+        var hits = await Service().CheckPaymentAsync(BuyerId, "o-now", 9_900m, Iso(Now.AddDays(-3)), false, Now);
 
-        hits.Select(h => h.SignalType).Should().Equal(
-            "AMOUNT_ANOMALY", "NEW_ACCOUNT_LARGE_AMOUNT", "KYC_THRESHOLD_STRUCTURING");
+        hits.Select(h => h.SignalType).Should().Equal("KYC_THRESHOLD_STRUCTURING");
+    }
+
+    [Fact]
+    public async Task Payment_NewAccountWithoutStructuring_KeepsTheNewAccountSignal()
+    {
+        // The two earlier band payments were never verified: no structuring, so the new account counts.
+        TwoEarlierPaymentsInTheBand(verified: false);
+
+        var hits = await Service().CheckPaymentAsync(BuyerId, "o-now", 9_900m, Iso(Now.AddDays(-3)), false, Now);
+
+        hits.Select(h => h.SignalType).Should().Equal("NEW_ACCOUNT_LARGE_AMOUNT");
+    }
+
+    [Fact]
+    public async Task Payment_FaydaVerifiedBuyer_IsNeverStructuring()
+    {
+        TwoEarlierPaymentsInTheBand(verified: true);
+
+        var verified = await Service().CheckPaymentAsync(BuyerId, "o-now", 9_900m, Iso(Now.AddYears(-1)), true, Now);
+        var unverified = await Service().CheckPaymentAsync(BuyerId, "o-now", 9_900m, Iso(Now.AddYears(-1)), false, Now);
+
+        verified.Should().BeEmpty();
+        unverified.Select(h => h.SignalType).Should().Equal("KYC_THRESHOLD_STRUCTURING");
+    }
+
+    [Fact]
+    public async Task Payment_AmountAnomalyAndStructuring_AreDifferentReasons_BothWritten()
+    {
+        // Twenty 1,000 ETB orders and two funded ones in the band: mean about 1,768, limit about 9,227 ETB.
+        var rows = Enumerable.Range(0, 20).Select(i => Order($"s-{i}", 1_000m, 5 + i))
+            .Append(Order("o-6", 9_400m, 2)).Append(Order("o-7", 9_500m, 3)).ToArray();
+        BuyerOrders(rows);
+
+        var hits = await Service().CheckPaymentAsync(BuyerId, "o-now", 9_900m, Iso(Now.AddYears(-1)), false, Now);
+
+        hits.Select(h => h.SignalType).Should().Equal("AMOUNT_ANOMALY", "KYC_THRESHOLD_STRUCTURING");
     }
 
     [Fact]
@@ -116,7 +153,7 @@ public class TransactionPatternServiceTests
     {
         BuyerOrders(Order("o-1", 2_000m, 3), Order("o-2", 2_500m, 12), Order("o-3", 1_800m, 20));
 
-        var hits = await Service().CheckPaymentAsync(BuyerId, "o-now", 2_200m, Iso(Now.AddYears(-1)), Now);
+        var hits = await Service().CheckPaymentAsync(BuyerId, "o-now", 2_200m, Iso(Now.AddYears(-1)), false, Now);
 
         hits.Should().BeEmpty();
     }
@@ -131,7 +168,7 @@ public class TransactionPatternServiceTests
         _orders.QueryOrdersAsync(BuyerId, null, null, null, null, 50, null).Returns((page1, key));
         _orders.QueryOrdersAsync(BuyerId, null, null, null, null, 50, key).Returns(Page(page2, more: true));
 
-        var hits = await Service().CheckPaymentAsync(BuyerId, "o-now", 9_500m, null, Now);
+        var hits = await Service().CheckPaymentAsync(BuyerId, "o-now", 9_500m, null, false, Now);
 
         hits.Select(h => h.SignalType).Should().Contain("KYC_THRESHOLD_STRUCTURING");
         await _orders.ReceivedWithAnyArgs(2).QueryOrdersAsync(default, default, default, default, default, default, default);
@@ -145,7 +182,7 @@ public class TransactionPatternServiceTests
             .Returns((new List<Dictionary<string, object>> { Order("o-1", 9_500m, 1) }, key));
 
         await Service(TransactionPatternSettings.Default with { MaxPages = 1 })
-            .CheckPaymentAsync(BuyerId, "o-now", 9_500m, null, Now);
+            .CheckPaymentAsync(BuyerId, "o-now", 9_500m, null, false, Now);
 
         await _orders.ReceivedWithAnyArgs(1).QueryOrdersAsync(default, default, default, default, default, default, default);
     }
@@ -154,7 +191,7 @@ public class TransactionPatternServiceTests
     public async Task Payment_NewAccountRuleNeedsNoHistory()
     {
         var hits = await new TransactionPatternService(null, null, TransactionPatternSettings.Default)
-            .CheckPaymentAsync(BuyerId, "o-now", 6_000m, Iso(Now.AddDays(-1)), Now);
+            .CheckPaymentAsync(BuyerId, "o-now", 6_000m, Iso(Now.AddDays(-1)), false, Now);
 
         hits.Select(h => h.SignalType).Should().Equal("NEW_ACCOUNT_LARGE_AMOUNT");
     }
@@ -164,9 +201,26 @@ public class TransactionPatternServiceTests
     {
         _orders.QueryOrdersAsync(BuyerId, null, null, null, null, 50, null).ThrowsAsync(new InvalidOperationException("ddb down"));
 
-        Func<Task> check = () => Service().CheckPaymentAsync(BuyerId, "o-now", 9_500m, null, Now);
+        Func<Task> check = () => Service().CheckPaymentAsync(BuyerId, "o-now", 9_500m, null, false, Now);
 
         await check.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task EmptyUserId_NeverReachesAQuery(string id)
+    {
+        // OrderRepository.QueryOrdersAsync with no id at all falls back to a table Scan.
+        var service = Service();
+
+        (await service.CheckPaymentAsync(id, "o-now", 9_900m, Iso(Now.AddDays(-1)), false, Now)).Should().BeEmpty();
+        (await service.CheckCancelAfterFundAsync(id, TransactionPatternService.Farmer, new[] { "o-now" }, Now)).Should().BeEmpty();
+        (await service.CheckCancelAfterFundAsync(id, TransactionPatternService.Trucker, new[] { "o-now" }, Now)).Should().BeEmpty();
+        (await service.CheckDisputeRateAsync(id, "e-now", Now)).Should().BeEmpty();
+
+        _orders.ReceivedCalls().Should().BeEmpty();
+        _escrows.ReceivedCalls().Should().BeEmpty();
     }
 
     // ── cancel after fund (farmer, trucker) ──────────────

@@ -2369,8 +2369,8 @@ public partial class SyncFunction
     /// FRD-09: the pattern rules a written delivery update feeds. A dispute this update froze the money for,
     /// sent by the delivery's buyer: the buyer's dispute rate (the escrow as the entity). A confirmed delivery
     /// with a trucker: the impossible delivery time, written on the delivery's trucker (not the caller, who is
-    /// usually the buyer; the write limit and the per-delivery count bound what one buyer can add). A
-    /// self-pickup has no trucker and no trip between the scans.
+    /// usually the buyer). It reads only the written row: server times and the trucker's own pickup capture
+    /// time, nothing from the buyer's phone. A self-pickup has no trucker and no trip between the scans.
     /// </summary>
     private async Task TryRecordDeliveryPatternSignalsAsync(
         SyncOperationRequest operation, Dictionary<string, AttributeValue> existing,
@@ -2395,8 +2395,7 @@ public partial class SyncFunction
             && AttrString(written, "truckerId") is { Length: > 0 } truckerId)
         {
             await TryRecordPatternSignalsAsync(truckerId, operation.EntityId, "delivery", "delivery_time",
-                rules => Task.FromResult(rules.CheckDeliveryTime(
-                    TransactionPatternRules.DeliveryTimeFactsFrom(written, operation.Timestamp))),
+                rules => Task.FromResult(rules.CheckDeliveryTime(TransactionPatternRules.DeliveryTimeFactsFrom(written))),
                 context);
         }
     }
@@ -6995,7 +6994,8 @@ public partial class SyncFunction
             {
                 await TryRecordPatternSignalsAsync(authenticatedUserId, operation.EntityId, "order", "payment",
                     rules => rules.CheckPaymentAsync(
-                        authenticatedUserId!, operation.EntityId, payment.Total, payment.Buyer?.CreatedAt, DateTime.UtcNow),
+                        authenticatedUserId!, operation.EntityId, payment.Total, payment.Buyer?.CreatedAt,
+                        payment.Buyer?.FaydaVerified == true, DateTime.UtcNow),
                     context);
             }
 

@@ -75,7 +75,8 @@ public partial class SyncFunctionTests
         return row;
     }
 
-    private async Task<string> ConfirmDeliveryAsync(SyncFunction function, Dictionary<string, AttributeValue> written)
+    private async Task<string> ConfirmDeliveryAsync(
+        SyncFunction function, Dictionary<string, AttributeValue> written, TimeSpan? buyerClockOffset = null)
     {
         SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "nonce-frd09");
         _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>()).Returns(new UpdateItemResponse { Attributes = written });
@@ -84,7 +85,7 @@ public partial class SyncFunctionTests
             { "status", "delivered" }, { "version", 1 }, { "scannedQrNonce", "nonce-frd09" }
         }) with
         {
-            Timestamp = IsoUtc(DateTime.UtcNow.AddMinutes(-1))
+            Timestamp = IsoUtc(DateTime.UtcNow.AddMinutes(-1) + (buyerClockOffset ?? TimeSpan.Zero))
         };
 
         var response = await function.FunctionHandler(
@@ -103,6 +104,33 @@ public partial class SyncFunctionTests
             Arg.Is<string>(d => d.Contains("258.9 km apart") && d.Contains("120 km/h")));
         await _patternFraud.DidNotReceive().RecordFraudSignalAsync("buyer-001", Arg.Any<string>(), Arg.Any<string?>(),
             Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Theory]
+    [InlineData(-6)] // a buyer phone on a manually set local clock, six hours behind
+    [InlineData(-12)] // or a day setting gone wrong
+    public async Task DeliveryConfirmed_BuyerClockBehind_DoesNotFlagAnHonestOfflineTrucker(int buyerClockHours)
+    {
+        // The trucker was offline at the farm: the pickup reached the server 5 minutes before the confirm,
+        // the trucker's phone made the scan 4 hours earlier. The buyer's clock is not part of the trip time.
+        var body = await ConfirmDeliveryAsync(DeliveryPatternFunction(),
+            DeliveredRow(DateTime.UtcNow, TimeSpan.FromMinutes(5), TimeSpan.FromHours(4)),
+            buyerClockOffset: TimeSpan.FromHours(buyerClockHours));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _patternFraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_NoGpsFixAtPickup_IsNotJudged()
+    {
+        var row = DeliveredRow(DateTime.UtcNow, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(20));
+        row["gpsPickup"] = GpsPoint(0, 0);
+
+        var body = await ConfirmDeliveryAsync(DeliveryPatternFunction(), row);
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _patternFraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
     }
 
     [Fact]

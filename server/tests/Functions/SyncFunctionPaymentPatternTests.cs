@@ -52,14 +52,15 @@ public class SyncFunctionPaymentPatternTests
         History(Prior("o-1", 9_700m, 3), Prior("o-2", 9_900m, 12));
     }
 
-    private static UserDto Profile(string id, string createdAt) => new()
+    // The buyer has no Fayda ID (none is needed up to 10,000 ETB): the structuring rule applies to them.
+    private static UserDto Profile(string id, string createdAt, bool faydaVerified = false) => new()
     {
         UserId = id,
         PhoneNumber = "+251933333333",
         Role = id == BuyerId ? "buyer" : "farmer",
         Woreda = "Jimma",
         IsPhoneVerified = true,
-        FaydaVerified = true,
+        FaydaVerified = faydaVerified || id != BuyerId,
         CreatedAt = createdAt,
         UpdatedAt = createdAt,
         Version = 1
@@ -149,6 +150,32 @@ public class SyncFunctionPaymentPatternTests
 
         Assert.Contains("\"status\":\"success\"", body);
         await NoSignal();
+    }
+
+    [Fact]
+    public async Task FaydaVerifiedBuyer_InTheBand_RecordsNoStructuring()
+    {
+        // Verified already: there is no Fayda gate under 10,000 ETB to stay away from.
+        _users.GetUserByIdAsync(BuyerId).Returns(Profile(BuyerId, "2025-01-01T00:00:00Z", faydaVerified: true));
+
+        var body = await PayAsync(Function());
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await NoSignal();
+    }
+
+    [Fact]
+    public async Task NewAccountStructuring_IsOneSignal_NotTwo()
+    {
+        // A 2 day old account's third payment in the band: structuring only, the same payment is not also
+        // written as a new account with a large amount.
+        _users.GetUserByIdAsync(BuyerId).Returns(Profile(BuyerId, DateTime.UtcNow.AddDays(-2).ToString("o", CultureInfo.InvariantCulture)));
+
+        await PayAsync(Function());
+
+        await _fraud.Received(1).RecordFraudSignalAsync(BuyerId, "KYC_THRESHOLD_STRUCTURING", OrderId, "order", Arg.Any<string?>());
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(BuyerId, "NEW_ACCOUNT_LARGE_AMOUNT", Arg.Any<string?>(),
+            Arg.Any<string>(), Arg.Any<string?>());
     }
 
     [Fact]
