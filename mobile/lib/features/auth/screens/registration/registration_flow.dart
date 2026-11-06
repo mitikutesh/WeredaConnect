@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:image_picker/image_picker.dart' show ImagePicker;
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:wereda_connect/core/auth/fayda_callback_links.dart';
@@ -53,12 +54,15 @@ class RegistrationFlow extends StatefulWidget {
     this.faydaService,
     this.faydaLinks,
     this.launcher,
+    this.imagePicker,
   });
 
-  /// Test seams: the Fayda client, the callback stream and the URL launcher.
+  /// Test seams: the Fayda client, the callback stream, the URL launcher
+  /// and the trucker's license camera.
   final FaydaOidcService? faydaService;
   final Stream<Uri>? faydaLinks;
   final FaydaUrlLauncher? launcher;
+  final ImagePicker? imagePicker;
 
   @override
   State<RegistrationFlow> createState() => _RegistrationFlowState();
@@ -558,6 +562,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
                               setState(() => _buyerType = v),
                           onCompanyNameChanged: (v) =>
                               setState(() => _companyName = v),
+                          imagePicker: widget.imagePicker,
                         )
                       else
                         const SizedBox.shrink(),

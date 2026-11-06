@@ -4497,6 +4497,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get retakeLicensePhoto => 'Retake License Photo';
 
   @override
+  String get removeLicensePhoto => 'Remove License Photo';
+
+  @override
   String get totalListingValue => 'Total Listing Value';
 
   @override
