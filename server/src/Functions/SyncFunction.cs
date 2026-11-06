@@ -6485,9 +6485,7 @@ public partial class SyncFunction
 
         var quantityKg = ParseDouble(operation.Data, "quantity");
         var pricePerUnit = ParseDouble(operation.Data, "pricePerUnit");
-        var cropCost = quantityKg * pricePerUnit;
         var commissionRate = GetCommissionRate(context);
-        var commissionAmount = cropCost * commissionRate;
 
         var tripId = operation.Data.TryGetValue("tripId", out var tripIdObj) ? tripIdObj?.ToString() : null;
         var truckerId = operation.Data.TryGetValue("truckerId", out var truckerIdObj) ? truckerIdObj?.ToString() : null;
@@ -6522,13 +6520,21 @@ public partial class SyncFunction
             return OrderValidationError(operation, "transportCost requires a tripId.");
         }
 
-        operation.Data["transportCost"] = transportCost;
-        var orderTotal = cropCost + transportCost + commissionAmount;
+        // SIM-30: each money field in ETB to the santim (2 dp, halves away from zero, as the escrow
+        // rounds), computed in decimals so float noise never moves a santim (170 kg x 18.99 ETB x 0.05
+        // is 161.41499... in doubles, 161.415 exactly, so 161.42). The commission is 5 % of the rounded
+        // crop cost, and crop + transport + commission is exactly the orderTotal the buyer pays and the
+        // order escrow holds (farmerPayout + truckerPayout + commission).
+        var cropCost = RoundEtb((decimal)quantityKg * (decimal)pricePerUnit);
+        var transportCostEtb = RoundEtb((decimal)transportCost);
+        var commissionAmount = RoundEtb(cropCost * (decimal)commissionRate);
+        var orderTotal = cropCost + transportCostEtb + commissionAmount;
 
-        operation.Data["cropCost"] = cropCost;
+        operation.Data["transportCost"] = (double)transportCostEtb;
+        operation.Data["cropCost"] = (double)cropCost;
         operation.Data["commissionRate"] = commissionRate;
-        operation.Data["commissionAmount"] = commissionAmount;
-        operation.Data["orderTotal"] = orderTotal;
+        operation.Data["commissionAmount"] = (double)commissionAmount;
+        operation.Data["orderTotal"] = (double)orderTotal;
 
         // Force initial status
         operation.Data["status"] = "created";
@@ -9012,6 +9018,12 @@ public partial class SyncFunction
 
         return errors;
     }
+
+    /// <summary>
+    /// SIM-30: an ETB amount to the santim (2 dp), halves away from zero, the rounding of the escrow
+    /// money (<c>EscrowService.RoundMoney</c>) and of the apps' order preview (<c>roundEtb</c>).
+    /// </summary>
+    private static decimal RoundEtb(decimal amount) => Math.Round(amount, 2, MidpointRounding.AwayFromZero);
 
     /// <summary>
     /// Get the platform commission rate from SSM with 15-minute cache.

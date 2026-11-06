@@ -283,7 +283,8 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   double get _transportCost =>
       _selectedTrip != null ? _quantity * _selectedTrip!.pricePerQuintal : 0.0;
 
-  /// The server's formula: commission on the crop cost only (SIM-53).
+  /// The server's formula: commission on the crop cost only (SIM-53). The
+  /// rows show its santim-rounded legs (SIM-30), so they add up to the total.
   OrderPricing get _pricing =>
       OrderPricing(cropCost: _cropCost, transportCost: _transportCost);
 
@@ -474,13 +475,15 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
             const SizedBox(height: 11),
             FwMoneyRow(
               label: l10n.cropCostLabel,
-              amount: l10n.etbCurrency(formatEtbAmount(_cropCost)),
+              amount: l10n.etbCurrency(formatEtbAmount(_pricing.cropCostEtb)),
             ),
             if (_selectedTrip != null) ...[
               const SizedBox(height: 9),
               FwMoneyRow(
                 label: l10n.transportCostLabel,
-                amount: l10n.etbCurrency(formatEtbAmount(_transportCost)),
+                amount: l10n.etbCurrency(
+                  formatEtbAmount(_pricing.transportCostEtb),
+                ),
               ),
             ],
             const SizedBox(height: 9),

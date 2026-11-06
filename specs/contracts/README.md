@@ -60,8 +60,8 @@ Each contract file follows this structure:
 | Authentication API | `auth-api.md` | 2.13.0 | Mobile, Backend, Infrastructure |
 | User Entity | `user-entity.md` | 1.3.1 | Mobile, Backend, Infrastructure |
 | Rating API | `rating-api.md` | 1.1.0 | Mobile, Backend, Infrastructure |
-| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.6.0 | Mobile, Backend, Admin |
-| Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 1.38.0 | Mobile, Backend, Admin, Infrastructure, Telebirr Gateway |
+| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.7.0 | Mobile, Backend, Admin |
+| Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 1.39.0 | Mobile, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 1.23.0 | Mobile, Backend |
 | Account Deletion | `account-deletion.md` | 1.4.0 | Mobile, Backend, Infrastructure, Admin |
 | Crop Listing API | `crop-listing-api.md` | 1.9.0 | Mobile, Backend, Infrastructure |
@@ -72,7 +72,7 @@ Each contract file follows this structure:
 | Notifications API (order, delivery and money inbox + push) | `notifications-api.md` | 1.4.0 | Mobile, Web, Backend, Infrastructure |
 | Live Trip (`location_ping` check-ins, track, admin trail, `truck_nearby`) | `live-trip-api.md` | 1.0.8 | Mobile, Web, Backend, Infrastructure, Admin |
 | In-App Messaging (context-scoped chat) | `messaging.md` | 1.3.0 | Mobile, Backend |
-| Data Models | `data-models.md` | 1.5.0 | Mobile, Backend |
+| Data Models | `data-models.md` | 1.5.1 | Mobile, Backend |
 
 ---
 

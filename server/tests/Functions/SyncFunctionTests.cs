@@ -3452,6 +3452,55 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
+    public async Task OrderCreate_FloatNoise_EveryMoneyFieldIsRoundedToTheSantim_AndAddsUp()
+    {
+        // SIM-30: 1.7 quintals (170 kg) at 18.99 ETB/kg on a 255.55 ETB/quintal trip. In doubles the
+        // crop is 3228.2999999999997, the commission 161.41499999999999 and the transport
+        // 434.43499999999995, so rounding the doubles would give 161.41 and 434.43. Exact: 3228.30,
+        // 161.415 and 434.435, rounded half away from zero to 161.42 and 434.44.
+        SetupListing(pricePerKg: 18.99);
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1, pricePerQuintal: 255.55);
+        SetupOrderCreateSucceeds();
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", 170 }, { "pricePerUnit", 18.99 },
+            { "tripId", "trip-001" }, { "truckerId", "trucker-001" }, { "transportCost", 434.44 }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        var order = _createdOrder!;
+        Assert.Equal(0.05, (double)order["commissionRate"]);
+        Assert.Equal(3228.30, (double)order["cropCost"]);
+        Assert.Equal(434.44, (double)order["transportCost"]);
+        Assert.Equal(161.42, (double)order["commissionAmount"]);
+        Assert.Equal(3824.16, (double)order["orderTotal"]);
+        // Stored as written: no float tail on any field.
+        Assert.Equal("161.42", ((double)order["commissionAmount"]).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal("3824.16", ((double)order["orderTotal"]).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal((decimal)(double)order["orderTotal"],
+            (decimal)(double)order["cropCost"] + (decimal)(double)order["transportCost"] + (decimal)(double)order["commissionAmount"]);
+    }
+
+    [Fact]
+    public async Task OrderCreate_CommissionOn19Etb_IsStoredAs0Point95()
+    {
+        // SIM-30, the simulation's case: 19 ETB of crop gave 0.9500000000000001 in doubles.
+        SetupListing(pricePerKg: 19);
+        SetupOrderCreateSucceeds();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", 1 }, { "pricePerUnit", 19 }
+        }));
+
+        Assert.Contains("success", body);
+        Assert.Equal("0.95", ((double)_createdOrder!["commissionAmount"]).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(19.95, (double)_createdOrder["orderTotal"]);
+    }
+
+    [Fact]
     public async Task OrderCreate_WithoutTrip_HasZeroTransportCost()
     {
         SetupListing();

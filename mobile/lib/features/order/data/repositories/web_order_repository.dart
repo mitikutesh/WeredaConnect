@@ -3,6 +3,7 @@ import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_dropoff_note.dart';
+import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
@@ -188,9 +189,13 @@ class WebOrderRepository extends BaseOrderRepository {
     // for an order that was never persisted.
     ensureSyncSucceeded(response);
 
-    final cropCost = quantity * pricePerUnit;
     final rate = commissionRate ?? 0.05;
-    final commissionAmount = cropCost * rate;
+    // SIM-30: the server's money, each leg to the santim.
+    final pricing = OrderPricing(
+      cropCost: quantity * pricePerUnit,
+      transportCost: transportCost ?? 0,
+      commissionRate: rate,
+    );
 
     return Order()
       ..orderId = orderId
@@ -202,18 +207,18 @@ class WebOrderRepository extends BaseOrderRepository {
       ..cropType = cropType
       ..quantity = quantity
       ..pricePerUnit = pricePerUnit
-      ..totalPrice = cropCost + (transportCost ?? 0) + commissionAmount
+      ..totalPrice = pricing.orderTotal
       ..status = OrderStatus.created
       ..createdAt = DateTime.now().toUtc()
       ..version = 1
       ..tripId = tripId
       ..truckerId = truckerId
       ..truckerName = truckerName
-      ..cropCost = cropCost
-      ..transportCost = transportCost
+      ..cropCost = pricing.cropCostEtb
+      ..transportCost = transportCost == null ? null : pricing.transportCostEtb
       ..commissionRate = rate
-      ..commissionAmount = commissionAmount
-      ..orderTotal = cropCost + (transportCost ?? 0) + commissionAmount
+      ..commissionAmount = pricing.commissionAmount
+      ..orderTotal = pricing.orderTotal
       ..dropoffNote = note;
   }
 

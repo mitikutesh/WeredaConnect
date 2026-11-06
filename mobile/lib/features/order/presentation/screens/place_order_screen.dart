@@ -158,7 +158,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 
   /// The server's formula: commission on the crop cost only (SIM-53), so the
   /// preview equals what the buyer is asked to pay. Uses the same default
-  /// rate as [_commissionRate].
+  /// rate as [_commissionRate]. The rows show its santim-rounded legs
+  /// (SIM-30), so they add up to the total shown.
   OrderPricing get _pricing =>
       OrderPricing(cropCost: _cropCost, transportCost: _transportCost);
 
@@ -419,15 +420,16 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                               const SizedBox(height: 11),
                               FwMoneyRow(
                                 label: l10n.cropCost,
-                                amount: l10n
-                                    .etbCurrency(formatEtbAmount(_cropCost)),
+                                amount: l10n.etbCurrency(
+                                  formatEtbAmount(_pricing.cropCostEtb),
+                                ),
                               ),
                               if (trip != null) ...[
                                 const SizedBox(height: 9),
                                 FwMoneyRow(
                                   label: l10n.transportCost,
                                   amount: l10n.etbCurrency(
-                                    formatEtbAmount(_transportCost),
+                                    formatEtbAmount(_pricing.transportCostEtb),
                                   ),
                                 ),
                               ],
