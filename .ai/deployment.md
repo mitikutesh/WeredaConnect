@@ -511,12 +511,13 @@ POST /escrow/refund
 |--------|------|---------|
 | GET | `/admin/dashboard/stats` | Platform statistics |
 | GET | `/admin/escrows` | List all escrows |
+| GET | `/admin/escrows/held` | Held queue: escrows frozen for fraud review, oldest first, a Query on `StatusExpiresIndex` (FRD-07); release or refund them through `POST /escrow/release` and `POST /escrow/refund` with a reason |
 | GET | `/admin/escrows/{id}` | Single escrow details |
 | GET | `/admin/escrows/{id}/audit` | Escrow audit trail |
 | GET | `/admin/disputes` | List disputes |
-| GET | `/admin/fraud-signals` | List fraud signals |
+| GET | `/admin/fraud-signals` | List fraud signals of one status (`pending` by default, or `reviewed`) from the fraud-signals `StatusCreatedAtIndex`, newest first, with each user's risk score (FRD-07) |
 | GET | `/admin/users` | List users |
-| GET | `/admin/users/{id}` | Single user details |
+| GET | `/admin/users/{id}` | Single user details, with `suspendReason` beside the user (FRD-07) |
 | GET | `/admin/health/overview` | System health |
 | GET | `/admin/compliance/summary` | Compliance metrics |
 | GET | `/admin/analytics/revenue` | Revenue analytics |
