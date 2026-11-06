@@ -201,8 +201,8 @@ public sealed class PartySuspensionGate : ISettlementRiskGate
             : SettlementGateDecision.Skip(SkipScoreUnavailable, unscoredParty);
     }
 
-    /// <summary>The escrow pays a trucker (<c>truckerPayout</c> above zero), as the release reads it.</summary>
-    private static bool HasTruckerLeg(Dictionary<string, object> escrow)
+    /// <summary>The escrow pays a trucker (<c>truckerPayout</c> above zero), as the release reads it. FRD-10 reuses it.</summary>
+    internal static bool HasTruckerLeg(Dictionary<string, object> escrow)
         => escrow.TryGetValue("truckerPayout", out var raw)
            && decimal.TryParse(raw?.ToString(), System.Globalization.NumberStyles.Number,
                System.Globalization.CultureInfo.InvariantCulture, out var amount)

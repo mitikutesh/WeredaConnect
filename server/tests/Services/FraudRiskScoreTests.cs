@@ -373,6 +373,37 @@ public class FraudRiskScoreTests
         result.Tier.Should().Be(RiskTier.Low);
     }
 
+    [Fact]
+    public async Task Credits_FRD10KeyWithTheEscrowIdCountsInTheWindowOnly()
+    {
+        // FRD-10 keys a credit {releasedAt}#CLEAN_DELIVERY#{escrowId}; the window reads the time prefix.
+        var inWindow = Credit(Now.AddDays(-29));
+        inWindow["signalKey"] = new AttributeValue { S = $"{Iso(Now.AddDays(-29))}#CLEAN_DELIVERY#esc-1" };
+        var beforeWindow = Credit(Now.AddDays(-31));
+        beforeWindow["signalKey"] = new AttributeValue { S = $"{Iso(Now.AddDays(-31))}#CLEAN_DELIVERY#esc-2" };
+
+        var result = await ScoreRowsAsync(Signal("FRAUD_DUPLICATE_LISTING", Now.AddHours(-1)), inWindow, beforeWindow);
+
+        result.Score.Should().Be(15);
+    }
+
+    [Fact]
+    public async Task Credits_FalsePositiveDropsItsWeightAndCreditsStillFloorAtZero()
+    {
+        // FRD-10: an admin approve (false positive) takes the signal out; the credits then meet only the
+        // remaining 10 and the score stops at 0. Before the approve the same rows score 15.
+        var result = await ScoreRowsAsync(
+            Credit(Now.AddHours(-1)),
+            Credit(Now.AddHours(-2)),
+            Credit(Now.AddHours(-3)),
+            Signal("FRAUD_DUPLICATE_LISTING", Now.AddHours(-4), resolution: "approve"),
+            Signal("PRICE_ANOMALY", Now.AddHours(-5)));
+
+        result.Score.Should().Be(0);
+        result.EnforcementScore.Should().Be(0);
+        result.Tier.Should().Be(RiskTier.Low);
+    }
+
     // ── resolutions (sections 14.2, 19) ────────────────────
 
     [Theory]
