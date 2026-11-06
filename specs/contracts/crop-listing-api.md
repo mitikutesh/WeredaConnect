@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.7.0
+1.8.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -395,9 +395,10 @@ Processing is asynchronous (usually 1 to 3 seconds). Until it finishes, or when 
    - Maximum 500 characters
    - Allow Amharic, Afan Oromo, English characters
 6b. **No phone number in listing text** (1.4.0, FUP-49):
-   - `description` and `locationName` must not hold an Ethiopian mobile number. Buyers read them before any order, and contact opens only after the money is held in escrow (1.3.0, ESC-48). `woreda` is not screened here: clients send it from the farmer's registration profile, so a refusal would leave the farmer nothing to fix in the form (profile text is a registration and profile-update matter).
-   - A create, or an update that changes one of these fields, is refused with `CROP_CONTACT_IN_TEXT: Remove the phone number from <fields>. Contact opens after payment is held in escrow.` and nothing is written. `<fields>` lists the fields that hold a number, comma-separated, in the order `description`, `locationName`. The check runs after the `CROP_VALIDATION` field rules, so one payload always gets the same answer. Clients treat the code as permanent (`sync-protocol.md` 1.23.0).
-   - On update, a value equal to the stored one is an unchanged echo and is not checked, so a listing stored before 1.4.0 can still change status.
+   - `description`, `locationName` and (1.8.0, FUP-98) `woreda` must not hold an Ethiopian mobile number. Buyers read them before any order, and contact opens only after the money is held in escrow (1.3.0, ESC-48).
+   - A create, or an update that changes one of these fields, is refused with `CROP_CONTACT_IN_TEXT: Remove the phone number from <fields>. Contact opens after payment is held in escrow.` and nothing is written. `<fields>` lists the fields that hold a number, comma-separated, in the order `description`, `locationName`, `woreda`. The check runs after the `CROP_VALIDATION` field rules, so one payload always gets the same answer. Clients treat the code as permanent (`sync-protocol.md` 1.23.0).
+   - On update, a value equal to the stored one is an unchanged echo and is not checked, so a listing stored before 1.4.0 (or, for `woreda`, before 1.8.0) can still change status.
+   - `woreda` equal to the farmer's profile `woreda` is not checked either (1.8.0). Clients send it from the registration profile, which is screened since `auth-api.md` 2.12.0 (FUP-52); a profile stored before that keeps its value (`user-entity.md` 1.2.0), and a refusal would leave the farmer nothing to fix in the form. The two values are compared after trimming white space at both ends, exactly otherwise (case and every character count): never by the woreda matching key, which drops everything after a comma or bracket. The create reads the profile anyway (it stamps `farmerName` and `farmerPhone` from it, 1.2.0), so it costs no extra read; an update reads the profile only for a changed `woreda` that holds a number.
    - The detector (server `server/src/Validation/ContactInText.cs`, client `mobile/lib/core/utils/contact_in_text.dart`, rule for rule the same and tested with the same table of cases):
      1. Digits: ASCII, Arabic-Indic (U+0660 to U+0669), Extended Arabic-Indic (U+06F0 to U+06F9) and fullwidth (U+FF10 to U+FF19); the Ethiopic digits one to nine (U+1369 to U+1371; Ethiopic has no zero).
      2. Invisible format characters are removed before anything else, so they neither split a number nor count toward a gap: the soft hyphen U+00AD, U+200B to U+200F (zero-width space, joiners, direction marks), U+2060 to U+2064 (word joiner, invisible operators), U+FEFF, and the variation selectors U+FE00 to U+FE0F and the combining keycap U+20E3 (so keycap emoji digits are read as digits).
@@ -542,6 +543,7 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.5.0 | 2026-10-23 | Account under review (FRD-04, rule 8): a create from a farmer at risk tier CRITICAL is refused with `FRAUD_ACCOUNT_HELD` after the field rules and before the fraud listing checks, nothing written; permanent on clients (already handled since `sync-protocol.md` 1.18.0); updates and deletes not gated |
 | 1.6.0 | 2026-10-31 | Crop photos: `POST /crops/{id}/photos` hands out presigned PUT URLs (farmer only, 1 to 4 per call, type and length signed); an S3-triggered processor keeps only a 320 px thumb and a 1024 px full WebP, metadata stripped, original deleted; `photoIds` (2 to 4) required on create (rule 9); `GET /crops` returns `photos[].thumbUrl`, `GET /crops/{id}` adds `photos[].fullUrl` |
 | 1.7.0 | 2026-11-06 | Listings that orders depend on (ESC-18, rule 10): `quantity` is the free stock (exact, never rounded to 2 decimals by the server) and funding takes an order's quintals only when `quantity >= q` (a loser is cancelled with a full refund, `order-lifecycle.md` 2.4.0); server-only `stockRefusedFor` joins `stockDecrementedFor` and `stockRestoredFor`; with `COMMITMENTS_ENABLED`, a `delete` or an update to `status: deleted` is refused with `CROP_HAS_ACTIVE_ORDERS` while an order is `payment_submitted`, `funded`, `awaiting_transport` or `accepted` (orders read through `ListingIdIndex`; unreadable: retryable unprefixed error). No client change (`sync-protocol.md` 1.17.0 already handles the code) |
+| 1.8.0 | 2026-11-06 | The crop `woreda` is screened for a phone number on `/sync` create and update (FUP-98, rule 6b), refused with `CROP_CONTACT_IN_TEXT` like `description` and `locationName` (listed last in `<fields>`), nothing written. Not checked: an unchanged echo of the stored value, or a value equal to the farmer's profile `woreda` after trimming (accounts registered before `auth-api.md` 2.12.0). No client change: the code is permanent on clients since `sync-protocol.md` 1.23.0, and the app sends the profile woreda, which is exempt |
 
 ---
 

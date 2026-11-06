@@ -38,18 +38,7 @@ public class SyncFunctionContactInTextTests
         _meta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
 
         // The owner's profile stamps the name and phone on create (SIM-40).
-        _users.GetUserByIdAsync(Arg.Any<string>()).Returns(new UserDto
-        {
-            UserId = "owner",
-            PhoneNumber = "+251933333333",
-            DisplayName = "Abebe Kebede",
-            Role = "farmer",
-            Woreda = "Jimma",
-            IsPhoneVerified = true,
-            CreatedAt = "2026-02-16T10:00:00Z",
-            UpdatedAt = "2026-02-16T10:00:00Z",
-            Version = 1,
-        });
+        ProfileWoreda("Jimma");
 
         _crops.CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>())
             .Returns(ci => AuthResult<Dictionary<string, object>>.Success(
@@ -136,7 +125,22 @@ public class SyncFunctionContactInTextTests
         return data;
     }
 
-    private void StoredCrop(string? description = null)
+    /// <summary>The farmer's registration profile, read by the one-argument overload.</summary>
+    private void ProfileWoreda(string woreda) =>
+        _users.GetUserByIdAsync(Arg.Any<string>()).Returns(new UserDto
+        {
+            UserId = "owner",
+            PhoneNumber = "+251933333333",
+            DisplayName = "Abebe Kebede",
+            Role = "farmer",
+            Woreda = woreda,
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1,
+        });
+
+    private void StoredCrop(string? description = null, string? woreda = null)
     {
         var stored = new Dictionary<string, object>
         {
@@ -148,6 +152,11 @@ public class SyncFunctionContactInTextTests
         if (description != null)
         {
             stored["description"] = description;
+        }
+
+        if (woreda != null)
+        {
+            stored["woreda"] = woreda;
         }
 
         _crops.GetByIdAsync("crop-001").Returns(stored);
@@ -202,13 +211,63 @@ public class SyncFunctionContactInTextTests
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
     }
 
-    [Fact]
-    public async Task CropCreate_WoredaFromTheProfile_IsNotScreened()
+    [Theory]
+    [InlineData("Jimma 0911234567")]
+    [InlineData("Jimma +251 911 234 567")]
+    [InlineData("ጅማ 0911 23 45 67")]
+    // The matching key (WoredaNames.Normalize) cuts at the comma and would read "Jimma", the
+    // profile woreda: the exemption must not use it.
+    [InlineData("Jimma, 0911234567")]
+    public async Task CropCreate_PhoneNumberInWoreda_IsRefusedAndNotWritten(string woreda)
     {
-        // Clients send the registration profile's woreda; a refusal here would lock the farmer
-        // out with nothing to fix in the form. Profile text belongs to registration and profile
-        // update (a follow-up).
-        var op = Op("crop_listing", "crop-001", "create", CropCreateData(("woreda", "Jimma 0911234567")));
+        // FUP-98: a hand-built POST /sync with a farmer token must not put a number in front of
+        // every buyer through the woreda. The profile woreda here is "Jimma".
+        var op = Op("crop_listing", "crop-001", "create", CropCreateData(("woreda", woreda)));
+
+        var response = await _fn.FunctionHandler(Req(op, "farmer-001", "farmer"), _ctx);
+
+        Assert.Contains($"CROP_CONTACT_IN_TEXT: Remove the phone number from woreda.{ContactTail}", response.Body);
+        await _crops.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Theory]
+    [InlineData("Jimma 0911234567")]
+    [InlineData("  Jimma 0911234567 ")]
+    public async Task CropCreate_WoredaEqualToTheProfileWoreda_IsCreatedWithOneProfileRead(string woreda)
+    {
+        // An account registered before the FUP-52 screen keeps a number in its profile woreda,
+        // and the app sends that value: refusing it would leave nothing to fix in the form. The
+        // profile read that stamps the name and phone serves the check, no second read.
+        ProfileWoreda("Jimma 0911234567");
+        var op = Op("crop_listing", "crop-001", "create", CropCreateData(("woreda", woreda)));
+
+        var response = await _fn.FunctionHandler(Req(op, "farmer-001", "farmer"), _ctx);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await _crops.Received(1).CreateAsync("crop-001", Arg.Any<Dictionary<string, object>>());
+        await _users.Received(1).GetUserByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task CropCreate_WoredaThatDiffersFromANumberedProfileWoreda_IsStillRefused()
+    {
+        ProfileWoreda("Jimma 0911234567");
+        var op = Op("crop_listing", "crop-001", "create", CropCreateData(("woreda", "Jimma 0922334455")));
+
+        var response = await _fn.FunctionHandler(Req(op, "farmer-001", "farmer"), _ctx);
+
+        Assert.Contains($"CROP_CONTACT_IN_TEXT: Remove the phone number from woreda.{ContactTail}", response.Body);
+        await _crops.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Theory]
+    [InlineData("Jimma")]
+    [InlineData("Bole Sub-city Woreda 03")]
+    [InlineData("Adama Kebele 14, Zone 3")]
+    [InlineData("ቀበሌ 07 ዞን 3")]
+    public async Task CropCreate_WoredaWithoutANumber_IsCreated(string woreda)
+    {
+        var op = Op("crop_listing", "crop-001", "create", CropCreateData(("woreda", woreda)));
 
         var response = await _fn.FunctionHandler(Req(op, "farmer-001", "farmer"), _ctx);
 
@@ -225,6 +284,17 @@ public class SyncFunctionContactInTextTests
         var response = await _fn.FunctionHandler(Req(op, "farmer-001", "farmer"), _ctx);
 
         Assert.Contains("CROP_CONTACT_IN_TEXT: Remove the phone number from description, locationName.", response.Body);
+    }
+
+    [Fact]
+    public async Task CropCreate_PhoneNumberInEveryField_NamesThemInFieldOrder()
+    {
+        var op = Op("crop_listing", "crop-001", "create", CropCreateData(
+            ("woreda", "Jimma 0933445566"), ("locationName", "Adama 0922334455"), ("description", "Call 0911234567")));
+
+        var response = await _fn.FunctionHandler(Req(op, "farmer-001", "farmer"), _ctx);
+
+        Assert.Contains("CROP_CONTACT_IN_TEXT: Remove the phone number from description, locationName, woreda.", response.Body);
     }
 
     [Theory]
@@ -286,6 +356,76 @@ public class SyncFunctionContactInTextTests
 
         Assert.Contains("\"status\":\"success\"", response.Body);
         await _crops.Received(1).UpdateAsync("crop-001", Arg.Any<Dictionary<string, object>>(), 1);
+    }
+
+    [Fact]
+    public async Task CropUpdate_WoredaChangedToAPhoneNumber_IsRefusedAndNotWritten()
+    {
+        StoredCrop(woreda: "Jimma");
+        var op = Op("crop_listing", "crop-001", "update", new Dictionary<string, object>
+        {
+            { "woreda", "Jimma 0911 234 567" }, { "version", 1 },
+        });
+
+        var response = await _fn.FunctionHandler(Req(op, "farmer-001", "farmer"), _ctx);
+
+        Assert.Contains($"CROP_CONTACT_IN_TEXT: Remove the phone number from woreda.{ContactTail}", response.Body);
+        await _crops.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        // The profile is read once, to rule out the profile woreda exemption.
+        await _users.Received(1).GetUserByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task CropUpdate_UnchangedEchoOfAStoredWoredaNumber_IsAcceptedWithoutAProfileRead()
+    {
+        // A listing stored before FUP-98 can still change status when a client echoes its woreda.
+        StoredCrop(woreda: "Jimma 0911234567");
+        var op = Op("crop_listing", "crop-001", "update", new Dictionary<string, object>
+        {
+            { "woreda", "Jimma 0911234567" }, { "status", "reserved" }, { "version", 1 },
+        });
+
+        var response = await _fn.FunctionHandler(Req(op, "farmer-001", "farmer"), _ctx);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await _crops.Received(1).UpdateAsync("crop-001", Arg.Any<Dictionary<string, object>>(), 1);
+        await _users.DidNotReceive().GetUserByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task CropUpdate_WoredaEqualToTheProfileWoreda_IsAccepted()
+    {
+        // The stored listing has another woreda; the farmer's profile (registered before the
+        // FUP-52 screen) holds this one, so the app may send it.
+        ProfileWoreda("Jimma 0911234567");
+        StoredCrop(woreda: "Jimma");
+        var op = Op("crop_listing", "crop-001", "update", new Dictionary<string, object>
+        {
+            { "woreda", "Jimma 0911234567" }, { "version", 1 },
+        });
+
+        var response = await _fn.FunctionHandler(Req(op, "farmer-001", "farmer"), _ctx);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await _crops.Received(1).UpdateAsync("crop-001", Arg.Any<Dictionary<string, object>>(), 1);
+        await _users.Received(1).GetUserByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task CropUpdate_WoredaWithoutANumber_IsAcceptedWithoutAProfileRead()
+    {
+        StoredCrop(woreda: "Jimma");
+        var op = Op("crop_listing", "crop-001", "update", new Dictionary<string, object>
+        {
+            { "woreda", "Agaro" }, { "version", 1 },
+        });
+
+        var response = await _fn.FunctionHandler(Req(op, "farmer-001", "farmer"), _ctx);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await _crops.Received(1).UpdateAsync("crop-001", Arg.Any<Dictionary<string, object>>(), 1);
+        await _users.DidNotReceive().GetUserByIdAsync(Arg.Any<string>());
     }
 
     // ===== Trip create =====
