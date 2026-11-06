@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.34.0
+1.35.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -516,8 +516,8 @@ replaying the same payload gets the same answer, so the client never resends the
 exception is `APP_UPDATE_REQUIRED` on anything but an order: the build is the problem, not the
 payload, so the client keeps that operation for the updated build (below). Since 1.29.0 the server sends
 `TRIP_HAS_BOOKINGS` and `TRIP_CAPACITY_EXCEEDED` behind `COMMITMENTS_ENABLED` (ESC-15, Order
-commitments below); ESC-17, ESC-18, ESC-25 and ESC-29 add the others, each with its
-own server rules. The three `ORDER_*` codes of section 8 that had the generic order text get
+commitments below), and since 1.35.0 `CROP_HAS_ACTIVE_ORDERS` behind the same flag (ESC-18);
+ESC-25 and ESC-29 add the others, each with its own server rules. The three `ORDER_*` codes of section 8 that had the generic order text get
 their own text too.
 
 | Code | Sent on | What it means to the client |
@@ -525,7 +525,7 @@ their own text too.
 | `REPUTATION_RESTRICTED:` | `crop_listing` create, `trip` create, `order` update (the farmer's or trucker's accept), `order` create (the listing's or trip's owner is restricted, spec A7) | The account (or, on a buyer's create, the owner) may not do this for now. Existing orders continue. |
 | `TRIP_HAS_BOOKINGS:` | `trip` update or delete | Orders are booked on the trip, so this change is not allowed. |
 | `TRIP_CAPACITY_EXCEEDED:` | `order` create or update naming a trip | The trip has no room left for this order: an order refusal. |
-| `CROP_HAS_ACTIVE_ORDERS:` | `crop_listing` delete, or a quantity below what active orders hold | The listing has funded or accepted orders. |
+| `CROP_HAS_ACTIVE_ORDERS:` | `crop_listing` delete, or update to `status: deleted` (sent since 1.35.0 behind `COMMITMENTS_ENABLED`, ESC-18, `crop-listing-api.md` 1.7.0 rule 10). A quantity edit never gets it: `quantity` is the free stock, so it cannot reach what orders hold | Orders still depend on the listing: one is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`. |
 | `APP_UPDATE_REQUIRED:` | `order` commands from an app below the server's minimum (the minimum-version gate, spec K1, ESC-25). Clients also handle it defensively on `crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent` and `match_event` operations: kept pending, never reverted. | This build must be updated. |
 | `ORDER_DEADLINE_PASSED:`, `ORDER_TRIP_NOT_ELIGIBLE:`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | `order` operations (permanent since 1.10.0; `ORDER_DEADLINE_PASSED` sent since 1.29.0; `ORDER_TRIP_NOT_ELIGIBLE` sent since 1.34.0 on an `order` create naming a trip that has left, `trip-listing-api.md` 2.2.0) | The deadline passed; the named truck cannot take the order; no more trucks may be tried. |
 
@@ -834,6 +834,7 @@ handling ships with LT-08, and no client sends the entity before it.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.35.0 | 2026-11-06 | Listings that orders depend on (ESC-18, `crop-listing-api.md` 1.7.0, `order-lifecycle.md` 2.4.0): behind `COMMITMENTS_ENABLED`, the server sends `CROP_HAS_ACTIVE_ORDERS: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.` on a `crop_listing` delete, or an update to `status: deleted`, while an order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`; when the orders cannot be read, the unprefixed `The listing's orders could not be checked. Please try again later.` (retryable). A quantity edit never gets the code. Clients already handle it (1.17.0: permanent, the listing reverted from `GET /crops/{id}`, `errorCropHasActiveOrders`). A funding that loses the listing's stock cancels the order on the server (`listing_out_of_stock`); clients see it through the order pull. No client change |
 | 1.34.0 | 2026-11-04 | Orders on a trip that left (L-7, `order-lifecycle.md` 2.3.0, `trip-listing-api.md` 2.2.0): the server sends `ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; choose another trip.` on an `order` create naming a trip whose departure day is over in Ethiopia, flag on or off. Clients already treat the code as permanent (1.10.0) and give it its own text on a refused create (1.17.0, `errorTripNotEligible`): the mobile queue removes the local order and explains it, web shows the same text. No client change; no new code |
 | 1.33.0 | 2026-11-04 | Typed handoff code (T-1, `delivery-verification-api.md` 1.22.0): a delivery `pickedUp` or `delivered` update may carry `scannedQrCode` in place of `scannedQrNonce` (allowed in `data`, never stored); new permanent `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED`, `DELIVERY_CODE_LOCKED_DROPOFF` and `DELIVERY_CODE_GPS_REQUIRED`, rejected and reverted by the mobile queue and shown by web with their own en, am and om text; mismatches and locks write `QR_HANDOFF_FAILURE`. Trucker clients: Stop sharing in trip mode sends a `declined` `location_ping` before the phone stops (no server change). |
 | 1.32.0 | 2026-10-28 | Location pings, clients (LT-08): mobile queues `location_ping` with the capture time in the idempotency key, fills a batch with pings only after every other operation, sends one probe ping per sync for a trip whose pings are deferred, rejects `LOCATION_*` errors for good without announcing or counting them (`LOCATION_SHARING_ENDED` also stops sharing), coalesces over 24 waiting pings to one `fix` per trip and clock hour plus every event, and drops a trip's waiting pings when its pickup is refused for good; web posts each ping at once with the same rules. No server change |
@@ -869,5 +870,5 @@ handling ships with LT-08, and no client sends the entity before it.
 
 ---
 
-**Last Updated**: 2026-11-04
-**Version**: 1.34.0
+**Last Updated**: 2026-11-06
+**Version**: 1.35.0

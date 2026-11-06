@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.34.0
+1.35.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -155,6 +155,11 @@ exists. The server materializes an escrow record at that moment so
 - **Refund on reject/cancel**: `funded → rejected|cancelled` stamps the escrow
   `expiresAt = now` (+`refundReason`); the hourly auto-refund cron then pays the
   buyer through the standard gateway path (≤1h latency, mock and live alike).
+- **Stock lost at funding** (1.35.0, ESC-18, `order-lifecycle.md` 2.4.0): a funding whose
+  listing no longer holds the order's quantity still creates the escrow, then the order is
+  cancelled (`listing_out_of_stock`) and the escrow armed the same way with
+  `refundReason: listing_out_of_stock`, so the sweep refunds the whole `amount` (commission
+  included) once. Mock auto-fund and the Telebirr webhook alike.
 - **Order-aware auto-refund**: for `source == "order"` escrows the 7-day sweep
   loads the order first. It refunds only a stale-`funded` (farmer never responded)
   or terminal (`rejected`/`cancelled`) order; a progressing order
@@ -1551,7 +1556,11 @@ such case logs an alarmable token (`ORDER_PAYMENT_UNMATCHED`, `ORDER_PAYMENT_DUP
 `ORDER_PAYMENT_UNPROCESSED`, plus `ORDER_ESCROW_CREATE_FAILED` and
 `ORDER_STOCK_DECREMENT_FAILED` from the funding steps), watched by the
 `{prefix}-order-payment-problems` alarm on the webhook log group. The two funding-step
-tokens mean the order is funded and needs repair, never a refund. Before refunding any
+tokens mean the order is funded and needs repair, never a refund. The one exception (1.35.0,
+ESC-18): `ORDER_STOCK_DECREMENT_FAILED ... reason=insufficient_stock` is an order that lost the
+listing's stock but could not be cancelled by itself (its farmer had already accepted, it moved
+on, or the write failed); it is still funded and a person decides between finding the stock and
+cancelling it for a refund. Before refunding any
 payment, read the order: if its `telebirrPaymentOrderId` is that payment, the payment funded
 the order. Do not refund an `ORDER_PAYMENT_UNPROCESSED` payment while its order is still
 `payment_submitted` in the same attempt (the mapping's `paymentSubmittedAt` equals the
@@ -4008,6 +4017,7 @@ gate (1.22.0, 1.27.0) runs before the refund as for any stale order.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.35.0 | 2026-11-06 | Stock lost at funding (ESC-18, `order-lifecycle.md` 2.4.0): a funding whose listing no longer holds the order's quantity creates the order escrow as before, then the order is cancelled (`listing_out_of_stock`) and `ScheduleRefundForOrderAsync` arms the escrow with `refundReason: listing_out_of_stock`; the hourly sweep refunds the full amount once. Runs on the Telebirr webhook (funding and redelivery repair) and the mock auto-fund. `ORDER_STOCK_DECREMENT_FAILED ... reason=insufficient_stock` marks a loser that could not be cancelled by itself (a person decides). No endpoint, status or field change |
 | 1.34.0 | 2026-10-26 | Order commitments (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): `ScheduleRefundForOrderAsync` now also runs when the order cron cancels a `funded` order whose farmer did not answer (`farmer_response_expired`) or an `awaiting_transport` order whose buyer did not decide in 48 hours (`transport_not_arranged`), and when the farmer cancels an `accepted` order before pickup (`farmer_cancelled`), all with `refundReason: order_cancelled`; the buyer's or the farmer's cancel in `awaiting_transport` arms `order_transport_failed` as the transport-failure cancel does; a trucker's decline, expiry or drop-out and a cancelled or full trip never refund by themselves (the order waits for the buyer); `awaiting_transport` joins the refundable statuses of the 7 day sweep as a backstop; no endpoint, status or field change |
 | 1.33.0 | 2026-10-23 | Payout delay (FRD-13): delivery confirm stamps `releaseNotBefore = max(disputeWindowEndsAt, deliveryConfirmedAt + delay)` (the longer of the farmer's and the trucker's delay: trusted 24 h, new 72 h, flagged 72 h, unscored the longest; `PAYOUT_DELAY_*` and `PAYOUT_TRUSTED_*` env, 0 to 168 hours); the auto-release and the trucker retry pay nothing before it (`payoutsDelayed` in the run summary, the overdue age counts from it); admin release, the dispute sweep and refunds are not delayed; the escrow reads carry `releaseNotBefore` for the farmer and the trucker while `escrowed` (a `held` escrow, which 1.31.0 shows old apps as `escrowed`, carries none) and for admins, never the buyer; mobile and web show "Payout expected on (date)"; an escrow confirmed before keeps today's behaviour |
 | 1.32.0 | 2026-10-23 | Fraud signals (FRD-08, fraud spec 3.9.0): a verified webhook payer mismatch writes `TELEBIRR_PAYER_MISMATCH` (weight 0) on the buyer of our own escrow or checkout row when the payment is applied and `TELEBIRR_PAYER_REFUSED` (soft, 5) when the payer match refuses it; the payer phone in Telebirr's `251XXXXXXXXX` form is compared as `+251XXXXXXXXX`; an unverified notification writes no signal on anyone; `ESCROW_025` writes `ROLE_FORBIDDEN` on the caller when the token names another role; answers unchanged and a failed signal write only logged; one payment outcome changes with `TELEBIRR_REQUIRE_PAYER_MATCH` on: a payment from the buyer's own wallet sent as `251XXXXXXXXX` was refused before and is applied now; no client change |
@@ -4053,6 +4063,6 @@ gate (1.22.0, 1.27.0) runs before the refund as for any stale order.
 
 ---
 
-**Last Updated**: 2026-10-26
-**Version**: 1.34.0
+**Last Updated**: 2026-11-06
+**Version**: 1.35.0
 **Status**: Draft (Phase R4)
