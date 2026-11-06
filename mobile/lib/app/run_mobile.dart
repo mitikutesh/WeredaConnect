@@ -61,6 +61,7 @@ import 'package:wereda_connect/features/messaging/data/isar_conversation_context
 import 'package:wereda_connect/features/messaging/data/repositories/message_repository.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_event.dart';
+import 'package:wereda_connect/features/messaging/presentation/open_notified_conversation.dart';
 import 'package:wereda_connect/features/messaging/presentation/widgets/message_arrival_listener.dart';
 import 'package:wereda_connect/features/rating/data/repositories/rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
@@ -302,7 +303,8 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
 }
 
 class WeredaConnectApp extends StatelessWidget {
-  /// The root navigator, so a tapped push can open an order (ESC-21).
+  /// The root navigator, so a tapped push can open an order (ESC-21) or a
+  /// conversation (FUP-90).
   static final navigatorKey = GlobalKey<NavigatorState>();
 
   final AuthBloc authBloc;
@@ -543,6 +545,29 @@ class WeredaConnectApp extends StatelessWidget {
                       await pullOrderIfMissing(orders, sync, orderId);
                       await navigatorKey.currentState
                           ?.push(orderDetailRoute(orders, orderId));
+                    },
+                    // FUP-90: a tapped chat push opens its thread, only for
+                    // the account it was sent to.
+                    onOpenConversation: (conversation) async {
+                      final signedIn = auth.state;
+                      if (signedIn is! AuthAuthenticated) return;
+                      final screen = await notifiedConversationScreen(
+                        repository: inbox.repository,
+                        userId: signedIn.userId,
+                        conversation: conversation,
+                        requestPull: () =>
+                            inbox.add(const InboxPollRequested()),
+                      );
+                      // Signed out, or another account in, while it read.
+                      final now = auth.state;
+                      if (screen == null ||
+                          now is! AuthAuthenticated ||
+                          now.userId != signedIn.userId) {
+                        return;
+                      }
+                      await navigatorKey.currentState?.push(
+                        MaterialPageRoute<void>(builder: (_) => screen),
+                      );
                     },
                     onMessagePush: () {
                       // A push for the PREVIOUS user can arrive after logout

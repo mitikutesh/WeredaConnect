@@ -243,6 +243,8 @@ PushNotificationService(api: ApiClient()).init(
   onOrderPush: (orderId) { /* pull(userId, force: true) + pullOrder(orderId), 3s follow-up */ },
   // ESC-21: a tapped order push (background or cold start) opens the order.
   onOpenOrder: (orderId) { /* pullOrderIfMissing, then orderDetailRoute on the navigatorKey */ },
+  // FUP-90: a tapped chat push (background or cold start) opens its thread.
+  onOpenConversation: (conversation) { /* notifiedConversationScreen, then push it on the navigatorKey */ },
 );
 ```
 
@@ -261,10 +263,17 @@ pushes carry `data.type == "message"` plus `conversationId`/`messageId`/`senderI
 (ESC-21, §5a) carry `data.type == "order"` plus `event`/`orderId`/`notificationId`;
 see `specs/contracts/notifications-api.md` section 2.
 
-Tap-to-open routing: IMPLEMENTED for order pushes (ESC-21). `WeredaConnectApp.navigatorKey`
-sits on the `MaterialApp`; `FirebaseMessaging.onMessageOpenedApp` and `getInitialMessage()` (once
-per launch) call `onOpenOrder(orderId)`, which reads an order the device has not pulled yet and
-opens its detail screen. A chat or match push still only opens the app. For a match alert, still
+Tap-to-open routing: IMPLEMENTED for order pushes (ESC-21) and chat pushes (FUP-90).
+`WeredaConnectApp.navigatorKey` sits on the `MaterialApp`; `FirebaseMessaging.onMessageOpenedApp`
+and `getInitialMessage()` (once per launch), both through `PushNotificationService.listenForTaps`,
+call `onOpenOrder(orderId)`, which reads an order the device has not pulled yet and opens its
+detail screen, or `onOpenConversation(conversation)` (`conversationToOpen` parses the chat
+payload). The thread opens only for its recipient (`NotifiedConversation.isFor`: the
+`conversationId` must be the deterministic id for the context, the sender and the signed-in user),
+so a notification left for another account on a shared phone opens nothing.
+`notifiedConversationScreen` opens a thread the device holds at once and asks the inbox to pull;
+a thread it holds nothing of is pulled first (8 s bound), and if it is still empty (offline) the
+messages list opens. A match push still only opens the app. For a match alert, still
 DEFERRED: register a background handler in `main()` and handle taps:
 ```dart
 @pragma('vm:entry-point')
