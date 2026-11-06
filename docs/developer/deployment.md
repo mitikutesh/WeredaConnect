@@ -318,7 +318,7 @@ All deploy workflows use a two-tier caching strategy:
 | `flutter_bootstrap.js` | `public, max-age=0, must-revalidate` | Loads the current build |
 | `fayda-callback.html`, `fayda-callback.js` | `public, max-age=0, must-revalidate` | Unhashed Fayda callback relay, so fixes reach browsers |
 
-`version.json` is still uploaded by `deploy-webapp.yml`, but it is **not served**: a CloudFront function on the webapp distribution answers `/version.json` with 404 (T-SEC-05, `infra/lib/stacks/web-stack.ts`), so the build info is not exposed. Nothing in the app reads it (there is no `package_info_plus`), so it has no cache tier. To see which build is live, read `serviceWorkerVersion` in the served `flutter_bootstrap.js`, which changes with every build.
+`version.json` is still uploaded by `deploy-webapp.yml`, but it is **not served**: a CloudFront function on the webapp distribution answers `/version.json` with 404 (T-SEC-05, `infra/lib/stacks/web-stack.ts`), so the build info is not exposed. Nothing in the app reads it (there is no `package_info_plus`), so its no-cache header is moot. To see which build is live, read `serviceWorkerVersion` in the served `flutter_bootstrap.js`, which changes with every build (Flutter marks its service worker as deprecated, so this hint will need a new source once Flutter drops it).
 
 ### Build Environment Variables
 
