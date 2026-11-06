@@ -442,4 +442,88 @@ void main() {
       expect(await handoffs.read('trucker-001', delivery.deliveryId), isNull);
     });
   });
+
+  group('location stamped at the scan (FRD-11)', () {
+    Future<void> scanWithoutSettling(WidgetTester tester) async {
+      await pumpScreen(tester, VerificationType.pickup);
+      tester.widget<MobileScanner>(find.byType(MobileScanner)).onDetect!(
+        const BarcodeCapture(barcodes: [Barcode(rawValue: 'qr-token')]),
+      );
+      // Not pumpAndSettle: the location spinner keeps animating.
+      await tester.pump();
+      await tester.pump();
+    }
+
+    bool confirmEnabled(WidgetTester tester) =>
+        tester
+            .widget<FilledButton>(find.byKey(const Key('qr_confirm')))
+            .onPressed !=
+        null;
+
+    ConfirmPickup sentPickup() =>
+        verify(() => bloc.add(captureAny())).captured.single as ConfirmPickup;
+
+    testWidgets('Confirm waits for the fix, then sends it with the pickup',
+        (tester) async {
+      final fix = Completer<GpsCaptureResult>();
+      when(() => gps.captureCurrentPosition()).thenAnswer((_) => fix.future);
+      await scanWithoutSettling(tester);
+
+      expect(confirmEnabled(tester), isFalse);
+      await tester.tap(find.byKey(const Key('qr_confirm')));
+      await tester.pump();
+      verifyNever(() => bloc.add(any()));
+
+      fix.complete(
+        const GpsCaptureResult.success(
+          latitude: 9.0,
+          longitude: 38.7,
+          accuracy: 12,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(confirmEnabled(tester), isTrue);
+      await tapConfirm(tester, 'Confirm Pickup');
+
+      final pickup = sentPickup();
+      expect(pickup.gpsPickup?.latitude, 9.0);
+      expect(pickup.gpsPickup?.longitude, 38.7);
+      expect(pickup.scannedQrNonce, 'nonce-1');
+    });
+
+    testWidgets('no fix: a scanned pickup still confirms without one',
+        (tester) async {
+      await scanValidCode(tester, VerificationType.pickup);
+
+      expect(confirmEnabled(tester), isTrue);
+      await tapConfirm(tester, 'Confirm Pickup');
+
+      final pickup = sentPickup();
+      expect(pickup.gpsPickup, isNull);
+      expect(pickup.scannedQrNonce, 'nonce-1');
+    });
+
+    testWidgets('a capture that fails ends the wait', (tester) async {
+      when(() => gps.captureCurrentPosition())
+          .thenAnswer((_) async => throw Exception('permission busy'));
+      await scanValidCode(tester, VerificationType.pickup);
+
+      expect(confirmEnabled(tester), isTrue);
+      expect(find.text(l10n.deliveryGpsUnavailable), findsOneWidget);
+    });
+
+    testWidgets('a capture that never ends stops the wait at the cap',
+        (tester) async {
+      final never = Completer<GpsCaptureResult>();
+      when(() => gps.captureCurrentPosition()).thenAnswer((_) => never.future);
+      await scanWithoutSettling(tester);
+      expect(confirmEnabled(tester), isFalse);
+
+      await tester.pump(QrScanScreen.gpsWaitCap);
+      await tester.pumpAndSettle();
+
+      expect(confirmEnabled(tester), isTrue);
+      expect(find.text(l10n.deliveryGpsUnavailable), findsOneWidget);
+    });
+  });
 }
