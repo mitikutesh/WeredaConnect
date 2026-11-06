@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Amazon.DynamoDBv2;
 using Amazon.SimpleNotificationService;
 using Amazon.SimpleNotificationService.Model;
@@ -16,6 +17,11 @@ namespace WeredaConnect.Server.Functions;
 /// Lambda publishes to these endpoints. See
 /// specs/architecture/push-notifications-architecture.md.
 ///
+/// FUP-121: a shared phone keeps one FCM token, so one SNS endpoint, for every user
+/// who signs in on it. When the endpoint is still bound to another user (their
+/// logout's DELETE never reached the server), registration removes that user's row
+/// and rebinds the endpoint to the caller (push-alerts-api.md section 1).
+///
 /// Error codes:
 /// - 400: DEVICE_TOKEN_VALIDATION, missing/empty token, bad body, or a platform the
 ///   push pipeline cannot deliver to (SIM-60: only "android" today)
@@ -23,7 +29,7 @@ namespace WeredaConnect.Server.Functions;
 /// - 410: ACCOUNT_004, POST by an account that is being or has been deleted (ACC-02)
 /// - 500: DEVICE_TOKEN_SERVER_ERROR, unexpected failure
 /// </summary>
-public class DeviceTokenFunction
+public partial class DeviceTokenFunction
 {
     /// <summary>
     /// Platforms the SNS platform application can deliver to. It is configured with the
@@ -31,6 +37,21 @@ public class DeviceTokenFunction
     /// application exists. Compared after trim + lower-case.
     /// </summary>
     private static readonly HashSet<string> AllowedPlatforms = new(StringComparer.Ordinal) { "android" };
+
+    /// <summary>
+    /// FUP-121: create, then claim, at most this many times. A second try only happens
+    /// when the endpoint was deleted between the two steps (SNS NotFound).
+    /// </summary>
+    private const int MaxEndpointAttempts = 2;
+
+    /// <summary>
+    /// The ARN in the InvalidParameter message SNS returns when CreatePlatformEndpoint
+    /// finds an endpoint for the same token with other attributes, here another user's
+    /// CustomUserData: "Endpoint arn:aws:sns:... already exists with the same Token,
+    /// but different attributes."
+    /// </summary>
+    [GeneratedRegex(@"Endpoint (arn:aws:sns:\S+) already exists with the same [Tt]oken")]
+    private static partial Regex ExistingEndpointArn();
 
     private readonly IAmazonSimpleNotificationService _sns;
     private readonly IDeviceTokenRepository _repo;
@@ -181,15 +202,9 @@ public class DeviceTokenFunction
                 return gone;
             }
 
-            var endpoint = await _sns.CreatePlatformEndpointAsync(new CreatePlatformEndpointRequest
-            {
-                PlatformApplicationArn = _platformAppArn,
-                Token = body.Token,
-                // Associate the endpoint with the user so a stale endpoint can be traced.
-                CustomUserData = userId,
-            });
+            var endpointArn = await BindEndpointAsync(userId, body.Token!, context);
 
-            await _repo.PutAsync(userId, endpoint.EndpointArn, platform, body.Token!);
+            await _repo.PutAsync(userId, endpointArn, platform, body.Token!);
 
             return LambdaResponse.Ok(
                 new RegisterDeviceTokenResponse { Success = true },
@@ -199,6 +214,132 @@ public class DeviceTokenFunction
         {
             context.Logger.LogError($"Error registering device token: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "DEVICE_TOKEN_SERVER_ERROR", "Failed to register device token.");
+        }
+    }
+
+    /// <summary>
+    /// FUP-121: the endpoint for this token, bound to <paramref name="userId"/> and enabled.
+    /// AWS's token-management pattern: create the endpoint (or take the existing one's ARN
+    /// from SNS's refusal), read its attributes, then rebind it to the caller when it
+    /// belongs to someone else, is disabled or holds another token. An endpoint deleted
+    /// between the steps is created again, once.
+    /// </summary>
+    private async Task<string> BindEndpointAsync(string userId, string token, ILambdaContext context)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var endpointArn = await CreateOrFindEndpointAsync(userId, token);
+            try
+            {
+                await ClaimEndpointAsync(endpointArn, userId, token, context);
+                return endpointArn;
+            }
+            catch (NotFoundException) when (attempt < MaxEndpointAttempts)
+            {
+                // Deleted meanwhile (a logout or an account deletion): create it again.
+            }
+        }
+    }
+
+    /// <summary>
+    /// CreatePlatformEndpoint is idempotent only for identical attributes. For a token whose
+    /// endpoint is bound to another user (CustomUserData) SNS refuses with InvalidParameter
+    /// and names the existing endpoint; that ARN is used. Any other refusal propagates.
+    /// </summary>
+    private async Task<string> CreateOrFindEndpointAsync(string userId, string token)
+    {
+        try
+        {
+            var created = await _sns.CreatePlatformEndpointAsync(new CreatePlatformEndpointRequest
+            {
+                PlatformApplicationArn = _platformAppArn,
+                Token = token,
+                // The endpoint's owner: the only link from the token back to a user's row,
+                // read by ClaimEndpointAsync when another user registers the same token.
+                CustomUserData = userId,
+            });
+            return created.EndpointArn;
+        }
+        catch (InvalidParameterException ex)
+            when (ExistingEndpointArn().Match(ex.Message ?? "") is { Success: true } existing)
+        {
+            return existing.Groups[1].Value;
+        }
+    }
+
+    /// <summary>
+    /// Makes <paramref name="userId"/> the endpoint's owner. A previous owner's row is
+    /// deleted BEFORE the endpoint is rebound: the endpoint's CustomUserData is the only
+    /// way back to that row (the table has no index by token or endpoint), so rebinding
+    /// first and then failing the delete would lose the row for good and keep routing the
+    /// previous owner's pushes, with names and amounts, to this phone. When the delete
+    /// fails the call fails closed: the endpoint is disabled (best effort, so the previous
+    /// owner's pushes stop and their publishers prune the row) and still names the previous
+    /// owner, so the app's next registration repeats the whole claim.
+    /// </summary>
+    private async Task ClaimEndpointAsync(
+        string endpointArn, string userId, string token, ILambdaContext context)
+    {
+        var current = await _sns.GetEndpointAttributesAsync(
+            new GetEndpointAttributesRequest { EndpointArn = endpointArn });
+        var attributes = current.Attributes ?? new Dictionary<string, string>();
+        var owner = attributes.GetValueOrDefault("CustomUserData");
+        var enabled = string.Equals(attributes.GetValueOrDefault("Enabled"), "true", StringComparison.OrdinalIgnoreCase);
+        var sameToken = string.Equals(attributes.GetValueOrDefault("Token"), token, StringComparison.Ordinal);
+
+        if (owner == userId && enabled && sameToken)
+        {
+            return;
+        }
+
+        var previousOwner = !string.IsNullOrEmpty(owner) && owner != userId ? owner : null;
+        if (previousOwner != null)
+        {
+            try
+            {
+                await _repo.DeleteAsync(previousOwner, endpointArn);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogError(
+                    $"Could not remove the previous user's registration of a shared device: [{ex.GetType().Name}]");
+                await DisableEndpointAsync(endpointArn, context);
+                throw;
+            }
+        }
+
+        await _sns.SetEndpointAttributesAsync(new SetEndpointAttributesRequest
+        {
+            EndpointArn = endpointArn,
+            Attributes = new Dictionary<string, string>
+            {
+                ["CustomUserData"] = userId,
+                ["Token"] = token,
+                ["Enabled"] = "true",
+            },
+        });
+
+        if (previousOwner != null)
+        {
+            context.Logger.LogInformation(
+                "Shared device: push endpoint rebound to the registering user, the previous user's registration removed.");
+        }
+    }
+
+    /// <summary>Stops delivery to the endpoint and keeps its owner. Best effort.</summary>
+    private async Task DisableEndpointAsync(string endpointArn, ILambdaContext context)
+    {
+        try
+        {
+            await _sns.SetEndpointAttributesAsync(new SetEndpointAttributesRequest
+            {
+                EndpointArn = endpointArn,
+                Attributes = new Dictionary<string, string> { ["Enabled"] = "false" },
+            });
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"Could not disable a shared device's push endpoint: [{ex.GetType().Name}]");
         }
     }
 }

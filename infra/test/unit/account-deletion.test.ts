@@ -214,6 +214,23 @@ describe('ACC-02 account deletion (ApiStack)', () => {
     });
     expect(actionsOn(template, 'wereda-connect-dev-device-tokens', 'UsersTable')).toEqual(['dynamodb:GetItem']);
   });
+
+  test('device tokens (FUP-121): create on the FCM app, read and rebind on its endpoints only', () => {
+    const sns = statementsOf(template, 'wereda-connect-dev-device-tokens').filter((s) =>
+      (Array.isArray(s.Action) ? s.Action : [s.Action]).some((a) => a.startsWith('sns:')));
+    expect(sns).toHaveLength(2);
+
+    const create = sns.find((s) => s.Action === 'sns:CreatePlatformEndpoint');
+    expect(JSON.stringify(create?.Resource)).toContain(':app/GCM/wereda-connect-dev-fcm');
+    expect(JSON.stringify(create?.Resource)).not.toContain('*');
+
+    const rebind = sns.find((s) => Array.isArray(s.Action));
+    expect((rebind?.Action as string[]).sort()).toEqual([
+      'sns:GetEndpointAttributes',
+      'sns:SetEndpointAttributes',
+    ]);
+    expect(JSON.stringify(rebind?.Resource)).toContain(':endpoint/GCM/wereda-connect-dev-fcm/*');
+  });
 });
 
 describe('ACC-02 account deletion (MonitoringStack)', () => {
