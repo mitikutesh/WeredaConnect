@@ -198,7 +198,9 @@ public class SyncFunctionListingGuardTests
         _crops.UpdateAsync(ListingId, Arg.Any<Dictionary<string, object>>(), 2).Returns(
             AuthResult<Dictionary<string, object>>.Failure(new AuthResultError
             {
-                HttpStatus = 409, Code = "SYNC_CONFLICT", Message = "Version conflict: server has version 3, client expected 2."
+                HttpStatus = 409,
+                Code = "SYNC_CONFLICT",
+                Message = "Version conflict: server has version 3, client expected 2."
             }));
 
         var result = await UpdateAsync(new Dictionary<string, object> { { "quantity", 10.0 }, { "version", 2 } });
