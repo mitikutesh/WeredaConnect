@@ -5090,4 +5090,30 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get deliveryQrAlreadyPickedUp =>
       'ይህ ርክክብ አስቀድሞ ተነስቷል፣ ስለዚህ አዲስ QR ኮድ አይፈጠርም። ሹፌሩ ከማንሳቱ የተገኘውን ኮድ ለገዢው ያሳያል።';
+
+  @override
+  String get dropoffNoteLabel => 'የማውረጃ ምልክት (አማራጭ)';
+
+  @override
+  String get dropoffNoteHint => 'ለምሳሌ፦ መርካቶ፣ አንዋር መስጊድ አጠገብ';
+
+  @override
+  String get dropoffNoteHelper =>
+      'ሹፌሩ እንዲያገኝዎ ይረዳል። ገበሬውና ሹፌሩ ያዩታል። እስኪነሳ ድረስ መቀየር ይችላሉ።';
+
+  @override
+  String get dropoffNoteTitle => 'የማውረጃ ምልክት';
+
+  @override
+  String get dropoffNoteEmpty => 'ሹፌሩ እንዲያገኝዎ ምልክት ያክሉ።';
+
+  @override
+  String get dropoffNoteAdd => 'አክል';
+
+  @override
+  String get dropoffNoteSaved => 'የማውረጃ ምልክቱ ተቀምጧል።';
+
+  @override
+  String get errorDropoffNoteLocked =>
+      'ዕቃው ስለተነሳ የማውረጃ ምልክቱን ከእንግዲህ መቀየር አይቻልም።';
 }

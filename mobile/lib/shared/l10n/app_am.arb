@@ -3195,5 +3195,13 @@
   "homeTripLoadFailed": "ጉዞዎን መጫን አልተቻለም። ግንኙነትዎን አረጋግጠው እንደገና ይሞክሩ።",
   "tripScanPickupQrFor": "የማንሳት QR ቃኝ: {name}",
   "deliveryErrorCodeLockedDropoff": "ለዚህ ማውረጃ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። ሹፌሩ የማውረጃ QR ካለው ይቃኙት። ከሌለው ድጋፍ ሰጪን ያግኙ፤ ርክክቡን ከእርስዎና ከሹፌሩ ጋር ማረጋገጥ ይችላሉ።",
-  "deliveryQrAlreadyPickedUp": "ይህ ርክክብ አስቀድሞ ተነስቷል፣ ስለዚህ አዲስ QR ኮድ አይፈጠርም። ሹፌሩ ከማንሳቱ የተገኘውን ኮድ ለገዢው ያሳያል።"
+  "deliveryQrAlreadyPickedUp": "ይህ ርክክብ አስቀድሞ ተነስቷል፣ ስለዚህ አዲስ QR ኮድ አይፈጠርም። ሹፌሩ ከማንሳቱ የተገኘውን ኮድ ለገዢው ያሳያል።",
+  "dropoffNoteLabel": "የማውረጃ ምልክት (አማራጭ)",
+  "dropoffNoteHint": "ለምሳሌ፦ መርካቶ፣ አንዋር መስጊድ አጠገብ",
+  "dropoffNoteHelper": "ሹፌሩ እንዲያገኝዎ ይረዳል። ገበሬውና ሹፌሩ ያዩታል። እስኪነሳ ድረስ መቀየር ይችላሉ።",
+  "dropoffNoteTitle": "የማውረጃ ምልክት",
+  "dropoffNoteEmpty": "ሹፌሩ እንዲያገኝዎ ምልክት ያክሉ።",
+  "dropoffNoteAdd": "አክል",
+  "dropoffNoteSaved": "የማውረጃ ምልክቱ ተቀምጧል።",
+  "errorDropoffNoteLocked": "ዕቃው ስለተነሳ የማውረጃ ምልክቱን ከእንግዲህ መቀየር አይቻልም።"
 }

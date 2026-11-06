@@ -3188,5 +3188,13 @@
   "homeTripLoadFailed": "Imala kee fe'uun hin danda'amne. Walqunnamtii kee mirkaneessiitii irra deebi'ii yaali.",
   "tripScanPickupQrFor": "QR fudhachuu iskaan: {name}",
   "deliveryErrorCodeLockedDropoff": "Buusuu kanaaf koodiiwwan dogoggoraa baay'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Konkolaachisaan QR buusuu yoo qabaate iskaanii godhi. Yoo hin qabne, deeggarsa qunnami: isaan si fi konkolaachisaa waliin dabarsuu ni mirkaneessu.",
-  "deliveryQrAlreadyPickedUp": "Geejjibni kun duraan fudhatameera, kanaaf koodiin QR haaraan hin uumamu. Konkolaachisaan koodii yeroo fudhachuu argame bitaaf agarsiisa."
+  "deliveryQrAlreadyPickedUp": "Geejjibni kun duraan fudhatameera, kanaaf koodiin QR haaraan hin uumamu. Konkolaachisaan koodii yeroo fudhachuu argame bitaaf agarsiisa.",
+  "dropoffNoteLabel": "Mallattoo bakka buusii (dirqama miti)",
+  "dropoffNoteHint": "Fkn. Merkato, Masgiida Anwar bira",
+  "dropoffNoteHelper": "Akka konkolaachisaan isin argatu gargaara. Qonnaan bulaa fi konkolaachisaan ni argu. Hanga fe'amutti jijjiiruu dandeessu.",
+  "dropoffNoteTitle": "Mallattoo bakka buusii",
+  "dropoffNoteEmpty": "Akka konkolaachisaan isin argatuuf mallattoo dabalaa.",
+  "dropoffNoteAdd": "Dabali",
+  "dropoffNoteSaved": "Mallattoon bakka buusii olkaa'ameera.",
+  "errorDropoffNoteLocked": "Meeshaan waan fe'ameef mallattoo bakka buusii jijjiiruun hin danda'amu."
 }

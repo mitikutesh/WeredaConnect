@@ -5226,4 +5226,30 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get deliveryQrAlreadyPickedUp =>
       'This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.';
+
+  @override
+  String get dropoffNoteLabel => 'Drop-off landmark (optional)';
+
+  @override
+  String get dropoffNoteHint => 'e.g. Merkato, near Anwar Mosque';
+
+  @override
+  String get dropoffNoteHelper =>
+      'Helps the driver find you. The farmer and the driver see it. You can change it until pickup.';
+
+  @override
+  String get dropoffNoteTitle => 'Drop-off landmark';
+
+  @override
+  String get dropoffNoteEmpty => 'Add a landmark so the driver finds you.';
+
+  @override
+  String get dropoffNoteAdd => 'Add';
+
+  @override
+  String get dropoffNoteSaved => 'Drop-off landmark saved.';
+
+  @override
+  String get errorDropoffNoteLocked =>
+      'The goods were picked up, so the drop-off landmark can no longer be changed.';
 }
