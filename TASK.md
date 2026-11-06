@@ -104,7 +104,6 @@ Source: 13-agent synthetic fleet on dev; report `specs/reports/synthetic-fleet-2
 | SIM-29 | P3 | @Server | Escrow record hygiene: bump version on link/confirm. (The 409 `ESCROW_020` on a second dispute came with ESC-07, #126; `refundReason` is exposed since SIM-20.) | Per `escrow-protocol.md`. |
 | SIM-30 | P3 | @Server @Docs | Commission: round to 2 dp; align contract (2.5 % deducted) with implementation (5 % added) or vice versa. | One documented rule; rounding test. |
 | SIM-33 | P3 | @Mobile | Display hygiene: guard impossible money/quantity values, count "Available Crops" across pages, never show raw ids/junk location, show trucker name on trip cards. | Screens verified for all 3 roles on web. |
-| SIM-35 | P3 | @Infra | Serve `/version.json` on the dev webapp (or drop it from the cache strategy docs). | 200 with build info. |
 | SIM-37 | P3 | @Mobile @Server | Sync `preferredLanguage` to the server profile when changed in Settings. | Language persists across devices. |
 
 ---
