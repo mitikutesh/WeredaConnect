@@ -472,7 +472,9 @@ public partial class SyncFunction
 
     // QR handoff freshness / offline-defer windows (days). Generous, because rural
     // handoffs sync late; the point is to stop indefinitely-stale codes and to give up
-    // deferring a money-bearing transition whose nonce is clearly never going to arrive.
+    // deferring a QR-gated handoff (every pickup since FRD-11, a paid drop-off) whose
+    // nonce is clearly never going to arrive. The defer window counts from the later of
+    // the delivery's creation and the scan (AwaitFarmerNonce).
     private const int QrNonceFreshnessDays = 14;
     private const int QrNonceMaxDeferDays = 14;
 
@@ -5258,13 +5260,25 @@ public partial class SyncFunction
                                     }
                                 }
                             }
+                            else if (nStatus == "pickedUp" || string.Equals(
+                                existing.TryGetValue("deliveryType", out var gateTypeAttr) ? gateTypeAttr.S : null,
+                                SelfPickupDeliveryType, StringComparison.Ordinal))
+                            {
+                                // FRD-11: a pickup at the farm (the trucker's pickedUp, a self-pickup
+                                // buyer's delivered) is proven only by the farmer's QR, whatever the
+                                // money, so no escrow is read. Without the farmer's nonce it waits for
+                                // it to sync (offline first: the op stays queued) and is refused once
+                                // it is clearly never coming.
+                                return AwaitFarmerNonce(operation, existing,
+                                    "DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server for this pickup. Contact support.");
+                            }
                             else
                             {
-                                // No nonce on either source. Money-bearing deliveries must NOT
-                                // fail open: DEFER (offline-first — the op stays queued and retries)
-                                // until the farmer's nonce syncs, then hard-fail once it's clearly
-                                // never coming. Cash (no-escrow) deliveries keep the legacy
-                                // allow-through so a missing QR doesn't block them.
+                                // No nonce on either source for a trucker's drop-off. Money-bearing
+                                // deliveries must NOT fail open: DEFER (offline-first, the op stays
+                                // queued and retries) until the farmer's nonce syncs, then hard-fail
+                                // once it's clearly never coming. A cash (no-escrow) delivery picked
+                                // up without a QR before FRD-11 keeps the allow-through.
                                 bool hasEscrow;
                                 try
                                 {
@@ -5292,29 +5306,8 @@ public partial class SyncFunction
 
                                 if (hasEscrow)
                                 {
-                                    var createdAtStr = existing.TryGetValue("createdAt", out var caAttr)
-                                        ? caAttr.S : null;
-                                    var tooOld = createdAtStr != null
-                                        && DateTime.TryParse(createdAtStr, CultureInfo.InvariantCulture,
-                                            DateTimeStyles.RoundtripKind, out var deliveryCreatedAt)
-                                        && DateTime.UtcNow - deliveryCreatedAt.ToUniversalTime()
-                                            > TimeSpan.FromDays(QrNonceMaxDeferDays);
-                                    if (tooOld)
-                                    {
-                                        return new SyncOperationResult
-                                        {
-                                            OperationId = operation.OperationId,
-                                            Status = "error",
-                                            Message = "DELIVERY_NONCE_MISSING: QR verification could not be completed for this payment. Contact support."
-                                        };
-                                    }
-
-                                    return new SyncOperationResult
-                                    {
-                                        OperationId = operation.OperationId,
-                                        Status = "deferred",
-                                        Message = "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. Will retry automatically."
-                                    };
+                                    return AwaitFarmerNonce(operation, existing,
+                                        "DELIVERY_NONCE_MISSING: QR verification could not be completed for this payment. Contact support.");
                                 }
                             }
                         }
@@ -8373,8 +8366,42 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// FUP-42: whether a delivery carries money, so its <c>pickedUp</c> and <c>delivered</c> need the QR.
-    /// The order's own escrow (<c>escrow-order-{orderId}</c>, strongly consistent, any status) decides
+    /// A QR-gated handoff with no farmer's nonce on record: <c>deferred</c> while the nonce may still
+    /// sync (nothing written, the op stays queued without using a retry), <paramref name="refusal"/>
+    /// once <see cref="QrNonceMaxDeferDays"/> have passed since the later of the delivery's creation
+    /// and the scan (the operation's <c>timestamp</c>, when plausible). From creation alone, a delivery
+    /// made weeks before its trip was refused at the first sync of an honest offline scan.
+    /// </summary>
+    private static SyncOperationResult AwaitFarmerNonce(
+        SyncOperationRequest operation, Dictionary<string, AttributeValue> delivery, string refusal)
+    {
+        var now = DateTime.UtcNow;
+        var createdAt = TransactionPatternRules.ParseUtc(
+            delivery.TryGetValue("createdAt", out var caAttr) ? caAttr.S : null);
+        var scannedAt = TransactionPatternRules.PlausibleCaptureTime(operation.Timestamp, now);
+        var windowStart = createdAt is { } created && scannedAt is { } scanned
+            ? (created > scanned ? created : scanned)
+            : createdAt ?? scannedAt;
+        var tooOld = windowStart is { } start && now - start > TimeSpan.FromDays(QrNonceMaxDeferDays);
+        return tooOld
+            ? new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = refusal
+            }
+            : new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "deferred",
+                Message = "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. Will retry automatically."
+            };
+    }
+
+    /// <summary>
+    /// FUP-42: whether a delivery carries money, so a trucker's drop-off <c>delivered</c> needs the QR
+    /// (a pickup needs it whatever the money since FRD-11) and a typed code needs the leg's GPS. The
+    /// order's own escrow (<c>escrow-order-{orderId}</c>, strongly consistent, any status) decides
     /// first, found as the dispute freeze finds it (ESC-07): its link to the delivery can fail
     /// (<c>ORDER_ESCROW_LINK_FAILED</c>) or lag, and the <c>DeliveryIndex</c> alone then called the
     /// delivery cash. Otherwise the <c>DeliveryIndex</c> finds an escrow paid through

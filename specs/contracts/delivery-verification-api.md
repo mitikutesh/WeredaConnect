@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.23.0
+1.24.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -567,7 +567,7 @@ server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 Valid status transitions (enforced server-side):
 
 ```
-pending → pickedUp      (trucker scans farmer's QR code at pickup)
+pending → pickedUp      (trucker scans farmer's QR code at pickup; required since 1.24.0, money or not)
 pending → cancelled       (any participant cancels before pickup, by update or delete)
 pickedUp → inTransit   (trucker departs from pickup location)
 pickedUp → delivered    (buyer confirms the handoff; marking in transit is optional)
@@ -734,6 +734,8 @@ GPS may be unavailable (indoor, poor signal, hardware failure). The system degra
 | GPS outside 5km threshold | Reject with error, allow retry with explanation |
 
 Deliveries without GPS evidence are flagged as `requires_review` in server metadata. These receive lower trust scores in future fraud detection (F-14).
+
+As built (1.24.0): no `requires_review` flag is written yet. A scanned pickup without a fix is accepted (a typed code on a paid delivery and a self-pickup confirm need one, see QR Secret Storage); whether to require or record a missing fix is the GPS spike's call (SPK-01). The scan screen takes the fix when the QR is read and its Confirm waits for that attempt (at most 30 seconds), so the fix sent is the one taken at the scan.
 
 ---
 
@@ -1038,9 +1040,29 @@ as a delivery with `deliveryType: "self_pickup"`:
   `pickedUp`/`delivered` transition only if it matches the stored nonce, is within a freshness
   window, and has not already been consumed for that transition (single-use). Consumption is
   recorded only **after** the version CAS commits, so a rejected transition never burns it.
-- For a money-bearing delivery whose nonce has not yet synced, the server returns
+- **Pickup proof (1.24.0, FRD-11)**: a pickup at the farm, the trucker's `pending → pickedUp`
+  and the self-pickup buyer's `pending → delivered`, needs the farmer's nonce whatever the money.
+  With no nonce on record it is **`deferred`** (`DELIVERY_NONCE_PENDING: Waiting for the farmer's
+  QR code to sync. ...`, nothing written, the op stays queued) until the farmer's nonce syncs,
+  and refused with `DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server for
+  this pickup. Contact support.` once 14 days have passed since the later of the delivery's
+  creation and the scan (the operation's `timestamp`, used when plausible: at most 5 minutes
+  after it reached the server and not older than 30 days). Counting from the scan matters for a
+  delivery made weeks before its trip: an honest scan that syncs before the farmer's queued
+  nonce waits instead of being refused at once. No escrow is read for it. Before 1.24.0 a pickup of a delivery without an escrow (cash, or an order whose escrow write
+  failed) passed with no QR. With the nonce on record the rules below apply unchanged: the scan
+  (`scannedQrNonce`) or the typed code (`scannedQrCode`) must match, within 14 days of the nonce,
+  once per leg (consumed after the write commits). A trucker's pickup stores `gpsPickup` as
+  taken at the scan (when the phone had a fix), the server's `pickedUpAt` and the phone's
+  `pickupCapturedAt`; a self-pickup stores `gpsDropoff` (mandatory) and `confirmedAt`; both
+  audit `handoff=qr` or `handoff=code`. A cargo photo is taken on the
+  phone and kept there until the photo upload ships (FRD-12). Shipped apps already prove every
+  pickup this way (the farmer's QR registers its nonce, the scan sends it), so no client or flag
+  change is needed.
+- For a trucker's drop-off of a money-bearing delivery whose nonce has not yet synced, the server returns
   **`deferred`** (see sync-protocol) rather than failing open, and refuses it with
-  `DELIVERY_NONCE_MISSING` once the delivery is older than 14 days. A delivery carries money
+  `DELIVERY_NONCE_MISSING` once 14 days have passed since the later of the delivery's creation
+  and the scan (from creation alone before 1.24.0). A delivery carries money
   when its order's escrow (`escrow-order-{orderId}`, read strongly consistent, any status)
   exists, or else when the escrow `DeliveryIndex` finds one for it (an escrow paid through
   `POST /escrow/initiate`, or a legacy delivery without an `orderId`). The order's escrow is
@@ -1050,8 +1072,9 @@ as a delivery with `deliveryType: "self_pickup"`:
   nothing written, never the 14-day refusal), and the server logs
   `QR_GATE_UNDECIDED deliveryId=.. orderId=.. reason=..`, which the order escrow problems
   alarm counts, so a read that keeps failing is seen. Web clients show their QR-pending text
-  for this deferral too (accepted: the user tries again and a later retry clears it). A
-  delivery with no escrow (cash) passes without a QR, as before.
+  for this deferral too (accepted: the user tries again and a later retry clears it). The
+  drop-off of a delivery with no escrow (cash) and no nonce passes without a QR, as before: since
+  1.24.0 only one picked up without a QR before then can reach it.
 - Only the delivery's farmer may set `qrNonce` (SIM-41). A `qrNonce` sent on create, or on
   an update by anyone else, is silently dropped. Since 1.22.0 the farmer's nonce op stores the
   nonce and nothing else (other fields riding along are ignored, never written), and once the
@@ -1144,10 +1167,11 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.21.0 | 2026-10-30 | Cargo on the row (Fieldway deliveries boards): the create stamps the server-only `cropType` and `quantity` (kg) from the order, `pickupPlace` from the listing's `locationName` and `pickupPlannedAt` from the trip's `departureDate` (none on a self-pickup), all returned on `GET /deliveries`, `GET /deliveries/{id}` and every `/sync` delivery row, so the list cards read "Teff · 1,500 kg" and "Kebede Alemu, Bichena · pickup Thu 30 Oct" without one order read per delivery; a client that sends them hits the field whitelist; deliveries created before 1.21.0 carry none and the clients fall back to the delivery number. |
 | 1.22.0 | 2026-11-04 | Typed handoff code and drop-off QR (usability audit T-1, T-3; see QR Secret Storage): `scannedQrCode` (nine digits, eight derived from the nonce and a Damm check digit) stands in for `scannedQrNonce` on `pickedUp` and `delivered`, compared in fixed time, with the scan's freshness, single-use and deferral rules; per-leg misses in the secret row (string sets of operation ids, cleared by a new nonce), `DELIVERY_CODE_LOCKED` from the fifth wrong code (a scan still works), `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED_DROPOFF` for a trucker's drop-off (support settles it), `DELIVERY_CODE_GPS_REQUIRED` for a typed code without GPS on a paid delivery, a malformed code is `DELIVERY_VALIDATION`; attempt ids carry a hash of the code, so a reused operation id cannot guess for free; the farmer's nonce op stores only the nonce and nothing once the delivery left `pending`; the secret row is read strongly consistent; `handoff=qr` or `handoff=code` in the transition's audit `metadata`. The trucker's phone keeps the farmer's pickup token and shows it as the drop-off QR the buyer scans (one nonce for both legs). Header drift fixed (the README and footer still said 1.20.0). |
 | 1.23.0 | 2026-11-06 | Pickup capture time (FRD-09, `fraud-detection-architecture.md` 3.12.0, section 15.1): the `pickedUp` transition also stamps the server-only `pickupCapturedAt`, the operation's `timestamp` when it is plausible (at most 5 minutes after the operation reached the server and not older than 30 days), so the fraud rule for a delivery too fast for its distance can tell a pickup synced late from an offline phone from a fast trip. Returned on `/sync` delivery rows like the other server-only fields; no request or answer changes, no client change. A confirmed delivery may write the `IMPOSSIBLE_DELIVERY_TIME` signal on its trucker, flag-only. |
+| 1.24.0 | 2026-11-07 | Pickup proof (FRD-11, see QR Secret Storage): a pickup at the farm (the trucker's `pickedUp`, the self-pickup buyer's `delivered`) with no farmer's nonce on record is `deferred` until the nonce syncs and refused with `DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server for this pickup. Contact support.` once 14 days have passed since the later of the delivery's creation and the scan (the operation's `timestamp` when plausible), whatever the money and with no escrow read; before, a delivery without an escrow passed with no QR. The drop-off keeps the money rule; its 14 days now count the same way (before, from creation only). The scan screen's Confirm waits for the fix taken at the scan (at most 30 seconds; a phone with no fix still confirms a scanned QR). No new code or field; shipped clients already send the farmer's nonce on every pickup and handle `deferred`. GPS Failure Handling says what is built. |
 | 1.19.0 | 2026-10-23 | Payout delay (FRD-13, `escrow-protocol.md` 1.33.0): the `delivered` transition stamps the linked escrow's `releaseNotBefore` in the same write as `deliveryConfirmedAt` and `disputeWindowEndsAt` (the trucker named by the delivery when the escrow has none yet); the automatic release waits for it. The dispute window and the delivery's own fields are unchanged; no client change on deliveries. |
 
 ---
 
-**Last Updated**: 2026-11-06
-**Version**: 1.23.0
+**Last Updated**: 2026-11-07
+**Version**: 1.24.0
 **Status**: Draft (Phase R4.2)

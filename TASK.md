@@ -8,7 +8,7 @@
 - **Three-party commitments:** on main and on in dev since 2026-10-27 (#231, #234, #237, #238): the farmer answers a paid order first, then the trucker, and every party gets inbox rows and pushes. `COMMITMENTS_ENABLED` stays off in staging and prod until ESC-25.
 - **Open P0:** the ESC-44 live sandbox run and the ESC-13 synthetic alarm run.
 - **Open P1 that needs AWS credentials:** FUP-17, FUP-23, FUP-31 (staging and prod roles), FUP-33, FUP-40, FUP-54 (JSON metric filters), FUP-59 (pre-deploy checks for FRD-03 and FUP-42), FUP-92 (fraud-signals scan before FRD-04 reaches staging or prod).
-- **Open P1 decisions and code:** FUP-60 and FUP-91 (confirm the runs' decisions), FRD-11, FRD-17, ESC-46, FUP-45, SPK-01, then EPIC ESC phase P1 (ESC-14, ESC-16, ESC-17, ESC-19 to ESC-26, ESC-43; ESC-18 merged in #284).
+- **Open P1 decisions and code:** FUP-60 and FUP-91 (confirm the runs' decisions), FRD-17, ESC-46, FUP-45, SPK-01, then EPIC ESC phase P1 (ESC-14, ESC-16, ESC-17, ESC-19 to ESC-26, ESC-43; ESC-18 merged in #284).
 - **Next up:** LT-14 (the order's own drop-off point), the last open EPIC LT ticket; spec `specs/features/live-trip.md`, contract `specs/contracts/live-trip-api.md`.
 - **Designs:** live trip `specs/features/live-trip.md`, escrow `specs/features/three-party-escrow-commitments-reputation.md`, fraud `specs/architecture/fraud-detection-architecture.md`, Isar `specs/features/isar-hardening/README.md`, matching `specs/features/matching-roadmap.md`.
 
@@ -110,14 +110,13 @@ SIM-25 to SIM-30, SIM-33 and SIM-37 shipped in one P3 PR. These came out of its 
 
 ## EPIC FRD: Fraud Risk Engine (2026-09-26) - @Scope tasks
 
-Goal: suspicious activity holds the money or forces stronger identity proof before it moves. Deterministic rules decide, AI only advises. Spec `specs/architecture/fraud-detection-architecture.md` (v3 from FRD-01 supersedes the row wording where they differ). Done: risk score (FRD-02, #158), escrow `held` (FRD-03, #162), client handling (FRD-06, #159), risk policy gate (FRD-04, #178), admin fraud actions with side effects (FRD-05, #180), signals from existing rejects (FRD-08, #184) the risk-based payout delay (FRD-13, #185) the transaction pattern rules (FRD-09, #287) and the clean-delivery credits (FRD-10). Build notes for the open tickets: FUP-62.
+Goal: suspicious activity holds the money or forces stronger identity proof before it moves. Deterministic rules decide, AI only advises. Spec `specs/architecture/fraud-detection-architecture.md` (v3 from FRD-01 supersedes the row wording where they differ). Done: risk score (FRD-02, #158), escrow `held` (FRD-03, #162), client handling (FRD-06, #159), risk policy gate (FRD-04, #178), admin fraud actions with side effects (FRD-05, #180), signals from existing rejects (FRD-08, #184) the risk-based payout delay (FRD-13, #185) the transaction pattern rules (FRD-09, #287), the clean-delivery credits (FRD-10) and pickup proof without a farmer nonce (FRD-11). Build notes for the open tickets: FUP-62.
 
 Stories: S1 risk score and enforcement, S2 signal coverage, S3 delivery and payout evidence, S4 relationship detection, S5 adversarial E2E, S6 AI advisory (deferred). Priority: P0 money moves despite a known red flag; P1 detection or enforcement gap on a money path; P2 evidence, admin tooling or coverage; P3 deferred or needs data.
 
 | ID | Story | Pri | Scope | Task | Done when |
 |---|---|---|---|---|---|
 | FRD-07 | S1 | P2 | @Admin @Infra | Fraud Review rework: GSI on fraud-signals `status` (replace the Scan), signals grouped by user with risk score and tier, a held-escrow queue, link to the transaction timeline. | Page loads without Scan; admin e2e covers approve/reject/whitelist and held release/refund. |
-| FRD-11 | S3 | P1 | @Server @Mobile | Pickup proof: farmer-side QR scan at pickup (mirror of the delivery handoff QR: secret table, single use, fail closed) with GPS stamped at scan; optional cargo photo. Works offline (scan queued, verified on sync). Self-pickup path included. | Pickup without a valid scan cannot move a delivery to `pickedUp`; contract `delivery-verification-api.md` bumped; tests for trucker and self-pickup flows. |
 | FRD-12 | S3 | P2 | @Mobile @Server | Optional delivery photo at handoff via the existing presigned S3 upload, attached to the delivery and shown in dispute evidence. Compressed for 3G. | Photo visible to buyer, farmer, trucker of that delivery and admin; size cap test. |
 | FRD-14 | S3 | P2 | @Admin @Server | Dispute evidence package: one admin view stitching audit timeline, pickup and delivery GPS, QR scans, photos and order messages for a delivery. | Admin can resolve a dispute from one screen; e2e test. |
 | FRD-15 | S4 | P2 | @Server @Infra | Hourly EventBridge Lambda for relationship patterns: repeated farmer+buyer pairs, same device/phone/IP on both sides of an order (device ids from auth-hardening), confirm-then-dispute buyers, self-trading. DynamoDB queries only, no graph database. Writes signals. | Seeded fixtures trigger each pattern; runs within Lambda limits on dev data volume; cost noted. |
@@ -127,7 +126,7 @@ Stories: S1 risk score and enforcement, S2 signal coverage, S3 delivery and payo
 | FRD-19 | S6 | P3 | @Server @Infra | Deferred: Bedrock LLM reviewer in a separate non-AOT Lambda, async on HIGH/CRITICAL users only. Input: audit timeline; output: an advisory signal with a capped weight plus an admin-facing explanation. Never moves money. Check Bedrock model availability in eu-north-1 and me-south-1 first. | Decision record written; reviewer output visible in Fraud Review; kill switch in config. |
 | FRD-20 | S6 | P3 | @Server | Deferred: ML risk scoring once enough labelled outcomes exist (from FRD-18). Replaces or complements the fixed weights, rules stay authoritative. | Decision record with dataset size, evaluation metrics and rollback plan. |
 
-Order: the P1 tickets next (FRD-11, FRD-17), then FRD-07, FRD-12 and FRD-14, then S4, S6 last.
+Order: the P1 ticket next (FRD-17), then FRD-07, FRD-12 and FRD-14, then S4, S6 last.
 
 ---
 

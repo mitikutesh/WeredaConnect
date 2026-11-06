@@ -35,6 +35,10 @@ import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 /// it with the farmer's nonce once the confirm reaches it, so the copy says
 /// so instead of "verified". A typed code needs a GPS fix.
 ///
+/// FRD-11: the location is stamped at the scan. Confirm waits while the
+/// fix is taken (at most [gpsWaitCap]), so a quick tap cannot skip it; a
+/// phone that gets no fix still confirms a scanned QR without one.
+///
 /// A trucker's confirmed pickup keeps the farmer's token (or the typed code)
 /// on the phone ([DropoffHandoffStore]) for the drop-off QR (T-3).
 ///
@@ -44,6 +48,10 @@ import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 /// lock screen proceeds with a logged warning; the server stays the
 /// authority. Pickup confirmation (trucker) is not gated.
 class QrScanScreen extends StatefulWidget {
+  /// The longest Confirm waits for a fix. The capture itself stops after
+  /// 15 seconds; this also covers a permission prompt nobody answers.
+  static const gpsWaitCap = Duration(seconds: 30);
+
   final Delivery delivery;
   final VerificationType verificationType;
   final QrVerificationService qrService;
@@ -86,6 +94,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
   String? _scannedNonce;
   String? _scannedToken;
   bool _isCapturingGps = false;
+
+  /// Counts captures, so one started before a reset cannot land after it.
+  int _gpsRun = 0;
   bool _isConfirming = false;
 
   // Typing phase (T-1)
@@ -226,9 +237,19 @@ class _QrScanScreenState extends State<QrScanScreen> {
   }
 
   Future<void> _captureGps() async {
+    final run = ++_gpsRun;
     setState(() => _isCapturingGps = true);
-    final result = await widget.gpsService.captureCurrentPosition();
-    if (mounted) {
+    GpsCaptureResult result;
+    try {
+      result = await widget.gpsService
+          .captureCurrentPosition()
+          .timeout(QrScanScreen.gpsWaitCap);
+    } on Object catch (e) {
+      // Confirm waits for this capture, so it must always end.
+      debugPrint('[QrScan] location capture failed: $e');
+      result = const GpsCaptureResult.unavailable('GPS signal not available');
+    }
+    if (mounted && run == _gpsRun) {
       setState(() {
         _gpsResult = result;
         _isCapturingGps = false;
@@ -254,7 +275,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
   }
 
   Future<void> _confirm() async {
-    if (_isConfirming) return;
+    if (_isConfirming || _isCapturingGps) return;
     // A typed code needs a fix: the server refuses it without one on a
     // paid delivery, so the button waits for it.
     if (_typed && !_gpsReady) return;
@@ -312,10 +333,12 @@ class _QrScanScreenState extends State<QrScanScreen> {
   /// mounted again and starts the camera itself (auto start); starting it
   /// here too raced that start ("controller initializing").
   void _resetScanner() {
+    _gpsRun++;
     setState(() {
       _phase = _ScanPhase.scanning;
       _errorCode = null;
       _gpsResult = null;
+      _isCapturingGps = false;
       _photoRef = null;
       _scannedNonce = null;
       _scannedToken = null;
@@ -405,7 +428,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
                 FilledButton(
                   key: const Key('qr_confirm'),
                   onPressed:
-                      _isConfirming || (_typed && !_gpsReady) ? null : _confirm,
+                      _isConfirming || _isCapturingGps || (_typed && !_gpsReady)
+                          ? null
+                          : _confirm,
                   style: _primaryStyle,
                   child: _isConfirming
                       ? const SizedBox(
