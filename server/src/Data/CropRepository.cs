@@ -288,10 +288,13 @@ public sealed class CropRepository : ICropRepository
     /// <inheritdoc />
     public async Task<StockRestoreResult> RestoreStockAsync(string cropId, string orderId, double quintals)
     {
-        if (quintals <= 0)
+        if (!(quintals > 0) || double.IsInfinity(quintals))
         {
             return StockRestoreResult.Failed;
         }
+
+        // ESC-18: the exact amount the funding took (StockUnits), added back without rounding.
+        var amount = StockUnits(quintals);
 
         for (var attempt = 0; attempt < 3; attempt++)
         {
@@ -316,15 +319,11 @@ public sealed class CropRepository : ICropRepository
                 return StockRestoreResult.AlreadyRestored;
             }
 
-            var current = existing.TryGetValue("quantity", out var q)
-                && double.TryParse(q.N ?? q.S, System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var parsedQuantity)
-                ? parsedQuantity
-                : 0.0;
+            var current = ReadStock(existing);
             var version = existing.TryGetValue("version", out var v)
                 && int.TryParse(v.N, out var parsedVersion) ? parsedVersion : 1;
             var status = existing.TryGetValue("status", out var s) ? s.S : null;
-            var newQuantity = Math.Round(current + quintals, 2);
+            var newQuantity = current + amount;
 
             var attrNames = new Dictionary<string, string>
             {
@@ -334,7 +333,7 @@ public sealed class CropRepository : ICropRepository
             };
             var attrValues = new Dictionary<string, AttributeValue>
             {
-                { ":q", new AttributeValue { N = newQuantity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":q", new AttributeValue { N = FormatStock(newQuantity) } },
                 { ":newVersion", new AttributeValue { N = (version + 1).ToString() } },
                 { ":expectedVersion", new AttributeValue { N = version.ToString() } },
                 { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
@@ -389,9 +388,9 @@ public sealed class CropRepository : ICropRepository
             return StockDecrementResult.Failed;
         }
 
-        // ESC-18: compared and written in decimal, so 0.3 quintals left really covers a 30 kg order
-        // and nothing is lost or gained to binary rounding. The stored value is read as written.
-        var need = (decimal)quintals;
+        // ESC-18: compared and written as exact decimals, never rounded to whole kilograms: 1.00
+        // quintal covers a 33.6 kg order and then a 66.4 kg one, and 0.30 quintals covers 30 kg.
+        var need = StockUnits(quintals);
 
         for (var attempt = 0; attempt < DecrementAttempts; attempt++)
         {
@@ -415,12 +414,8 @@ public sealed class CropRepository : ICropRepository
                 return StockDecrementResult.AlreadyApplied;
             }
 
-            var hasQuantity = existing.TryGetValue("quantity", out var q);
-            var current = hasQuantity
-                && decimal.TryParse(q!.N ?? q.S, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out var parsedQuantity)
-                ? parsedQuantity
-                : 0m;
+            existing.TryGetValue("quantity", out var q);
+            var current = ReadStock(existing);
             var version = existing.TryGetValue("version", out var v)
                 && int.TryParse(v.N, out var parsedVersion) ? parsedVersion : 1;
 
@@ -438,7 +433,7 @@ public sealed class CropRepository : ICropRepository
                 continue;
             }
 
-            var newQuantity = Math.Round(current - need, 2);
+            var newQuantity = current - need;
 
             var attrNames = new Dictionary<string, string>
             {
@@ -447,7 +442,7 @@ public sealed class CropRepository : ICropRepository
             };
             var attrValues = new Dictionary<string, AttributeValue>
             {
-                { ":q", new AttributeValue { N = newQuantity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":q", new AttributeValue { N = FormatStock(newQuantity) } },
                 { ":newVersion", new AttributeValue { N = (version + 1).ToString() } },
                 { ":expectedVersion", new AttributeValue { N = version.ToString() } },
                 { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
@@ -470,7 +465,7 @@ public sealed class CropRepository : ICropRepository
             var condition = "#v = :expectedVersion AND (attribute_not_exists(#decremented) OR NOT contains(#decremented, :orderId))";
             if (q?.N != null)
             {
-                attrValues[":need"] = new AttributeValue { N = need.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+                attrValues[":need"] = new AttributeValue { N = FormatStock(need) };
                 condition += " AND #q >= :need";
             }
 
@@ -514,6 +509,28 @@ public sealed class CropRepository : ICropRepository
 
     private static bool HasOrder(Dictionary<string, AttributeValue> item, string attribute, string orderId)
         => item.TryGetValue(attribute, out var set) && set.SS != null && set.SS.Contains(orderId);
+
+    /// <summary>
+    /// ESC-18: an order's quintals as an exact decimal. Orders are kilograms with up to 2 decimals,
+    /// so quintals have up to 4; the double they travel in is read back at 6 decimals, which drops
+    /// only binary noise. Decrement and restore use the same value, so they stay symmetric.
+    /// </summary>
+    internal static decimal StockUnits(double quintals) => Math.Round((decimal)quintals, 6);
+
+    /// <summary>
+    /// ESC-18: listing stock as written to the table, exact and culture-free, never rounded: at
+    /// least 2 decimals for reading (<c>55.00</c>), more when the stock has them (<c>0.664</c>).
+    /// </summary>
+    internal static string FormatStock(decimal quintals)
+        => quintals.ToString("0.00##########################", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>The listing's stock as stored (number, or the old string form); 0 when missing or unreadable.</summary>
+    private static decimal ReadStock(Dictionary<string, AttributeValue> item)
+        => item.TryGetValue("quantity", out var q)
+           && decimal.TryParse(q.N ?? q.S, System.Globalization.NumberStyles.Float,
+               System.Globalization.CultureInfo.InvariantCulture, out var stock)
+            ? stock
+            : 0m;
 
     /// <summary>
     /// ESC-18: add <paramref name="orderId"/> to <see cref="StockRefusedForAttribute"/> while the
@@ -666,9 +683,15 @@ public sealed class CropRepository : ICropRepository
             fullItems = fullItems.Where(item =>
             {
                 if (!string.IsNullOrEmpty(woreda) && GetStringOrNull(item, "woreda") != woreda)
+                {
                     return false;
+                }
+
                 if (!string.IsNullOrEmpty(status) && GetStringOrNull(item, "status") != status)
+                {
                     return false;
+                }
+
                 return true;
             }).ToList();
         }

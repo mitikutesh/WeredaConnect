@@ -51,7 +51,8 @@ public sealed class ListingStockRaceDynamoDbTests
             TableName = _db.Crops,
             Key = new Dictionary<string, AttributeValue>
             {
-                ["cropId"] = S(_listingId), ["createdAt"] = S("2026-11-01T08:00:00.0000000Z")
+                ["cropId"] = S(_listingId),
+                ["createdAt"] = S("2026-11-01T08:00:00.0000000Z")
             },
             ConsistentRead = true
         })).Item;
@@ -86,6 +87,30 @@ public sealed class ListingStockRaceDynamoDbTests
         Quantity(await ListingAsync()).Should().Be(winner == "order-a" ? 2m : 5m);
         (await Crops.RestoreStockAsync(_listingId, winner, winner == "order-a" ? 8 : 5)).Should().Be(StockRestoreResult.Restored);
         Quantity(await ListingAsync()).Should().Be(10m);
+    }
+
+    [LocalDynamoDbTheory]
+    [InlineData(33.6, 66.4)]
+    [InlineData(49.5, 50.5)]
+    public async Task TwoFundingsThatAddUpToTheStock_BothWinAtOnce_AndTheRestoresRoundTrip(double firstKg, double secondKg)
+    {
+        // Review blocker: a remainder rounded to 2 decimals lost up to half a kilogram per funding
+        // and refused an order that fits. Exact decimals: both win, the listing ends at exactly 0.
+        await SeedListingAsync("1.00");
+
+        var results = await Task.WhenAll(
+            Task.Run(() => Crops.TryDecrementStockAsync(_listingId, "order-a", firstKg / 100.0)),
+            Task.Run(() => Crops.TryDecrementStockAsync(_listingId, "order-b", secondKg / 100.0)));
+
+        results.Should().OnlyContain(r => r == StockDecrementResult.Decremented);
+        var listing = await ListingAsync();
+        Quantity(listing).Should().Be(0m);
+        listing["status"].S.Should().Be("reserved");
+
+        (await Crops.RestoreStockAsync(_listingId, "order-a", firstKg / 100.0)).Should().Be(StockRestoreResult.Restored);
+        Quantity(await ListingAsync()).Should().Be((decimal)firstKg / 100m);
+        (await Crops.RestoreStockAsync(_listingId, "order-b", secondKg / 100.0)).Should().Be(StockRestoreResult.Restored);
+        Quantity(await ListingAsync()).Should().Be(1m);
     }
 
     [LocalDynamoDbFact]
@@ -180,8 +205,11 @@ public sealed class ListingStockRaceDynamoDbTests
                 TableName = _db.Orders,
                 Item = new Dictionary<string, AttributeValue>
                 {
-                    ["orderId"] = S(orderId), ["createdAt"] = S($"2026-11-06T0{orderId[1]}:00:00.0000000Z"),
-                    ["listingId"] = S(listingId), ["status"] = S(status), ["version"] = N("1")
+                    ["orderId"] = S(orderId),
+                    ["createdAt"] = S($"2026-11-06T0{orderId[1]}:00:00.0000000Z"),
+                    ["listingId"] = S(listingId),
+                    ["status"] = S(status),
+                    ["version"] = N("1")
                 }
             });
         }

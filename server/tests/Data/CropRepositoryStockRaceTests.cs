@@ -80,7 +80,7 @@ public class CropRepositoryStockRaceTests
         result.Should().Be(StockDecrementResult.Decremented);
         var write = _updates.Should().ContainSingle().Subject;
         write.ConditionExpression.Should().Contain("#v = :expectedVersion").And.Contain("#q >= :need");
-        write.ExpressionAttributeValues[":need"].N.Should().Be("5");
+        write.ExpressionAttributeValues[":need"].N.Should().Be("5.00");
         write.ExpressionAttributeValues[":q"].N.Should().Be("55.00");
     }
 
@@ -112,6 +112,42 @@ public class CropRepositoryStockRaceTests
 
         result.Should().Be(StockDecrementResult.Decremented);
         _updates.Single().ExpressionAttributeValues[":q"].N.Should().Be("0.00");
+    }
+
+    [Theory]
+    [InlineData(33.6, 66.4, "0.664")] // the review repro: 0.664 must not be stored as 0.66
+    [InlineData(49.5, 50.5, "0.505")] // a midpoint that banker's rounding used to lose
+    [InlineData(0.01, 99.99, "0.9999")] // the smallest order (10 grams) next to the rest
+    public async Task Decrement_TwoOrdersThatAddUpToTheStock_BothWin_TheListingEndsAtZero(
+        double firstKg, double secondKg, string leftAfterFirst)
+    {
+        // Orders carry kilograms with up to 2 decimals, so quintals have up to 4. The remainder is
+        // written exactly: rounding it to 2 decimals lost up to half a kilogram per funding and then
+        // refused an order that fits.
+        Reads(Listing("1.00", version: 1), Listing(leftAfterFirst, version: 2, decrementedFor: ["order-a"]));
+        WritesSucceed();
+
+        (await _repository.TryDecrementStockAsync(CropId, "order-a", firstKg / 100.0)).Should().Be(StockDecrementResult.Decremented);
+        (await _repository.TryDecrementStockAsync(CropId, "order-b", secondKg / 100.0)).Should().Be(StockDecrementResult.Decremented);
+
+        _updates.Should().HaveCount(2);
+        _updates[0].ExpressionAttributeValues[":q"].N.Should().Be(leftAfterFirst);
+        _updates[1].ExpressionAttributeValues[":need"].N.Should().Be(leftAfterFirst);
+        _updates[1].ExpressionAttributeValues[":q"].N.Should().Be("0.00");
+        _updates[1].ExpressionAttributeValues[":reserved"].S.Should().Be("reserved");
+    }
+
+    [Fact]
+    public async Task DecrementThenRestore_IsAnExactRoundTrip()
+    {
+        Reads(Listing("1.00", version: 1), Listing("0.664", version: 2, decrementedFor: ["order-a"]));
+        WritesSucceed();
+
+        (await _repository.TryDecrementStockAsync(CropId, "order-a", 33.6 / 100.0)).Should().Be(StockDecrementResult.Decremented);
+        (await _repository.RestoreStockAsync(CropId, "order-a", 33.6 / 100.0)).Should().Be(StockRestoreResult.Restored);
+
+        _updates[0].ExpressionAttributeValues[":q"].N.Should().Be("0.664");
+        _updates[1].ExpressionAttributeValues[":q"].N.Should().Be("1.00");
     }
 
     [Fact]
