@@ -16,7 +16,8 @@ import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 /// - Trucker: Driving license scan (required). The camera frame and the
 ///   amber note scroll; "Scan License" sits at the foot until a photo
 ///   exists, then the flow's Continue takes its place and "Retake License
-///   Photo" moves under the frame.
+///   Photo" and "Remove License Photo" move under the frame. Remove clears
+///   the photo (FUP-118), so the frame and Scan License come back.
 /// - Buyer: Private/Company selection + company name
 /// - Farmer: Skipped
 ///
@@ -30,6 +31,9 @@ class RoleDetailsScreen extends StatefulWidget {
   final ValueChanged<String> onBuyerTypeChanged;
   final ValueChanged<String> onCompanyNameChanged;
 
+  /// Test seam: the camera picker for the license photo.
+  final ImagePicker? imagePicker;
+
   const RoleDetailsScreen({
     required this.role,
     required this.onDrivingLicenseChanged,
@@ -39,6 +43,7 @@ class RoleDetailsScreen extends StatefulWidget {
     this.drivingLicensePath,
     this.buyerType,
     this.companyName,
+    this.imagePicker,
   });
 
   @override
@@ -47,7 +52,7 @@ class RoleDetailsScreen extends StatefulWidget {
 
 class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
   late TextEditingController _companyController;
-  final _picker = ImagePicker();
+  late final _picker = widget.imagePicker ?? ImagePicker();
 
   static const _stepPadding = EdgeInsets.fromLTRB(20, 22, 20, 16);
 
@@ -118,6 +123,18 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                     onPressed: _pickLicenseImage,
                     icon: const Icon(Icons.camera_alt_outlined, size: 20),
                     label: Text(l10n.retakeLicensePhoto),
+                  ),
+                  const SizedBox(height: 4),
+                  // FUP-118: back to the empty frame; the flow's gate then
+                  // hides Continue and Scan License returns.
+                  TextButton.icon(
+                    onPressed: () => widget.onDrivingLicenseChanged(null),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.statusError,
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    label: Text(l10n.removeLicensePhoto),
                   ),
                 ],
               ],

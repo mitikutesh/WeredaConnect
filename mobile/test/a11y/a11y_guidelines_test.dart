@@ -14,6 +14,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
+import 'package:wereda_connect/features/auth/screens/registration/role_details_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
@@ -182,9 +183,10 @@ void main() {
     WidgetTester tester,
     Widget home,
     Locale locale,
-    double textScale,
-  ) async {
-    tester.view.physicalSize = const Size(390, 844);
+    double textScale, {
+    Size size = const Size(390, 844),
+  }) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     tester.platformDispatcher.textScaleFactorTestValue = textScale;
     addTearDown(tester.view.reset);
@@ -248,6 +250,26 @@ void main() {
       testWidgets('Login form, $variant', (tester) async {
         when(() => authBloc.state).thenReturn(const AuthUnauthenticated());
         await check(tester, const LoginScreen(), locale, scale);
+      });
+
+      // FUP-118: Retake and Remove under the trucker's license photo, on a
+      // 360 dp phone.
+      testWidgets('Trucker license photo actions, $variant', (tester) async {
+        await check(
+          tester,
+          Scaffold(
+            body: RoleDetailsScreen(
+              role: UserRole.trucker,
+              drivingLicensePath: '/fake/license.jpg',
+              onDrivingLicenseChanged: (_) {},
+              onBuyerTypeChanged: (_) {},
+              onCompanyNameChanged: (_) {},
+            ),
+          ),
+          locale,
+          scale,
+          size: const Size(360, 740),
+        );
       });
     }
   }

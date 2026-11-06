@@ -7895,6 +7895,12 @@ abstract class AppLocalizations {
   /// **'Retake License Photo'**
   String get retakeLicensePhoto;
 
+  /// FUP-118. Registration trucker step: button under Retake that deletes the license photo and shows the empty camera frame again
+  ///
+  /// In en, this message translates to:
+  /// **'Remove License Photo'**
+  String get removeLicensePhoto;
+
   /// Fieldway design alignment (specs/design-canvas). Create crop listing: quantity times price preview
   ///
   /// In en, this message translates to:

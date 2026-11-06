@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
@@ -24,6 +25,8 @@ class FakeAuthEvent extends Fake implements AuthEvent {}
 
 class MockFaydaOidcService extends Mock implements FaydaOidcService {}
 
+class MockImagePicker extends Mock implements ImagePicker {}
+
 /// Pump frames without waiting for the OTP countdown to finish.
 Future<void> settle(WidgetTester tester) async {
   for (var i = 0; i < 8; i++) {
@@ -41,6 +44,7 @@ void main() {
     registerFallbackValue(FakeAuthEvent());
     registerFallbackValue(Uri());
     registerFallbackValue(CancelToken());
+    registerFallbackValue(ImageSource.camera);
     // RegistrationFlow builds a FaydaOidcService on the shared client.
     ApiClient().initialize(environment: Environment.development);
     // RegistrationFlow listens for the Fayda deep link through app_links.
@@ -160,7 +164,7 @@ void main() {
 
     tearDown(() => unawaited(links.close()));
 
-    Widget flow() => BlocProvider<AuthBloc>.value(
+    Widget flow({ImagePicker? picker}) => BlocProvider<AuthBloc>.value(
           value: bloc,
           child: MaterialApp(
             localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -169,6 +173,7 @@ void main() {
               faydaService: fayda,
               faydaLinks: links.stream,
               launcher: (_) async => true,
+              imagePicker: picker,
             ),
           ),
         );
@@ -472,6 +477,89 @@ void main() {
       // The RegisterRoleDetails board puts Scan License at the foot; the
       // flow's Continue appears only once a photo exists.
       expect(find.text('Scan License'), findsOneWidget);
+      expect(find.text('Continue'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    // FUP-118: a wrong license photo can be taken again or removed. Remove
+    // brings back the empty frame and Scan License, and Continue goes away.
+    testWidgets('a trucker can retake or remove the license photo',
+        (tester) async {
+      final picker = MockImagePicker();
+      when(
+        () => picker.pickImage(
+          source: any(named: 'source'),
+          maxWidth: any(named: 'maxWidth'),
+          maxHeight: any(named: 'maxHeight'),
+          imageQuality: any(named: 'imageQuality'),
+        ),
+      ).thenAnswer((_) async => XFile('/fake/license.jpg'));
+
+      useTallPhone(tester);
+      await tester.pumpWidget(flow(picker: picker));
+      await settle(tester);
+      await tester.tap(find.text('Trucker'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+      await tester.tap(find.text('Verify with Fayda'));
+      await settle(tester);
+      links
+          .add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+
+      const placeholder = 'Place the license here';
+      const retake = 'Retake License Photo';
+      const remove = 'Remove License Photo';
+      VoidCallback? continuePressed() => tester
+          .widget<FilledButton>(
+            find.ancestor(
+              of: find.text('Continue'),
+              matching: find.byType(FilledButton),
+            ),
+          )
+          .onPressed;
+
+      expect(find.text(placeholder), findsOneWidget);
+      expect(find.text(retake), findsNothing);
+      expect(find.text(remove), findsNothing);
+
+      await tester.tap(find.text('Scan License'));
+      await settle(tester);
+
+      // The photo fills the frame, Retake and Remove sit under it and the
+      // flow's Continue is live.
+      expect(find.text(placeholder), findsNothing);
+      expect(find.text('Scan License'), findsNothing);
+      expect(find.text(retake), findsOneWidget);
+      expect(find.text(remove), findsOneWidget);
+      expect(continuePressed(), isNotNull);
+
+      await tester.ensureVisible(find.text(retake));
+      await tester.tap(find.text(retake));
+      await settle(tester);
+      verify(
+        () => picker.pickImage(
+          source: ImageSource.camera,
+          maxWidth: any(named: 'maxWidth'),
+          maxHeight: any(named: 'maxHeight'),
+          imageQuality: any(named: 'imageQuality'),
+        ),
+      ).called(2);
+      expect(find.text(remove), findsOneWidget);
+      expect(continuePressed(), isNotNull);
+
+      await tester.ensureVisible(find.text(remove));
+      await tester.tap(find.text(remove));
+      await settle(tester);
+
+      expect(find.text(placeholder), findsOneWidget);
+      expect(find.text(retake), findsNothing);
+      expect(find.text(remove), findsNothing);
+      expect(find.text('Scan License'), findsOneWidget);
+      // The license gate holds again: no Continue without a photo.
       expect(find.text('Continue'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     });

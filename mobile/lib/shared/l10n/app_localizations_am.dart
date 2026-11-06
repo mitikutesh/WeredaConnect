@@ -4369,6 +4369,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get retakeLicensePhoto => 'የፈቃድ ፎቶውን እንደገና አንሳ';
 
   @override
+  String get removeLicensePhoto => 'የፈቃድ ፎቶውን አስወግድ';
+
+  @override
   String get totalListingValue => 'ጠቅላላ የዝርዝር ዋጋ';
 
   @override

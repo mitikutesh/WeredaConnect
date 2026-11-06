@@ -4541,6 +4541,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get retakeLicensePhoto => 'Suuraa hayyamaa irra deebi\'ii kaasi';
 
   @override
+  String get removeLicensePhoto => 'Suuraa hayyamaa haqi';
+
+  @override
   String get totalListingValue => 'Gatii Waliigalaa Tarree';
 
   @override
