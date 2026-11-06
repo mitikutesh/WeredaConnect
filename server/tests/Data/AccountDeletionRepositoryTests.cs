@@ -31,7 +31,8 @@ public class AccountDeletionRepositoryTests
         Messages = "messages",
         Intents = "intents",
         MatchEvents = "match-events",
-        DeviceTokens = "device-tokens"
+        DeviceTokens = "device-tokens",
+        Notifications = "notifications"
     };
 
     public AccountDeletionRepositoryTests()
@@ -471,5 +472,119 @@ public class AccountDeletionRepositoryTests
         (await _repo.MarkCompletedAsync("user-1")).Should().BeTrue();
 
         _updates.Single().ConditionExpression.Should().Be("#ds IN (:pending, :completed)");
+    }
+
+    // ── notifications inbox (FUP-120) ──
+
+    [Fact]
+    public async Task OwnInbox_IsReadFromTheUsersPartition_EveryPage_AndDeletedByItsKey()
+    {
+        var page2Key = new Dictionary<string, AttributeValue> { ["userId"] = S("user-1"), ["sortKey"] = S("k-1") };
+        var pages = new Queue<QueryResponse>(new[]
+        {
+            new QueryResponse { Items = new() { new() { ["sortKey"] = S("k-1") } }, LastEvaluatedKey = page2Key },
+            new QueryResponse { Items = new() { new() { ["sortKey"] = S("k-2") } } }
+        });
+        var startKeys = new List<Dictionary<string, AttributeValue>?>();
+        QueryRequest? seen = null;
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "notifications"), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                seen = ci.Arg<QueryRequest>();
+                startKeys.Add(seen.ExclusiveStartKey);
+                return pages.Dequeue();
+            });
+
+        var keys = await _repo.QueryNotificationKeysAsync("user-1");
+        await _repo.DeleteNotificationAsync("user-1", "k-1");
+
+        keys.Should().Equal("k-1", "k-2");
+        startKeys.Should().HaveCount(2);
+        startKeys[0].Should().BeNullOrEmpty();
+        startKeys[1].Should().BeSameAs(page2Key);
+        seen!.IndexName.Should().BeNullOrEmpty("the table's own key, never an index");
+        seen.KeyConditionExpression.Should().Be("userId = :id");
+        seen.ExpressionAttributeValues[":id"].S.Should().Be("user-1");
+        await _dynamoDb.Received(1).DeleteItemAsync(
+            Arg.Is<DeleteItemRequest>(r => r.TableName == "notifications"
+                                           && r.Key["userId"].S == "user-1"
+                                           && r.Key["sortKey"].S == "k-1"),
+            Arg.Any<CancellationToken>());
+        await _dynamoDb.DidNotReceiveWithAnyArgs().ScanAsync(default(ScanRequest)!, default);
+    }
+
+    [Fact]
+    public async Task CounterpartyInbox_ProjectsTheMatchFields_AndMapsTheParams()
+    {
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "notifications"), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new()
+                {
+                    new()
+                    {
+                        ["sortKey"] = S("k-1"),
+                        ["orderId"] = S("order-1"),
+                        ["entity"] = S("order"),
+                        ["entityId"] = S("order-1"),
+                        ["params"] = new AttributeValue { M = new() { ["farmerName"] = S("Abebe"), ["cropType"] = S("teff") } }
+                    },
+                    new() { ["sortKey"] = S("k-2"), ["entity"] = S("escrow"), ["entityId"] = S("escrow-1") }
+                }
+            });
+
+        var rows = await _repo.QueryNotificationsAsync("buyer-1");
+
+        rows.Should().HaveCount(2);
+        rows[0].SortKey.Should().Be("k-1");
+        rows[0].OrderId.Should().Be("order-1");
+        rows[0].Params.Should().BeEquivalentTo(new Dictionary<string, string> { ["farmerName"] = "Abebe", ["cropType"] = "teff" });
+        rows[1].OrderId.Should().BeEmpty("an escrow row from before order-funded escrows names no order");
+        rows[1].Entity.Should().Be("escrow");
+        rows[1].EntityId.Should().Be("escrow-1");
+        rows[1].Params.Should().BeEmpty();
+        _queries.Should().ContainSingle(q => q.TableName == "notifications")
+            .Which.ExpressionAttributeValues[":id"].S.Should().Be("buyer-1");
+        await _dynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r => r.ProjectionExpression == "sortKey, #o, #e, #eid, #p"
+                                      && r.ExpressionAttributeNames["#p"] == "params"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AnonymizeNotification_SetsOnlyTheListedNameParams_OnAnExistingRow()
+    {
+        (await _repo.AnonymizeNotificationAsync("buyer-1", "k-1", new[] { "farmerName", "truckerName" })).Should().BeTrue();
+
+        var update = _updates.Single();
+        update.TableName.Should().Be("notifications");
+        update.Key["userId"].S.Should().Be("buyer-1");
+        update.Key["sortKey"].S.Should().Be("k-1");
+        update.UpdateExpression.Should().Be("SET #p.#n0 = :sentinel, #p.#n1 = :sentinel");
+        update.ExpressionAttributeNames.Should().BeEquivalentTo(new Dictionary<string, string>
+        {
+            ["#p"] = "params",
+            ["#n0"] = "farmerName",
+            ["#n1"] = "truckerName"
+        });
+        update.ExpressionAttributeValues[":sentinel"].S.Should().Be(AccountDeletionPolicy.Sentinel);
+        update.ConditionExpression.Should().Be("attribute_exists(sortKey)");
+    }
+
+    [Fact]
+    public async Task AnonymizeNotification_ARowTheTtlRemoved_IsNotRecreated()
+    {
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("gone"));
+
+        (await _repo.AnonymizeNotificationAsync("buyer-1", "k-1", new[] { "farmerName" })).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task AnonymizeNotification_WithNoParam_WritesNothing()
+    {
+        (await _repo.AnonymizeNotificationAsync("buyer-1", "k-1", Array.Empty<string>())).Should().BeFalse();
+
+        _updates.Should().BeEmpty();
     }
 }

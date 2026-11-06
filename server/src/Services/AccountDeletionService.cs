@@ -588,6 +588,123 @@ public sealed class AccountDeletionService
             await _repo.DeleteDeviceTokenAsync(userId, endpointArn);
             counts.DeviceTokens++;
         }
+
+        await PurgeNotificationsAsync(userId, scan, counts, budget);
+    }
+
+    /// <summary>
+    /// FUP-120: the ESC-21 inbox (<c>notifications-api.md</c>). The user's own rows are deleted. In the
+    /// inbox of every other party to the user's orders, escrows and deliveries (the scan's rows), a row
+    /// about one of them gets the user's copied name (the param of the user's role there) set to the
+    /// sentinel; the other parties' names in that row stay. A row matches by its <c>orderId</c>, or by
+    /// its escrow or delivery id when it names no order (escrows from before order-funded escrows).
+    /// Like the other step 10 writes it fails closed: an error answers 503 and the resume runs it
+    /// again, finding the rows it already deleted or anonymized done.
+    /// </summary>
+    private async Task PurgeNotificationsAsync(string userId, DeletionScan scan, DeletionCounts counts, DeletionBudget budget)
+    {
+        foreach (var sortKey in await _repo.QueryNotificationKeysAsync(userId))
+        {
+            budget.ThrowIfLow();
+            await _repo.DeleteNotificationAsync(userId, sortKey);
+            counts.Notifications++;
+        }
+
+        var shared = SharedInboxKeys.From(userId, scan);
+        foreach (var recipientId in shared.Counterparties)
+        {
+            budget.ThrowIfLow();
+            foreach (var row in await _repo.QueryNotificationsAsync(recipientId))
+            {
+                var nameParams = shared.RolesOf(row)
+                    .Select(AccountDeletionPolicy.NameField)
+                    .Where(param => row.Params.TryGetValue(param, out var name) && name != AccountDeletionPolicy.Sentinel)
+                    .ToList();
+                if (nameParams.Count == 0)
+                {
+                    continue;
+                }
+
+                budget.ThrowIfLow();
+                if (await _repo.AnonymizeNotificationAsync(recipientId, row.SortKey, nameParams))
+                {
+                    counts.NotificationsAnonymized++;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The orders, escrows and deliveries the user is a party to, keyed as an inbox row names them
+    /// (<c>entity</c> and id), with the user's roles on each, and the other parties to them.
+    /// </summary>
+    private sealed class SharedInboxKeys
+    {
+        private static readonly string[] PartyFields = { "buyerId", "farmerId", "truckerId" };
+
+        private readonly Dictionary<(string Entity, string Id), HashSet<string>> _roles = new();
+        private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+
+        /// <summary>The other parties, in the order the scan found them.</summary>
+        public List<string> Counterparties { get; } = new();
+
+        public static SharedInboxKeys From(string userId, DeletionScan scan)
+        {
+            var keys = new SharedInboxKeys();
+            keys.Add(userId, NotificationRules.OrderEntity, "orderId", scan.Orders);
+            keys.Add(userId, NotificationRules.EscrowEntity, "escrowId", scan.Escrows);
+            keys.Add(userId, NotificationRules.DeliveryEntity, "deliveryId", scan.Deliveries);
+            return keys;
+        }
+
+        /// <summary>The user's roles on what the row is about; none when it is about nothing the user is a party to.</summary>
+        public IEnumerable<string> RolesOf(InboxEntry row)
+        {
+            var roles = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (var (entity, id) in new[] { (NotificationRules.OrderEntity, row.OrderId), (row.Entity, row.EntityId) })
+            {
+                if (id.Length > 0 && _roles.TryGetValue((entity, id), out var found))
+                {
+                    roles.UnionWith(found);
+                }
+            }
+
+            return roles;
+        }
+
+        private void Add(string userId, string entity, string idField, List<PartyRow> rows)
+        {
+            foreach (var row in rows)
+            {
+                Role(entity, AccountDeletionPolicy.Text(row.Item, idField), row.Role);
+                // An escrow or a delivery names its order: an inbox row about that order is shared too.
+                Role(NotificationRules.OrderEntity, AccountDeletionPolicy.Text(row.Item, "orderId"), row.Role);
+
+                foreach (var field in PartyFields)
+                {
+                    var partyId = AccountDeletionPolicy.Text(row.Item, field);
+                    if (partyId.Length > 0 && partyId != userId && _seen.Add(partyId))
+                    {
+                        Counterparties.Add(partyId);
+                    }
+                }
+            }
+        }
+
+        private void Role(string entity, string id, string role)
+        {
+            if (id.Length == 0)
+            {
+                return;
+            }
+
+            if (!_roles.TryGetValue((entity, id), out var roles))
+            {
+                _roles[(entity, id)] = roles = new HashSet<string>(StringComparer.Ordinal);
+            }
+
+            roles.Add(role);
+        }
     }
 
     /// <summary>
@@ -785,10 +902,12 @@ public sealed class AccountDeletionService
         public int Intents { get; set; }
         public int MatchEvents { get; set; }
         public int DeviceTokens { get; set; }
+        public int Notifications { get; set; }
+        public int NotificationsAnonymized { get; set; }
 
         public string ToMetadata()
             => FormattableString.Invariant(
-                   $"crops={Crops};trips={Trips};ordersCancelled={OrdersCancelled};orders={Orders};deliveries={Deliveries};escrows={Escrows};ratings={Ratings};messages={Messages};intents={Intents};matchEvents={MatchEvents};deviceTokens={DeviceTokens}")
+                   $"crops={Crops};trips={Trips};ordersCancelled={OrdersCancelled};orders={Orders};deliveries={Deliveries};escrows={Escrows};ratings={Ratings};messages={Messages};intents={Intents};matchEvents={MatchEvents};deviceTokens={DeviceTokens};notifications={Notifications};notificationsAnonymized={NotificationsAnonymized}")
                + (Resumed ? ";resumed=true" : "");
     }
 
