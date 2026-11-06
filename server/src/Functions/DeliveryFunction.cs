@@ -37,6 +37,10 @@ public class DeliveryFunction
     private readonly ITripRepository? _tripRepo;
     private readonly ICropRepository? _cropRepo;
 
+    // LT-12: the order's drop-off note on the track. Null when ORDERS_TABLE is not configured; the
+    // track then answers without a note.
+    private readonly IOrderRepository? _orderRepo;
+
     /// <summary>Pages of the trip's deliveries the track reads for the other stops (a trip carries a handful).</summary>
     private const int MaxTripDeliveryPages = 10;
 
@@ -69,6 +73,8 @@ public class DeliveryFunction
         _tripLocationRepo = string.IsNullOrEmpty(tripLocationsTable) ? null : new TripLocationRepository(dynamoDb, tripLocationsTable);
         _tripRepo = string.IsNullOrEmpty(tripsTable) ? null : new TripRepository(dynamoDb, tripsTable);
         _cropRepo = string.IsNullOrEmpty(cropsTable) ? null : new CropRepository(dynamoDb, cropsTable);
+        var ordersTable = Environment.GetEnvironmentVariable("ORDERS_TABLE");
+        _orderRepo = string.IsNullOrEmpty(ordersTable) ? null : new OrderRepository(dynamoDb, ordersTable);
     }
 
     /// <summary>
@@ -80,7 +86,8 @@ public class DeliveryFunction
         string? uploadsBucket = null,
         ITripLocationRepository? tripLocationRepo = null,
         ITripRepository? tripRepo = null,
-        ICropRepository? cropRepo = null)
+        ICropRepository? cropRepo = null,
+        IOrderRepository? orderRepo = null)
     {
         _deliveryRepo = deliveryRepo ?? throw new ArgumentNullException(nameof(deliveryRepo));
         _s3Client = s3Client;
@@ -88,6 +95,7 @@ public class DeliveryFunction
         _tripLocationRepo = tripLocationRepo;
         _tripRepo = tripRepo;
         _cropRepo = cropRepo;
+        _orderRepo = orderRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -321,7 +329,8 @@ public class DeliveryFunction
     /// LT-06: GET /deliveries/{id}/track (live-trip-api.md section 2). The delivery's buyer, farmer and
     /// trucker only; anyone else and an unknown delivery get the same 404, so the answer says nothing
     /// about which deliveries exist. Reads only: the trip's check-ins, the trip (drop-off point), the
-    /// listings (pickup points) and the trip's other deliveries (unnamed stops). <see cref="TripTrack"/>
+    /// listings (pickup points), the trip's other deliveries (unnamed stops) and, LT-12, the
+    /// delivery's order (its drop-off note, for a caller who may read it). <see cref="TripTrack"/>
     /// cuts the delivery's window and rounds every coordinate.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleTrackAsync(
@@ -346,10 +355,11 @@ public class DeliveryFunction
 
         try
         {
+            var callerId = GetAuthenticatedUserId(request);
             var delivery = await _deliveryRepo.GetByIdAsync(deliveryId);
             if (delivery == null
                 || (delivery.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
-                || !IsParticipant(delivery, GetAuthenticatedUserId(request)))
+                || !IsParticipant(delivery, callerId))
             {
                 return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery not found.");
             }
@@ -397,7 +407,8 @@ public class DeliveryFunction
                 }
             }
 
-            var response = TripTrack.Build(delivery, rows, pickup, dropoff, otherStops, now);
+            var dropoffNote = await DropoffNoteAsync(delivery, callerId, context);
+            var response = TripTrack.Build(delivery, rows, pickup, dropoff, otherStops, now, dropoffNote);
             return LambdaResponse.Ok(response, AppJsonContext.Default.DeliveryTrackResponse);
         }
         catch (Exception ex)
@@ -409,6 +420,33 @@ public class DeliveryFunction
 
     private static APIGatewayProxyResponse TrackUnavailable()
         => LambdaResponse.Error(500, "TRACK_UNAVAILABLE", "The live trip is unavailable right now. Try again later.");
+
+    /// <summary>
+    /// LT-12: the buyer's drop-off note of the delivery's order, when <paramref name="callerId"/> may
+    /// read it (<see cref="OrderDropoffNote.VisibleTo"/>: the trucker once committed). Best effort: a
+    /// delivery without an order, a missing orders table or a failed read give no note and never
+    /// fail the track.
+    /// </summary>
+    private async Task<string?> DropoffNoteAsync(Dictionary<string, object> delivery, string? callerId, ILambdaContext context)
+    {
+        var orderId = GetStringOrNull(delivery, "orderId");
+        if (_orderRepo == null || string.IsNullOrEmpty(orderId))
+        {
+            return null;
+        }
+
+        try
+        {
+            var order = await _orderRepo.GetByIdAsync(orderId);
+            return order == null ? null : OrderDropoffNote.For(order, callerId);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Track: the drop-off note of order {MoneyAlarmLog.LogId(orderId)} could not be read: [{ex.GetType().Name}]");
+            return null;
+        }
+    }
 
     /// <summary>
     /// This delivery's pickup point: its gpsPickup, else its listing's location. Null when neither has

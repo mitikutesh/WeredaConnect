@@ -158,6 +158,7 @@ Order orderFixture(
   required String crop,
   required double kg,
   double? transportCost,
+  String? dropoffNote,
 }) =>
     Order()
       ..orderId = 'o-$deliveryId'
@@ -175,7 +176,8 @@ Order orderFixture(
       ..version = 1
       ..tripId = tripId
       ..truckerId = trucker
-      ..transportCost = transportCost;
+      ..transportCost = transportCost
+      ..dropoffNote = dropoffNote;
 
 /// A loader over mock repositories that answer [deliveries] and [orders]
 /// for [tripId].

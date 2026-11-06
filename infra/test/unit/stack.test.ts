@@ -626,6 +626,17 @@ describe('ApiStack', () => {
     expect([...new Set(roleActions(role, (r) => r.includes('CropsTable')))]).toEqual(['dynamodb:Query']);
   });
 
+  test('LT-12: the delivery Lambda reads the order of a track (its drop-off note) with Query only', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-deliveries',
+      Environment: { Variables: Match.objectLike({ ORDERS_TABLE: Match.anyValue() }) },
+    });
+    // An order by its id is a Query (the orders table is keyed orderId + createdAt); the note is
+    // written through /sync, never here.
+    const actions = [...new Set(roleActions('DeliveryFunctionServiceRole', (r) => r.includes('OrdersTable')))];
+    expect(actions).toEqual(['dynamodb:Query']);
+  });
+
   test('LT-13: GET /admin/deliveries/{id}/trail reaches the admin Lambda on the admin authorizer, which only reads the check-ins', () => {
     const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
     const adminAuthorizerId = Object.entries(authorizers)

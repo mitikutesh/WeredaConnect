@@ -1162,6 +1162,8 @@ export class ApiStack extends cdk.Stack {
         // LT-06: the track reads the trip's check-ins and the listings (pickup points).
         TRIP_LOCATIONS_TABLE: props.tripLocationsTable.tableName,
         CROPS_TABLE: props.cropsTable.tableName,
+        // LT-12: the track reads the delivery's order for the buyer's drop-off note.
+        ORDERS_TABLE: props.ordersTable.tableName,
       },
       timeout: cdk.Duration.seconds(15),
       memorySize: 512,
@@ -1176,6 +1178,9 @@ export class ApiStack extends cdk.Stack {
     // its id (the crops table is keyed cropId + createdAt). No write on either table.
     props.tripLocationsTable.grant(deliveryFn.function, "dynamodb:Query");
     props.cropsTable.grant(deliveryFn.function, "dynamodb:Query");
+    // LT-12: an order is read by a Query on its id (the orders table is keyed orderId + createdAt).
+    // Read only: the note is written through /sync.
+    props.ordersTable.grant(deliveryFn.function, "dynamodb:Query");
 
     // ─── Telebirr live gateway (gated) ────────────────────────────────
     // Off by default: dev/staging run MockTelebirrGateway (TELEBIRR_MOCK=true)

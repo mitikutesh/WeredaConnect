@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
@@ -21,6 +22,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/dropoff_note.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -35,6 +37,9 @@ import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 /// plus, the chosen transport, the price breakdown, the escrow note and
 /// Place Order pinned at the foot. Works fully offline (saved to Isar,
 /// synced later).
+///
+/// LT-12: with a [selectedTrip] the buyer may add a drop-off landmark for
+/// the driver (a self-pickup order has no drop-off).
 ///
 /// B-2: with a [selectedTrip] the order is checked against the truck when
 /// placed. A truck that left or no longer takes orders closes the screen
@@ -65,6 +70,9 @@ class PlaceOrderScreen extends StatefulWidget {
 
 class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   late final TextEditingController _quantityController;
+
+  /// LT-12: the optional drop-off landmark (trip orders only).
+  final TextEditingController _dropoffNoteController = TextEditingController();
   static const _commissionRate = defaultOrderCommissionRate;
   static final _kgFormat = NumberFormat('#,##0.##', 'en_US');
 
@@ -99,8 +107,14 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   @override
   void dispose() {
     _quantityController.dispose();
+    _dropoffNoteController.dispose();
     super.dispose();
   }
+
+  /// The landmark holds a phone number (or is too long): Place Order waits.
+  bool get _dropoffNoteBlocks =>
+      widget.selectedTrip != null &&
+      dropoffNoteProblem(_dropoffNoteController.text) != null;
 
   double get _quantity => parseGroupedNumber(_quantityController.text) ?? 0;
 
@@ -196,7 +210,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
     if (authState is! AuthAuthenticated) return;
 
     final quantity = _quantity;
-    if (quantity <= 0 || _exceedsStock) return;
+    if (quantity <= 0 || _exceedsStock || _dropoffNoteBlocks) return;
 
     // B-2: the truck again, at the moment the order is placed: it may have
     // left, filled up or closed since it was chosen (a cached trip offline).
@@ -234,6 +248,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
             truckerName: widget.selectedTrip?.truckerName,
             transportCost: _transportCost > 0 ? _transportCost : null,
             commissionRate: _commissionRate,
+            dropoffNote: trip == null ? null : _dropoffNoteController.text,
           ),
         );
   }
@@ -379,6 +394,13 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                             ),
                           ),
                           const SizedBox(height: 14),
+
+                          // LT-12: where the driver drops the goods.
+                          DropoffNoteField(
+                            controller: _dropoffNoteController,
+                            onChanged: (_) => setState(() {}),
+                          ),
+                          const SizedBox(height: 14),
                         ],
 
                         // ── Price breakdown ────────────────────────────
@@ -468,7 +490,10 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
           return FwBottomActions(
             children: [
               FilledButton(
-                onPressed: isLoading || _quantity <= 0 || _exceedsStock
+                onPressed: isLoading ||
+                        _quantity <= 0 ||
+                        _exceedsStock ||
+                        _dropoffNoteBlocks
                     ? null
                     : _placeOrder,
                 style: FilledButton.styleFrom(

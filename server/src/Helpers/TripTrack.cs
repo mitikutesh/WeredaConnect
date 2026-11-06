@@ -94,7 +94,9 @@ public static class TripTrack
     /// <summary>
     /// The track. <paramref name="pickup"/> is the delivery's gpsPickup or its listing location,
     /// <paramref name="dropoff"/> the drop-off point when one is known, <paramref name="otherStops"/>
-    /// the other orders' stops on the trip. Rows outside the delivery's window never reach the answer.
+    /// the other orders' stops on the trip, <paramref name="dropoffNote"/> the order's drop-off note
+    /// for this viewer (LT-12), in every phase: it is the buyer's own words, not a position. Rows
+    /// outside the delivery's window never reach the answer.
     /// </summary>
     public static DeliveryTrackResponse Build(
         Dictionary<string, object> delivery,
@@ -102,7 +104,8 @@ public static class TripTrack
         TrackPoint? pickup,
         TrackPoint? dropoff,
         IReadOnlyList<TrackStop> otherStops,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        string? dropoffNote = null)
     {
         var deliveryId = Text(delivery, "deliveryId") ?? string.Empty;
         var asOf = LocationPingRules.FormatUtc(nowUtc);
@@ -121,7 +124,7 @@ public static class TripTrack
                     Pauses = new List<TrackPauseDto>(),
                     // After delivery: no coordinates anywhere, only the summary.
                     Pickup = new TrackPickupDto { At = pickedUpText },
-                    Dropoff = new TrackDropoffDto(),
+                    Dropoff = new TrackDropoffDto { Note = dropoffNote },
                     OtherStops = new List<TrackStopDto>(),
                     Summary = SummaryOf(delivery, rows, pickedUpAt, nowUtc)
                 };
@@ -135,7 +138,7 @@ public static class TripTrack
                     Trail = new List<TrackTrailPointDto>(),
                     Pauses = new List<TrackPauseDto>(),
                     Pickup = PickupDto(pickup, null),
-                    Dropoff = DropoffDto(dropoff),
+                    Dropoff = DropoffDto(dropoff, dropoffNote),
                     // Nothing of the truck before pickup, not even which stops it has done.
                     OtherStops = new List<TrackStopDto>()
                 };
@@ -193,7 +196,7 @@ public static class TripTrack
             }).ToList(),
             Pauses = PausesOf(events, from),
             Pickup = PickupDto(pickup, pickedUpText),
-            Dropoff = DropoffDto(dropoff),
+            Dropoff = DropoffDto(dropoff, dropoffNote),
             OtherStops = otherStops.Select(s => new TrackStopDto
             {
                 Kind = s.Kind,
@@ -329,7 +332,7 @@ public static class TripTrack
     /// <summary>
     /// The planned drop-off point of a delivery: the trip's destination point today, the reference the
     /// delivered GPS check uses (the server has no coordinates for the buyer's registered place). The
-    /// one place LT-12 switches to the order's own point; <paramref name="delivery"/> is for that.
+    /// one place LT-14 switches to the order's own point; <paramref name="delivery"/> is for that.
     /// </summary>
     public static TrackPoint? PlannedDropoff(Dictionary<string, object>? trip, Dictionary<string, object> delivery)
         => PointOf(trip, "destinationLatitude", "destinationLongitude");
@@ -473,12 +476,11 @@ public static class TripTrack
         At = at
     };
 
-    private static TrackDropoffDto DropoffDto(TrackPoint? point) => new()
+    private static TrackDropoffDto DropoffDto(TrackPoint? point, string? note) => new()
     {
         Latitude = point is null ? null : Round(point.Latitude, PartyDecimals),
         Longitude = point is null ? null : Round(point.Longitude, PartyDecimals),
-        // LT-12 adds the order's dropoffNote.
-        Note = null
+        Note = note
     };
 
     /// <summary>The sort key <c>{capturedAt}#{kind}</c>.</summary>

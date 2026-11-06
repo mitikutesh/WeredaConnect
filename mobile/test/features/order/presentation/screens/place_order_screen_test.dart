@@ -345,7 +345,11 @@ void main() {
         tester,
         trip(pricePerQuintal: 100, remaining: 12),
       );
-      await tester.enterText(find.byType(TextField), '1300');
+      // The quantity field (LT-12 adds the landmark field beside a trip).
+      await tester.enterText(
+        find.byKey(const Key('place_order_quantity')),
+        '1300',
+      );
       await tester.pump();
 
       await placeOrder(tester);
@@ -361,11 +365,98 @@ void main() {
       expect(closedWith, isEmpty);
 
       // 12 quintals fit.
-      await tester.enterText(find.byType(TextField), '1200');
+      await tester.enterText(
+        find.byKey(const Key('place_order_quantity')),
+        '1200',
+      );
       await tester.pump();
       await placeOrder(tester);
       expect(created.single.quantity, 1200);
       expect(created.single.tripId, 'trip-001');
+    });
+
+    // LT-12: the drop-off landmark for the driver, on a trip order only.
+    group('the drop-off landmark', () {
+      final note = find.byKey(const Key('dropoff_note_field'));
+
+      testWidgets('is offered with a truck, and placed with the order',
+          (tester) async {
+        await open(
+          tester,
+          quintals: 10,
+          selectedTrip: trip(pricePerQuintal: 100),
+        );
+
+        expect(find.text('Drop-off landmark (optional)'), findsOneWidget);
+        expect(find.text('e.g. Merkato, near Anwar Mosque'), findsOneWidget);
+        await tester.enterText(note, 'Merkato, near Anwar Mosque');
+        await tester.pump();
+        await placeOrder(tester);
+
+        expect(created.single.dropoffNote, 'Merkato, near Anwar Mosque');
+      });
+
+      testWidgets('left empty, the order goes without it', (tester) async {
+        await open(
+          tester,
+          quintals: 10,
+          selectedTrip: trip(pricePerQuintal: 100),
+        );
+
+        await placeOrder(tester);
+
+        expect(created.single.dropoffNote, '');
+      });
+
+      testWidgets('a phone number in it is refused before anything is queued',
+          (tester) async {
+        await open(
+          tester,
+          quintals: 10,
+          selectedTrip: trip(pricePerQuintal: 100),
+        );
+
+        await tester.enterText(note, 'Merkato, call 0911 234 567');
+        await tester.pump();
+
+        expect(
+          find.text(
+            'Phone numbers are not allowed here. Remove the number: contact '
+            'opens after payment is held in escrow.',
+          ),
+          findsOneWidget,
+        );
+        expect(placeOrderButton(tester).onPressed, isNull);
+        await placeOrder(tester);
+        expect(created, isEmpty);
+      });
+
+      testWidgets('stops at 80 characters, Amharic counted per syllable',
+          (tester) async {
+        await open(
+          tester,
+          quintals: 10,
+          selectedTrip: trip(pricePerQuintal: 100),
+        );
+
+        await tester.enterText(note, 'ሰ' * 90);
+        await tester.pump();
+
+        final field = tester.widget<TextField>(note);
+        expect(field.controller!.text, 'ሰ' * 80);
+        expect(find.text('80/80'), findsOneWidget);
+      });
+
+      testWidgets('is not offered without a truck (self-pickup)',
+          (tester) async {
+        await open(tester, quintals: 10);
+
+        expect(note, findsNothing);
+        await tester.ensureVisible(find.byType(FilledButton));
+        await tester.tap(find.byType(FilledButton));
+        await tester.pump();
+        expect(created.single.dropoffNote, isNull);
+      });
     });
   });
 

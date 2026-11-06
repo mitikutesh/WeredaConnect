@@ -8968,6 +8968,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.'**
   String get deliveryQrAlreadyPickedUp;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Place order: label of the optional field where the buyer names a landmark for the driver
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off landmark (optional)'**
+  String get dropoffNoteLabel;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Place order and edit sheet: example text inside the empty field
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Merkato, near Anwar Mosque'**
+  String get dropoffNoteHint;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Place order and edit sheet: who sees the landmark and until when it can change
+  ///
+  /// In en, this message translates to:
+  /// **'Helps the driver find you. The farmer and the driver see it. You can change it until pickup.'**
+  String get dropoffNoteHelper;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Order detail card title and the edit sheet title
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off landmark'**
+  String get dropoffNoteTitle;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Order detail card for the buyer when no landmark is set yet
+  ///
+  /// In en, this message translates to:
+  /// **'Add a landmark so the driver finds you.'**
+  String get dropoffNoteEmpty;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Order detail card button that opens the edit sheet when no landmark is set
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get dropoffNoteAdd;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Snackbar after the buyer saved the landmark and it reached the server
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off landmark saved.'**
+  String get dropoffNoteSaved;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Error when the server refuses a landmark change after pickup (ORDER_DROPOFF_NOTE_LOCKED)
+  ///
+  /// In en, this message translates to:
+  /// **'The goods were picked up, so the drop-off landmark can no longer be changed.'**
+  String get errorDropoffNoteLocked;
 }
 
 class _AppLocalizationsDelegate

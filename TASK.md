@@ -9,7 +9,7 @@
 - **Open P0:** the ESC-44 live sandbox run and the ESC-13 synthetic alarm run.
 - **Open P1 that needs AWS credentials:** FUP-17, FUP-23, FUP-31 (staging and prod roles), FUP-33, FUP-40, FUP-54 (JSON metric filters), FUP-59 (pre-deploy checks for FRD-03 and FUP-42), FUP-92 (fraud-signals scan before FRD-04 reaches staging or prod).
 - **Open P1 decisions and code:** FUP-60 and FUP-91 (confirm the runs' decisions), FRD-11, FRD-17, ESC-46, FUP-45, SPK-01, then EPIC ESC phase P1 (ESC-14, ESC-16, ESC-17, ESC-19 to ESC-26, ESC-43; ESC-18 merged in #284).
-- **Next up:** LT-12 (drop-off landmark), the last open EPIC LT ticket; spec `specs/features/live-trip.md`, contract `specs/contracts/live-trip-api.md`.
+- **Next up:** LT-14 (the order's own drop-off point), the last open EPIC LT ticket; spec `specs/features/live-trip.md`, contract `specs/contracts/live-trip-api.md`.
 - **Designs:** live trip `specs/features/live-trip.md`, escrow `specs/features/three-party-escrow-commitments-reputation.md`, fraud `specs/architecture/fraud-detection-architecture.md`, Isar `specs/features/isar-hardening/README.md`, matching `specs/features/matching-roadmap.md`.
 
 Every task follows `.ai/completeness-rules.md` (all 3 roles, mobile and web pair, tests, contracts, 3 languages).
@@ -326,11 +326,11 @@ Goal: after pickup the buyer and the farmer see where the truck is, from hourly 
 
 Product rules set by the user (ask before changing them): the map is drawn from shipped data, no tiles (D1); location sharing is optional for drivers (D2); Amharic and Oromo use the Ethiopian clock with the part of the day always shown, English keeps the 24-hour clock (D3).
 
-LT-01 to LT-11 and LT-13 are merged (#248, #250 to #253 and the LT-09, LT-11 and LT-13 merges). LT-12 is the only open ticket: open its PR against `main`. Its plan from the LT-06 review: orders get their own drop-off point next to `dropoffNote` (place picker, default the buyer's registered place), trip create sends destination coordinates, and the track reads the order's drop-off point before the trip destination. LT-06 review checklist: add `destinationLatitude`/`destinationLongitude` to `AllowedTripFields` in `SyncFunction.cs` (or sync strips them); give the deliveries Lambda `ORDERS_TABLE` and a read grant; take each other stop's drop-off from its own order; switch the delivered GPS check to the order's point; buyer intents already carry `deliveryLatitude`/`deliveryLongitude` as a source.
+LT-01 to LT-13 are merged (#248, #250 to #253 and the LT-09, LT-11, LT-12 and LT-13 merges). LT-14 is the only open ticket.
 
 | ID | Scope | Task | Done when |
 |---|---|---|---|
-| LT-12 | @Server @Mobile @l10n | Drop-off landmark: an optional `dropoffNote` on the order (up to 80 characters, the phone-number guard, editable by the buyer until pickup), returned to the order's parties, shown on the trucker's stop list and the buyer's map, and in the track response. Bumps `order-lifecycle.md` and `data-models.md`. Spec §10. | xUnit tests for the guard, the length and the edit window; mobile tests for the field on mobile and web; 3 languages. |
+| LT-14 | @Server @Mobile @l10n | The order's own drop-off point (the plan from the LT-06 review): orders get their own drop-off point next to `dropoffNote` (place picker, default the buyer's registered place), trip create sends destination coordinates, and the track reads the order's drop-off point before the trip destination. LT-06 review checklist: add `destinationLatitude`/`destinationLongitude` to `AllowedTripFields` in `SyncFunction.cs` (or sync strips them); give the deliveries Lambda `ORDERS_TABLE` and a read grant; take each other stop's drop-off from its own order; switch the delivered GPS check to the order's point; buyer intents already carry `deliveryLatitude`/`deliveryLongitude` as a source. Already done: `destinationLatitude`/`destinationLongitude` are in `AllowedTripFields` and trip create sends them from the picked place (`trip-listing-api.md` 2.1.0, `trip_destination.dart`); the deliveries Lambda has `ORDERS_TABLE` with Query since LT-12 (the track's `dropoff.note`). `TripTrack.PlannedDropoff` is the one place the track and the other stops switch. | xUnit tests for the order's point on create and on the buyer's update until pickup (bounds, buyer only), the track and the other stops reading it (the trip's point as the fallback), and the delivered GPS check; mobile and web tests for the picker; 3 languages; `order-lifecycle.md`, `live-trip-api.md`, `delivery-verification-api.md` and `data-models.md` bumped. |
 
 ---
 

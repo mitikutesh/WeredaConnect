@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
@@ -36,6 +37,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/dropoff_note.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
 import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparties_section.dart';
@@ -187,6 +189,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             // ESC-15: stay on the order, which now shows the next step
             // (Create Delivery after an accept); said only when it waits.
             showSavedOrSent(context).ignore();
+            context
+                .read<OrderBloc>()
+                .add(LoadOrderById(orderId: widget.orderId));
+          } else if (state is DropoffNoteSaved) {
+            // LT-12: sent, or saved on the phone to send later.
+            showSavedOrSent(context, sent: l10n.dropoffNoteSaved).ignore();
             context
                 .read<OrderBloc>()
                 .add(LoadOrderById(orderId: widget.orderId));
@@ -429,6 +437,21 @@ class _OrderDetailBody extends StatelessWidget {
                       // ── Contact (ESC-48) ─────────────────────────────
                       _OrderContactSection(order: order, userId: userId),
 
+                      // ── Drop-off landmark (LT-12) ────────────────────
+                      if (normalizeDropoffNote(order.dropoffNote) != null ||
+                          canEditDropoffNote(order, userId)) ...[
+                        AbsorbPointer(
+                          absorbing: busy,
+                          child: DropoffNoteCard(
+                            order: order,
+                            userId: userId,
+                            onEdit: () =>
+                                _editDropoffNote(context, order, userId),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
                       if (mapNote) ...[
                         FwNoteBox.cream(
                           key: const Key('order_live_trip_hint'),
@@ -603,6 +626,28 @@ class _OrderDetailBody extends StatelessWidget {
       fontWeight: FontWeight.w800,
     ),
   );
+
+  /// LT-12: the buyer adds or changes the drop-off landmark in a sheet; the
+  /// screen says when it was saved and reloads the order.
+  Future<void> _editDropoffNote(
+    BuildContext context,
+    Order order,
+    String userId,
+  ) async {
+    final bloc = context.read<OrderBloc>();
+    final text = await showDropoffNoteSheet(
+      context,
+      initial: order.dropoffNote,
+    );
+    if (text == null || bloc.isClosed) return;
+    bloc.add(
+      UpdateDropoffNote(
+        orderId: order.orderId,
+        buyerId: userId,
+        dropoffNote: text,
+      ),
+    );
+  }
 
   /// The actions that sit in the page below the cards: the delivery
   /// (create, open, QR, live trip), rating, and the cancels.

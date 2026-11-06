@@ -10,6 +10,61 @@ import 'live_trip_ui_fixtures.dart';
 void main() {
   final morning = DateTime.utc(2026, 10, 28, 5);
 
+  // LT-12: the buyer's landmark belongs to a drop-off still to do.
+  group('TripStop.dropoffNote', () {
+    TripPlan plan(DeliveryStatus status, {String? note}) => TripPlan.build(
+          trip: tripFixture(),
+          deliveries: [
+            deliveryFixture(
+              'd-1',
+              status: status,
+              farmer: 'Almaz',
+              buyer: 'Hawi Flour Mill',
+              pickedUpAt: status == DeliveryStatus.pending ? null : morning,
+              confirmedAt: status == DeliveryStatus.delivered
+                  ? morning.add(const Duration(hours: 3))
+                  : null,
+            ),
+          ],
+          orders: {
+            'o-d-1': orderFixture(
+              'd-1',
+              crop: 'wheat',
+              kg: 2000,
+              dropoffNote: note,
+            ),
+          },
+        );
+
+    TripStop stop(TripPlan p, TripStopKind kind) =>
+        p.stops.firstWhere((s) => s.kind == kind);
+
+    test('at the drop-off, trimmed; never at the pickup', () {
+      final p = plan(DeliveryStatus.inTransit, note: ' Merkato, gate 2 ');
+
+      expect(stop(p, TripStopKind.dropoff).dropoffNote, 'Merkato, gate 2');
+      expect(stop(p, TripStopKind.pickup).dropoffNote, isNull);
+    });
+
+    test('gone once the drop-off is done', () {
+      final p = plan(DeliveryStatus.delivered, note: 'Merkato');
+
+      expect(stop(p, TripStopKind.dropoff).dropoffNote, isNull);
+    });
+
+    test('none when the order has none (or the server withheld it)', () {
+      expect(
+        stop(plan(DeliveryStatus.inTransit), TripStopKind.dropoff).dropoffNote,
+        isNull,
+      );
+      expect(
+        stop(plan(DeliveryStatus.inTransit, note: '  '), TripStopKind.dropoff)
+            .dropoffNote,
+        isNull,
+      );
+    });
+  });
+
   group('TripPlan.build', () {
     test(
         'pickups first in scan order, then drop-offs; next is the first '

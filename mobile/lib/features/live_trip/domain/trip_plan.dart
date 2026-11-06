@@ -1,5 +1,6 @@
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 
 /// A pickup at a farmer or a drop-off at a buyer.
@@ -30,6 +31,13 @@ class TripStop {
         TripStopKind.pickup => delivery.pickedUpAt,
         TripStopKind.dropoff => delivery.confirmedAt,
       };
+
+  /// LT-12: the buyer's drop-off landmark at a drop-off still to do, as the
+  /// server sent it to this trucker (only once committed); null at a pickup,
+  /// once done, or when there is none.
+  String? get dropoffNote => kind == TripStopKind.dropoff && !isDone
+      ? normalizeDropoffNote(order?.dropoffNote)
+      : null;
 }
 
 /// The trucker's own trip as trip mode shows it: the trip, its stops in

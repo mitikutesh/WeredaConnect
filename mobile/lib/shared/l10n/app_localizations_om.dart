@@ -5274,4 +5274,31 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get deliveryQrAlreadyPickedUp =>
       'Geejjibni kun duraan fudhatameera, kanaaf koodiin QR haaraan hin uumamu. Konkolaachisaan koodii yeroo fudhachuu argame bitaaf agarsiisa.';
+
+  @override
+  String get dropoffNoteLabel => 'Mallattoo bakka buusii (dirqama miti)';
+
+  @override
+  String get dropoffNoteHint => 'Fkn. Merkato, Masgiida Anwar bira';
+
+  @override
+  String get dropoffNoteHelper =>
+      'Akka konkolaachisaan isin argatu gargaara. Qonnaan bulaa fi konkolaachisaan ni argu. Hanga fe\'amutti jijjiiruu dandeessu.';
+
+  @override
+  String get dropoffNoteTitle => 'Mallattoo bakka buusii';
+
+  @override
+  String get dropoffNoteEmpty =>
+      'Akka konkolaachisaan isin argatuuf mallattoo dabalaa.';
+
+  @override
+  String get dropoffNoteAdd => 'Dabali';
+
+  @override
+  String get dropoffNoteSaved => 'Mallattoon bakka buusii olkaa\'ameera.';
+
+  @override
+  String get errorDropoffNoteLocked =>
+      'Meeshaan waan fe\'ameef mallattoo bakka buusii jijjiiruun hin danda\'amu.';
 }

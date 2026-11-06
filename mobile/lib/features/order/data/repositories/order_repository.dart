@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
@@ -145,9 +146,11 @@ class OrderRepository extends BaseOrderRepository {
     String? truckerName,
     double? transportCost,
     double? commissionRate,
+    String? dropoffNote,
   }) async {
     final orderId = _uuid.v4();
     final now = DateTime.now().toUtc();
+    final note = normalizeDropoffNote(dropoffNote);
     final totalPrice = quantity * pricePerUnit;
     final cropCost = totalPrice;
     final effectiveCommissionRate = commissionRate ?? 0.05;
@@ -177,6 +180,7 @@ class OrderRepository extends BaseOrderRepository {
       ..commissionAmount = commissionAmount
       ..orderTotal = orderTotal
       ..paymentMethod = 'cbe_transfer'
+      ..dropoffNote = note
       ..updatedAt = now;
 
     await _isar.writeTxn(() async {
@@ -212,6 +216,7 @@ class OrderRepository extends BaseOrderRepository {
           if (tripId != null) 'tripId': tripId,
           if (truckerId != null) 'truckerId': truckerId,
           if (truckerName != null) 'truckerName': truckerName,
+          if (note != null) 'dropoffNote': note,
           'status': orderStatusToWire(OrderStatus.created.name),
           'createdAt': now.toIso8601String(),
           'updatedAt': now.toIso8601String(),
@@ -550,6 +555,53 @@ class OrderRepository extends BaseOrderRepository {
     );
   }
 
+  /// LT-12: the buyer's drop-off landmark, saved on the phone and queued
+  /// (offline-first). The server checks the same rules again and refuses a
+  /// change that lost the race with the pickup (`ORDER_DROPOFF_NOTE_LOCKED`);
+  /// the queue then puts the order back to the server's view.
+  @override
+  Future<void> updateDropoffNote(
+    String orderId,
+    String buyerId,
+    String? dropoffNote,
+  ) async {
+    final order = await _findOrder(orderId);
+    if (!canEditDropoffNote(order, buyerId)) {
+      throw const OrderActionNotAllowedException(
+        'Only the buyer of a trucked order can change its drop-off note, '
+        'and only before pickup.',
+      );
+    }
+    final note = normalizeDropoffNote(dropoffNote);
+    if (note == normalizeDropoffNote(order.dropoffNote)) return;
+
+    final now = DateTime.now().toUtc();
+    final baseVersion = order.version;
+
+    await _writeThenEnqueue(
+      order,
+      (o) {
+        o.dropoffNote = note;
+        o.updatedAt = now;
+        o.version = baseVersion + 1;
+      },
+      () => _syncQueue.enqueue(
+        userId: buyerId,
+        entityType: 'order',
+        entityId: orderId,
+        action: 'update',
+        data: jsonEncode({
+          'orderId': orderId,
+          // An empty note clears it on the server.
+          'dropoffNote': note ?? '',
+          'updatedAt': now.toIso8601String(),
+          'version': baseVersion,
+        }),
+        operationId: _uuid.v4(),
+      ),
+    );
+  }
+
   /// ESC-48: a cancelled or rejected order closes contact at once, offline
   /// too: the parties' phones leave the device with the change.
   static void _closeContact(Order order) {
@@ -614,6 +666,7 @@ class OrderRepository extends BaseOrderRepository {
       buyerPhone: order.buyerPhone,
       farmerPhone: order.farmerPhone,
       truckerPhone: order.truckerPhone,
+      dropoffNote: order.dropoffNote,
     );
     await _isar.writeTxn(() async {
       change(order);
@@ -641,7 +694,8 @@ class OrderRepository extends BaseOrderRepository {
           ..contactOpen = before.contactOpen
           ..buyerPhone = before.buyerPhone
           ..farmerPhone = before.farmerPhone
-          ..truckerPhone = before.truckerPhone;
+          ..truckerPhone = before.truckerPhone
+          ..dropoffNote = before.dropoffNote;
         await _isar.orders.put(order);
       });
       rethrow;

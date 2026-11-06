@@ -115,6 +115,13 @@ public sealed record OrderDto
     /// </summary>
     public string? DropoffPlace { get; init; }
 
+    /// <summary>
+    /// LT-12 (order-lifecycle 2.5.0): the buyer's drop-off landmark, at most 80 characters. Only to
+    /// the buyer, the farmer and the committed trucker (OrderDropoffNote.VisibleTo); null otherwise
+    /// and when there is none.
+    /// </summary>
+    public string? DropoffNote { get; init; }
+
     /// <summary>Transport cost from the assigned trip.</summary>
     public double? TransportCost { get; init; }
 

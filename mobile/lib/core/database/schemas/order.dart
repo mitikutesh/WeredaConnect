@@ -167,6 +167,12 @@ class Order {
   /// The buyer's registered woreda at create (order-lifecycle 2.2.0): where
   /// the goods go. Server-written; null on an older order.
   String? dropoffPlace;
+
+  /// LT-12 (order-lifecycle 2.5.0): the buyer's drop-off landmark ("Merkato,
+  /// near Anwar Mosque"), at most 80 characters, changed by the buyer until
+  /// pickup. The server sends it to the buyer, the farmer and the committed
+  /// trucker only; null otherwise and when there is none.
+  String? dropoffNote;
 }
 
 /// Status of an order in its lifecycle

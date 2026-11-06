@@ -890,6 +890,14 @@ class _NextStopCard extends StatelessWidget {
                         color: AppTheme.soilDark,
                       ),
                     ),
+                    // LT-12: the buyer's landmark, where the town says too
+                    // little ("Addis Ababa").
+                    if (stop.dropoffNote case final note?)
+                      _DropoffNoteLine(
+                        key: const Key('trip_mode_next_dropoff_note'),
+                        note: note,
+                        fontSize: 14,
+                      ),
                     if (cargo != null)
                       Text(
                         cargo,
@@ -1165,6 +1173,13 @@ class _StopRow extends StatelessWidget {
                       color: AppTheme.soilDark,
                     ),
                   ),
+                  // LT-12: the buyer's landmark under a drop-off still to do.
+                  if (stop.dropoffNote case final note?)
+                    _DropoffNoteLine(
+                      key: const Key('trip_mode_dropoff_note'),
+                      note: note,
+                      fontSize: 12,
+                    ),
                   if (detail != null && detail.isNotEmpty) ...[
                     const SizedBox(height: 2),
                     Text(
@@ -1177,6 +1192,51 @@ class _StopRow extends StatelessWidget {
                     ),
                   ],
                 ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// LT-12: the buyer's drop-off landmark on a trucker's stop ("Merkato, near
+/// Anwar Mosque"), after a pin. The server sends it to the trucker only once
+/// committed.
+class _DropoffNoteLine extends StatelessWidget {
+  const _DropoffNoteLine({
+    required this.note,
+    required this.fontSize,
+    super.key,
+  });
+
+  final String note;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(
+              Icons.place_outlined,
+              size: fontSize + 2,
+              color: AppTheme.dropoffBlue,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              note,
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.dropoffBlue,
               ),
             ),
           ),

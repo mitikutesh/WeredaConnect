@@ -1,6 +1,6 @@
 # Data Models Contract
 
-**Version**: 1.4.1
+**Version**: 1.5.0
 **Last Updated**: 2026-11-06
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
@@ -298,6 +298,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `pickupDate` | String? | No | The trip's departure (trip orders, 2.0.0) | server, at funding |
 | `pickupPlace` | String? | No | The listing's place name (order-lifecycle 2.2.0) | server, at create |
 | `dropoffPlace` | String? | No | The buyer's registered woreda (order-lifecycle 2.2.0) | server, at create |
+| `dropoffNote` | String? | No | The buyer's drop-off landmark ("Merkato, near Anwar Mosque"): one line of at most 80 user-visible characters (extended grapheme clusters), no phone number; returned to the buyer, the farmer and the committed trucker of a held order only (order-lifecycle 2.5.0, LT-12) | buyer, at create and until pickup |
 | `farmerResponse` | String? | No | `pending`, `accepted`, `declined`, `expired` (2.0.0) | server |
 | `farmerRespondedAt`, `farmerDeadlineAt` | String? | No | The farmer's answer and its deadline (2.0.0) | server |
 | `truckerResponse` | String? | No | `none`, `not_asked`, `pending`, `accepted`, `declined`, `expired`, `cancelled`, `failed_capacity` (2.0.0) | server |
@@ -310,7 +311,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt` | String? | No | Reminder markers 6 hours before a deadline (2.0.0) | order cron |
 | `pickupOverdueNotifiedAt` | String? | No | Stamped when `pickupDeadlineAt` passed on an accepted order (2.0.0) | order cron |
 
-Stored on the row but never returned: `paymentSubmittedAt`, `pendingPaymentAt`, `paymentHoldUntil`, the Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`), `cancelNote`, `adminQueue`, `adminQueueEscrowId`, `moneySweepSkip`, `moneySweepSkipAt` and the admin override flags (`refundOverride*`, `disputeOverride*`). Clients may send only `status` and its companions (`rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId`) and, since order-lifecycle 2.0.0, the commands `farmerResponse` / `truckerResponse` (`accept` or `decline`) with `declineReason`; everything else above is dropped or refused (`order-lifecycle.md`, Order Update Rules).
+Stored on the row but never returned: `paymentSubmittedAt`, `pendingPaymentAt`, `paymentHoldUntil`, the Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`), `cancelNote`, `adminQueue`, `adminQueueEscrowId`, `moneySweepSkip`, `moneySweepSkipAt` and the admin override flags (`refundOverride*`, `disputeOverride*`). Clients may send only `status` and its companions (`rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId`) and, since order-lifecycle 2.0.0, the commands `farmerResponse` / `truckerResponse` (`accept` or `decline`) with `declineReason`, and since 2.5.0 the buyer's `dropoffNote` (on create, and on update until pickup); everything else above is dropped or refused (`order-lifecycle.md`, Order Update Rules).
 
 **Indexes (DynamoDB)**: `orderId` (PK); `StatusCreatedAtIndex` (the crons page it by status); the party indexes behind `GET /orders` (`buyerId`, `farmerId`, `truckerId`); the sparse `AdminQueueIndex`.
 
@@ -426,6 +427,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.3.0 | 2026-10-31 | Trip gains `destinationLatitude` and `destinationLongitude` (trip-listing-api 2.1.0), sent on create from the picked place | @Server |
 | 1.4.0 | 2026-10-31 | CropListing gains `photos` (embedded `CropPhoto`, crop-listing-api 1.6.0); Isar schema and web mirror | @Mobile |
 | 1.4.1 | 2026-11-06 | Order `cancelReason` lists the server code `listing_out_of_stock` (a funding that lost the listing's stock, order-lifecycle 2.4.0, ESC-18). No schema change | @Server |
+| 1.5.0 | 2026-11-06 | Order gains `dropoffNote`, the buyer's drop-off landmark (order-lifecycle 2.5.0, LT-12): server DTO, Isar schema and web mirror; returned per caller | @Server @Mobile |
 
 ---
 
