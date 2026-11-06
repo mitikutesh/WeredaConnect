@@ -5,12 +5,14 @@ namespace WeredaConnect.Server.Models;
 /// <summary>
 /// POST /auth/fayda-verify request body.
 /// Client sends the authorization code received from Fayda OIDC redirect.
+/// No member is <c>required</c>: a missing field gets its own code (FAYDA_001 code, FAYDA_002
+/// state, AUTH_007 with field redirectUri) instead of AUTH_007 Invalid JSON (auth-api 2.13.0, SIM-27).
 /// </summary>
 public sealed record FaydaVerifyRequest
 {
-    public required string AuthorizationCode { get; init; }
-    public required string State { get; init; }
-    public required string RedirectUri { get; init; }
+    public string AuthorizationCode { get; init; } = "";
+    public string State { get; init; } = "";
+    public string RedirectUri { get; init; } = "";
 }
 
 /// <summary>

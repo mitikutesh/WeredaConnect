@@ -128,8 +128,25 @@ public class PasswordResetFunctionTests
 
         var response = await _function.FunctionHandler(request, _context);
 
+        // SIM-27 (auth-api 2.13.0): AUTH_001 like a malformed phone; it was AUTH_007.
         Assert.Equal(400, response.StatusCode);
-        Assert.Contains("AUTH_007", response.Body);
+        Assert.Contains("\"code\":\"AUTH_001\"", response.Body);
+        Assert.Contains("\"field\":\"phoneNumber\"", response.Body);
+    }
+
+    [Theory]
+    [InlineData("{\"confirmationCode\":\"123456\",\"newPassword\":\"newpass12\"}", "AUTH_001", "phoneNumber")]
+    [InlineData("{\"phoneNumber\":\"+251912345678\",\"newPassword\":\"newpass12\"}", "AUTH_022", "confirmationCode")]
+    [InlineData("{\"phoneNumber\":\"+251912345678\",\"confirmationCode\":\"123456\"}", "AUTH_024", "newPassword")]
+    public async Task ResetPassword_MissingField_AnswersThatFieldsCode(string body, string code, string field)
+    {
+        // SIM-27: the code a wrong value of the field gets, not AUTH_007.
+        var response = await _function.FunctionHandler(
+            new APIGatewayProxyRequest { Path = "/auth/reset-password", Body = body }, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
     }
 
     [Fact]

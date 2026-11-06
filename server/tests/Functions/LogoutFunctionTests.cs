@@ -93,6 +93,17 @@ public class LogoutFunctionTests
     }
 
     [Fact]
+    public async Task FunctionHandler_MissingRefreshToken_ReturnsAuth017()
+    {
+        // SIM-27 (auth-api 2.13.0): an absent token is AUTH_017, as a blank one; it was AUTH_007.
+        var response = await _function.FunctionHandler(MakeRequest(new { }), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"AUTH_017\"", response.Body);
+        Assert.Contains("\"field\":\"refreshToken\"", response.Body);
+    }
+
+    [Fact]
     public async Task FunctionHandler_InvalidJson_Returns400()
     {
         var request = new APIGatewayProxyRequest { Body = "bad-json" };

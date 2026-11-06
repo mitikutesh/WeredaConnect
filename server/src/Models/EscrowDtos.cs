@@ -109,17 +109,21 @@ public sealed record OrderCheckoutResponse
 /// POST /escrow/release request body.
 /// Triggers release of escrowed funds to the farmer.
 /// </summary>
+/// <remarks>
+/// No member is <c>required</c> (escrow-protocol 1.37.0, SIM-27): a missing or blank field is
+/// answered with that field's code by the handler, not ESCROW_001 "Invalid JSON".
+/// </remarks>
 public sealed record ReleaseEscrowRequest
 {
-    public required string EscrowId { get; init; }
+    public string EscrowId { get; init; } = "";
 
     /// <summary>
     /// Enum: delivery_confirmed, dispute_resolved, admin_override.
     /// </summary>
-    public required string Trigger { get; init; }
+    public string Trigger { get; init; } = "";
 
-    public required string DeliveryId { get; init; }
-    public required string IdempotencyKey { get; init; }
+    public string DeliveryId { get; init; } = "";
+    public string IdempotencyKey { get; init; } = "";
 
     /// <summary>
     /// FRD-03: why an admin releases a <c>held</c> escrow (10 to 500 characters, required for a held
@@ -194,14 +198,17 @@ public sealed record DisputeEscrowResponse
 /// POST /escrow/refund request body.
 /// Refunds escrowed funds to the buyer.
 /// </summary>
+/// <remarks>
+/// No member is <c>required</c> (escrow-protocol 1.37.0, SIM-27), as on <see cref="ReleaseEscrowRequest"/>.
+/// </remarks>
 public sealed record RefundEscrowRequest
 {
-    public required string EscrowId { get; init; }
+    public string EscrowId { get; init; } = "";
 
     /// <summary>
     /// Enum: dispute_resolved, delivery_timeout, admin_override.
     /// </summary>
-    public required string Trigger { get; init; }
+    public string Trigger { get; init; } = "";
 
     /// <summary>
     /// Explanation for audit trail (0-500 chars; 10-500 with <see cref="OverrideOrderMismatch"/> and,
@@ -209,7 +216,7 @@ public sealed record RefundEscrowRequest
     /// </summary>
     public string? Reason { get; init; }
 
-    public required string IdempotencyKey { get; init; }
+    public string IdempotencyKey { get; init; } = "";
 
     /// <summary>
     /// ESC-03, admin group only: refund a <c>buyer_wins</c> verdict although its order cannot

@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.36.0
+1.37.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -381,9 +381,12 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 
 | Status | Error Code | Description |
 |--------|-----------|-------------|
-| `400` | `ESCROW_003` | Invalid idempotency key format |
+| `400` | `ESCROW_001` | The body is not JSON, or is empty or `null` (the code it shares with an invalid amount) |
+| `400` | `ESCROW_VALIDATION` | `escrowId` or `trigger` missing or blank (1.37.0, `field` names it); checked right after the body is read, before the caller's role |
+| `400` | `ESCROW_002` | `deliveryId` missing or blank (1.37.0, `field: deliveryId`); checked with the fields above |
+| `400` | `ESCROW_003` | `idempotencyKey` missing or blank (1.37.0, checked with the fields above), or in an invalid format (checked after the role) |
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
-| `400` | `ESCROW_VALIDATION` | A `held` escrow without a `reason` of 10 to 500 characters (1.22.0) |
+| `400` | `ESCROW_VALIDATION` | `trigger` outside the enum (`field: trigger`, checked after the role), or a `held` escrow without a `reason` of 10 to 500 characters (1.22.0) |
 | `403` | `ESCROW_015` | Unauthorized to release (not system/admin), or a `held` escrow from outside the admin group (1.22.0) |
 | `404` | `ESCROW_016` | Escrow not found |
 | `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0); from 1.22.0 also: the decision on a `held` escrow could not be audited |
@@ -547,9 +550,11 @@ Refunds escrowed funds to the buyer. Triggered by admin (a `buyer_wins` dispute 
 
 | Status | Error Code | Description |
 |--------|-----------|-------------|
-| `400` | `ESCROW_003` | Invalid idempotency key format |
+| `400` | `ESCROW_001` | The body is not JSON, or is empty or `null` (the code it shares with an invalid amount) |
+| `400` | `ESCROW_VALIDATION` | `escrowId` or `trigger` missing or blank (1.37.0, `field` names it); checked right after the body is read, before the caller's role |
+| `400` | `ESCROW_003` | `idempotencyKey` missing or blank (1.37.0, checked with the fields above), or in an invalid format (checked after the role) |
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
-| `400` | `ESCROW_VALIDATION` | `overrideOrderMismatch` without a `reason` of 10 to 500 characters (1.9.0), or a `held` escrow without one (1.22.0) |
+| `400` | `ESCROW_VALIDATION` | `trigger` outside the enum (`field: trigger`, checked after the role), `overrideOrderMismatch` without a `reason` of 10 to 500 characters (1.9.0), or a `held` escrow without one (1.22.0) |
 | `403` | `ESCROW_021` | Unauthorized to refund (not admin/system), or `overrideOrderMismatch` from outside the admin group (1.9.0), or a `held` escrow from outside the admin group (1.22.0) |
 | `404` | `ESCROW_016` | Escrow not found |
 | `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0) |
@@ -4025,6 +4030,7 @@ gate (1.22.0, 1.27.0) runs before the refund as for any stale order.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.37.0 | 2026-11-06 | Missing fields on `POST /escrow/release` and `POST /escrow/refund` (SIM-27): a missing, `null` or blank `escrowId` or `trigger` answers `400 ESCROW_VALIDATION`, a release `deliveryId` `400 ESCROW_002`, an `idempotencyKey` `400 ESCROW_003`, each with `field`, checked right after the body is read (where a malformed body was already answered, so before the caller's role). Before, an absent field failed deserialization and answered `400 ESCROW_001 "Invalid JSON in request body."`, the amount code, and a blank `escrowId` reached the store. The error tables now also list `ESCROW_001` for a body that is not JSON and `ESCROW_VALIDATION` for a `trigger` outside the enum, as served. Release and refund are admin and system calls; no app change. `POST /escrow/initiate` and `POST /escrow/dispute` are unchanged |
 | 1.36.0 | 2026-11-06 | Transaction pattern signals (FRD-09, fraud spec 3.12.0, section 15.1): the amount anomaly row of Fraud Prevention is built. After an order payment the gates let through, the buyer may get `AMOUNT_ANOMALY` (10, soft), `NEW_ACCOUNT_LARGE_AMOUNT` (10, soft) or `KYC_THRESHOLD_STRUCTURING` (20, hard); after a dispute the buyer raised (`POST /escrow/dispute` or a delivery dispute that froze the escrow), `DISPUTE_RATE` (10, soft) with the escrow as the entity. Written best effort after the write, thresholds in `FRAUD_*` configuration; they reach the money only through the risk tiers (section 17). `POST /escrow/initiate` writes none. No endpoint, status, field or answer change |
 | 1.35.0 | 2026-11-06 | Stock lost at funding (ESC-18, `order-lifecycle.md` 2.4.0): a funding whose listing no longer holds the order's quantity creates the order escrow as before, then the order is cancelled (`listing_out_of_stock`) and `ScheduleRefundForOrderAsync` arms the escrow with `refundReason: listing_out_of_stock`; the hourly sweep refunds the full amount once. Runs on the Telebirr webhook (funding and redelivery repair) and the mock auto-fund. `ORDER_STOCK_DECREMENT_FAILED ... reason=insufficient_stock` marks a loser that could not be cancelled by itself (a person decides). An escrow whose create failed is created once more; `ORDER_ESCROW_REFUND_SCHEDULE_FAILED` (`reason=no_escrow` when no record exists) now also comes from the webhook log group and feeds `{prefix}-order-escrow-problems`. No endpoint, status or field change |
 | 1.34.0 | 2026-10-26 | Order commitments (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): `ScheduleRefundForOrderAsync` now also runs when the order cron cancels a `funded` order whose farmer did not answer (`farmer_response_expired`) or an `awaiting_transport` order whose buyer did not decide in 48 hours (`transport_not_arranged`), and when the farmer cancels an `accepted` order before pickup (`farmer_cancelled`), all with `refundReason: order_cancelled`; the buyer's or the farmer's cancel in `awaiting_transport` arms `order_transport_failed` as the transport-failure cancel does; a trucker's decline, expiry or drop-out and a cancelled or full trip never refund by themselves (the order waits for the buyer); `awaiting_transport` joins the refundable statuses of the 7 day sweep as a backstop; no endpoint, status or field change |
@@ -4073,5 +4079,5 @@ gate (1.22.0, 1.27.0) runs before the refund as for any stale order.
 ---
 
 **Last Updated**: 2026-11-06
-**Version**: 1.36.0
+**Version**: 1.37.0
 **Status**: Draft (Phase R4)

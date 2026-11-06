@@ -262,6 +262,24 @@ public class CognitoAuthServiceTests
         Assert.Equal(401, result.Error.HttpStatus);
     }
 
+    [Theory]
+    [InlineData("Refresh Token has been revoked")]
+    [InlineData("Refresh Token has expired")]
+    [InlineData("Invalid Refresh Token")]
+    public async Task RefreshAsync_AnyNotAuthorized_ReturnsAuth018(string cognitoMessage)
+    {
+        // auth-api 2.13.0 (SIM-27): Cognito answers NotAuthorizedException for an invalid, an
+        // expired and a revoked token alike, so the server answers AUTH_018 for all three and
+        // never AUTH_019. It does not branch on Cognito's message text, which is not an API.
+        _mockCognito.InitiateAuthAsync(Arg.Any<InitiateAuthRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new NotAuthorizedException(cognitoMessage));
+
+        var result = await _service.RefreshAsync("some-refresh-token");
+
+        Assert.Equal("AUTH_018", result.Error!.Code);
+        Assert.Equal(401, result.Error.HttpStatus);
+    }
+
     [Fact]
     public async Task RefreshAsync_NullAuthenticationResult_ReturnsAuth018()
     {

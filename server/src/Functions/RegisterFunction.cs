@@ -122,6 +122,14 @@ public class RegisterFunction
             {
                 registerRequest = registerRequest with { PhoneNumber = normalizedPhone };
             }
+
+            // preferredLanguage is optional, default am (auth-api). The source-generated reader sets
+            // an absent init property to null past its initializer, which the validator refused as
+            // AUTH_007 "Invalid language" (SIM-27).
+            if (registerRequest.PreferredLanguage is null)
+            {
+                registerRequest = registerRequest with { PreferredLanguage = RegisterRequest.DefaultLanguage };
+            }
         }
 
         // Validate
