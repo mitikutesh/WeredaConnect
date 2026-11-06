@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.22.0
+1.23.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -100,7 +100,9 @@ but must equal the operation's `entityId`
 (`DELIVERY_VALIDATION: deliveryId does not match the operation entityId.`).
 `updatedAt`, `pickedUpAt` and `confirmedAt` in `data` are accepted and ignored: the
 server stamps them at the transition (`confirmedAt` anchors the 48-hour dispute
-window, so a client value is never trusted). The example payloads above succeed as
+window, so a client value is never trusted). Since 1.23.0 the `pickedUp` transition
+also stamps the server-only `pickupCapturedAt` from the operation's `timestamp`
+(DeliveryDto Entity); clients send `timestamp` on every operation already. The example payloads above succeed as
 written.
 
 Order coupling (v1.4.0, SIM-11): a successful `pickedUp`, `inTransit` or `delivered`
@@ -529,6 +531,7 @@ server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 | `pickupPhotoRef` | string | No | `uploads/photos/{deliveryId}/pickup-{ms}.webp`, the key from section 4 | Photo evidence at pickup; any other value fails the op (1.7.0) |
 | `dropoffPhotoRef` | string | No | `uploads/photos/{deliveryId}/dropoff-{ms}.webp`, the key from section 4 | Photo evidence at dropoff; any other value fails the op (1.7.0) |
 | `pickedUpAt` | string (ISO 8601) | No | -- | Timestamp when trucker picked up crops |
+| `pickupCapturedAt` | string (ISO 8601) | No | Server-only | When the phone made the pickup scan: the `pickedUp` operation's `timestamp`, stamped with `pickedUpAt` (1.23.0, FRD-09). Stored only when plausible (not more than 5 minutes after the operation reached the server, not older than 30 days); absent otherwise and on deliveries picked up before 1.23.0. The fraud rule for a delivery too fast for its distance reads it (`fraud-detection-architecture.md` 15.1); a client value is never written |
 | `confirmedAt` | string (ISO 8601) | No | -- | Timestamp when buyer confirmed receipt |
 | `disputeReason` | string | No | 0-500 chars | Reason for dispute (if status is disputed) |
 | `disputeResolution` | string | No | Server-only: `farmer_wins` or `buyer_wins` | The admin's dispute verdict, stamped on a `disputed` delivery (v1.8.0) |
@@ -1140,10 +1143,11 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.20.0 | 2026-10-28 | Check-in effects (LT-07, `live-trip-api.md` sections 4 and 5): a system `pickedUp → inTransit` when an accepted check-in captured after the pickup is 2 km or more from the pickup point (fresh read, conditional on the status and the version read, the trucker's write, audited with the actor `system` and `source=check_in`, the same order coupling to `in_transit`); the trucker's own `inTransit` on an `inTransit` delivery answers `conflict` with the row instead of `DELIVERY_INVALID_TRANSITION`; the server-only `nearbyNotifiedAt`, `nearbyDistanceKm` and `nearbyMinutes`, stamped once when a check-in is within 5 km of the drop-off point (conditional on `pickedUp` or `inTransit` and no stamp; `version` and `updatedAt` unchanged), which sends the buyer `truck_nearby` (`notifications-api.md` 1.3.0). No client change: the status is known and the extra keys are ignored. |
 | 1.21.0 | 2026-10-30 | Cargo on the row (Fieldway deliveries boards): the create stamps the server-only `cropType` and `quantity` (kg) from the order, `pickupPlace` from the listing's `locationName` and `pickupPlannedAt` from the trip's `departureDate` (none on a self-pickup), all returned on `GET /deliveries`, `GET /deliveries/{id}` and every `/sync` delivery row, so the list cards read "Teff · 1,500 kg" and "Kebede Alemu, Bichena · pickup Thu 30 Oct" without one order read per delivery; a client that sends them hits the field whitelist; deliveries created before 1.21.0 carry none and the clients fall back to the delivery number. |
 | 1.22.0 | 2026-11-04 | Typed handoff code and drop-off QR (usability audit T-1, T-3; see QR Secret Storage): `scannedQrCode` (nine digits, eight derived from the nonce and a Damm check digit) stands in for `scannedQrNonce` on `pickedUp` and `delivered`, compared in fixed time, with the scan's freshness, single-use and deferral rules; per-leg misses in the secret row (string sets of operation ids, cleared by a new nonce), `DELIVERY_CODE_LOCKED` from the fifth wrong code (a scan still works), `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED_DROPOFF` for a trucker's drop-off (support settles it), `DELIVERY_CODE_GPS_REQUIRED` for a typed code without GPS on a paid delivery, a malformed code is `DELIVERY_VALIDATION`; attempt ids carry a hash of the code, so a reused operation id cannot guess for free; the farmer's nonce op stores only the nonce and nothing once the delivery left `pending`; the secret row is read strongly consistent; `handoff=qr` or `handoff=code` in the transition's audit `metadata`. The trucker's phone keeps the farmer's pickup token and shows it as the drop-off QR the buyer scans (one nonce for both legs). Header drift fixed (the README and footer still said 1.20.0). |
+| 1.23.0 | 2026-11-06 | Pickup capture time (FRD-09, `fraud-detection-architecture.md` 3.12.0, section 15.1): the `pickedUp` transition also stamps the server-only `pickupCapturedAt`, the operation's `timestamp` when it is plausible (at most 5 minutes after the operation reached the server and not older than 30 days), so the fraud rule for a delivery too fast for its distance can tell a pickup synced late from an offline phone from a fast trip. Returned on `/sync` delivery rows like the other server-only fields; no request or answer changes, no client change. A confirmed delivery may write the `IMPOSSIBLE_DELIVERY_TIME` signal on its trucker, flag-only. |
 | 1.19.0 | 2026-10-23 | Payout delay (FRD-13, `escrow-protocol.md` 1.33.0): the `delivered` transition stamps the linked escrow's `releaseNotBefore` in the same write as `deliveryConfirmedAt` and `disputeWindowEndsAt` (the trucker named by the delivery when the escrow has none yet); the automatic release waits for it. The dispute window and the delivery's own fields are unchanged; no client change on deliveries. |
 
 ---
 
-**Last Updated**: 2026-11-04
-**Version**: 1.22.0
+**Last Updated**: 2026-11-06
+**Version**: 1.23.0
 **Status**: Draft (Phase R4.2)
