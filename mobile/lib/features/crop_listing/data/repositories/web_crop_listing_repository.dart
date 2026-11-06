@@ -161,8 +161,9 @@ class WebCropListingRepository extends BaseCropListingRepository {
     var listings = <CropListing>[];
     String? nextToken;
     do {
-      // Server stores listings with status=available (not "active").
-      final params = <String, dynamic>{'status': 'available', 'limit': '100'};
+      // Server stores listings with status=available (not "active"). Pages
+      // hold at most 50 (crop-listing-api 1.9.0, SIM-26).
+      final params = <String, dynamic>{'status': 'available', 'limit': '50'};
       if (cropTypeFilter != null) params['cropType'] = cropTypeFilter;
       if (nextToken != null) params['nextToken'] = nextToken;
       final data = await _api.get<Map<String, dynamic>>(

@@ -159,6 +159,9 @@ Future<void> _runWeb({
   // them.
   final authBloc = AuthBloc(
     forgetTrackSnapshots: signOutForgetter(SecureDropoffHandoffStore()),
+    // SIM-37: after a sign-in, show the profile's saved language unless the
+    // user picked one on this device.
+    applyProfileLanguage: languageProvider.applyProfileLanguage,
   )..add(const AuthCheckRequested());
   // F-37: production-gated test auth seam for e2e (no-op in prod builds).
   registerWebTestAuthSeam(authBloc);

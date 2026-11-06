@@ -600,6 +600,24 @@ void main() {
     expect(rejections().single.entityId, 'order-1');
   });
 
+  // sync-protocol.md 1.38.0 (SIM-28): a key the server already holds for
+  // another payload is refused under SYNC_VALIDATION, so it is never resent
+  // and the order goes back to the server's row.
+  test('a reused idempotency key is rejected for good and reverted', () async {
+    const message = 'SYNC_VALIDATION: idempotency key already used for a '
+        'different operation payload; send this change with a new '
+        'idempotency key.';
+    await enqueue('op-1');
+    replyWith([error('op-1', message)]);
+
+    await executor.executeBatch();
+    await waitFor(() => rejections().isNotEmpty);
+
+    expect(await isRejected('op-1'), isTrue);
+    expect(await syncQueue.retryFailed(), 0);
+    expect(reverts.single.$2, message);
+  });
+
   test(
       'an HTTP 400 batch rejects everything, reverts the order op and the '
       'ops queued behind a refused create', () async {

@@ -159,7 +159,8 @@ public class OrderEscrowCancelTransactionTests
         arm.TableName.Should().Be(EscrowsTable);
         arm.Key["escrowId"].S.Should().Be("escrow-order-order-1");
         arm.Key["createdAt"].S.Should().Be("2026-10-01T09:00:00.0000000Z");
-        arm.UpdateExpression.Should().Be("SET #expiresAt = :at, #refundReason = :reason, #updated = :at");
+        // SIM-29: the scheduled refund adds to the escrow's version.
+        arm.UpdateExpression.Should().Be("SET #expiresAt = :at, #refundReason = :reason, #updated = :at ADD #version :one");
         arm.ConditionExpression.Should().Be(
             "#status = :escrowed AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout) "
             + "AND (attribute_not_exists(#confirmed) OR size(#confirmed) = :zero)");
@@ -171,11 +172,13 @@ public class OrderEscrowCancelTransactionTests
             ["#status"] = "status",
             ["#lock"] = "settlementLock",
             ["#manualPayout"] = "manualPayout",
-            ["#confirmed"] = "deliveryConfirmedAt"
+            ["#confirmed"] = "deliveryConfirmedAt",
+            ["#version"] = "version"
         });
         arm.ExpressionAttributeValues[":at"].S.Should().Be("2026-10-23T10:00:00.0000000Z");
         arm.ExpressionAttributeValues[":reason"].S.Should().Be("order_transport_failed");
         arm.ExpressionAttributeValues[":escrowed"].S.Should().Be("escrowed");
         arm.ExpressionAttributeValues[":zero"].N.Should().Be("0");
+        arm.ExpressionAttributeValues[":one"].N.Should().Be("1");
     }
 }

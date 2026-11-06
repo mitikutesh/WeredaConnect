@@ -284,5 +284,23 @@ void main() {
 
       expect(find.textContaining('Farmer Rating'), findsNothing);
     });
+
+    // SIM-33: a record holding the farmer's id as the name, and a junk
+    // place ("105"), show neither.
+    testWidgets('no farmer card for an id name, no junk place', (tester) async {
+      const id = '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b';
+      await tester.pumpWidget(
+        _buildScreen(
+          listing: _makeListing(farmerName: id, locationName: '105'),
+          currentUserRole: UserRole.buyer,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Farmer Rating'), findsNothing);
+      expect(find.textContaining(id), findsNothing);
+      expect(find.text('105'), findsNothing);
+      expect(find.byIcon(Icons.location_on_outlined), findsNothing);
+    });
   });
 }

@@ -137,11 +137,11 @@ When a delivery is created and still pending, the buyer sees:
 │  To: Abebe Bekele                       │
 ├─────────────────────────────────────────┤
 │  ┌─────────────────────────────────┐    │
-│  │ Total Amount      ETB 50,000.00 │    │
+│  │ Crop cost         ETB 50,000.00 │    │
 │  │─────────────────────────────────│    │
-│  │ Commission (5%)    ETB 2,500.00 │    │
+│  │ Commission         ETB 2,500.00 │    │
 │  │─────────────────────────────────│    │
-│  │ Farmer Receives   ETB 47,500.00 │    │
+│  │ You pay           ETB 52,500.00 │    │
 │  └─────────────────────────────────┘    │
 │                                         │
 │  ⚠️ Fayda ID required for amounts      │
@@ -159,7 +159,7 @@ When a delivery is created and still pending, the buyer sees:
 
 **Amount calculation**: `pricePerKg × quantity × 100kg` (looked up from the linked crop listing).
 
-**Commission**: 5% of total, minimum ETB 5.00.
+**Commission**: 5% of the crop cost (the rate is set on the server), paid by the buyer on top of the order and rounded to the santim. The farmer receives the full crop cost and the trucker the full transport cost.
 
 **Fayda ID warning**: Shown for amounts > ETB 10,000 (Ethiopian digital ID requirement).
 
@@ -361,7 +361,7 @@ The debug seed button (only visible in development builds) creates a test delive
 | **QR verification** | HMAC-SHA256 offline verification — no server roundtrip required |
 | **GPS capture** | Auto-captured on QR verification; graceful fallback if unavailable |
 | **Photo evidence** | Compressed locally; synced when connectivity available |
-| **Escrow commission** | 5% (minimum ETB 5.00), calculated client-side, enforced server-side |
+| **Escrow commission** | 5% of the crop cost, paid by the buyer on top of the order; set by the server when the order is created, previewed by the app |
 | **Fayda ID** | Required for payments > ETB 10,000 (Ethiopian digital identity) |
 | **Dispute window** | 48 hours from delivery confirmation timestamp |
 | **Target devices** | Android 8+ (API 26), 2GB RAM, works on $50 phones |

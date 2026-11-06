@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.36.0
+1.39.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -12,7 +12,7 @@
 
 ## Overview
 
-The Escrow Protocol enables secure payment between buyers and farmers on WeredaConnect using Telebirr, Ethiopia's dominant mobile money platform. Funds are held in a platform-managed Telebirr escrow account until delivery is verified (F-12), at which point the platform releases payment to the farmer minus a configurable commission.
+The Escrow Protocol enables secure payment between buyers and farmers on WeredaConnect using Telebirr, Ethiopia's dominant mobile money platform. Funds are held in a platform-managed Telebirr escrow account until delivery is verified (F-12), at which point the platform pays the farmer the crop cost and the trucker the transport cost, and keeps the commission the buyer paid on top of the crop cost (see Commission Calculation).
 
 **This is the highest-priority feature in the backlog (F-13, score 19)** because it directly enables revenue, prevents payment fraud, and satisfies Ethiopian Fayda ID compliance requirements.
 
@@ -77,7 +77,7 @@ Also:
 |-------|-------------|----------|
 | `initiated` | Buyer submitted payment intent; Telebirr HoldFunds call pending or in progress | No |
 | `escrowed` | Funds successfully held in platform Telebirr account | No |
-| `released` | Funds released to farmer's Telebirr (minus commission). With `truckerPayoutPending` the trucker leg is still owed and the escrow stays here until it is paid (1.11.0) | No |
+| `released` | Funds released: the farmer's leg (and the trucker's) paid out, the platform keeps the commission. With `truckerPayoutPending` the trucker leg is still owed and the escrow stays here until it is paid (1.11.0) | No |
 | `completed` | Every leg is paid (farmer and, when there is one, trucker); transaction fully settled | Yes |
 | `cancelled` | Buyer cancelled before funds were held | Yes |
 | `disputed` | Buyer or farmer raised a dispute within 48 hours of delivery | No |
@@ -381,9 +381,12 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 
 | Status | Error Code | Description |
 |--------|-----------|-------------|
-| `400` | `ESCROW_003` | Invalid idempotency key format |
+| `400` | `ESCROW_001` | The body is not JSON, or is empty or `null` (the code it shares with an invalid amount) |
+| `400` | `ESCROW_VALIDATION` | `escrowId` or `trigger` missing or blank (1.37.0, `field` names it); checked right after the body is read, before the caller's role |
+| `400` | `ESCROW_002` | `deliveryId` missing or blank (1.37.0, `field: deliveryId`); checked with the fields above |
+| `400` | `ESCROW_003` | `idempotencyKey` missing or blank (1.37.0, checked with the fields above), or in an invalid format (checked after the role) |
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
-| `400` | `ESCROW_VALIDATION` | A `held` escrow without a `reason` of 10 to 500 characters (1.22.0) |
+| `400` | `ESCROW_VALIDATION` | `trigger` outside the enum (`field: trigger`, checked after the role), or a `held` escrow without a `reason` of 10 to 500 characters (1.22.0) |
 | `403` | `ESCROW_015` | Unauthorized to release (not system/admin), or a `held` escrow from outside the admin group (1.22.0) |
 | `404` | `ESCROW_016` | Escrow not found |
 | `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0); from 1.22.0 also: the decision on a `held` escrow could not be audited |
@@ -547,9 +550,11 @@ Refunds escrowed funds to the buyer. Triggered by admin (a `buyer_wins` dispute 
 
 | Status | Error Code | Description |
 |--------|-----------|-------------|
-| `400` | `ESCROW_003` | Invalid idempotency key format |
+| `400` | `ESCROW_001` | The body is not JSON, or is empty or `null` (the code it shares with an invalid amount) |
+| `400` | `ESCROW_VALIDATION` | `escrowId` or `trigger` missing or blank (1.37.0, `field` names it); checked right after the body is read, before the caller's role |
+| `400` | `ESCROW_003` | `idempotencyKey` missing or blank (1.37.0, checked with the fields above), or in an invalid format (checked after the role) |
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
-| `400` | `ESCROW_VALIDATION` | `overrideOrderMismatch` without a `reason` of 10 to 500 characters (1.9.0), or a `held` escrow without one (1.22.0) |
+| `400` | `ESCROW_VALIDATION` | `trigger` outside the enum (`field: trigger`, checked after the role), `overrideOrderMismatch` without a `reason` of 10 to 500 characters (1.9.0), or a `held` escrow without one (1.22.0) |
 | `403` | `ESCROW_021` | Unauthorized to refund (not admin/system), or `overrideOrderMismatch` from outside the admin group (1.9.0), or a `held` escrow from outside the admin group (1.22.0) |
 | `404` | `ESCROW_016` | Escrow not found |
 | `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0) |
@@ -727,8 +732,8 @@ Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowe
 | `buyerId` | string (UUID) | Yes | References User entity | Buyer making payment |
 | `farmerId` | string (UUID) | Yes | References User entity | Farmer receiving payment |
 | `amount` | number | Yes | 100.00 - 500,000.00 | Total payment amount (ETB) |
-| `commission` | number | Yes | Calculated: amount * rate | Platform commission (ETB) |
-| `commissionRate` | number | Yes | Server-configured, default 0.025 | Commission percentage (2.5%) |
+| `commission` | number | Yes | 2 decimals; amount − farmerPayout − truckerPayout, the order's `commissionAmount` (see Commission Calculation, 1.39.0) | Platform commission (ETB), paid by the buyer on top of the crop cost |
+| `commissionRate` | number | Yes | The order's rate (SSM, default 0.05); 0.025 under the legacy rule | Rate the commission was computed with, on the crop cost (or the amount under the legacy rule) |
 | `farmerPayout` | number | Yes | Crop leg of amount | Net amount farmer receives (ETB); with a trucker split amount = farmerPayout + truckerPayout + commission |
 | `truckerPayout` | number | No | Transport leg of amount; null without a trucker split | Net amount the trucker receives on release (ETB) |
 | `truckerId` | string (UUID) | No | References User entity; stamped at creation from the order, or backfilled at delivery linkage | Trucker paid out of this escrow (the truck the order was bound to) |
@@ -757,7 +762,7 @@ Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowe
 | `heldFromStatus` | string | No | Admin responses only | `escrowed` or `dispute_resolved` |
 | `heldFor` | string | No | Admin responses only | `release` or `refund`: what the sweep was about to do |
 | `completedAt` | string (ISO 8601) | No | Set on completion | When transaction settled |
-| `version` | number | Yes | >= 1 | Optimistic concurrency control |
+| `version` | number | Yes | >= 1 | Optimistic concurrency control: 1 at create, then 1 more on every write that changes what an escrow read returns (1.38.0, SIM-29) |
 
 ### DisputeDto
 
@@ -1048,15 +1053,47 @@ Escrow CANNOT be initiated when delivery is in:
 
 ### Commission Calculation
 
+Rewritten in 1.39.0 (SIM-30) to state the rule the server applies. Before, this section gave a 2.5 %
+commission deducted at release, which only the legacy initiate without an order (last bullet but one)
+still uses. The platform commission is a percentage of the crop cost that the buyer pays on top
+of the order. It is never taken out of the farmer's crop price and never charged on transport. The
+order sets it when it is created (`order-lifecycle.md`, Order Create Validation):
+
 ```
-commission = amount * commissionRate
-farmerPayout = amount - commission
+cropCost         = round2(quantity × pricePerUnit)
+transportCost    = round2(quantity / 100 × pricePerQuintal)      (0 without a trip)
+commissionAmount = round2(cropCost × commissionRate)             (commissionRate from SSM, default 0.05)
+orderTotal       = cropCost + transportCost + commissionAmount    (what the buyer pays)
+
+round2 = to the santim (2 decimals), halves away from zero, on exact decimals
 ```
 
-- `commissionRate` is server-configured (stored in AWS Systems Manager Parameter Store)
-- Default: 0.025 (2.5%)
-- Minimum commission: 5 ETB (floor)
-- Commission is deducted at release time, not at hold time (full amount is escrowed)
+The escrow of the order holds the whole `orderTotal` and splits it into the three legs:
+
+```
+amount        = orderTotal
+farmerPayout  = cropCost
+truckerPayout = transportCost                                     (none without a trip)
+commission    = amount − farmerPayout − truckerPayout             (= the order's commissionAmount)
+```
+
+- The full amount is held. A release pays `farmerPayout` to the farmer and `truckerPayout` to the
+  trucker, and the platform keeps `commission`. A refund returns the whole `amount`, commission included.
+- Every leg has 2 decimals, so `amount = farmerPayout + truckerPayout + commission` holds exactly on
+  every row. `commissionRate` on an order escrow is the order's rate.
+- `POST /escrow/initiate` for a delivery that names an order takes the same split from the order
+  (rule 6 above), but still stores `commissionRate` 0.025 (a known gap of this mock-only path).
+- `commissionRate` is the SSM parameter `/{prefix}/escrow/commission-rate` (default 0.05), read by
+  the sync Lambda when an order is created. Changing it changes new orders only.
+- Legacy rule, only where no order supplies a split: `POST /escrow/initiate` for a delivery without
+  an order (mock gateway only; refused on live Telebirr since 1.18.0) takes
+  `commission = round2(max(amount × 0.025, 5 ETB))` out of the amount
+  (`farmerPayout = amount − commission`, `commissionRate` 0.025). An order escrow whose order carries
+  no usable cost breakdown (orders from before SIM-05) falls back to the same commission after its
+  transport leg.
+- Orders created before 1.39.0 may carry unrounded doubles (`commissionAmount` 0.9500000000000001).
+  Their escrows already round `amount`, `farmerPayout` and `truckerPayout` to 2 decimals and keep
+  `commission` as the remainder, so those rows reconcile too.
 
 ---
 
@@ -3686,7 +3723,7 @@ The order write and the refund arm are one `TransactWriteItems` (sync Lambda):
 | Item | Write | Condition |
 |---|---|---|
 | the order | the cancel fields, `version + 1`, `updatedAt` | `version = <expected> AND status = accepted` |
-| each escrow the check found holding the money (normally `escrow-order-{orderId}` alone) | `expiresAt = now`, `refundReason = order_transport_failed`, `updatedAt` | `status = escrowed AND attribute_not_exists(settlementLock) AND attribute_not_exists(manualPayout) AND (attribute_not_exists(deliveryConfirmedAt) OR size(deliveryConfirmedAt) = 0)` |
+| each escrow the check found holding the money (normally `escrow-order-{orderId}` alone) | `expiresAt = now`, `refundReason = order_transport_failed`, `updatedAt`, `ADD version 1` (1.38.0) | `status = escrowed AND attribute_not_exists(settlementLock) AND attribute_not_exists(manualPayout) AND (attribute_not_exists(deliveryConfirmedAt) OR size(deliveryConfirmedAt) = 0)` |
 
 - An escrow condition that fails refuses the cancel with `ORDER_CANCEL_NOT_ALLOWED: The payment is
   being settled or reviewed.` (the answer the check gives), also when the order condition failed too.
@@ -4021,10 +4058,39 @@ gate (1.22.0, 1.27.0) runs before the refund as for any stale order.
 
 ---
 
+## Additions in 1.38.0 (the escrow version, SIM-29)
+
+`version` is 1 when the record is created and goes up by 1 with every write that changes what an
+escrow read returns (any party's read or an admin's). Each such write adds 1 with DynamoDB `ADD`; none
+writes a number computed from an earlier read, so a write that lands between another flow's read and
+its own write can never move the version back. No write is conditioned on the escrow's version (they
+keep their status, lock and marker conditions), and no endpoint takes it from a client.
+
+| Write | Version |
+|---|---|
+| any status change: hold (`initiated` to `escrowed`, now 2 by `ADD`), cancel, dispute, verdict, hold for fraud, release, refund, completion, the manual payout steps | + 1 |
+| the delivery link (`deliveryId`, with `truckerId` when it was missing) | + 1 (was unchanged) |
+| the delivery confirmation stamp (`deliveryConfirmedAt`, `disputeWindowEndsAt`, `releaseNotBefore`), at confirm or by the escrow-cron backstop | + 1 (was unchanged) |
+| a scheduled refund (`expiresAt`, `refundReason`: order cancel or reject, admin refund, the 1.25.0 transaction arm) | + 1 (was unchanged) |
+| the 21 day cap extension of `expiresAt` and the `holdCapReachedAt` stamp | + 1 (was unchanged) |
+| a backfilled `truckerId` | + 1 (was unchanged) |
+| an admin verdict (`dispute_resolved`) and a disposition recorded later (FUP-16) | + 1 (was unchanged) |
+| settlement and trucker payout locks, block reasons, the account deletion name scrub | unchanged (server bookkeeping) |
+
+The release and refund writes used to set the version to the value read before the settlement lock
+plus 1 (and the completion plus 2); they now add 1 each like every other write. Clients store the
+number and show nothing from it (the apps keep the server's value; the admin app does not read it),
+so no client change.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.39.0 | 2026-11-06 | Commission rule and rounding (SIM-30, `order-lifecycle.md` 2.7.0): Commission Calculation now states the rule the server applies, a percentage of the crop cost (SSM `/{prefix}/escrow/commission-rate`, default 0.05) that the buyer pays on top of the order, held in the escrow and kept by the platform at release (refunded in full with the rest), with `commission = amount − farmerPayout − truckerPayout`; the 2.5 % deducted-at-release text was only true of the legacy initiate without an order, now marked as such. The order create rounds `cropCost`, `transportCost` and `commissionAmount` to the santim (halves away from zero, exact decimals) and `orderTotal` is their exact sum, so the order's commission equals the escrow's to the santim (was an unrounded double such as 0.9500000000000001). The money rule is unchanged; only an order whose crop or transport cost has more than 2 decimals (a fractional kg) can see its total move by a santim, since its legs are now rounded before they are added. No endpoint, status or field change |
+| 1.38.0 | 2026-11-06 | The escrow version (SIM-29): every write that changes what an escrow read returns adds 1 to `version` with `ADD`: the delivery link, the delivery confirmation stamp, a scheduled refund (also inside the 1.25.0 transaction), the 21 day cap extension and stamp, a backfilled `truckerId`, the admin verdict and a later disposition now too, and the hold, release, refund and completion writes add 1 instead of writing 2 or the read value plus 1 or 2. Locks, block reasons and the deletion scrub leave it alone. No write is conditioned on it and no client sends it; no endpoint, status or client change |
+| 1.37.0 | 2026-11-06 | Missing fields on `POST /escrow/release` and `POST /escrow/refund` (SIM-27): a missing, `null` or blank `escrowId` or `trigger` answers `400 ESCROW_VALIDATION`, a release `deliveryId` `400 ESCROW_002`, an `idempotencyKey` `400 ESCROW_003`, each with `field`, checked right after the body is read (where a malformed body was already answered, so before the caller's role). Before, an absent field failed deserialization and answered `400 ESCROW_001 "Invalid JSON in request body."`, the amount code, and a blank `escrowId` reached the store. The error tables now also list `ESCROW_001` for a body that is not JSON and `ESCROW_VALIDATION` for a `trigger` outside the enum, as served. Release and refund are admin and system calls; no app change. `POST /escrow/initiate` and `POST /escrow/dispute` are unchanged |
 | 1.36.0 | 2026-11-06 | Transaction pattern signals (FRD-09, fraud spec 3.12.0, section 15.1): the amount anomaly row of Fraud Prevention is built. After an order payment the gates let through, the buyer may get `AMOUNT_ANOMALY` (10, soft), `NEW_ACCOUNT_LARGE_AMOUNT` (10, soft) or `KYC_THRESHOLD_STRUCTURING` (20, hard); after a dispute the buyer raised (`POST /escrow/dispute` or a delivery dispute that froze the escrow), `DISPUTE_RATE` (10, soft) with the escrow as the entity. Written best effort after the write, thresholds in `FRAUD_*` configuration; they reach the money only through the risk tiers (section 17). `POST /escrow/initiate` writes none. No endpoint, status, field or answer change |
 | 1.35.0 | 2026-11-06 | Stock lost at funding (ESC-18, `order-lifecycle.md` 2.4.0): a funding whose listing no longer holds the order's quantity creates the order escrow as before, then the order is cancelled (`listing_out_of_stock`) and `ScheduleRefundForOrderAsync` arms the escrow with `refundReason: listing_out_of_stock`; the hourly sweep refunds the full amount once. Runs on the Telebirr webhook (funding and redelivery repair) and the mock auto-fund. `ORDER_STOCK_DECREMENT_FAILED ... reason=insufficient_stock` marks a loser that could not be cancelled by itself (a person decides). An escrow whose create failed is created once more; `ORDER_ESCROW_REFUND_SCHEDULE_FAILED` (`reason=no_escrow` when no record exists) now also comes from the webhook log group and feeds `{prefix}-order-escrow-problems`. No endpoint, status or field change |
 | 1.34.0 | 2026-10-26 | Order commitments (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): `ScheduleRefundForOrderAsync` now also runs when the order cron cancels a `funded` order whose farmer did not answer (`farmer_response_expired`) or an `awaiting_transport` order whose buyer did not decide in 48 hours (`transport_not_arranged`), and when the farmer cancels an `accepted` order before pickup (`farmer_cancelled`), all with `refundReason: order_cancelled`; the buyer's or the farmer's cancel in `awaiting_transport` arms `order_transport_failed` as the transport-failure cancel does; a trucker's decline, expiry or drop-out and a cancelled or full trip never refund by themselves (the order waits for the buyer); `awaiting_transport` joins the refundable statuses of the 7 day sweep as a backstop; no endpoint, status or field change |
@@ -4073,5 +4139,5 @@ gate (1.22.0, 1.27.0) runs before the refund as for any stale order.
 ---
 
 **Last Updated**: 2026-11-06
-**Version**: 1.36.0
+**Version**: 1.39.0
 **Status**: Draft (Phase R4)

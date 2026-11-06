@@ -11,6 +11,19 @@ library;
 /// `/{prefix}/escrow/commission-rate`.
 const double defaultOrderCommissionRate = 0.05;
 
+/// An ETB amount to the santim (2 decimals), halves away from zero, as the
+/// server rounds order and escrow money (SIM-30: `Math.Round(x, 2,
+/// MidpointRounding.AwayFromZero)` on exact decimals). The double is first
+/// taken to the nearest millionth, which drops binary noise: 170 kg x 18.99
+/// ETB x 0.05 is 161.41499999999999 in doubles, 161.415 exactly, so 161.42
+/// here as on the server.
+double roundEtb(double amount) {
+  if (!amount.isFinite) return amount;
+  final micros = (amount.abs() * 1e6).round();
+  final santim = (micros + 5000) ~/ 10000;
+  return (amount.isNegative ? -santim : santim) / 100;
+}
+
 /// Order money for one order: crop, transport and platform commission, in ETB.
 class OrderPricing {
   const OrderPricing({
@@ -19,18 +32,32 @@ class OrderPricing {
     this.commissionRate = defaultOrderCommissionRate,
   });
 
-  /// Quantity (kg) x price per kg.
+  /// Quantity (kg) x price per kg, as computed.
   final double cropCost;
 
-  /// The trucker's leg; 0 without a trip.
+  /// The trucker's leg as computed; 0 without a trip.
   final double transportCost;
 
   final double commissionRate;
 
-  /// Commission is charged on the crop cost only, never on transport.
-  double get commissionAmount => cropCost * commissionRate;
+  /// The crop leg to the santim, what the server stores as `cropCost`.
+  double get cropCostEtb => roundEtb(cropCost);
 
-  /// Same addition order as the server (crop + transport + commission), so
-  /// the same inputs give the same double.
-  double get orderTotal => cropCost + transportCost + commissionAmount;
+  /// The transport leg to the santim, what the server stores as
+  /// `transportCost`.
+  double get transportCostEtb => roundEtb(transportCost);
+
+  /// Commission is charged on the crop cost only, never on transport: the
+  /// rate times the rounded crop cost, to the santim (SIM-30).
+  double get commissionAmount => roundEtb(cropCostEtb * commissionRate);
+
+  /// Crop + transport + commission, each to the santim and added in whole
+  /// santim, so the total is the server's `orderTotal` with no float tail.
+  double get orderTotal =>
+      (_santim(cropCostEtb) +
+          _santim(transportCostEtb) +
+          _santim(commissionAmount)) /
+      100;
+
+  static int _santim(double etb) => (etb * 100).round();
 }

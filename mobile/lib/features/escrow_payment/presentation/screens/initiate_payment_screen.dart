@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
@@ -29,6 +30,13 @@ class InitiatePaymentScreen extends StatelessWidget {
   final String farmerName;
   final double amount;
 
+  /// The split of the order this delivery fulfils (its `cropCost`,
+  /// `transportCost` and `commissionAmount`). The server pays the escrow out
+  /// exactly so (escrow-protocol.md rule 6 and Commission Calculation).
+  final double? orderCropCost;
+  final double? orderTransportCost;
+  final double? orderCommission;
+
   /// Replaces the Fayda screen the Fayda step-up opens (tests).
   final WidgetBuilder? faydaVerificationScreen;
 
@@ -38,15 +46,34 @@ class InitiatePaymentScreen extends StatelessWidget {
     required this.farmerId,
     required this.farmerName,
     required this.amount,
+    this.orderCropCost,
+    this.orderTransportCost,
+    this.orderCommission,
     this.faydaVerificationScreen,
     super.key,
   });
 
+  bool get _hasOrderSplit =>
+      orderCropCost != null ||
+      orderTransportCost != null ||
+      orderCommission != null;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final commission = max(amount * 0.025, 5.0);
-    final farmerPayout = amount - commission;
+    // SIM-30: the server's split. With the order's split (the pay button only
+    // opens this screen for a delivery whose order it found), the commission
+    // is the order's, charged on top of the crop cost. Only without one does
+    // the server fall back to the legacy 2.5 % (5 ETB minimum) taken out of
+    // the amount.
+    final legacyCommission = roundEtb(max(amount * 0.025, 5.0));
+    final commission = _hasOrderSplit
+        ? roundEtb(orderCommission ?? legacyCommission)
+        : legacyCommission;
+    final truckerPayout =
+        _hasOrderSplit ? roundEtb(orderTransportCost ?? 0) : 0.0;
+    final farmerPayout =
+        _hasOrderSplit ? roundEtb(orderCropCost ?? 0) : amount - commission;
     final shortId =
         deliveryId.length > 8 ? deliveryId.substring(0, 8) : deliveryId;
 
@@ -147,10 +174,14 @@ class InitiatePaymentScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 9),
                               FwMoneyRow(
-                                label: l10n.escrowCommission(
-                                  (commission / amount * 100)
-                                      .toStringAsFixed(1),
-                                ),
+                                // A rate of the crop cost, not of this
+                                // amount, so the order's label has none.
+                                label: _hasOrderSplit
+                                    ? l10n.escrowPlatformCommission
+                                    : l10n.escrowCommission(
+                                        (commission / amount * 100)
+                                            .toStringAsFixed(1),
+                                      ),
                                 amount: l10n.etbCurrency(
                                   formatEtbAmount(commission),
                                 ),
@@ -163,6 +194,16 @@ class InitiatePaymentScreen extends StatelessWidget {
                                 ),
                                 total: true,
                               ),
+                              if (truckerPayout > 0) ...[
+                                const SizedBox(height: 9),
+                                FwMoneyRow(
+                                  label: l10n.escrowTruckerReceives,
+                                  amount: l10n.etbCurrency(
+                                    formatEtbAmount(truckerPayout),
+                                  ),
+                                  total: true,
+                                ),
+                              ],
                             ],
                           ),
                         ),

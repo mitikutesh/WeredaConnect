@@ -201,6 +201,8 @@ void main() {
         () => tripListingBloc.add(const LoadTrips(truckerId: 'trucker-001')),
       ).called(1);
       expect(find.text('Cancel Trip'), findsNWidgets(2));
+      // Their own trips: no name on every card (SIM-33).
+      expect(find.textContaining('Trucker: '), findsNothing);
 
       await tester.tap(find.text('Cancel Trip').first);
       await tester.pumpAndSettle();
@@ -244,6 +246,9 @@ void main() {
       expect(find.text('Meki → Addis Ababa'), findsOneWidget);
       expect(find.text('Ziway → Addis Ababa'), findsOneWidget);
       expect(find.text('Cancel Trip'), findsNothing);
+      // SIM-33: each card names whose truck it is.
+      expect(find.text('Trucker: Trucker t1'), findsOneWidget);
+      expect(find.text('Trucker: Trucker t2'), findsOneWidget);
     });
 
     // L-7: buyers are no longer sent an open trip whose day is over; the

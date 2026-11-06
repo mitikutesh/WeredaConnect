@@ -43,6 +43,14 @@ DateTime? parseServerTimestamp(Object? raw) {
   return DateTime.tryParse(raw)?.toUtc();
 }
 
+/// The `user.preferredLanguage` of a sign-in response (SIM-37), or null when
+/// it is missing or not a string. Never throws: a bad value must not fail
+/// the sign-in, and the app checks the code before it shows it.
+String? _profileLanguage(Map<String, dynamic> user) {
+  final raw = user['preferredLanguage'];
+  return raw is String ? raw : null;
+}
+
 /// Whether the JWT [token] has expired, by its `exp` claim, allowing [skew]
 /// for clock drift. A token that cannot be decoded counts as not expired:
 /// the server is the judge, and a refusal is handled by the caller.
@@ -279,6 +287,7 @@ class AuthService {
         woreda: woreda,
         faydaVerified: faydaVerified,
         faydaVerifiedAt: faydaVerifiedAt,
+        preferredLanguage: _profileLanguage(user),
       );
     } on DioException catch (e) {
       return _handleDioError(e);
@@ -551,6 +560,7 @@ class AuthService {
       faydaVerified: faydaVerified,
       faydaVerifiedAt: faydaVerifiedAt,
       newDevice: newDevice,
+      preferredLanguage: _profileLanguage(user),
     );
   }
 

@@ -980,6 +980,9 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get escrowPlatformCommission => 'የመድረክ ኮሚሽን';
+
+  @override
   String get escrowFarmerReceives => 'ገበሬው የሚቀበለው';
 
   @override

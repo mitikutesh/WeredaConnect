@@ -95,8 +95,8 @@ public sealed class EscrowRepository : IEscrowRepository
                     continue;
                 }
 
-                // ESC-07: a dispute adds to the version below; a caller's read + 1 is never written.
-                if (kvp.Value == null || (newStatus == "disputed" && kvp.Key == "version"))
+                // ESC-07, SIM-29: every write adds to the version below; a caller's read + 1 is never written.
+                if (kvp.Value == null || kvp.Key == "version")
                 {
                     continue;
                 }
@@ -125,12 +125,12 @@ public sealed class EscrowRepository : IEscrowRepository
 
         // ESC-07: the dispute freeze is conditioned on the status, the marker and the lock, not on
         // the version, so the version is added to (a row without one gets 1), never set from a read.
-        if (newStatus == "disputed")
-        {
-            request.UpdateExpression += " ADD #version :one";
-            request.ExpressionAttributeNames["#version"] = "version";
-            request.ExpressionAttributeValues[":one"] = new AttributeValue { N = "1" };
-        }
+        // SIM-29: so is every other write here (a self-transition such as the delivery link, the
+        // confirmation stamp or a scheduled refund too). None is conditioned on the version, and a
+        // version set from an earlier read would go back once one of these lands in between.
+        request.UpdateExpression += " ADD #version :one";
+        request.ExpressionAttributeNames["#version"] = "version";
+        request.ExpressionAttributeValues[":one"] = new AttributeValue { N = "1" };
 
         // ESC-10: a settled escrow is no longer blocked; its block reason goes with the settlement.
         if (newStatus is "released" or "refunded")
@@ -192,7 +192,8 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             TableName = _tableName,
             Key = EscrowKey(escrowId, createdAt),
-            UpdateExpression = "SET #expiresAt = :at, #refundReason = :reason, #updated = :at",
+            // SIM-29: the scheduled refund is part of what the escrow reads return, so it adds to the version.
+            UpdateExpression = "SET #expiresAt = :at, #refundReason = :reason, #updated = :at ADD #version :one",
             // EscrowService.IsPlainEscrowed, as a condition: a dispute, a settlement or a confirmed
             // delivery that took the money since it was read refuses the whole transaction.
             ConditionExpression = "#status = :escrowed AND attribute_not_exists(#lock) "
@@ -206,14 +207,16 @@ public sealed class EscrowRepository : IEscrowRepository
                 { "#status", "status" },
                 { "#lock", SettlementLockFields.Lock },
                 { "#manualPayout", ManualPayoutFields.Marker },
-                { "#confirmed", "deliveryConfirmedAt" }
+                { "#confirmed", "deliveryConfirmedAt" },
+                { "#version", "version" }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":at", new AttributeValue { S = scheduledAt } },
                 { ":reason", new AttributeValue { S = reason } },
                 { ":escrowed", new AttributeValue { S = "escrowed" } },
-                { ":zero", new AttributeValue { N = "0" } }
+                { ":zero", new AttributeValue { N = "0" } },
+                { ":one", new AttributeValue { N = "1" } }
             }
         }
     };
@@ -225,7 +228,8 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             TableName = _tableName,
             Key = EscrowKey(escrowId, createdAt),
-            UpdateExpression = "SET #expiresAt = :expiresAt, #updated = :updated",
+            // SIM-29: expiresAt is part of what the escrow reads return, so the version moves with it.
+            UpdateExpression = "SET #expiresAt = :expiresAt, #updated = :updated ADD #version :one",
             ConditionExpression = "#status = :escrowed AND attribute_not_exists(#refundReason) "
                 + "AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout)",
             ExpressionAttributeNames = new Dictionary<string, string>
@@ -235,13 +239,15 @@ public sealed class EscrowRepository : IEscrowRepository
                 { "#status", "status" },
                 { "#refundReason", "refundReason" },
                 { "#lock", SettlementLockFields.Lock },
-                { "#manualPayout", ManualPayoutFields.Marker }
+                { "#manualPayout", ManualPayoutFields.Marker },
+                { "#version", "version" }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":expiresAt", new AttributeValue { S = expiresAt } },
                 { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
-                { ":escrowed", new AttributeValue { S = "escrowed" } }
+                { ":escrowed", new AttributeValue { S = "escrowed" } },
+                { ":one", new AttributeValue { N = "1" } }
             }
         };
 
@@ -1350,17 +1356,20 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             TableName = _tableName,
             Key = EscrowKey(escrowId, createdAt),
-            UpdateExpression = "SET #truckerId = :truckerId, #updated = :now",
+            // SIM-29: truckerId is part of what the escrow reads return, so the version moves with it.
+            UpdateExpression = "SET #truckerId = :truckerId, #updated = :now ADD #version :one",
             ConditionExpression = "attribute_exists(escrowId) AND attribute_not_exists(#truckerId)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#truckerId", "truckerId" },
-                { "#updated", "updatedAt" }
+                { "#updated", "updatedAt" },
+                { "#version", "version" }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":truckerId", new AttributeValue { S = truckerId } },
-                { ":now", new AttributeValue { S = DateTime.UtcNow.ToString("o") } }
+                { ":now", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                { ":one", new AttributeValue { N = "1" } }
             }
         };
         return await TryConditionalUpdateAsync(request);

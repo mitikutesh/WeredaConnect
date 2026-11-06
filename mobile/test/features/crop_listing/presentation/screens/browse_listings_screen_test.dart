@@ -570,6 +570,26 @@ void main() {
       verify(() => ratingRepo.getRatingSummary('farmer-1')).called(1);
       verify(() => ratingRepo.getRatingSummary('farmer-2')).called(1);
     });
+
+    // SIM-33: a card showed the farmer's raw id as the seller and "105" as
+    // the place.
+    testWidgets('an unnamed seller reads Farmer, never the id or a junk place',
+        (tester) async {
+      const id = '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b';
+      loaded([
+        _listing(farmerId: id, farmerName: '')..locationName = '105',
+        _listing(id: 'l2', farmerId: 'farmer-2', farmerName: id),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining(id), findsNothing);
+      expect(find.textContaining('105'), findsNothing);
+      // The first card has no place left; the second keeps Bishoftu.
+      expect(find.text('Farmer'), findsOneWidget);
+      expect(find.text('Farmer, Bishoftu'), findsOneWidget);
+    });
   });
 
   group('BrowseListingsScreen load errors (SIM-23)', () {

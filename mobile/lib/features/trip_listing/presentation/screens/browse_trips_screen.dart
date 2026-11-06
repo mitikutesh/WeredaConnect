@@ -316,6 +316,8 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
             },
             onCancel: isOwner ? () => _confirmCancel(trip) : null,
             departureDayPassed: isOwner && tripHasLeft(trip, now),
+            // Every trucker's trips: say whose truck it is (SIM-33).
+            showTrucker: !isOwner,
           );
         },
       ),

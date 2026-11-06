@@ -162,6 +162,89 @@ void main() {
           expect(order.buyerPhone, keepsPhones ? '+251911000001' : isNull);
         });
       }
+
+      // SIM-25: the row as /sync sends it, typed like GET (numbers as
+      // numbers) and without totalPrice, which the server never stores.
+      Map<String, dynamic> serverShapedOrderRow() => {
+            'orderId': 'order-003',
+            'listingId': 'listing-001',
+            'buyerId': 'buyer-001',
+            'farmerId': 'farmer-001',
+            'buyerName': 'Buyer',
+            'farmerName': 'Farmer',
+            'cropType': 'teff',
+            'quantity': 500,
+            'pricePerUnit': 45.5,
+            'cropCost': 22750,
+            'commissionRate': 0.05,
+            'commissionAmount': 1137.5,
+            'orderTotal': 23887.5,
+            'version': 7,
+            'status': 'accepted',
+            'createdAt': '2026-10-01T08:00:00Z',
+          };
+
+      SyncOperation orderOperation() => SyncOperation()
+        ..operationId = 'op-order-3'
+        ..idempotencyKey = 'key-order-3'
+        ..entityType = 'order'
+        ..entityId = 'order-003'
+        ..action = 'update'
+        ..data = '{}'
+        ..status = SyncStatus.syncing
+        ..retryCount = 0
+        ..createdAt = DateTime.now().toUtc();
+
+      test('takes a typed row without totalPrice, keeping the local total',
+          () async {
+        await isar.writeTxn(() async {
+          await isar.orders.put(
+            Order()
+              ..orderId = 'order-003'
+              ..listingId = 'listing-001'
+              ..buyerId = 'buyer-001'
+              ..farmerId = 'farmer-001'
+              ..buyerName = 'Buyer'
+              ..farmerName = 'Farmer'
+              ..cropType = 'teff'
+              ..quantity = 400
+              ..pricePerUnit = 45.5
+              ..totalPrice = 18200
+              ..status = OrderStatus.funded
+              ..createdAt = DateTime.utc(2026, 10)
+              ..version = 5,
+          );
+        });
+
+        await resolver.resolve(
+          operation: orderOperation(),
+          serverData: serverShapedOrderRow(),
+          serverVersion: 7,
+        );
+
+        final order =
+            await isar.orders.filter().orderIdEqualTo('order-003').findFirst();
+        expect(order!.status, OrderStatus.accepted);
+        expect(order.quantity, 500.0);
+        expect(order.orderTotal, 23887.5);
+        expect(order.commissionRate, 0.05);
+        expect(order.totalPrice, 18200.0);
+        expect(order.version, 7);
+      });
+
+      test('creates the order from a typed row without totalPrice', () async {
+        await resolver.resolve(
+          operation: orderOperation(),
+          serverData: serverShapedOrderRow(),
+          serverVersion: 7,
+        );
+
+        final order =
+            await isar.orders.filter().orderIdEqualTo('order-003').findFirst();
+        expect(order!.cropCost, 22750.0);
+        expect(order.totalPrice, 0.0);
+        expect(order.version, 7);
+      });
     });
 
     // ESC-15: the trucker leaves the contact when the commitment ends. A

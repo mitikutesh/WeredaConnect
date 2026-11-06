@@ -231,6 +231,9 @@ Future<void> runMobile({
     // A deleted account drops the token on the device too.
     pushTokenDeleter: PushNotificationService.deleteToken,
     forgetTrackSnapshots: signOutForgetter(dropoffHandoffs),
+    // SIM-37: after a sign-in, show the profile's saved language unless the
+    // user picked one on this device.
+    applyProfileLanguage: languageProvider.applyProfileLanguage,
   )..add(const AuthCheckRequested());
   bindDataUsageToAuth(dataUsageTracker, authBloc);
   // LT-08: only a signed-in trucker shares; a sign out stops the service.

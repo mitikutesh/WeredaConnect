@@ -13,6 +13,7 @@ import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/grouped_number_input.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
@@ -26,6 +27,7 @@ import 'package:wereda_connect/features/order/presentation/widgets/dropoff_note.
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_normalizer.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
@@ -158,7 +160,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 
   /// The server's formula: commission on the crop cost only (SIM-53), so the
   /// preview equals what the buyer is asked to pay. Uses the same default
-  /// rate as [_commissionRate].
+  /// rate as [_commissionRate]. The rows show its santim-rounded legs
+  /// (SIM-30), so they add up to the total shown.
   OrderPricing get _pricing =>
       OrderPricing(cropCost: _cropCost, transportCost: _transportCost);
 
@@ -325,8 +328,11 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                               l10n,
                             )} · ${formatEtbAmount(widget.listing.pricePerKg)} '
                                 '${l10n.etbPerKg}',
-                            subtitle: '${widget.farmerName} · '
-                                '${widget.listing.locationName}',
+                            // SIM-33: no id for a name, no junk place.
+                            subtitle: [
+                              partyDisplayName(widget.farmerName, l10n),
+                              placeDisplayName(widget.listing.locationName),
+                            ].where((part) => part.isNotEmpty).join(' · '),
                           ),
                         ),
                         const SizedBox(height: 14),
@@ -419,15 +425,16 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                               const SizedBox(height: 11),
                               FwMoneyRow(
                                 label: l10n.cropCost,
-                                amount: l10n
-                                    .etbCurrency(formatEtbAmount(_cropCost)),
+                                amount: l10n.etbCurrency(
+                                  formatEtbAmount(_pricing.cropCostEtb),
+                                ),
                               ),
                               if (trip != null) ...[
                                 const SizedBox(height: 9),
                                 FwMoneyRow(
                                   label: l10n.transportCost,
                                   amount: l10n.etbCurrency(
-                                    formatEtbAmount(_transportCost),
+                                    formatEtbAmount(_pricing.transportCostEtb),
                                   ),
                                 ),
                               ],

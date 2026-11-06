@@ -238,4 +238,77 @@ void main() {
       expect(find.text(l10n.orderYourTransportPay), findsNothing);
     });
   });
+
+  group('OrderCard impossible values (SIM-33)', () {
+    testWidgets('a negative total reads as a dash, never as birr',
+        (tester) async {
+      await _pumpCard(
+        tester,
+        status: OrderStatus.created,
+        isFarmerView: false,
+        order: _order(OrderStatus.created, orderTotal: -470.6),
+      );
+      expect(find.text('-'), findsOneWidget);
+      expect(find.textContaining('-470'), findsNothing);
+      expect(find.textContaining('-471'), findsNothing);
+    });
+
+    testWidgets('a NaN amount reads as a dash and does not throw',
+        (tester) async {
+      await _pumpCard(
+        tester,
+        status: OrderStatus.created,
+        isFarmerView: false,
+        order: _order(OrderStatus.created, orderTotal: double.nan),
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.text('-'), findsOneWidget);
+      expect(find.textContaining('NaN'), findsNothing);
+    });
+
+    testWidgets('a quantity of 0 kg or past the server cap is a dash',
+        (tester) async {
+      for (final kg in [0.0, -5.0, 2000000.0]) {
+        await _pumpCard(
+          tester,
+          status: OrderStatus.created,
+          isFarmerView: false,
+          order: _order(OrderStatus.created)..quantity = kg,
+        );
+        final l10n = l10nOf(tester);
+        expect(
+          find.text('${l10n.cropTypeWheat} · -'),
+          findsOneWidget,
+          reason: '$kg kg',
+        );
+        expect(find.textContaining(' kg'), findsNothing, reason: '$kg kg');
+      }
+    });
+
+    testWidgets('part of a kilo keeps its decimals, never "0 kg"',
+        (tester) async {
+      await _pumpCard(
+        tester,
+        status: OrderStatus.created,
+        isFarmerView: false,
+        order: _order(OrderStatus.created)..quantity = 0.5,
+      );
+      final l10n = l10nOf(tester);
+      expect(find.text('${l10n.cropTypeWheat} · 0.5 kg'), findsOneWidget);
+    });
+
+    testWidgets('a user id where the name belongs reads as a dash',
+        (tester) async {
+      await _pumpCard(
+        tester,
+        status: OrderStatus.created,
+        isFarmerView: false,
+        order: _order(OrderStatus.created)
+          ..farmerName = '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b',
+      );
+      final l10n = l10nOf(tester);
+      expect(find.text('${l10n.farmer}: -'), findsOneWidget);
+      expect(find.textContaining('3f2b8c1e'), findsNothing);
+    });
+  });
 }

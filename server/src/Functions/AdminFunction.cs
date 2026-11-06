@@ -545,6 +545,11 @@ public partial class AdminFunction
             updateRequest.ExpressionAttributeValues[":dispositionReason"] = new AttributeValue { S = dispositionReason };
         }
 
+        // SIM-29: the verdict changes the status, so it adds to the version like every escrow status write.
+        updateRequest.UpdateExpression += " ADD #version :one";
+        updateRequest.ExpressionAttributeNames["#version"] = "version";
+        updateRequest.ExpressionAttributeValues[":one"] = new AttributeValue { N = "1" };
+
         try
         {
             await _dynamoDb.UpdateItemAsync(updateRequest);
@@ -767,7 +772,8 @@ public partial class AdminFunction
             { ":by", new AttributeValue { S = adminUserId } },
             { ":now", new AttributeValue { S = now } },
             { ":resolved", new AttributeValue { S = "dispute_resolved" } },
-            { ":resolution", new AttributeValue { S = resolution } }
+            { ":resolution", new AttributeValue { S = resolution } },
+            { ":one", new AttributeValue { N = "1" } }
         };
         var unchanged = "attribute_not_exists(#disposition)";
         if (previous != null)
@@ -786,8 +792,9 @@ public partial class AdminFunction
                     { "escrowId", escrow["escrowId"] },
                     { "createdAt", escrow["createdAt"] }
                 },
+                // SIM-29: the admin escrow reads return the disposition, so it adds to the version.
                 UpdateExpression = "SET #disposition = :disposition, #dispositionReason = :reason, #dispositionBy = :by, "
-                                   + "#dispositionAt = :now, #updatedAt = :now",
+                                   + "#dispositionAt = :now, #updatedAt = :now ADD #version :one",
                 ConditionExpression = "#status = :resolved AND #resolution = :resolution "
                                       + "AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock) AND " + unchanged,
                 ExpressionAttributeNames = new Dictionary<string, string>
@@ -800,7 +807,8 @@ public partial class AdminFunction
                     { "#status", "status" },
                     { "#resolution", "disputeResolution" },
                     { "#manualPayout", ManualPayoutFields.Marker },
-                    { "#lock", "settlementLock" }
+                    { "#lock", "settlementLock" },
+                    { "#version", "version" }
                 },
                 ExpressionAttributeValues = values
             });

@@ -1023,6 +1023,10 @@ class _ActiveIntentsSectionState extends State<_ActiveIntentsSection> {
 /// pay, the buyer's full payments), summed on the device from the orders.
 class _HomeStats {
   final int listings;
+
+  /// [listings] counts one page and the server has more (web, SIM-33): the
+  /// tile reads "50+", never a short count as if it were all.
+  final bool moreListings;
   final int activeListings;
   final int reservedListings;
   final int pendingOrders;
@@ -1031,17 +1035,22 @@ class _HomeStats {
   /// Deliveries on the road now (picked up or in transit).
   final int inTransit;
   final int trips;
+
+  /// [trips] counts one page and the server has more, as [moreListings].
+  final bool moreTrips;
   final int matched;
   final double escrowEtb;
 
   const _HomeStats({
     this.listings = 0,
+    this.moreListings = false,
     this.activeListings = 0,
     this.reservedListings = 0,
     this.pendingOrders = 0,
     this.activeOrders = 0,
     this.inTransit = 0,
     this.trips = 0,
+    this.moreTrips = false,
     this.matched = 0,
     this.escrowEtb = 0,
   });
@@ -1192,9 +1201,11 @@ class _OverviewStatsState extends State<_OverviewStats> {
           );
           final orderItems =
               await _fetchOrderPages(safeGet, {'farmerId': userId});
-          final crops = _apiItems(await cropsFuture, alt: 'crops');
+          final cropsPage = await cropsFuture;
+          final crops = _apiItems(cropsPage, alt: 'crops');
           stats = _HomeStats(
             listings: crops.length,
+            moreListings: apiPageHasMore(cropsPage),
             // The API says "available" for an active listing.
             activeListings: _countByStatus(crops, 'available') +
                 _countByStatus(crops, 'active'),
@@ -1220,12 +1231,19 @@ class _OverviewStatsState extends State<_OverviewStats> {
             '/deliveries',
             queryParameters: {'mine': 'true', 'limit': '50'},
           );
-          final cropsFuture =
-              safeGet('/crops', queryParameters: {'status': 'available'});
+          // One page of every farmer's available crops (the buyer sees
+          // them all): the tile reads "50+" when there are more, rather than
+          // reading every page on 3G for a count (SIM-33).
+          final cropsFuture = safeGet(
+            '/crops',
+            queryParameters: {'status': 'available', 'limit': '50'},
+          );
           final orderItems =
               await _fetchOrderPages(safeGet, {'buyerId': userId});
+          final cropsPage = await cropsFuture;
           stats = _HomeStats(
-            listings: _countApiItems(await cropsFuture, alt: 'crops'),
+            listings: _apiItems(cropsPage, alt: 'crops').length,
+            moreListings: apiPageHasMore(cropsPage),
             activeOrders:
                 _countOrdersByStatus(orderItems, activeOrderStatusNames),
             escrowEtb: _sumOrders(
@@ -1251,9 +1269,11 @@ class _OverviewStatsState extends State<_OverviewStats> {
           );
           final orderItems =
               await _fetchOrderPages(safeGet, {'truckerId': userId});
-          final trips = _apiItems(await tripsFuture, alt: 'trips');
+          final tripsPage = await tripsFuture;
+          final trips = _apiItems(tripsPage, alt: 'trips');
           stats = _HomeStats(
             trips: trips.length,
+            moreTrips: apiPageHasMore(tripsPage),
             matched: _countByStatus(trips, 'matched'),
             escrowEtb: _sumOrders(
               orderItems,
@@ -1273,9 +1293,6 @@ class _OverviewStatsState extends State<_OverviewStats> {
 
   static List<dynamic> _apiItems(Map<String, dynamic> data, {String? alt}) =>
       data[alt] as List<dynamic>? ?? data['items'] as List<dynamic>? ?? [];
-
-  static int _countApiItems(Map<String, dynamic> data, {String? alt}) =>
-      _apiItems(data, alt: alt).length;
 
   /// Rows whose wire `status` (camelCase for trips) equals [status].
   static int _countByStatus(List<dynamic> items, String status) =>
@@ -1478,7 +1495,8 @@ class _OverviewStatsState extends State<_OverviewStats> {
   }) {
     final l10n = widget.l10n;
     final etb = unknown ?? l10n.etbCurrency(birrText(stats.escrowEtb));
-    String count(int value) => unknown ?? '$value';
+    String count(int value, {bool more = false}) =>
+        unknown ?? glanceCountText(value, more: more);
 
     Widget tile(
       _HomeDest dest, {
@@ -1516,7 +1534,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           tile(
             _HomeDest.myCrops,
             label: l10n.myCrops,
-            value: count(stats.listings),
+            value: count(stats.listings, more: stats.moreListings),
             sub: unknown != null
                 ? null
                 : l10n.homeTileActiveReserved(
@@ -1552,7 +1570,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           tile(
             _HomeDest.myTrips,
             label: l10n.myTrips,
-            value: count(stats.trips),
+            value: count(stats.trips, more: stats.moreTrips),
             compact: true,
           ),
           tile(
@@ -1576,7 +1594,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           tile(
             _HomeDest.findCrops,
             label: l10n.findCrops,
-            value: count(stats.listings),
+            value: count(stats.listings, more: stats.moreListings),
             sub: l10n.homeTileAvailableNow,
             emphasized: true,
           ),
@@ -1992,6 +2010,22 @@ class _RecentActivityListState extends State<_RecentActivityList> {
     }
   }
 }
+
+/// Whether a list response has another page: its `hasMore` when it sends
+/// one, else a non-empty `nextToken` (crop-listing-api.md, SIM-33).
+@visibleForTesting
+bool apiPageHasMore(Map<String, dynamic> page) {
+  final hasMore = page['hasMore'];
+  if (hasMore is bool) return hasMore;
+  final token = page['nextToken'];
+  return token is String && token.isNotEmpty;
+}
+
+/// An At a glance count: "20", or "50+" when it counts one page of more
+/// ([apiPageHasMore]), so a first page never reads as the whole list.
+@visibleForTesting
+String glanceCountText(int count, {required bool more}) =>
+    more ? '$count+' : '$count';
 
 /// Parses an order status from an API response. The server sends order
 /// statuses in snake_case (`payment_submitted`), so the token goes through

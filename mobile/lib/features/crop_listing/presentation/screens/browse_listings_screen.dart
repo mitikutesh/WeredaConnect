@@ -14,6 +14,7 @@ import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -33,6 +34,7 @@ import 'package:wereda_connect/features/trip_listing/domain/repositories/base_tr
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/services/place_normalizer.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/account_menu.dart';
@@ -318,9 +320,8 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
         : daysAgo > 0 && daysAgo < 7
             ? l10n.myCropsListedOn(DateFormat.E().format(day))
             : l10n.myCropsListedOn(DateFormat.MMMd().format(day));
-    return listing.locationName.isEmpty
-        ? listed
-        : '${listing.locationName} · $listed';
+    final place = placeDisplayName(listing.locationName);
+    return place.isEmpty ? listed : '$place · $listed';
   }
 
   /// The share of the listing already ordered (My Crops bar); null when no
@@ -742,10 +743,17 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                   title: widget.ownerMode
                                       ? crop
                                       : '$crop · ${l10n.marketQuintalsLeft(formatQuintals(listing.quantity))}',
-                                  location: listing.locationName,
-                                  sellerName: listing.farmerName.isNotEmpty
-                                      ? listing.farmerName
-                                      : listing.farmerId,
+                                  // SIM-33: never an id or a junk place;
+                                  // an unnamed seller is "Farmer".
+                                  location:
+                                      placeDisplayName(listing.locationName),
+                                  sellerName: switch (partyDisplayName(
+                                    listing.farmerName,
+                                    l10n,
+                                  )) {
+                                    '' => l10n.farmer,
+                                    final name => name,
+                                  },
                                   // "42" (or "1,000") with "ETB/kg" beside it.
                                   price: _pricePerKgFormat
                                       .format(listing.pricePerKg.round()),

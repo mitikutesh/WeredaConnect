@@ -208,7 +208,7 @@ public class SyncFunctionContactInTextTests
         Assert.Contains($"CROP_CONTACT_IN_TEXT: Remove the phone number from {field}.{ContactTail}", response.Body);
         await _crops.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
         await _meta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
     }
 
     [Theory]

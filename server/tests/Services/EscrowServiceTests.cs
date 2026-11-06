@@ -180,6 +180,9 @@ public class EscrowServiceTests
         Assert.Equal("ETB", result.Value.Currency);
         Assert.Equal("MOCK-HOLD-REF", result.Value.TelebirrRef);
         Assert.False(result.IsDuplicate);
+        // SIM-29: the hold write leaves the version to the repository's ADD (1 at create, 2 once held).
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), "escrowed", "initiated",
+            Arg.Is<Dictionary<string, object>>(f => f.ContainsKey("telebirrHoldRef") && !f.ContainsKey("version")));
     }
 
     [Fact]
@@ -417,6 +420,31 @@ public class EscrowServiceTests
         Assert.Equal("completed", result.Value!.Status);
         Assert.Equal(14_625m, result.Value.FarmerPayout);
         Assert.Equal(375m, result.Value.Commission);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_WritesNoVersion_TheRepositoryAddsIt()
+    {
+        // SIM-29: a version computed from the read would go back if a confirmation stamp or a
+        // delivery link added to it in between; the released and completed writes leave it to ADD.
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        var written = new List<(string Status, Dictionary<string, object>? Fields)>();
+        _mockEscrowRepo.UpdateStatusAsync("escrow-001", Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>())
+            .Returns(Task.CompletedTask)
+            .AndDoes(ci => written.Add((ci.ArgAt<string>(2), ci.ArgAt<Dictionary<string, object>?>(4))));
+
+        var result = await _service.ReleaseAsync(new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = "system:escrow-001:release:1708171200001"
+        }, "system");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(new[] { "released", "completed" }, written.Select(w => w.Status));
+        Assert.All(written, w => Assert.False(w.Fields!.ContainsKey("version")));
     }
 
     [Fact]
@@ -2384,6 +2412,9 @@ public class EscrowServiceTests
         Assert.True(result.IsSuccess);
         Assert.Equal("refunded", result.Value!.Status);
         Assert.Equal(15_000m, result.Value.RefundAmount);
+        // SIM-29: the refunded write leaves the version to the repository's ADD.
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync("escrow-001", Arg.Any<string>(), "refunded", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => f.ContainsKey("refundedAt") && !f.ContainsKey("version")));
     }
 
     [Fact]

@@ -234,7 +234,7 @@ public partial class SyncFunctionTests
             "farmer-001:" + op.IdempotencyKey,
             op.OperationId,
             "crop_listing",
-            "success");
+            "success", Arg.Any<string?>());
     }
 
     [Fact]
@@ -266,7 +266,7 @@ public partial class SyncFunctionTests
             .Returns(ci => Task.FromResult(stored.Contains(ci.ArgAt<string>(0))));
         _mockSyncMeta
             .When(x => x.StoreIdempotencyKeyAsync(
-                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()))
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>()))
             .Do(ci => stored.Add(ci.ArgAt<string>(0)));
         return stored;
     }
@@ -361,7 +361,7 @@ public partial class SyncFunctionTests
             MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer"), _context);
 
         await _mockSyncMeta.Received(1).IdempotencyKeyExistsAsync(key);
-        await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(key, "op-001", "crop_listing", "success");
+        await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(key, "op-001", "crop_listing", "success", Arg.Any<string?>());
     }
 
     [Fact]
@@ -375,7 +375,7 @@ public partial class SyncFunctionTests
 
         await _mockSyncMeta.Received(1).IdempotencyKeyExistsAsync("farmer-001:web_create_crop-001");
         await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(
-            "farmer-001:web_create_crop-001", "op-001", "crop_listing", "success");
+            "farmer-001:web_create_crop-001", "op-001", "crop_listing", "success", Arg.Any<string?>());
         await _mockSyncMeta.DidNotReceive().IdempotencyKeyExistsAsync("web_create_crop-001");
     }
 
@@ -392,7 +392,7 @@ public partial class SyncFunctionTests
         Assert.Contains("SYNC_VALIDATION", response.Body);
         await _mockSyncMeta.DidNotReceive().IdempotencyKeyExistsAsync(Arg.Any<string>());
         await _mockSyncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
         await _mockCropRepo.DidNotReceive()
             .CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
@@ -3452,6 +3452,55 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
+    public async Task OrderCreate_FloatNoise_EveryMoneyFieldIsRoundedToTheSantim_AndAddsUp()
+    {
+        // SIM-30: 1.7 quintals (170 kg) at 18.99 ETB/kg on a 255.55 ETB/quintal trip. In doubles the
+        // crop is 3228.2999999999997, the commission 161.41499999999999 and the transport
+        // 434.43499999999995, so rounding the doubles would give 161.41 and 434.43. Exact: 3228.30,
+        // 161.415 and 434.435, rounded half away from zero to 161.42 and 434.44.
+        SetupListing(pricePerKg: 18.99);
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1, pricePerQuintal: 255.55);
+        SetupOrderCreateSucceeds();
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", 170 }, { "pricePerUnit", 18.99 },
+            { "tripId", "trip-001" }, { "truckerId", "trucker-001" }, { "transportCost", 434.44 }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        var order = _createdOrder!;
+        Assert.Equal(0.05, (double)order["commissionRate"]);
+        Assert.Equal(3228.30, (double)order["cropCost"]);
+        Assert.Equal(434.44, (double)order["transportCost"]);
+        Assert.Equal(161.42, (double)order["commissionAmount"]);
+        Assert.Equal(3824.16, (double)order["orderTotal"]);
+        // Stored as written: no float tail on any field.
+        Assert.Equal("161.42", ((double)order["commissionAmount"]).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal("3824.16", ((double)order["orderTotal"]).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal((decimal)(double)order["orderTotal"],
+            (decimal)(double)order["cropCost"] + (decimal)(double)order["transportCost"] + (decimal)(double)order["commissionAmount"]);
+    }
+
+    [Fact]
+    public async Task OrderCreate_CommissionOn19Etb_IsStoredAs0Point95()
+    {
+        // SIM-30, the simulation's case: 19 ETB of crop gave 0.9500000000000001 in doubles.
+        SetupListing(pricePerKg: 19);
+        SetupOrderCreateSucceeds();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", 1 }, { "pricePerUnit", 19 }
+        }));
+
+        Assert.Contains("success", body);
+        Assert.Equal("0.95", ((double)_createdOrder!["commissionAmount"]).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(19.95, (double)_createdOrder["orderTotal"]);
+    }
+
+    [Fact]
     public async Task OrderCreate_WithoutTrip_HasZeroTransportCost()
     {
         SetupListing();
@@ -4414,12 +4463,16 @@ public partial class SyncFunctionTests
         Assert.Contains("success", response.Body);
     }
 
-    [Fact]
-    public async Task OrderUpdate_OnAnOrderTheMoneyMovedOn_FailsTheTransitionCheck_AndWritesNothing()
+    [Theory]
+    [InlineData(5, "conflict")]
+    [InlineData(7, "error")]
+    public async Task OrderUpdate_OnAnOrderTheMoneyMovedOn_FailsTheTransitionCheck_AndWritesNothing(
+        int sentVersion, string expectedStatus)
     {
         // ESC-09 (V8): a device still showing in_transit queues the delivered catch-up after the
-        // escrow release moved the order to disbursing. The transition check runs before the version
-        // check, so the answer is a permanent ORDER_VALIDATION (the client reverts to the server row).
+        // escrow release moved the order to disbursing. Sent from an older version (5) it lost the
+        // race: SIM-28 answers conflict with the disbursing row, which the client adopts. Sent at the
+        // current version (7) the transition is simply invalid: a permanent ORDER_VALIDATION.
         var orderRepo = Substitute.For<IOrderRepository>();
         orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
         {
@@ -4441,13 +4494,24 @@ public partial class SyncFunctionTests
             EntityType = "order",
             EntityId = "order-001",
             Action = "update",
-            Data = new Dictionary<string, object> { { "status", "delivered" }, { "version", 5 } }
+            Data = new Dictionary<string, object> { { "status", "delivered" }, { "version", sentVersion } }
         };
         var response = await function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer"), _context);
 
-        // The body is JSON, which escapes the quotes around the statuses.
-        Assert.Contains("ORDER_VALIDATION: Invalid status transition from \\u0027disbursing\\u0027 to \\u0027delivered\\u0027.", response.Body);
+        var result = FirstResult(response.Body);
+        Assert.Equal(expectedStatus, result.GetProperty("status").GetString());
+        if (expectedStatus == "conflict")
+        {
+            Assert.Equal(7, result.GetProperty("serverVersion").GetInt32());
+            Assert.Equal("disbursing", result.GetProperty("serverData").GetProperty("status").GetString());
+        }
+        else
+        {
+            Assert.Equal("ORDER_VALIDATION: Invalid status transition from 'disbursing' to 'delivered'.",
+                result.GetProperty("message").GetString());
+        }
+
         await orderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
         await orderRepo.DidNotReceive().TryAdvanceStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
     }
@@ -6835,7 +6899,7 @@ public partial class SyncFunctionTests
             Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
         await _paymentAuditRepo!.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
         await _mockSyncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
         await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
         await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
     }
@@ -7411,7 +7475,7 @@ public partial class SyncFunctionTests
         await DidNotWriteTheDelivery();
         await DidNotWriteTheOrder();
         await _mockSyncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
     }
 
     [Theory]

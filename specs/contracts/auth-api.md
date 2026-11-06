@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.12.2
+2.13.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -46,7 +46,7 @@ Register a new user with Ethiopian phone number, password, role, woreda, and Fay
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `phoneNumber` | string | Yes | Ethiopian format: `+251` followed by 9 digits. Regex: `^\+251[0-9]{9}$` |
+| `phoneNumber` | string | Yes | Ethiopian number: `+251` and 9 digits, or `00251` and 9 digits, or local `0` and 9 digits (`0912345678`); spaces and hyphens are ignored. Normalized to `+251` and 9 digits before any check or write (Phone Number Validation, 2.13.0) |
 | `password` | string | Yes | Minimum 8 characters, maximum 128 characters. Must contain at least one lowercase letter and one digit |
 | `role` | string | Yes | Enum: `farmer`, `trucker`, `buyer` |
 | `woreda` | string | Yes | Non-empty, maximum 100 characters (administrative district name). No phone number (2.12.0, `AUTH_027`) |
@@ -79,6 +79,7 @@ Register a new user with Ethiopian phone number, password, role, woreda, and Fay
     "displayName": "Abebe Kebede",
     "role": "farmer",
     "woreda": "Adama",
+    "preferredLanguage": "am",
     "isPhoneVerified": true,
     "faydaVerified": true,
     "faydaVerifiedAt": "2026-03-02T10:00:00Z",
@@ -93,10 +94,11 @@ Register a new user with Ethiopian phone number, password, role, woreda, and Fay
 
 | Status | Error Code | Description |
 |--------|-----------|-------------|
-| `400` | `AUTH_001` | Invalid phone number format |
-| `400` | `AUTH_002` | Password does not meet requirements |
-| `400` | `AUTH_003` | Invalid role (must be farmer, trucker, or buyer) |
-| `400` | `AUTH_004` | Woreda is required |
+| `400` | `AUTH_001` | Phone number missing, or in none of the accepted spellings |
+| `400` | `AUTH_002` | Password missing, or does not meet requirements |
+| `400` | `AUTH_003` | Role missing, or not farmer, trucker or buyer |
+| `400` | `AUTH_004` | Woreda missing, blank or longer than 100 characters |
+| `400` | `AUTH_007` | The body is not JSON or is empty (`field` absent or `body`), or a field without a code of its own is wrong (`field` names it): `displayName` too long or the reserved `Deleted user`, `preferredLanguage` not `en`, `am` or `om`, `buyerType` or `companyName` against the buyer rules (2.13.0) |
 | `400` | `AUTH_021` | Missing Fayda verification token (required since 2.2.0) |
 | `400` | `AUTH_027` | `displayName`, `woreda` or `companyName` holds a phone number (2.12.0) |
 | `409` | `AUTH_005` | Phone number already registered |
@@ -104,13 +106,15 @@ Register a new user with Ethiopian phone number, password, role, woreda, and Fay
 | `500` | `AUTH_007` | Internal server error |
 | `503` | `AUTH_008` | Cognito service unavailable |
 
+A missing field gets the code of that field (2.13.0, SIM-27; see Additions in 2.13.0). An absent `preferredLanguage` is `am`.
+
 **Error body format**:
 
 ```json
 {
   "error": {
     "code": "AUTH_001",
-    "message": "Invalid phone number format. Must be +251 followed by 9 digits.",
+    "message": "Invalid phone number format. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX.",
     "field": "phoneNumber"
   }
 }
@@ -166,8 +170,9 @@ Exchange a Fayda OIDC authorization code for a short-lived verification token. T
 
 | Status | Error Code | Description |
 |--------|-----------|-------------|
-| `400` | `FAYDA_001` | Invalid or expired authorization code |
-| `400` | `FAYDA_002` | State parameter mismatch (possible CSRF attack) |
+| `400` | `FAYDA_001` | Authorization code missing, invalid or expired |
+| `400` | `FAYDA_002` | State missing, or parameter mismatch (possible CSRF attack) |
+| `400` | `AUTH_007` | `redirectUri` missing or not allowed (`field: redirectUri`), or the body is not JSON (2.13.0) |
 | `503` | `FAYDA_003` | Fayda service unavailable |
 | `409` | `FAYDA_004` | Fayda ID already linked to another account |
 | `429` | `AUTH_006` | Rate limit exceeded |
@@ -195,7 +200,7 @@ Authenticate with phone number and password. Returns access, refresh, and ID tok
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `phoneNumber` | string | Yes | Ethiopian format: `^\+251[0-9]{9}$` |
+| `phoneNumber` | string | Yes | Ethiopian number in any accepted spelling, normalized to `+251` and 9 digits like on register (2.13.0) |
 | `password` | string | Yes | Non-empty |
 | `deviceFingerprint` | string | No | SHA-256 hash of device identifiers (for SIM swap detection, future use) |
 
@@ -218,6 +223,7 @@ Authenticate with phone number and password. Returns access, refresh, and ID tok
     "displayName": "Abebe Kebede",
     "role": "farmer",
     "woreda": "Adama",
+    "preferredLanguage": "am",
     "isPhoneVerified": true,
     "createdAt": "2026-02-12T10:00:00Z"
   }
@@ -228,7 +234,9 @@ Authenticate with phone number and password. Returns access, refresh, and ID tok
 
 | Status | Error Code | Description |
 |--------|-----------|-------------|
-| `400` | `AUTH_001` | Invalid phone number format |
+| `400` | `AUTH_001` | Phone number missing, or in none of the accepted spellings |
+| `400` | `AUTH_002` | Password missing (2.13.0) |
+| `400` | `AUTH_007` | The body is not JSON or is empty (2.13.0) |
 | `401` | `AUTH_014` | Invalid credentials (wrong phone or password) |
 | `403` | `AUTH_015` | Account locked (too many failed attempts -- 15 minute lockout) |
 | `403` | `AUTH_016` | Phone number not verified (OTP not completed) |
@@ -274,17 +282,21 @@ Refresh an expired access token using a valid refresh token.
 }
 ```
 
-**Note**: Cognito does not issue a new refresh token on refresh. The original refresh token remains valid until its 30-day expiry. The client must store and reuse it.
+**Note**: Cognito does not issue a new refresh token on refresh. The original refresh token remains valid until it expires 7 days after the login (both Cognito app clients, `infra/lib/stacks/api-stack.ts`; this note said 30 days before 2.13.0). The client must store and reuse it.
 
 #### Error Responses
 
 | Status | Error Code | Description |
 |--------|-----------|-------------|
-| `400` | `AUTH_017` | Missing refresh token |
-| `401` | `AUTH_018` | Refresh token expired (30-day TTL exceeded) |
-| `401` | `AUTH_019` | Refresh token revoked (user logged out or password changed) |
+| `400` | `AUTH_017` | Refresh token missing or blank |
+| `400` | `AUTH_007` | The body is not JSON (2.13.0) |
+| `401` | `AUTH_018` | Refresh token invalid, expired (7 days) or revoked (logout, suspension, role change). Cognito refuses all three with the same `NotAuthorizedException`, so the server cannot tell them apart and answers `AUTH_018` for each (2.13.0) |
+| `401` | `AUTH_019` | Reserved, never sent (2.13.0): a revoked token is `AUTH_018`. Clients that know the code treat it like `AUTH_018` |
+| `401` | `AUTH_014` | The account is deleted or being deleted (2.11.0); the token is revoked |
+| `403` | `AUTH_025` | The profile is suspended; the token is revoked (2.1.0) |
 | `429` | `AUTH_006` | Rate limit exceeded |
 | `500` | `AUTH_007` | Internal server error |
+| `503` | `AUTH_008` | Cognito unavailable |
 
 ---
 
@@ -329,7 +341,8 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6...
 
 | Status | Error Code | Description |
 |--------|-----------|-------------|
-| `400` | `AUTH_017` | Missing refresh token |
+| `400` | `AUTH_017` | Refresh token missing or blank |
+| `400` | `AUTH_007` | The body is not JSON or is empty (2.13.0) |
 | `401` | `AUTH_020` | Invalid or expired access token, or no caller identity in the request |
 | `403` | `AUTH_026` | The refresh token belongs to another user; nothing revoked (2.7.0). The app retries once with a bearer minted from the refresh token (2.9.0) |
 | `429` | `AUTH_006` | Rate limit exceeded (API), or Cognito throttled the owner lookup or the revoke; nothing is revoked when the lookup is throttled |
@@ -381,7 +394,7 @@ Before 2.9.0 the app cleared the session first and sent the access token from lo
 | Property | Value |
 |----------|-------|
 | Format | Opaque (Cognito-managed, encrypted) |
-| TTL | 30 days |
+| TTL | 7 days (2.13.0 corrects 30 days; `refreshTokenValidity` in `infra/lib/stacks/api-stack.ts`) |
 | Revocation | On logout, on password change, on admin revoke |
 | Rotation | Cognito does not rotate refresh tokens on use |
 
@@ -521,23 +534,26 @@ After a successful online login or registration, the mobile client stores the fo
 
 | Code | HTTP Status | Description | Client Action |
 |------|------------|-------------|---------------|
-| `AUTH_001` | 400 | Invalid phone number format | Show validation error on phone field |
-| `AUTH_002` | 400 | Password does not meet requirements | Show password requirements |
-| `AUTH_003` | 400 | Invalid role | Show role selection |
-| `AUTH_004` | 400 | Woreda is required | Show woreda field error |
+| `AUTH_001` | 400 | Phone number missing or in none of the accepted spellings (2.13.0: also when the field is absent) | Show validation error on phone field |
+| `AUTH_002` | 400 | Password missing or does not meet requirements (2.13.0: also verify-otp without a password) | Show password requirements |
+| `AUTH_003` | 400 | Role missing or invalid | Show role selection |
+| `AUTH_004` | 400 | Woreda missing, blank or too long | Show woreda field error |
 | `AUTH_005` | 409 | Phone number already registered | Suggest login instead |
 | `AUTH_006` | 429 | Rate limit exceeded | Back off, retry with exponential delay |
-| `AUTH_007` | 500 | Internal server error | Show generic error, retry |
+| `AUTH_007` | 400, 500 | 400: the body is not JSON or is empty, or a field without a code of its own is wrong and `field` names it (2.13.0 documents the 400s); 500: internal server error | 400: show the form error (the app validates first, so it should not happen); 500: show generic error, retry |
 | `AUTH_008` | 503 | Cognito service unavailable | Show connectivity error, suggest offline login |
 | `AUTH_013` | 404 | User/registration not found | Suggest re-registration |
 | `AUTH_014` | 401 | Invalid credentials; also login or refresh of a deleted account (2.11.0) | Show generic "incorrect phone or password" |
 | `AUTH_015` | 403 | Account locked (15-min lockout) | Show lockout timer |
 | `AUTH_016` | 403 | Phone not verified | Resend the SMS code (`POST /auth/resend-otp`) and open the OTP screen (2.1.0) |
-| `AUTH_017` | 400 | Missing refresh token | Redirect to login |
-| `AUTH_018` | 401 | Refresh token expired | Redirect to login |
-| `AUTH_019` | 401 | Refresh token revoked | Redirect to login |
+| `AUTH_017` | 400 | Refresh token missing or blank | Redirect to login |
+| `AUTH_018` | 401 | Refresh token invalid, expired or revoked: Cognito does not tell them apart (2.13.0) | Redirect to login |
+| `AUTH_019` | 401 | Reserved, never sent (2.13.0); a revoked token is `AUTH_018` | Redirect to login |
 | `AUTH_020` | 401 | Invalid access token | Attempt token refresh, then redirect to login |
 | `AUTH_021` | 400 | Missing Fayda verification token on register (required since 2.2.0) | Send the user back to the Fayda step |
+| `AUTH_022` | 400 | reset-password: confirmation code wrong, or missing (2.13.0) | Show "check the code" |
+| `AUTH_023` | 400 | reset-password: confirmation code expired | Offer a new code |
+| `AUTH_024` | 400 | reset-password: new password refused by the password policy, or missing (2.13.0) | Show password requirements |
 | `AUTH_025` | 403 | Account suspended (login, verify-otp, refresh) | Show "contact support", clear the session |
 | `AUTH_026` | 403 | Refresh token belongs to another user (logout, 2.7.0) | Retry the logout once with a bearer minted from the refresh token (2.9.0), then clear the local session anyway |
 | `AUTH_027` | 400 | Register: `displayName`, `woreda` or `companyName` holds a phone number; `field` is the first of them (2.12.0) | Show "remove the phone number" on the registration screen; the Fayda proof is still valid, so resend after the fix |
@@ -562,9 +578,9 @@ After a successful online login or registration, the mobile client stores the fo
 
 ### Phone Number Validation
 
-- Format: `+251` followed by exactly 9 digits
-- Regex: `^\+251[0-9]{9}$`
-- Total length: 13 characters
+- Stored and returned format: `+251` followed by exactly 9 digits (E.164), regex `^\+251[0-9]{9}$`, 13 characters
+- Accepted spellings (2.13.0 documents what the server always did): `+251` and 9 digits, `00251` and 9 digits, or the local `0` and 9 digits (`0912345678`). Spaces and hyphens are removed first, so `0912 345-678` is accepted. Anything else (`251912345678`, `912345678`, a wrong digit count, other characters) is `400 AUTH_001`
+- Normalization: the server rewrites an accepted spelling to `+251` and 9 digits before any check, rate limit, Cognito call or write, on `register`, `login`, `verify-otp`, `resend-otp`, `forgot-password` and `reset-password`. `0912345678` and `+251912345678` are the same account, and responses carry the normalized form
 - Only Ethiopian numbers accepted for registration
 - Phone number is the primary login identifier (not email)
 
@@ -752,6 +768,8 @@ production Lambda) accepts `123456`.
 
 | Status | Code | Description |
 |--------|------|-------------|
+| `400` | `AUTH_001` | Phone number missing or in none of the accepted spellings |
+| `400` | `AUTH_002` | Password missing (2.13.0; was `AUTH_007`) |
 | `400` | `AUTH_009` | Code missing |
 | `400` | `AUTH_011` | Code format invalid (not 6 digits) |
 | `400` | `AUTH_012` | Code invalid, expired or attempts exhausted |
@@ -781,6 +799,12 @@ per phone per day, 30 per IP per 5 minutes (`429 AUTH_006`, `Retry-After`).
   with `ADMIN_USER_PASSWORD_AUTH`, so lockout, suspension and audit cannot be bypassed. The
   separate admin web client keeps `USER_PASSWORD_AUTH` on purpose: it runs the TOTP
   challenge in the browser.
+- The `user` object of login, verify-otp and register `201` carries the profile's
+  `preferredLanguage` (2.12.3, SIM-37). After a sign-in the app shows it unless the user
+  picked a language on that device, and keeps it as the device's language without
+  writing it back. A pick on the device wins; one made while signed in is written to the
+  profile through the `/sync` `user` entity (`sync-protocol.md`). An offline login has no
+  profile language and keeps the device's.
 
 ### Refresh additions
 
@@ -989,12 +1013,60 @@ channel that the listing text rule (`crop-listing-api.md` 1.4.0 rule 6b, FUP-49)
 
 ---
 
+## Additions in 2.13.0 (error codes as served, SIM-27)
+
+### A missing field gets the code of that field
+
+Before 2.13.0 every auth request body marked its fields as required in the server model, so a
+body without one failed deserialization and answered `400 AUTH_007 "Invalid JSON in request body."`
+without a `field`. Now a field that is absent, `null` or blank gets the same code as a wrong value
+of that field, with `field` set:
+
+| Endpoint | Field | Code |
+|----------|-------|------|
+| `register`, `login`, `verify-otp`, `resend-otp`, `forgot-password`, `reset-password` | `phoneNumber` | `AUTH_001` |
+| `register`, `login`, `verify-otp` | `password` | `AUTH_002` (verify-otp answered `AUTH_007` before) |
+| `register` | `role` | `AUTH_003` |
+| `register` | `woreda` | `AUTH_004` |
+| `register` | `faydaVerificationToken` | `AUTH_021` (unchanged) |
+| `register` | `preferredLanguage` | none: absent means `am`, as the field table says (it was refused as `AUTH_007` "Invalid language") |
+| `verify-otp` | `otpCode` | `AUTH_009` |
+| `refresh`, `logout` | `refreshToken` | `AUTH_017` |
+| `reset-password` | `confirmationCode` | `AUTH_022` (was `AUTH_007`) |
+| `reset-password` | `newPassword` | `AUTH_024` (was `AUTH_007`) |
+| `fayda-verify`, `/user/fayda-link` | `authorizationCode` / `state` / `redirectUri` | `FAYDA_001` / `FAYDA_002` / `AUTH_007` with `field: redirectUri` |
+
+`400 AUTH_007` stays for a body that is not JSON (no `field`), an empty or `null` body
+(`field: body`), and the fields without a code of their own listed in the register table. A body
+that misses several fields gets one error, for the first field the server checks (register:
+the order of its field table; verify-otp: `phoneNumber`, `otpCode`, `password`). Clients: the app
+always sends complete bodies and already maps these codes (`auth_error_l10n.dart`; `AUTH_009`
+falls back to the generic text), so nothing changes for it.
+
+### Phone spellings
+
+The server has always accepted `00251...` and the local `0...` spelling and stored `+251...`; the
+contract said `+251` only. Phone Number Validation now says what is accepted and that it is
+normalized. No server change.
+
+### Revoked and expired refresh tokens
+
+`AUTH_019` was never sent: Cognito's `InitiateAuth` with `REFRESH_TOKEN_AUTH` throws the same
+`NotAuthorizedException` for an invalid, an expired and a revoked token, and tells them apart only
+in its free-text message, which is not part of the Cognito API. The server does not parse that text,
+so all three are `401 AUTH_018`, and `AUTH_019` is reserved. Both mean "sign in again" to the app.
+The refresh token lifetime is 7 days, not 30.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.13.0 | 2026-11-06 | Error codes as served (SIM-27, Additions in 2.13.0): a missing, `null` or blank field answers that field's code with `field` set (it was `AUTH_007` "Invalid JSON" when the field was absent), on register, login, verify-otp, resend-otp, forgot-password, reset-password, refresh, logout and fayda-verify; verify-otp without a password is `AUTH_002` and reset-password without a code or new password `AUTH_022` / `AUTH_024` (they were `AUTH_007`); register without `preferredLanguage` uses `am` as documented (it was refused); the 400 uses of `AUTH_007` are documented. Docs only: the accepted phone spellings (`+251`, `00251`, local `0`, spaces and hyphens ignored) and their normalization to `+251`; `AUTH_019` is reserved and a revoked refresh token is `AUTH_018` because Cognito does not tell revoked from expired; the refresh token lives 7 days, not 30; reset-password codes `AUTH_022` to `AUTH_024` in the reference table. No client change |
+| 2.12.3 | 2026-11-06 | The examples show `preferredLanguage` in the `user` object of register `201` and login (verify-otp returns the login shape); the server always sent it. The app reads it back after a sign-in (SIM-37): it shows the profile's language unless the user picked a language on that device, keeps it as the device's language and does not write it back; an offline login keeps the device's language. Request and response shapes unchanged |
 | 2.12.2 | 2026-10-26 | Sandbox mode, dev only (`FAYDA_SANDBOX=true` + `FAYDA_SANDBOX_REDIRECT_URI`): the server runs against the real VeriFayda sandbox with its shared test client; the authorize URL and the token request carry the test client's registered redirect (`http://localhost:3000/callback`) and a local relay forwards the callback to the app's own redirect, which clients keep sending and the state row keeps storing; web callback pages accepted as against the mock; no `login_hint`. Live-eSignet fixes for every mode: the ID token and userinfo `iss` may carry the `/v1/esignet` servlet path, and the client assertion header has no `kid` (eSignet answers `invalid_client` to one); a client JWK whose `dp`, `dq` or `qi` disagree with `d`, `p`, `q` (Fayda's published test key does) is repaired on import. Request and response shapes unchanged |
 | 2.12.1 | 2026-10-26 | Mock provider only (`FAYDA_MOCK=true`): `POST /user/fayda-start` adds `login_hint` (`sub:<faydaId>`, else `phone:<account phone>`) to the authorize URL so the mock offers the account's own identity first; an account registered with the mock's "Generate new identity" could never pass `AUTH_041` or re-verify before (every chooser option was another `sub`, `FAYDA_005`). Advice to the mock only: the 2.3.0 link rules are unchanged, `/auth/fayda-start` and live Fayda never carry it, request and response shapes unchanged |
 | 2.12.0 | 2026-10-23 | No phone number in profile text (FUP-52): register refuses a `displayName`, `woreda` or `companyName` that holds an Ethiopian mobile number with `400 AUTH_027` (`field` = the first such field, the message lists all), same detector as listing text (`crop-listing-api.md` 1.4.0 rule 6b); checked after the other field rules and before `AUTH_021`, the IP cap, the Fayda token burn and any write; the Fayda `fullName` is never screened; stored profiles are not re-validated; the app runs the same check on the form and explains `AUTH_027` in en, am and om |
@@ -1011,5 +1083,5 @@ channel that the listing text rule (`crop-listing-api.md` 1.4.0 rule 6b, FUP-49)
 
 ---
 
-**Last Updated**: 2026-10-26
-**Version**: 2.12.2
+**Last Updated**: 2026-11-06
+**Version**: 2.13.0

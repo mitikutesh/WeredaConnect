@@ -197,7 +197,7 @@ public class SyncFunctionRiskGateTests
 
     private async Task NothingStoredAsync()
         => await _meta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
 
     // ===== Creates: farmer crop, trucker trip, buyer order =====
 

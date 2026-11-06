@@ -6,6 +6,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using Xunit;
 
@@ -123,6 +124,7 @@ public class CropFunctionTests
         Assert.Contains("\"crops\":[]", response.Body);
         // JSON serializer may omit null values, so just check that crops is present
         Assert.DoesNotContain("\"nextToken\":\"", response.Body);
+        Assert.Contains("\"hasMore\":false", response.Body);
     }
 
     [Fact]
@@ -317,26 +319,14 @@ public class CropFunctionTests
         Assert.Contains("CROP_VALIDATION", response.Body);
     }
 
-    [Fact]
-    public async Task HandleGetCrops_WithLimitTooHigh_Returns400()
+    [Theory]
+    [InlineData("51")]
+    [InlineData("100")]
+    [InlineData("101")]
+    public async Task HandleGetCrops_WithLimitAbove50_ServedAs50(string limit)
     {
-        var queryParams = new Dictionary<string, string> { { "limit", "101" } };
-        var request = MakeGetRequest(queryParams: queryParams);
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal(400, response.StatusCode);
-        Assert.Contains("CROP_VALIDATION", response.Body);
-    }
-
-    [Fact]
-    public async Task HandleGetCrops_WithNextToken_ReturnsNextPage()
-    {
-        var lastKey = new Dictionary<string, AttributeValue>
-        {
-            { "cropId", new AttributeValue { S = "crop-last" } },
-            { "createdAt", new AttributeValue { S = "2026-01-01T00:00:00Z" } }
-        };
-
+        // SIM-26: every list caps at 50. A larger value is clamped, not refused, because shipped
+        // web builds ask for 100.
         _mockCropRepo.QueryCropsAsync(
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -344,14 +334,279 @@ public class CropFunctionTests
             Arg.Any<string?>(),
             Arg.Any<int>(),
             Arg.Any<Dictionary<string, AttributeValue>?>())
-            .Returns((new List<Dictionary<string, object>> { CreateCropItem() }, lastKey));
+            .Returns((new List<Dictionary<string, object>>(), null));
 
-        var request = MakeGetRequest();
-        var response = await _function.FunctionHandler(request, _context);
+        var queryParams = new Dictionary<string, string> { { "limit", limit } };
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: queryParams), _context);
 
         Assert.Equal(200, response.StatusCode);
-        Assert.Contains("nextToken", response.Body);
-        Assert.DoesNotContain("\"nextToken\":null", response.Body);
+        await _mockCropRepo.Received(1).QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            50,
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+        await _mockCropRepo.DidNotReceive().QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Is<int>(n => n > 50),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_WithNextToken_ReturnsNextPage()
+    {
+        var lastKey = PageKey("crop-last");
+        var startKey = PageKey("crop-start");
+        var queryParams = new Dictionary<string, string>
+        {
+            { "limit", "1" },
+            { "nextToken", PaginationTokenHelper.EncodeNextToken(startKey) }
+        };
+        // The page read and the look-ahead both find a listing.
+        _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            1,
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((Page(1), lastKey));
+
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: queryParams), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        // The incoming token is decoded and handed to the repository as the start key.
+        await _mockCropRepo.Received().QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            1,
+            Arg.Is<Dictionary<string, AttributeValue>?>(k => k != null && k["cropId"].S == "crop-start"));
+        Assert.Equal("crop-last", NextTokenCropId(response.Body));
+        Assert.Contains("\"hasMore\":true", response.Body);
+    }
+
+    // --- SIM-26: paging that never hands out a token to an empty last page ---
+
+    private static Dictionary<string, AttributeValue> PageKey(string cropId) => new()
+    {
+        { "cropId", new AttributeValue { S = cropId } },
+        { "createdAt", new AttributeValue { S = "2026-01-01T00:00:00Z" } }
+    };
+
+    private static List<Dictionary<string, object>> Page(int count, string prefix = "crop")
+        => Enumerable.Range(1, count).Select(i => CreateCropItem($"{prefix}-{i}")).ToList();
+
+    private void ReadReturns(
+        int limit,
+        Dictionary<string, AttributeValue>? startKey,
+        List<Dictionary<string, object>> items,
+        Dictionary<string, AttributeValue>? lastKey)
+    {
+        _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            limit,
+            startKey)
+            .Returns((items, lastKey));
+    }
+
+    private static string? NextTokenCropId(string body)
+    {
+        using var doc = JsonDocument.Parse(body);
+        if (!doc.RootElement.TryGetProperty("nextToken", out var token))
+        {
+            return null;
+        }
+
+        return PaginationTokenHelper.DecodeNextToken(token.GetString()!)?["cropId"].S;
+    }
+
+    private static int CropCount(string body)
+    {
+        using var doc = JsonDocument.Parse(body);
+        return doc.RootElement.GetProperty("crops").GetArrayLength();
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_FullPageWithNothingAfter_HasNoNextToken()
+    {
+        // The SIM-26 case: DynamoDB hands back a key after exactly `limit` listings even when
+        // nothing follows. The one-listing look-ahead finds nothing, so no token is sent.
+        var k1 = PageKey("crop-2");
+        ReadReturns(2, null, Page(2), k1);
+        ReadReturns(1, k1, new List<Dictionary<string, object>>(), null);
+
+        var queryParams = new Dictionary<string, string> { { "limit", "2" } };
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: queryParams), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(2, CropCount(response.Body));
+        Assert.Null(NextTokenCropId(response.Body));
+        Assert.Contains("\"hasMore\":false", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_FullPageWithAListingAfter_TokenStartsAtTheLookAhead()
+    {
+        var k1 = PageKey("crop-2");
+        var k2 = PageKey("crop-3");
+        ReadReturns(2, null, Page(2), k1);
+        ReadReturns(1, k1, Page(1, "next"), k2);
+
+        var queryParams = new Dictionary<string, string> { { "limit", "2" } };
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: queryParams), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        // The look-ahead listing belongs to the next page, not this one.
+        Assert.Equal(2, CropCount(response.Body));
+        Assert.DoesNotContain("next-1", response.Body);
+        Assert.Equal("crop-2", NextTokenCropId(response.Body));
+        Assert.Contains("\"hasMore\":true", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_ShortRead_IsFilledFromTheNextKey()
+    {
+        // Filters run after DynamoDB counts Limit, so one read can come back short.
+        var k1 = PageKey("crop-1");
+        ReadReturns(3, null, Page(1), k1);
+        ReadReturns(2, k1, Page(2, "more"), null);
+
+        var queryParams = new Dictionary<string, string> { { "limit", "3" } };
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: queryParams), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(3, CropCount(response.Body));
+        Assert.Null(NextTokenCropId(response.Body));
+        Assert.Contains("\"hasMore\":false", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_LookAheadSkipsFilteredListings()
+    {
+        // The first look-ahead read only filtered-out listings: the token skips them.
+        var k1 = PageKey("crop-2");
+        var k2 = PageKey("deleted-1");
+        var k3 = PageKey("crop-3");
+        ReadReturns(2, null, Page(2), k1);
+        ReadReturns(1, k1, new List<Dictionary<string, object>>(), k2);
+        ReadReturns(1, k2, Page(1, "next"), k3);
+
+        var queryParams = new Dictionary<string, string> { { "limit", "2" } };
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: queryParams), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(2, CropCount(response.Body));
+        Assert.Equal("deleted-1", NextTokenCropId(response.Body));
+        Assert.Contains("\"hasMore\":true", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_ReadBudgetSpent_ReturnsTheKeyItReached()
+    {
+        // A long run of filtered-out listings: the reads are bounded and the page may be short,
+        // but the token still points past what was read.
+        var key = PageKey("deleted-n");
+        _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), key));
+
+        var response = await _function.FunctionHandler(MakeGetRequest(), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(0, CropCount(response.Body));
+        Assert.Equal("deleted-n", NextTokenCropId(response.Body));
+        Assert.Contains("\"hasMore\":true", response.Body);
+        await _mockCropRepo.Received(CropFunction.MaxReadsPerPage).QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    // --- SIM-26: the default status filter ---
+
+    [Theory]
+    [InlineData("buyer-001", "buyer")]
+    [InlineData("admin-001", "admin")]
+    public async Task HandleGetCrops_BrowseWithoutStatus_ShowsAvailableListings(string userId, string role)
+    {
+        SetUpEmptyList();
+
+        var response = await _function.FunctionHandler(MakeAuthenticatedGetRequest(userId, role), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockCropRepo.Received(1).QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            "available",
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_BrowseWithStatus_KeepsIt()
+    {
+        SetUpEmptyList();
+
+        var queryParams = new Dictionary<string, string> { { "status", "reserved" } };
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: queryParams), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockCropRepo.Received(1).QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            "reserved",
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_FarmerWithoutStatus_ListsEveryStatusOfOwnListings()
+    {
+        // The farmer's home counts reserved listings, so their own list is not filtered.
+        SetUpEmptyList();
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedGetRequest("farmer-001", "farmer"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockCropRepo.Received(1).QueryCropsAsync(
+            "farmer-001",
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            null,
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    private void SetUpEmptyList()
+    {
+        _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), null));
     }
 
     [Fact]
@@ -696,12 +951,12 @@ public class CropFunctionTests
 
         Assert.Equal(200, response.StatusCode);
 
-        // Verify no farmerId filter was forced
+        // Verify no farmerId filter was forced (every farmer's available listings)
         await _mockCropRepo.Received(1).QueryCropsAsync(
             null,
             Arg.Any<string?>(),
             Arg.Any<string?>(),
-            Arg.Any<string?>(),
+            "available",
             Arg.Any<int>(),
             Arg.Any<Dictionary<string, AttributeValue>?>());
     }

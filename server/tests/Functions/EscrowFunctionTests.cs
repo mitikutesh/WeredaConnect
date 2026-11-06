@@ -699,6 +699,82 @@ public class EscrowFunctionTests
         Assert.Equal(400, response.StatusCode);
     }
 
+    // SIM-27 (escrow-protocol 1.37.0): a missing or blank field answers that field's code, not
+    // ESCROW_001 "Invalid JSON", and nothing is read.
+    [Theory]
+    [InlineData("escrowId", "ESCROW_VALIDATION")]
+    [InlineData("trigger", "ESCROW_VALIDATION")]
+    [InlineData("deliveryId", "ESCROW_002")]
+    [InlineData("idempotencyKey", "ESCROW_003")]
+    public async Task HandleRelease_MissingField_AnswersThatFieldsCode(string field, string code)
+    {
+        var body = new Dictionary<string, string>
+        {
+            ["escrowId"] = "escrow-001",
+            ["trigger"] = "delivery_confirmed",
+            ["deliveryId"] = "delivery-001",
+            ["idempotencyKey"] = "system:escrow-001:release:1708171200000",
+        };
+        body.Remove(field);
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/release", JsonSerializer.Serialize(body), "system"), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+        await _mockEscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task HandleRelease_BlankEscrowId_AnswersEscrowValidation()
+    {
+        var body = "{\"escrowId\":\" \",\"trigger\":\"delivery_confirmed\",\"deliveryId\":\"d-1\","
+                   + "\"idempotencyKey\":\"system:escrow-001:release:1708171200000\"}";
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/release", body, "system"), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"ESCROW_VALIDATION\"", response.Body);
+        Assert.Contains("\"field\":\"escrowId\"", response.Body);
+    }
+
+    [Theory]
+    [InlineData("escrowId", "ESCROW_VALIDATION")]
+    [InlineData("trigger", "ESCROW_VALIDATION")]
+    [InlineData("idempotencyKey", "ESCROW_003")]
+    public async Task HandleRefund_MissingField_AnswersThatFieldsCode(string field, string code)
+    {
+        var body = new Dictionary<string, string>
+        {
+            ["escrowId"] = "escrow-001",
+            ["trigger"] = "delivery_timeout",
+            ["idempotencyKey"] = "system:escrow-001:refund:1708257600000",
+        };
+        body.Remove(field);
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/refund", JsonSerializer.Serialize(body), "system"), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+        await _mockEscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task HandleRefund_WithoutDeliveryId_IsNotRefusedForIt()
+    {
+        // The refund body has no deliveryId: only release requires one.
+        var body = "{\"escrowId\":\"escrow-001\",\"trigger\":\"delivery_timeout\","
+                   + "\"idempotencyKey\":\"system:escrow-001:refund:1708257600000\"}";
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/refund", body, "system"), _context);
+
+        Assert.DoesNotContain("deliveryId", response.Body);
+        Assert.DoesNotContain("ESCROW_002", response.Body);
+    }
+
     [Fact]
     public async Task HandleDispute_InvalidJson_Returns400()
     {

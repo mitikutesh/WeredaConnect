@@ -2,11 +2,11 @@ using System.Text.Json;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using NSubstitute;
+using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
-using WeredaConnect.Server.Data;
 
 namespace WeredaConnect.Server.Tests.Functions;
 
@@ -77,6 +77,18 @@ public class RefreshFunctionTests
 
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("AUTH_017", response.Body);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_MissingRefreshToken_ReturnsAuth017()
+    {
+        // SIM-27 (auth-api 2.13.0): an absent token is AUTH_017, as a blank one; it was AUTH_007.
+        var response = await _function.FunctionHandler(new APIGatewayProxyRequest { Body = "{}" }, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"AUTH_017\"", response.Body);
+        Assert.Contains("\"field\":\"refreshToken\"", response.Body);
+        await _mockAuth.DidNotReceive().RefreshAsync(Arg.Any<string>());
     }
 
     [Fact]

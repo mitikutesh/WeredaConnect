@@ -144,6 +144,29 @@ void main() {
       expect(find.textContaining('14,625 ETB'), findsOneWidget);
     });
 
+    testWidgets('the commission label carries no hard-coded rate (SIM-30)',
+        (WidgetTester tester) async {
+      // An order escrow: 5 % of a 3228.30 crop cost on top, plus transport.
+      final payment = _makePayment(
+        amount: 3824.16,
+        commission: 161.42,
+        farmerPayout: 3228.30,
+        truckerPayout: 434.44,
+      );
+      when(() => escrowBloc.state)
+          .thenReturn(EscrowDetailLoaded(payment: payment));
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Platform Commission'), findsOneWidget);
+      expect(find.textContaining('161.42 ETB'), findsOneWidget);
+      expect(find.textContaining('2.5'), findsNothing);
+      expect(find.textContaining('%)'), findsNothing);
+    });
+
     testWidgets('shows the trucker leg when the order had a trucker split',
         (WidgetTester tester) async {
       // 16,000 = 375 commission + 14,625 farmer + 1,000 trucker (SIM-15).

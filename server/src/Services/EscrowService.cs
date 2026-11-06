@@ -732,8 +732,7 @@ public sealed class EscrowService
                 new Dictionary<string, object>
                 {
                     { "telebirrRef", holdRef },
-                    { "telebirrHoldRef", holdRef },
-                    { "version", 2 }
+                    { "telebirrHoldRef", holdRef }
                 });
 
             await AppendAuditAsync(escrowId, "hold_success", "initiated", "escrowed",
@@ -1716,7 +1715,6 @@ public sealed class EscrowService
         var commission = GetDecimal(escrowItem, "commission");
         var holdRef = GetStringOrNull(escrowItem, "telebirrHoldRef") ?? "";
         var createdAt = GetString(escrowItem, "createdAt");
-        var currentVersion = GetInt(escrowItem, "version");
 
         // 4b. Payout destination and identity. Money goes to the farmer's registered
         //     phone (immutable since registration), and only to a farmer whose phone
@@ -1970,12 +1968,13 @@ public sealed class EscrowService
 
         var now = DateTime.UtcNow.ToString("o");
 
-        // 6. Transition to "released" (optimistic concurrency on current status)
+        // 6. Transition to "released" (optimistic concurrency on current status). SIM-29: the
+        //    repository adds 1 to the version; one set from the read above would go back if a
+        //    confirmation stamp or a delivery link landed since.
         var releaseFields = new Dictionary<string, object>
         {
             { "telebirrReleaseRef", releaseResponse.TelebirrRef ?? "" },
-            { "releasedAt", now },
-            { "version", currentVersion + 1 }
+            { "releasedAt", now }
         };
         if (!string.IsNullOrEmpty(truckerReleaseRef))
         {
@@ -2060,8 +2059,7 @@ public sealed class EscrowService
         await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "completed", "released",
             new Dictionary<string, object>
             {
-                { "completedAt", now },
-                { "version", currentVersion + 2 }
+                { "completedAt", now }
             });
 
         // 9. Audit log
@@ -3575,7 +3573,6 @@ public sealed class EscrowService
         var amount = GetDecimal(escrowItem, "amount");
         var holdRef = GetStringOrNull(escrowItem, "telebirrHoldRef") ?? "";
         var createdAt = GetString(escrowItem, "createdAt");
-        var currentVersion = GetInt(escrowItem, "version");
 
         // ESC-05: the refund phone is read before the lock, so nothing can fail between the lock
         // and the gateway call.
@@ -3692,8 +3689,7 @@ public sealed class EscrowService
             new Dictionary<string, object>
             {
                 { "telebirrRefundRef", refundResponse.TelebirrRef ?? "" },
-                { "refundedAt", now },
-                { "version", currentVersion + 1 }
+                { "refundedAt", now }
             },
             $"op=refund buyerRef={MoneyAlarmLog.LogId(refundResponse.TelebirrRef)}");
         progress.Recorded = true;

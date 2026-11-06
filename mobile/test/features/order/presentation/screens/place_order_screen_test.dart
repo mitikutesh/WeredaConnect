@@ -64,14 +64,18 @@ void main() {
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
   });
 
-  CropListing listing({required double quintals, double pricePerKg = 1000}) =>
+  CropListing listing({
+    required double quintals,
+    double pricePerKg = 1000,
+    String locationName = 'Bahir Dar',
+  }) =>
       CropListing()
         ..listingId = 'listing-001'
         ..farmerId = 'farmer-001'
         ..cropType = 'lentils'
         ..quantity = quintals
         ..pricePerKg = pricePerKg
-        ..locationName = 'Bahir Dar';
+        ..locationName = locationName;
 
   // An open truck leaving in two days: one that can take the order.
   Trip trip({
@@ -98,6 +102,8 @@ void main() {
     required double quintals,
     double pricePerKg = 1000,
     Trip? selectedTrip,
+    String farmerName = 'Kedir',
+    String locationName = 'Bahir Dar',
   }) async {
     await tester.pumpWidget(
       MultiBlocProvider(
@@ -110,8 +116,12 @@ void main() {
           supportedLocales: AppLocalizations.supportedLocales,
           locale: const Locale('en'),
           home: PlaceOrderScreen(
-            listing: listing(quintals: quintals, pricePerKg: pricePerKg),
-            farmerName: 'Kedir',
+            listing: listing(
+              quintals: quintals,
+              pricePerKg: pricePerKg,
+              locationName: locationName,
+            ),
+            farmerName: farmerName,
             selectedTrip: selectedTrip,
           ),
         ),
@@ -122,6 +132,22 @@ void main() {
 
   FilledButton placeOrderButton(WidgetTester tester) =>
       tester.widget<FilledButton>(find.byType(FilledButton));
+
+  // SIM-33: the listing line never shows an id for the farmer or a junk
+  // place.
+  testWidgets('the listing line leaves out an id name and a junk place',
+      (tester) async {
+    await open(tester, quintals: 5);
+    expect(find.text('Kedir · Bahir Dar'), findsOneWidget);
+
+    const id = '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b';
+    await open(tester, quintals: 5, farmerName: id, locationName: '105');
+    expect(find.textContaining(id), findsNothing);
+    expect(find.textContaining('105'), findsNothing);
+
+    await open(tester, quintals: 5, farmerName: id);
+    expect(find.text('Bahir Dar'), findsOneWidget);
+  });
 
   testWidgets('a whole 10,000-quintal listing can be ordered', (tester) async {
     await open(tester, quintals: 10000);

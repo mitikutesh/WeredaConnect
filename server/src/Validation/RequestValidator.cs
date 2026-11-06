@@ -284,10 +284,11 @@ public static partial class RequestValidator
         errors.AddRange(ValidateOtpCode(request.OtpCode).Errors);
         if (string.IsNullOrEmpty(request.Password))
         {
+            // AUTH_002 as on login (auth-api 2.13.0, SIM-27); it was AUTH_007.
             errors.Add(new ValidationError
             {
                 Field = "password",
-                Code = "AUTH_007",
+                Code = "AUTH_002",
                 Message = "Password is required."
             });
         }

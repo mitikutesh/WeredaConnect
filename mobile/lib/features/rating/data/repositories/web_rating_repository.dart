@@ -17,6 +17,12 @@ class WebRatingRepository extends BaseRatingRepository {
   static String ratingIdFor(String orderId, String rateeId) =>
       '$orderId:$rateeId';
 
+  /// The server's refusal of an idempotency key it already holds for another
+  /// payload (sync-protocol.md 1.38.0).
+  static const _idempotencyKeyReusedPrefix =
+      'SYNC_VALIDATION: idempotency key already used for a different '
+      'operation payload';
+
   @override
   Future<Rating> createRating({
     required String orderId,
@@ -64,6 +70,14 @@ class WebRatingRepository extends BaseRatingRepository {
       // One rating per order and ratee: the server already has this one
       // (e.g. sent from the phone), so this create changed nothing.
       throw const AlreadyRatedException();
+    } on SyncRejectedException catch (e) {
+      // The key is fixed per order and ratee, so a second rating with other
+      // stars or comment reuses it and the server refuses the new payload
+      // (sync-protocol.md 1.38.0, SIM-28): this ratee is already rated.
+      if (e.message.startsWith(_idempotencyKeyReusedPrefix)) {
+        throw const AlreadyRatedException();
+      }
+      rethrow;
     }
 
     return Rating()

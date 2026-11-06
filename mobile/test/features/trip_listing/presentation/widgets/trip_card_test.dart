@@ -149,4 +149,33 @@ void main() {
       expect(find.text('Date passed'), findsNothing);
     });
   });
+
+  group('the trucker name (SIM-33)', () {
+    testWidgets('the buyer browse names the trucker under the route',
+        (tester) async {
+      await tester.pumpWidget(wrap(TripCard(trip: trip(), showTrucker: true)));
+
+      expect(find.text('Trucker: Dawit'), findsOneWidget);
+      expect(find.text('Fri 30 Oct · 150 ETB per quintal'), findsOneWidget);
+    });
+
+    testWidgets("the trucker's own list leaves their name out", (tester) async {
+      await tester.pumpWidget(wrap(TripCard(trip: trip())));
+
+      expect(find.textContaining('Dawit'), findsNothing);
+    });
+
+    testWidgets('no line for a blank name or a user id', (tester) async {
+      for (final name in ['', '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b']) {
+        await tester.pumpWidget(
+          wrap(
+            TripCard(trip: trip()..truckerName = name, showTrucker: true),
+          ),
+        );
+
+        expect(find.textContaining('Trucker'), findsNothing, reason: name);
+        expect(find.textContaining('3f2b8c1e'), findsNothing);
+      }
+    });
+  });
 }

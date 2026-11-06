@@ -146,7 +146,7 @@ void main() {
       ).captured;
       expect(captured, hasLength(1));
       final params = captured.single as Map<String, dynamic>;
-      expect(params, {'status': 'available', 'limit': '100'});
+      expect(params, {'status': 'available', 'limit': '50'});
     });
   });
 

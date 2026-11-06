@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.5.0
+2.7.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -170,13 +170,15 @@ quintals out of it, so stock held by funded and later orders is never part of `q
 The server then overwrites `farmerName` (from the listing) and `truckerName` (from the trip) and computes:
 
 ```
-cropCost         = quantity × pricePerUnit
-commissionAmount = cropCost × commissionRate            (rate from SSM, default 0.05)
-transportCost    = quantity / 100 × pricePerQuintal     (0 without a trip)
+cropCost         = round2(quantity × pricePerUnit)
+commissionAmount = round2(cropCost × commissionRate)    (rate from SSM, default 0.05)
+transportCost    = round2(quantity / 100 × pricePerQuintal)   (0 without a trip)
 orderTotal       = cropCost + transportCost + commissionAmount
 ```
 
-Client previews of an order total (place order, the listing detail price breakdown, the match "Estimated Total", on mobile and web) use this same formula through `mobile/lib/core/models/order_pricing.dart`. Commission is never charged on transport (1.7.2, SIM-53).
+`round2` (2.7.0, SIM-30) is to the santim, 2 decimals, halves away from zero, computed on exact decimals so float noise never moves a santim (170 kg at 18.99 ETB/kg: crop 3228.30, commission 161.415 so 161.42; a double gave 161.41499999999999). `orderTotal` is the exact sum, so it equals the order escrow's `amount` and splits into `farmerPayout` + `truckerPayout` + `commission` with nothing left over (`escrow-protocol.md` Commission Calculation, 1.39.0). Orders created before 2.7.0 keep their unrounded doubles; the escrow rounds them when it is created.
+
+Client previews of an order total (place order, the listing detail price breakdown, the match "Estimated Total", on mobile and web) use this same formula through `mobile/lib/core/models/order_pricing.dart`, rounding included (its `roundEtb` drops float noise below a millionth first). Commission is never charged on transport (1.7.2, SIM-53).
 
 `orderTotal` is what the buyer pays: `POST /escrow/initiate` rejects any other amount (`ESCROW_028`, escrow-protocol.md 1.2.0).
 
@@ -720,8 +722,11 @@ later runs skip it until its status moves. Alarm `ORDER_MONEY_MISMATCH` (`escrow
 
 **Clients.** No new status and no wire change: shipped apps already know `disbursing` and `settled`.
 A device that still shows an older status and queues a status change (for example the `delivered`
-catch-up) gets `ORDER_VALIDATION: Invalid status transition` from the transition check, which runs
-before the version check; it is permanent and the client reverts to the server row. The buyer may rate
+catch-up) sent it with a version behind the stored one: since 2.6.0 (SIM-28, `sync-protocol.md`
+1.38.0) the transition check answers `conflict` with the server row, which the client adopts, when
+the caller may ask for that status at all. At the current version, or for a status the caller may
+never set (a system-managed one, another party's), it is still `ORDER_VALIDATION: Invalid status
+transition`, permanent, and the client reverts to the server row. The buyer may rate
 at `delivered`, `disbursing` and `settled` (`rating-api.md` 1.1.0). The Escrow tile and "In Escrow"
 keep counting only `funded` to `delivered` and `disputed`.
 
@@ -794,6 +799,8 @@ its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
 
 ## Changelog
 
+- **2.7.0 (2026-11-06)**: Order money to the santim (SIM-30, `escrow-protocol.md` 1.39.0): order create rounds `cropCost`, `transportCost` and `commissionAmount` to 2 decimals (halves away from zero, exact decimals) and stores `orderTotal` as their exact sum, so a commission is no longer stored as an unrounded double (0.9500000000000001) and the order's commission equals its escrow's. The rule is unchanged (5 % of the crop cost, on top, never on transport); an order whose crop or transport cost has more than 2 decimals (a fractional kg) can see its total move by a santim. The mobile and web previews and the apps' local copy of a new order round the same way. No field, status or endpoint change.
+- **2.6.0 (2026-11-06)**: Race losers (SIM-28, `sync-protocol.md` 1.38.0): a client status change that is not a valid transition from the stored status, sent with a version behind the stored one by a caller who may ask for that status (`ValidateOrderTransitionAuth` passes), answers `conflict` with the order row instead of `ORDER_VALIDATION: Invalid status transition`; nothing is written. At the current version, or for a system-managed status or another party's, the error stands. The ESC-09 note under "The order follows the money" is updated. No client change: a conflict is already resolved server-wins.
 - **2.5.0 (2026-11-06)**: Drop-off landmark (LT-12, `specs/features/live-trip.md` section 10): the optional `dropoffNote` on create and, by the buyer only, on update until pickup (the order status and the active delivery decide); one line of at most 80 user-visible characters (extended grapheme clusters); the listing text phone screen; new permanent codes `ORDER_CONTACT_IN_TEXT` and `ORDER_DROPOFF_NOTE_LOCKED`; returned to the buyer, the farmer and the committed trucker of a held order only (the order's visibility is unchanged), and as `dropoff.note` on the live track. The deliveries Lambda reads the orders table (Query) for it. Companions: `data-models.md` 1.5.0, `sync-protocol.md` 1.36.0, `live-trip-api.md` 1.0.7.
 - **2.4.0 (2026-11-06)**: Stock at funding (ESC-18, spec A2, G1, G2): the funding decrement requires `quantity >= q` in its conditional write, computes in exact decimals and writes the remainder unrounded (restores alike); a funding that finds less takes nothing, is recorded in the listing's server-only `stockRefusedFor`, and the order is cancelled by the system (`cancelReason: listing_out_of_stock`, `cancelledBy: system`, `faultParty: none`) with its escrow refund scheduled (`refundReason: listing_out_of_stock`, full amount) and any trip booking released; never a stock restore for it. On every funding path (mock auto-fund, Telebirr webhook, redelivery repair), flag on or off. A funding loser whose farmer already accepted (also checked in the cancel's condition) is left for a person (`ORDER_STOCK_DECREMENT_FAILED ... reason=insufficient_stock`); an escrow whose create failed is created once more before the refund is armed (`ORDER_ESCROW_REFUND_SCHEDULE_FAILED reason=no_escrow` when it still fails). With `COMMITMENTS_ENABLED`, a listing with orders `payment_submitted`, `funded`, `awaiting_transport` or `accepted` cannot be deleted (`CROP_HAS_ACTIVE_ORDERS`, `crop-listing-api.md` 1.7.0, `sync-protocol.md` 1.35.0). The "Known gap" is closed. No client change: clients show the cancelled order and already handle the code.
 - **2.3.0 (2026-11-04)**: Orders on a trip that left (L-7, `trip-listing-api.md` 2.2.0): an order create naming a trip whose departure day is over in Ethiopia (Africa/Addis_Ababa) is refused with `ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; choose another trip.`, nothing written, whatever `COMMITMENTS_ENABLED` (with the flag on, the 24-hour lead already refused such trips with `ORDER_VALIDATION`; with it off nothing did). The code is the one clients treat as permanent since `sync-protocol.md` 1.10.0, with its own text since 1.17.0 ("That truck is no longer available. Choose again."), so a stale offline cache cannot book a departed truck and no client change is needed (`sync-protocol.md` 1.34.0). The apps also check the chosen truck when the order is placed (open, not left, room for the quantity) and say why offline. Attaching a trip to an order that is already paid is still not built (ESC-19, ESC-20)

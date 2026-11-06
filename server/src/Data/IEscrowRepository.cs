@@ -34,6 +34,9 @@ public interface IEscrowRepository
     /// refund is scheduled (<c>refundReason</c>, FUP-32).
     /// ESC-04: a move to <c>completed</c> requires no open manual payout and no pending trucker leg
     /// (<c>truckerPayoutPending</c>): an escrow is completed only once every leg is paid.
+    /// SIM-29: every call adds 1 to <c>version</c>, a move to the same status too (the delivery link,
+    /// the confirmation stamp, a scheduled refund); a <c>version</c> in <paramref name="additionalFields"/>
+    /// is ignored.
     /// </summary>
     /// <param name="escrowId">The escrow partition key.</param>
     /// <param name="createdAt">The escrow sort key.</param>
@@ -47,7 +50,7 @@ public interface IEscrowRepository
     /// <see cref="IOrderRepository.TryUpdateWithAsync"/>. The item schedules the refund for the hourly
     /// sweep (<c>expiresAt</c> and <c>updatedAt</c> set to <paramref name="scheduledAt"/>,
     /// <c>refundReason</c>) only while the escrow is a plain hold: <c>escrowed</c>, no settlement
-    /// lock, no open manual payout, no confirmed delivery. No I/O.
+    /// lock, no open manual payout, no confirmed delivery. Adds 1 to <c>version</c> (SIM-29). No I/O.
     /// </summary>
     TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt);
 
@@ -55,7 +58,7 @@ public interface IEscrowRepository
     /// ESC-06: push an order escrow's <c>expiresAt</c> forward while it is still a plain
     /// <c>escrowed</c> hold: no refund scheduled (<c>refundReason</c>), no settlement lock, no open
     /// manual payout. Returns false when that no longer holds (a refund scheduled in the meantime
-    /// keeps its <c>expiresAt</c>, so the sweep refunds it).
+    /// keeps its <c>expiresAt</c>, so the sweep refunds it). Adds 1 to <c>version</c> (SIM-29).
     /// </summary>
     Task<bool> TryExtendExpiryAsync(string escrowId, string createdAt, string expiresAt);
 
@@ -188,7 +191,8 @@ public interface IEscrowRepository
 
     /// <summary>
     /// ESC-04: copy the trucker the escrow pays from its order, only when the escrow has none.
-    /// Returns false when the condition fails (a truckerId is already there).
+    /// Returns false when the condition fails (a truckerId is already there). Adds 1 to
+    /// <c>version</c> (SIM-29).
     /// </summary>
     Task<bool> TryBackfillTruckerIdAsync(string escrowId, string createdAt, string truckerId);
 

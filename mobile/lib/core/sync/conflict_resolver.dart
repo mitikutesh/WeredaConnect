@@ -372,6 +372,7 @@ class ConflictResolver {
           .filter()
           .orderIdEqualTo(operation.entityId)
           .findFirst();
+      final isNewOrder = order == null;
 
       await _isar.writeTxn(() async {
         order ??= Order()..orderId = operation.entityId;
@@ -384,7 +385,11 @@ class ConflictResolver {
         order!.cropType = serverData['cropType'] as String;
         order!.quantity = (serverData['quantity'] as num).toDouble();
         order!.pricePerUnit = (serverData['pricePerUnit'] as num).toDouble();
-        order!.totalPrice = (serverData['totalPrice'] as num).toDouble();
+        // A server order row has no totalPrice (it carries orderTotal), so a
+        // required read failed every order conflict (SIM-25). Keep the local
+        // total; a new row starts at 0, as the order pull does.
+        order!.totalPrice = (serverData['totalPrice'] as num?)?.toDouble() ??
+            (isNewOrder ? 0 : order!.totalPrice);
 
         // Parse status enum. Server sends snake_case; map to the camelCase enum.
         final statusStr = orderStatusFromWire(serverData['status'] as String);

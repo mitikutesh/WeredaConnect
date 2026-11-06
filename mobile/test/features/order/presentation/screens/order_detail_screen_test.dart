@@ -886,6 +886,31 @@ void main() {
       expect(find.text('Send a message'), findsOneWidget);
     });
 
+    // SIM-33: a name field holding the user's id shows the role instead.
+    testWidgets('a party whose name is an id reads as its role',
+        (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      const id = '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b';
+      await tester.pumpWidget(
+        buildScreen(openOrder(withTrucker: false)..farmerName = id),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining(id), findsNothing);
+      expect(
+        find.descendant(
+          of: contactRow('Contact Farmer'),
+          matching: find.text('Farmer'),
+        ),
+        findsWidgets,
+      );
+
+      await tester.tap(contactRow('Contact Farmer'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(id), findsNothing);
+    });
+
     testWidgets('a self-pickup order has no trucker to contact',
         (tester) async {
       tallView(tester);

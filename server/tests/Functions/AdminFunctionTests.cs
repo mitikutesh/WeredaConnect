@@ -860,10 +860,14 @@ public class AdminFunctionTests
         response.Body.Should().Contain("dispute_resolved");
         response.Body.Should().Contain("settlement sweep releases");
         // ESC-03: no verdict while a settlement holds the lock.
+        // SIM-29: the verdict is a status change, so it adds to the version.
         await _dynamoDb.Received(1).UpdateItemAsync(
             Arg.Is<UpdateItemRequest>(u => u.ExpressionAttributeValues[":resolution"].S == "farmer_wins"
                                            && u.ConditionExpression == "#status = :disputed AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock)"
-                                           && u.ExpressionAttributeNames["#lock"] == "settlementLock"),
+                                           && u.ExpressionAttributeNames["#lock"] == "settlementLock"
+                                           && u.UpdateExpression.EndsWith(" ADD #version :one")
+                                           && u.ExpressionAttributeNames["#version"] == "version"
+                                           && u.ExpressionAttributeValues[":one"].N == "1"),
             Arg.Any<CancellationToken>());
     }
 
@@ -1198,6 +1202,8 @@ public class AdminFunctionTests
         verdict.ExpressionAttributeValues[":disposition"].S.Should().Be("return_to_farmer");
         verdict.ExpressionAttributeValues[":dispositionReason"].S.Should().Be(Reason);
         verdict.ExpressionAttributeNames["#dispositionBy"].Should().Be("disputeDispositionBy");
+        // SIM-29: the disposition stays in the SET clause; the version is added after it.
+        verdict.UpdateExpression.Should().Contain("#dispositionAt = :resolvedAt ADD #version :one");
         var delivery = updates.Single(u => u.TableName == DeliveriesTable);
         delivery.ExpressionAttributeValues[":to"].S.Should().Be("cancelled");
         delivery.ExpressionAttributeValues[":from"].S.Should().Be("inTransit");
@@ -1474,6 +1480,10 @@ public class AdminFunctionTests
         // Never last-writer-wins: the write requires the choice this request read.
         choice.ConditionExpression.Should().EndWith("AND #disposition = :previous");
         choice.ExpressionAttributeValues[":previous"].S.Should().Be("wait_for_delivery");
+        // SIM-29: the admin reads return the disposition, so recording it adds to the version.
+        choice.UpdateExpression.Should().EndWith(" ADD #version :one");
+        choice.ExpressionAttributeNames["#version"].Should().Be("version");
+        choice.ExpressionAttributeValues[":one"].N.Should().Be("1");
         updates.Single(u => u.TableName == DeliveriesTable).ExpressionAttributeValues[":cancelReason"].S
             .Should().Be("dispute_farmer_wins");
         updates.Single(u => u.TableName == OrdersTable).ExpressionAttributeValues[":to"].S.Should().Be("dispute_resolved");

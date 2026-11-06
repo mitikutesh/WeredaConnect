@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_dropoff_note.dart';
+import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
@@ -152,10 +153,17 @@ class OrderRepository extends BaseOrderRepository {
     final now = DateTime.now().toUtc();
     final note = normalizeDropoffNote(dropoffNote);
     final totalPrice = quantity * pricePerUnit;
-    final cropCost = totalPrice;
     final effectiveCommissionRate = commissionRate ?? 0.05;
-    final commissionAmount = cropCost * effectiveCommissionRate;
-    final orderTotal = cropCost + (transportCost ?? 0) + commissionAmount;
+    // SIM-30: the server's money, each leg to the santim, so the local copy
+    // shows what the server stores until the sync brings its row back.
+    final pricing = OrderPricing(
+      cropCost: totalPrice,
+      transportCost: transportCost ?? 0,
+      commissionRate: effectiveCommissionRate,
+    );
+    final cropCost = pricing.cropCostEtb;
+    final commissionAmount = pricing.commissionAmount;
+    final orderTotal = pricing.orderTotal;
 
     final order = Order()
       ..orderId = orderId
@@ -175,7 +183,7 @@ class OrderRepository extends BaseOrderRepository {
       ..truckerId = truckerId
       ..truckerName = truckerName
       ..cropCost = cropCost
-      ..transportCost = transportCost
+      ..transportCost = transportCost == null ? null : pricing.transportCostEtb
       ..commissionRate = effectiveCommissionRate
       ..commissionAmount = commissionAmount
       ..orderTotal = orderTotal

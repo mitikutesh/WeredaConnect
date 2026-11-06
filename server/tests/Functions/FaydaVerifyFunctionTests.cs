@@ -357,6 +357,22 @@ public class FaydaVerifyFunctionTests
         Assert.Contains(expectedCode, response.Body);
     }
 
+    [Theory]
+    [InlineData("{\"state\":\"state-xyz\",\"redirectUri\":\"weredaconnect://fayda-callback\"}", "FAYDA_001", "authorizationCode")]
+    [InlineData("{\"authorizationCode\":\"code\",\"redirectUri\":\"weredaconnect://fayda-callback\"}", "FAYDA_002", "state")]
+    [InlineData("{\"authorizationCode\":\"code\",\"state\":\"state-xyz\"}", "AUTH_007", "redirectUri")]
+    public async Task Verify_AbsentField_AnswersThatFieldsCode(string body, string code, string field)
+    {
+        // SIM-27 (auth-api 2.13.0): an absent field is answered like a blank one, not as
+        // AUTH_007 "Invalid JSON" without a field.
+        var response = await _function.FunctionHandler(
+            new APIGatewayProxyRequest { Path = "/auth/fayda-verify", Body = body }, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+    }
+
     [Fact]
     public async Task AnyRoute_IpRateLimited_Returns429()
     {

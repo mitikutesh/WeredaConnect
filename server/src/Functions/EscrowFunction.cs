@@ -474,6 +474,12 @@ public class EscrowFunction
             return LambdaResponse.Error(400, "ESCROW_001", "Request body is required.");
         }
 
+        if (MissingSettlementField(body.EscrowId, body.Trigger, body.IdempotencyKey, body.DeliveryId,
+                requireDelivery: true) is { } missingRelease)
+        {
+            return missingRelease;
+        }
+
         var userId = GetAuthenticatedUserId(request);
         if (string.IsNullOrEmpty(userId))
         {
@@ -644,6 +650,12 @@ public class EscrowFunction
         if (body == null)
         {
             return LambdaResponse.Error(400, "ESCROW_001", "Request body is required.");
+        }
+
+        if (MissingSettlementField(body.EscrowId, body.Trigger, body.IdempotencyKey, deliveryId: null,
+                requireDelivery: false) is { } missingRefund)
+        {
+            return missingRefund;
         }
 
         var userId = GetAuthenticatedUserId(request);
@@ -829,6 +841,38 @@ public class EscrowFunction
     // ──────────────────────────────────────────────
     // Routing helper
     // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// SIM-27 (escrow-protocol 1.37.0): the first missing or blank field of a release or refund body,
+    /// answered with that field's own code, or null when all are there. Before, a missing field
+    /// failed the deserializer and answered <c>ESCROW_001 Invalid JSON</c>, the amount code. Checked
+    /// right after parsing, where a malformed body is answered too, so before the caller's role.
+    /// </summary>
+    private static APIGatewayProxyResponse? MissingSettlementField(
+        string? escrowId, string? trigger, string? idempotencyKey, string? deliveryId, bool requireDelivery)
+    {
+        if (string.IsNullOrWhiteSpace(escrowId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_VALIDATION", "escrowId is required.", "escrowId");
+        }
+
+        if (string.IsNullOrWhiteSpace(trigger))
+        {
+            return LambdaResponse.Error(400, "ESCROW_VALIDATION", "trigger is required.", "trigger");
+        }
+
+        if (requireDelivery && string.IsNullOrWhiteSpace(deliveryId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_002", "deliveryId is required.", "deliveryId");
+        }
+
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            return LambdaResponse.Error(400, "ESCROW_003", "idempotencyKey is required.", "idempotencyKey");
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Extract the action segment from the request path (e.g. "initiate" from "/escrow/initiate").

@@ -1253,6 +1253,10 @@
       }
     }
   },
+  "escrowPlatformCommission": "የመድረክ ኮሚሽን",
+  "@escrowPlatformCommission": {
+    "description": "Label for the platform commission on an escrow, without a rate (SIM-30: the rate applies to the crop cost, not the amount)"
+  },
   "escrowFarmerReceives": "ገበሬው የሚቀበለው",
   "@escrowFarmerReceives": {
     "description": "Label for net amount farmer will receive after commission"

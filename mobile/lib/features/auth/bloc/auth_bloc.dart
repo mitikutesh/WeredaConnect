@@ -68,6 +68,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final Future<void> Function(String userId) _forgetReadMarkers;
   final Future<void> Function(String userId) _forgetDataUsage;
   final Future<void> Function(String userId) _forgetTrackSnapshots;
+  final Future<void> Function(String languageCode)? _applyProfileLanguage;
   final SecurityEvents _securityEvents;
   StreamSubscription<void>? _sessionExpiredSub;
   StreamSubscription<String>? _accountGoneSub;
@@ -89,6 +90,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// Budget for the best-effort server-side token revocation on logout,
   /// counted from when the call starts.
   static const logoutRevokeBudget = Duration(seconds: 5);
+
+  /// Budget for showing the profile's language after a sign-in (SIM-37).
+  /// It runs before the session is emitted, so it must never hold it long.
+  static const profileLanguageBudget = Duration(seconds: 2);
 
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -115,6 +120,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// [forgetDataUsage] the data usage counters of one that is not signed in.
   /// [forgetTrackSnapshots] removes the user's stored live trip snapshots
   /// (truck positions) on logout and account deletion.
+  /// [applyProfileLanguage] gets the server profile's `preferredLanguage`
+  /// after each sign-in that carried one (SIM-37); the app wires it to
+  /// `LanguageProvider.applyProfileLanguage`.
   /// [sessionExpired] fires when the server rejects the refresh token,
   /// [accountGone] when it refuses a request with `410 ACCOUNT_004`.
   /// [securityEvents] defaults to the app-wide bus (tests inject one).
@@ -127,6 +135,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Future<void> Function(String userId)? forgetReadMarkers,
     Future<void> Function(String userId)? forgetDataUsage,
     Future<void> Function(String userId)? forgetTrackSnapshots,
+    Future<void> Function(String languageCode)? applyProfileLanguage,
     Stream<void>? sessionExpired,
     Stream<String>? accountGone,
     SecurityEvents? securityEvents,
@@ -140,6 +149,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         _forgetDataUsage = forgetDataUsage ?? DataUsageTracker.forgetStoredUser,
         _forgetTrackSnapshots =
             forgetTrackSnapshots ?? TrackSnapshotStore.forgetStoredUser,
+        _applyProfileLanguage = applyProfileLanguage,
         _securityEvents = securityEvents ?? SecurityEvents.instance,
         super(const AuthInitial()) {
     // Register event handlers
@@ -320,6 +330,24 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     await _secureStorage.delete(key: _activeRefreshTokenKey);
   }
 
+  /// SIM-37: pass the profile's `preferredLanguage` from a sign-in to the
+  /// app, which shows it unless the user picked a language on this device.
+  /// Runs before the session is emitted, so the first screen is already in
+  /// that language. Bounded by [profileLanguageBudget] and best effort: a
+  /// failure never fails the sign-in. An offline sign-in carries no
+  /// language (the offline cache does not keep it), so the device keeps
+  /// the one it shows.
+  Future<void> _showProfileLanguage(AuthResult result) async {
+    final apply = _applyProfileLanguage;
+    final languageCode = result.preferredLanguage;
+    if (apply == null || languageCode == null) return;
+    try {
+      await apply(languageCode).timeout(profileLanguageBudget);
+    } on Object catch (e) {
+      debugPrint('[AuthBloc] profile language not applied: $e');
+    }
+  }
+
   /// Check if user is already authenticated.
   ///
   /// Reads stored phone number from secure storage, then checks for
@@ -440,6 +468,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       } else if (result.isSuccess) {
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
+        await _showProfileLanguage(result);
 
         emit(
           AuthAuthenticated(
@@ -508,6 +537,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
+        await _showProfileLanguage(result);
 
         emit(
           AuthAuthenticated(
@@ -576,6 +606,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
+        await _showProfileLanguage(result);
 
         emit(
           AuthAuthenticated(
@@ -643,6 +674,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
+        await _showProfileLanguage(result);
 
         emit(
           AuthAuthenticated(
@@ -1014,6 +1046,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       _clearPendingOtp();
       await _saveSession(phone, result.userId!);
       await _saveActiveTokens(result.tokens!);
+      await _showProfileLanguage(result);
       emit(
         AuthAuthenticated(
           userId: result.userId!,

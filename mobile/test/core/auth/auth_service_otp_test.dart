@@ -27,7 +27,11 @@ Map<String, dynamic> _tokens() => {
       'expiresIn': 900,
     };
 
-Map<String, dynamic> _user({bool faydaVerified = false}) => {
+Map<String, dynamic> _user({
+  bool faydaVerified = false,
+  Object? preferredLanguage,
+}) =>
+    {
       'userId': 'user-1',
       'phoneNumber': _phone,
       'displayName': 'Abebe',
@@ -37,6 +41,7 @@ Map<String, dynamic> _user({bool faydaVerified = false}) => {
       'faydaVerified': faydaVerified,
       if (faydaVerified) 'faydaVerifiedAt': '2026-09-01T10:00:00Z',
       'isPhoneVerified': true,
+      if (preferredLanguage != null) 'preferredLanguage': preferredLanguage,
     };
 
 void main() {
@@ -440,6 +445,93 @@ void main() {
     test('skips an empty token', () async {
       await service.unregisterDeviceToken('');
       expect(requests, isEmpty);
+    });
+  });
+
+  group('profile language (SIM-37)', () {
+    test('login reads the profile preferredLanguage', () async {
+      adapter.onPost(
+        '/auth/login',
+        (server) => server.reply(200, {
+          'tokens': _tokens(),
+          'user': _user(preferredLanguage: 'om'),
+        }),
+        data: Matchers.any,
+      );
+
+      final result = await service.loginOnline(
+        phoneNumber: _phone,
+        password: 'Secret123',
+      );
+
+      expect(result.isSuccess, isTrue);
+      expect(result.preferredLanguage, 'om');
+    });
+
+    for (final (label, user) in [
+      ('a missing', _user()),
+      ('a non-string', _user(preferredLanguage: 42)),
+    ]) {
+      test('$label value is null and never fails the login', () async {
+        adapter.onPost(
+          '/auth/login',
+          (server) => server.reply(200, {'tokens': _tokens(), 'user': user}),
+          data: Matchers.any,
+        );
+
+        final result = await service.loginOnline(
+          phoneNumber: _phone,
+          password: 'Secret123',
+        );
+
+        expect(result.isSuccess, isTrue);
+        expect(result.preferredLanguage, isNull);
+      });
+    }
+
+    test('verify-otp reads it', () async {
+      adapter.onPost(
+        '/auth/verify-otp',
+        (server) => server.reply(200, {
+          'tokens': _tokens(),
+          'user': _user(preferredLanguage: 'am'),
+        }),
+        data: Matchers.any,
+      );
+
+      final result = await service.verifyOtp(
+        phoneNumber: _phone,
+        otpCode: '123456',
+        password: 'Secret123',
+      );
+
+      expect(result.isSuccess, isTrue);
+      expect(result.preferredLanguage, 'am');
+    });
+
+    test('register 201 reads it', () async {
+      adapter.onPost(
+        '/auth/register',
+        (server) => server.reply(201, {
+          'userId': 'user-1',
+          'tokens': _tokens(),
+          'user': _user(faydaVerified: true, preferredLanguage: 'en'),
+        }),
+        data: Matchers.any,
+      );
+
+      final result = await service.register(
+        phoneNumber: _phone,
+        password: 'Secret123',
+        name: 'Abebe',
+        role: UserRole.buyer,
+        woreda: 'Adama',
+        faydaVerificationToken: 'fayda-token',
+        preferredLanguage: 'en',
+      );
+
+      expect(result.isSuccess, isTrue);
+      expect(result.preferredLanguage, 'en');
     });
   });
 }

@@ -1,7 +1,7 @@
 # User Entity Contract
 
 ## Version
-1.3.0
+1.3.1
 
 ## Parties
 - **Mobile** (client) -- stores user profile in Isar for offline access, displays user info
@@ -27,7 +27,7 @@ The User entity represents a registered user of WeredaConnect. It is shared betw
 | `role` | enum | Yes | No | Yes | One of: `farmer`, `trucker`, `buyer`. Set at registration, immutable. |
 | `woreda` | string | Yes | Yes | Yes | Administrative district (e.g., "Adama", "Jimma"). Max 100 chars. |
 | `faydaId` | string | No | Yes | Yes | Ethiopian national Fayda ID. Optional at registration, required for financial transactions (escrow). |
-| `preferredLanguage` | string | No | Yes | Yes | Enum: `en`, `am`, `om`. Default: `am`. Changing the language in Settings syncs it via the `user` sync entity (sync-protocol.md, SIM-37). |
+| `preferredLanguage` | string | No | Yes | Yes | Enum: `en`, `am`, `om`. Default: `am`. Changing the language in Settings syncs it via the `user` sync entity (sync-protocol.md, SIM-37). After a sign-in the app shows it unless the user picked a language on that device (auth-api.md 2.12.3). |
 | `isPhoneVerified` | boolean | Yes | Yes | Yes | Whether the user completed SMS OTP verification. |
 | `profilePhotoRef` | string | No | Yes | Yes | S3 key for profile photo. Null if no photo uploaded. |
 | `buyerType` | string | No | Yes | Yes | **Buyer only** (F-32). Enum: `private`, `company`. Null for farmers/truckers. |
@@ -425,8 +425,10 @@ Given Ethiopian mobile data costs:
 | 1.0.0 | 2026-02-12 | Initial entity definition: fields, DynamoDB schema, Isar schema, sync rules |
 | 1.1.0 | 2026-10-06 | Deletion is now supported through `DELETE /user/account` (`account-deletion.md`); server-only `deletionState`, `deletionRequestedAt`, `deletedAt` and the tombstone shape documented (ACC-01) |
 | 1.2.0 | 2026-10-23 | No phone number in `displayName`, `woreda` or `companyName` (FUP-52): refused at registration with `AUTH_027` (`auth-api.md` 2.12.0); any later profile update path must run the same check; stored values are not re-validated; the Fayda `fullName` is not screened; `companyName` added to the server validation table |
+| 1.3.0 | 2026-10-24 | `preferredLanguage` is written from the app's Settings through the `/sync` `user` entity (`sync-protocol.md` 1.28.0, SIM-37, #220) |
+| 1.3.1 | 2026-11-06 | `preferredLanguage` is read back: after a sign-in the app shows it unless the user picked a language on that device (`auth-api.md` 2.12.3, SIM-37). Shape unchanged |
 
 ---
 
-**Last Updated**: 2026-10-23
-**Version**: 1.2.0
+**Last Updated**: 2026-11-06
+**Version**: 1.3.1

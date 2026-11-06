@@ -113,7 +113,7 @@ The **trucker** creates a `Delivery` record linking the trip, listing, farmer, t
 |-----------|-------|
 | Method | Telebirr (Ethiopian mobile money) |
 | Amount range | 100 – 500,000 ETB |
-| Commission | 2.5% (minimum 5 ETB floor) |
+| Commission | 5% of the crop cost (SSM rate), paid by the buyer on top of crop and transport; to the santim (`escrow-protocol.md` Commission Calculation) |
 | KYC threshold | Fayda ID required for both parties if amount > 10,000 ETB |
 
 ### Flow
@@ -173,7 +173,7 @@ If 48 hours pass with no dispute raised:
 
 1. Server-side cron Lambda (runs hourly) detects the expired dispute window
 2. Calls `POST /escrow/release` with `trigger=delivery_confirmed`
-3. Telebirr releases `farmerPayout` (amount minus 2.5% commission) to farmer's Telebirr account
+3. Telebirr releases `farmerPayout` (the crop cost) to the farmer's Telebirr account and `truckerPayout` (the transport cost) to the trucker's; the platform keeps the commission
 4. Escrow: `escrowed → released → completed`
 
 ### Dispute Path — Within 48 Hours

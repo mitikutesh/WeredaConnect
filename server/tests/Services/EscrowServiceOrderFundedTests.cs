@@ -163,6 +163,31 @@ public class EscrowServiceOrderFundedTests
     }
 
     [Fact]
+    public async Task CreateFromFundedOrder_RoundedOrder_HoldsTheOrdersCommission_AndTheLegsAddUp()
+    {
+        // SIM-30: an order created with santim-rounded money (170 kg x 18.99 ETB on a 255.55 ETB/quintal
+        // trip), read back as DynamoDB numbers. The escrow's commission is the remainder, and it is the
+        // order's commissionAmount to the santim.
+        Dictionary<string, object>? written = null;
+        await _mockEscrowRepo.CreateAsync(Arg.Do<Dictionary<string, object>>(r => written = r));
+        var order = MakeFundedOrder(orderTotal: null, cropCost: null, transportCost: null);
+        order["cropCost"] = "3228.3";
+        order["transportCost"] = "434.44";
+        order["commissionRate"] = "0.05";
+        order["commissionAmount"] = "161.42";
+        order["orderTotal"] = "3824.16";
+
+        Assert.True(await _sut.CreateFromFundedOrderAsync(order, "system"));
+
+        Assert.Equal(3824.16m, written!["amount"]);
+        Assert.Equal(3228.30m, written["farmerPayout"]);
+        Assert.Equal(434.44m, written["truckerPayout"]);
+        Assert.Equal(161.42m, written["commission"]);
+        Assert.Equal((decimal)written["amount"],
+            (decimal)written["farmerPayout"] + (decimal)written["truckerPayout"] + (decimal)written["commission"]);
+    }
+
+    [Fact]
     public async Task CreateFromFundedOrder_NoCostBreakdown_FallsBackToDefaultCommission()
     {
         Dictionary<string, object>? written = null;

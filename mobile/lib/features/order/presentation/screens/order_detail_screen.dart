@@ -1087,7 +1087,7 @@ class _OrderHeader extends StatelessWidget {
     final farmer = partyDisplayName(order.farmerName, l10n);
     final buyer = partyDisplayName(order.buyerName, l10n);
     final what = '${CropType.labelFor(order.cropType, l10n)} · '
-        '${l10n.quantityKg(wholeNumber(order.quantity))}';
+        '${kgQuantityText(order.quantity, l10n)}';
 
     final String title;
     final String subtitle;
@@ -1184,7 +1184,7 @@ class _FarmerReceiveCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  '${l10n.quantityKg(wholeNumber(order.quantity))} × '
+                  '${kgQuantityText(order.quantity, l10n)} × '
                   '${l10n.etbCurrency(formatEtbAmount(order.pricePerUnit))}',
                   style: const TextStyle(
                     fontSize: 14,
@@ -2005,9 +2005,10 @@ class _OrderContactSection extends StatelessWidget {
             for (final party in parties)
               _ContactRow(
                 key: party.key,
-                name: party.name.isNotEmpty
-                    ? partyDisplayName(party.name, l10n)
-                    : party.role,
+                name: switch (partyDisplayName(party.name, l10n)) {
+                  '' => party.role,
+                  final shown => shown,
+                },
                 role: party.role,
                 divider: party != parties.last || truckerPending,
                 onOpen: () =>
@@ -2029,7 +2030,10 @@ class _OrderContactSection extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     showContactActionsSheet(
       context,
-      name: name.isNotEmpty ? partyDisplayName(name, l10n) : role,
+      name: switch (partyDisplayName(name, l10n)) {
+        '' => role,
+        final shown => shown,
+      },
       roleLabel: role,
       phone: orderPartyPhone(order, id),
       onMessage: () => _message(context, id, name),

@@ -4,6 +4,7 @@ import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -21,11 +22,16 @@ import 'package:wereda_connect/shared/widgets/status_chip.dart';
 /// [departureDayPassed] (the trucker's own list, L-7) marks an open or
 /// matched trip whose departure day is over: the pill reads "Date passed"
 /// instead of Open, as buyers no longer see it.
+///
+/// [showTrucker] (the buyer's browse of every trucker's trips, SIM-33)
+/// names the trucker under the route. The trucker's own list leaves it out,
+/// as My Crops leaves out the farmer's own name.
 class TripCard extends StatelessWidget {
   final Trip trip;
   final VoidCallback? onTap;
   final VoidCallback? onCancel;
   final bool departureDayPassed;
+  final bool showTrucker;
 
   const TripCard({
     required this.trip,
@@ -33,6 +39,7 @@ class TripCard extends StatelessWidget {
     this.onTap,
     this.onCancel,
     this.departureDayPassed = false,
+    this.showTrucker = false,
   });
 
   /// Paid quintals on the trip: the server's count, else the gap between
@@ -57,6 +64,8 @@ class TripCard extends StatelessWidget {
         trip.status == TripStatus.open || trip.status == TripStatus.matched;
     final canCancel = onCancel != null && beforePickup;
     final datePassed = departureDayPassed && beforePickup;
+    final trucker =
+        showTrucker ? partyDisplayName(trip.truckerName, l10n).trim() : '';
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
@@ -79,6 +88,19 @@ class TripCard extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      if (trucker.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          '${l10n.trucker}: $trucker',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.soilDark,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                       const SizedBox(height: 3),
                       Text(
                         '$day · $price',
