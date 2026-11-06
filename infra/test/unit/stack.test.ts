@@ -1035,7 +1035,7 @@ describe('ApiStack', () => {
     });
   });
 
-  test('FRD-04: escrow-cron reads the fraud-signals table for the settlement risk tier, and writes none of it', () => {
+  test('FRD-04, FRD-10: escrow-cron reads the fraud-signals table for the risk tier and only appends credit rows', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-escrow-cron',
       Environment: {
@@ -1058,7 +1058,10 @@ describe('ApiStack', () => {
 
     // The score is one Query of the party's partition (FraudDetectionService.GetUserRiskScoreAsync).
     expect(cronSignalActions).toContain('dynamodb:Query');
-    for (const write of ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem']) {
+    // FRD-10: the clean-delivery credit is one conditional PutItem per party (CleanDeliveryCreditService).
+    expect(cronSignalActions).toContain('dynamodb:PutItem');
+    // No other write: a reviewed signal is never changed, no row is deleted.
+    for (const write of ['dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem']) {
       expect([write, cronSignalActions.includes(write)]).toEqual([write, false]);
     }
   });

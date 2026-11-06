@@ -203,6 +203,18 @@ public class EscrowCronFunction
     private int _payoutsDelayed;
 
     /// <summary>
+    /// FRD-10 (fraud-detection-architecture.md sections 15 and 20): after the auto-release pays a clean trade,
+    /// writes one <c>CLEAN_DELIVERY</c> credit per party. The Lambda wires it when <c>FRAUD_SIGNALS_TABLE</c> is
+    /// set; without one (the test constructor) no credit is written. A credit never decides or undoes a release.
+    /// </summary>
+    internal CleanDeliveryCreditService? CleanDeliveryCredits { get; init; }
+
+    /// <summary>FRD-10: log lines of the clean-delivery credit (not alarmed; a lost credit only means a higher score).</summary>
+    internal const string CleanDeliveryCreditedToken = "CLEAN_DELIVERY_CREDITED";
+    internal const string CleanDeliveryNotCreditedToken = "CLEAN_DELIVERY_NOT_CREDITED";
+    internal const string CleanDeliveryCreditFailedToken = "CLEAN_DELIVERY_CREDIT_FAILED";
+
+    /// <summary>
     /// ESC-09: order partitions the order-money sweep reads, in this order: where money moves first
     /// (delivered, disbursing, disputed), then the logistics statuses a lagging order may sit in.
     /// </summary>
@@ -323,8 +335,9 @@ public class EscrowCronFunction
         _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway, userRepo,
             _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo, cropRepo: _cropRepo, tripRepo: _tripRepo);
 
-        // FRD-04: the gate also reads each party's risk tier from the fraud-signals table (read only).
-        // The cron never runs the velocity checks, so the service gets no rate-limit table.
+        // FRD-04: the gate also reads each party's risk tier from the fraud-signals table. The cron never
+        // runs the velocity checks, so the service gets no rate-limit table. FRD-10: its only write to the
+        // table is the clean-delivery credit after an auto-release.
         var fraudSignalsTable = Environment.GetEnvironmentVariable("FRAUD_SIGNALS_TABLE");
         var fraudService = string.IsNullOrEmpty(fraudSignalsTable)
             ? null
@@ -338,6 +351,9 @@ public class EscrowCronFunction
             Environment.GetEnvironmentVariable("FRAUD_HOLD_ENABLED"), "true", StringComparison.OrdinalIgnoreCase);
         OrdersTableName = ordersTable;
         PayoutDelay = new PayoutDelayPolicy(fraudService, userRepo, _escrowRepo);
+        CleanDeliveryCredits = string.IsNullOrEmpty(fraudSignalsTable)
+            ? null
+            : new CleanDeliveryCreditService(dynamoDb, fraudSignalsTable);
     }
 
     /// <summary>
@@ -733,6 +749,11 @@ public class EscrowCronFunction
                 if (result.IsSuccess)
                 {
                     releaseCount++;
+                    // FRD-10: a duplicate answer means another run released it, and that run credits.
+                    if (!result.IsDuplicate)
+                    {
+                        await TryCreditCleanDeliveryAsync(escrow, result.Value!, context);
+                    }
                 }
                 else if (IsManualPayoutWaiting(result.Error))
                 {
@@ -760,6 +781,68 @@ public class EscrowCronFunction
         }
 
         return releaseCount;
+    }
+
+    /// <summary>
+    /// FRD-10 (fraud-detection-architecture.md section 20): after an auto-release paid the escrow, credit each
+    /// party of a clean trade: the buyer, the farmer, and the trucker when the escrow names one or pays one (taken
+    /// the way the payout takes it). Runs after the money moved and catches everything, so a failed credit never
+    /// fails, retries or rolls back the release; it is logged and the party's score is just not lowered.
+    /// </summary>
+    private async Task TryCreditCleanDeliveryAsync(
+        Dictionary<string, object> escrow, ReleaseEscrowResponse released, ILambdaContext context)
+    {
+        if (CleanDeliveryCredits == null)
+        {
+            return;
+        }
+
+        var escrowId = GetString(escrow, "escrowId");
+        try
+        {
+            if (CleanDeliveryCreditService.EscrowNotCleanReason(escrow) is { } escrowReason)
+            {
+                context.Logger.LogInformation(
+                    $"{CleanDeliveryNotCreditedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} reason={MoneyAlarmLog.LogId(escrowReason)}");
+                return;
+            }
+
+            var truckerId = GetStringOrNull(escrow, "truckerId");
+            if (string.IsNullOrEmpty(truckerId) && PartySuspensionGate.HasTruckerLeg(escrow))
+            {
+                truckerId = (await _escrowService.ResolveTruckerIdAsync(escrow)).TruckerId;
+            }
+
+            var outcome = await CleanDeliveryCredits.CreditAsync(
+                new CleanDeliveryTrade(
+                    escrowId,
+                    GetStringOrNull(escrow, "orderId"),
+                    GetStringOrNull(escrow, "deliveryId"),
+                    new[] { GetStringOrNull(escrow, "buyerId"), GetStringOrNull(escrow, "farmerId"), truckerId },
+                    released.ReleasedAt),
+                DateTime.UtcNow);
+
+            if (outcome.NotCleanReason != null)
+            {
+                context.Logger.LogInformation(
+                    $"{CleanDeliveryNotCreditedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} reason={MoneyAlarmLog.LogId(outcome.NotCleanReason)}");
+                return;
+            }
+
+            foreach (var (userId, error) in outcome.Failed)
+            {
+                context.Logger.LogError(
+                    $"{CleanDeliveryCreditFailedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} userId={MoneyAlarmLog.LogId(userId)} error={MoneyAlarmLog.LogId(error)}");
+            }
+
+            context.Logger.LogInformation(
+                $"{CleanDeliveryCreditedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} credited={outcome.Credited.Count} alreadyCredited={outcome.AlreadyCredited} failed={outcome.Failed.Count}");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"{CleanDeliveryCreditFailedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} error={MoneyAlarmLog.LogId(ex.GetType().Name)}");
+        }
     }
 
     /// <summary>

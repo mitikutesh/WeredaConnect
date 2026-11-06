@@ -1440,9 +1440,11 @@ export class ApiStack extends cdk.Stack {
     props.escrowsTable.grantReadWriteData(escrowCronFn.function);
     // Payout destinations and the release-time identity gate read profiles.
     props.usersTable.grantReadData(escrowCronFn.function);
-    // FRD-04: the risk score is one Query of a party's fraud-signals partition; the cron writes no signal
-    // (FRD-10's credit rows will need a write grant).
+    // FRD-04: the risk score is one Query of a party's fraud-signals partition. The cron writes no signal.
     props.fraudSignalsTable.grantReadData(escrowCronFn.function);
+    // FRD-10: after an auto-release of a clean trade, one conditional PutItem per party (the CLEAN_DELIVERY
+    // credit row). Append only: no update of a reviewed row, no delete.
+    props.fraudSignalsTable.grant(escrowCronFn.function, "dynamodb:PutItem");
     props.escrowAuditTable.grantWriteData(escrowCronFn.function);
     // ESC-10: a sweep that freezes a disputed trade goes through the ESC-07 delivery dispute path, which
     // reads the escrow's audit trail (Query) before it writes a refusal row.
