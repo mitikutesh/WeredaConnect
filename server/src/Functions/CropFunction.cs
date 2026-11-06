@@ -47,6 +47,18 @@ public class CropFunction
     /// <summary>The server clock for URL expiry; tests set it.</summary>
     internal Func<DateTime> Clock { get; init; } = () => DateTime.UtcNow;
 
+    /// <summary>Page size of GET /crops without a <c>limit</c>.</summary>
+    internal const int DefaultPageSize = 20;
+
+    /// <summary>
+    /// Largest page of GET /crops, as on every other list (crop-listing-api 1.9.0, SIM-26). A larger
+    /// <c>limit</c> is served as this rather than refused: shipped web builds ask for 100.
+    /// </summary>
+    internal const int MaxPageSize = 50;
+
+    /// <summary>Most repository reads one GET /crops makes to fill its page and look ahead (SIM-26).</summary>
+    internal const int MaxReadsPerPage = 5;
+
     /// <summary>
     /// Default constructor for Lambda runtime.
     /// Reads table and bucket names from environment variables.
@@ -100,12 +112,16 @@ public class CropFunction
 
     /// <summary>
     /// GET /crops - Query crop listings with optional filters.
-    /// Query parameters: woreda, cropType, status, limit, nextToken
+    /// Query parameters: farmerId, woreda, cropType, status, limit, nextToken
     ///
     /// Role-based visibility (F-36 — browse-all is Buyer/Admin only):
-    /// - Farmer: can only see own crops (farmerId forced to authenticated userId)
-    /// - Buyer / Admin: can browse all crops
+    /// - Farmer: can only see own crops (farmerId forced to authenticated userId), every status
+    ///   unless <c>status</c> is given
+    /// - Buyer / Admin: can browse all crops; <c>status</c> defaults to <c>available</c> (SIM-26)
     /// - Trucker / unknown role / unauthenticated: 403 CROP_FORBIDDEN
+    ///
+    /// Paging (crop-listing-api 1.9.0, SIM-26): <c>limit</c> defaults to 20 and is served as at most
+    /// 50; <c>nextToken</c> and <c>hasMore</c> are present only when a listing follows the page.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetCropsAsync(
         APIGatewayProxyRequest request,
@@ -122,8 +138,9 @@ public class CropFunction
         // Role-based visibility enforcement
         var authenticatedUserId = AuthHelper.GetUserId(request);
         var role = AuthHelper.GetClaim(request, "custom:role");
+        var isFarmer = string.Equals(role, "farmer", StringComparison.OrdinalIgnoreCase);
 
-        if (string.Equals(role, "farmer", StringComparison.OrdinalIgnoreCase))
+        if (isFarmer)
         {
             // Farmers can only see their own crop listings
             if (!string.IsNullOrEmpty(farmerId) && farmerId != authenticatedUserId)
@@ -143,15 +160,25 @@ public class CropFunction
                 "Only buyers and administrators can browse crop listings.");
         }
 
-        // Parse limit (default 20, max 100)
-        var limit = 20;
+        // SIM-26: the marketplace browse shows what can be bought. A farmer's own list keeps every
+        // status (the home screen counts the reserved ones), so the default applies to the others.
+        if (!isFarmer && string.IsNullOrEmpty(status))
+        {
+            status = "available";
+        }
+
+        // SIM-26: default 20, at most 50 like every other list. A larger value is served as 50
+        // instead of refused, so a client built against the old cap of 100 keeps working.
+        var limit = DefaultPageSize;
         if (queryParams.TryGetValue("limit", out var limitStr))
         {
-            if (!int.TryParse(limitStr, out limit) || limit < 1 || limit > 100)
+            if (!int.TryParse(limitStr, out limit) || limit < 1)
             {
                 return LambdaResponse.Error(400, "CROP_VALIDATION",
-                    "Invalid limit parameter. Must be between 1 and 100.");
+                    $"Invalid limit parameter. Must be a whole number of at least 1 (at most {MaxPageSize} are returned).");
             }
+
+            limit = Math.Min(limit, MaxPageSize);
         }
 
         // Parse nextToken (base64-encoded DynamoDB LastEvaluatedKey)
@@ -167,11 +194,8 @@ public class CropFunction
 
         try
         {
-            // Query crops
-            var queryResult = await _cropRepo.QueryCropsAsync(
+            var (items, nextKey) = await ReadPageAsync(
                 farmerId, woreda, cropType, status, limit, exclusiveStartKey);
-            var items = queryResult.Items;
-            var lastEvaluatedKey = queryResult.LastEvaluatedKey;
 
             // ESC-48: the phone goes only to the listing's farmer and admins. A buyer browsing
             // could otherwise call the farmer and agree to trade off the platform.
@@ -184,17 +208,11 @@ public class CropFunction
                 })
                 .ToList();
 
-            // Encode nextToken if more results available
-            string? nextTokenResponse = null;
-            if (lastEvaluatedKey != null)
-            {
-                nextTokenResponse = PaginationTokenHelper.EncodeNextToken(lastEvaluatedKey);
-            }
-
             var response = new GetCropsResponse
             {
                 Crops = crops,
-                NextToken = nextTokenResponse
+                NextToken = nextKey != null ? PaginationTokenHelper.EncodeNextToken(nextKey) : null,
+                HasMore = nextKey != null
             };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetCropsResponse);
@@ -204,6 +222,54 @@ public class CropFunction
             context.Logger.LogError($"Error querying crops: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "CROP_SERVER_ERROR", "Failed to query crop listings.");
         }
+    }
+
+    /// <summary>
+    /// SIM-26: one page of at most <paramref name="limit"/> listings, and the key the next page
+    /// starts at (null when nothing follows). DynamoDB applies the filters (soft-deleted, woreda, and
+    /// status on the farmer index) after it counts <c>Limit</c>, so one read can come back short, or
+    /// empty with a key, while matching listings remain. The page is filled with further reads; once
+    /// it is full, one more read of a single listing tells whether anything follows, so a nextToken
+    /// never leads to an empty last page. At most <see cref="MaxReadsPerPage"/> reads: when they run
+    /// out the key is returned as it stands, so a long run of filtered-out listings can make a page
+    /// short (never wrong).
+    /// </summary>
+    private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? NextKey)> ReadPageAsync(
+        string? farmerId,
+        string? woreda,
+        string? cropType,
+        string? status,
+        int limit,
+        Dictionary<string, AttributeValue>? startKey)
+    {
+        var items = new List<Dictionary<string, object>>(limit);
+        var key = startKey;
+        for (var reads = 0; reads < MaxReadsPerPage; reads++)
+        {
+            var lookAhead = items.Count >= limit;
+            var (page, lastKey) = await _cropRepo.QueryCropsAsync(
+                farmerId, woreda, cropType, status, lookAhead ? 1 : limit - items.Count, key);
+
+            if (lookAhead && page.Count > 0)
+            {
+                // A listing follows: the next page starts where this look-ahead did.
+                return (items, key);
+            }
+
+            if (!lookAhead)
+            {
+                items.AddRange(page);
+            }
+
+            if (lastKey == null)
+            {
+                return (items, null);
+            }
+
+            key = lastKey;
+        }
+
+        return (items, key);
     }
 
     /// <summary>
@@ -466,6 +532,7 @@ public class CropFunction
             FarmerPhone = includePhone ? GetStringOrNull(item, "farmerPhone") : null,
             CropType = GetString(item, "cropType"),
             Woreda = GetString(item, "woreda"),
+            // The free stock in quintals, despite the wire name (crop-listing-api 1.9.0, SIM-26).
             QuantityKg = GetDecimal(item, "quantity"),
             PricePerKg = GetDecimal(item, "pricePerKg"),
             Status = GetString(item, "status"),

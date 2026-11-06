@@ -17,12 +17,13 @@ public sealed record GetCropsRequest
     public string? CropType { get; init; }
 
     /// <summary>
-    /// Filter by listing status: "available", "pending", "sold", "deleted".
+    /// Filter by listing status: "available", "reserved", "sold", "expired". Buyers and admins get
+    /// "available" when it is absent; a farmer's own list has every status (SIM-26).
     /// </summary>
     public string? Status { get; init; }
 
     /// <summary>
-    /// Maximum number of results to return (1-100, defaults to 20).
+    /// Page size, at least 1, defaults to 20; a value above 50 is served as 50 (SIM-26).
     /// </summary>
     public int? Limit { get; init; }
 
@@ -43,9 +44,16 @@ public sealed record GetCropsResponse
     public required List<CropDto> Crops { get; init; }
 
     /// <summary>
-    /// Pagination token to retrieve next page (null if no more results).
+    /// Pagination token to retrieve next page. Null, and so omitted, when no listing follows this
+    /// page (SIM-26: it never leads to an empty last page).
     /// </summary>
     public string? NextToken { get; init; }
+
+    /// <summary>
+    /// Whether a listing follows this page; true exactly when <see cref="NextToken"/> is present
+    /// (crop-listing-api 1.9.0, SIM-26).
+    /// </summary>
+    public bool HasMore { get; init; }
 }
 
 /// <summary>
@@ -100,9 +108,10 @@ public sealed record CropDto
     public required string Woreda { get; init; }
 
     /// <summary>
-    /// Quantity available in kilograms. Decimal to preserve fractional
-    /// quantities (contract allows 0.01–10,000, e.g. 50.5); the store
-    /// persists values like "45.00".
+    /// The free stock in QUINTALS (100 kg), despite the name: the stored <c>quantity</c>, the same
+    /// value the farmer sends as <c>quantity</c> on <c>/sync</c>. The wire name predates the unit and
+    /// every client reads it, so it stays (crop-listing-api 1.9.0, SIM-26). Decimal to keep
+    /// fractional stock (0.01 to 10,000, e.g. 50.5).
     /// </summary>
     public required decimal QuantityKg { get; init; }
 
@@ -112,7 +121,7 @@ public sealed record CropDto
     public required decimal PricePerKg { get; init; }
 
     /// <summary>
-    /// Current status: "available", "pending", "sold", "deleted".
+    /// Current status: "available", "reserved", "sold", "expired" or "deleted".
     /// </summary>
     public required string Status { get; init; }
 

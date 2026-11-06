@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.8.0
+1.9.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -120,114 +120,109 @@ The Crop Listing API enables farmers to post crop availability (type, quantity, 
 
 | Parameter | Type | Required | Description | Example |
 |-----------|------|----------|-------------|---------|
+| `farmerId` | string | No | Only this farmer's listings. A farmer always gets their own: another id is `403 CROP_FORBIDDEN` | `farmerId=farmer-123` |
 | `cropType` | string | No | Filter by crop type (enum) | `cropType=teff` |
-| `woreda` | string | No | Filter by woreda (district) | `woreda=Debre Birhan` |
-| `zone` | string | No | Filter by zone | `zone=North Shewa` |
-| `region` | string | No | Filter by region | `region=Amhara` |
-| `status` | string | No | Filter by status (default: available) | `status=available` |
-| `minQuantity` | number | No | Minimum quantity in quintals | `minQuantity=10` |
-| `maxPrice` | number | No | Maximum price per kg in ETB | `maxPrice=50` |
-| `limit` | number | No | Results per page (default: 20, max: 50) | `limit=20` |
-| `nextToken` | string | No | Pagination token from previous response | `nextToken=base64...` |
+| `woreda` | string | No | Filter by woreda (district), exact match | `woreda=Debre Birhan` |
+| `status` | string | No | Filter by status (enum). Default (1.9.0): `available` for buyers and admins; a farmer's own list has every status unless one is given | `status=available` |
+| `limit` | number | No | Page size, default 20. A value above 50 is served as 50 (1.9.0); not a whole number, or below 1: `400 CROP_VALIDATION` | `limit=20` |
+| `nextToken` | string | No | Pagination token from the previous response | `nextToken=eyJ...` |
+
+`zone`, `region`, `minQuantity` and `maxPrice` were listed up to 1.8.0 but never built: the server ignores them. The web marketplace filters price on the device.
 
 **Example Request**:
 ```
 GET /crops?cropType=teff&woreda=Debre%20Birhan&limit=20
 ```
 
-**Response**:
+**Response** (the read model, see Data Models):
 ```json
 {
   "crops": [
     {
-      "id": "crop-456",
+      "cropId": "crop-456",
       "farmerId": "farmer-123",
       "farmerName": "Alemayehu Bekele",
       "cropType": "teff",
-      "quantity": 50.5,
-      "unit": "quintals",
+      "woreda": "Debre Birhan",
+      "quantityKg": 50.5,
       "pricePerKg": 45.0,
-      "currency": "ETB",
-      "location": {
-        "woreda": "Debre Birhan",
-        "zone": "North Shewa",
-        "region": "Amhara",
-        "coordinates": {
-          "latitude": 9.6778,
-          "longitude": 39.5318
-        }
-      },
-      "description": "High-quality white teff, harvested last week",
       "status": "available",
-      "harvestDate": "2026-02-01T00:00:00Z",
       "createdAt": "2026-02-15T10:30:00Z",
       "updatedAt": "2026-02-15T10:30:00Z",
-      "version": 1
+      "version": 1,
+      "description": "High-quality white teff, harvested last week",
+      "locationName": "Debre Birhan",
+      "latitude": 9.6778,
+      "longitude": 39.5318,
+      "photos": [
+        { "photoId": "7d1c0a52-3f0e-4c4b-9a8e-0f3b6c2d9e11", "thumbUrl": "https://..." }
+      ]
     }
   ],
-  "nextToken": "base64-encoded-pagination-token",
-  "hasMore": true,
-  "total": 45
+  "nextToken": "eyJ...",
+  "hasMore": true
 }
 ```
 
 **Response Fields**:
-- `crops` — Array of crop listings matching query
-- `nextToken` — Base64-encoded token for next page (null if no more results)
-- `hasMore` — Boolean indicating if more results available
-- `total` — Total count of matching listings (approximate, for UI display)
+- `crops`: the listings of this page, newest first. `quantityKg` holds quintals (see Data Models).
+- `nextToken`: present only when at least one more listing matches (1.9.0). Absent, never `null`, on the last page.
+- `hasMore` (1.9.0): `true` exactly when `nextToken` is present.
+- There is no `total` (listed up to 1.8.0, never returned). Clients that need a count follow `nextToken` to the end.
+
+**Paging (1.9.0, SIM-26)**: DynamoDB applies the filters (soft-deleted listings, `woreda`, and `status` on a farmer's list) after it counts the page, so one read can come back short while matching listings remain. The server reads again until the page is full, then reads one more listing to learn whether anything follows. Before 1.9.0 a full last page carried a `nextToken` that led to an empty page, and there was no `hasMore`. One request makes at most 5 reads: in a long run of filtered-out listings a page can hold fewer than `limit` listings (even none) while `hasMore` is `true`. Clients keep following `nextToken` while it is present and never treat a short page as the end.
 
 **Error Codes**:
-- `400 Bad Request` — Invalid query parameter (e.g., negative minQuantity)
-- `500 Internal Server Error` — Server-side failure
+- `400 CROP_VALIDATION`: `limit` is not a whole number of at least 1, or `nextToken` is malformed or was changed (tokens are HMAC-signed)
+- `403 CROP_FORBIDDEN`: a trucker, another role or no caller identity; a farmer asking for another farmer's listings
+- `500 CROP_SERVER_ERROR`: server-side failure
 
 ---
 
 ### 3. Get Single Crop Listing
 **Method**: GET /crops/{id}
-**Authentication**: Optional
-**Path Parameters**: `id` (string, UUID) — Crop listing ID
+**Authentication**: Required (F-36). Buyers and admins read any listing; a farmer reads only their own; truckers, other roles and callers without an identity get `403 CROP_FORBIDDEN`.
+**Path Parameters**: `id` (string, UUID): the listing id (`cropId`)
 
 **Example Request**:
 ```
 GET /crops/crop-456
 ```
 
-**Response**:
+**Response**: the listing in the read model (see Data Models), wrapped in `crop`:
 ```json
 {
-  "id": "crop-456",
-  "farmerId": "farmer-123",
-  "farmerName": "Alemayehu Bekele",
-  "farmerPhone": "+251911123456",
-  "cropType": "teff",
-  "quantity": 50.5,
-  "unit": "quintals",
-  "pricePerKg": 45.0,
-  "currency": "ETB",
-  "location": {
+  "crop": {
+    "cropId": "crop-456",
+    "farmerId": "farmer-123",
+    "farmerName": "Alemayehu Bekele",
+    "farmerPhone": "+251911123456",
+    "cropType": "teff",
     "woreda": "Debre Birhan",
-    "zone": "North Shewa",
-    "region": "Amhara",
-    "coordinates": {
-      "latitude": 9.6778,
-      "longitude": 39.5318
-    }
-  },
-  "description": "High-quality white teff, harvested last week",
-  "status": "available",
-  "harvestDate": "2026-02-01T00:00:00Z",
-  "createdAt": "2026-02-15T10:30:00Z",
-  "updatedAt": "2026-02-15T10:30:00Z",
-  "version": 1
+    "quantityKg": 50.5,
+    "pricePerKg": 45.0,
+    "status": "available",
+    "createdAt": "2026-02-15T10:30:00Z",
+    "updatedAt": "2026-02-15T10:30:00Z",
+    "version": 1,
+    "description": "High-quality white teff, harvested last week",
+    "locationName": "Debre Birhan",
+    "latitude": 9.6778,
+    "longitude": 39.5318,
+    "photos": [
+      { "photoId": "7d1c0a52-3f0e-4c4b-9a8e-0f3b6c2d9e11", "thumbUrl": "https://...", "fullUrl": "https://..." }
+    ]
+  }
 }
 ```
 
 **Note**: `farmerPhone` is only included for the listing's own farmer and for admins (1.3.0, ESC-48). A buyer never gets it: contact opens on the order once the farmer accepted the paid order (`order-lifecycle.md` 1.18.0).
 
 **Error Codes**:
-- `404 Not Found` — Crop listing not found or deleted
-- `500 Internal Server Error` — Server-side failure
+- `400 CROP_VALIDATION`: no id in the path
+- `403 CROP_FORBIDDEN`: not a buyer or admin, or a farmer reading another farmer's listing
+- `404 CROP_NOT_FOUND`: no such listing, or it was deleted (`deletedAt` set)
+- `500 CROP_SERVER_ERROR`: server-side failure
 
 ---
 
@@ -302,6 +297,8 @@ Processing is asynchronous (usually 1 to 3 seconds). Until it finishes, or when 
 
 ### CropListing Entity
 
+The listing's domain fields. The read endpoints answer in the flat read model further down.
+
 | Field | Type | Required | Constraints | Description |
 |-------|------|----------|-------------|-------------|
 | `id` | string (UUID) | Yes | — | Unique crop listing identifier |
@@ -331,15 +328,32 @@ Processing is asynchronous (usually 1 to 3 seconds). Until it finishes, or when 
 
 **Photo URLs (1.6.0)**: `thumbUrl` and `fullUrl` are presigned S3 GET URLs, signed only for a caller who passed the visibility gate above. `thumbUrl` lives 6 hours and `fullUrl` 1 hour (less when the server's signing credentials expire first). The query string changes on every read, so clients cache an image by `photoId` and rendition, never by URL, and treat a 403 from S3 as "fetch the listing again".
 
-> **Implementation note — flat wire shape (`CropDto`).** The live `GET /crops`
-> response is **flat**, not the nested `location` object above: it returns
-> top-level `woreda`, `quantityKg`, `pricePerKg`, and — for on-device
-> matching — top-level **`latitude`**, **`longitude`**, and `farmerReliability`
-> (all `double?`, omitted when absent). The web client matches by fetching
-> `GET /crops?status=available` and scoring with the shared `MatchScorer`, so
-> `latitude`/`longitude` MUST be present for true haversine geo-scoring; when
-> absent the matcher falls back to a woreda-string proxy. See
-> `specs/contracts/match-api.md` (same coordinate fields on `MatchDto`).
+### Read Model (`GET /crops`, `GET /crops/{id}`) (1.9.0)
+
+The read endpoints return one flat object per listing (server `CropDto`). It differs from the entity above, and clients (mobile, web, e2e) depend on these names, so they are kept as they are (SIM-26). `GET /crops` lists them under `crops`; `GET /crops/{id}` wraps the one listing in `crop`. A field without a value is omitted, never `null`.
+
+| Field | Type | Always | Description |
+|-------|------|--------|-------------|
+| `cropId` | string (UUID) | Yes | The listing id (`id` in the entity; `entityId` on `/sync`) |
+| `farmerId` | string | Yes | Owner |
+| `farmerName` | string | No | Stamped at create from the farmer's profile (1.2.0) |
+| `farmerPhone` | string | No | Only to the owning farmer and admins (1.3.0) |
+| `cropType` | string | Yes | Crop type enum |
+| `woreda` | string | Yes | Woreda (flat; there is no nested `location` object, and no `zone` or `region`) |
+| `quantityKg` | number | Yes | The free stock in **quintals** (100 kg), despite the name: the stored `quantity`, the same number the farmer sends as `quantity` on `/sync`. The name predates the unit and every client reads it, so it is not renamed |
+| `pricePerKg` | number | Yes | ETB per kilogram |
+| `status` | string | Yes | Status enum |
+| `createdAt`, `updatedAt` | string (ISO 8601) | Yes | Server timestamps |
+| `version` | number | Yes | Optimistic concurrency version |
+| `description` | string | No | Free text (rule 6) |
+| `location` | string | No | Legacy: a free-text place some older listings carry; `/sync` does not accept it |
+| `locationName` | string | No | The place the farmer entered for this listing; clients show it before `woreda` |
+| `deletedAt` | string (ISO 8601) | No | Soft-delete stamp; a deleted listing is never listed and `GET /crops/{id}` answers 404 for it |
+| `farmerReliability` | number | No | 0 to 1, stamped at create for on-device matching |
+| `latitude`, `longitude` | number | No | GPS of the listing. The web client matches by fetching `GET /crops?status=available` and scoring with the shared `MatchScorer`, so they must be returned for true haversine geo-scoring; when absent the matcher falls back to a woreda-string proxy (`match-api.md`, same fields on `MatchDto`) |
+| `photos` | object[] | No | 1.6.0: `{photoId, thumbUrl}` on the list, plus `fullUrl` on the single read |
+
+`unit` (always quintals), `currency` (always ETB), `harvestDate` and the server-only stock sets are not returned.
 
 ### Crop Types (Enum)
 
@@ -439,9 +453,9 @@ Processing is asynchronous (usually 1 to 3 seconds). Until it finishes, or when 
 
 ### Pagination
 - Default limit: 20 listings per page
-- Maximum limit: 50 listings per page
-- Pagination token: Base64-encoded DynamoDB ExclusiveStartKey
-- Token expiration: 24 hours (after which, query restarts from beginning)
+- Maximum limit: 50 listings per page; a larger `limit` is served as 50 (1.9.0)
+- Pagination token: the DynamoDB key to start after, Base64-encoded and HMAC-signed (a changed token is `400 CROP_VALIDATION`). Tokens do not expire
+- No token on the last page, and `hasMore` agrees with the token (1.9.0, see Browse Crop Listings)
 
 ### Indexing
 - **Primary Index**: `id` (partition key)
@@ -493,8 +507,8 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 
 ### Authentication
 - **POST /sync**: Requires JWT token (Cognito)
-- **GET /crops**: Public (no auth required for browsing)
-- **GET /crops/{id}**: Public, but `farmerPhone` only shown to the owning farmer and admins (1.3.0)
+- **GET /crops**: Requires JWT token. Buyers and admins browse every listing; a farmer gets only their own; anyone else `403` (F-36)
+- **GET /crops/{id}**: Same gate; `farmerPhone` only shown to the owning farmer and admins (1.3.0)
 
 ### Authorization
 - Farmers can only create/update/delete their own listings
@@ -544,9 +558,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.6.0 | 2026-10-31 | Crop photos: `POST /crops/{id}/photos` hands out presigned PUT URLs (farmer only, 1 to 4 per call, type and length signed); an S3-triggered processor keeps only a 320 px thumb and a 1024 px full WebP, metadata stripped, original deleted; `photoIds` (2 to 4) required on create (rule 9); `GET /crops` returns `photos[].thumbUrl`, `GET /crops/{id}` adds `photos[].fullUrl` |
 | 1.7.0 | 2026-11-06 | Listings that orders depend on (ESC-18, rule 10): `quantity` is the free stock (exact, never rounded to 2 decimals by the server) and funding takes an order's quintals only when `quantity >= q` (a loser is cancelled with a full refund, `order-lifecycle.md` 2.4.0); server-only `stockRefusedFor` joins `stockDecrementedFor` and `stockRestoredFor`; with `COMMITMENTS_ENABLED`, a `delete` or an update to `status: deleted` is refused with `CROP_HAS_ACTIVE_ORDERS` while an order is `payment_submitted`, `funded`, `awaiting_transport` or `accepted` (orders read through `ListingIdIndex`; unreadable: retryable unprefixed error). No client change (`sync-protocol.md` 1.17.0 already handles the code) |
 | 1.8.0 | 2026-11-06 | The crop `woreda` is screened for a phone number on `/sync` create and update (FUP-98, rule 6b), refused with `CROP_CONTACT_IN_TEXT` like `description` and `locationName` (listed last in `<fields>`), nothing written. Not checked: an unchanged echo of the stored value, or a value equal to the farmer's profile `woreda` after trimming (accounts registered before `auth-api.md` 2.12.0). No client change: the code is permanent on clients since `sync-protocol.md` 1.23.0, and the app sends the profile woreda, which is exempt |
+| 1.9.0 | 2026-11-06 | Read model reconciled with the server (SIM-26). Documented as served, not renamed, because mobile, web and e2e read these names: the flat read model (`cropId`, `quantityKg` that holds quintals, flat `woreda`, no `unit`, `currency`, `zone`, `region` or `harvestDate`), and `GET /crops/{id}` wrapped in `crop`. Server changes: `GET /crops` from a buyer or admin defaults to `status=available` (it listed every status before; a farmer's own list still has every status); a `limit` above 50 is served as 50 (it accepted up to 100 before; web asked for 100 and now asks for 50); the server fills each page and looks one listing ahead, so `nextToken` is sent only when a listing follows, and the new `hasMore` agrees with it. Docs only: `total`, `zone`, `region`, `minQuantity` and `maxPrice` were never built and are gone from the contract; the reads need a caller (F-36), they were marked public; pagination tokens are HMAC-signed and do not expire |
 
 ---
 
 **Last Updated**: 2026-11-06
-**Version**: 1.7.0
+**Version**: 1.9.0
 **Status**: Implemented (Phase R3)

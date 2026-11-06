@@ -37,7 +37,12 @@ interface CropsResponse {
     deletedAt?: string | null;
   }>;
   nextToken?: string;
+  /** True exactly when nextToken is present (crop-listing-api 1.9.0, SIM-26). */
+  hasMore?: boolean;
 }
+
+/** GET /crops serves at most this many listings per page, whatever `limit` asks (SIM-26). */
+const MAX_CROPS_PAGE = 50;
 
 /**
  * Must be one of the server's AllowedCropTypes (SyncFunction.cs), which
@@ -83,7 +88,11 @@ async function readOpResult(res: Response): Promise<SyncOperationResult> {
   return opResult;
 }
 
-/** Fetch all crops for a user via paginated API calls. */
+/**
+ * Fetch all crops for a user via paginated API calls. Every page is checked
+ * against the paging rules (crop-listing-api 1.9.0, SIM-26): `hasMore` agrees
+ * with `nextToken`, and a page reached through a token is never empty.
+ */
 async function fetchAllCrops(
   token: string,
   params: Record<string, string> = {},
@@ -93,6 +102,7 @@ async function fetchAllCrops(
 
   do {
     const qs = new URLSearchParams(params);
+    const followingToken = nextToken !== undefined;
     if (nextToken) qs.set("nextToken", nextToken);
 
     const res = await fetch(`${API_URL}/crops?${qs}`, {
@@ -101,6 +111,15 @@ async function fetchAllCrops(
     expect(res.ok, `GET /crops failed: ${res.status}`).toBeTruthy();
 
     const data: CropsResponse = await res.json();
+    expect(data.hasMore, "hasMore must agree with nextToken").toBe(
+      Boolean(data.nextToken),
+    );
+    if (followingToken) {
+      expect(
+        data.crops.length,
+        "a nextToken must not lead to an empty page",
+      ).toBeGreaterThan(0);
+    }
     allCrops.push(...data.crops);
     nextToken = data.nextToken ?? undefined;
   } while (nextToken);
@@ -392,6 +411,24 @@ test.describe("Listing Creation Flow", () => {
       const found = crops.find((c) => c.cropId === sharedListingId);
       expect(found, "Buyer should see farmer's listing in marketplace").toBeTruthy();
     }
+  });
+
+  test("marketplace browse defaults to available listings and caps pages at 50", async () => {
+    // SIM-26: without a status filter the buyer sees only what can be bought.
+    const browse = await fetchAllCrops(buyerToken);
+    for (const crop of browse) {
+      expect(crop.status, `listing ${crop.cropId} in the default browse`).toBe(
+        "available",
+      );
+    }
+
+    // A limit above 50 is served as 50, not refused (shipped web builds ask for 100).
+    const res = await fetch(`${API_URL}/crops?status=available&limit=100`, {
+      headers: { Authorization: `Bearer ${buyerToken}` },
+    });
+    expect(res.status, "limit above the cap must not be refused").toBe(200);
+    const page: CropsResponse = await res.json();
+    expect(page.crops.length).toBeLessThanOrEqual(MAX_CROPS_PAGE);
   });
 
   test("overview stats API returns correct structure for farmer", async () => {

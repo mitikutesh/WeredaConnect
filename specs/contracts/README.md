@@ -64,7 +64,7 @@ Each contract file follows this structure:
 | Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 1.36.0 | Mobile, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 1.23.0 | Mobile, Backend |
 | Account Deletion | `account-deletion.md` | 1.4.0 | Mobile, Backend, Infrastructure, Admin |
-| Crop Listing API | `crop-listing-api.md` | 1.8.0 | Mobile, Backend, Infrastructure |
+| Crop Listing API | `crop-listing-api.md` | 1.9.0 | Mobile, Backend, Infrastructure |
 | Trip Listing API | `trip-listing-api.md` | 2.3.0 | Mobile, Backend |
 | Buyer Match API | `match-api.md` | 1.2.0 | Mobile, Backend |
 | Match Events (`match_event` sync entity) | `match-events.md` | n/a | Mobile, Backend |
