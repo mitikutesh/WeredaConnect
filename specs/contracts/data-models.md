@@ -428,7 +428,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.4.0 | 2026-10-31 | CropListing gains `photos` (embedded `CropPhoto`, crop-listing-api 1.6.0); Isar schema and web mirror | @Mobile |
 | 1.4.1 | 2026-11-06 | Order `cancelReason` lists the server code `listing_out_of_stock` (a funding that lost the listing's stock, order-lifecycle 2.4.0, ESC-18). No schema change | @Server |
 | 1.5.0 | 2026-11-06 | Order gains `dropoffNote`, the buyer's drop-off landmark (order-lifecycle 2.5.0, LT-12): server DTO, Isar schema and web mirror; returned per caller | @Server @Mobile |
-| 1.5.1 | 2026-11-06 | Order money fields are stored to the santim, `orderTotal` their exact sum (order-lifecycle 2.6.0, SIM-30); no field change | @Server |
+| 1.5.1 | 2026-11-06 | Order money fields are stored to the santim, `orderTotal` their exact sum (order-lifecycle 2.7.0, SIM-30); no field change | @Server |
 
 ---
 
