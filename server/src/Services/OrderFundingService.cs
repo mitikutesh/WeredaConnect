@@ -143,7 +143,7 @@ public sealed class OrderFundingService
         var escrowCreated = await EnsureEscrowAsync(fundedOrder, actor, auditContext, context);
         if (stock == StockDecrementResult.InsufficientStock)
         {
-            var ended = await EndOutOfStockAsync(fundedOrder, escrowCreated, context);
+            var ended = await EndOutOfStockAsync(fundedOrder, escrowCreated, actor, auditContext, context);
             return new FundingSideEffectsResult(stock, escrowCreated, Trip: null, OutOfStockOrder: ended);
         }
 
@@ -176,11 +176,14 @@ public sealed class OrderFundingService
     /// whole amount back, commission included, once per escrow) and a trip booking an earlier
     /// attempt may have made is released. No stock is restored: none was taken.
     /// Returns the ended order, or null when it could not be ended: an order that has moved on
-    /// (a farmer already accepted it) or a failed write is logged with the alarmable
-    /// <c>ORDER_STOCK_DECREMENT_FAILED</c> token, since it now needs stock the listing no longer has.
+    /// or whose farmer accepted (checked on the row read and again in the write's condition, so an
+    /// accept that lands in between is never cancelled), or a failed write, is logged with the
+    /// alarmable <c>ORDER_STOCK_DECREMENT_FAILED</c> token, since it now needs stock the listing
+    /// no longer has.
     /// </summary>
     private async Task<Dictionary<string, object>?> EndOutOfStockAsync(
-        Dictionary<string, object> fundedOrder, bool escrowExists, ILambdaContext context)
+        Dictionary<string, object> fundedOrder, bool escrowExists, string actor, AuditContext? auditContext,
+        ILambdaContext context)
     {
         var orderId = GetString(fundedOrder, "orderId");
         var listingId = GetString(fundedOrder, "listingId");
@@ -208,7 +211,8 @@ public sealed class OrderFundingService
         {
             foreach (var from in OutOfStockEndableStatuses)
             {
-                ended = await _orderRepo.TryAdvanceStatusAsync(orderId, from, OutOfStockStatus, fields);
+                ended = await _orderRepo.TryAdvanceStatusUnlessAsync(orderId, from, OutOfStockStatus, fields,
+                    OrderCommitment.FarmerResponseField, OrderCommitment.Response.Accepted);
                 if (ended != null)
                 {
                     endedFrom = from;
@@ -226,9 +230,15 @@ public sealed class OrderFundingService
                     || GetString(current, "status") != OutOfStockStatus
                     || GetString(current, "cancelReason") != OutOfStockReason)
                 {
+                    // Moved on, or the farmer accepted after the read (the write's condition refused it).
+                    var state = current == null ? "missing"
+                        : GetString(current, OrderCommitment.FarmerResponseField) == OrderCommitment.Response.Accepted
+                          && OutOfStockEndableStatuses.Contains(GetString(current, "status"))
+                            ? "farmer_accepted"
+                            : MoneyAlarmLog.LogId(GetString(current, "status"));
                     context.Logger.LogError(
                         $"ORDER_STOCK_DECREMENT_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)} "
-                        + $"reason=insufficient_stock status={MoneyAlarmLog.LogId(current == null ? "missing" : GetString(current, "status"))}");
+                        + $"reason=insufficient_stock status={state}");
                     return null;
                 }
 
@@ -255,7 +265,7 @@ public sealed class OrderFundingService
                 metadata: $"cancelReason={OutOfStockReason};listingId={listingId}");
         }
 
-        await ScheduleOutOfStockRefundAsync(orderId, escrowExists, context);
+        await ScheduleOutOfStockRefundAsync(fundedOrder, escrowExists, actor, auditContext, context);
 
         // FUP-123: no capacity is reserved after a lost stock race, but a funding attempt that
         // crashed after its reservation left one; give it back. Never throws.
@@ -270,14 +280,27 @@ public sealed class OrderFundingService
     /// ESC-18: expire the ended order's escrow now (<c>refundReason: listing_out_of_stock</c>) so
     /// the hourly refund sweep pays the buyer back through the gateway path every refund takes.
     /// The escrow was usually written a moment before, and the lookup reads are eventually
-    /// consistent, so an escrow known to exist that is not found is looked for once more. The same
-    /// alarm token as the other cancel paths when it still cannot be armed: the money then stays
-    /// held until the 7 day sweep refunds the terminal order.
+    /// consistent, so an escrow known to exist that is not found is looked for once more. An
+    /// escrow whose create failed is created once more first: the order is cancelled now, so no
+    /// redelivery or delivery link will create it later. The same alarm token as the other cancel
+    /// paths when the refund still cannot be armed: <c>reason=no_escrow</c> means the money is held
+    /// with no escrow record (a person refunds it by hand); any other reason means the 7 day sweep
+    /// refunds the terminal order.
     /// </summary>
-    private async Task ScheduleOutOfStockRefundAsync(string orderId, bool escrowExists, ILambdaContext context)
+    private async Task ScheduleOutOfStockRefundAsync(
+        Dictionary<string, object> fundedOrder, bool escrowExists, string actor, AuditContext? auditContext,
+        ILambdaContext context)
     {
-        if (_escrowService == null)
+        var orderId = GetString(fundedOrder, "orderId");
+        if (!escrowExists && _escrowService != null)
         {
+            escrowExists = await EnsureEscrowAsync(fundedOrder, actor, auditContext, context);
+        }
+
+        if (!escrowExists || _escrowService == null)
+        {
+            context.Logger.LogError(
+                $"ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} reason=no_escrow");
             return;
         }
 
@@ -285,7 +308,7 @@ public sealed class OrderFundingService
         {
             var scheduled = await _escrowService.ScheduleRefundForOrderAsync(
                 orderId, OutOfStockReason, "system", AuditContext.ForSystem());
-            if (!scheduled && escrowExists)
+            if (!scheduled)
             {
                 await Task.Delay(RefundScheduleRetryDelay);
                 scheduled = await _escrowService.ScheduleRefundForOrderAsync(
@@ -297,15 +320,10 @@ public sealed class OrderFundingService
                 context.Logger.LogInformation(
                     $"Order escrow refund scheduled: orderId={MoneyAlarmLog.LogId(orderId)} reason={OutOfStockReason}");
             }
-            else if (escrowExists)
+            else
             {
                 context.Logger.LogError(
                     $"ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} reason=escrow_not_armable");
-            }
-            else
-            {
-                context.Logger.LogInformation(
-                    $"No order escrow to arm for orderId={MoneyAlarmLog.LogId(orderId)} ({OutOfStockReason}); its create failed and was alarmed.");
             }
         }
         catch (Exception ex)

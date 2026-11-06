@@ -190,6 +190,36 @@ public sealed class ListingStockRaceDynamoDbTests
         Quantity(await ListingAsync()).Should().Be(3m);
     }
 
+    [LocalDynamoDbTheory]
+    [InlineData("accepted", false)]
+    [InlineData("pending", true)]
+    [InlineData(null, true)]
+    public async Task OutOfStockCancel_NeverLandsOnAnOrderTheFarmerAccepted(string? farmerResponse, bool lands)
+    {
+        var orderId = $"order-esc18-{Guid.NewGuid():N}";
+        var item = new Dictionary<string, AttributeValue>
+        {
+            ["orderId"] = S(orderId),
+            ["createdAt"] = S("2026-11-06T07:00:00.0000000Z"),
+            ["status"] = S("funded"),
+            ["version"] = N("3")
+        };
+        if (farmerResponse != null)
+        {
+            item["farmerResponse"] = S(farmerResponse);
+        }
+
+        await Ddb.PutItemAsync(new PutItemRequest { TableName = _db.Orders, Item = item });
+
+        var ended = await Orders.TryAdvanceStatusUnlessAsync(orderId, "funded", OrderFundingService.OutOfStockStatus,
+            new Dictionary<string, object> { { "cancelReason", OrderFundingService.OutOfStockReason } },
+            "farmerResponse", "accepted");
+
+        (ended != null).Should().Be(lands);
+        var stored = await Orders.GetByIdAsync(orderId, consistentRead: true);
+        stored!["status"].Should().Be(lands ? OrderFundingService.OutOfStockStatus : "funded");
+    }
+
     [LocalDynamoDbFact]
     public async Task ListingOrders_AreReadThroughTheListingIndex()
     {

@@ -453,7 +453,8 @@ public class TelebirrWebhookFunctionTests
         _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
             .Returns(StoredOrder("funded", OrderPaymentId));
         _cropRepo.TryDecrementStockAsync("listing-1", OrderId, 5.0).Returns(StockDecrementResult.InsufficientStock);
-        _orderRepo.TryAdvanceStatusAsync(OrderId, "funded", OrderFundingService.OutOfStockStatus, Arg.Any<Dictionary<string, object>?>())
+        _orderRepo.TryAdvanceStatusUnlessAsync(OrderId, "funded", OrderFundingService.OutOfStockStatus, Arg.Any<Dictionary<string, object>?>(),
+                Arg.Any<string>(), Arg.Any<string>())
             .Returns(StoredOrder(OrderFundingService.OutOfStockStatus, OrderPaymentId));
         _escrowRepo.GetByIdAsync(OrderEscrowId).Returns(new Dictionary<string, object>
         {
@@ -464,11 +465,12 @@ public class TelebirrWebhookFunctionTests
 
         resp.StatusCode.Should().Be(200);
         await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied");
-        await _orderRepo.Received(1).TryAdvanceStatusAsync(OrderId, "funded", OrderFundingService.OutOfStockStatus,
+        await _orderRepo.Received(1).TryAdvanceStatusUnlessAsync(OrderId, "funded", OrderFundingService.OutOfStockStatus,
             Arg.Is<Dictionary<string, object>?>(f => f != null
                 && (string)f["cancelReason"] == "listing_out_of_stock"
                 && (string)f[OrderCommitment.FaultPartyField] == OrderCommitment.Party.None
-                && (string)f[OrderCommitment.CancelledByField] == OrderCommitment.Party.System));
+                && (string)f[OrderCommitment.CancelledByField] == OrderCommitment.Party.System),
+            OrderCommitment.FarmerResponseField, OrderCommitment.Response.Accepted);
         await _escrowRepo.Received(1).UpdateStatusAsync(OrderEscrowId, VerifiedAt, "escrowed", "escrowed",
             Arg.Is<Dictionary<string, object>?>(f => f != null && (string)f["refundReason"] == "listing_out_of_stock"));
         await _cropRepo.DidNotReceive().TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
@@ -484,8 +486,9 @@ public class TelebirrWebhookFunctionTests
         await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
 
         await _cropRepo.DidNotReceive().TryDecrementStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
-        await _orderRepo.DidNotReceive().TryAdvanceStatusAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+        await _orderRepo.DidNotReceive().TryAdvanceStatusUnlessAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>(),
+            Arg.Any<string>(), Arg.Any<string>());
         await _escrowRepo.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
         await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied_again");

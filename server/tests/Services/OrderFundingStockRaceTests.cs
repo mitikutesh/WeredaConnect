@@ -32,7 +32,8 @@ public class OrderFundingStockRaceTests
 
     public OrderFundingStockRaceTests()
     {
-        _orders.TryAdvanceStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>())
+        _orders.TryAdvanceStatusUnlessAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>(),
+                OrderCommitment.FarmerResponseField, OrderCommitment.Response.Accepted)
             .Returns(call =>
             {
                 var (orderId, from, to, fields) = (call.ArgAt<string>(0), call.ArgAt<string>(1), call.ArgAt<string>(2),
@@ -266,10 +267,11 @@ public class OrderFundingStockRaceTests
         // A repair: the first attempt's decrement failed and the trip was full; the order waits on
         // the buyer. It holds no stock, so it ends from awaiting_transport.
         _crops.TryDecrementStockAsync(ListingId, "order-a", 5.0).Returns(StockDecrementResult.InsufficientStock);
-        _orders.TryAdvanceStatusAsync("order-a", OrderCommitment.AwaitingTransportStatus, OrderFundingService.OutOfStockStatus,
-                Arg.Any<Dictionary<string, object>?>())
+        _orders.TryAdvanceStatusUnlessAsync("order-a", OrderCommitment.AwaitingTransportStatus, OrderFundingService.OutOfStockStatus,
+                Arg.Any<Dictionary<string, object>?>(), Arg.Any<string>(), Arg.Any<string>())
             .Returns(new Dictionary<string, object> { { "orderId", "order-a" }, { "status", OrderFundingService.OutOfStockStatus } });
-        _orders.TryAdvanceStatusAsync("order-a", "funded", Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>())
+        _orders.TryAdvanceStatusUnlessAsync("order-a", "funded", Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>(),
+                Arg.Any<string>(), Arg.Any<string>())
             .Returns((Dictionary<string, object>?)null);
 
         var result = await Service().EnsureFundedSideEffectsAsync(FundedOrder("order-a", 500), "telebirr", null, _context);
@@ -283,7 +285,8 @@ public class OrderFundingStockRaceTests
     public async Task OutOfStock_EndedAlreadyByAConcurrentDelivery_RefundArmedAgainHarmlessly_NoAlarm()
     {
         _crops.TryDecrementStockAsync(ListingId, "order-a", 5.0).Returns(StockDecrementResult.InsufficientStock);
-        _orders.TryAdvanceStatusAsync("order-a", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>())
+        _orders.TryAdvanceStatusUnlessAsync("order-a", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>(),
+                Arg.Any<string>(), Arg.Any<string>())
             .Returns((Dictionary<string, object>?)null);
         _orders.GetByIdAsync("order-a", true).Returns(new Dictionary<string, object>
         {
@@ -307,7 +310,8 @@ public class OrderFundingStockRaceTests
         // The farmer accepted between the read and the end (flag off: funded -> accepted). The
         // order now needs stock the listing does not have: a person decides, no refund is armed.
         _crops.TryDecrementStockAsync(ListingId, "order-a", 5.0).Returns(StockDecrementResult.InsufficientStock);
-        _orders.TryAdvanceStatusAsync("order-a", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>())
+        _orders.TryAdvanceStatusUnlessAsync("order-a", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>(),
+                Arg.Any<string>(), Arg.Any<string>())
             .Returns((Dictionary<string, object>?)null);
         _orders.GetByIdAsync("order-a", true).Returns(new Dictionary<string, object> { { "orderId", "order-a" }, { "status", "accepted" } });
 
@@ -334,10 +338,80 @@ public class OrderFundingStockRaceTests
     }
 
     [Fact]
+    public async Task OutOfStock_FarmerAcceptsInTheRepairWindow_TheWriteRefuses_AndItIsLeftForAPerson()
+    {
+        // The row read still said pending; the farmer's accept landed before the cancel. The cancel's
+        // condition (farmerResponse <> accepted) refuses it, so the accept is never undone.
+        _crops.TryDecrementStockAsync(ListingId, "order-a", 5.0).Returns(StockDecrementResult.InsufficientStock);
+        _orders.TryAdvanceStatusUnlessAsync("order-a", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>(),
+                Arg.Any<string>(), Arg.Any<string>())
+            .Returns((Dictionary<string, object>?)null);
+        _orders.GetByIdAsync("order-a", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-a" }, { "status", "funded" },
+            { OrderCommitment.FarmerResponseField, OrderCommitment.Response.Accepted }
+        });
+
+        var result = await Service().EnsureFundedSideEffectsAsync(FundedOrder("order-a", 500), "telebirr", null, _context);
+
+        result.OutOfStockOrder.Should().BeNull();
+        await _orders.Received().TryAdvanceStatusUnlessAsync("order-a", "funded", OrderFundingService.OutOfStockStatus,
+            Arg.Any<Dictionary<string, object>?>(), OrderCommitment.FarmerResponseField, OrderCommitment.Response.Accepted);
+        Logs.Should().Contain("ORDER_STOCK_DECREMENT_FAILED").And.Contain("status=farmer_accepted");
+        await _escrows.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _trips.DidNotReceive().TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+    }
+
+    [Fact]
+    public async Task OutOfStock_EscrowCreateFailedAtFunding_IsCreatedOnceMore_ThenArmed()
+    {
+        // The order is cancelled now, so no redelivery or delivery link would create the escrow later.
+        _crops.TryDecrementStockAsync(ListingId, "order-a", 5.0).Returns(StockDecrementResult.InsufficientStock);
+        _escrows.GetByIdAsync("escrow-order-order-a").Returns((Dictionary<string, object>?)null);
+        // Create attempt 1 finds none and its write fails; attempt 2 finds none and writes; the
+        // arming then finds it.
+        _escrows.QueryByOrderIdAsync("order-a", Arg.Any<int>()).Returns(
+            _ => new List<Dictionary<string, object>>(),
+            _ => new List<Dictionary<string, object>>(),
+            _ => new List<Dictionary<string, object>> { Escrow("order-a") });
+        var creates = 0;
+        _escrows.CreateAsync(Arg.Any<Dictionary<string, object>>())
+            .Returns(_ => ++creates == 1 ? throw new InvalidOperationException("dynamo down") : Task.CompletedTask);
+
+        var result = await Service().EnsureFundedSideEffectsAsync(FundedOrder("order-a", 500), "telebirr", null, _context);
+
+        result.EscrowCreated.Should().BeFalse();
+        result.OutOfStockOrder.Should().NotBeNull();
+        creates.Should().Be(2);
+        await _escrows.Received(1).UpdateStatusAsync("escrow-order-order-a", Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>?>(f => f != null && (string)f["refundReason"] == "listing_out_of_stock"));
+        Logs.Should().NotContain("ORDER_ESCROW_REFUND_SCHEDULE_FAILED");
+    }
+
+    [Fact]
+    public async Task OutOfStock_EscrowCannotBeCreated_IsAlarmedAsNoEscrow()
+    {
+        _crops.TryDecrementStockAsync(ListingId, "order-a", 5.0).Returns(StockDecrementResult.InsufficientStock);
+        _escrows.GetByIdAsync("escrow-order-order-a").Returns((Dictionary<string, object>?)null);
+        _escrows.QueryByOrderIdAsync("order-a", Arg.Any<int>()).Returns(new List<Dictionary<string, object>>());
+        _escrows.CreateAsync(Arg.Any<Dictionary<string, object>>()).ThrowsAsync(new InvalidOperationException("dynamo down"));
+
+        var result = await Service().EnsureFundedSideEffectsAsync(FundedOrder("order-a", 500), "telebirr", null, _context);
+
+        result.OutOfStockOrder.Should().NotBeNull();
+        await _escrows.Received(2).CreateAsync(Arg.Any<Dictionary<string, object>>());
+        Logs.Should().Contain("ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId=").And.Contain("reason=no_escrow");
+        await _escrows.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
     public async Task OutOfStock_EndWriteThrows_IsAlarmed_AndNothingElseRuns()
     {
         _crops.TryDecrementStockAsync(ListingId, "order-a", 5.0).Returns(StockDecrementResult.InsufficientStock);
-        _orders.TryAdvanceStatusAsync("order-a", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>())
+        _orders.TryAdvanceStatusUnlessAsync("order-a", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>(),
+                Arg.Any<string>(), Arg.Any<string>())
             .ThrowsAsync(new InvalidOperationException("dynamo down"));
 
         var result = await Service().EnsureFundedSideEffectsAsync(FundedOrder("order-a", 500), "telebirr", null, _context);

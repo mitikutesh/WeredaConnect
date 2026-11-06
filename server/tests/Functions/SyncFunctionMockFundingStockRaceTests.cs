@@ -60,7 +60,8 @@ public sealed class SyncFunctionMockFundingStockRaceTests : IDisposable
             _stored = next;
             return AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>(next));
         });
-        _orders.TryAdvanceStatusAsync(OrderId, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>())
+        _orders.TryAdvanceStatusUnlessAsync(OrderId, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>(),
+                Arg.Any<string>(), Arg.Any<string>())
             .Returns(call =>
             {
                 if (_stored["status"].ToString() != call.ArgAt<string>(1))
@@ -124,8 +125,9 @@ public sealed class SyncFunctionMockFundingStockRaceTests : IDisposable
 
         result.GetProperty("serverVersion").GetInt32().Should().Be(3);
         result.GetProperty("serverData").GetProperty("status").GetString().Should().Be("funded");
-        await _orders.DidNotReceive().TryAdvanceStatusAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+        await _orders.DidNotReceive().TryAdvanceStatusUnlessAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>(),
+            Arg.Any<string>(), Arg.Any<string>());
         await _escrows.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
         _auditActions.Should().Contain("payment_verified").And.NotContain("order_cancelled");

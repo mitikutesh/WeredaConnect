@@ -885,8 +885,19 @@ public sealed class OrderRepository : IOrderRepository
     }
 
     /// <inheritdoc />
-    public async Task<Dictionary<string, object>?> TryAdvanceStatusAsync(
+    public Task<Dictionary<string, object>?> TryAdvanceStatusAsync(
         string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields = null)
+        => AdvanceStatusCoreAsync(orderId, fromStatus, toStatus, extraFields, unless: null);
+
+    /// <inheritdoc />
+    public Task<Dictionary<string, object>?> TryAdvanceStatusUnlessAsync(
+        string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields,
+        string unlessField, string unlessValue)
+        => AdvanceStatusCoreAsync(orderId, fromStatus, toStatus, extraFields, (unlessField, unlessValue));
+
+    private async Task<Dictionary<string, object>?> AdvanceStatusCoreAsync(
+        string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields,
+        (string Field, string Value)? unless)
     {
         var existing = await GetItemAsync(orderId, consistentRead: true);
         if (existing == null)
@@ -926,12 +937,20 @@ public sealed class OrderRepository : IOrderRepository
             }
         }
 
+        var condition = "attribute_exists(orderId) AND #status = :from";
+        if (unless != null)
+        {
+            attrNames["#unless"] = unless.Value.Field;
+            attrValues[":unless"] = new AttributeValue { S = unless.Value.Value };
+            condition += " AND (attribute_not_exists(#unless) OR #unless <> :unless)";
+        }
+
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
             Key = OrderKey(orderId, existing["createdAt"].S),
             UpdateExpression = "SET " + string.Join(", ", setParts) + " ADD #v :one",
-            ConditionExpression = "attribute_exists(orderId) AND #status = :from",
+            ConditionExpression = condition,
             ExpressionAttributeNames = attrNames,
             ExpressionAttributeValues = attrValues,
             ReturnValues = ReturnValue.ALL_NEW

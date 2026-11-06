@@ -166,6 +166,34 @@ public class OrderRepositoryTripQueryTests
         _updates.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task AdvanceStatusUnless_AddsTheRefusingValueToTheSameCondition()
+    {
+        // ESC-18: an out-of-stock cancel must not land on an order the farmer accepted after the read.
+        var updated = await _repo.TryAdvanceStatusUnlessAsync(OrderId, "funded", "cancelled",
+            new Dictionary<string, object> { { "cancelReason", "listing_out_of_stock" } }, "farmerResponse", "accepted");
+
+        updated.Should().NotBeNull();
+        var update = _updates.Should().ContainSingle().Subject;
+        update.ConditionExpression.Should().Be(
+            "attribute_exists(orderId) AND #status = :from AND (attribute_not_exists(#unless) OR #unless <> :unless)");
+        update.ExpressionAttributeNames["#unless"].Should().Be("farmerResponse");
+        update.ExpressionAttributeValues[":unless"].S.Should().Be("accepted");
+        update.ExpressionAttributeValues[":from"].S.Should().Be("funded");
+        update.ExpressionAttributeValues[":to"].S.Should().Be("cancelled");
+        update.UpdateExpression.Should().Be("SET #status = :to, #updated = :updated, #f0 = :f0 ADD #v :one");
+    }
+
+    [Fact]
+    public async Task AdvanceStatusUnless_Refused_ReturnsNull()
+    {
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("farmer accepted"));
+
+        (await _repo.TryAdvanceStatusUnlessAsync(OrderId, "funded", "cancelled", null, "farmerResponse", "accepted"))
+            .Should().BeNull();
+    }
+
     // --- TryStampAsync ---
 
     [Fact]
