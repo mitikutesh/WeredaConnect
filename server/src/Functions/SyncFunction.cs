@@ -472,7 +472,9 @@ public partial class SyncFunction
 
     // QR handoff freshness / offline-defer windows (days). Generous, because rural
     // handoffs sync late; the point is to stop indefinitely-stale codes and to give up
-    // deferring a money-bearing transition whose nonce is clearly never going to arrive.
+    // deferring a QR-gated handoff (every pickup since FRD-11, a paid drop-off) whose
+    // nonce is clearly never going to arrive. The defer window counts from the later of
+    // the delivery's creation and the scan (AwaitFarmerNonce).
     private const int QrNonceFreshnessDays = 14;
     private const int QrNonceMaxDeferDays = 14;
 
@@ -8366,16 +8368,21 @@ public partial class SyncFunction
     /// <summary>
     /// A QR-gated handoff with no farmer's nonce on record: <c>deferred</c> while the nonce may still
     /// sync (nothing written, the op stays queued without using a retry), <paramref name="refusal"/>
-    /// once the delivery is older than <see cref="QrNonceMaxDeferDays"/>.
+    /// once <see cref="QrNonceMaxDeferDays"/> have passed since the later of the delivery's creation
+    /// and the scan (the operation's <c>timestamp</c>, when plausible). From creation alone, a delivery
+    /// made weeks before its trip was refused at the first sync of an honest offline scan.
     /// </summary>
     private static SyncOperationResult AwaitFarmerNonce(
         SyncOperationRequest operation, Dictionary<string, AttributeValue> delivery, string refusal)
     {
-        var createdAtStr = delivery.TryGetValue("createdAt", out var caAttr) ? caAttr.S : null;
-        var tooOld = createdAtStr != null
-            && DateTime.TryParse(createdAtStr, CultureInfo.InvariantCulture,
-                DateTimeStyles.RoundtripKind, out var deliveryCreatedAt)
-            && DateTime.UtcNow - deliveryCreatedAt.ToUniversalTime() > TimeSpan.FromDays(QrNonceMaxDeferDays);
+        var now = DateTime.UtcNow;
+        var createdAt = TransactionPatternRules.ParseUtc(
+            delivery.TryGetValue("createdAt", out var caAttr) ? caAttr.S : null);
+        var scannedAt = TransactionPatternRules.PlausibleCaptureTime(operation.Timestamp, now);
+        var windowStart = createdAt is { } created && scannedAt is { } scanned
+            ? (created > scanned ? created : scanned)
+            : createdAt ?? scannedAt;
+        var tooOld = windowStart is { } start && now - start > TimeSpan.FromDays(QrNonceMaxDeferDays);
         return tooOld
             ? new SyncOperationResult
             {

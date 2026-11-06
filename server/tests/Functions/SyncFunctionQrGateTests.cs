@@ -9,6 +9,7 @@ using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.Services;
 using Xunit;
 
 namespace WeredaConnect.Server.Tests.Functions;
@@ -44,6 +45,9 @@ public sealed class SyncFunctionQrGateTests
     private readonly IDeliveryQrSecretRepository _qrSecrets = Substitute.For<IDeliveryQrSecretRepository>();
     private readonly ICropRepository _crops = Substitute.For<ICropRepository>();
     private readonly TestLambdaContext _context = new();
+
+    /// <summary>The operation's <c>timestamp</c> (when the phone made the scan); none by default.</summary>
+    private string? _opTimestamp;
 
     private string Logs => ((TestLambdaLogger)_context.Logger).Buffer.ToString();
 
@@ -301,6 +305,76 @@ public sealed class SyncFunctionQrGateTests
         result.GetProperty("message").GetString().Should()
             .StartWith("DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server for this pickup.");
         await AssertNothingWrittenAsync();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pickup_OnAnOldDelivery_ScannedJustNow_IsDeferred_NotRefused(bool selfPickup)
+    {
+        // A delivery made weeks before its trip departs: the farmer's nonce waits in an offline
+        // queue and the scan syncs first. The 14 days count from the scan, not from the create.
+        var created = DateTime.UtcNow.AddDays(-20);
+        SetupDelivery(selfPickup ? SelfPickupDelivery("pending", created) : TruckDelivery("pending", createdAt: created));
+        SetupListingAtTheFarm();
+        _opTimestamp = DateTime.UtcNow.AddMinutes(-3).ToString("o");
+
+        var result = selfPickup
+            ? await SendAsync("delivered", BuyerId, "buyer", true,
+                ("scannedQrNonce", "farmer-nonce-1"), GpsAtTheFarm("gpsDropoff"))
+            : await SendAsync("pickedUp", TruckerId, "trucker", true, ("scannedQrNonce", "farmer-nonce-1"));
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        result.GetProperty("message").GetString().Should().StartWith(NoncePending);
+        await AssertNothingWrittenAsync();
+    }
+
+    [Fact]
+    public async Task Pickup_ScannedMoreThan14DaysAgo_IsRefused()
+    {
+        SetupDelivery(TruckDelivery("pending", createdAt: DateTime.UtcNow.AddDays(-20)));
+        _opTimestamp = DateTime.UtcNow.AddDays(-15).ToString("o");
+
+        var result = await SendAsync("pickedUp", TruckerId, "trucker", true, ("scannedQrNonce", "farmer-nonce-1"));
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().StartWith("DELIVERY_NONCE_MISSING: The farmer");
+        await AssertNothingWrittenAsync();
+    }
+
+    [Fact]
+    public async Task Pickup_ImplausibleScanTime_FallsBackToTheCreate()
+    {
+        // A phone clock far ahead is not believed: the window counts from the create, as before.
+        SetupDelivery(TruckDelivery("pending", createdAt: DateTime.UtcNow.AddDays(-20)));
+        _opTimestamp = DateTime.UtcNow.AddDays(3).ToString("o");
+
+        var result = await SendAsync("pickedUp", TruckerId, "trucker", true, ("scannedQrNonce", "farmer-nonce-1"));
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        await AssertNothingWrittenAsync();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pickup_TypedCode_NoNonce_NoEscrow_IsDeferred(bool selfPickup)
+    {
+        // The typed fallback waits for the farmer's nonce like a scan; nothing to check it against yet.
+        SetupDelivery(selfPickup ? SelfPickupDelivery("pending") : TruckDelivery("pending"));
+        SetupListingAtTheFarm();
+        var code = HandoffCode.Derive("farmer-nonce-1", DeliveryId);
+
+        var result = selfPickup
+            ? await SendAsync("delivered", BuyerId, "buyer", true, ("scannedQrCode", code), GpsAtTheFarm("gpsDropoff"))
+            : await SendAsync("pickedUp", TruckerId, "trucker", true, ("scannedQrCode", code), GpsAtTheFarm("gpsPickup"));
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        result.GetProperty("message").GetString().Should().StartWith(NoncePending);
+        await AssertNothingWrittenAsync();
+        await AssertNoEscrowReadAsync();
+        await _qrSecrets.DidNotReceive().TryTakeCodeAttemptAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>());
     }
 
     [Fact]
@@ -630,6 +704,7 @@ public sealed class SyncFunctionQrGateTests
                         EntityType = "delivery",
                         EntityId = DeliveryId,
                         Action = "update",
+                        Timestamp = _opTimestamp,
                         Data = data
                     }
                 }
