@@ -5,6 +5,8 @@ import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
+import 'package:wereda_connect/core/sync/order_lead_store.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
@@ -25,10 +27,22 @@ import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 class MatchingService extends BaseMatchingService {
   final Isar _isar;
 
+  /// FUP-122: the server's order lead in hours as the last trip pull cached
+  /// it ([OrderLeadStore]); null when unknown.
+  final Future<int?> Function() _orderLeadHours;
+
+  final DateTime Function() _clock;
+
   /// Shared, platform-agnostic relevance scorer (identical math on web).
   static const MatchScorer _scorer = MatchScorer();
 
-  MatchingService({required Isar isar}) : _isar = isar;
+  MatchingService({
+    required Isar isar,
+    Future<int?> Function()? orderLeadHours,
+    DateTime Function()? clock,
+  })  : _isar = isar,
+        _orderLeadHours = orderLeadHours ?? OrderLeadStore().read,
+        _clock = clock ?? DateTime.now;
 
   /// Match crop listings against a buyer intent.
   ///
@@ -46,7 +60,8 @@ class MatchingService extends BaseMatchingService {
   Future<List<CropMatchResult>> matchListingsForIntent(
     BuyerIntent intent,
   ) async {
-    final now = DateTime.now().toUtc();
+    final now = _clock().toUtc();
+    final orderLeadHours = await _orderLeadHours();
     final types = _scorer.candidateCropTypes(intent.cropType);
 
     // Query active listings for the exact + substitute crop types. The
@@ -68,11 +83,13 @@ class MatchingService extends BaseMatchingService {
 
       // Find trips for this listing → buyer's delivery destination, honouring
       // the buyer's delivery deadline (trips that depart too late are dropped).
-      final trips = await findTripsForListing(
+      final trips = await _tripsForListing(
         listing,
         intent.deliveryWoreda,
         intent.quantityNeeded,
         neededByDate: intent.neededByDate,
+        now: now,
+        orderLeadHours: orderLeadHours,
       );
 
       // Compute estimated total with cheapest trip
@@ -115,6 +132,8 @@ class MatchingService extends BaseMatchingService {
   ///   whole-word partial, so "Adama, Oromia" meets "Ādama")
   /// - toWoreda names the buyer's delivery woreda (same rule)
   /// - departureDate is in the future
+  /// - departureDate is at least the server's order lead ahead when the
+  ///   server runs the commitments (FUP-122, [tripInsideOrderLead])
   /// - departureDate is on/before [neededByDate] when the buyer set a deadline
   /// - capacity >= quantityNeeded
   ///
@@ -125,7 +144,24 @@ class MatchingService extends BaseMatchingService {
     double quantityNeeded, {
     DateTime? neededByDate,
   }) async {
-    final now = DateTime.now().toUtc();
+    return _tripsForListing(
+      listing,
+      deliveryWoreda,
+      quantityNeeded,
+      neededByDate: neededByDate,
+      now: _clock().toUtc(),
+      orderLeadHours: await _orderLeadHours(),
+    );
+  }
+
+  Future<List<Trip>> _tripsForListing(
+    CropListing listing,
+    String deliveryWoreda,
+    double quantityNeeded, {
+    required DateTime now,
+    required int? orderLeadHours,
+    DateTime? neededByDate,
+  }) async {
     // FUP-85: compare by Ethiopia calendar day, not by instant. A trip's
     // departureDate is stored as the instant of local midnight, so by
     // mid-morning it is already "in the past" and the old instant filter
@@ -159,6 +195,9 @@ class MatchingService extends BaseMatchingService {
       if (startOfDayInEthiopia(trip.departureDate).isBefore(todayStart)) {
         return false;
       }
+      // FUP-122: with the commitments on, the order create refuses a trip
+      // departing within the lead (24 hours), so it is not suggested.
+      if (tripInsideOrderLead(trip, now, orderLeadHours)) return false;
       // ESC-15: a booked trip has only its remaining room (the capacity
       // filter above is the upper bound).
       if (tripRoomLeft(trip) < quantityNeeded - 0.01) return false;

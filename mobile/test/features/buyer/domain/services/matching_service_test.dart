@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar/isar.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/core/sync/order_lead_store.dart';
 import 'package:wereda_connect/features/buyer/data/repositories/buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart';
 
@@ -231,6 +233,109 @@ void main() {
         ['trip-today'],
         reason: 'today stays eligible all day; a past day is dropped',
       );
+    });
+
+    group('FUP-122: the commitments order lead', () {
+      // One fixed clock for the service and the trips, so the 24 hour
+      // boundary is exact (the server refuses departureDate < now + 24h).
+      final now = DateTime.now().toUtc();
+      final nowEat = now.add(const Duration(hours: 3));
+      final todayStart = DateTime.utc(nowEat.year, nowEat.month, nowEat.day)
+          .subtract(const Duration(hours: 3));
+      const allTrips = ['trip-today', 'trip-23h', 'trip-24h', 'trip-30h'];
+      const pastTheLead = ['trip-24h', 'trip-30h'];
+
+      Future<void> putLeadTrips() async {
+        await putCrop(id: 'crop-1'); // woreda 'Assosa'
+        // Cheapest first, so the expected order is the order of departure.
+        await putTrip(
+          id: 'trip-today',
+          fromWoreda: 'Assosa',
+          departureDate: todayStart,
+          pricePerQuintal: 5,
+        );
+        await putTrip(
+          id: 'trip-23h',
+          fromWoreda: 'Assosa',
+          departureDate: now.add(const Duration(hours: 23)),
+          pricePerQuintal: 6,
+        );
+        await putTrip(
+          id: 'trip-24h',
+          fromWoreda: 'Assosa',
+          departureDate: now.add(const Duration(hours: 24)),
+          pricePerQuintal: 7,
+        );
+        await putTrip(
+          id: 'trip-30h',
+          fromWoreda: 'Assosa',
+          departureDate: now.add(const Duration(hours: 30)),
+          pricePerQuintal: 8,
+        );
+      }
+
+      MatchingService serviceWithLead(int? hours) => MatchingService(
+            isar: isar,
+            orderLeadHours: () async => hours,
+            clock: () => now,
+          );
+
+      Future<List<String>> suggestedIds(MatchingService svc) async {
+        final trips = await svc.findTripsForListing(
+          (await isar.cropListings.getByListingId('crop-1'))!,
+          'AddisAbeba',
+          5,
+        );
+        return trips.map((t) => t.tripId).toList();
+      }
+
+      test('on: a trip leaving in under 24 hours is not suggested', () async {
+        await putLeadTrips();
+
+        expect(
+          await suggestedIds(serviceWithLead(24)),
+          pastTheLead,
+          reason: 'today and +23h are refused by the order create; '
+              '+24h exactly is still taken',
+        );
+      });
+
+      test('on: the match results suggest the same trips', () async {
+        await putLeadTrips();
+
+        final results =
+            await serviceWithLead(24).matchListingsForIntent(buildIntent());
+
+        expect(results, hasLength(1));
+        expect(
+          results.single.suggestedTrips.map((t) => t.tripId),
+          pastTheLead,
+        );
+      });
+
+      test('off (lead 0): FUP-85 holds, a trip today is still suggested',
+          () async {
+        await putLeadTrips();
+
+        expect(await suggestedIds(serviceWithLead(0)), allTrips);
+      });
+
+      test('unknown lead: FUP-85 holds', () async {
+        await putLeadTrips();
+
+        expect(await suggestedIds(serviceWithLead(null)), allTrips);
+      });
+
+      test('by default it reads the lead the last trip pull cached', () async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        await putLeadTrips();
+        final svc = MatchingService(isar: isar, clock: () => now);
+
+        expect(await suggestedIds(svc), allTrips, reason: 'nothing cached');
+
+        await OrderLeadStore().write(24);
+        expect(await suggestedIds(svc), pastTheLead);
+      });
     });
 
     test('equal-score crops are tie-broken by cheaper crop price', () async {

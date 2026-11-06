@@ -100,13 +100,18 @@ void main() {
         'createdAt': '2026-06-15T08:00:00Z',
       };
 
-  void stubTrips(List<Map<String, dynamic>> trips) {
+  void stubTrips(List<Map<String, dynamic>> trips, {int? orderLeadHours}) {
     when(
       () => api.get<Map<String, dynamic>>(
         '/trips',
         queryParameters: any(named: 'queryParameters'),
       ),
-    ).thenAnswer((_) async => {'trips': trips});
+    ).thenAnswer(
+      (_) async => {
+        'trips': trips,
+        if (orderLeadHours != null) 'orderLeadHours': orderLeadHours,
+      },
+    );
   }
 
   Map<String, dynamic> capturedCropParams() {
@@ -253,6 +258,97 @@ void main() {
       ['trip-today'],
       reason: 'today stays eligible all day; a past day is dropped',
     );
+  });
+
+  group('FUP-122: the commitments order lead', () {
+    // One fixed clock for the service and the trips, so the 24 hour boundary
+    // is exact (the server refuses departureDate < now + 24h).
+    final now = DateTime.now().toUtc();
+    final nowEat = now.add(const Duration(hours: 3));
+    final todayStart = DateTime.utc(nowEat.year, nowEat.month, nowEat.day)
+        .subtract(const Duration(hours: 3));
+    const allTrips = ['trip-today', 'trip-23h', 'trip-24h', 'trip-30h'];
+    const pastTheLead = ['trip-24h', 'trip-30h'];
+
+    // Cheapest first, so the expected order is the order of departure.
+    List<Map<String, dynamic>> leadTrips() => [
+          tripDto(
+            tripId: 'trip-today',
+            fromWoreda: 'Adama',
+            pricePerQuintal: 5,
+            departureDate: todayStart.toIso8601String(),
+          ),
+          tripDto(
+            tripId: 'trip-23h',
+            fromWoreda: 'Adama',
+            pricePerQuintal: 6,
+            departureDate: now.add(const Duration(hours: 23)).toIso8601String(),
+          ),
+          tripDto(
+            tripId: 'trip-24h',
+            fromWoreda: 'Adama',
+            pricePerQuintal: 7,
+            departureDate: now.add(const Duration(hours: 24)).toIso8601String(),
+          ),
+          tripDto(
+            tripId: 'trip-30h',
+            fromWoreda: 'Adama',
+            pricePerQuintal: 8,
+            departureDate: now.add(const Duration(hours: 30)).toIso8601String(),
+          ),
+        ];
+
+    late WebMatchingService clocked;
+
+    setUp(() {
+      clocked = WebMatchingService(api: api, clock: () => now);
+      stubCrops([cropDto(cropId: 'wheat-1')]);
+    });
+
+    Future<List<String>> suggestedIds() async {
+      final results = await clocked.matchListingsForIntent(
+        intent(deliveryWoreda: 'Addis Ababa'),
+      );
+      return results.single.suggestedTrips.map((t) => t.tripId).toList();
+    }
+
+    test('on (24): a trip leaving in under 24 hours is not suggested',
+        () async {
+      stubTrips(leadTrips(), orderLeadHours: 24);
+
+      expect(
+        await suggestedIds(),
+        pastTheLead,
+        reason: 'today and +23h are refused by the order create; '
+            '+24h exactly is still taken',
+      );
+    });
+
+    test('on: findTripsForListing drops the same trips', () async {
+      stubTrips(leadTrips(), orderLeadHours: 24);
+      final listing = (await clocked.matchListingsForIntent(
+        intent(deliveryWoreda: 'Addis Ababa'),
+      ))
+          .single
+          .listing;
+
+      final trips =
+          await clocked.findTripsForListing(listing, 'Addis Ababa', 5);
+
+      expect(trips.map((t) => t.tripId), pastTheLead);
+    });
+
+    test('off (0): FUP-85 holds, a trip today is still suggested', () async {
+      stubTrips(leadTrips(), orderLeadHours: 0);
+
+      expect(await suggestedIds(), allTrips);
+    });
+
+    test('a server without the field: FUP-85 holds', () async {
+      stubTrips(leadTrips());
+
+      expect(await suggestedIds(), allTrips);
+    });
   });
 
   test('ESC-15: a booked trip is suggested only with room for the intent',

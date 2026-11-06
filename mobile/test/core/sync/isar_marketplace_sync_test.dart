@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar/isar.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
@@ -10,6 +11,7 @@ import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/sync/isar_marketplace_sync.dart';
+import 'package:wereda_connect/core/sync/order_lead_store.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -138,6 +140,7 @@ void main() {
       List<Map<String, dynamic>> crops = const [],
       List<Map<String, dynamic>> trips = const [],
       List<Map<String, dynamic>> deliveries = const [],
+      int? orderLeadHours,
     }) {
       when(
         () => api.get<Map<String, dynamic>>(
@@ -147,7 +150,12 @@ void main() {
       ).thenAnswer((inv) async {
         final path = inv.positionalArguments.first as String;
         if (path.contains('/crops')) return {'crops': crops};
-        if (path.contains('/trips')) return {'trips': trips};
+        if (path.contains('/trips')) {
+          return {
+            'trips': trips,
+            if (orderLeadHours != null) 'orderLeadHours': orderLeadHours,
+          };
+        }
         if (path.contains('/deliveries')) return {'deliveries': deliveries};
         return <String, dynamic>{};
       });
@@ -191,6 +199,51 @@ void main() {
       expect(stored.single.fromWoreda, 'Assosa');
       expect(stored.single.toWoreda, 'AddisAbeba');
       expect(stored.single.status, TripStatus.open);
+    });
+
+    group('FUP-122: the order lead from GET /trips', () {
+      setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+      test('pullTrips keeps the lead the server reported', () async {
+        stubApi(trips: [_tripJson()], orderLeadHours: 24);
+
+        await buildSync().pullTrips();
+
+        expect(await OrderLeadStore().read(), 24);
+        expect(await isar.trips.where().findAll(), hasLength(1));
+      });
+
+      test('a lead of 0 (commitments off) is kept as 0', () async {
+        await OrderLeadStore().write(24);
+        stubApi(trips: [_tripJson()], orderLeadHours: 0);
+
+        await buildSync().pullTrips();
+
+        expect(await OrderLeadStore().read(), 0);
+      });
+
+      test('a server that sends no lead forgets the stored one', () async {
+        await OrderLeadStore().write(24);
+        stubApi(trips: [_tripJson()]);
+
+        await buildSync().pullTrips();
+
+        expect(await OrderLeadStore().read(), isNull);
+      });
+
+      test('a failed pull leaves the stored lead alone (offline)', () async {
+        await OrderLeadStore().write(24);
+        when(
+          () => api.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenThrow(Exception('offline'));
+
+        await expectLater(buildSync().pullTrips(), throwsException);
+
+        expect(await OrderLeadStore().read(), 24);
+      });
     });
 
     test(
