@@ -16,6 +16,8 @@ namespace WeredaConnect.Server.Services;
 /// 2. The side effects every funded order needs (<see cref="EnsureFundedSideEffectsAsync"/>):
 ///    the listing gives up the ordered stock and the order escrow is created. Both are
 ///    idempotent per order, so a payment redelivery can repeat them to repair a partial attempt.
+///    ESC-18: when the listing no longer holds the ordered stock, the funding lost the race and
+///    the order is cancelled with a full refund instead.
 /// </summary>
 public sealed class OrderFundingService
 {
@@ -35,17 +37,21 @@ public sealed class OrderFundingService
     private readonly EscrowService? _escrowService;
     private readonly ITripRepository? _tripRepo;
     private readonly bool _commitmentsEnabled;
+    private readonly ITransactionAuditRepository? _txAuditRepo;
 
     /// <param name="commitmentsEnabled">ESC-15 on or off; null reads <see cref="_commitmentsEnabled"/> (the env flag).</param>
+    /// <param name="txAuditRepo">ESC-18: where the out-of-stock end of an order is audited; null writes no row.</param>
     public OrderFundingService(
         IOrderRepository orderRepo, ICropRepository cropRepo, EscrowService? escrowService,
-        ITripRepository? tripRepo = null, bool? commitmentsEnabled = null)
+        ITripRepository? tripRepo = null, bool? commitmentsEnabled = null,
+        ITransactionAuditRepository? txAuditRepo = null)
     {
         _orderRepo = orderRepo ?? throw new ArgumentNullException(nameof(orderRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
         _escrowService = escrowService;
         _tripRepo = tripRepo;
         _commitmentsEnabled = commitmentsEnabled ?? OrderCommitment.IsEnabled;
+        _txAuditRepo = txAuditRepo;
     }
 
     /// <summary>
@@ -125,15 +131,188 @@ public sealed class OrderFundingService
     /// Apply what every funded order needs: take the ordered stock off the listing, create the
     /// order escrow and (ESC-15) reserve the trip capacity. Every step is idempotent per order.
     /// Failures are logged with an alarmable token and reported in the result; they never undo
-    /// the funding.
+    /// the funding. ESC-18: a funding that finds too little stock on the listing lost the race
+    /// (<see cref="StockDecrementResult.InsufficientStock"/>): the escrow is still created, so the
+    /// money has its record, then the order ends with a full refund (<see cref="EndOutOfStockAsync"/>)
+    /// and no trip capacity is reserved for it.
     /// </summary>
     public async Task<FundingSideEffectsResult> EnsureFundedSideEffectsAsync(
         Dictionary<string, object> fundedOrder, string actor, AuditContext? auditContext, ILambdaContext context)
     {
         var stock = await DecrementStockAsync(fundedOrder, context);
         var escrowCreated = await EnsureEscrowAsync(fundedOrder, actor, auditContext, context);
+        if (stock == StockDecrementResult.InsufficientStock)
+        {
+            var ended = await EndOutOfStockAsync(fundedOrder, escrowCreated, context);
+            return new FundingSideEffectsResult(stock, escrowCreated, Trip: null, OutOfStockOrder: ended);
+        }
+
         var trip = await ReserveTripCapacityAsync(fundedOrder, context);
         return new FundingSideEffectsResult(stock, escrowCreated, trip);
+    }
+
+    /// <summary>ESC-18: the status a funded order ends in when its funding lost the listing's stock.</summary>
+    public const string OutOfStockStatus = "cancelled";
+
+    /// <summary>
+    /// ESC-18: the <c>cancelReason</c> (and escrow <c>refundReason</c>) of that end, one of the
+    /// server-only codes (<see cref="OrderCommitment.ServerCancelReasons"/>).
+    /// </summary>
+    public const string OutOfStockReason = "listing_out_of_stock";
+
+    /// <summary>
+    /// The statuses an order whose funding lost the stock can be ended from: the money is held and
+    /// no goods have changed hands. A farmer who already accepted is checked separately.
+    /// </summary>
+    private static readonly string[] OutOfStockEndableStatuses = { "funded", OrderCommitment.AwaitingTransportStatus };
+
+    /// <summary>
+    /// ESC-18 (spec A2): end an order whose funding lost the listing's stock. The order moves to
+    /// <see cref="OutOfStockStatus"/> with <c>cancelReason: listing_out_of_stock</c>,
+    /// <c>cancelledBy: system</c> and <c>faultParty: none</c> (a race the system lost is nobody's
+    /// fault, so the farmer gets no penalty), in one write conditioned on its status. Then, like
+    /// every cancel of a funded order, the escrow refund is scheduled
+    /// (<see cref="EscrowService.ScheduleRefundForOrderAsync"/>; the hourly refund sweep pays the
+    /// whole amount back, commission included, once per escrow) and a trip booking an earlier
+    /// attempt may have made is released. No stock is restored: none was taken.
+    /// Returns the ended order, or null when it could not be ended: an order that has moved on
+    /// (a farmer already accepted it) or a failed write is logged with the alarmable
+    /// <c>ORDER_STOCK_DECREMENT_FAILED</c> token, since it now needs stock the listing no longer has.
+    /// </summary>
+    private async Task<Dictionary<string, object>?> EndOutOfStockAsync(
+        Dictionary<string, object> fundedOrder, bool escrowExists, ILambdaContext context)
+    {
+        var orderId = GetString(fundedOrder, "orderId");
+        var listingId = GetString(fundedOrder, "listingId");
+        if (GetString(fundedOrder, OrderCommitment.FarmerResponseField) == OrderCommitment.Response.Accepted)
+        {
+            // Only a repair can get here (an earlier attempt's decrement failed and the farmer has
+            // answered since). The farmer committed to the goods, so a person decides, not the server.
+            context.Logger.LogError(
+                $"ORDER_STOCK_DECREMENT_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)} "
+                + "reason=insufficient_stock status=farmer_accepted");
+            return null;
+        }
+
+        var fields = new Dictionary<string, object>
+        {
+            { "cancelledAt", DateTime.UtcNow.ToString("o") },
+            { "cancelReason", OutOfStockReason },
+            { OrderCommitment.CancelledByField, OrderCommitment.Party.System },
+            { OrderCommitment.FaultPartyField, OrderCommitment.Party.None }
+        };
+
+        Dictionary<string, object>? ended = null;
+        string? endedFrom = null;
+        try
+        {
+            foreach (var from in OutOfStockEndableStatuses)
+            {
+                ended = await _orderRepo.TryAdvanceStatusAsync(orderId, from, OutOfStockStatus, fields);
+                if (ended != null)
+                {
+                    endedFrom = from;
+                    break;
+                }
+            }
+
+            if (ended == null)
+            {
+                // Two runs of the same funding (a payment redelivery racing the first delivery) can
+                // both lose the stock. The one that ended the order audited it; the refund and the
+                // release below are idempotent, so this run arms them again in case that one stopped.
+                var current = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+                if (current == null
+                    || GetString(current, "status") != OutOfStockStatus
+                    || GetString(current, "cancelReason") != OutOfStockReason)
+                {
+                    context.Logger.LogError(
+                        $"ORDER_STOCK_DECREMENT_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)} "
+                        + $"reason=insufficient_stock status={MoneyAlarmLog.LogId(current == null ? "missing" : GetString(current, "status"))}");
+                    return null;
+                }
+
+                context.Logger.LogInformation(
+                    $"Order {MoneyAlarmLog.LogId(orderId)}: already ended for lack of stock on listing {MoneyAlarmLog.LogId(listingId)}.");
+                ended = current;
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"ORDER_STOCK_DECREMENT_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)} "
+                + $"reason=insufficient_stock step=end [{ex.GetType().Name}]");
+            return null;
+        }
+
+        if (endedFrom != null)
+        {
+            context.Logger.LogWarning(
+                $"Order {MoneyAlarmLog.LogId(orderId)}: listing {MoneyAlarmLog.LogId(listingId)} ran out of stock at funding; "
+                + $"{endedFrom} -> {OutOfStockStatus} ({OutOfStockReason}), full refund.");
+            await TransactionAuditWriter.EmitAsync(_txAuditRepo, context, orderId, "order", orderId,
+                "order_cancelled", endedFrom, OutOfStockStatus, AuditContext.ForSystem(),
+                metadata: $"cancelReason={OutOfStockReason};listingId={listingId}");
+        }
+
+        await ScheduleOutOfStockRefundAsync(orderId, escrowExists, context);
+
+        // FUP-123: no capacity is reserved after a lost stock race, but a funding attempt that
+        // crashed after its reservation left one; give it back. Never throws.
+        await TripBookingRelease.ReleaseAsync(_tripRepo, fundedOrder, context);
+        return ended;
+    }
+
+    /// <summary>Pause before looking for an escrow written a moment ago once more (its reads are eventually consistent).</summary>
+    private static readonly TimeSpan RefundScheduleRetryDelay = TimeSpan.FromMilliseconds(300);
+
+    /// <summary>
+    /// ESC-18: expire the ended order's escrow now (<c>refundReason: listing_out_of_stock</c>) so
+    /// the hourly refund sweep pays the buyer back through the gateway path every refund takes.
+    /// The escrow was usually written a moment before, and the lookup reads are eventually
+    /// consistent, so an escrow known to exist that is not found is looked for once more. The same
+    /// alarm token as the other cancel paths when it still cannot be armed: the money then stays
+    /// held until the 7 day sweep refunds the terminal order.
+    /// </summary>
+    private async Task ScheduleOutOfStockRefundAsync(string orderId, bool escrowExists, ILambdaContext context)
+    {
+        if (_escrowService == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var scheduled = await _escrowService.ScheduleRefundForOrderAsync(
+                orderId, OutOfStockReason, "system", AuditContext.ForSystem());
+            if (!scheduled && escrowExists)
+            {
+                await Task.Delay(RefundScheduleRetryDelay);
+                scheduled = await _escrowService.ScheduleRefundForOrderAsync(
+                    orderId, OutOfStockReason, "system", AuditContext.ForSystem());
+            }
+
+            if (scheduled)
+            {
+                context.Logger.LogInformation(
+                    $"Order escrow refund scheduled: orderId={MoneyAlarmLog.LogId(orderId)} reason={OutOfStockReason}");
+            }
+            else if (escrowExists)
+            {
+                context.Logger.LogError(
+                    $"ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} reason=escrow_not_armable");
+            }
+            else
+            {
+                context.Logger.LogInformation(
+                    $"No order escrow to arm for orderId={MoneyAlarmLog.LogId(orderId)} ({OutOfStockReason}); its create failed and was alarmed.");
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} reason=[{ex.GetType().Name}]");
+        }
     }
 
     /// <summary>
@@ -233,6 +412,12 @@ public sealed class OrderFundingService
             context.Logger.LogError(
                 $"ORDER_STOCK_DECREMENT_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)} reason={result}");
         }
+        else if (result == StockDecrementResult.InsufficientStock)
+        {
+            // ESC-18: a lost race, not a fault. The caller ends the order with a full refund.
+            context.Logger.LogWarning(
+                $"Listing {MoneyAlarmLog.LogId(listingId)}: not enough stock left for order {MoneyAlarmLog.LogId(orderId)} ({quintals} quintals); nothing taken.");
+        }
         else
         {
             context.Logger.LogInformation(
@@ -296,4 +481,10 @@ public sealed class OrderFundingService
 /// <param name="Stock">The stock step, or null when the order carries no listing or quantity.</param>
 /// <param name="EscrowCreated">True when the order escrow exists after the call.</param>
 /// <param name="Trip">The trip reservation (ESC-15), or null when the order has no trip or the step did not run.</param>
-public sealed record FundingSideEffectsResult(StockDecrementResult? Stock, bool EscrowCreated, TripReserveOutcome? Trip = null);
+/// <param name="OutOfStockOrder">
+/// ESC-18: the order as ended after its funding lost the listing's stock, or null when the stock
+/// was taken (or the end could not be written; then it was logged with an alarm token).
+/// </param>
+public sealed record FundingSideEffectsResult(
+    StockDecrementResult? Stock, bool EscrowCreated, TripReserveOutcome? Trip = null,
+    Dictionary<string, object>? OutOfStockOrder = null);

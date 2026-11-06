@@ -685,6 +685,7 @@ public sealed class OrderFollowsMoneyDynamoDbTests
                 : inner.TryAdvanceStatusAsync(orderId, fromStatus, toStatus, extraFields);
 
         public Task<List<Dictionary<string, object>>> QueryByTripAsync(string tripId) => inner.QueryByTripAsync(tripId);
+        public Task<List<Dictionary<string, object>>> QueryByListingAsync(string listingId) => inner.QueryByListingAsync(listingId);
         public Task<bool> TryStampAsync(string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expectedStrings) => inner.TryStampAsync(orderId, fields, expectedStrings);
 
         public Task<AuthResult<Dictionary<string, object>>> CreateAsync(string orderId, Dictionary<string, object> data) => inner.CreateAsync(orderId, data);

@@ -949,20 +949,28 @@ public sealed class OrderRepository : IOrderRepository
     }
 
     /// <inheritdoc />
-    public async Task<List<Dictionary<string, object>>> QueryByTripAsync(string tripId)
+    public Task<List<Dictionary<string, object>>> QueryByTripAsync(string tripId)
+        => QueryAllByIndexAsync("TripIdIndex", "tripId", tripId);
+
+    /// <inheritdoc />
+    public Task<List<Dictionary<string, object>>> QueryByListingAsync(string listingId)
+        => QueryAllByIndexAsync("ListingIdIndex", "listingId", listingId);
+
+    /// <summary>Every order under one key of a GSI (all pages, oldest first).</summary>
+    private async Task<List<Dictionary<string, object>>> QueryAllByIndexAsync(string indexName, string keyName, string keyValue)
     {
         var request = new QueryRequest
         {
             TableName = _tableName,
-            IndexName = "TripIdIndex",
-            KeyConditionExpression = "#tripId = :tripId",
+            IndexName = indexName,
+            KeyConditionExpression = $"#{keyName} = :{keyName}",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
-                { "#tripId", "tripId" }
+                { $"#{keyName}", keyName }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
-                { ":tripId", new AttributeValue { S = tripId } }
+                { $":{keyName}", new AttributeValue { S = keyValue } }
             },
             ScanIndexForward = true // oldest first
         };

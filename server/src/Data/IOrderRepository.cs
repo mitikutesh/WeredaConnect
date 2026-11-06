@@ -180,6 +180,13 @@ public interface IOrderRepository
     Task<List<Dictionary<string, object>>> QueryByTripAsync(string tripId);
 
     /// <summary>
+    /// ESC-18: every order of a crop listing (<c>ListingIdIndex</c>, all pages, oldest first), for
+    /// the listing guards. Eventually consistent like every index read; the caller filters by
+    /// status.
+    /// </summary>
+    Task<List<Dictionary<string, object>>> QueryByListingAsync(string listingId);
+
+    /// <summary>
     /// ESC-15: set <paramref name="fields"/> on the order WITHOUT bumping <c>version</c> or touching
     /// <c>updatedAt</c> (server bookkeeping such as reminder markers must never make a client
     /// conflict), only while the order exists and each entry of <paramref name="expectedStrings"/>

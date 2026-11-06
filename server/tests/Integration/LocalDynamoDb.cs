@@ -109,7 +109,9 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
         // ESC-45: the webhook inbox's sparse replay queue.
         await CreateAsync(Idempotency, ("idempotencyKey", null), ("InboxReplayIndex", "inboxReplay", "inboxReplayAt"));
         await CreateAsync(Orders, ("orderId", "createdAt"), ("AdminQueueIndex", "adminQueue", "adminQueuedAt"),
-            ("StatusCreatedAtIndex", "status", "createdAt"));
+            ("StatusCreatedAtIndex", "status", "createdAt"),
+            // ESC-18: the listing guards read a listing's orders.
+            ("ListingIdIndex", "listingId", "createdAt"));
         await CreateAsync(Deliveries, ("deliveryId", "tripId"),
             ("ListingIndex", "listingId", "createdAt"),
             ("ParticipantIndex", "participantId", "createdAt"),

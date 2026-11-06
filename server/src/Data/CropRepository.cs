@@ -308,6 +308,14 @@ public sealed class CropRepository : ICropRepository
                 return StockRestoreResult.AlreadyRestored;
             }
 
+            // ESC-18: an order whose funding was refused for lack of stock took nothing, so it has
+            // nothing to give back (unless a later funding attempt for it did take stock).
+            if (HasOrder(existing, StockRefusedForAttribute, orderId)
+                && !HasOrder(existing, StockDecrementedForAttribute, orderId))
+            {
+                return StockRestoreResult.AlreadyRestored;
+            }
+
             var current = existing.TryGetValue("quantity", out var q)
                 && double.TryParse(q.N ?? q.S, System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture, out var parsedQuantity)
@@ -321,7 +329,8 @@ public sealed class CropRepository : ICropRepository
             var attrNames = new Dictionary<string, string>
             {
                 { "#q", "quantity" }, { "#v", "version" }, { "#updated", "updatedAt" },
-                { "#restored", "stockRestoredFor" }
+                { "#restored", "stockRestoredFor" },
+                { "#refused", StockRefusedForAttribute }, { "#decremented", StockDecrementedForAttribute }
             };
             var attrValues = new Dictionary<string, AttributeValue>
             {
@@ -349,7 +358,10 @@ public sealed class CropRepository : ICropRepository
                     { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
                 },
                 UpdateExpression = setExpression + " ADD #restored :orderIdSet",
-                ConditionExpression = "#v = :expectedVersion AND (attribute_not_exists(#restored) OR NOT contains(#restored, :orderId))",
+                // ESC-18: the refusal of a funding does not move the version, so the write itself
+                // also requires that this order was not refused (or did take stock later).
+                ConditionExpression = "#v = :expectedVersion AND (attribute_not_exists(#restored) OR NOT contains(#restored, :orderId))"
+                    + " AND (attribute_not_exists(#refused) OR NOT contains(#refused, :orderId) OR contains(#decremented, :orderId))",
                 ExpressionAttributeNames = attrNames,
                 ExpressionAttributeValues = attrValues
             };
@@ -372,10 +384,14 @@ public sealed class CropRepository : ICropRepository
     /// <inheritdoc />
     public async Task<StockDecrementResult> TryDecrementStockAsync(string cropId, string orderId, double quintals)
     {
-        if (quintals <= 0)
+        if (!(quintals > 0) || double.IsInfinity(quintals))
         {
             return StockDecrementResult.Failed;
         }
+
+        // ESC-18: compared and written in decimal, so 0.3 quintals left really covers a 30 kg order
+        // and nothing is lost or gained to binary rounding. The stored value is read as written.
+        var need = (decimal)quintals;
 
         for (var attempt = 0; attempt < DecrementAttempts; attempt++)
         {
@@ -394,26 +410,40 @@ public sealed class CropRepository : ICropRepository
                 return StockDecrementResult.ListingNotFound;
             }
 
-            if (existing.TryGetValue("stockDecrementedFor", out var decremented)
-                && decremented.SS != null
-                && decremented.SS.Contains(orderId))
+            if (HasOrder(existing, StockDecrementedForAttribute, orderId))
             {
                 return StockDecrementResult.AlreadyApplied;
             }
 
-            var current = existing.TryGetValue("quantity", out var q)
-                && double.TryParse(q.N ?? q.S, System.Globalization.NumberStyles.Any,
+            var hasQuantity = existing.TryGetValue("quantity", out var q);
+            var current = hasQuantity
+                && decimal.TryParse(q!.N ?? q.S, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out var parsedQuantity)
                 ? parsedQuantity
-                : 0.0;
+                : 0m;
             var version = existing.TryGetValue("version", out var v)
                 && int.TryParse(v.N, out var parsedVersion) ? parsedVersion : 1;
-            var newQuantity = Math.Round(Math.Max(0, current - quintals), 2);
+
+            if (current < need)
+            {
+                // ESC-18: this funding lost the stock (another order took it first, or there never
+                // was enough). Nothing is taken. The refusal is recorded against the version just
+                // read, so it is never decided on a stale copy, and a later restore for this order
+                // gives nothing back.
+                if (await TryRecordRefusalAsync(cropId, existing["createdAt"].S, orderId, version))
+                {
+                    return StockDecrementResult.InsufficientStock;
+                }
+
+                continue;
+            }
+
+            var newQuantity = Math.Round(current - need, 2);
 
             var attrNames = new Dictionary<string, string>
             {
                 { "#q", "quantity" }, { "#v", "version" }, { "#updated", "updatedAt" },
-                { "#decremented", "stockDecrementedFor" }
+                { "#decremented", StockDecrementedForAttribute }
             };
             var attrValues = new Dictionary<string, AttributeValue>
             {
@@ -434,6 +464,16 @@ public sealed class CropRepository : ICropRepository
                 setExpression += ", #status = :reserved";
             }
 
+            // ESC-18: the write itself requires the stock (quantity >= q) next to the version, so
+            // no write can take more than the listing holds. A listing whose quantity is still the
+            // old string form relies on the version alone (a number compared with a string fails).
+            var condition = "#v = :expectedVersion AND (attribute_not_exists(#decremented) OR NOT contains(#decremented, :orderId))";
+            if (q?.N != null)
+            {
+                attrValues[":need"] = new AttributeValue { N = need.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+                condition += " AND #q >= :need";
+            }
+
             var request = new UpdateItemRequest
             {
                 TableName = _tableName,
@@ -443,7 +483,7 @@ public sealed class CropRepository : ICropRepository
                     { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
                 },
                 UpdateExpression = setExpression + " ADD #decremented :orderIdSet",
-                ConditionExpression = "#v = :expectedVersion AND (attribute_not_exists(#decremented) OR NOT contains(#decremented, :orderId))",
+                ConditionExpression = condition,
                 ExpressionAttributeNames = attrNames,
                 ExpressionAttributeValues = attrValues
             };
@@ -455,12 +495,65 @@ public sealed class CropRepository : ICropRepository
             }
             catch (ConditionalCheckFailedException)
             {
-                // Another write moved the version, or this order's decrement landed
-                // concurrently: re-read and decide again.
+                // Another write moved the version (often another funding taking stock), or this
+                // order's decrement landed concurrently: re-read and decide again.
             }
         }
 
         return StockDecrementResult.Failed;
+    }
+
+    /// <summary>The listing's set of orders whose funding took stock (ESC-01).</summary>
+    internal const string StockDecrementedForAttribute = "stockDecrementedFor";
+
+    /// <summary>
+    /// ESC-18: the listing's set of orders whose funding found too little stock and took none. A
+    /// restore for such an order gives nothing back (<see cref="RestoreStockAsync"/>).
+    /// </summary>
+    internal const string StockRefusedForAttribute = "stockRefusedFor";
+
+    private static bool HasOrder(Dictionary<string, AttributeValue> item, string attribute, string orderId)
+        => item.TryGetValue(attribute, out var set) && set.SS != null && set.SS.Contains(orderId);
+
+    /// <summary>
+    /// ESC-18: add <paramref name="orderId"/> to <see cref="StockRefusedForAttribute"/> while the
+    /// listing is still at <paramref name="version"/> and the order has taken no stock. The version
+    /// is not bumped and nothing else changes, so concurrent fundings are not disturbed and the
+    /// farmer's copy stays current. False when the listing moved: the caller reads it again.
+    /// </summary>
+    private async Task<bool> TryRecordRefusalAsync(string cropId, string createdAt, string orderId, int version)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "cropId", new AttributeValue { S = cropId } },
+                { "createdAt", new AttributeValue { S = createdAt } }
+            },
+            UpdateExpression = "ADD #refused :orderIdSet",
+            ConditionExpression = "#v = :expectedVersion AND (attribute_not_exists(#decremented) OR NOT contains(#decremented, :orderId))",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#v", "version" }, { "#refused", StockRefusedForAttribute }, { "#decremented", StockDecrementedForAttribute }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":expectedVersion", new AttributeValue { N = version.ToString() } },
+                { ":orderIdSet", new AttributeValue { SS = new List<string> { orderId } } },
+                { ":orderId", new AttributeValue { S = orderId } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
     }
 
     /// <inheritdoc />
