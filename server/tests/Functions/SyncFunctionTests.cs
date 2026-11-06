@@ -5558,23 +5558,29 @@ public partial class SyncFunctionTests
     }
 
     // --- SIM-60: a photo ref on a delivery update is a server upload key of this delivery ---
+    // --- FRD-12: such a key is accepted but never written; delivery_photo attaches photos ---
 
-    [Fact]
-    public async Task DeliveryUpdate_PhotoRefInUploadKeyShape_IsAccepted()
+    [Theory]
+    [InlineData("uploads/photos/del-001/pickup-1700000000000.webp")]
+    [InlineData("uploads/photos/del-001/dropoff-1700000000000.jpg")]
+    public async Task DeliveryUpdate_PhotoRefInUploadKeyShape_IsAcceptedButNotWritten(string key)
     {
         SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pending", 1, "nonce-abc-123");
-        const string key = "uploads/photos/del-001/pickup-1700000000000.webp";
+        var field = key.Contains("/pickup-") ? "pickupPhotoRef" : "dropoffPhotoRef";
 
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
             {
                 { "status", "pickedUp" }, { "scannedQrNonce", "nonce-abc-123" },
-                { "pickupPhotoRef", key }, { "version", 1 }
+                { field, key }, { "version", 1 }
             })), "trucker-001"), _context);
 
         Assert.Contains("success", response.Body);
+        // The pickup itself is written; the photo key is not (it skipped the attach's checks).
         await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
-            r.ExpressionAttributeValues.Values.Any(v => v.S == key)));
+            r.ExpressionAttributeValues.Values.Any(v => v.S == "pickedUp")
+            && !r.ExpressionAttributeValues.Values.Any(v => v.S == key)
+            && !r.ExpressionAttributeNames.Values.Contains(field)));
     }
 
     [Theory]

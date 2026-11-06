@@ -569,9 +569,6 @@ public partial class SyncFunction
     [GeneratedRegex(@"^\+251\d{9}$")]
     private static partial Regex EthiopianPhoneRegex();
 
-    [GeneratedRegex(@"^uploads/photos/[a-zA-Z0-9\-]+/(pickup|dropoff)-\d+\.webp$")]
-    private static partial Regex PhotoRefRegex();
-
     // SIM-60: departureDate is ISO 8601 date and time with Z, an offset or no zone, as clients
     // send it (Dart toIso8601String of a UTC time; builds before 2026-06-18 sent a local time
     // without a zone, and trip creates they queued still replay). It is the sort key of
@@ -611,17 +608,6 @@ public partial class SyncFunction
             data["departureDate"] = utc.ToString(
                 "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
         }
-    }
-
-    // FIX-011: Validate photo ref format and delivery ID ownership to prevent path traversal
-    private static bool IsValidPhotoRef(string photoRef, string deliveryId)
-    {
-        if (!PhotoRefRegex().IsMatch(photoRef))
-        {
-            return false;
-        }
-
-        return photoRef.StartsWith($"uploads/photos/{deliveryId}/", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -744,6 +730,10 @@ public partial class SyncFunction
         _tripLocationRepo = tripLocationsTable != null
             ? new TripLocationRepository(_dynamoDb, tripLocationsTable)
             : null;
+
+        // FRD-12: the uploads bucket a delivery_photo attach checks. Absent env → attaches are deferred.
+        UploadsBucket = Environment.GetEnvironmentVariable("UPLOADS_BUCKET");
+        DeliveryPhotoS3 = string.IsNullOrEmpty(UploadsBucket) ? null : new Amazon.S3.AmazonS3Client();
     }
 
     /// <summary>
@@ -1027,6 +1017,7 @@ public partial class SyncFunction
                 "message" => await ProcessMessageAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "user" => await ProcessUserAsync(operation, authenticatedUserId, context),
                 LocationPingRules.EntityType => await ProcessLocationPingAsync(operation, authenticatedUserId, context),
+                DeliveryPhotoKeys.EntityType => await ProcessDeliveryPhotoAsync(operation, authenticatedUserId, context),
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
@@ -4624,22 +4615,17 @@ public partial class SyncFunction
                         };
                     }
 
-                    // FIX-011: Validate photo reference format and delivery ownership (prevent S3 path traversal)
-                    foreach (var photoField in new[] { "pickupPhotoRef", "dropoffPhotoRef" })
+                    // FIX-011 (path traversal) and FRD-12: a photo ref on a delivery op is checked,
+                    // then dropped; photos are attached only through delivery_photo.
+                    var photoRefError = DropDeliveryOpPhotoRefs(operation);
+                    if (photoRefError != null)
                     {
-                        if (operation.Data.TryGetValue(photoField, out var photoObj) && photoObj != null)
+                        return new SyncOperationResult
                         {
-                            var photoRef = photoObj.ToString() ?? "";
-                            if (!string.IsNullOrEmpty(photoRef) && !IsValidPhotoRef(photoRef, operation.EntityId))
-                            {
-                                return new SyncOperationResult
-                                {
-                                    OperationId = operation.OperationId,
-                                    Status = "error",
-                                    Message = $"DELIVERY_INVALID_FIELD: {photoField} has invalid format."
-                                };
-                            }
-                        }
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = photoRefError
+                        };
                     }
 
                     var now = DateTime.UtcNow.ToString("o");
@@ -5361,22 +5347,17 @@ public partial class SyncFunction
                         }
                     }
 
-                    // FIX-011: Validate photo reference format and delivery ownership (prevent S3 path traversal)
-                    foreach (var photoField in new[] { "pickupPhotoRef", "dropoffPhotoRef" })
+                    // FIX-011 (path traversal) and FRD-12: a photo ref on a delivery op is checked,
+                    // then dropped; photos are attached only through delivery_photo.
+                    var photoRefError = DropDeliveryOpPhotoRefs(operation);
+                    if (photoRefError != null)
                     {
-                        if (operation.Data.TryGetValue(photoField, out var photoObj) && photoObj != null)
+                        return new SyncOperationResult
                         {
-                            var photoRef = photoObj.ToString() ?? "";
-                            if (!string.IsNullOrEmpty(photoRef) && !IsValidPhotoRef(photoRef, operation.EntityId))
-                            {
-                                return new SyncOperationResult
-                                {
-                                    OperationId = operation.OperationId,
-                                    Status = "error",
-                                    Message = $"DELIVERY_INVALID_FIELD: {photoField} has invalid format."
-                                };
-                            }
-                        }
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = photoRefError
+                        };
                     }
 
                     // F12-SEC-05: GPS proximity validation for pickup/delivery

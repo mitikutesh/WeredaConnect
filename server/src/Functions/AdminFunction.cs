@@ -2439,8 +2439,8 @@ public partial class AdminFunction
             var deliveryItem = await QuerySingleItemAsync(_deliveriesTable, "deliveryId", deliveryId);
             if (deliveryItem != null)
             {
-                delivery = DeliveryFunction.MapToDeliveryDto(
-                    DynamoDbHelper.FromItem(deliveryItem), includePhone: true, includeQrToken: true);
+                delivery = WithDeliveryPhotoUrls(DeliveryFunction.MapToDeliveryDto(
+                    DynamoDbHelper.FromItem(deliveryItem), includePhone: true, includeQrToken: true), context);
             }
         }
 
