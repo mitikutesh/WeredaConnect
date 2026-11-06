@@ -959,6 +959,99 @@ public class EscrowFunctionTests
         Assert.Contains("ESCROW_020", response.Body);
     }
 
+    // ── FRD-09: a buyer's dispute feeds the buyer's dispute rate ──
+
+    private (EscrowFunction Function, IFraudDetectionService Fraud) FunctionWithPatternRules()
+    {
+        var fraud = Substitute.For<IFraudDetectionService>();
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        var function = new EscrowFunction(service, fraud)
+        {
+            PatternRules = new TransactionPatternService(null, _mockEscrowRepo, TransactionPatternSettings.Default)
+        };
+        return (function, fraud);
+    }
+
+    private static Dictionary<string, object> PastEscrow(string id, string status, string? disputedBy = null)
+    {
+        var escrow = new Dictionary<string, object>
+        {
+            { "escrowId", id }, { "buyerId", BuyerId }, { "status", status },
+            { "createdAt", DateTime.UtcNow.AddDays(-10).ToString("o", System.Globalization.CultureInfo.InvariantCulture) }
+        };
+        if (disputedBy != null)
+        {
+            escrow["disputedBy"] = disputedBy;
+        }
+
+        return escrow;
+    }
+
+    [Fact]
+    public async Task Dispute_BuyerWhoDisputesOften_IsFlaggedWithTheEscrow()
+    {
+        SetupEscrow("escrow-small", 5_000m);
+        _mockEscrowRepo.QueryByBuyerAsync(BuyerId, null, 50, null).Returns((new List<Dictionary<string, object>>
+        {
+            PastEscrow("e-1", "dispute_resolved", disputedBy: BuyerId),
+            PastEscrow("e-2", "completed"), PastEscrow("e-3", "completed"), PastEscrow("e-4", "released")
+        }, (Dictionary<string, AttributeValue>?)null));
+        var (function, fraud) = FunctionWithPatternRules();
+
+        var response = await function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-small"), BuyerId), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await fraud.Received(1).RecordFraudSignalAsync(BuyerId, "DISPUTE_RATE", "escrow-small", "escrow",
+            Arg.Is<string>(d => d.StartsWith("The buyer disputed 2 of 5 paid orders")));
+    }
+
+    [Fact]
+    public async Task Dispute_BuyersFirstDisputes_AreNotFlagged()
+    {
+        SetupEscrow("escrow-small", 5_000m);
+        _mockEscrowRepo.QueryByBuyerAsync(BuyerId, null, 50, null).Returns((new List<Dictionary<string, object>>
+        {
+            PastEscrow("e-1", "completed"), PastEscrow("e-2", "completed"), PastEscrow("e-3", "completed"),
+            PastEscrow("e-4", "completed")
+        }, (Dictionary<string, AttributeValue>?)null));
+        var (function, fraud) = FunctionWithPatternRules();
+
+        var response = await function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-small"), BuyerId), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+    }
+
+    [Fact]
+    public async Task Dispute_HistoryReadFails_TheDisputeStillSucceeds()
+    {
+        SetupEscrow("escrow-small", 5_000m);
+        _mockEscrowRepo.QueryByBuyerAsync(BuyerId, null, 50, null).ThrowsAsync(new ProvisionedThroughputExceededException("busy"));
+        var (function, fraud) = FunctionWithPatternRules();
+
+        var response = await function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-small"), BuyerId), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+        Assert.Contains("Pattern check dispute_rate skipped for escrow", ((TestLambdaLogger)_context.Logger).Buffer.ToString());
+    }
+
+    [Fact]
+    public async Task Dispute_RefusedDispute_ReadsNoHistory()
+    {
+        SetupEscrow("escrow-big", 15_000m); // a stale password: AUTH_040, nothing disputed
+        var (function, _) = FunctionWithPatternRules();
+
+        var response = await function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-big"), BuyerId), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        await _mockEscrowRepo.DidNotReceiveWithAnyArgs().QueryByBuyerAsync(default!, default, default, default);
+    }
+
     [Fact]
     public async Task Dispute_NonParty_GetsServiceErrorNotStepUp()
     {

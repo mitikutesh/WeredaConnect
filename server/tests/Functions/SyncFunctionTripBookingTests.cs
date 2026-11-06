@@ -112,11 +112,16 @@ public class SyncFunctionTripBookingTests
         });
     }
 
+    // FRD-09: set by the pattern rule tests only; null keeps every other test as it was.
+    private IFraudDetectionService? _fraud;
+    private TransactionPatternService? _patterns;
+
     private SyncFunction MakeFunction(bool enabled = true) =>
-        new(_syncMeta, _crops, _dynamoDb, TripsTable, DeliveriesTable,
+        new(_syncMeta, _crops, _dynamoDb, TripsTable, DeliveriesTable, fraudService: _fraud,
             userRepo: _users, orderRepo: _orders, transactionAuditRepo: _txAudit, deliveryRepo: _deliveries, tripRepo: _trips)
         {
-            CommitmentsEnabled = enabled
+            CommitmentsEnabled = enabled,
+            PatternRules = _patterns
         };
 
     // ===== a booked trip is frozen =====
@@ -284,6 +289,47 @@ public class SyncFunctionTripBookingTests
         // Unpaid and finished orders are left alone (the payment gate refuses the unpaid one).
         _advanced.Should().NotContain(a => a.OrderId == "order-unpaid" || a.OrderId == "order-done");
         _stamped.Should().NotContain(s => s.OrderId == "order-unpaid" || s.OrderId == "order-done");
+    }
+
+    [Fact]
+    public async Task TripCancel_WithPaidOrders_CountsAgainstTheTruckersCancelRate_OncePerTrip()
+    {
+        // FRD-09: two paid orders lose their transport; with two earlier funded orders and one earlier
+        // drop-out the trucker cancelled 3 of 5. One signal for the trip, on the trucker.
+        _fraud = Substitute.For<IFraudDetectionService>();
+        _patterns = new TransactionPatternService(_orders, null, TransactionPatternSettings.Default);
+        _ordersOnTrip.Add(Order("order-farmer-deciding", "funded", farmer: "pending", trucker: "not_asked"));
+        _ordersOnTrip.Add(Order("order-trucker-asked", "funded", farmer: "accepted", trucker: "pending"));
+        _ordersOnTrip.Add(Order("order-unpaid", "created"));
+        var past = new[] { "past-1", "past-2", "past-3" }.Select((id, i) => new Dictionary<string, object>
+        {
+            { "orderId", id }, { "status", i == 0 ? OrderCommitment.AwaitingTransportStatus : "settled" },
+            { "createdAt", DateTime.UtcNow.AddDays(-20).ToString("o", CultureInfo.InvariantCulture) },
+            { "paymentVerifiedAt", DateTime.UtcNow.AddDays(-20).ToString("o", CultureInfo.InvariantCulture) },
+            { OrderCommitment.TruckerResponseField, i == 0 ? "cancelled" : "accepted" }
+        }).ToList();
+        _orders.QueryOrdersAsync(null, null, TruckerId, null, null, 50, null)
+            .Returns((past, (Dictionary<string, AttributeValue>?)null));
+
+        var result = await UpdateTripAsync(new Dictionary<string, object> { { "status", "cancelled" }, { "version", 3 } });
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        await _fraud.Received(1).RecordFraudSignalAsync(TruckerId, "CANCEL_AFTER_FUND_RATE", TripId, "trip",
+            Arg.Is<string>(d => d.StartsWith("The trucker cancelled 3 of 5 funded orders")));
+    }
+
+    [Fact]
+    public async Task TripCancel_WithoutPaidOrders_ReadsNoHistory()
+    {
+        _fraud = Substitute.For<IFraudDetectionService>();
+        _patterns = new TransactionPatternService(_orders, null, TransactionPatternSettings.Default);
+        _ordersOnTrip.Add(Order("order-unpaid", "created"));
+
+        var result = await UpdateTripAsync(new Dictionary<string, object> { { "status", "cancelled" }, { "version", 3 } });
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        await _orders.DidNotReceiveWithAnyArgs().QueryOrdersAsync(default, default, default, default, default, default, default);
+        await _fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
     }
 
     [Fact]

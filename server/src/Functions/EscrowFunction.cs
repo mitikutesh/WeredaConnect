@@ -29,6 +29,12 @@ public class EscrowFunction
     private readonly IUserRepository? _userRepo;
 
     /// <summary>
+    /// FRD-09 (fraud-detection-architecture.md 15.1): the buyer's dispute rate after a dispute succeeded. The
+    /// Lambda wires it when the signals table is set; without one (the test constructor) nothing is read.
+    /// </summary>
+    internal TransactionPatternService? PatternRules { get; init; }
+
+    /// <summary>
     /// Default constructor for Lambda runtime.
     /// Reads table names from environment variables.
     /// </summary>
@@ -103,6 +109,11 @@ public class EscrowFunction
                 dynamoDb, cropsTable, fraudSignalsTable,
                 new RateLimitRepository(dynamoDb, rateLimitTable));
         }
+
+        // FRD-09: the dispute rate reads the buyer's escrows only when its signal can be written.
+        PatternRules = _fraudService != null && !string.IsNullOrEmpty(fraudSignalsTable)
+            ? new TransactionPatternService(orderRepo, escrowRepo)
+            : null;
     }
 
     /// <summary>ESC-45 (D6): run time kept back from Telebirr calls for the writes and the response after them.</summary>
@@ -584,6 +595,12 @@ public class EscrowFunction
                 outcome: result.IsSuccess ? "success" : "failure",
                 errorCode: result.Error?.Code);
 
+            // FRD-09: a dispute the buyer raised feeds the buyer's dispute rate (a farmer's does not).
+            if (result.IsSuccess && existingEscrow.IsSuccess && existingEscrow.Value!.BuyerId == userId)
+            {
+                await TryRecordDisputeRateAsync(userId, body.EscrowId, context);
+            }
+
             // FUP-61: a replay answers the row as it is now, which can be settled by a verdict or held.
             return MapResult(result,
                 value => LambdaResponse.Ok(
@@ -897,6 +914,44 @@ public class EscrowFunction
         {
             context.Logger.LogWarning(
                 $"Failed to record fraud signal {FraudDetectionService.RoleForbiddenSignal} for user {userId}: [{ex.GetType().Name}]");
+        }
+    }
+
+    /// <summary>
+    /// FRD-09: the buyer's dispute rate after a dispute that succeeded, written on the buyer with the escrow
+    /// as the entity. Best effort: a failed history read or signal write is logged (exception type only)
+    /// and the dispute answer is the same either way.
+    /// </summary>
+    private async Task TryRecordDisputeRateAsync(string buyerId, string escrowId, ILambdaContext context)
+    {
+        if (PatternRules == null || _fraudService == null)
+        {
+            return;
+        }
+
+        IReadOnlyList<PatternHit> hits;
+        try
+        {
+            hits = await PatternRules.CheckDisputeRateAsync(buyerId, escrowId, DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Pattern check dispute_rate skipped for escrow {MoneyAlarmLog.LogId(escrowId)}: [{ex.GetType().Name}]");
+            return;
+        }
+
+        foreach (var hit in hits)
+        {
+            try
+            {
+                await _fraudService.RecordFraudSignalAsync(buyerId, hit.SignalType, escrowId, "escrow", hit.Description);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning(
+                    $"Failed to record fraud signal {hit.SignalType} for escrow {MoneyAlarmLog.LogId(escrowId)}: [{ex.GetType().Name}]");
+            }
         }
     }
 

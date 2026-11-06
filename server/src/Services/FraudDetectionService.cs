@@ -39,6 +39,7 @@ public sealed class FraudDetectionService : IFraudDetectionService
     internal const int DefaultRiskMaxPages = 2;
     internal const int RiskMaxPagesCap = 10;
     internal const int DefaultRiskRejectTypeCap = 50;
+    internal const int DefaultRiskPatternTypeCap = 50;
 
     /// <summary>AI reviewer output (FRD-19): capped, and left out of the enforcement score.</summary>
     internal const string AdvisorySignalType = "AI_ADVISORY";
@@ -306,6 +307,27 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// <summary>A check-in the phone flagged as a mock location (a location-faking app is in use).</summary>
     internal const string GpsMockedSignal = "GPS_MOCKED";
 
+    // FRD-09 transaction pattern signals (section 15.1). Flag-only: each observes a write that already
+    // succeeded and refuses nothing; the risk score and its tier gates are the only enforcement.
+
+    /// <summary>A buyer's payment above the mean plus 3 standard deviations of the buyer's own paid orders.</summary>
+    internal const string AmountAnomalySignal = "AMOUNT_ANOMALY";
+
+    /// <summary>A buyer's payment of a large amount from an account under 7 days old.</summary>
+    internal const string NewAccountLargeAmountSignal = "NEW_ACCOUNT_LARGE_AMOUNT";
+
+    /// <summary>Repeated payments just under the 10,000 ETB Fayda threshold (structuring around the KYC rule).</summary>
+    internal const string KycThresholdStructuringSignal = "KYC_THRESHOLD_STRUCTURING";
+
+    /// <summary>A farmer or trucker who cancels too large a share of the funded orders they took on.</summary>
+    internal const string CancelAfterFundRateSignal = "CANCEL_AFTER_FUND_RATE";
+
+    /// <summary>A buyer who disputes too large a share of the escrows they funded.</summary>
+    internal const string DisputeRateSignal = "DISPUTE_RATE";
+
+    /// <summary>A delivery confirmed sooner after its pickup than the distance between the two scans allows.</summary>
+    internal const string ImpossibleDeliveryTimeSignal = "IMPOSSIBLE_DELIVERY_TIME";
+
     // Weights per fraud-detection-architecture.md §2 Rule 5 and section 15.
     internal static int SignalWeight(string signalType) => signalType switch
     {
@@ -323,19 +345,39 @@ public sealed class FraudDetectionService : IFraudDetectionService
         SuspendedTokenUseSignal => 0,
         GpsJumpSignal => 10,
         GpsMockedSignal => 25,
+        AmountAnomalySignal => 10,
+        NewAccountLargeAmountSignal => 10,
+        KycThresholdStructuringSignal => 20,
+        CancelAfterFundRateSignal => 15,
+        DisputeRateSignal => 10,
+        ImpossibleDeliveryTimeSignal => 15,
         _ => 10
     };
 
     /// <summary>
     /// Soft class of the signal catalogue (section 15): flag-only rules whose weight an active
     /// whitelist skips. Every other type is hard and always counts. FRD-08 adds the rejects an
-    /// honest client can also produce; LT-07 the check-in signals, which refuse nothing.
+    /// honest client can also produce; LT-07 the check-in signals, which refuse nothing; FRD-09 its
+    /// pattern rules except the structuring one, which is about dodging the Fayda rule and so a money
+    /// signal a whitelist does not silence.
     /// </summary>
     internal static bool IsSoftSignal(string signalType) =>
         signalType is "GPS_ANOMALY" or "PRICE_ANOMALY"
             or QrHandoffFailureSignal or TelebirrPayerMismatchSignal or TelebirrPayerRefusedSignal
             or StaleVersionBurstSignal or SuspendedTokenUseSignal
-            or GpsJumpSignal or GpsMockedSignal;
+            or GpsJumpSignal or GpsMockedSignal
+            or AmountAnomalySignal or NewAccountLargeAmountSignal or CancelAfterFundRateSignal
+            or DisputeRateSignal or ImpossibleDeliveryTimeSignal;
+
+    /// <summary>
+    /// FRD-09: the transaction pattern types. Each is written with the order, escrow, delivery or trip
+    /// it observed as the entity, counts once per entity (a retried payment of the same order is one
+    /// observation) and is capped per type at <c>RISK_PATTERN_TYPE_CAP</c>, so no pattern alone takes a
+    /// user past MEDIUM.
+    /// </summary>
+    internal static bool IsPatternSignal(string signalType) =>
+        signalType is AmountAnomalySignal or NewAccountLargeAmountSignal or KycThresholdStructuringSignal
+            or CancelAfterFundRateSignal or DisputeRateSignal or ImpossibleDeliveryTimeSignal;
 
     /// <summary>
     /// FRD-08 types the scorer counts once per (type, entityId) over the whole window, not once per
@@ -345,13 +387,15 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// the hourly bucket. <c>IDOR_CREATE_CONFLICT</c> is not one of them: a conflict is final for the
     /// client (marked synced) and web makes a new id per create, so no honest retry repeats it.
     /// LT-07: the check-in signals count once per trip, since a trip with a mock-location app on (or
-    /// a phone with a bad GPS) writes a row in every hour it drives.
+    /// a phone with a bad GPS) writes a row in every hour it drives. FRD-09: the pattern types count
+    /// once per observed order, escrow, delivery or trip (<see cref="IsPatternSignal"/>).
     /// </summary>
     internal static bool CountsOncePerEntity(string signalType) =>
         signalType is RoleForbiddenSignal or ImmutableFieldChangeSignal
             or QrHandoffFailureSignal or TelebirrPayerMismatchSignal or TelebirrPayerRefusedSignal
             or StaleVersionBurstSignal or SuspendedTokenUseSignal
-            or GpsJumpSignal or GpsMockedSignal;
+            or GpsJumpSignal or GpsMockedSignal
+            || IsPatternSignal(signalType);
 
     /// <summary>
     /// FRD-08 types whose counted weight is capped per type over the window (<c>RISK_REJECT_TYPE_CAP</c>):
