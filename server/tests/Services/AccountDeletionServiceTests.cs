@@ -778,6 +778,8 @@ public class AccountDeletionServiceTests
         new object[] { nameof(IFailing.DeleteMessageAsync), AccountDeletionPolicy.InProgress },
         new object[] { nameof(IFailing.DeleteMatchEventAsync), AccountDeletionPolicy.InProgress },
         new object[] { "sns", AccountDeletionPolicy.InProgress },
+        new object[] { nameof(IFailing.DeleteNotificationAsync), AccountDeletionPolicy.InProgress },
+        new object[] { nameof(IFailing.AnonymizeNotificationAsync), AccountDeletionPolicy.InProgress },
         new object[] { nameof(IFailing.TombstoneAsync), AccountDeletionPolicy.InProgress },
         new object[] { "cognito_delete", AccountDeletionPolicy.CognitoPending },
         new object[] { "audit_deleted", AccountDeletionPolicy.CognitoPending },
@@ -795,6 +797,8 @@ public class AccountDeletionServiceTests
         Task RemoveRatingCommentAsync();
         Task DeleteMessageAsync();
         Task DeleteMatchEventAsync();
+        Task DeleteNotificationAsync();
+        Task AnonymizeNotificationAsync();
         Task TombstoneAsync();
         Task MarkCompletedAsync();
     }
@@ -826,6 +830,9 @@ public class AccountDeletionServiceTests
         _repo.Intents.Add((FarmerId, "intent-1"));
         _repo.MatchEvents["intent-1"] = new List<string> { "event-1" };
         _repo.DeviceTokens[FarmerId] = new List<string> { EndpointArn };
+        _repo.AddInbox(FarmerId, "own-1", "order-settled", new Dictionary<string, string> { ["buyerName"] = "Buyer B" });
+        _repo.AddInbox(BuyerId, "buyer-1", "order-settled",
+            new Dictionary<string, string> { ["farmerName"] = "Farmer F", ["buyerName"] = "Buyer B" });
 
         switch (step)
         {
@@ -897,6 +904,9 @@ public class AccountDeletionServiceTests
         _repo.DeviceTokens[FarmerId].Should().BeEmpty();
         _repo.Ratings.Values.Should().OnlyContain(r => !r.ContainsKey("comment"));
         _repo.Deliveries[0].Should().NotContainKey("farmerPhone");
+        _repo.Inbox[FarmerId].Should().BeEmpty();
+        _repo.InboxParams(BuyerId, "buyer-1")["farmerName"].Should().Be(AccountDeletionPolicy.Sentinel);
+        _repo.InboxParams(BuyerId, "buyer-1")["buyerName"].Should().Be("Buyer B");
         _cognitoUsersDeleted.Should().BeEquivalentTo(new[] { FarmerId }, "the Cognito user is deleted, once");
 
         // A third call is a replay.
@@ -1198,5 +1208,162 @@ public class AccountDeletionServiceTests
 
         _repo.Messages.Should().ContainKey("msg-1");
         _repo.UserRow(FarmerId)["phoneNumber"].S.Should().Be("+251911000001");
+    }
+
+    // ──────────────────────────────────────────────
+    // Notifications inbox (FUP-120)
+    // ──────────────────────────────────────────────
+
+    private static readonly Dictionary<string, string> PartyIds = new()
+    {
+        ["buyer"] = BuyerId,
+        ["farmer"] = FarmerId,
+        ["trucker"] = TruckerId
+    };
+
+    /// <summary>Every name a trip order's inbox row carries, with the extra params a row has.</summary>
+    private static Dictionary<string, string> AllNames(string? farmerName = null) => new()
+    {
+        ["buyerName"] = "Buyer B",
+        ["farmerName"] = farmerName ?? "Farmer F",
+        ["truckerName"] = "Trucker T",
+        ["cropType"] = "teff",
+        ["amountEtb"] = "1500.00"
+    };
+
+    [Theory]
+    [InlineData("farmer")]
+    [InlineData("trucker")]
+    [InlineData("buyer")]
+    public async Task Inbox_OwnRowsDeleted_CounterpartyRowsOnSharedOrdersLoseOnlyTheUsersName(string role)
+    {
+        var userId = PartyIds[role];
+        _repo.AddUser(Live(userId, role));
+        AddOrder("order-shared", "settled", truckerId: TruckerId);
+        // The same counterparties on an order the user is not a party to: someone else holds the user's role.
+        AddOrder("order-other", "settled",
+            buyerId: role == "buyer" ? "buyer-2" : BuyerId,
+            farmerId: role == "farmer" ? "farmer-2" : FarmerId,
+            truckerId: role == "trucker" ? "trucker-2" : TruckerId);
+        _repo.AddInbox(userId, "own-1", "order-shared", AllNames());
+        _repo.AddInbox(userId, "own-2", "order-other", AllNames());
+        var counterparties = PartyIds.Where(p => p.Key != role).Select(p => p.Value).ToList();
+        var others = new Dictionary<string, string>
+        {
+            ["buyerName"] = "Buyer Two",
+            ["farmerName"] = "Farmer Two",
+            ["truckerName"] = "Trucker Two"
+        };
+        foreach (var id in counterparties)
+        {
+            _repo.AddInbox(id, "shared", "order-shared", AllNames());
+            _repo.AddInbox(id, "other", "order-other", others);
+        }
+
+        (await Delete(userId)).Result.Should().Be(AccountDeletionResult.Completed);
+
+        _repo.Inbox[userId].Should().BeEmpty("the user's own inbox is deleted, whatever order a row is about");
+        var nameParam = AccountDeletionPolicy.NameField(role);
+        foreach (var id in counterparties)
+        {
+            var shared = _repo.InboxParams(id, "shared");
+            shared[nameParam].Should().Be(AccountDeletionPolicy.Sentinel);
+            foreach (var kept in AllNames().Where(p => p.Key != nameParam))
+            {
+                shared[kept.Key].Should().Be(kept.Value, "the other parties' names and the other params stay");
+            }
+
+            _repo.InboxParams(id, "other").Should().BeEquivalentTo(others, "a row about another order is untouched");
+        }
+
+        _audit.WithAction("account_deleted").Single()["metadata"].ToString()
+            .Should().Contain("notifications=2;notificationsAnonymized=2");
+    }
+
+    [Fact]
+    public async Task Inbox_ARowThatNamesNoOrder_MatchesByItsEscrowOrDeliveryId()
+    {
+        _repo.AddUser(Live(FarmerId, "farmer"));
+        // An escrow from before order-funded escrows has no orderId; its inbox rows name none either.
+        AddEscrow("escrow-legacy", "completed", "farmer", FarmerId);
+        AddDelivery("delivery-1", "delivered", "farmer", FarmerId);
+        _repo.AddInbox("other-buyer", "escrow-row", "", AllNames(), entity: "escrow", entityId: "escrow-legacy");
+        _repo.AddInbox("other-buyer", "delivery-row", "", AllNames(), entity: "delivery", entityId: "delivery-1");
+        _repo.AddInbox("other-buyer", "unrelated", "", AllNames("Farmer Two"), entity: "escrow", entityId: "escrow-9");
+
+        (await Delete(FarmerId)).Result.Should().Be(AccountDeletionResult.Completed);
+
+        _repo.InboxParams("other-buyer", "escrow-row")["farmerName"].Should().Be(AccountDeletionPolicy.Sentinel);
+        _repo.InboxParams("other-buyer", "delivery-row")["farmerName"].Should().Be(AccountDeletionPolicy.Sentinel);
+        _repo.InboxParams("other-buyer", "escrow-row")["buyerName"].Should().Be("Buyer B");
+        _repo.InboxParams("other-buyer", "unrelated")["farmerName"].Should().Be("Farmer Two");
+    }
+
+    [Fact]
+    public async Task Inbox_ARowWithoutTheUsersName_IsNotWritten()
+    {
+        _repo.AddUser(Live(FarmerId, "farmer"));
+        AddOrder("order-1", "settled");
+        _repo.AddInbox(BuyerId, "no-name", "order-1", new Dictionary<string, string> { ["cropType"] = "teff" });
+        _repo.AddInbox(BuyerId, "done", "order-1", AllNames(AccountDeletionPolicy.Sentinel));
+
+        (await Delete(FarmerId)).Result.Should().Be(AccountDeletionResult.Completed);
+
+        _repo.Count(nameof(_repo.AnonymizeNotificationAsync)).Should().Be(0);
+        _repo.InboxParams(BuyerId, "no-name").Should().NotContainKey("farmerName", "no name param is added");
+    }
+
+    [Fact]
+    public async Task Inbox_RunAgain_WritesNothingNew_AndReapplyErasesRestoredRows()
+    {
+        _repo.AddUser(Live(FarmerId, "farmer"));
+        AddOrder("order-1", "settled", truckerId: TruckerId);
+        _repo.AddInbox(FarmerId, "own-1", "order-1", AllNames());
+        _repo.AddInbox(BuyerId, "buyer-1", "order-1", AllNames());
+        _repo.AddInbox(TruckerId, "trucker-1", "order-1", AllNames());
+        (await Delete(FarmerId)).Result.Should().Be(AccountDeletionResult.Completed);
+        var deletes = _repo.Count(nameof(_repo.DeleteNotificationAsync));
+        var anonymized = _repo.Count(nameof(_repo.AnonymizeNotificationAsync));
+        deletes.Should().Be(1);
+        anonymized.Should().Be(2);
+
+        // A second run over the same rows (reapply reruns step 10) finds every row done.
+        (await _service.ReapplyAsync(FarmerId, DeletionBudget.Unlimited, _context)).Should().BeTrue();
+
+        _repo.Count(nameof(_repo.DeleteNotificationAsync)).Should().Be(deletes);
+        _repo.Count(nameof(_repo.AnonymizeNotificationAsync)).Should().Be(anonymized);
+
+        // A backup restore brought the rows back: reapply erases them again.
+        _repo.AddInbox(FarmerId, "own-1", "order-1", AllNames());
+        _repo.AddInbox(BuyerId, "buyer-1", "order-1", AllNames());
+
+        (await _service.ReapplyAsync(FarmerId, DeletionBudget.Unlimited, _context)).Should().BeTrue();
+
+        _repo.Inbox[FarmerId].Should().BeEmpty();
+        _repo.InboxParams(BuyerId, "buyer-1")["farmerName"].Should().Be(AccountDeletionPolicy.Sentinel);
+        _repo.InboxParams(TruckerId, "trucker-1")["farmerName"].Should().Be(AccountDeletionPolicy.Sentinel);
+    }
+
+    [Fact]
+    public async Task Inbox_RunningOutOfTime_StopsBetweenWrites_AndTheRetryFinishes()
+    {
+        _repo.AddUser(Live(BuyerId, "buyer"));
+        AddOrder("order-1", "settled", truckerId: TruckerId);
+        _repo.AddInbox(FarmerId, "farmer-1", "order-1", AllNames());
+        _repo.AddInbox(TruckerId, "trucker-1", "order-1", AllNames());
+        // Time runs out once the first counterparty row is anonymized.
+        var budget = new DeletionBudget(() => _repo.Count(nameof(_repo.AnonymizeNotificationAsync)) >= 1);
+
+        var first = await Delete(BuyerId, budget: budget);
+
+        first.Result.Should().Be(AccountDeletionResult.Incomplete);
+        first.BudgetCut.Should().BeTrue();
+        _repo.Inbox.Values.SelectMany(rows => rows.Values)
+            .Count(r => r.Params["buyerName"] == AccountDeletionPolicy.Sentinel).Should().Be(1);
+
+        (await Delete(BuyerId, stepUpFresh: false)).Result.Should().Be(AccountDeletionResult.Completed);
+        _repo.InboxParams(FarmerId, "farmer-1")["buyerName"].Should().Be(AccountDeletionPolicy.Sentinel);
+        _repo.InboxParams(TruckerId, "trucker-1")["buyerName"].Should().Be(AccountDeletionPolicy.Sentinel);
+        _repo.Count(nameof(_repo.AnonymizeNotificationAsync)).Should().Be(2, "the resume skips the row already done");
     }
 }

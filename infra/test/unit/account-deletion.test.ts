@@ -129,6 +129,7 @@ describe('ACC-02 account deletion (ApiStack)', () => {
             INTENTS_TABLE: Match.anyValue(),
             MATCH_EVENTS_TABLE: Match.anyValue(),
             DEVICE_TOKENS_TABLE: Match.anyValue(),
+            NOTIFICATIONS_TABLE: Match.anyValue(),
             COGNITO_USER_POOL_ID: Match.anyValue(),
             COGNITO_CLIENT_ID: Match.anyValue(),
           }),
@@ -177,6 +178,8 @@ describe('ACC-02 account deletion (ApiStack)', () => {
       IntentsTable: ['dynamodb:DeleteItem', 'dynamodb:Query'],
       MatchEventsTable: ['dynamodb:DeleteItem', 'dynamodb:Query'],
       DeviceTokensTable: ['dynamodb:DeleteItem', 'dynamodb:Query'],
+      // FUP-120: own inbox rows deleted, the user's name in other parties' rows anonymized.
+      NotificationsTable: ['dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:UpdateItem'],
     };
     for (const [table, actions] of Object.entries(expected)) {
       expect([table, actionsOn(template, API_FN, table)]).toEqual([table, actions]);
@@ -184,6 +187,15 @@ describe('ACC-02 account deletion (ApiStack)', () => {
     // No other table (payments, fraud signals, rate limits, sync metadata, QR secrets).
     for (const table of ['PaymentsTable', 'FraudSignalsTable', 'RateLimitsTable', 'SyncMetadataTable', 'DeliveryQrSecretsTable']) {
       expect([table, actionsOn(template, API_FN, table)]).toEqual([table, []]);
+    }
+  });
+
+  test('FUP-120: both Lambdas may query, update and delete inbox rows, and nothing else on the notifications table', () => {
+    for (const fn of [API_FN, SWEEP_FN]) {
+      expect([fn, actionsOn(template, fn, 'NotificationsTable')]).toEqual([
+        fn,
+        ['dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:UpdateItem'],
+      ]);
     }
   });
 

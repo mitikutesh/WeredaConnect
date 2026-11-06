@@ -1742,7 +1742,7 @@ export class ApiStack extends cdk.Stack {
     // the completion sweep (5 minutes, one at a time), which finishes or aborts every deletion
     // started more than an hour ago. Grants are per action: each table gets only the calls the
     // deletion makes on it (reads through the party indexes, conditional updates, and deletes of
-    // messages, intents, match events and device tokens).
+    // messages, intents, match events, device tokens and the user's notification inbox rows).
     const accountDeletionEnv: Record<string, string> = {
       USERS_TABLE: props.usersTable.tableName,
       CROPS_TABLE: props.cropsTable.tableName,
@@ -1758,6 +1758,7 @@ export class ApiStack extends cdk.Stack {
       INTENTS_TABLE: props.intentsTable.tableName,
       MATCH_EVENTS_TABLE: props.matchEventsTable.tableName,
       DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
+      NOTIFICATIONS_TABLE: props.notificationsTable.tableName,
       COGNITO_USER_POOL_ID: this.userPool.userPoolId,
       COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
     };
@@ -1801,6 +1802,9 @@ export class ApiStack extends cdk.Stack {
       props.intentsTable.grant(fn, "dynamodb:Query", "dynamodb:DeleteItem");
       props.matchEventsTable.grant(fn, "dynamodb:Query", "dynamodb:DeleteItem");
       props.deviceTokensTable.grant(fn, "dynamodb:Query", "dynamodb:DeleteItem");
+      // FUP-120: the user's own inbox rows are deleted; in the other parties' inboxes the user's
+      // copied name in a row about a shared order becomes the sentinel (conditional UpdateItem).
+      props.notificationsTable.grant(fn, "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:DeleteItem");
       // Step 6 revokes every refresh token, step 12 deletes the user (username = sub).
       this.grantCognito(fn, [
         "cognito-idp:AdminUserGlobalSignOut",

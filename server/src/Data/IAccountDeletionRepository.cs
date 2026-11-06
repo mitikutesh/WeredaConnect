@@ -13,6 +13,14 @@ public sealed record ListingKey(string Id, string CreatedAt);
 public sealed record BuyerOrderRef(string OrderId, string ListingId);
 
 /// <summary>
+/// FUP-120: what the deletion reads of an ESC-21 inbox row (<c>notifications-api.md</c>): its sort key,
+/// the order it is about (empty when the row names none), the source table and row id, and the
+/// params (the copied display names among them).
+/// </summary>
+public sealed record InboxEntry(
+    string SortKey, string OrderId, string Entity, string EntityId, IReadOnlyDictionary<string, string> Params);
+
+/// <summary>
 /// ACC-02: the DynamoDB reads and writes of an account deletion (account-deletion.md), so the
 /// deletion steps can be tested against one fake. Every lookup by user uses an existing index
 /// (no Scan, except <see cref="ScanIncompleteAsync"/> for the completion sweep), and every write
@@ -139,4 +147,21 @@ public interface IAccountDeletionRepository
     Task<List<string>> QueryDeviceEndpointsAsync(string userId);
 
     Task DeleteDeviceTokenAsync(string userId, string endpointArn);
+
+    // ── step 10: the ESC-21 notifications inbox (FUP-120) ──
+
+    /// <summary>Sort keys of the user's own inbox rows (PK <c>userId</c>), every page.</summary>
+    Task<List<string>> QueryNotificationKeysAsync(string userId);
+
+    /// <summary>Delete one of the user's own inbox rows. A row already gone counts as done.</summary>
+    Task DeleteNotificationAsync(string userId, string sortKey);
+
+    /// <summary>Another party's inbox rows (PK <paramref name="recipientId"/>), every page.</summary>
+    Task<List<InboxEntry>> QueryNotificationsAsync(string recipientId);
+
+    /// <summary>
+    /// The listed params of one inbox row become the sentinel; the other params stay. Only on an
+    /// existing row, so a row the TTL removed meanwhile is not recreated. True when it wrote.
+    /// </summary>
+    Task<bool> AnonymizeNotificationAsync(string recipientId, string sortKey, IReadOnlyCollection<string> nameParams);
 }
