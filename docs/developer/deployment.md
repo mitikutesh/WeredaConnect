@@ -315,7 +315,10 @@ All deploy workflows use a two-tier caching strategy:
 | Static assets (JS, CSS, images) | `public, max-age=31536000, immutable` | Content-hashed filenames, safe to cache forever |
 | `index.html` | `public, max-age=0, must-revalidate` | Entry point must always be fresh |
 | `flutter_service_worker.js` | `public, max-age=0, must-revalidate` | Controls app updates |
-| `version.json` | `public, max-age=0, must-revalidate` | Version check file |
+| `flutter_bootstrap.js` | `public, max-age=0, must-revalidate` | Loads the current build |
+| `fayda-callback.html`, `fayda-callback.js` | `public, max-age=0, must-revalidate` | Unhashed Fayda callback relay, so fixes reach browsers |
+
+`version.json` is still uploaded by `deploy-webapp.yml`, but it is **not served**: a CloudFront function on the webapp distribution answers `/version.json` with 404 (T-SEC-05, `infra/lib/stacks/web-stack.ts`), so the build info is not exposed. Nothing in the app reads it (there is no `package_info_plus`), so it has no cache tier. To see which build is live, read `serviceWorkerVersion` in the served `flutter_bootstrap.js`, which changes with every build.
 
 ### Build Environment Variables
 
