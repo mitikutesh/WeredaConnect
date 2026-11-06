@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.12.2
+2.12.3
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -79,6 +79,7 @@ Register a new user with Ethiopian phone number, password, role, woreda, and Fay
     "displayName": "Abebe Kebede",
     "role": "farmer",
     "woreda": "Adama",
+    "preferredLanguage": "am",
     "isPhoneVerified": true,
     "faydaVerified": true,
     "faydaVerifiedAt": "2026-03-02T10:00:00Z",
@@ -218,6 +219,7 @@ Authenticate with phone number and password. Returns access, refresh, and ID tok
     "displayName": "Abebe Kebede",
     "role": "farmer",
     "woreda": "Adama",
+    "preferredLanguage": "am",
     "isPhoneVerified": true,
     "createdAt": "2026-02-12T10:00:00Z"
   }
@@ -781,6 +783,12 @@ per phone per day, 30 per IP per 5 minutes (`429 AUTH_006`, `Retry-After`).
   with `ADMIN_USER_PASSWORD_AUTH`, so lockout, suspension and audit cannot be bypassed. The
   separate admin web client keeps `USER_PASSWORD_AUTH` on purpose: it runs the TOTP
   challenge in the browser.
+- The `user` object of login, verify-otp and register `201` carries the profile's
+  `preferredLanguage` (2.12.3, SIM-37). After a sign-in the app shows it unless the user
+  picked a language on that device, and keeps it as the device's language without
+  writing it back. A pick on the device wins; one made while signed in is written to the
+  profile through the `/sync` `user` entity (`sync-protocol.md`). An offline login has no
+  profile language and keeps the device's.
 
 ### Refresh additions
 
@@ -995,6 +1003,7 @@ channel that the listing text rule (`crop-listing-api.md` 1.4.0 rule 6b, FUP-49)
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.12.3 | 2026-11-06 | The examples show `preferredLanguage` in the `user` object of register `201` and login (verify-otp returns the login shape); the server always sent it. The app reads it back after a sign-in (SIM-37): it shows the profile's language unless the user picked a language on that device, keeps it as the device's language and does not write it back; an offline login keeps the device's language. Request and response shapes unchanged |
 | 2.12.2 | 2026-10-26 | Sandbox mode, dev only (`FAYDA_SANDBOX=true` + `FAYDA_SANDBOX_REDIRECT_URI`): the server runs against the real VeriFayda sandbox with its shared test client; the authorize URL and the token request carry the test client's registered redirect (`http://localhost:3000/callback`) and a local relay forwards the callback to the app's own redirect, which clients keep sending and the state row keeps storing; web callback pages accepted as against the mock; no `login_hint`. Live-eSignet fixes for every mode: the ID token and userinfo `iss` may carry the `/v1/esignet` servlet path, and the client assertion header has no `kid` (eSignet answers `invalid_client` to one); a client JWK whose `dp`, `dq` or `qi` disagree with `d`, `p`, `q` (Fayda's published test key does) is repaired on import. Request and response shapes unchanged |
 | 2.12.1 | 2026-10-26 | Mock provider only (`FAYDA_MOCK=true`): `POST /user/fayda-start` adds `login_hint` (`sub:<faydaId>`, else `phone:<account phone>`) to the authorize URL so the mock offers the account's own identity first; an account registered with the mock's "Generate new identity" could never pass `AUTH_041` or re-verify before (every chooser option was another `sub`, `FAYDA_005`). Advice to the mock only: the 2.3.0 link rules are unchanged, `/auth/fayda-start` and live Fayda never carry it, request and response shapes unchanged |
 | 2.12.0 | 2026-10-23 | No phone number in profile text (FUP-52): register refuses a `displayName`, `woreda` or `companyName` that holds an Ethiopian mobile number with `400 AUTH_027` (`field` = the first such field, the message lists all), same detector as listing text (`crop-listing-api.md` 1.4.0 rule 6b); checked after the other field rules and before `AUTH_021`, the IP cap, the Fayda token burn and any write; the Fayda `fullName` is never screened; stored profiles are not re-validated; the app runs the same check on the form and explains `AUTH_027` in en, am and om |
@@ -1011,5 +1020,5 @@ channel that the listing text rule (`crop-listing-api.md` 1.4.0 rule 6b, FUP-49)
 
 ---
 
-**Last Updated**: 2026-10-26
-**Version**: 2.12.2
+**Last Updated**: 2026-11-06
+**Version**: 2.12.3

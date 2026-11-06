@@ -1,6 +1,8 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wereda_connect/core/auth/auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
@@ -11,6 +13,7 @@ import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/shared/providers/language_provider.dart';
 
 import '../../../helpers/wait_for.dart';
 
@@ -1016,6 +1019,248 @@ void main() {
         expect(states.length, greaterThanOrEqualTo(2));
         expect(states[0], isA<AuthLoading>());
         expect(states[1], isA<AuthError>());
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Profile language read-back (SIM-37)
+    // -----------------------------------------------------------------------
+    group('Profile language after sign-in (SIM-37)', () {
+      late LanguageProvider language;
+      late List<String> sentToServer;
+
+      setUp(() async {
+        SharedPreferences.setMockInitialValues({});
+        language = LanguageProvider(); // shows 'en'
+        sentToServer = [];
+        language.onLanguageChanged = (code) async => sentToServer.add(code);
+      });
+
+      AuthBloc buildWiredBloc() => AuthBloc(
+            authService: authService,
+            offlineCache: offlineCache,
+            applyProfileLanguage: language.applyProfileLanguage,
+          );
+
+      void stubLogin(AuthResult result) {
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer((_) async => result);
+      }
+
+      /// Signs in with [event] and returns the language shown when the
+      /// session was emitted.
+      Future<Locale?> signIn(AuthEvent event) async {
+        final bloc = buildWiredBloc();
+        addTearDown(bloc.close);
+        Locale? shownAtSignIn;
+        final sub = bloc.stream.listen((state) {
+          if (state is AuthAuthenticated) shownAtSignIn = language.locale;
+        });
+        addTearDown(sub.cancel);
+
+        bloc.add(event);
+        await waitFor(() => bloc.state is AuthAuthenticated);
+
+        expect(bloc.state, isA<AuthAuthenticated>());
+        return shownAtSignIn;
+      }
+
+      const login = AuthLoginRequested(
+        phoneNumber: '+251911234567',
+        password: 'test1234',
+      );
+
+      for (final role in UserRole.values) {
+        test(
+            'a ${role.name} login shows and stores the profile language, '
+            'before the session, without sending it back', () async {
+          stubLogin(
+            AuthResult.success(
+              _testTokens,
+              userId: 'user-001',
+              role: role,
+              preferredLanguage: 'am',
+            ),
+          );
+
+          final shownAtSignIn = await signIn(login);
+
+          expect(shownAtSignIn, const Locale('am'));
+          expect(language.locale, const Locale('am'));
+          expect(sentToServer, isEmpty);
+          final prefs = await SharedPreferences.getInstance();
+          expect(prefs.getString('selected_language'), 'am');
+        });
+      }
+
+      test('a language picked on this device is kept', () async {
+        await language.setLocale(const Locale('om'));
+        sentToServer.clear();
+        stubLogin(
+          AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.buyer,
+            preferredLanguage: 'am',
+          ),
+        );
+
+        await signIn(login);
+
+        expect(language.locale, const Locale('om'));
+        expect(sentToServer, isEmpty);
+      });
+
+      test('an online login applies it', () async {
+        when(
+          () => authService.loginOnline(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.trucker,
+            preferredLanguage: 'om',
+          ),
+        );
+
+        await signIn(
+          const AuthLoginOnlineRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+
+        expect(language.locale, const Locale('om'));
+      });
+
+      test('a registration with tokens applies it', () async {
+        when(
+          () => authService.register(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+            name: any(named: 'name'),
+            role: any(named: 'role'),
+            woreda: any(named: 'woreda'),
+            faydaVerificationToken: any(named: 'faydaVerificationToken'),
+            preferredLanguage: any(named: 'preferredLanguage'),
+            drivingLicensePath: any(named: 'drivingLicensePath'),
+            buyerType: any(named: 'buyerType'),
+            companyName: any(named: 'companyName'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-002',
+            role: UserRole.farmer,
+            preferredLanguage: 'om',
+          ),
+        );
+
+        await signIn(
+          const AuthRegisterRequested(
+            phoneNumber: '+251912345678',
+            password: 'newpass1',
+            name: 'Kebede Alemu',
+            role: UserRole.farmer,
+            woreda: 'Bahir Dar',
+            faydaVerificationToken: 'fake-fayda-token',
+          ),
+        );
+
+        expect(language.locale, const Locale('om'));
+      });
+
+      test('a confirmed registration code applies it', () async {
+        when(
+          () => authService.verifyOtp(
+            phoneNumber: any(named: 'phoneNumber'),
+            otpCode: any(named: 'otpCode'),
+            password: any(named: 'password'),
+            drivingLicensePath: any(named: 'drivingLicensePath'),
+            buyerType: any(named: 'buyerType'),
+            companyName: any(named: 'companyName'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-002',
+            role: UserRole.buyer,
+            preferredLanguage: 'am',
+          ),
+        );
+
+        await signIn(
+          const AuthVerifyOtpRequested(
+            otpCode: '123456',
+            phoneNumber: '+251912345678',
+          ),
+        );
+
+        expect(language.locale, const Locale('am'));
+      });
+
+      test('an offline login carries no profile language: nothing changes',
+          () async {
+        stubLogin(
+          AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.farmer,
+            isOfflineAuth: true,
+          ),
+        );
+
+        await signIn(login);
+
+        expect(language.locale, const Locale('en'));
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('selected_language'), isNull);
+      });
+
+      test('a failed login changes nothing', () async {
+        stubLogin(
+          AuthResult.failure(
+            AuthErrorCode.invalidCredentials,
+            'Invalid phone number or password',
+          ),
+        );
+        final bloc = buildWiredBloc();
+        addTearDown(bloc.close);
+
+        bloc.add(login);
+        await waitFor(() => bloc.state is AuthError);
+
+        expect(bloc.state, isA<AuthError>());
+        expect(language.locale, const Locale('en'));
+      });
+
+      test('a failing language step never fails the sign-in', () async {
+        stubLogin(
+          AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.farmer,
+            preferredLanguage: 'am',
+          ),
+        );
+        final bloc = AuthBloc(
+          authService: authService,
+          offlineCache: offlineCache,
+          applyProfileLanguage: (_) async => throw StateError('prefs broken'),
+        );
+        addTearDown(bloc.close);
+
+        bloc.add(login);
+        await waitFor(() => bloc.state is AuthAuthenticated);
+
+        expect(bloc.state, isA<AuthAuthenticated>());
       });
     });
   });

@@ -70,6 +70,11 @@ class AuthResult {
   /// The server flagged this login as coming from a device it has not seen.
   final bool newDevice;
 
+  /// The `preferredLanguage` on the server profile, as the response's `user`
+  /// object carried it (login, register 201, verify-otp), unvalidated. Null
+  /// for an offline login: the offline cache does not keep it (SIM-37).
+  final String? preferredLanguage;
+
   const AuthResult._({
     required this.isSuccess,
     this.tokens,
@@ -86,6 +91,7 @@ class AuthResult {
     this.faydaVerified,
     this.faydaVerifiedAt,
     this.newDevice = false,
+    this.preferredLanguage,
   });
 
   /// Create a successful authentication result
@@ -99,6 +105,7 @@ class AuthResult {
     bool? faydaVerified,
     DateTime? faydaVerifiedAt,
     bool newDevice = false,
+    String? preferredLanguage,
   }) {
     return AuthResult._(
       isSuccess: true,
@@ -111,6 +118,7 @@ class AuthResult {
       faydaVerified: faydaVerified,
       faydaVerifiedAt: faydaVerifiedAt,
       newDevice: newDevice,
+      preferredLanguage: preferredLanguage,
     );
   }
 
