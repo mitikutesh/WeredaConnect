@@ -276,9 +276,10 @@ public class SyncFunctionDropoffNoteTests
     }
 
     [Fact]
-    public async Task AnUnchangedEcho_PassesFromAnyParty_AndIsNotWritten()
+    public async Task AnUnchangedEcho_PassesFromAPartyWhoReadsIt_AndIsNotWritten()
     {
-        // The trucker's in-transit catch-up resends the row's note: no change, so no refusal.
+        // The committed trucker's in-transit catch-up resends the row's note: no change, so no
+        // refusal (a trip order from before 2.0.0 counts as committed from accepted on).
         _order = Order("pickup_confirmed");
         _deliveryStatus = "inTransit";
 
@@ -287,6 +288,81 @@ public class SyncFunctionDropoffNoteTests
         result.GetProperty("status").GetString().Should().Be("success", result.ToString());
         _written.Should().NotContainKey("dropoffNote");
         _written!["status"].ToString().Should().Be("in_transit");
+    }
+
+    [Fact]
+    public async Task TheCommittedTrucker_AndTheFarmer_MayEchoTheNote()
+    {
+        _order = Order("accepted");
+        _order["truckerResponse"] = "accepted";
+        _deliveryStatus = "pickedUp";
+
+        var trucker = await UpdateAsync(
+            TruckerId, StoredNote, role: "trucker", extra: new() { { "status", "pickup_confirmed" } });
+
+        trucker.GetProperty("status").GetString().Should().Be("success", trucker.ToString());
+        _written.Should().NotContainKey("dropoffNote");
+
+        _written = null;
+        _order = Order("funded");
+        _order["truckerResponse"] = "pending";
+        var farmer = await UpdateAsync(FarmerId, StoredNote, role: "farmer");
+
+        // The farmer reads the note: an echo is dropped, the rest of the update goes on.
+        farmer.GetProperty("status").GetString().Should().Be("success", farmer.ToString());
+        _written.Should().NotContainKey("dropoffNote");
+    }
+
+    [Theory]
+    [InlineData(StoredNote)]
+    [InlineData("A guess at the note")]
+    [InlineData("")]
+    [InlineData("call 0911234567")]
+    public async Task ATruckerNotCommitted_GetsTheSameRefusal_WhateverTheNote(string probe)
+    {
+        // No equality oracle: the answer is the same whether the probe matches the stored note,
+        // differs, is empty, or would break the field rules.
+        _order = Order("funded");
+        _order["truckerResponse"] = "pending";
+
+        var result = await UpdateAsync(TruckerId, probe, role: "trucker");
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should()
+            .Be("ORDER_UNAUTHORIZED: Only the buyer can change the drop-off note.");
+        // No row comes back either.
+        (!result.TryGetProperty("serverData", out var row) || row.ValueKind == JsonValueKind.Null)
+            .Should().BeTrue(result.ToString());
+        await NothingWritten();
+    }
+
+    [Fact]
+    public async Task ATruckerNotCommitted_GetsTheSameRefusal_ForAnOverlongNote()
+    {
+        _order = Order("funded");
+        _order["truckerResponse"] = "pending";
+
+        var result = await UpdateAsync(TruckerId, new string('a', 81), role: "trucker");
+
+        result.GetProperty("message").GetString().Should()
+            .Be("ORDER_UNAUTHORIZED: Only the buyer can change the drop-off note.");
+        await NothingWritten();
+    }
+
+    [Fact]
+    public async Task TheBuyer_IsUnaffected_ByTheTruckersCommitment()
+    {
+        _order = Order("funded");
+        _order["truckerResponse"] = "pending";
+
+        var echo = await UpdateAsync(BuyerId, StoredNote);
+        echo.GetProperty("status").GetString().Should().Be("success", echo.ToString());
+        _written.Should().NotContainKey("dropoffNote");
+
+        _written = null;
+        var change = await UpdateAsync(BuyerId, "Kality");
+        change.GetProperty("status").GetString().Should().Be("success", change.ToString());
+        _written!["dropoffNote"].Should().Be("Kality");
     }
 
     [Fact]

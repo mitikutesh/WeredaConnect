@@ -59,7 +59,11 @@ public class OrderDropoffNoteTests
 
     [Theory]
     [InlineData("Merkato\nnear the mosque")]
+    [InlineData("Merkato\r\ngate 2")]
     [InlineData("Merkato\tgate 2")]
+    [InlineData("Merkato\u0085gate 2")]
+    [InlineData("Merkato\u2028gate 2")]
+    [InlineData("Merkato\u2029gate 2")]
     public void ALineBreakOrAControlCharacter_IsRefused(string note)
         => OrderDropoffNote.ValidationError(note).Should().Be("dropoffNote must be one line of text.");
 

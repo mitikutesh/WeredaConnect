@@ -56,8 +56,9 @@ public static class OrderDropoffNote
 
     /// <summary>
     /// Why <paramref name="raw"/> (a sync payload value) is not a valid note, or null when it is.
-    /// Text or null (no note); after trimming one line (no line break or other control character)
-    /// of at most <see cref="MaxLength"/> characters.
+    /// Text or null (no note); after trimming one line (no control character, and no U+2028 line
+    /// or U+2029 paragraph separator) of at most <see cref="MaxLength"/> characters. The clients
+    /// turn each of those into a space before they send (order_dropoff_note.dart).
     /// </summary>
     public static string? ValidationError(object? raw)
     {
@@ -67,7 +68,7 @@ public static class OrderDropoffNote
         }
 
         var trimmed = text.Trim();
-        if (trimmed.Any(char.IsControl))
+        if (trimmed.Any(IsLineBreakOrControl))
         {
             return $"{Field} must be one line of text.";
         }
@@ -76,6 +77,9 @@ public static class OrderDropoffNote
             ? $"{Field} must not exceed {MaxLength} characters."
             : null;
     }
+
+    /// <summary>A control character (C0, DEL, C1) or a Unicode line or paragraph separator.</summary>
+    private static bool IsLineBreakOrControl(char c) => char.IsControl(c) || c is '\u2028' or '\u2029';
 
     /// <summary>
     /// The note as stored: the trimmed text, empty for none. Call after <see cref="ValidationError"/>
