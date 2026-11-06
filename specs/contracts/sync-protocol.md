@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.37.0
+1.38.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -122,6 +122,7 @@ This format ensures:
 3. **Last-write-wins within same version.** If `clientVersion` equals server version, the operation is applied (optimistic concurrency).
 4. **Client behind = conflict.** If `clientVersion < serverVersion`, return `conflict` with the server's current data.
 5. **Deletes are soft.** Deleted entities are marked with a `deletedAt` timestamp, not physically removed. This prevents sync issues with other clients that haven't synced yet.
+6. **The loser of a status race gets a conflict (1.38.0, SIM-28).** A status change that is not a valid transition from the stored status, sent with a version lower than the stored one (another device or party moved the entity first), is answered `conflict` with `serverVersion` and the current row in `serverData`, like any version conflict, instead of the entity's invalid-transition error (`ORDER_VALIDATION: Invalid status transition ...`, `DELIVERY_INVALID_TRANSITION`, `TRIP_INVALID_TRANSITION`, `CROP_INVALID_TRANSITION`). Nothing is written. Only a caller who may ask for that status gets it, and the row is scrubbed as in the other conflicts: an order's party for a status that party may set (a system-managed status or another party's keeps the error, `order-lifecycle.md` 2.6.0), a delivery's trucker for `pickedUp` and `inTransit`, its buyer for `delivered`, any of its parties for `disputed` (anyone else keeps the error), the listing's farmer, the trip's trucker. With the current version, a newer one or none, the invalid-transition error stands. Clients need no change: they already resolve a `conflict` server-wins (mobile) or treat it as a failure (web).
 
 ### Client-Side Conflict Resolution (Mobile)
 
@@ -147,6 +148,7 @@ When the client receives `status: "conflict"`:
 3. **Server checks before processing.** On receiving an operation, the server looks up the idempotency key in the `SyncMetadata` DynamoDB table. If found, return the stored result without re-processing.
 4. **Keys expire after 7 days.** DynamoDB TTL automatically deletes idempotency records after 7 days. Clients should not retry operations older than 7 days.
 5. **Keys are scoped to the caller (1.7.0, SIM-48/ESC-11/SEC-03).** The server never trusts the `{userId}` segment. It stores and looks up a key as sent when the key starts with the caller's Cognito `sub` followed by `:` (the documented format), and as `{sub}:{key}` otherwise (web keys such as `web_create_{id}`, keys carrying another user's id, any other string). So the same key sent by two users is two different operations, and `duplicate` only means the caller itself already sent that key: another user can no longer pre-claim your key and get your operation dropped. Any non-empty key string is accepted; the documented format is still the recommended one. If the caller id cannot scope a key (it contains `:`, which a Cognito `sub` never does) the operation is answered `error` with `SYNC_VALIDATION: caller identity cannot scope the idempotency key.` and nothing is processed. No client change is needed.
+6. **A key belongs to one payload (1.38.0, SIM-28).** The server stores a fingerprint of the operation with its key: the SHA-256 of a canonical JSON of `entityType`, `entityId`, `action`, `clientVersion` and `data` (after the server drops the fields it owns, such as `isFlagged`), with object keys sorted at every depth and numbers compared by value (`18`, `18.0` and `1.8e1` are equal). `operationId` and `timestamp` are left out, so a resend that renews them still matches. The same key sent again with the same payload answers `duplicate` as before. Sent with a different payload it answers `error` with `SYNC_VALIDATION: idempotency key already used for a different operation payload; send this change with a new idempotency key.`: nothing is processed or stored, because answering `duplicate` would drop the change as if it had been applied. Clients already treat `SYNC_VALIDATION` as permanent (mobile marks the operation rejected, and reverts a refused order from `GET /orders/{id}`; web shows the message). Records written before 1.38.0 carry no fingerprint and keep answering `duplicate` until they expire.
 
 ### SyncMetadata Table Schema (DynamoDB)
 
@@ -157,6 +159,7 @@ When the client receives `status: "conflict"`:
 | `operationId` | String | Client-generated UUID for the sync operation |
 | `result` | String | JSON-encoded sync result (for returning on duplicate requests) |
 | `expiresAt` | Number (TTL) | Unix timestamp when this record should be deleted (7 days from creation) |
+| `payloadFingerprint` | String | Lowercase hex SHA-256 of the operation's canonical payload (rule 6, 1.38.0); absent on records written before it |
 
 **Performance**: Every stored key starts with the caller's `sub`, so the table naturally partitions across users, preventing hot partition issues.
 
@@ -169,7 +172,7 @@ When the client receives `status: "conflict"`:
 | `SYNC_SUCCESS` | Operation applied | Remove from local queue |
 | `SYNC_CONFLICT` | Client version behind | Accept server data, re-queue if needed |
 | `SYNC_DUPLICATE` | Idempotency key already processed | Remove from local queue (already done) |
-| `SYNC_VALIDATION` | Payload failed validation | Fix data, re-queue with new idempotency key |
+| `SYNC_VALIDATION` | Payload failed validation, or (1.38.0) an idempotency key already used for a different payload | Fix data, re-queue with new idempotency key |
 | `SYNC_AUTH` | Authentication failed | Re-authenticate, retry |
 | `SYNC_RATE_LIMIT` | Too many requests | Back off, retry with exponential delay |
 | `SYNC_SERVER_ERROR` | Server failure | Retry with exponential backoff |
@@ -880,6 +883,7 @@ handling ships with LT-08, and no client sends the entity before it.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.38.0 | 2026-11-06 | Idempotency and races (SIM-28): the server stores a payload fingerprint with each idempotency key (SHA-256 of a canonical JSON of `entityType`, `entityId`, `action`, `clientVersion` and `data`; keys sorted, numbers by value; `operationId` and `timestamp` left out) in the new `payloadFingerprint` attribute; a key sent again with a different payload answers `error` `SYNC_VALIDATION: idempotency key already used for a different operation payload; ...` instead of `duplicate`, nothing processed or stored; records from before keep answering `duplicate`. A status change that is not a valid transition from the stored status and carries a version behind the stored one answers `conflict` with the row (to a caller who may ask for that status, `order-lifecycle.md` 2.6.0) instead of `ORDER_VALIDATION: Invalid status transition`, `DELIVERY_INVALID_TRANSITION`, `TRIP_INVALID_TRANSITION` or `CROP_INVALID_TRANSITION`; at the current version the error stands. No client change: `SYNC_VALIDATION` is already permanent and `conflict` already resolved server-wins (mobile) or a failure (web) |
 | 1.37.0 | 2026-11-06 | Typed `serverData` (SIM-25): `success` and `conflict` rows carry numbers as JSON numbers (`version`, quantities, prices, money fields, coordinates, `stars`) and a trip's `matchedListings` as an array, the types GET returns for the same row; before, every number was a string and `matchedListings` the text `"[]"`. Other values keep their type. The mobile conflict resolver already read these as numbers and a list, so its crop, trip and order conflicts failed on the string shape and are now applied server-wins; it also no longer requires `totalPrice` on an order row (the server never stores it): the local total is kept, a new row starts at 0 as the order pull does. Web reads only `status` from a row. No new code |
 | 1.36.0 | 2026-11-06 | Drop-off landmark (LT-12, `order-lifecycle.md` 2.5.0): `dropoffNote` is a new order field on create and on the buyer's update until pickup; new permanent `ORDER_CONTACT_IN_TEXT` (a phone number in it) and `ORDER_DROPOFF_NOTE_LOCKED` (a change after pickup), both under the `ORDER_*` rule clients already apply (1.10.0), now with their own text in en, am and om (`errorContactInText`, `errorDropoffNoteLocked`); an order row in `serverData` leaves the note out for a caller who may not read it. Older clients revert and show the generic order refusal |
 | 1.35.0 | 2026-11-06 | Listings that orders depend on (ESC-18, `crop-listing-api.md` 1.7.0, `order-lifecycle.md` 2.4.0): behind `COMMITMENTS_ENABLED`, the server sends `CROP_HAS_ACTIVE_ORDERS: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.` on a `crop_listing` delete, or an update to `status: deleted`, while an order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`; when the orders cannot be read, the unprefixed `The listing's orders could not be checked. Please try again later.` (retryable). A quantity edit never gets the code. Clients already handle it (1.17.0: permanent, the listing reverted from `GET /crops/{id}`, `errorCropHasActiveOrders`). A funding that loses the listing's stock cancels the order on the server (`listing_out_of_stock`); clients see it through the order pull. No client change |
@@ -919,4 +923,4 @@ handling ships with LT-08, and no client sends the entity before it.
 ---
 
 **Last Updated**: 2026-11-06
-**Version**: 1.37.0
+**Version**: 1.38.0

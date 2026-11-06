@@ -88,7 +88,7 @@ public class SyncFunctionLocationPingTests
         await _locations.Received(1).ListSortKeysAsync(TripId, "2026-10-27T08:");
         // The ping is an ordinary success: its idempotency key is stored like every entity's.
         await _syncMeta.Received(1).StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Is("op-ping"), Arg.Is("location_ping"), Arg.Is("success"));
+            Arg.Any<string>(), Arg.Is("op-ping"), Arg.Is("location_ping"), Arg.Is("success"), Arg.Any<string?>());
     }
 
     [Theory]
@@ -252,7 +252,7 @@ public class SyncFunctionLocationPingTests
         await NothingWritten();
         // A deferred ping is processed again later: its idempotency key is not stored.
         await _syncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
     }
 
     // ===== LOCATION_SHARING_ENDED =====

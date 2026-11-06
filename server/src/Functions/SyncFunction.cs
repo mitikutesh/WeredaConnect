@@ -909,6 +909,14 @@ public partial class SyncFunction
     }
 
     /// <summary>
+    /// SIM-28: the answer to an idempotency key already stored for another payload. Nothing is
+    /// processed or stored. <c>SYNC_VALIDATION</c>, so clients reject it for good (it can never
+    /// pass with this key) and the contract's action applies: send the change with a new key.
+    /// </summary>
+    internal const string IdempotencyKeyReusedMessage =
+        "SYNC_VALIDATION: idempotency key already used for a different operation payload; send this change with a new idempotency key.";
+
+    /// <summary>
     /// Process a single sync operation with idempotency checking and entity routing.
     /// </summary>
     private async Task<SyncOperationResult> ProcessOperationAsync(
@@ -968,10 +976,31 @@ public partial class SyncFunction
 
         try
         {
+            // SIM-28: what this key is sent with, taken before any handler changes the data.
+            var payloadFingerprint = SyncPayloadFingerprint.Of(operation);
+
             // 1. Check idempotency: did this caller already send this key?
             var isDuplicate = await _syncMetadataRepo.IdempotencyKeyExistsAsync(scopedIdempotencyKey);
             if (isDuplicate)
             {
+                // SIM-28: the same key with another payload is not a retry; answering duplicate
+                // would drop the change as if it had been applied. A record from before the
+                // fingerprint was stored has none and still answers duplicate.
+                var storedFingerprint = await _syncMetadataRepo.GetPayloadFingerprintAsync(scopedIdempotencyKey);
+                if (!string.IsNullOrEmpty(storedFingerprint)
+                    && !string.Equals(storedFingerprint, payloadFingerprint, StringComparison.Ordinal))
+                {
+                    context.Logger.LogWarning(
+                        $"Idempotency key {MoneyAlarmLog.LogId(operation.IdempotencyKey)} reused with another payload for operation {MoneyAlarmLog.LogId(operation.OperationId)}");
+
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "error",
+                        Message = IdempotencyKeyReusedMessage
+                    };
+                }
+
                 context.Logger.LogInformation(
                     $"Duplicate idempotency key: {MoneyAlarmLog.LogId(operation.IdempotencyKey)} for operation {MoneyAlarmLog.LogId(operation.OperationId)}");
 
@@ -1017,7 +1046,8 @@ public partial class SyncFunction
                     scopedIdempotencyKey,
                     operation.OperationId,
                     operation.EntityType,
-                    result.Status);
+                    result.Status,
+                    payloadFingerprint);
             }
 
             // FRD-08: an offline client meets version conflicts in normal use, so one never writes a
@@ -2838,6 +2868,15 @@ public partial class SyncFunction
                         if (!CropTransitions.TryGetValue(currentCropStatus, out var allowedCropStatuses)
                             || newCropStatus == null || !allowedCropStatuses.Contains(newCropStatus))
                         {
+                            // SIM-28: the loser of a status race is behind, not wrong.
+                            var storedCropVersion = existingForUpdate.TryGetValue("version", out var scv)
+                                && int.TryParse(scv?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var scvn)
+                                ? scvn : 0;
+                            if (StaleClientVersion(operation, storedCropVersion) is int cropRaceVersion)
+                            {
+                                return StaleVersionConflict(operation, storedCropVersion, cropRaceVersion, existingForUpdate);
+                            }
+
                             return new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
@@ -3351,6 +3390,14 @@ public partial class SyncFunction
                             && (!ValidTransitions.TryGetValue(currentStatus, out var allowed)
                                 || newStatus == null || !allowed.Contains(newStatus)))
                         {
+                            // SIM-28: the loser of a status race is behind, not wrong.
+                            var storedTripVersion = ItemVersion(existing);
+                            if (StaleClientVersion(operation, storedTripVersion) is int tripRaceVersion)
+                            {
+                                return StaleVersionConflict(operation, storedTripVersion, tripRaceVersion,
+                                    ScrubSyncSecrets(CropRepository.FromItem(existing)));
+                            }
+
                             return new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
@@ -4913,6 +4960,16 @@ public partial class SyncFunction
                             && (!DeliveryTransitions.TryGetValue(currentStatus, out var allowed)
                                 || newStatus == null || !allowed.Contains(newStatus)))
                         {
+                            // SIM-28: the loser of a status race is behind, not wrong: a party who may
+                            // ask for this status gets the row. Anyone else keeps the error.
+                            var storedDeliveryVersion = ItemVersion(existing);
+                            if (StaleClientVersion(operation, storedDeliveryVersion) is int deliveryRaceVersion
+                                && MayRequestDeliveryStatus(existing, authenticatedUserId, newStatus))
+                            {
+                                return StaleVersionConflict(operation, storedDeliveryVersion, deliveryRaceVersion,
+                                    ScrubDeliveryForClient(CropRepository.FromItem(existing)));
+                            }
+
                             return new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
@@ -6724,6 +6781,14 @@ public partial class SyncFunction
             if (!OrderTransitions.TryGetValue(currentStatus, out var allowedTransitions)
                 || !allowedTransitions.Contains(newStatus))
             {
+                // SIM-28: the loser of a status race is behind, not wrong, when it may ask for this
+                // status at all (a system-managed one, or another party's, keeps the error).
+                if (StaleClientVersion(operation, OrderVersionOf(existingOrder)) is int orderRaceVersion
+                    && ValidateOrderTransitionAuth(currentStatus, newStatus, authenticatedUserId, orderBuyerId, orderFarmerId) == null)
+                {
+                    return OrderConflict(operation, existingOrder, orderRaceVersion);
+                }
+
                 return new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
@@ -8605,6 +8670,48 @@ public partial class SyncFunction
         version = 0;
         return false;
     }
+
+    /// <summary>
+    /// SIM-28: the version the client sent when the stored row has moved past it (another device
+    /// or party changed the entity first), else null. A status change that is invalid against the
+    /// stored row then comes from the loser of a race: it is answered <c>conflict</c> with the row,
+    /// like any version conflict. With a current, newer or missing version the invalid-transition
+    /// error stands.
+    /// </summary>
+    private static int? StaleClientVersion(SyncOperationRequest operation, int storedVersion)
+        => TryGetClientVersion(operation, out var sent) && sent < storedVersion ? sent : null;
+
+    /// <summary>A version conflict answered with the stored row (server wins).</summary>
+    private static SyncOperationResult StaleVersionConflict(
+        SyncOperationRequest operation, int serverVersion, int clientVersion, Dictionary<string, object> serverData) => new()
+        {
+            OperationId = operation.OperationId,
+            Status = "conflict",
+            ServerVersion = serverVersion,
+            ServerData = serverData,
+            Message = $"Version conflict: server has version {serverVersion}, client expected {clientVersion}."
+        };
+
+    /// <summary>
+    /// SIM-28: whether <paramref name="userId"/> may ask for <paramref name="status"/> on this delivery
+    /// (the role rules of the delivery update): the trucker picks up and drives, the buyer confirms,
+    /// any party disputes.
+    /// </summary>
+    private static bool MayRequestDeliveryStatus(Dictionary<string, AttributeValue> delivery, string? userId, string? status)
+        => status switch
+        {
+            "pickedUp" or "inTransit" => IsParty(delivery, userId, "truckerId"),
+            "delivered" => IsParty(delivery, userId, "buyerId"),
+            "disputed" => IsParty(delivery, userId, "buyerId", "farmerId", "truckerId"),
+            _ => false
+        };
+
+    /// <summary>The <c>version</c> of a raw DynamoDB row, 0 when it has none.</summary>
+    private static int ItemVersion(Dictionary<string, AttributeValue> row)
+        => row.TryGetValue("version", out var versionAttr)
+           && int.TryParse(versionAttr.N, NumberStyles.Integer, CultureInfo.InvariantCulture, out var version)
+            ? version
+            : 0;
 
     private static SyncOperationResult OrderValidationError(SyncOperationRequest operation, string message) => new()
     {

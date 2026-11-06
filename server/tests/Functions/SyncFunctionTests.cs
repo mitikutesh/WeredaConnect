@@ -234,7 +234,7 @@ public partial class SyncFunctionTests
             "farmer-001:" + op.IdempotencyKey,
             op.OperationId,
             "crop_listing",
-            "success");
+            "success", Arg.Any<string?>());
     }
 
     [Fact]
@@ -266,7 +266,7 @@ public partial class SyncFunctionTests
             .Returns(ci => Task.FromResult(stored.Contains(ci.ArgAt<string>(0))));
         _mockSyncMeta
             .When(x => x.StoreIdempotencyKeyAsync(
-                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()))
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>()))
             .Do(ci => stored.Add(ci.ArgAt<string>(0)));
         return stored;
     }
@@ -361,7 +361,7 @@ public partial class SyncFunctionTests
             MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer"), _context);
 
         await _mockSyncMeta.Received(1).IdempotencyKeyExistsAsync(key);
-        await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(key, "op-001", "crop_listing", "success");
+        await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(key, "op-001", "crop_listing", "success", Arg.Any<string?>());
     }
 
     [Fact]
@@ -375,7 +375,7 @@ public partial class SyncFunctionTests
 
         await _mockSyncMeta.Received(1).IdempotencyKeyExistsAsync("farmer-001:web_create_crop-001");
         await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(
-            "farmer-001:web_create_crop-001", "op-001", "crop_listing", "success");
+            "farmer-001:web_create_crop-001", "op-001", "crop_listing", "success", Arg.Any<string?>());
         await _mockSyncMeta.DidNotReceive().IdempotencyKeyExistsAsync("web_create_crop-001");
     }
 
@@ -392,7 +392,7 @@ public partial class SyncFunctionTests
         Assert.Contains("SYNC_VALIDATION", response.Body);
         await _mockSyncMeta.DidNotReceive().IdempotencyKeyExistsAsync(Arg.Any<string>());
         await _mockSyncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
         await _mockCropRepo.DidNotReceive()
             .CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
@@ -4414,12 +4414,16 @@ public partial class SyncFunctionTests
         Assert.Contains("success", response.Body);
     }
 
-    [Fact]
-    public async Task OrderUpdate_OnAnOrderTheMoneyMovedOn_FailsTheTransitionCheck_AndWritesNothing()
+    [Theory]
+    [InlineData(5, "conflict")]
+    [InlineData(7, "error")]
+    public async Task OrderUpdate_OnAnOrderTheMoneyMovedOn_FailsTheTransitionCheck_AndWritesNothing(
+        int sentVersion, string expectedStatus)
     {
         // ESC-09 (V8): a device still showing in_transit queues the delivered catch-up after the
-        // escrow release moved the order to disbursing. The transition check runs before the version
-        // check, so the answer is a permanent ORDER_VALIDATION (the client reverts to the server row).
+        // escrow release moved the order to disbursing. Sent from an older version (5) it lost the
+        // race: SIM-28 answers conflict with the disbursing row, which the client adopts. Sent at the
+        // current version (7) the transition is simply invalid: a permanent ORDER_VALIDATION.
         var orderRepo = Substitute.For<IOrderRepository>();
         orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
         {
@@ -4441,13 +4445,24 @@ public partial class SyncFunctionTests
             EntityType = "order",
             EntityId = "order-001",
             Action = "update",
-            Data = new Dictionary<string, object> { { "status", "delivered" }, { "version", 5 } }
+            Data = new Dictionary<string, object> { { "status", "delivered" }, { "version", sentVersion } }
         };
         var response = await function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer"), _context);
 
-        // The body is JSON, which escapes the quotes around the statuses.
-        Assert.Contains("ORDER_VALIDATION: Invalid status transition from \\u0027disbursing\\u0027 to \\u0027delivered\\u0027.", response.Body);
+        var result = FirstResult(response.Body);
+        Assert.Equal(expectedStatus, result.GetProperty("status").GetString());
+        if (expectedStatus == "conflict")
+        {
+            Assert.Equal(7, result.GetProperty("serverVersion").GetInt32());
+            Assert.Equal("disbursing", result.GetProperty("serverData").GetProperty("status").GetString());
+        }
+        else
+        {
+            Assert.Equal("ORDER_VALIDATION: Invalid status transition from 'disbursing' to 'delivered'.",
+                result.GetProperty("message").GetString());
+        }
+
         await orderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
         await orderRepo.DidNotReceive().TryAdvanceStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
     }
@@ -6835,7 +6850,7 @@ public partial class SyncFunctionTests
             Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
         await _paymentAuditRepo!.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
         await _mockSyncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
         await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
         await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
     }
@@ -7411,7 +7426,7 @@ public partial class SyncFunctionTests
         await DidNotWriteTheDelivery();
         await DidNotWriteTheOrder();
         await _mockSyncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
     }
 
     [Theory]

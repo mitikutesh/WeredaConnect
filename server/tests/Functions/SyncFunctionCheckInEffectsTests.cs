@@ -562,7 +562,7 @@ public class SyncFunctionCheckInEffectsTests
         result.GetProperty("status").GetString().Should().Be("success");
         result.GetProperty("serverVersion").GetInt32().Should().Be(1);
         _stored.Should().ContainSingle();
-        await _syncMeta.Received(1).StoreIdempotencyKeyAsync(Arg.Any<string>(), "op-ping", "location_ping", "success");
+        await _syncMeta.Received(1).StoreIdempotencyKeyAsync(Arg.Any<string>(), "op-ping", "location_ping", "success", Arg.Any<string?>());
     }
 
     // ===== the trucker's own button after the move =====

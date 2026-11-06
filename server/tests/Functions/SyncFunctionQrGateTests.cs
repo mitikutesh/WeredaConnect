@@ -440,7 +440,7 @@ public sealed class SyncFunctionQrGateTests
         await _qrSecrets.DidNotReceive().MarkConsumedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         // Not recorded as processed, so the client's retry is evaluated again.
         await _syncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
     }
 
     private Task<JsonElement> SendAsync(string status, string userId, string role,

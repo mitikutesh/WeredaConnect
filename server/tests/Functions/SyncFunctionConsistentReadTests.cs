@@ -178,6 +178,64 @@ public sealed class SyncFunctionConsistentReadTests : IDisposable
         await OrderWasOnlyReadConsistentlyAsync();
     }
 
+    // ===== Race losers (SIM-28) =====
+
+    [Fact]
+    public async Task PayAfterAnotherDeviceCancelled_StaleVersion_GetsConflictWithTheCancelledRow()
+    {
+        // The buyer's other phone cancelled first (version 2); this one paid from version 1.
+        Store(Order("cancelled", 2));
+
+        var results = await SendBatchAsync(BuyerId, "buyer", Update("op-pay", Pay(version: 1)));
+
+        results[0].GetProperty("status").GetString().Should().Be("conflict");
+        results[0].GetProperty("serverVersion").GetInt32().Should().Be(2);
+        results[0].GetProperty("serverData").GetProperty("status").GetString().Should().Be("cancelled");
+        _writtenStatuses.Should().BeEmpty();
+        await OrderWasOnlyReadConsistentlyAsync();
+    }
+
+    [Fact]
+    public async Task FarmerAcceptAfterTheOrderWasRejected_StaleVersion_GetsConflict()
+    {
+        Store(Order("rejected", 4));
+
+        var results = await SendBatchAsync(FarmerId, "farmer", Update("op-accept", StatusChange("accepted", version: 3)));
+
+        results[0].GetProperty("status").GetString().Should().Be("conflict");
+        results[0].GetProperty("serverVersion").GetInt32().Should().Be(4);
+        results[0].GetProperty("serverData").GetProperty("status").GetString().Should().Be("rejected");
+        _writtenStatuses.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("accepted")]
+    [InlineData("funded")]
+    public async Task StaleStatusTheCallerMayNotAskFor_IsStillAnError(string status)
+    {
+        // Not a race the buyer lost: the farmer's answer and a system-managed status are never theirs.
+        Store(Order("cancelled", 2));
+
+        var results = await SendBatchAsync(BuyerId, "buyer", Update("op-x", StatusChange(status, version: 1)));
+
+        results[0].GetProperty("status").GetString().Should().Be("error");
+        results[0].GetProperty("message").GetString().Should()
+            .Be($"ORDER_VALIDATION: Invalid status transition from 'cancelled' to '{status}'.");
+        results[0].TryGetProperty("serverData", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task InvalidTransition_AtTheCurrentVersion_IsStillAnError()
+    {
+        Store(Order("cancelled", 2));
+
+        var results = await SendBatchAsync(BuyerId, "buyer", Update("op-pay", Pay(version: 2)));
+
+        results[0].GetProperty("status").GetString().Should().Be("error");
+        results[0].GetProperty("message").GetString().Should()
+            .Be("ORDER_VALIDATION: Invalid status transition from 'cancelled' to 'payment_submitted'.");
+    }
+
     // ===== Helpers =====
 
     private async Task OrderWasOnlyReadConsistentlyAsync()
