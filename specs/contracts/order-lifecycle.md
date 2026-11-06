@@ -208,14 +208,16 @@ optional order field the buyer sends on create and may change, add or clear late
 
 | Rule | Answer (nothing written) |
 |---|---|
-| Text or null; trimmed; one line (no line break or other control character); at most **80 user-visible characters**, counted as Unicode extended grapheme clusters (an Amharic syllable such as `ሰ` is one, an emoji with its modifiers is one), as the clients' `TextField.maxLength` counts them | `ORDER_VALIDATION: dropoffNote must be text.` / `... must be one line of text.` / `... must not exceed 80 characters.` |
+| Text or null; trimmed; one line (no control character, C0, DEL or C1, and no U+2028 line or U+2029 paragraph separator; the clients turn each into a space, collapse runs of spaces and trim before they send, so a pasted tab or line break never meets this permanent refusal); at most **80 user-visible characters**, counted as Unicode extended grapheme clusters (an Amharic syllable such as `ሰ` is one, an emoji with its modifiers is one), as the clients' `TextField.maxLength` counts them | `ORDER_VALIDATION: dropoffNote must be text.` / `... must be one line of text.` / `... must not exceed 80 characters.` |
 | No phone number: the detector of listing text (`crop-listing-api.md` rule 6b), since the farmer reads the note before contact opens (ESC-48) | `ORDER_CONTACT_IN_TEXT: Remove the phone number from dropoffNote. Contact opens after payment is held in escrow.` |
-| Update only: a value equal to the stored note (after trimming) is an unchanged echo, dropped from the payload whoever sends it and wherever the order is | (no refusal) |
-| Update only: a change from anyone but the order's buyer | `ORDER_UNAUTHORIZED: Only the buyer can change the drop-off note.` (with the `ROLE_FORBIDDEN` fraud signal, as the other party refusals) |
+| Update only, first of all: a party who may not read the note (see the table below: a trucker not committed) sends `dropoffNote` at all, whatever the value | `ORDER_UNAUTHORIZED: Only the buyer can change the drop-off note.`, before the stored note is looked at, so the answer never tells whether a note exists or what it says |
+| Update only: from a party who reads it, a value equal to the stored note (after trimming) is an unchanged echo, dropped from the payload wherever the order is | (no refusal) |
+| Update only: a change from anyone but the order's buyer | the same `ORDER_UNAUTHORIZED` text (both carry the `ROLE_FORBIDDEN` fraud signal, as the other party refusals) |
 | Update only: the edit window. The order is `created`, `pending_payment`, `payment_submitted`, `payment_failed`, `funded`, `awaiting_transport` or `accepted`, and its active delivery (read strongly consistent, since the order follows its delivery on a best-effort write) is not `pickedUp`, `inTransit`, `delivered` or `disputed` | `ORDER_DROPOFF_NOTE_LOCKED: The drop-off note can only be changed before pickup.`; a delivery that cannot be read refuses for now with the unprefixed, retryable `The order's delivery could not be read. Please try again later.` |
 
-The checks run in that order, on create after the other `ORDER_VALIDATION` field rules, on update
-right after the participant check and before every other order rule (so a command or a status
+The checks run in that order (on update the refusal of a party who may not read the note comes
+first), on create after the other `ORDER_VALIDATION` field rules, on update right after the
+participant check and before every other order rule (so a command or a status
 write cannot carry a note change past them). Both codes are permanent under the `ORDER_*` rule (`sync-protocol.md` 1.36.0). A blank note
 on create is not stored. A note change is not a transition: no transaction-audit row, like the
 other non-status order edits.

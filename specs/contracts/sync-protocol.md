@@ -644,9 +644,13 @@ pickup (`order-lifecycle.md` 2.5.0). The server refuses, nothing written:
 
 `ORDER_DROPOFF_NOTE_LOCKED: The drop-off note can only be changed before pickup.`
 
-and `ORDER_UNAUTHORIZED` for a change from anyone but the buyer, `ORDER_VALIDATION` for more than
-80 user-visible characters or a line break. An unchanged echo of the stored note is dropped, never
-refused. A delivery that cannot be read for the edit window answers the unprefixed
+and `ORDER_UNAUTHORIZED` for a change from anyone but the buyer, and for any `dropoffNote` at all
+from a party who may not read it (a trucker not committed: the same text whatever the value, so no
+answer tells what the note says), `ORDER_VALIDATION` for more than 80 user-visible characters, a
+control character or a U+2028/U+2029 separator. Clients send the note on one line: every control
+character and line or paragraph separator becomes a space, runs of spaces collapse, the ends are
+trimmed (mobile and web share the helper), so an offline order never meets that refusal. An
+unchanged echo of the stored note from a party who reads it is dropped, never refused. A delivery that cannot be read for the edit window answers the unprefixed
 `The order's delivery could not be read. Please try again later.` (retryable).
 
 | Server answer | Mobile client (sync queue) | Web client |
