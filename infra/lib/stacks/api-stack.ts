@@ -1628,6 +1628,9 @@ export class ApiStack extends cdk.Stack {
       handlerName: "MessageFunction",
       environment: {
         MESSAGES_TABLE: props.messagesTable.tableName,
+        // FUP-124: a trucker reads an order or delivery thread only while committed to the order.
+        ORDERS_TABLE: props.ordersTable.tableName,
+        DELIVERIES_TABLE: props.deliveriesTable.tableName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(10),
@@ -1636,6 +1639,9 @@ export class ApiStack extends cdk.Stack {
     });
     props.messagesTable.grantReadData(messageFn.function);
     paginationSecret.grantRead(messageFn.function);
+    // FUP-124: the order and delivery reads by id are a key Query each; nothing else on those tables.
+    props.ordersTable.grant(messageFn.function, "dynamodb:Query");
+    props.deliveriesTable.grant(messageFn.function, "dynamodb:Query");
 
     // ─── Notification Function (ESC-21 inbox read) ───────────────────
 

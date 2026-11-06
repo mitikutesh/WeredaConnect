@@ -208,6 +208,79 @@ public class ContactRevealTests
         Assert.False(ContactReveal.IsOpenFor(order, "trucker-1"));
     }
 
+    // ===== FUP-124: who may read an order's existing threads =====
+
+    [Theory]
+    // Committed: reads, also once the order ended or its contact closed (as the buyer and the farmer do).
+    [InlineData("accepted", OrderCommitment.Response.Accepted, true)]
+    [InlineData("in_transit", OrderCommitment.Response.Accepted, true)]
+    [InlineData("delivered", OrderCommitment.Response.Accepted, true)]
+    [InlineData("settled", OrderCommitment.Response.Accepted, true)]
+    [InlineData("dispute_resolved", OrderCommitment.Response.Accepted, true)]
+    // A trip order from before ESC-15 counts as committed from accepted on, and as not asked while funded.
+    [InlineData("accepted", null, true)]
+    [InlineData("funded", null, false)]
+    // Never asked, still deciding, declined, expired, dropped out (or the trip cancelled), trip full.
+    [InlineData("funded", OrderCommitment.Response.NotAsked, false)]
+    [InlineData("funded", OrderCommitment.Response.Pending, false)]
+    [InlineData("awaiting_transport", OrderCommitment.Response.Declined, false)]
+    [InlineData("awaiting_transport", OrderCommitment.Response.Expired, false)]
+    [InlineData("awaiting_transport", OrderCommitment.Response.Cancelled, false)]
+    [InlineData("cancelled", OrderCommitment.Response.Cancelled, false)]
+    [InlineData("awaiting_transport", OrderCommitment.Response.FailedCapacity, false)]
+    public void MayReadThreads_TheTrucker_OnlyWhileCommitted(string status, string? trucker, bool expected)
+    {
+        var order = Order(status, farmer: OrderCommitment.Response.Accepted, trucker: trucker);
+
+        Assert.Equal(expected, ContactReveal.IsTruckerCommitted(order));
+        Assert.Equal(expected, ContactReveal.MayReadThreads(order, "trucker-1"));
+    }
+
+    [Theory]
+    [InlineData("awaiting_transport", OrderCommitment.Response.Declined)]
+    [InlineData("cancelled", OrderCommitment.Response.Cancelled)]
+    [InlineData("funded", OrderCommitment.Response.Pending)]
+    [InlineData("dispute_resolved", OrderCommitment.Response.Accepted)]
+    public void MayReadThreads_TheBuyerAndTheFarmer_Always(string status, string trucker)
+    {
+        var order = Order(status, farmer: OrderCommitment.Response.Accepted, trucker: trucker);
+
+        Assert.True(ContactReveal.MayReadThreads(order, "buyer-1"));
+        Assert.True(ContactReveal.MayReadThreads(order, "farmer-1"));
+    }
+
+    [Fact]
+    public void MayReadThreads_CommittedTrucker_KeepsReadingAfterAnAdminOverrideRefund()
+    {
+        // The override closes the contact (no new message) for everyone; reads stay, as for the
+        // buyer and the farmer.
+        var order = Order("accepted", farmer: OrderCommitment.Response.Accepted, trucker: OrderCommitment.Response.Accepted);
+        order["refundOverrideAt"] = "2026-10-10T10:00:00Z";
+
+        Assert.False(ContactReveal.IsTruckerOpen(order));
+        Assert.True(ContactReveal.MayReadThreads(order, "trucker-1"));
+    }
+
+    [Theory]
+    [InlineData("stranger-1")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void MayReadThreads_AnyoneElse_IsFalse(string? userId)
+    {
+        var order = Order("accepted", farmer: OrderCommitment.Response.Accepted, trucker: OrderCommitment.Response.Accepted);
+
+        Assert.False(ContactReveal.MayReadThreads(order, userId));
+    }
+
+    [Fact]
+    public void MayReadThreads_SelfPickup_HasNoTrucker()
+    {
+        var order = Order("accepted", farmer: OrderCommitment.Response.Accepted, trucker: OrderCommitment.Response.None, trip: false);
+
+        Assert.False(ContactReveal.IsTruckerCommitted(order));
+        Assert.False(ContactReveal.MayReadThreads(order, "trucker-1"));
+    }
+
     [Fact]
     public void LockedMessage_StartsWithItsCode()
     {

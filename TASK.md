@@ -346,7 +346,6 @@ From the follow-ups of #231, #234, #237 and #238. FUP-120 to FUP-122 above come 
 
 | ID | Sev | Scope | Task | Done when |
 |---|---|---|---|---|
-| FUP-124 | P3 | @Server | A declined, expired or dropped-out trucker can still read the order's existing chat history; sends are closed (#231). | The message read path refuses a trucker who is not committed; test. |
 | FUP-125 | P3 | @Server | The commitment side-effect helpers in `OrderCronFunction` and `SyncFunction.Commitments` duplicate each other, and the command handler could split into validate, write and effects (#231). | One shared helper set; the existing commitment tests pass unchanged. |
 
 ---
