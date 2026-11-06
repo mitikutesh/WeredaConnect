@@ -747,6 +747,14 @@ export class ApiStack extends cdk.Stack {
         resources: [fcmPlatformAppArn],
       }),
     );
+    // FUP-121: a shared phone's endpoint is read (owner, enabled, token) and rebound to
+    // the user who registers it, or disabled when the previous owner's row cannot go.
+    deviceTokenFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["sns:GetEndpointAttributes", "sns:SetEndpointAttributes"],
+        resources: [fcmEndpointArnPattern],
+      }),
+    );
 
     // ─── Crop Match Stream Function (match-on-insert push alerts) ──────
     const matchStreamFn = new WeredaLambda(this, "CropMatchStreamFunction", {

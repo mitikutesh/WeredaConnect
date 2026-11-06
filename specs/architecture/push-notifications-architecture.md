@@ -39,7 +39,7 @@ closed-app delivery). See the decision discussion in the Step 5 plan.
 | `intents` table | DynamoDB | Server copy of buyer intents (synced via `/sync`). PK `buyerId`, SK `intentId`; GSI `CropTypeStatusIndex` (PK `cropType`) for match-on-insert lookup. |
 | `device-tokens` table | DynamoDB | `userId → endpointArn` (+ platform, token, timestamps). PK `userId`, SK `endpointArn`. |
 | crops table **Stream** | DynamoDB Streams | `NEW_IMAGE`; emits a record per crop write. |
-| `DeviceTokenFunction` | Lambda (`POST /device-tokens`) | Registers a device: `SNS CreatePlatformEndpoint(token)` → store `endpointArn`. Buyer/Admin only. |
+| `DeviceTokenFunction` | Lambda (`POST /device-tokens`) | Registers a device: `SNS CreatePlatformEndpoint(token)` → store `endpointArn`. On a shared phone it takes over the endpoint from its previous user (FUP-121, section 4). Any role. |
 | `CropMatchStreamFunction` | Lambda (stream consumer) | On `INSERT` of an available crop: find candidate intents, score with `MatchScoring`, publish to each matching buyer's endpoint. |
 | SNS Platform Application | SNS (`wereda-connect-{env}-fcm`) | Holds FCM v1 credential; relays publishes to FCM. |
 | `SyncFunction` (extended) | Lambda | New `buyer_intent` entityType handler (create/update/delete) writing to `intents`. |
@@ -54,9 +54,21 @@ closed-app delivery). See the decision discussion in the Step 5 plan.
 **Registration**
 ```
 device → POST /device-tokens {token, platform}
-  → DeviceTokenFunction: SNS.CreatePlatformEndpoint(PlatformApplicationArn, token)
+  → DeviceTokenFunction: SNS.CreatePlatformEndpoint(PlatformApplicationArn, token, CustomUserData=userId)
+      (refused "already exists with the same Token, but different attributes" → use the ARN it names)
+  → SNS.GetEndpointAttributes(endpointArn)            # NotFound → create once more
+  → owner (CustomUserData) is another user?  delete device-tokens { owner, endpointArn } first
+  → not the caller's, disabled or another token?  SNS.SetEndpointAttributes(CustomUserData=userId, Token, Enabled=true)
   → put device-tokens { userId, endpointArn, platform, token, createdAt }
 ```
+
+FUP-121: a shared phone has one FCM token, so one endpoint. When a user's logout `DELETE
+/device-tokens` was skipped offline, the next user's registration finds the endpoint still
+naming them. The table has no index by token or endpoint, so `CustomUserData` is the only
+link back to the previous user's row; that is why the row is deleted before the endpoint is
+rebound. If that delete fails the call returns `500`, leaves `CustomUserData` alone (the next
+registration retries the claim) and disables the endpoint, so the previous user's pushes stop
+and their publishers prune the row (`push-alerts-api.md` 1.4.0, section 1).
 
 **Intent sync**
 ```
@@ -142,7 +154,10 @@ which this crop is an accepted substitute. The substitute map is symmetric in pr
 
 ## 7. Security / privacy
 
-- `POST /device-tokens` requires JWT; the endpoint is created under the authenticated user.
+- `POST /device-tokens` requires JWT; the endpoint is created under the authenticated user,
+  and an endpoint still bound to a previous user of a shared phone is taken over (their row
+  deleted first, FUP-121). The device-token Lambda may read and set attributes on the
+  `{prefix}-fcm` endpoints only.
 - Intent rows are owned by `buyerId == sub`; the sync handler rejects mismatches (mirrors the
   crop/trip handlers).
 - Notification payload carries only `intentId` + `cropId` (no PII); the app fetches details
@@ -158,4 +173,4 @@ which this crop is an accepted substitute. The substitute map is symmetric in pr
 
 ---
 
-**Last Updated**: 2026-10-26 (ESC-21 order notifications added to sections 3, 4 and 6)
+**Last Updated**: 2026-11-06 (FUP-121 shared-phone endpoint takeover in sections 3, 4 and 7)

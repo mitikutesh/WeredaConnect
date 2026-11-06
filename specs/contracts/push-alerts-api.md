@@ -1,7 +1,7 @@
 # Push Alerts API Contract
 
 ## Version
-1.3.0
+1.4.0
 
 ## Parties
 - **Mobile** (client) — registers device tokens, syncs buyer intents, receives push
@@ -48,6 +48,32 @@ token for any other platform could never be delivered to; it is refused instead 
 **Behavior**: the server calls SNS `CreatePlatformEndpoint` for the token (under the
 `{prefix}-fcm` platform application) and stores `userId → endpointArn`. Re-registering the
 same token is idempotent. The client should register on login and on FCM token refresh.
+
+**Shared phone: the endpoint follows the registering user (1.4.0, FUP-121).** One FCM token
+means one SNS endpoint, whose `CustomUserData` names the user it belongs to. When a user
+logs out offline, their `DELETE /device-tokens` (section 4) never arrives, and the next
+user who signs in on the phone registers the same token. Registration therefore always:
+
+1. Creates the endpoint, or, when SNS refuses because the token's endpoint carries other
+   attributes ("Endpoint arn:... already exists with the same Token, but different
+   attributes"), takes the ARN SNS names in that refusal.
+2. Reads the endpoint's attributes (`GetEndpointAttributes`).
+3. If it is the caller's, enabled and holds this token, changes nothing.
+4. If it belongs to another user, deletes that user's row `(previousUserId, endpointArn)`
+   first, then rebinds the endpoint (`SetEndpointAttributes`: `CustomUserData` = caller,
+   `Token`, `Enabled` = `true`). The same rebind re-enables the caller's own endpoint when
+   SNS disabled it or it holds an older token.
+5. Stores the caller's row.
+
+Pushes are routed by the recipient's rows, so after step 4 none of the previous user's
+pushes reaches the phone. If the endpoint was deleted between steps 1 and 4 it is created
+once more; a second disappearance is a `500`. If the previous user's row cannot be deleted
+the call fails closed: `500 DEVICE_TOKEN_SERVER_ERROR`, the endpoint is not rebound (so it
+still names the previous user and the next registration repeats the claim) and is disabled
+(best effort), so the previous user's pushes stop reaching the phone and their publishers
+prune the row. The response never names the previous user, and the logs carry neither user
+ids nor tokens. Same for every role. No wire change: the request and the responses are
+unchanged.
 
 **Error Codes**:
 - `400 DEVICE_TOKEN_VALIDATION`: missing/empty `token`, malformed body, or a `platform` other than `android` (1.2.0)
@@ -155,6 +181,7 @@ receive the previous user's alerts.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.4.0 | 2026-11-06 | `POST /device-tokens` on a shared phone: when the token's endpoint is bound to another user (their logout's DELETE was skipped offline), that user's row is deleted, then the endpoint is rebound to the caller; a disabled or stale endpoint of the caller is re-enabled; a failed delete fails closed (section 1, FUP-121). No wire change. |
 | 1.3.0 | 2026-10-26 | Overview names `notifications-api.md` for order, delivery and money pushes: same device tokens and platform application, told apart by `data.type` (`message`, `order`, none for match alerts). No wire change here (ESC-21). |
 | 1.2.0 | 2026-10-06 | `POST /device-tokens`: `platform` is an allow-list (`android`, the default); anything else is `400 DEVICE_TOKEN_VALIDATION`. `buyer_intent` update no longer requires an echoed `buyerId`; a mismatching one is still refused (SIM-60). |
 | 1.1.0 | 2026-09-26 | `DELETE /device-tokens` unregisters the caller's push endpoint (logout on shared phones). |
@@ -162,5 +189,5 @@ receive the previous user's alerts.
 
 ---
 
-**Last Updated**: 2026-10-26
+**Last Updated**: 2026-11-06
 **Status**: Draft
