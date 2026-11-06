@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.35.0
+1.36.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -356,7 +356,8 @@ Every `ORDER_*` operation error except `ORDER_KYC_REQUIRED` is permanent: sendin
 the same payload again gets the same answer. Today the server sends
 `ORDER_VALIDATION:`, `ORDER_UNAUTHORIZED:`, `ORDER_CANCEL_NOT_ALLOWED:` (1.13.0) and
 `ORDER_PAYMENT_METHOD_UNAVAILABLE:` (1.16.0), `ORDER_RESPONSE_NOT_PENDING:` and
-`ORDER_DEADLINE_PASSED:` (1.29.0, Order commitments); the planned `ORDER_ACTION_NOT_ALLOWED`,
+`ORDER_DEADLINE_PASSED:` (1.29.0, Order commitments), `ORDER_CONTACT_IN_TEXT:` and
+`ORDER_DROPOFF_NOTE_LOCKED:` (1.36.0, Drop-off landmark); the planned `ORDER_ACTION_NOT_ALLOWED`,
 `ORDER_TRIP_NOT_ELIGIBLE` and `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED` fall under the same rule. `ORDER_KYC_REQUIRED`
 keeps its own revert and Fayda prompt (1.4.0, 1.5.0).
 
@@ -633,6 +634,37 @@ removed locally is a follow-up.
 
 ---
 
+## Drop-off landmark (1.36.0, LT-12)
+
+An `order` create may carry `dropoffNote`, and the order's buyer may send it alone on an `update`
+(`{"dropoffNote": "...", "version": n}`, the pre-change version; an empty string clears it) until
+pickup (`order-lifecycle.md` 2.5.0). The server refuses, nothing written:
+
+`ORDER_CONTACT_IN_TEXT: Remove the phone number from dropoffNote. Contact opens after payment is held in escrow.`
+
+`ORDER_DROPOFF_NOTE_LOCKED: The drop-off note can only be changed before pickup.`
+
+and `ORDER_UNAUTHORIZED` for a change from anyone but the buyer, `ORDER_VALIDATION` for more than
+80 user-visible characters or a line break. An unchanged echo of the stored note is dropped, never
+refused. A delivery that cannot be read for the edit window answers the unprefixed
+`The order's delivery could not be read. Please try again later.` (retryable).
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `ORDER_CONTACT_IN_TEXT:` | Permanent under the `ORDER_*` rule (1.10.0): a refused create removes the local order and says it was not placed; a refused update puts the order back to the server's view and is explained with `errorContactInText` (the listing text refusal's wording). | Failure with `errorContactInText`. |
+| `ORDER_DROPOFF_NOTE_LOCKED:` | Permanent under the `ORDER_*` rule: the order is put back to the server's view, explained with `errorDropoffNoteLocked` ("The goods were picked up, so the drop-off landmark can no longer be changed."). | Failure with the same text. |
+
+The order forms run the same length and phone checks first, and offer the edit only to the buyer
+of a trip order before pickup, so the refusals come back only for a race with the pickup or an
+operation queued by another build. An order row in `serverData` leaves out `dropoffNote` for a
+caller who may not read it (a trucker not committed): clients apply the row as is, so a device
+holding the order of such a trucker drops its copy.
+
+Deploy order: a server before 1.36.0 refuses the field (`ORDER_VALIDATION: Unknown fields:
+dropoffNote`, permanent), so the server ships before clients that send it.
+
+---
+
 ## Payment total refusal (1.24.0, FUP-22)
 
 With the live gateway (`TELEBIRR_MOCK` off) one Telebirr payment takes 100 to 500,000 ETB
@@ -834,6 +866,7 @@ handling ships with LT-08, and no client sends the entity before it.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.36.0 | 2026-11-06 | Drop-off landmark (LT-12, `order-lifecycle.md` 2.5.0): `dropoffNote` is a new order field on create and on the buyer's update until pickup; new permanent `ORDER_CONTACT_IN_TEXT` (a phone number in it) and `ORDER_DROPOFF_NOTE_LOCKED` (a change after pickup), both under the `ORDER_*` rule clients already apply (1.10.0), now with their own text in en, am and om (`errorContactInText`, `errorDropoffNoteLocked`); an order row in `serverData` leaves the note out for a caller who may not read it. Older clients revert and show the generic order refusal |
 | 1.35.0 | 2026-11-06 | Listings that orders depend on (ESC-18, `crop-listing-api.md` 1.7.0, `order-lifecycle.md` 2.4.0): behind `COMMITMENTS_ENABLED`, the server sends `CROP_HAS_ACTIVE_ORDERS: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.` on a `crop_listing` delete, or an update to `status: deleted`, while an order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`; when the orders cannot be read, the unprefixed `The listing's orders could not be checked. Please try again later.` (retryable). A quantity edit never gets the code. Clients already handle it (1.17.0: permanent, the listing reverted from `GET /crops/{id}`, `errorCropHasActiveOrders`). A funding that loses the listing's stock cancels the order on the server (`listing_out_of_stock`); clients see it through the order pull. No client change |
 | 1.34.0 | 2026-11-04 | Orders on a trip that left (L-7, `order-lifecycle.md` 2.3.0, `trip-listing-api.md` 2.2.0): the server sends `ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; choose another trip.` on an `order` create naming a trip whose departure day is over in Ethiopia, flag on or off. Clients already treat the code as permanent (1.10.0) and give it its own text on a refused create (1.17.0, `errorTripNotEligible`): the mobile queue removes the local order and explains it, web shows the same text. No client change; no new code |
 | 1.33.0 | 2026-11-04 | Typed handoff code (T-1, `delivery-verification-api.md` 1.22.0): a delivery `pickedUp` or `delivered` update may carry `scannedQrCode` in place of `scannedQrNonce` (allowed in `data`, never stored); new permanent `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED`, `DELIVERY_CODE_LOCKED_DROPOFF` and `DELIVERY_CODE_GPS_REQUIRED`, rejected and reverted by the mobile queue and shown by web with their own en, am and om text; mismatches and locks write `QR_HANDOFF_FAILURE`. Trucker clients: Stop sharing in trip mode sends a `declined` `location_ping` before the phone stops (no server change). |

@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.4.0
+2.5.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -188,7 +188,7 @@ Client previews of an order total (place order, the listing detail price breakdo
 
 `POST /sync` with `entityType: order`, `action: update` (SIM-06):
 
-- **Updatable**: `status` and its companions `rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId` (length limits as on create). Status transitions and actor rules are unchanged (see above).
+- **Updatable**: `status` and its companions `rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId` (length limits as on create). Status transitions and actor rules are unchanged (see above). Since 2.5.0 also `dropoffNote`, by the buyer only and only before pickup (Drop-off landmark, below).
 - **Echo keys** the clients send: `orderId` must equal the operation `entityId` (`orderId does not match the operation entityId.`), `updatedAt` is dropped (the repository stamps it), `version` feeds the optimistic-concurrency check. Client-sent `cancelledAt` / `respondedAt` / `paymentVerifiedAt` / `paymentSubmittedAt` (1.7.0) / `pendingPaymentAt` (1.20.0) are dropped and re-stamped by the server, and the server-only Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`) are dropped.
 - **Immutable after create**: `listingId`, `buyerId`, `farmerId`, `buyerName`, `farmerName`, `cropType`, `quantity`, `pricePerUnit`, `tripId`, `truckerId`, `truckerName`, `transportCost`. An unchanged echo is dropped; a changed value is rejected with `ORDER_VALIDATION: <field> is immutable and cannot be changed on update.` This holds in every status, including after `funded`.
 - **Server-owned money** (`cropCost`, `commissionRate`, `commissionAmount`, `orderTotal`) is always dropped from the payload, so `orderTotal` can never drift from its inputs.
@@ -198,6 +198,43 @@ Client previews of an order total (place order, the listing detail price breakdo
 - **Server-only since 2.2.0**: `pickupPlace` (the listing's `locationName`) and `dropoffPlace` (the buyer's registered woreda) are stamped at create from the listing and buyer profile reads the create already makes, dropped from client payloads, and returned by `GET /orders`, `GET /orders/{id}` and `/sync` rows. Either is absent when its source is empty or on an order from before 2.2.0.
 - **`cancelReason`** is the buyer's free text on every cancel except the transport-failure cancel, where the server writes the code `transport_failed_buyer_cancelled` and keeps the buyer's text in `cancelNote` (1.15.0). The sweeps write the code `escrow_refunded`. Server codes are reserved: a client `cancelReason` that spells one (`transport_failed_buyer_cancelled`, `escrow_refunded`, or a spec 4.6 code such as `buyer_withdrew`; case and surrounding spaces ignored) is stored as `cancelNote` instead, on create and on every update. Since 2.0.0 the server also writes `buyer_withdrew` (a buyer's cancel of an unpaid order that sends no reason), `transport_failed_buyer_cancelled` (the buyer's cancel in `awaiting_transport`), `farmer_cancelled`, `farmer_response_expired` and `transport_not_arranged`, each with `cancelledBy`, and since 2.4.0 `listing_out_of_stock` (a funding that lost the listing's stock, `cancelledBy: system`); the reserved list covers them.
 - **Unknown keys** are rejected: `ORDER_VALIDATION: Unknown fields: a, b`.
+
+## Drop-off landmark (2.5.0, LT-12)
+
+The place list has towns, not neighbourhoods, so the buyer may name a landmark for the driver
+("Merkato, near Anwar Mosque", `specs/features/live-trip.md` section 10). `dropoffNote` is an
+optional order field the buyer sends on create and may change, add or clear later with an order
+`update` (`{"dropoffNote": "...", "version": n}`; an empty string clears it).
+
+| Rule | Answer (nothing written) |
+|---|---|
+| Text or null; trimmed; one line (no line break or other control character); at most **80 user-visible characters**, counted as Unicode extended grapheme clusters (an Amharic syllable such as `ሰ` is one, an emoji with its modifiers is one), as the clients' `TextField.maxLength` counts them | `ORDER_VALIDATION: dropoffNote must be text.` / `... must be one line of text.` / `... must not exceed 80 characters.` |
+| No phone number: the detector of listing text (`crop-listing-api.md` rule 6b), since the farmer reads the note before contact opens (ESC-48) | `ORDER_CONTACT_IN_TEXT: Remove the phone number from dropoffNote. Contact opens after payment is held in escrow.` |
+| Update only: a value equal to the stored note (after trimming) is an unchanged echo, dropped from the payload whoever sends it and wherever the order is | (no refusal) |
+| Update only: a change from anyone but the order's buyer | `ORDER_UNAUTHORIZED: Only the buyer can change the drop-off note.` (with the `ROLE_FORBIDDEN` fraud signal, as the other party refusals) |
+| Update only: the edit window. The order is `created`, `pending_payment`, `payment_submitted`, `payment_failed`, `funded`, `awaiting_transport` or `accepted`, and its active delivery (read strongly consistent, since the order follows its delivery on a best-effort write) is not `pickedUp`, `inTransit`, `delivered` or `disputed` | `ORDER_DROPOFF_NOTE_LOCKED: The drop-off note can only be changed before pickup.`; a delivery that cannot be read refuses for now with the unprefixed, retryable `The order's delivery could not be read. Please try again later.` |
+
+The checks run in that order, on create after the other `ORDER_VALIDATION` field rules, on update
+right after the participant check and before every other order rule (so a command or a status
+write cannot carry a note change past them). Both codes are permanent under the `ORDER_*` rule (`sync-protocol.md` 1.36.0). A blank note
+on create is not stored. A note change is not a transition: no transaction-audit row, like the
+other non-status order edits.
+
+Who reads it (the order's visibility itself is unchanged):
+
+| Reader | `dropoffNote` |
+|---|---|
+| The buyer, the farmer | always |
+| The order's trucker | only once committed (`truckerResponse: accepted`; a trip order from before 2.0.0 counts from `accepted` on) on an order whose money is held (`funded`, `awaiting_transport`, `accepted`, `pickup_confirmed`, `in_transit`, `delivered`, `disbursing`, `settled`, `disputed`); so not while only asked, after a decline, an expiry or a drop-out, nor once the money went back |
+| Admins | the transaction detail (`GET /admin/transactions/{orderId}`); the admin app does not show it yet |
+| Anyone else | never |
+
+`GET /orders` and `GET /orders/{id}` fill it per caller, and the order row a `/sync` result
+carries back (`serverData`) leaves it out for a caller who may not read it. The live track
+(`GET /deliveries/{id}/track`, `live-trip-api.md` 1.0.7) returns it as `dropoff.note` by the same
+rule. The clients offer the field only on a trip order (a self-pickup order has no drop-off), show
+it on the order detail to whoever received it, let the buyer add or change it there until pickup,
+and show it on the trucker's stop list (trip mode) and on the buyer's live map.
 
 ## List Scoping (GET /orders, 1.4.3)
 
@@ -755,6 +792,7 @@ its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
 
 ## Changelog
 
+- **2.5.0 (2026-11-06)**: Drop-off landmark (LT-12, `specs/features/live-trip.md` section 10): the optional `dropoffNote` on create and, by the buyer only, on update until pickup (the order status and the active delivery decide); one line of at most 80 user-visible characters (extended grapheme clusters); the listing text phone screen; new permanent codes `ORDER_CONTACT_IN_TEXT` and `ORDER_DROPOFF_NOTE_LOCKED`; returned to the buyer, the farmer and the committed trucker of a held order only (the order's visibility is unchanged), and as `dropoff.note` on the live track. The deliveries Lambda reads the orders table (Query) for it. Companions: `data-models.md` 1.5.0, `sync-protocol.md` 1.36.0, `live-trip-api.md` 1.0.7.
 - **2.4.0 (2026-11-06)**: Stock at funding (ESC-18, spec A2, G1, G2): the funding decrement requires `quantity >= q` in its conditional write, computes in exact decimals and writes the remainder unrounded (restores alike); a funding that finds less takes nothing, is recorded in the listing's server-only `stockRefusedFor`, and the order is cancelled by the system (`cancelReason: listing_out_of_stock`, `cancelledBy: system`, `faultParty: none`) with its escrow refund scheduled (`refundReason: listing_out_of_stock`, full amount) and any trip booking released; never a stock restore for it. On every funding path (mock auto-fund, Telebirr webhook, redelivery repair), flag on or off. A funding loser whose farmer already accepted (also checked in the cancel's condition) is left for a person (`ORDER_STOCK_DECREMENT_FAILED ... reason=insufficient_stock`); an escrow whose create failed is created once more before the refund is armed (`ORDER_ESCROW_REFUND_SCHEDULE_FAILED reason=no_escrow` when it still fails). With `COMMITMENTS_ENABLED`, a listing with orders `payment_submitted`, `funded`, `awaiting_transport` or `accepted` cannot be deleted (`CROP_HAS_ACTIVE_ORDERS`, `crop-listing-api.md` 1.7.0, `sync-protocol.md` 1.35.0). The "Known gap" is closed. No client change: clients show the cancelled order and already handle the code.
 - **2.3.0 (2026-11-04)**: Orders on a trip that left (L-7, `trip-listing-api.md` 2.2.0): an order create naming a trip whose departure day is over in Ethiopia (Africa/Addis_Ababa) is refused with `ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; choose another trip.`, nothing written, whatever `COMMITMENTS_ENABLED` (with the flag on, the 24-hour lead already refused such trips with `ORDER_VALIDATION`; with it off nothing did). The code is the one clients treat as permanent since `sync-protocol.md` 1.10.0, with its own text since 1.17.0 ("That truck is no longer available. Choose again."), so a stale offline cache cannot book a departed truck and no client change is needed (`sync-protocol.md` 1.34.0). The apps also check the chosen truck when the order is placed (open, not left, room for the quantity) and say why offline. Attaching a trip to an order that is already paid is still not built (ESC-19, ESC-20)
 - **2.2.0 (2026-10-31)**: Order places for the trip bookings row (Fieldway Trip detail board: "Almaz Bekele, Meki → Selam Traders, Merkato"): order create stamps the server-only `pickupPlace` (the listing's `locationName`, from the listing read `BindOrderToListing` already makes) and `dropoffPlace` (the buyer's registered woreda, from the profile read `StampOrderBuyerNameAsync` already makes); a client-sent value is dropped. No new reads, no status change. Older orders have neither and the clients fall back to the trip's route. Companion: `data-models.md` 1.2.0.

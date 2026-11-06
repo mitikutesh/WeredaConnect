@@ -187,6 +187,12 @@ As built (LT-13): the response with the QR scan points, the `coarse` and `late` 
 
 The place list has towns, not neighbourhoods (Merkato, Kality and Saris are missing), so "Addis Ababa" is too vague for a driver. The buyer may add an optional `dropoffNote` (up to 80 characters, the same phone-number guard as listing descriptions) when placing an order, editable until pickup. The trucker sees it on the stop list once committed; the buyer's map labels the drop-off with it.
 
+As built (LT-12, `order-lifecycle.md` 2.5.0):
+- 80 user-visible characters, counted as extended grapheme clusters on both sides (an Amharic syllable is one), one line, trimmed; a phone number is `ORDER_CONTACT_IN_TEXT`; a change after pickup is `ORDER_DROPOFF_NOTE_LOCKED` (the order's status, and its active delivery read strongly consistent). Only the buyer changes it; an unchanged echo passes from anyone.
+- Returned to the buyer, the farmer and the trucker once committed to a held order, on `GET /orders`, `GET /orders/{id}`, `/sync` rows and the track's `dropoff.note` (every phase); nobody else. The deliveries Lambda reads the orders table (Query) for the track.
+- Clients: an optional field under the chosen truck on Place order (no truck, no field), a card on the order detail for whoever received it with Add or Edit for the buyer until pickup (a sheet with the same checks), the trucker's next stop and stop list (drop-offs still to do), and the buyer's and farmer's map and route ribbon (LT-10, LT-11). The same screens on mobile and web.
+- The order's own drop-off point (a place picker, the track and the delivered GPS check reading it) is LT-14.
+
 ## 11. Bottom bar FAB (LT-01, D8)
 
 `mobile/lib/screens/main_navigation.dart` docks a labeled `FloatingActionButton.extended` ("New Buying Intent", "Sell Crops", "Post Trip", about 190 dp) into a 48 px `SizedBox` gap of the `BottomAppBar`, so the button covers the second and third tabs. The labeled button stays (it is deliberate for low-literacy users) and floats centred above the bar; the bar loses the notch and spaces its four tabs evenly; scrollable bodies get bottom padding so the button never hides the last item. The web `AdaptiveShell` FAB is checked for the same problem.
