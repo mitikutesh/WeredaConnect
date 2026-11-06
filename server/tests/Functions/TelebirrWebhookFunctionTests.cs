@@ -160,9 +160,10 @@ public class TelebirrWebhookFunctionTests
         var resp = await NewFunction().FunctionHandler(Req(SignedBody("Completed")), _ctx);
 
         resp.StatusCode.Should().Be(200);
+        // SIM-29: no version in the fields; the repository adds 1 to it.
         await _escrowRepo.Received(1).UpdateStatusAsync(
             EscrowId, "2026-07-07T10:00:00.0000000Z", "escrowed", "initiated",
-            Arg.Any<Dictionary<string, object>>());
+            Arg.Is<Dictionary<string, object>>(f => f.ContainsKey("telebirrHoldRef") && !f.ContainsKey("version")));
         await _idemRepo.Received(1).UpdateAsync(MerchOrderId, "completed", Arg.Any<string?>());
     }
 

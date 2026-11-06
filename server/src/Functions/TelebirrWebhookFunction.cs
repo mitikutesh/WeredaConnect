@@ -462,7 +462,6 @@ public class TelebirrWebhookFunction
                     {
                         { "telebirrRef", telebirrRef },
                         { "telebirrHoldRef", telebirrRef },
-                        { "version", 2 },
                     });
                 await AppendAuditAsync(escrowId, "webhook_hold_success", "initiated", "escrowed", telebirrRef);
                 await _idempotencyRepo.UpdateAsync(merchOrderId, "completed");

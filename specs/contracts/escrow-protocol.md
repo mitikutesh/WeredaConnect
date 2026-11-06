@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.37.0
+1.38.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -762,7 +762,7 @@ Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowe
 | `heldFromStatus` | string | No | Admin responses only | `escrowed` or `dispute_resolved` |
 | `heldFor` | string | No | Admin responses only | `release` or `refund`: what the sweep was about to do |
 | `completedAt` | string (ISO 8601) | No | Set on completion | When transaction settled |
-| `version` | number | Yes | >= 1 | Optimistic concurrency control |
+| `version` | number | Yes | >= 1 | Optimistic concurrency control: 1 at create, then 1 more on every write that changes what an escrow read returns (1.38.0, SIM-29) |
 
 ### DisputeDto
 
@@ -3691,7 +3691,7 @@ The order write and the refund arm are one `TransactWriteItems` (sync Lambda):
 | Item | Write | Condition |
 |---|---|---|
 | the order | the cancel fields, `version + 1`, `updatedAt` | `version = <expected> AND status = accepted` |
-| each escrow the check found holding the money (normally `escrow-order-{orderId}` alone) | `expiresAt = now`, `refundReason = order_transport_failed`, `updatedAt` | `status = escrowed AND attribute_not_exists(settlementLock) AND attribute_not_exists(manualPayout) AND (attribute_not_exists(deliveryConfirmedAt) OR size(deliveryConfirmedAt) = 0)` |
+| each escrow the check found holding the money (normally `escrow-order-{orderId}` alone) | `expiresAt = now`, `refundReason = order_transport_failed`, `updatedAt`, `ADD version 1` (1.38.0) | `status = escrowed AND attribute_not_exists(settlementLock) AND attribute_not_exists(manualPayout) AND (attribute_not_exists(deliveryConfirmedAt) OR size(deliveryConfirmedAt) = 0)` |
 
 - An escrow condition that fails refuses the cancel with `ORDER_CANCEL_NOT_ALLOWED: The payment is
   being settled or reviewed.` (the answer the check gives), also when the order condition failed too.
@@ -4026,10 +4026,37 @@ gate (1.22.0, 1.27.0) runs before the refund as for any stale order.
 
 ---
 
+## Additions in 1.38.0 (the escrow version, SIM-29)
+
+`version` is 1 when the record is created and goes up by 1 with every write that changes what an
+escrow read returns (any party's read or an admin's). Each such write adds 1 with DynamoDB `ADD`; none
+writes a number computed from an earlier read, so a write that lands between another flow's read and
+its own write can never move the version back. No write is conditioned on the escrow's version (they
+keep their status, lock and marker conditions), and no endpoint takes it from a client.
+
+| Write | Version |
+|---|---|
+| any status change: hold (`initiated` to `escrowed`, now 2 by `ADD`), cancel, dispute, verdict, hold for fraud, release, refund, completion, the manual payout steps | + 1 |
+| the delivery link (`deliveryId`, with `truckerId` when it was missing) | + 1 (was unchanged) |
+| the delivery confirmation stamp (`deliveryConfirmedAt`, `disputeWindowEndsAt`, `releaseNotBefore`), at confirm or by the escrow-cron backstop | + 1 (was unchanged) |
+| a scheduled refund (`expiresAt`, `refundReason`: order cancel or reject, admin refund, the 1.25.0 transaction arm) | + 1 (was unchanged) |
+| the 21 day cap extension of `expiresAt` and the `holdCapReachedAt` stamp | + 1 (was unchanged) |
+| a backfilled `truckerId` | + 1 (was unchanged) |
+| an admin verdict (`dispute_resolved`) and a disposition recorded later (FUP-16) | + 1 (was unchanged) |
+| settlement and trucker payout locks, block reasons, the account deletion name scrub | unchanged (server bookkeeping) |
+
+The release and refund writes used to set the version to the value read before the settlement lock
+plus 1 (and the completion plus 2); they now add 1 each like every other write. Clients store the
+number and show nothing from it (the apps keep the server's value; the admin app does not read it),
+so no client change.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.38.0 | 2026-11-06 | The escrow version (SIM-29): every write that changes what an escrow read returns adds 1 to `version` with `ADD`: the delivery link, the delivery confirmation stamp, a scheduled refund (also inside the 1.25.0 transaction), the 21 day cap extension and stamp, a backfilled `truckerId`, the admin verdict and a later disposition now too, and the hold, release, refund and completion writes add 1 instead of writing 2 or the read value plus 1 or 2. Locks, block reasons and the deletion scrub leave it alone. No write is conditioned on it and no client sends it; no endpoint, status or client change |
 | 1.37.0 | 2026-11-06 | Missing fields on `POST /escrow/release` and `POST /escrow/refund` (SIM-27): a missing, `null` or blank `escrowId` or `trigger` answers `400 ESCROW_VALIDATION`, a release `deliveryId` `400 ESCROW_002`, an `idempotencyKey` `400 ESCROW_003`, each with `field`, checked right after the body is read (where a malformed body was already answered, so before the caller's role). Before, an absent field failed deserialization and answered `400 ESCROW_001 "Invalid JSON in request body."`, the amount code, and a blank `escrowId` reached the store. The error tables now also list `ESCROW_001` for a body that is not JSON and `ESCROW_VALIDATION` for a `trigger` outside the enum, as served. Release and refund are admin and system calls; no app change. `POST /escrow/initiate` and `POST /escrow/dispute` are unchanged |
 | 1.36.0 | 2026-11-06 | Transaction pattern signals (FRD-09, fraud spec 3.12.0, section 15.1): the amount anomaly row of Fraud Prevention is built. After an order payment the gates let through, the buyer may get `AMOUNT_ANOMALY` (10, soft), `NEW_ACCOUNT_LARGE_AMOUNT` (10, soft) or `KYC_THRESHOLD_STRUCTURING` (20, hard); after a dispute the buyer raised (`POST /escrow/dispute` or a delivery dispute that froze the escrow), `DISPUTE_RATE` (10, soft) with the escrow as the entity. Written best effort after the write, thresholds in `FRAUD_*` configuration; they reach the money only through the risk tiers (section 17). `POST /escrow/initiate` writes none. No endpoint, status, field or answer change |
 | 1.35.0 | 2026-11-06 | Stock lost at funding (ESC-18, `order-lifecycle.md` 2.4.0): a funding whose listing no longer holds the order's quantity creates the order escrow as before, then the order is cancelled (`listing_out_of_stock`) and `ScheduleRefundForOrderAsync` arms the escrow with `refundReason: listing_out_of_stock`; the hourly sweep refunds the full amount once. Runs on the Telebirr webhook (funding and redelivery repair) and the mock auto-fund. `ORDER_STOCK_DECREMENT_FAILED ... reason=insufficient_stock` marks a loser that could not be cancelled by itself (a person decides). An escrow whose create failed is created once more; `ORDER_ESCROW_REFUND_SCHEDULE_FAILED` (`reason=no_escrow` when no record exists) now also comes from the webhook log group and feeds `{prefix}-order-escrow-problems`. No endpoint, status or field change |
@@ -4079,5 +4106,5 @@ gate (1.22.0, 1.27.0) runs before the refund as for any stale order.
 ---
 
 **Last Updated**: 2026-11-06
-**Version**: 1.37.0
+**Version**: 1.38.0
 **Status**: Draft (Phase R4)
