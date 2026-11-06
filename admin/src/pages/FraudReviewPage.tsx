@@ -585,15 +585,18 @@ function HeldEscrowQueue({ t, locale }: { t: Translate; locale: Locale }) {
 
         return (
           <div className="flex flex-col gap-2 md:min-w-56">
-            <textarea
-              value={reason}
-              onChange={(e) => setReasons((prev) => ({ ...prev, [row.escrowId]: e.target.value }))}
-              aria-label={t("fraud.reason")}
-              placeholder={t("fraud.reasonPlaceholder")}
-              maxLength={REASON_MAX}
-              rows={2}
-              className="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-primary focus:outline-none"
-            />
+            {/* A wrapping label: the table renders each row twice (desktop and mobile), so no ids. */}
+            <label className="flex flex-col gap-1 text-xs text-text-muted">
+              {t("fraud.reason")}
+              <textarea
+                value={reason}
+                onChange={(e) => setReasons((prev) => ({ ...prev, [row.escrowId]: e.target.value }))}
+                placeholder={t("fraud.reasonPlaceholder")}
+                maxLength={REASON_MAX}
+                rows={2}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm text-text focus:border-primary focus:outline-none"
+              />
+            </label>
             {ops.length === 1 && <p className="text-xs text-warning">{t(`fraud.verdictOnly_${ops[0]}`)}</p>}
             <div className="flex gap-2">
               {ops.includes("release") && (
