@@ -69,7 +69,16 @@ public static class ContactReveal
     /// self-pickup order.
     /// </summary>
     public static bool IsTruckerOpen(IReadOnlyDictionary<string, object> order)
-        => OrderCommitment.TruckerResponseOf(order) == OrderCommitment.Response.Accepted && IsOpen(order);
+        => IsTruckerCommitted(order) && IsOpen(order);
+
+    /// <summary>
+    /// Whether the trucker of this order row committed to the transport: the trucker's response is
+    /// <c>accepted</c> (a trip order from before ESC-15 counts as accepted from <c>accepted</c> on).
+    /// False while the trucker was never asked or is still deciding, after a decline, an expired
+    /// request or a drop-out, and on a self-pickup order.
+    /// </summary>
+    public static bool IsTruckerCommitted(IReadOnlyDictionary<string, object> order)
+        => OrderCommitment.TruckerResponseOf(order) == OrderCommitment.Response.Accepted;
 
     /// <summary>
     /// Whether <paramref name="userId"/> may reach the other parties of this order: the buyer and the
@@ -89,6 +98,28 @@ public static class ContactReveal
         }
 
         return userId == Id(order, "truckerId") && IsTruckerOpen(order);
+    }
+
+    /// <summary>
+    /// FUP-124: whether <paramref name="userId"/> may read the existing order and delivery threads of
+    /// this order. The buyer and the farmer always may (a thread stays readable after its contact
+    /// closes); the order's trucker only while committed (<see cref="IsTruckerCommitted"/>), so a
+    /// trucker who declined, let the request expire, dropped out or was never asked reads nothing of
+    /// it; anyone else never.
+    /// </summary>
+    public static bool MayReadThreads(IReadOnlyDictionary<string, object> order, string? userId)
+    {
+        if (string.IsNullOrEmpty(userId))
+        {
+            return false;
+        }
+
+        if (userId == Id(order, "buyerId") || userId == Id(order, "farmerId"))
+        {
+            return true;
+        }
+
+        return userId == Id(order, "truckerId") && IsTruckerCommitted(order);
     }
 
     /// <summary>Statuses at which the farmer may still be deciding (ESC-15), so the farmer's response gates the contact.</summary>

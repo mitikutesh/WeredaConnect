@@ -4,7 +4,7 @@
 Application step (see `.ai/push-notifications-setup.md`) for push delivery.
 
 ## Version
-1.2.0
+1.3.0
 
 Offline-first, asynchronous chat between the two legitimate parties of a
 marketplace context. There is **no real-time transport**: messages are created
@@ -71,17 +71,38 @@ copy of the message and says why (`sync-protocol.md` 1.15.0); web shows the
 same text when the send is refused. Read access (`GET /messages`) only returns messages the
 caller sent or received.
 
+### Read rule (1.3.0, FUP-124, `MessageFunction`)
+
+On an `order` or `delivery` thread the order's trucker reads only while committed to the
+transport: `truckerResponse: accepted` (a trip order from before ESC-15 counts as committed
+from `accepted` on), `ContactReveal.MayReadThreads`. A trucker who declined, let the request
+expire, dropped out (`truckerResponse: cancelled`, also when the trip was cancelled) or was
+never asked reads none of that order's threads, nor of its deliveries' threads.
+
+- A delivery thread follows the delivery's `orderId`. A delivery without an order, or an
+  order or delivery that is gone, is closed to the trucker, as for a new message.
+- The buyer and the farmer read their threads whatever the trucker did, also after the
+  contact closed. A buyer's or a farmer's token (role claim) is not checked and costs no
+  extra read; any other token (a trucker's, or one without the role claim) is checked
+  against the order. An order's trucker is always a trucker (only truckers create trips).
+- A committed trucker keeps reading once the order ends or its contact closes (`delivered`,
+  `settled`, a decided dispute, an admin override refund), as the buyer and the farmer do.
+  Sending follows the contact (above), so a closed order takes no new message from anyone.
+- Crop and trip threads are unchanged.
+
 ---
 
 ## Read API (`MessageFunction`, authenticated)
 
-- `GET /messages?conversationId=X` — a thread, newest-first, `nextToken` paginated. Results filtered to the caller's own messages.
+- `GET /messages?conversationId=X`: a thread, newest-first, `nextToken` paginated. Results filtered to the caller's own messages. A thread the caller may not read under the read rule (1.3.0) answers an empty page with no `nextToken`, as a non-participant gets.
 - `GET /messages?since=T`: sync-down pull, all messages to/from the caller with `createdAt > T` (oldest-first), merged inbound ∪ outbound.
   - `T` must be one of: empty (no lower bound, the bootstrap full pull), a `yyyy-MM-dd` date, or a UTC `yyyy-MM-ddTHH:mm:ss[.fraction]Z` timestamp (seconds required, 1 to 7 fraction digits, uppercase `T` and `Z`). Nothing may come before or after it (no whitespace, no trailing newline), and it must be a real instant (`2026-02-30` is rejected).
   - The compare is a strict string `>` on the stored UTC `createdAt`, so the server passes `T` through unchanged. Offsets such as `+03:00` and zone-less date-times are rejected rather than silently shifting the window.
   - Any other value (epoch numbers, `10/01/2026`, `yesterday`, ...) gets `400 MESSAGE_VALIDATION`, and no query runs.
   - `since` is ignored when `conversationId` is present.
-- `GET /messages/{id}` — a single message (403 if caller is not a party).
+  - Since 1.3.0 the pull leaves out the order and delivery messages the caller may not read under the read rule. Each distinct order and delivery is read once per request (8 at a time).
+- `GET /messages/{id}`: a single message (403 if caller is not a party, or since 1.3.0 may not read it under the read rule).
+- An order or delivery read for the read rule that fails (or a Lambda without the orders or deliveries table) answers `500 MESSAGE_SERVER_ERROR`, never a partial result: a pull that dropped the messages would move the client's `since` cursor past them for good. The client retries on its next pull.
 
 ### Read API errors
 
@@ -89,9 +110,9 @@ caller sent or received.
 |--------|------|------|
 | 400 | `MESSAGE_VALIDATION` | neither `conversationId` nor `since` given, bad `limit`, bad `nextToken`, or an invalid `since` |
 | 401 | `UNAUTHORIZED` | not authenticated |
-| 403 | `MESSAGE_FORBIDDEN` | `GET /messages/{id}` for a message the caller did not send or receive |
+| 403 | `MESSAGE_FORBIDDEN` | `GET /messages/{id}` for a message the caller did not send or receive, or (1.3.0) may not read under the read rule |
 | 404 | `MESSAGE_NOT_FOUND` | message does not exist |
-| 500 | `MESSAGE_SERVER_ERROR` | unexpected server failure |
+| 500 | `MESSAGE_SERVER_ERROR` | unexpected server failure, including a failed order or delivery read for the read rule (1.3.0) |
 
 Mobile pulls incrementally using its newest local message time as the cursor
 (stateless). Web hydrates a session-scoped in-memory cache on first load, then
@@ -183,8 +204,10 @@ decides).
 - Cross-device / web sent-message history relies on the `SenderIdCreatedAtIndex` pull.
 - Tap-to-thread deep-linking from a push is deferred (no global navigator key yet); the notification still delivers and the inbox badge updates.
 - Order detail has a Contact section since 1.2.0 (ESC-48): each counterparty of an open order with Call, Copy and Message (order thread). Crop and trip detail no longer offer contact. Delivery detail has no contact entry; delivery threads started before stay reachable from the inbox.
+- The read rule (1.3.0) is server side only: a trucker's phone keeps the copies it pulled while committed, and web keeps them for the session. The server no longer serves them.
 
 ## Changelog
+- **1.3.0** (2026-11-06): Read rule (FUP-124): on order and delivery threads the order's trucker reads only while committed to the transport. A trucker who declined, let the request expire, dropped out or was never asked gets an empty thread page with no `nextToken`, loses those messages from the `since` pull and gets `403 MESSAGE_FORBIDDEN` by id. A failed order or delivery read answers `500 MESSAGE_SERVER_ERROR` instead of a partial pull. Buyer and farmer reads, a committed trucker's reads and crop and trip threads are unchanged. No client change.
 - **1.2.0** (2026-10-17): Contact only after the money is held (ESC-48): crop and trip threads take no new message (`MESSAGE_CONTACT_LOCKED`, owners too); order and delivery threads only while the order's contact is open; a refused resend of a stored message is a `duplicate`; `senderPhone`/`recipientPhone` are no longer stored nor returned by any read; clients take the number from the order; order detail gets the Contact entry.
 - **1.1.0** (2026-10-01): `GET /messages?since=` is validated. A value that is not empty, a `yyyy-MM-dd` date or a UTC `...Z` timestamp now gets `400 MESSAGE_VALIDATION` instead of a 200 with the wrong window (SIM-34). Both shipped clients already send `toUtc().toIso8601String()` or an empty cursor, so their pulls are unchanged.
 - **1.0.0** (2026-07-09): Initial contract: create-only `message` entity over `/sync`, `GET /messages` reads, FCM push.

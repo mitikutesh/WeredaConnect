@@ -557,6 +557,27 @@ describe('ApiStack', () => {
     );
   });
 
+  test('FUP-124: the messages Lambda has the orders and deliveries tables and only Query on them', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-messages',
+      Environment: {
+        Variables: Match.objectLike({
+          FUNCTION_HANDLER: 'MessageFunction',
+          MESSAGES_TABLE: Match.anyValue(),
+          ORDERS_TABLE: Match.anyValue(),
+          DELIVERIES_TABLE: Match.anyValue(),
+        }),
+      },
+    });
+
+    // The trucker read rule reads an order, and a delivery thread's delivery, by key (a Query).
+    const role = 'MessageFunctionServiceRole';
+    for (const table of ['OrdersTable', 'DeliveriesTable']) {
+      const actions = [...new Set(roleActions(role, (r) => r.includes(table)))];
+      expect([table, actions]).toEqual([table, ['dynamodb:Query']]);
+    }
+  });
+
   test('LT-05: the sync Lambda has the trip-locations table and only PutItem and Query on it', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-sync',

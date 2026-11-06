@@ -71,7 +71,7 @@ Each contract file follows this structure:
 | Push Alerts API | `push-alerts-api.md` | 1.4.0 | Mobile, Backend |
 | Notifications API (order, delivery and money inbox + push) | `notifications-api.md` | 1.4.0 | Mobile, Web, Backend, Infrastructure |
 | Live Trip (`location_ping` check-ins, track, admin trail, `truck_nearby`) | `live-trip-api.md` | 1.0.6 | Mobile, Web, Backend, Infrastructure, Admin |
-| In-App Messaging (context-scoped chat) | `messaging.md` | 1.2.0 | Mobile, Backend |
+| In-App Messaging (context-scoped chat) | `messaging.md` | 1.3.0 | Mobile, Backend |
 | Data Models | `data-models.md` | 1.4.0 | Mobile, Backend |
 
 ---
