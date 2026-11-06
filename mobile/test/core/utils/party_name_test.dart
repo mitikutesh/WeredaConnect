@@ -29,6 +29,14 @@ void main() {
     expect(partyDisplayName('', en), '');
   });
 
+  test('a user id where the name belongs is empty, like a missing name', () {
+    expect(partyDisplayName('3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b', en), '');
+    expect(partyDisplayName(' 3F2B8C1E9A4D4E6F8B7A1C2D3E4F5A6B ', en), '');
+    // Names that hold digits or hyphens are still names.
+    expect(partyDisplayName('Abebe-Kebede 2', en), 'Abebe-Kebede 2');
+    expect(partyDisplayName('farmer-1', en), 'farmer-1');
+  });
+
   test('am and om do not show the English sentinel', () {
     for (final code in ['am', 'om']) {
       final l10n = lookupAppLocalizations(Locale(code));

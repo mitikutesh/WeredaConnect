@@ -229,6 +229,16 @@ void main() {
         'Abebe Trading · Teff · 1,500 kg',
       );
     });
+
+    // SIM-33: no "0 kg" and no id for the other party.
+    test('a quantity that cannot be real is a dash; an id name is left out',
+        () {
+      final odd = _order('x', OrderStatus.funded)
+        ..buyerName = '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b'
+        ..quantity = 0;
+      expect(actionNeededFacts(odd, UserRole.farmer, en), 'Teff · -');
+      expect(actionNeededFacts(odd, UserRole.trucker, en), 'Teff · -');
+    });
   });
 
   // E-6: a failed read is said as such, with Retry, never "nothing waits".

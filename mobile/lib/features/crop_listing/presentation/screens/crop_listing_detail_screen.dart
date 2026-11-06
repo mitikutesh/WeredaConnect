@@ -18,6 +18,7 @@ import 'package:wereda_connect/features/buyer/domain/services/matching_service.d
     if (dart.library.html) 'package:wereda_connect/features/buyer/domain/services/matching_service_web.dart';
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_trip_card.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_photo_views.dart';
@@ -29,6 +30,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_preview_card.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_normalizer.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
@@ -349,8 +351,10 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                   _HeaderSection(cropType: cropType, listing: widget.listing),
                   const SizedBox(height: 14),
 
-                  // Who sells it (Crop detail board): name and rating.
-                  if (widget.listing.farmerName.isNotEmpty) ...[
+                  // Who sells it (Crop detail board): name and rating. Not
+                  // for a listing without a real name (SIM-33).
+                  if (partyDisplayName(widget.listing.farmerName, l10n)
+                      .isNotEmpty) ...[
                     _FarmerCard(listing: widget.listing),
                     const SizedBox(height: 14),
                   ],
@@ -731,19 +735,25 @@ class _LocationSection extends StatelessWidget {
     final from = this.from;
     final to = this.to;
     final km = routeDistanceKm(from, to);
+    // SIM-33: a junk place name ("105") is left out.
+    final place = placeDisplayName(listing.locationName);
     if (from != null && to != null && km != null) {
       final languageCode = Localizations.localeOf(context).languageCode;
       return RoutePreviewCard(
         from: from,
         to: to,
         places: PlaceRepository.instance.places,
-        fromLabel: '${listing.locationName} · ${l10n.detailCropHere}',
+        fromLabel: place.isEmpty
+            ? l10n.detailCropHere
+            : '$place · ${l10n.detailCropHere}',
         toLabel: '${to.displayName(languageCode)} · '
             '${l10n.detailYou.toLowerCase()}',
         footer: l10n.detailKmToYou(km),
         height: 140,
       );
     }
+    final deliverTo = this.deliverTo ?? '';
+    if (place.isEmpty && deliverTo.isEmpty) return const SizedBox.shrink();
     return FwCard(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
@@ -756,7 +766,7 @@ class _LocationSection extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              listing.locationName,
+              place,
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -764,7 +774,7 @@ class _LocationSection extends StatelessWidget {
               ),
             ),
           ),
-          if (deliverTo != null && deliverTo!.isNotEmpty)
+          if (deliverTo.isNotEmpty)
             Text(
               '→ $deliverTo',
               style: const TextStyle(
@@ -800,7 +810,7 @@ class _FarmerCardState extends State<_FarmerCard> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final name = widget.listing.farmerName.trim();
+    final name = partyDisplayName(widget.listing.farmerName, l10n).trim();
     final initials = name
         .split(RegExp(r'\s+'))
         .where((part) => part.isNotEmpty)

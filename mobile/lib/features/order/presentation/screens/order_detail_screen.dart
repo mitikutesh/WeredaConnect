@@ -2005,9 +2005,10 @@ class _OrderContactSection extends StatelessWidget {
             for (final party in parties)
               _ContactRow(
                 key: party.key,
-                name: party.name.isNotEmpty
-                    ? partyDisplayName(party.name, l10n)
-                    : party.role,
+                name: switch (partyDisplayName(party.name, l10n)) {
+                  '' => party.role,
+                  final shown => shown,
+                },
                 role: party.role,
                 divider: party != parties.last || truckerPending,
                 onOpen: () =>
@@ -2029,7 +2030,10 @@ class _OrderContactSection extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     showContactActionsSheet(
       context,
-      name: name.isNotEmpty ? partyDisplayName(name, l10n) : role,
+      name: switch (partyDisplayName(name, l10n)) {
+        '' => role,
+        final shown => shown,
+      },
       roleLabel: role,
       phone: orderPartyPhone(order, id),
       onMessage: () => _message(context, id, name),

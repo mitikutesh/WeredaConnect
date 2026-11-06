@@ -302,7 +302,7 @@ class _BookingCard extends StatelessWidget {
                       children: [
                         Text(
                           '${CropType.labelFor(order.cropType, l10n)} · '
-                          '${l10n.quantityKg(wholeNumber(order.quantity))}',
+                          '${kgQuantityText(order.quantity, l10n)}',
                           style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w800,
@@ -327,7 +327,7 @@ class _BookingCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        l10n.etbCurrency(formatEtbAmount(pay)),
+                        etbAmountText(pay, l10n),
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,

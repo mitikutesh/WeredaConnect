@@ -223,6 +223,33 @@ void main() {
     expect(find.text(en.tripNoBookings), findsOneWidget);
   });
 
+  // SIM-33: a booking with impossible values reads a dash, not "-40 ETB" or
+  // "0 kg".
+  testWidgets('a negative pay and a zero quantity read as a dash',
+      (tester) async {
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => repo.getOrdersByUser('trucker-1', role: 'trucker')).thenAnswer(
+      (_) async => [
+        _order('odd', OrderStatus.funded)
+          ..quantity = 0
+          ..transportCost = -40,
+      ],
+    );
+
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('${en.cropTypeTeff} · -'), findsOneWidget);
+    expect(find.text('-'), findsOneWidget);
+    expect(find.textContaining('-40'), findsNothing);
+    expect(find.textContaining('0 kg'), findsNothing);
+  });
+
   group('showChooseTripSheet', () {
     Future<Trip?> Function() open(WidgetTester tester, List<Trip> trips) {
       Trip? chosen;

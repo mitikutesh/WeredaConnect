@@ -339,7 +339,7 @@ class _ActionNeededListState extends State<ActionNeededList> {
 @visibleForTesting
 String actionNeededFacts(Order order, UserRole role, AppLocalizations l10n) {
   final crop = CropType.labelFor(order.cropType, l10n);
-  final quantity = l10n.quantityKg(wholeNumber(order.quantity));
+  final quantity = kgQuantityText(order.quantity, l10n);
   if (role == UserRole.trucker) {
     final pickup = order.pickupDate;
     return [

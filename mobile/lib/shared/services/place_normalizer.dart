@@ -1,3 +1,5 @@
+import 'package:wereda_connect/core/utils/entity_id.dart';
+
 /// Text normalization for place search and place matching.
 ///
 /// Latin input is lowercased and stripped of common accents/diacritics so that
@@ -75,6 +77,18 @@ String cleanPlaceName(String input) {
   }
   return buf.toString().replaceAll(_whitespace, ' ').trim();
 }
+
+/// A stored place name as a card shows it: trimmed, or empty when it is not
+/// a place (SIM-33): blank, an id, or with no letter at all ("105", "-").
+/// A card leaves an empty place out.
+String placeDisplayName(String? name) {
+  final trimmed = name?.trim() ?? '';
+  if (!_letter.hasMatch(trimmed) || looksLikeEntityId(trimmed)) return '';
+  return trimmed;
+}
+
+/// A letter in any script (Latin, Ge'ez, ...).
+final RegExp _letter = RegExp(r'\p{L}', unicode: true);
 
 /// Search key for place typeahead: [normalizeForSearch] with transliteration
 /// marks dropped, so "Meki", "Mek'i" and "Mek’ī" all give "meki".

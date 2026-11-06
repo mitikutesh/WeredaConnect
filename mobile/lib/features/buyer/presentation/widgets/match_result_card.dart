@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_normalizer.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/listing_card.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
@@ -129,8 +131,13 @@ class MatchResultCard extends StatelessWidget {
       child: ListingCard(
         title: '${cropType.displayName(l10n)} · '
             '${l10n.marketQuintalsLeft(formatQuintals(listing.quantity))}',
-        location: listing.locationName,
-        sellerName: listing.farmerName,
+        // SIM-33: never an id or a junk place; an unnamed seller is
+        // "Farmer", as on Find Crops.
+        location: placeDisplayName(listing.locationName),
+        sellerName: switch (partyDisplayName(listing.farmerName, l10n)) {
+          '' => l10n.farmer,
+          final name => name,
+        },
         price: wholeNumber(listing.pricePerKg.round()),
         priceUnit: l10n.etbPerKg,
         cropKey: listing.cropType,

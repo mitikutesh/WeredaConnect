@@ -61,6 +61,27 @@ void main() {
     });
   });
 
+  // SIM-33: the web At a glance tiles read one page; "20 of 33" read as 20.
+  group('At a glance counts over pages (SIM-33)', () {
+    test('hasMore wins when the server sends it', () {
+      expect(apiPageHasMore({'hasMore': true}), isTrue);
+      expect(apiPageHasMore({'hasMore': false, 'nextToken': 'abc'}), isFalse);
+    });
+
+    test('else a non-empty nextToken means another page', () {
+      expect(apiPageHasMore({'nextToken': 'abc'}), isTrue);
+      expect(apiPageHasMore({'nextToken': ''}), isFalse);
+      expect(apiPageHasMore({'nextToken': null}), isFalse);
+      expect(apiPageHasMore(<String, dynamic>{}), isFalse);
+    });
+
+    test('a count of one page of more reads "50+"', () {
+      expect(glanceCountText(50, more: true), '50+');
+      expect(glanceCountText(33, more: false), '33');
+      expect(glanceCountText(0, more: false), '0');
+    });
+  });
+
   group('delivered activity mark (ESC-09)', () {
     test('delivered, disbursing and settled orders show the success mark', () {
       expect(

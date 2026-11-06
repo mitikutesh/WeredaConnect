@@ -87,8 +87,9 @@ class ListingCard extends StatelessWidget {
     final tile = cropTileColors(isWheat ? 'wheat' : cropKey);
     final iconBg = tile.background;
     final iconFg = tile.foreground;
+    // "Seller, place", leaving out a part that is empty.
     final line = subtitle ??
-        (location.isNotEmpty ? '$sellerName, $location' : sellerName);
+        [sellerName, location].where((part) => part.isNotEmpty).join(', ');
 
     return FwCard(
       onTap: onTap,

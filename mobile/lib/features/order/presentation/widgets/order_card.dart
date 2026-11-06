@@ -58,8 +58,6 @@ class OrderCard extends StatelessWidget {
     this.actionsEnabled = true,
   });
 
-  static final NumberFormat _kgFormat = NumberFormat('#,##0', 'en_US');
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -77,8 +75,13 @@ class OrderCard extends StatelessWidget {
         : isTruckerView
             ? (order.transportCost, l10n.orderYourTransportPay)
             : (order.orderTotal ?? order.totalPrice, null);
-    final amount =
-        value == null ? null : l10n.etbCurrency(formatEtbAmount(value));
+    // SIM-33: an amount, a quantity or a name that cannot be real (a
+    // negative total, 0 kg, an id for a name) reads as a dash.
+    final amount = value == null ? null : etbAmountText(value, l10n);
+    final party = partyDisplayName(
+      isFarmerView ? order.buyerName : order.farmerName,
+      l10n,
+    );
     // Only the buyer pays the transport on top of the crops.
     final transport =
         isFarmerView || isTruckerView ? null : order.transportCost;
@@ -108,16 +111,15 @@ class OrderCard extends StatelessWidget {
                   children: [
                     Text(
                       '${CropType.labelFor(order.cropType, l10n)} · '
-                      '${l10n.quantityKg(_kgFormat.format(order.quantity))}',
+                      '${kgQuantityText(order.quantity, l10n)}',
                       style: FwText.cardTitle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      isFarmerView
-                          ? '${l10n.buyer}: ${partyDisplayName(order.buyerName, l10n)}'
-                          : '${l10n.farmer}: ${partyDisplayName(order.farmerName, l10n)}',
+                      '${isFarmerView ? l10n.buyer : l10n.farmer}: '
+                      '${party.isEmpty ? noValueMark : party}',
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
@@ -168,7 +170,7 @@ class OrderCard extends StatelessWidget {
           if (transport != null && transport > 0) ...[
             const SizedBox(height: 6),
             Text(
-              '${l10n.transportCost}: ${l10n.etbCurrency(formatEtbAmount(transport))}',
+              '${l10n.transportCost}: ${etbAmountText(transport, l10n)}',
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,

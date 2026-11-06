@@ -157,4 +157,27 @@ void main() {
       expect(compareWoredaKeys('', 'adama'), WoredaMatch.none);
     });
   });
+
+  group('placeDisplayName (SIM-33)', () {
+    test('keeps a real place, trimmed, in any script', () {
+      expect(placeDisplayName(' Meki '), 'Meki');
+      expect(placeDisplayName('Debre Birhan, Amhara'), 'Debre Birhan, Amhara');
+      expect(placeDisplayName('ደብረ ብርሃን'), 'ደብረ ብርሃን');
+      expect(placeDisplayName('Kebele 05'), 'Kebele 05');
+    });
+
+    test('a blank, numeric or id place is empty', () {
+      for (final junk in [
+        null,
+        '',
+        '   ',
+        '105',
+        '-',
+        '9.03, 38.74',
+        '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b',
+      ]) {
+        expect(placeDisplayName(junk), '', reason: '$junk');
+      }
+    });
+  });
 }
