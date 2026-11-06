@@ -132,6 +132,15 @@ void main() {
       expect(dataOf((await ops()).single).containsKey('dropoffNote'), isFalse);
     });
 
+    test('a pasted tab or line break goes out as one space', () async {
+      await create('Merkato\tgate 2\r\nnear the\u2028mosque');
+
+      expect(
+        dataOf((await ops()).single)['dropoffNote'],
+        'Merkato gate 2 near the mosque',
+      );
+    });
+
     test('an Amharic note is kept as typed', () async {
       await create('መርካቶ፣ አንዋር መስጊድ አጠገብ');
 
@@ -167,6 +176,15 @@ void main() {
         expect(data.containsKey('status'), isFalse);
       });
     }
+
+    test('a change with line breaks is saved and sent on one line', () async {
+      await putOrder(OrderStatus.accepted);
+
+      await repo.updateDropoffNote('order-1', 'buyer-1', 'Kality\n\tgate 2');
+
+      expect((await load()).dropoffNote, 'Kality gate 2');
+      expect(dataOf((await ops()).single)['dropoffNote'], 'Kality gate 2');
+    });
 
     test('clearing sends an empty note', () async {
       await putOrder(OrderStatus.accepted);

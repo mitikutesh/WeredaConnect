@@ -24,14 +24,31 @@ const Set<OrderStatus> dropoffNoteEditableStatuses = {
   OrderStatus.paymentFailed,
 };
 
-/// The note as the server stores it: trimmed, null when empty.
+/// Control characters (C0, DEL, C1) and the Unicode line and paragraph
+/// separators. The server refuses a note holding any of them (one line,
+/// `ORDER_VALIDATION`), a permanent refusal that would remove an order queued
+/// offline, so they never leave the phone.
+final RegExp _lineBreakOrControl = RegExp(r'[\x00-\x1F\x7F-\x9F\u2028\u2029]');
+
+/// Two or more white space characters in a row.
+final RegExp _spaceRun = RegExp(r'\s{2,}');
+
+/// The note as it is sent and stored: every control character and line or
+/// paragraph separator becomes a space (a pasted tab, `\r\n` or a line
+/// break), runs of spaces become one, and the ends are trimmed; null when
+/// nothing is left. Mobile and web send only this.
 String? normalizeDropoffNote(String? text) {
-  final trimmed = text?.trim() ?? '';
-  return trimmed.isEmpty ? null : trimmed;
+  final note = (text ?? '')
+      .replaceAll(_lineBreakOrControl, ' ')
+      .replaceAll(_spaceRun, ' ')
+      .trim();
+  return note.isEmpty ? null : note;
 }
 
-/// The note's length as the limit counts it (grapheme clusters).
-int dropoffNoteLength(String text) => text.trim().characters.length;
+/// The note's length as the limit counts it (grapheme clusters), after
+/// [normalizeDropoffNote].
+int dropoffNoteLength(String text) =>
+    normalizeDropoffNote(text)?.characters.length ?? 0;
 
 /// Why [text] cannot be sent as a note, or null when it can: over
 /// [dropoffNoteMaxLength] characters, or holding a phone number (the farmer

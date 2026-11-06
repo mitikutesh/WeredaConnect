@@ -103,6 +103,12 @@ void main() {
       expect(sentData()['dropoffNote'], 'Merkato, near Anwar Mosque');
     });
 
+    test('sends a pasted tab or line break as one space', () async {
+      await create('Merkato\tgate 2\r\nnear the\u2029mosque');
+
+      expect(sentData()['dropoffNote'], 'Merkato gate 2 near the mosque');
+    });
+
     test('leaves a blank note out', () async {
       await create('');
 
@@ -139,6 +145,14 @@ void main() {
       expect(op['entityType'], 'order');
       expect(op['action'], 'update');
       expect(sentData(), {'dropoffNote': 'Kality', 'version': 4});
+    });
+
+    test('sends a change with line breaks on one line', () async {
+      serverHas(orderDto());
+
+      await repo.updateDropoffNote('ord-1', 'buyer-1', 'Kality\u2028gate 2');
+
+      expect(sentData()['dropoffNote'], 'Kality gate 2');
     });
 
     test('clears it with an empty note', () async {
