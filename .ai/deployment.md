@@ -787,7 +787,10 @@ aws iam update-assume-role-policy --role-name wereda-connect-dev-github-deploy -
 | Static assets (JS, CSS, images) | `max-age=31536000, immutable` | No (content-hashed) |
 | `index.html` | `max-age=0, must-revalidate` | Yes |
 | `flutter_service_worker.js` | `max-age=0, must-revalidate` | Yes |
-| `version.json` | `max-age=0, must-revalidate` | Yes |
+| `flutter_bootstrap.js` | `max-age=0, must-revalidate` | Yes |
+| `fayda-callback.html`, `fayda-callback.js` | `max-age=0, must-revalidate` | Yes |
+
+The webapp deploy invalidates `/*`. `version.json` is uploaded but never served: the webapp CloudFront distribution answers `/version.json` with 404 on purpose (T-SEC-05), and the app does not read it. Details: `docs/developer/deployment.md`, "S3 Cache Strategy".
 
 ---
 
