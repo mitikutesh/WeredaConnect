@@ -778,6 +778,9 @@ English is below. Amharic and Afan Oromo go through `/l10n` and are then reviewe
 | `errorTripHasBookings` | This trip has booked orders, so its date, price and route can't change. |
 | `errorCropHasActiveOrders` | This listing has open orders. Handle them first. |
 | `errorTripNotEligible` | That truck is no longer available. Choose again. |
+| `errorTripCapacityExceeded` | This truck has no room left for this order. Choose another truck. |
+| `errorTransportAttemptsExceeded` | No more trucks can be tried for this order. Collect the crops yourself or cancel for a full refund. |
+| `errorCounterpartyRestricted` | This farmer or trucker can't take new orders right now, so the order was not placed. Please choose another. |
 | `errorAppUpdateRequired` | Please update the app to continue. |
 | `deliveryImHere` (P3) | I have arrived |
 | `deliveryCropsReady` (P3) | Crops are ready |
