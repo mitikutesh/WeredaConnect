@@ -68,6 +68,15 @@ public class OrderCommitmentTests
     }
 
     [Fact]
+    public void OrderLeadHours_IsTheOrderCreateLead_OnlyWithTheFlagOn()
+    {
+        // FUP-122: GET /trips reports the lead the order create checks (ResponseWindow).
+        OrderCommitment.OrderLeadHours(commitmentsEnabled: true).Should().Be(24);
+        TimeSpan.FromHours(OrderCommitment.OrderLeadHours(true)).Should().Be(OrderCommitment.ResponseWindow);
+        OrderCommitment.OrderLeadHours(commitmentsEnabled: false).Should().Be(0);
+    }
+
+    [Fact]
     public void ResponseDeadline_NeverLessThanOneHour()
     {
         OrderCommitment.ResponseDeadline(Now, Now.AddHours(6)).Should().Be(Now.AddHours(1));

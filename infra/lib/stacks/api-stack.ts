@@ -688,6 +688,9 @@ export class ApiStack extends cdk.Stack {
       environment: {
         TRIPS_TABLE: props.tripsTable.tableName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
+        // FUP-122: the browse reports orderLeadHours (24 on, 0 off) so the apps drop from the
+        // match suggestions the trips the sync order create refuses. Same value as on sync.
+        COMMITMENTS_ENABLED: commitmentsEnabled,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,

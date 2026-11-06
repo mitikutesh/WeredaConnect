@@ -24,6 +24,13 @@ public sealed record GetTripsResponse
     /// Approximate total count of matching trips (for UI display).
     /// </summary>
     public int Total { get; init; }
+
+    /// <summary>
+    /// FUP-122 (trip-listing-api 2.3.0): an order create refuses a trip departing sooner than
+    /// this many hours from now (24 while the server runs the commitments, 0 when it does not).
+    /// The apps cache it and leave such trips out of the match suggestions.
+    /// </summary>
+    public int OrderLeadHours { get; init; }
 }
 
 /// <summary>

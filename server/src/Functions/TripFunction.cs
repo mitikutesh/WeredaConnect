@@ -3,6 +3,7 @@ using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Functions;
 
@@ -47,6 +48,12 @@ public class TripFunction
         _tripRepo = tripRepo ?? throw new ArgumentNullException(nameof(tripRepo));
     }
 
+    /// <summary>
+    /// <c>COMMITMENTS_ENABLED</c>, the same flag the sync Lambda reads (tests set it). It only
+    /// decides the <c>orderLeadHours</c> the browse reports (FUP-122); the trip list is the same.
+    /// </summary>
+    public bool CommitmentsEnabled { get; init; } = OrderCommitment.IsEnabled;
+
     public async Task<APIGatewayProxyResponse> FunctionHandler(
         APIGatewayProxyRequest request,
         ILambdaContext context)
@@ -79,6 +86,8 @@ public class TripFunction
     /// L-7: the browse of open trips leaves out the ones whose Ethiopia day is over
     /// (<see cref="ITripRepository.QueryTripsAsync"/>). A trucker's own list and
     /// GET /trips/{id} still return them.
+    ///
+    /// FUP-122: every page carries <c>orderLeadHours</c>, the lead an order create needs.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetTripsAsync(
         APIGatewayProxyRequest request,
@@ -232,7 +241,10 @@ public class TripFunction
                 Trips = trips,
                 NextToken = nextTokenResponse,
                 HasMore = hasMore,
-                Total = trips.Count
+                Total = trips.Count,
+                // FUP-122: lets the apps leave out of the match suggestions the trips an order
+                // create would refuse for the commitments lead.
+                OrderLeadHours = OrderCommitment.OrderLeadHours(CommitmentsEnabled)
             };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetTripsResponse);

@@ -1439,6 +1439,13 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     });
   });
 
+  test('FUP-122: the trips browse carries COMMITMENTS_ENABLED (its orderLeadHours), on in dev', () => {
+    buildTemplate(false).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-trips',
+      Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'true' }) },
+    });
+  });
+
   test('ON: the webhook reads and updates trips to reserve a funded order\'s capacity (ESC-15)', () => {
     const t = buildTemplate(true);
     t.hasResourceProperties('AWS::Lambda::Function', {
@@ -1696,10 +1703,10 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
     }
   });
 
-  test('ESC-15: staging and prod keep the commitments off on sync, order-cron, escrow and escrow-cron', () => {
+  test('ESC-15: staging and prod keep the commitments off on sync, order-cron, escrow, escrow-cron and trips', () => {
     for (const envName of ['staging', 'prod']) {
       const template = liveTemplate(environments[envName]);
-      for (const fn of ['sync', 'order-cron', 'escrow', 'escrow-cron']) {
+      for (const fn of ['sync', 'order-cron', 'escrow', 'escrow-cron', 'trips']) {
         template.hasResourceProperties('AWS::Lambda::Function', {
           FunctionName: `wereda-connect-${envName}-${fn}`,
           Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'false' }) },
