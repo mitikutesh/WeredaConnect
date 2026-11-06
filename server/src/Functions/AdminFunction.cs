@@ -4,6 +4,7 @@ using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Functions;
@@ -174,6 +175,8 @@ public partial class AdminFunction
                 ("GET", ["admin", "dashboard", "stats"]) => await HandleDashboardStatsAsync(request, context),
                 ("GET", ["admin", "escrows"]) => await HandleListEscrowsAsync(request, context),
                 ("GET", ["admin", "escrows", _, "audit"]) => await HandleEscrowAuditAsync(segments[2], context),
+                // FRD-07: before the {id} route, which would read "held" as an escrow id.
+                ("GET", ["admin", "escrows", "held"]) => await HandleListHeldEscrowsAsync(request, context),
                 ("GET", ["admin", "escrows", _]) => await HandleGetEscrowAsync(segments[2], context),
                 ("GET", ["admin", "disputes"]) => await HandleListDisputesAsync(request, context),
                 ("POST", ["admin", "disputes", _, "resolve"]) => await HandleResolveDisputeAsync(segments[2], request, context),
@@ -222,15 +225,19 @@ public partial class AdminFunction
         var escrowsCount = await ScanCountAsync(_escrowsTable);
         // Funded-but-not-released escrows are persisted as "escrowed" (EscrowService
         // sets this after a successful Telebirr hold). "held" means frozen for fraud review
-        // (FRD-03); FRD-07 adds its own count.
+        // (FRD-03) and has its own count below (FRD-07).
         var activeEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "escrowed");
         var disputedEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "disputed");
         var ordersCount = await ScanCountAsync(_ordersTable);
         // Crops are created with status "available" (never "active"); the old
         // filter counted 0. Valid crop statuses: available/reserved/sold/deleted.
         var activeListings = await ScanCountWithFilterAsync(_cropsTable, "status", "available");
-        // FRD-05: credit and whitelist rows share the table but are not signals.
-        var fraudSignalsCount = await ScanCountAsync(_fraudSignalsTable, ScanFilter.SignalRowsOnly);
+        // FRD-07: the review backlog, counted on the sparse status index. Credit and whitelist rows carry
+        // no status, so the index never holds them (FRD-05 filtered them out of a Scan).
+        var fraudSignalsCount = await QueryCountAsync(
+            _fraudSignalsTable, FraudStatusIndex, FraudStatusPending, ScanFilter.SignalRowsOnly);
+        // FRD-07: the held queue's length, on the index the settlement sweeps read by status.
+        var heldEscrows = await QueryCountAsync(_escrowsTable, EscrowStatusIndex, EscrowHoldFields.Status);
         var (totalVolume, totalCommissions) = await ScanEscrowTotalsAsync();
 
         var response = new AdminDashboardStatsResponse
@@ -245,6 +252,7 @@ public partial class AdminFunction
             TotalOrders = ordersCount,
             ActiveListings = activeListings,
             FraudSignalsCount = fraudSignalsCount,
+            HeldEscrows = heldEscrows,
             TotalEscrowVolume = totalVolume,
             TotalCommissions = totalCommissions,
             GeneratedAt = DateTime.UtcNow.ToString("o")
@@ -286,6 +294,44 @@ public partial class AdminFunction
         {
             Escrows = escrows,
             NextToken = newNextToken,
+            Total = escrows.Count
+        };
+
+        return LambdaResponse.Ok(response, AppJsonContext.Default.AdminEscrowListResponse);
+    }
+
+    /// <summary>
+    /// FRD-07: GET /admin/escrows/held?limit=&amp;nextToken=, the held queue: escrows a settlement sweep froze for
+    /// fraud review (fraud-detection-architecture.md section 18), oldest <c>expiresAt</c> first, read from the
+    /// <c>held</c> partition of <c>StatusExpiresIndex</c> (a hold keeps the escrow's <c>expiresAt</c>), never
+    /// scanned. An admin in the admin group releases or refunds each one with a reason through
+    /// <c>POST /escrow/release</c> or <c>POST /escrow/refund</c> (section 18.3); this route only lists.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleListHeldEscrowsAsync(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        if (string.IsNullOrEmpty(_escrowsTable))
+        {
+            return LambdaResponse.Error(503, "ADMIN_004", "Escrow tables not configured.");
+        }
+
+        var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
+        var limit = Math.Min(ParseLimit(queryParams, 20), MaxIndexPageSize);
+        if (!TryReadIndexToken(queryParams, EscrowStatusIndexKeys, EscrowHoldFields.Status, out var startKey))
+        {
+            return InvalidNextToken();
+        }
+
+        var (items, lastKey) = await QueryIndexPageAsync(
+            _escrowsTable, EscrowStatusIndex, EscrowHoldFields.Status, limit, startKey, newestFirst: false);
+        var escrows = items.Select(MapToEscrowDto).ToList();
+        await EnrichEscrowNamesAsync(escrows);
+
+        var response = new AdminEscrowListResponse
+        {
+            Escrows = escrows,
+            NextToken = lastKey == null ? null : PaginationTokenHelper.EncodeNextToken(lastKey),
             Total = escrows.Count
         };
 
@@ -1201,6 +1247,13 @@ public partial class AdminFunction
     // Fraud Signals
     // ──────────────────────────────────────────────
 
+    /// <summary>
+    /// GET /admin/fraud-signals?status=&amp;limit=&amp;nextToken= (fraud-detection-architecture.md section 19). FRD-07: a
+    /// Query of one status partition of the sparse <c>StatusCreatedAtIndex</c>, newest <c>createdAt</c> first,
+    /// instead of a Scan. <c>status</c> is <c>pending</c> (the default) or <c>reviewed</c>. Credit and whitelist rows
+    /// carry no status, so the index never holds them; the signal-row filter stays as a second guard. Every
+    /// distinct user on the page comes with the risk score of section 14, so Fraud Review groups by user.
+    /// </summary>
     private async Task<APIGatewayProxyResponse> HandleListFraudSignalsAsync(
         APIGatewayProxyRequest request,
         ILambdaContext context)
@@ -1213,35 +1266,75 @@ public partial class AdminFunction
         }
 
         var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
-        queryParams.TryGetValue("status", out var status);
-        queryParams.TryGetValue("nextToken", out var nextToken);
-        var limit = ParseLimit(queryParams, 20);
-
-        Dictionary<string, AttributeValue>? startKey = null;
-        if (!string.IsNullOrEmpty(nextToken))
+        queryParams.TryGetValue("status", out var requested);
+        var status = string.IsNullOrEmpty(requested) ? FraudStatusPending : requested;
+        if (status != FraudStatusPending && status != FraudStatusReviewed)
         {
-            startKey = PaginationTokenHelper.DecodeNextToken(nextToken);
+            return LambdaResponse.Error(400, "ADMIN_005", "status must be pending or reviewed.", "status");
         }
 
-        var (items, lastKey) = await ScanItemsAsync(
-            _fraudSignalsTable, status, "status", limit, startKey, ScanFilter.SignalRowsOnly);
+        var limit = Math.Min(ParseLimit(queryParams, 20), MaxIndexPageSize);
+        if (!TryReadIndexToken(queryParams, FraudStatusIndexKeys, status, out var startKey))
+        {
+            return InvalidNextToken();
+        }
+
+        var (items, lastKey) = await QueryIndexPageAsync(
+            _fraudSignalsTable, FraudStatusIndex, status, limit, startKey, newestFirst: true, ScanFilter.SignalRowsOnly);
         var signals = items.Select(MapToFraudSignalDto).ToList();
-
-        string? newNextToken = null;
-        if (lastKey != null)
-        {
-            newNextToken = PaginationTokenHelper.EncodeNextToken(lastKey);
-        }
 
         var response = new AdminFraudSignalListResponse
         {
             Signals = signals,
-            NextToken = newNextToken,
-            Total = signals.Count
+            NextToken = lastKey == null ? null : PaginationTokenHelper.EncodeNextToken(lastKey),
+            Total = signals.Count,
+            Users = await ScoreSignalUsersAsync(signals)
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminFraudSignalListResponse);
     }
+
+    /// <summary>
+    /// FRD-07: the risk score (section 14) and display name of each distinct user of a Fraud Review page, in first
+    /// appearance order. One <see cref="RiskScoreMemo"/> for the page, one bounded Query per user (the page holds
+    /// at most <see cref="MaxIndexPageSize"/> rows, so at most that many users). A failed read is shown as
+    /// unavailable, never as LOW.
+    /// </summary>
+    private async Task<List<FraudSignalUserDto>> ScoreSignalUsersAsync(List<FraudSignalDto> signals)
+    {
+        var userIds = signals.Select(s => s.UserId).Where(id => id.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+        if (userIds.Count == 0)
+        {
+            return new List<FraudSignalUserDto>();
+        }
+
+        // The cron's construction: the score never reads the crops or rate-limit tables.
+        var memo = new RiskScoreMemo(new FraudDetectionService(
+            _dynamoDb, _cropsTable, _fraudSignalsTable, new RateLimitRepository(_dynamoDb, "")));
+        // The memo is not thread-safe, so every read is started here, on this thread, before any is awaited.
+        var reads = userIds.Select(memo.GetAsync).ToList();
+        var names = await BatchGetUserNamesAsync(userIds);
+        var scores = await Task.WhenAll(reads);
+
+        return userIds.Select((userId, i) => new FraudSignalUserDto
+        {
+            UserId = userId,
+            DisplayName = names.GetValueOrDefault(userId),
+            RiskScore = scores[i].Score,
+            EnforcementScore = scores[i].EnforcementScore,
+            RiskTier = RiskTierName(scores[i].Tier),
+            Truncated = scores[i].Truncated,
+            ScoreAvailable = scores[i].Source == RiskScoreSource.Computed
+        }).ToList();
+    }
+
+    private static string RiskTierName(RiskTier tier) => tier switch
+    {
+        RiskTier.Critical => "critical",
+        RiskTier.High => "high",
+        RiskTier.Medium => "medium",
+        _ => "low"
+    };
 
     /// <summary>
     /// FRD-05: the admin's verbs on a signal (fraud-detection-architecture.md section 19). The score counts
@@ -1657,7 +1750,8 @@ public partial class AdminFunction
             return LambdaResponse.Error(404, "ADMIN_007", "User not found.");
         }
 
-        var response = new AdminUserDetailResponse { User = user };
+        // FRD-07: the reason is admin-only, so it travels next to the user, not on the party DTO.
+        var response = new AdminUserDetailResponse { User = user, SuspendReason = user.SuspendReason };
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminUserDetailResponse);
     }
 
@@ -2518,7 +2612,10 @@ public partial class AdminFunction
         return defaultLimit;
     }
 
-    /// <summary>A Scan filter a helper ANDs with its own (FRD-05: signal rows only).</summary>
+    /// <summary>
+    /// A filter on fraud-signals rows (FRD-05: signal rows only): the review stamp's condition and, since FRD-07,
+    /// the second guard of the Fraud Review Query.
+    /// </summary>
     private sealed record ScanFilter(
         string Expression, IReadOnlyDictionary<string, string> Names, IReadOnlyDictionary<string, AttributeValue> Values)
     {
@@ -2536,7 +2633,7 @@ public partial class AdminFunction
             });
     }
 
-    private async Task<int> ScanCountAsync(string tableName, ScanFilter? filter = null)
+    private async Task<int> ScanCountAsync(string tableName)
     {
         if (string.IsNullOrEmpty(tableName))
         {
@@ -2548,12 +2645,6 @@ public partial class AdminFunction
             TableName = tableName,
             Select = Select.COUNT
         };
-        if (filter != null)
-        {
-            request.FilterExpression = filter.Expression;
-            request.ExpressionAttributeNames = new Dictionary<string, string>(filter.Names);
-            request.ExpressionAttributeValues = new Dictionary<string, AttributeValue>(filter.Values);
-        }
 
         var count = 0;
         Dictionary<string, AttributeValue>? lastKey = null;
@@ -2708,15 +2799,14 @@ public partial class AdminFunction
         string? filterValue,
         string filterField,
         int limit,
-        Dictionary<string, AttributeValue>? startKey,
-        ScanFilter? filter = null)
+        Dictionary<string, AttributeValue>? startKey)
     {
         if (string.IsNullOrEmpty(tableName))
         {
             return (new List<Dictionary<string, object>>(), null);
         }
 
-        var filtered = !string.IsNullOrEmpty(filterValue) || filter != null;
+        var filtered = !string.IsNullOrEmpty(filterValue);
 
         var items = new List<Dictionary<string, object>>();
         var lastKey = startKey;
@@ -2747,24 +2837,6 @@ public partial class AdminFunction
                 };
             }
 
-            if (filter != null)
-            {
-                request.FilterExpression = request.FilterExpression == null
-                    ? filter.Expression
-                    : $"{request.FilterExpression} AND {filter.Expression}";
-                request.ExpressionAttributeNames ??= new Dictionary<string, string>();
-                request.ExpressionAttributeValues ??= new Dictionary<string, AttributeValue>();
-                foreach (var (name, attribute) in filter.Names)
-                {
-                    request.ExpressionAttributeNames[name] = attribute;
-                }
-
-                foreach (var (name, value) in filter.Values)
-                {
-                    request.ExpressionAttributeValues[name] = value;
-                }
-            }
-
             var response = await _dynamoDb.ScanAsync(request);
             items.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
             lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
@@ -2777,6 +2849,156 @@ public partial class AdminFunction
         while (filtered && items.Count < limit && lastKey != null && pages < MaxFilteredScanPages);
 
         return (items, lastKey);
+    }
+
+    // ──────────────────────────────────────────────
+    // Status index queues (FRD-07)
+    // ──────────────────────────────────────────────
+
+    /// <summary>FRD-07: the sparse status index of the fraud-signals table (<c>status</c>, <c>createdAt</c>).</summary>
+    internal const string FraudStatusIndex = "StatusCreatedAtIndex";
+
+    /// <summary>The key attributes of a <see cref="FraudStatusIndex"/> page's last evaluated key.</summary>
+    private static readonly string[] FraudStatusIndexKeys = { "userId", "signalKey", "status", "createdAt" };
+
+    private const string FraudStatusPending = "pending";
+    private const string FraudStatusReviewed = "reviewed";
+
+    /// <summary>The escrows index the settlement sweeps read by status (<c>status</c>, <c>expiresAt</c>).</summary>
+    internal const string EscrowStatusIndex = "StatusExpiresIndex";
+
+    /// <summary>The key attributes of an <see cref="EscrowStatusIndex"/> page's last evaluated key.</summary>
+    private static readonly string[] EscrowStatusIndexKeys = { "escrowId", "createdAt", "status", "expiresAt" };
+
+    /// <summary>The largest page of a status index queue; also bounds the risk scores read per Fraud Review page.</summary>
+    private const int MaxIndexPageSize = 50;
+
+    /// <summary>
+    /// FRD-07: the start key of a status index page. A token that does not decode, or whose key belongs to another
+    /// index or another status, is refused: a Query whose start key lies outside its partition fails, and starting
+    /// over would answer the first page again as if it were the next one.
+    /// </summary>
+    private static bool TryReadIndexToken(
+        IDictionary<string, string> queryParams, string[] keyNames, string status,
+        out Dictionary<string, AttributeValue>? startKey)
+    {
+        startKey = null;
+        if (!queryParams.TryGetValue("nextToken", out var nextToken) || string.IsNullOrEmpty(nextToken))
+        {
+            return true;
+        }
+
+        var decoded = PaginationTokenHelper.DecodeNextToken(nextToken);
+        if (decoded == null
+            || decoded.Count != keyNames.Length
+            || !keyNames.All(decoded.ContainsKey)
+            || decoded["status"].S != status)
+        {
+            return false;
+        }
+
+        startKey = decoded;
+        return true;
+    }
+
+    private static APIGatewayProxyResponse InvalidNextToken() =>
+        LambdaResponse.Error(400, "ADMIN_005", "Invalid nextToken.", "nextToken");
+
+    /// <summary>
+    /// FRD-07: one page of the <paramref name="status"/> partition of a status index, at most
+    /// <paramref name="limit"/> rows. With a filter, a page the filter emptied is read on, each read asking only for
+    /// the rows still missing, so the page never passes the limit and the next token resumes right after the
+    /// last row read; at most <see cref="MaxFilteredScanPages"/> reads.
+    /// </summary>
+    private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastKey)> QueryIndexPageAsync(
+        string tableName,
+        string indexName,
+        string status,
+        int limit,
+        Dictionary<string, AttributeValue>? startKey,
+        bool newestFirst,
+        ScanFilter? filter = null)
+    {
+        var items = new List<Dictionary<string, object>>();
+        var lastKey = startKey;
+        var pages = 0;
+        do
+        {
+            var request = StatusQuery(tableName, indexName, status, filter);
+            request.ScanIndexForward = !newestFirst;
+            request.Limit = limit - items.Count;
+            if (lastKey != null)
+            {
+                request.ExclusiveStartKey = lastKey;
+            }
+
+            var response = await _dynamoDb.QueryAsync(request);
+            items.AddRange((response.Items ?? new List<Dictionary<string, AttributeValue>>()).Select(DynamoDbHelper.FromItem));
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
+            pages++;
+        }
+        while (filter != null && items.Count < limit && lastKey != null && pages < MaxFilteredScanPages);
+
+        return (items, lastKey);
+    }
+
+    /// <summary>FRD-07: the rows of one status partition of a status index, counted over every page.</summary>
+    private async Task<int> QueryCountAsync(string tableName, string indexName, string status, ScanFilter? filter = null)
+    {
+        if (string.IsNullOrEmpty(tableName))
+        {
+            return 0;
+        }
+
+        var request = StatusQuery(tableName, indexName, status, filter);
+        request.Select = Select.COUNT;
+
+        var count = 0;
+        Dictionary<string, AttributeValue>? lastKey = null;
+        do
+        {
+            if (lastKey != null)
+            {
+                request.ExclusiveStartKey = lastKey;
+            }
+
+            var response = await _dynamoDb.QueryAsync(request);
+            count += response.Count;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
+        }
+        while (lastKey != null);
+
+        return count;
+    }
+
+    private static QueryRequest StatusQuery(string tableName, string indexName, string status, ScanFilter? filter)
+    {
+        var request = new QueryRequest
+        {
+            TableName = tableName,
+            IndexName = indexName,
+            KeyConditionExpression = "#status = :status",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#status", "status" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":status", new AttributeValue { S = status } }
+            }
+        };
+        if (filter != null)
+        {
+            request.FilterExpression = filter.Expression;
+            foreach (var (name, attribute) in filter.Names)
+            {
+                request.ExpressionAttributeNames[name] = attribute;
+            }
+
+            foreach (var (name, value) in filter.Values)
+            {
+                request.ExpressionAttributeValues[name] = value;
+            }
+        }
+
+        return request;
     }
 
     /// <summary>The most Scan pages (of <c>limit</c> rows each) one filtered admin list request reads.</summary>
@@ -2990,7 +3212,31 @@ public partial class AdminFunction
             ReviewedBy = GetStringOrNull(item, "reviewedBy"),
             ReviewedAt = GetStringOrNull(item, "reviewedAt"),
             ReviewNotes = GetStringOrNull(item, "reviewNotes"),
-            CreatedAt = GetString(item, "createdAt")
+            CreatedAt = GetString(item, "createdAt"),
+            OrderId = SignalOrderId(GetStringOrNull(item, "entityType"), GetStringOrNull(item, "entityId"))
+        };
+    }
+
+    /// <summary>The key prefix of an order escrow (<c>escrow-order-{orderId}</c>, deterministic since ESC-01).</summary>
+    private const string OrderEscrowIdPrefix = "escrow-order-";
+
+    /// <summary>
+    /// FRD-07: the order of the transaction timeline a signal belongs to, when its entity names one without a read:
+    /// the order itself, or an order escrow. A delivery, trip, listing or delivery-initiated escrow has none.
+    /// </summary>
+    private static string? SignalOrderId(string? entityType, string? entityId)
+    {
+        if (string.IsNullOrEmpty(entityId))
+        {
+            return null;
+        }
+
+        return entityType switch
+        {
+            "order" => entityId,
+            "escrow" when entityId.StartsWith(OrderEscrowIdPrefix, StringComparison.Ordinal)
+                          && entityId.Length > OrderEscrowIdPrefix.Length => entityId[OrderEscrowIdPrefix.Length..],
+            _ => null
         };
     }
 
