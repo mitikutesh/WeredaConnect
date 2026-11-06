@@ -329,8 +329,11 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                     emphasis: true,
                   ),
                   const Divider(height: 20, color: AppTheme.segmentTrack),
+                  // SIM-30: no rate in the label. An order escrow's commission
+                  // is a rate of the crop cost, not of this amount, and the
+                  // stored commissionRate is not reliable on every row.
                   _DetailRow(
-                    label: l10n.escrowCommission('2.5'),
+                    label: l10n.escrowPlatformCommission,
                     value: etb(payment.commission),
                   ),
                   const SizedBox(height: 8),

@@ -1005,6 +1005,9 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get escrowPlatformCommission => 'Platform Commission';
+
+  @override
   String get escrowFarmerReceives => 'Farmer Receives';
 
   @override

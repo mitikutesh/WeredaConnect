@@ -963,6 +963,7 @@ class _EscrowPayButton extends StatefulWidget {
 
 class _EscrowPayButtonState extends State<_EscrowPayButton> {
   double? _amount;
+  Order? _order;
   bool _loading = true;
   bool _alreadyPaid = false;
 
@@ -983,6 +984,7 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
         setState(() {
           _alreadyPaid = paid;
           _amount = order?.orderTotal;
+          _order = order;
           _loading = false;
         });
       }
@@ -1059,6 +1061,11 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
             farmerId: widget.delivery.farmerId,
             farmerName: widget.delivery.farmerName,
             amount: _amount!,
+            // SIM-30: the preview shows the split the server takes from
+            // this order, commission included.
+            orderCropCost: _order?.cropCost,
+            orderTransportCost: _order?.transportCost,
+            orderCommission: _order?.commissionAmount,
           ),
         ),
       ),

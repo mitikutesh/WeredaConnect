@@ -1009,6 +1009,9 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get escrowPlatformCommission => 'Komishiinii Waltajjii';
+
+  @override
   String get escrowFarmerReceives => 'Qonnaan Bulaan Kan Fudhatu';
 
   @override

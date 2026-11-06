@@ -1966,6 +1966,12 @@ abstract class AppLocalizations {
   /// **'Commission ({rate}%)'**
   String escrowCommission(String rate);
 
+  /// Label for the platform commission on an escrow, without a rate (SIM-30: the rate applies to the crop cost, not the amount)
+  ///
+  /// In en, this message translates to:
+  /// **'Platform Commission'**
+  String get escrowPlatformCommission;
+
   /// Label for net amount farmer will receive after commission
   ///
   /// In en, this message translates to:
