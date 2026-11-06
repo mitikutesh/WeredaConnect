@@ -928,17 +928,17 @@ export class MonitoringStack extends cdk.Stack {
         alarmName: `${prefix}-order-escrow-problems`,
         alarmDescription:
           // At most 1024 characters (an infra test checks it); the runbook has the detail.
-          'Sync or order-cron logged one of these (runbook: .ai/deployment.md). ' +
+          'Sync, order-cron or Telebirr webhook logged one of these (runbook: .ai/deployment.md). ' +
           'ORDER_ESCROW_CREATE_FAILED: a funded order has no escrow record; its money is invisible to ' +
           '/escrow/history and refunds; delivery linkage self-heals it (check the OrderIndex GSI). ' +
           '_LINK_FAILED: the delivery is not tied to the order escrow, so confirmation and the refund ' +
           'check miss it; link them by hand. _REFUND_SCHEDULE_FAILED: a cancelled order\'s money stays ' +
-          'in escrow; expire it by hand so the hourly sweep refunds the buyer. ' +
+          'in escrow; expire it by hand (reason=no_escrow: no record, refund by hand). ' +
           'DISPUTE_NO_ESCROW (ESC-07): a delivery was disputed but no escrow-order row holds the money, ' +
           'so it was refused; find the payment, call the parties. ORDER_TRANSPORT_CANCEL_LATE_DELIVERY ' +
           'or _PICKUP_REFUSED (ESC-06): goods may have left the farm on an order cancelled for transport ' +
           'failure; call the parties. QR_GATE_UNDECIDED (FUP-42): a no-QR pickup or confirm could not ' +
-          'read its escrow and stays deferred; fix the read. ORDER_CRON_COMMITMENTS_UNCONFIGURED ' +
+          'read its escrow; fix the read. ORDER_CRON_COMMITMENTS_UNCONFIGURED ' +
           '(ESC-15): order-cron lacks a table env; no deadline settles.',
         metric: new cloudwatch.Metric({
           namespace: metricNamespace,
@@ -1228,15 +1228,17 @@ export class MonitoringStack extends cdk.Stack {
             'The Telebirr webhook received an order payment it could not apply ' +
             '(ORDER_PAYMENT_UNMATCHED, _DUPLICATE or _UNPROCESSED), or funded an ' +
             'order whose stock or escrow step failed (ORDER_STOCK_DECREMENT_FAILED, ' +
-            'ORDER_ESCROW_CREATE_FAILED: repair these, never refund). Find the ' +
+            'ORDER_ESCROW_CREATE_FAILED: repair these, never refund; except ' +
+            'reason=insufficient_stock, ESC-18: the stock is gone, so find stock or ' +
+            'cancel the order and refund). Find the ' +
             'payment in this log group (an _UNPROCESSED payment may be recorded only ' +
             'here), the escrow audit (order_payment_unmatched, _duplicate, ' +
             '_unprocessed) or the webhook-inbox rows of the escrow idempotency table. ' +
             'Before refunding, read the order: if its telebirrPaymentOrderId is this ' +
             'payment, the payment funded the order and must not be refunded. Refund ' +
             'an _UNPROCESSED payment only once its order has left that payment attempt. ' +
-            'ESC-45: a payment recorded in the inbox is replayed every 5 minutes and pages ' +
-            'only as reason=replay_exhausted (the row is then in the exhausted partition of ' +
+            'ESC-45: an inbox payment is replayed every 5 minutes and pages ' +
+            'only as reason=replay_exhausted (then in the exhausted partition of ' +
             'InboxReplayIndex; fix the cause and requeue it, or refund it, per .ai/deployment.md).',
           metric: new cloudwatch.Metric({
             namespace: metricNamespace,
@@ -1254,6 +1256,19 @@ export class MonitoringStack extends cdk.Stack {
       );
       orderPaymentProblemsAlarm.addAlarmAction(snsAction);
       orderPaymentProblemsAlarm.addOkAction(snsAction);
+
+      // ESC-18: a funding that lost the listing's stock cancels the order here and arms its
+      // refund; when that cannot be armed (or no escrow record exists, reason=no_escrow) the
+      // webhook logs the same ORDER_ESCROW_REFUND_SCHEDULE_FAILED line as sync and order-cron.
+      // Same metric, so the order-escrow-problems alarm adds this source too.
+      new logs.MetricFilter(this, 'WebhookEscrowProblemsFilter', {
+        logGroup: webhookLogGroup,
+        filterPattern: logs.FilterPattern.anyTerm('ORDER_ESCROW_REFUND_SCHEDULE_FAILED'),
+        metricNamespace,
+        metricName: 'OrderEscrowProblems',
+        metricValue: '1',
+        defaultValue: 0,
+      });
 
       // ESC-45: the inbox replay sweep logs one TELEBIRR_INBOX_REPLAY_RUN line per run
       // (every 5 minutes, none when its index query failed). No line for 30 minutes means
