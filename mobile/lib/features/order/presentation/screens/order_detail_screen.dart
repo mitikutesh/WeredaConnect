@@ -1087,7 +1087,7 @@ class _OrderHeader extends StatelessWidget {
     final farmer = partyDisplayName(order.farmerName, l10n);
     final buyer = partyDisplayName(order.buyerName, l10n);
     final what = '${CropType.labelFor(order.cropType, l10n)} · '
-        '${l10n.quantityKg(wholeNumber(order.quantity))}';
+        '${kgQuantityText(order.quantity, l10n)}';
 
     final String title;
     final String subtitle;
@@ -1184,7 +1184,7 @@ class _FarmerReceiveCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  '${l10n.quantityKg(wholeNumber(order.quantity))} × '
+                  '${kgQuantityText(order.quantity, l10n)} × '
                   '${l10n.etbCurrency(formatEtbAmount(order.pricePerUnit))}',
                   style: const TextStyle(
                     fontSize: 14,

@@ -26,7 +26,10 @@ public sealed record RegisterRequest
     public string? FaydaVerificationToken { get; init; }
     public string? DisplayName { get; init; }
 
-    /// <summary>Null when the body has none; RegisterFunction then sets <see cref="DefaultLanguage"/>.</summary>
+    /// <summary>
+    /// The initializer does not apply to a parsed body: the source-generated reader leaves an absent
+    /// field null, so RegisterFunction falls back to <see cref="DefaultLanguage"/>.
+    /// </summary>
     public string PreferredLanguage { get; init; } = DefaultLanguage;
 
     // Buyer-only identity fields (F-32). buyerType is "private" or "company";

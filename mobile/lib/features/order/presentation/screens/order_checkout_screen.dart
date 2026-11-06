@@ -502,7 +502,7 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
 /// sits ("Wheat 1,500 kg · held in escrow until you confirm delivery").
 String paymentAmountDetail(Order order, AppLocalizations l10n) {
   final crop = CropType.labelFor(order.cropType, l10n);
-  final kg = l10n.quantityKg(wholeNumber(order.quantity));
+  final kg = kgQuantityText(order.quantity, l10n);
   return '$crop $kg · ${l10n.checkoutHeldInEscrowNote.toLowerCase()}';
 }
 

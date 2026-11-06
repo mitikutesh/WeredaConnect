@@ -176,7 +176,7 @@ transportCost    = round2(quantity / 100 × pricePerQuintal)   (0 without a trip
 orderTotal       = cropCost + transportCost + commissionAmount
 ```
 
-`round2` (2.7.0, SIM-30) is to the santim, 2 decimals, halves away from zero, computed on exact decimals so float noise never moves a santim (170 kg at 18.99 ETB/kg: crop 3228.30, commission 161.415 so 161.42; a double gave 161.41499999999999). `orderTotal` is the exact sum, so it equals the order escrow's `amount` and splits into `farmerPayout` + `truckerPayout` + `commission` with nothing left over (`escrow-protocol.md` Commission Calculation, 1.38.0). Orders created before 2.6.0 keep their unrounded doubles; the escrow rounds them when it is created.
+`round2` (2.7.0, SIM-30) is to the santim, 2 decimals, halves away from zero, computed on exact decimals so float noise never moves a santim (170 kg at 18.99 ETB/kg: crop 3228.30, commission 161.415 so 161.42; a double gave 161.41499999999999). `orderTotal` is the exact sum, so it equals the order escrow's `amount` and splits into `farmerPayout` + `truckerPayout` + `commission` with nothing left over (`escrow-protocol.md` Commission Calculation, 1.39.0). Orders created before 2.7.0 keep their unrounded doubles; the escrow rounds them when it is created.
 
 Client previews of an order total (place order, the listing detail price breakdown, the match "Estimated Total", on mobile and web) use this same formula through `mobile/lib/core/models/order_pricing.dart`, rounding included (its `roundEtb` drops float noise below a millionth first). Commission is never charged on transport (1.7.2, SIM-53).
 
