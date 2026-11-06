@@ -272,10 +272,10 @@ public partial class SyncFunction
     /// <summary>
     /// FUP-49: listing text that buyers read before any order. ESC-48 keeps contact closed until
     /// the money is held, so none of it may carry a phone number (crop-listing-api.md 1.4.0,
-    /// trip-listing-api.md 1.5.0). The crop `woreda` is not screened here: clients send it from
-    /// the registration profile, so a refusal would lock the farmer out with nothing to fix.
+    /// trip-listing-api.md 1.5.0). The crop `woreda` joined in crop-listing-api.md 1.8.0 (FUP-98),
+    /// with the profile woreda exempt (<see cref="IsProfileWoreda"/>).
     /// </summary>
-    private static readonly string[] CropContactScreenedFields = { "description", "locationName" };
+    private static readonly string[] CropContactScreenedFields = { "description", "locationName", "woreda" };
 
     private static readonly string[] TripContactScreenedFields =
     {
@@ -285,6 +285,19 @@ public partial class SyncFunction
     /// <summary>FUP-49: the refusal for a phone number in listing text; deterministic for a payload.</summary>
     private static string ContactInTextRefusal(string code, List<string> fields) =>
         $"{code}: Remove the phone number from {string.Join(", ", fields)}. Contact opens after payment is held in escrow.";
+
+    /// <summary>
+    /// FUP-98: a crop <c>woreda</c> equal to the farmer's profile woreda is not refused. Clients
+    /// send that value from the registration profile, so an account registered before the FUP-52
+    /// screen would otherwise have nothing to fix in the form. Trimmed and ordinal, like the other
+    /// profile woreda read (<see cref="StampOrderBuyerNameAsync"/>). Never
+    /// <see cref="WoredaNames.Normalize"/>: it is a matching key that drops everything after a
+    /// comma or bracket, so "Adama, 0911..." would pass as "Adama".
+    /// </summary>
+    private static bool IsProfileWoreda(Dictionary<string, object> data, string? profileWoreda) =>
+        !string.IsNullOrWhiteSpace(profileWoreda)
+        && data.TryGetValue("woreda", out var woreda)
+        && string.Equals(woreda?.ToString()?.Trim(), profileWoreda.Trim(), StringComparison.Ordinal);
 
     private static readonly HashSet<string> AllowedDeliveryFields = new()
     {
@@ -2459,8 +2472,11 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "crop", authenticatedUserId, context);
                     }
 
+                    // FUP-98: the same profile read gives the woreda the screen below exempts.
+                    string? farmerProfileWoreda = null;
                     var cropContactError = await StampOwnerContactAsync(
-                        operation.Data, authenticatedUserId!, "farmerName", "farmerPhone", context);
+                        operation.Data, authenticatedUserId!, "farmerName", "farmerPhone", context,
+                        owner => farmerProfileWoreda = owner.Woreda);
                     if (cropContactError != null)
                     {
                         return new SyncOperationResult
@@ -2497,9 +2513,15 @@ public partial class SyncFunction
                         };
                     }
 
-                    // FUP-49: no phone number in text every buyer reads.
+                    // FUP-49: no phone number in text every buyer reads (FUP-98: the woreda too,
+                    // unless it is the profile woreda).
                     var createContactFields = Validation.ContactInText.FieldsWithPhoneNumber(
                         operation.Data, CropContactScreenedFields);
+                    if (IsProfileWoreda(operation.Data, farmerProfileWoreda))
+                    {
+                        createContactFields.Remove("woreda");
+                    }
+
                     if (createContactFields.Count > 0)
                     {
                         return new SyncOperationResult
@@ -2700,6 +2722,15 @@ public partial class SyncFunction
                     var updateContactFields = Validation.ContactInText.FieldsWithPhoneNumber(
                         operation.Data, CropContactScreenedFields,
                         key => existingForUpdate.TryGetValue(key, out var stored) ? stored?.ToString() : null);
+
+                    // FUP-98: the update path has not read the profile, so it is read only for a
+                    // woreda that would otherwise be refused (one read, rare).
+                    if (updateContactFields.Contains("woreda") && _userRepo != null
+                        && IsProfileWoreda(operation.Data, (await _userRepo.GetUserByIdAsync(authenticatedUserId!))?.Woreda))
+                    {
+                        updateContactFields.Remove("woreda");
+                    }
+
                     if (updateContactFields.Count > 0)
                     {
                         return new SyncOperationResult
@@ -7973,10 +8004,12 @@ public partial class SyncFunction
     /// SIM-40: a new listing shows buyers the owner's name and phone, so they come
     /// from the users table, never from the client (a spoofed phone redirected buyers).
     /// Returns an error message when the profile cannot be read or has no name.
+    /// <paramref name="onProfileRead"/> gets the profile once it is read, so a caller that needs
+    /// more of it (FUP-98: the crop create's profile woreda) does not read it again.
     /// </summary>
     private async Task<string?> StampOwnerContactAsync(
         Dictionary<string, object> data, string ownerId, string nameKey, string phoneKey,
-        ILambdaContext context)
+        ILambdaContext context, Action<UserDto>? onProfileRead = null)
     {
         if (_userRepo == null)
         {
@@ -7989,6 +8022,8 @@ public partial class SyncFunction
         {
             return "Your profile could not be read. Please try again later.";
         }
+
+        onProfileRead?.Invoke(owner);
 
         // Display name first, else the legal name received from Fayda. The client
         // value is never kept: with no name on the profile the create is refused.
