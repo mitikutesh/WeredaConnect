@@ -519,6 +519,160 @@ public class DisputeVerdictMirrorTests
         await crops.Received(1).RestoreStockAsync("listing-1", OrderId, 2.5);
     }
 
+    // ──────────────────────────────────────────────
+    // FUP-123: the cancel releases the order's trip booking
+    // ──────────────────────────────────────────────
+
+    private const string TripId = "trip-1";
+
+    /// <summary>A listed order (250 kg, so 2.5 quintals) booked on <see cref="TripId"/>.</summary>
+    private Dictionary<string, object> TripOrder(string status, int version, string? activeDeliveryId = null)
+    {
+        var order = ListedOrder(status, version, activeDeliveryId);
+        order["tripId"] = TripId;
+        return order;
+    }
+
+    private static ITripRepository ReleasingTrips()
+    {
+        var trips = Substitute.For<ITripRepository>();
+        trips.TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>()).Returns(true);
+        return trips;
+    }
+
+    [Theory]
+    [InlineData("funded")]
+    [InlineData("awaiting_transport")]
+    public async Task BuyerWins_CancelBeforePickup_ReleasesTheTripBooking(string status)
+    {
+        var crops = RestoringCrops();
+        var trips = ReleasingTrips();
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, crops, trips);
+        _orders.GetByIdAsync(OrderId, true).Returns(TripOrder(status, 2));
+        OrderWritesSucceed();
+
+        var result = await mirror.ApplyAsync(Escrow(withDelivery: false), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.Order.Should().Be(VerdictLegOutcome.Cancelled);
+        result.BlocksSettlement.Should().BeFalse();
+        await trips.Received(1).TryReleaseCapacityAsync(TripId, OrderId, 2.5);
+        Received.InOrder(() =>
+        {
+            _orders.UpdateAsync(OrderId, Arg.Is<Dictionary<string, object>>(d =>
+                d["status"].ToString() == "cancelled" && d["cancelReason"].ToString() == "escrow_refunded"), 2);
+            trips.TryReleaseCapacityAsync(TripId, OrderId, 2.5);
+        });
+    }
+
+    [Fact]
+    public async Task BuyerWins_AcceptedWithPendingDelivery_ReleasesTheTripBooking()
+    {
+        var trips = ReleasingTrips();
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, RestoringCrops(), trips);
+        _orders.GetByIdAsync(OrderId, true).Returns(TripOrder("accepted", 3, DeliveryId));
+        DeliveryIs("pending");
+        _deliveries.TryCancelPendingAsync(DeliveryId).Returns(true);
+        OrderWritesSucceed();
+
+        var result = await mirror.ApplyAsync(Escrow(), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.Order.Should().Be(VerdictLegOutcome.Cancelled);
+        result.Delivery.Should().Be(VerdictLegOutcome.Cancelled);
+        await trips.Received(1).TryReleaseCapacityAsync(TripId, OrderId, 2.5);
+    }
+
+    [Fact]
+    public async Task BuyerWins_TripReleaseThatThrows_NeitherBlocksTheRefundNorTheRestock()
+    {
+        var crops = RestoringCrops();
+        var trips = Substitute.For<ITripRepository>();
+        trips.TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>())
+            .ThrowsAsync(new TimeoutException("boom"));
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, crops, trips);
+        _orders.GetByIdAsync(OrderId, true).Returns(TripOrder("funded", 2));
+        OrderWritesSucceed();
+
+        var result = await mirror.ApplyAsync(Escrow(withDelivery: false), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.Order.Should().Be(VerdictLegOutcome.Cancelled);
+        result.BlocksSettlement.Should().BeFalse();
+        result.FailedLegs.Should().BeNull();
+        _orderWrites.Should().Equal("cancelled");
+        await crops.Received(1).RestoreStockAsync("listing-1", OrderId, 2.5);
+    }
+
+    [Theory]
+    [InlineData("500")]
+    [InlineData("409")]
+    [InlineData("throw")]
+    public async Task BuyerWins_CancelThatDoesNotLand_ReleasesNothing(string failure)
+    {
+        var trips = ReleasingTrips();
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, RestoringCrops(), trips);
+        _orders.GetByIdAsync(OrderId, true).Returns(TripOrder("funded", 2));
+        var cancel = _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        if (failure == "throw")
+        {
+            cancel.ThrowsAsync(new TimeoutException("boom"));
+        }
+        else
+        {
+            cancel.Returns(AuthResult<Dictionary<string, object>>.Failure(int.Parse(failure), "SYNC_X", "nope"));
+        }
+
+        var result = await mirror.ApplyAsync(Escrow(withDelivery: false), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.Order.Should().Be(VerdictLegOutcome.Blocked);
+        await trips.DidNotReceive().TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+    }
+
+    [Theory]
+    [InlineData("cancelled", true)]
+    [InlineData("funded", false)]
+    public async Task BuyerWins_WithoutACancelThisRun_ReleasesNothing(string status, bool cancelBeforePickup)
+    {
+        // Already closed (the cancel that closed it released the booking), or the admin verdict
+        // that defers the cancel to the refund settlement.
+        var trips = ReleasingTrips();
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, RestoringCrops(), trips);
+        _orders.GetByIdAsync(OrderId, true).Returns(TripOrder(status, 3));
+
+        await mirror.ApplyAsync(Escrow(withDelivery: false), "buyer_wins", ResolvedAt, cancelBeforePickup: cancelBeforePickup);
+
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await trips.DidNotReceive().TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+    }
+
+    [Fact]
+    public async Task AdminRefundCancel_ReleasesTheTripBooking()
+    {
+        // ESC-09 Part B goes through the same cancel, so it releases the booking too.
+        var trips = ReleasingTrips();
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, RestoringCrops(), trips);
+        _orders.GetByIdAsync(OrderId, true).Returns(TripOrder("funded", 2));
+        OrderWritesSucceed();
+
+        var result = await mirror.CancelBeforeRefundAsync(Escrow(withDelivery: false));
+
+        result.Order.Should().Be(VerdictLegOutcome.Cancelled);
+        await trips.Received(1).TryReleaseCapacityAsync(TripId, OrderId, 2.5);
+    }
+
+    [Fact]
+    public async Task BuyerWins_CancelWithoutATripRepository_StillCancelsAndRestocks()
+    {
+        // COMMITMENTS_ENABLED off (or no trips table): nothing is booked, so nothing is released.
+        var crops = RestoringCrops();
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, crops);
+        _orders.GetByIdAsync(OrderId, true).Returns(TripOrder("funded", 2));
+        OrderWritesSucceed();
+
+        var result = await mirror.ApplyAsync(Escrow(withDelivery: false), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.Order.Should().Be(VerdictLegOutcome.Cancelled);
+        await crops.Received(1).RestoreStockAsync("listing-1", OrderId, 2.5);
+    }
+
     [Fact]
     public async Task BuyerWins_BeforePickup_IsDeferred_WhenTheCallerDoesNotCancel()
     {

@@ -45,6 +45,9 @@ public class EscrowCronFunction
     private readonly IEscrowIdempotencyRepository? _idempotencyRepo;
     // Optional: ESC-06 audits an order entering or leaving the admin stuck-order queue.
     private readonly ITransactionAuditRepository? _transactionAuditRepo;
+    // Optional (FUP-123): an order the refund sweep cancels gives its trip booking back. Wired only
+    // while COMMITMENTS_ENABLED is on (the only time bookings exist) and the trips table is provisioned.
+    private readonly ITripRepository? _tripRepo;
 
     /// <summary>
     /// Order statuses that mean the trade is actively progressing toward delivery —
@@ -309,9 +312,16 @@ public class EscrowCronFunction
             ? new TransactionAuditRepository(dynamoDb, txAuditTable)
             : null;
 
+        // FUP-123: the sweep's cancel, and the buyer_wins refund cancel before pickup, release the order's
+        // trip booking as the sync cancels do. Off with the flag, like every other booking write.
+        var tripsTable = Environment.GetEnvironmentVariable("TRIPS_TABLE");
+        _tripRepo = OrderCommitment.IsEnabled && !string.IsNullOrEmpty(tripsTable)
+            ? new TripRepository(dynamoDb, tripsTable)
+            : null;
+
         _transactionAuditRepo = txAuditRepo;
         _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway, userRepo,
-            _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo, cropRepo: _cropRepo);
+            _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo, cropRepo: _cropRepo, tripRepo: _tripRepo);
 
         // FRD-04: the gate also reads each party's risk tier from the fraud-signals table (read only).
         // The cron never runs the velocity checks, so the service gets no rate-limit table.
@@ -342,7 +352,8 @@ public class EscrowCronFunction
         IOrderRepository? orderRepo = null,
         ICropRepository? cropRepo = null,
         IEscrowIdempotencyRepository? idempotencyRepo = null,
-        ITransactionAuditRepository? transactionAuditRepo = null)
+        ITransactionAuditRepository? transactionAuditRepo = null,
+        ITripRepository? tripRepo = null)
     {
         _escrowService = escrowService ?? throw new ArgumentNullException(nameof(escrowService));
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
@@ -353,6 +364,7 @@ public class EscrowCronFunction
         _cropRepo = cropRepo;
         _idempotencyRepo = idempotencyRepo;
         _transactionAuditRepo = transactionAuditRepo;
+        _tripRepo = tripRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -925,6 +937,9 @@ public class EscrowCronFunction
 
                         // SIM-13: the cancelled order's goods go back on the market.
                         await TryRestoreListingStockAsync(fundedOrder, context);
+
+                        // FUP-123: and its quintals back on the trip. Best-effort, never blocks the refund.
+                        await TripBookingRelease.ReleaseAsync(_tripRepo, fundedOrder, context);
                     }
                 }
                 else if (!isInitiateEscrow

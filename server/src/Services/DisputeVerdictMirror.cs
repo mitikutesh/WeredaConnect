@@ -285,15 +285,21 @@ public sealed class DisputeVerdictMirror
     private readonly IDeliveryRepository? _deliveryRepo;
     private readonly ITransactionAuditRepository? _txAuditRepo;
     private readonly ICropRepository? _cropRepo;
+    private readonly ITripRepository? _tripRepo;
 
+    /// <param name="tripRepo">
+    /// FUP-123: releases the trip booking of an order this mirror cancels. Null (no trip table, or
+    /// <c>COMMITMENTS_ENABLED</c> off) leaves the trip alone.
+    /// </param>
     public DisputeVerdictMirror(
         IOrderRepository? orderRepo, IDeliveryRepository? deliveryRepo, ITransactionAuditRepository? txAuditRepo,
-        ICropRepository? cropRepo = null)
+        ICropRepository? cropRepo = null, ITripRepository? tripRepo = null)
     {
         _orderRepo = orderRepo;
         _deliveryRepo = deliveryRepo;
         _txAuditRepo = txAuditRepo;
         _cropRepo = cropRepo;
+        _tripRepo = tripRepo;
     }
 
     /// <param name="escrow">The escrow row (reads <c>escrowId</c>, <c>orderId</c>, <c>deliveryId</c>, <c>disputedBy</c>).</param>
@@ -992,6 +998,10 @@ public sealed class DisputeVerdictMirror
                         "order_cancelled", status, "cancelled", AuditContext.ForSystem(),
                         metadata: $"{auditTag};cancelReason=escrow_refunded");
                     await ReleaseDeliverySlotAsync(orderId, cancelledDeliveryId);
+
+                    // FUP-123: the cancelled order's quintals go back on its trip. Best-effort and
+                    // never throws: a release that fails changes neither this outcome nor the refund.
+                    await TripBookingRelease.ReleaseAsync(_tripRepo, order, context);
 
                     // The order is cancelled; a stock restore that did not land blocks this run's
                     // refund, and the next run (order now closed) retries the restore first.

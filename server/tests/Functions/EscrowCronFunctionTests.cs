@@ -662,13 +662,14 @@ public class EscrowCronFunctionTests
         return item;
     }
 
-    private EscrowCronFunction MakeOrderAwareFunction(IOrderRepository? orderRepo, ICropRepository? cropRepo = null)
+    private EscrowCronFunction MakeOrderAwareFunction(
+        IOrderRepository? orderRepo, ICropRepository? cropRepo = null, ITripRepository? tripRepo = null)
     {
         var service = new EscrowService(
             _mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
         return new EscrowCronFunction(
             service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway,
-            deliveryRepo: null, orderRepo: orderRepo, cropRepo: cropRepo);
+            deliveryRepo: null, orderRepo: orderRepo, cropRepo: cropRepo, tripRepo: tripRepo);
     }
 
     [Fact]
@@ -837,6 +838,115 @@ public class EscrowCronFunctionTests
         Assert.Equal(200, response.StatusCode);
         await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
         swept.AssertServed();
+    }
+
+    // ──────────────────────────────────────────────
+    // FUP-123: the sweep's cancel releases the order's trip booking
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// An expired order escrow whose order (on trip <c>trip-{orderId}</c>, 500 kg) is <paramref name="status"/>;
+    /// the version-checked cancel lands unless <paramref name="cancelLands"/> is false (a farmer accepted meanwhile).
+    /// </summary>
+    private IOrderRepository TripOrderBehindExpiredEscrow(string orderId, string status, bool cancelLands = true)
+    {
+        var escrow = MakeOrderSourcedEscrowItem($"escrow-order-{orderId}", orderId,
+            expiresAt: DateTime.UtcNow.AddDays(-1).ToString("o"));
+        _mockEscrowRepo.StubSweep("escrowed");
+        _mockEscrowRepo.StubRefundSweep(escrow);
+        BaseRowIs(escrow);
+        _mockEscrowRepo.GetByIdAsync($"escrow-order-{orderId}").Returns(escrow);
+
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync(orderId).Returns(new Dictionary<string, object>
+        {
+            { "orderId", orderId }, { "listingId", $"crop-{orderId}" }, { "tripId", $"trip-{orderId}" },
+            { "quantity", 500.0 }, { "status", status }, { "version", "2" }
+        });
+        orderRepo.UpdateAsync(orderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(cancelLands
+                ? AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+                {
+                    { "orderId", orderId }, { "status", "cancelled" }, { "version", "3" }
+                })
+                : AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict."));
+        return orderRepo;
+    }
+
+    [Theory]
+    [InlineData("funded")]
+    [InlineData("awaiting_transport")]
+    public async Task AutoRefund_CancelledOrder_ReleasesItsTripBooking(string status)
+    {
+        // The trip held 5 quintals for the order; without the release it keeps a phantom booking,
+        // reads too little room and a full trip stays matched.
+        var orderRepo = TripOrderBehindExpiredEscrow("ord-6", status);
+        var trips = Substitute.For<ITripRepository>();
+        trips.TryReleaseCapacityAsync("trip-ord-6", "ord-6", 5.0).Returns(true);
+
+        var function = MakeOrderAwareFunction(orderRepo, tripRepo: trips);
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await trips.Received(1).TryReleaseCapacityAsync("trip-ord-6", "ord-6", 5.0);
+        await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        Received.InOrder(() =>
+        {
+            orderRepo.UpdateAsync("ord-6",
+                Arg.Is<Dictionary<string, object>>(d => (string)d["cancelReason"] == "escrow_refunded"), 2);
+            trips.TryReleaseCapacityAsync("trip-ord-6", "ord-6", 5.0);
+        });
+    }
+
+    [Fact]
+    public async Task AutoRefund_TripReleaseThatThrows_StillRestoresStockAndRefunds()
+    {
+        var orderRepo = TripOrderBehindExpiredEscrow("ord-7", "funded");
+        var cropRepo = Substitute.For<ICropRepository>();
+        cropRepo.TryRestoreStockAsync("crop-ord-7", "ord-7", 5.0).Returns(true);
+        var trips = Substitute.For<ITripRepository>();
+        trips.TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>())
+            .ThrowsAsync(new Amazon.DynamoDBv2.AmazonDynamoDBException("throttled"));
+
+        var function = MakeOrderAwareFunction(orderRepo, cropRepo, trips);
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await cropRepo.Received(1).TryRestoreStockAsync("crop-ord-7", "ord-7", 5.0);
+        await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        Assert.Contains("TRIP_RELEASE_FAILED tripId=trip-ord-7 orderId=ord-7 reason=[AmazonDynamoDBException]", Logs);
+    }
+
+    [Fact]
+    public async Task AutoRefund_CancelThatDoesNotLand_ReleasesNothing()
+    {
+        // A farmer accepted in the read-to-refund window: the order is live and keeps its booking.
+        var orderRepo = TripOrderBehindExpiredEscrow("ord-8", "funded", cancelLands: false);
+        var trips = Substitute.For<ITripRepository>();
+
+        var function = MakeOrderAwareFunction(orderRepo, tripRepo: trips);
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await trips.DidNotReceiveWithAnyArgs().TryReleaseCapacityAsync(default!, default!, default);
+        await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task AutoRefund_OrderTheSweepDoesNotCancel_ReleasesNothing()
+    {
+        // A rejected order is refunded as it is: the sweep wrote no cancel, so it releases nothing
+        // (the reject released the booking when it happened).
+        var orderRepo = TripOrderBehindExpiredEscrow("ord-9", "rejected");
+        var trips = Substitute.For<ITripRepository>();
+
+        var function = MakeOrderAwareFunction(orderRepo, tripRepo: trips);
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await orderRepo.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
+        await trips.DidNotReceiveWithAnyArgs().TryReleaseCapacityAsync(default!, default!, default);
     }
 
     [Fact]

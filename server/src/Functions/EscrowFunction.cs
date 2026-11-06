@@ -82,9 +82,16 @@ public class EscrowFunction
         var cropsTable = Environment.GetEnvironmentVariable("CROPS_TABLE") ?? "";
         var cropRepo = !string.IsNullOrEmpty(cropsTable) ? new CropRepository(dynamoDb, cropsTable) : null;
 
+        // FUP-123: that cancel also releases the order's trip booking, as the sync cancels do. Off with
+        // COMMITMENTS_ENABLED, like every other booking write.
+        var tripsTable = Environment.GetEnvironmentVariable("TRIPS_TABLE");
+        var tripRepo = OrderCommitment.IsEnabled && !string.IsNullOrEmpty(tripsTable)
+            ? new TripRepository(dynamoDb, tripsTable)
+            : null;
+
         _escrowService = new EscrowService(
             escrowRepo, auditRepo, idempotencyRepo, telebirrGateway, userRepo, orderRepo, deliveryRepo,
-            orderCheckoutRepo, txAuditRepo, cropRepo);
+            orderCheckoutRepo, txAuditRepo, cropRepo, tripRepo);
         _userRepo = userRepo;
 
         // Fraud detection (F-14)

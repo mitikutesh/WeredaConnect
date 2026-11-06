@@ -465,7 +465,8 @@ export class ApiStack extends cdk.Stack {
     const fraudHoldEnabled = envConfig.fraudHoldEnabled ? "true" : "false";
 
     // ESC-15: one value for sync, order-cron and the Telebirr webhook (off everywhere until the
-    // clients that render awaiting_transport are deployed).
+    // clients that render awaiting_transport are deployed). FUP-123: escrow and escrow-cron read it
+    // too, so the order cancels they make release trip bookings only while bookings exist.
     const commitmentsEnabled = envConfig.commitmentsEnabled ? "true" : "false";
 
     const syncFn = new WeredaLambda(this, "SyncFunction", {
@@ -1322,6 +1323,10 @@ export class ApiStack extends cdk.Stack {
         // ESC-03: an admin settlement of a dispute verdict audits the order and
         // delivery hops it repairs.
         TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
+        // FUP-123: an order the refund settlement cancels gives its trip booking back,
+        // only while COMMITMENTS_ENABLED is on (the flag sync uses for bookings).
+        TRIPS_TABLE: props.tripsTable.tableName,
+        COMMITMENTS_ENABLED: commitmentsEnabled,
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
@@ -1352,6 +1357,14 @@ export class ApiStack extends cdk.Stack {
     // ESC-03: a buyer_wins refund before pickup gives the cancelled order's stock back
     // (conditional UpdateItem on the listing, idempotent per order).
     props.cropsTable.grant(escrowFn.function, "dynamodb:UpdateItem");
+    // FUP-123: and its quintals back on the trip: read the trip (Query on the base table) and one
+    // conditional UpdateItem. No put, delete, scan or index.
+    escrowFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:UpdateItem"],
+        resources: [props.tripsTable.tableArn],
+      }),
+    );
     props.rateLimitsTable.grantReadWriteData(escrowFn.function);
     props.fraudSignalsTable.grantReadWriteData(escrowFn.function);
     commissionRateParam.grantRead(escrowFn.function);
@@ -1384,6 +1397,10 @@ export class ApiStack extends cdk.Stack {
         USERS_TABLE: props.usersTable.tableName,
         // ESC-03: the dispute sweep audits the order and delivery hops it repairs.
         TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
+        // FUP-123: an order the refund sweep cancels (or a buyer_wins settlement cancels before
+        // pickup) gives its trip booking back, only while COMMITMENTS_ENABLED is on.
+        TRIPS_TABLE: props.tripsTable.tableName,
+        COMMITMENTS_ENABLED: commitmentsEnabled,
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
@@ -1425,6 +1442,14 @@ export class ApiStack extends cdk.Stack {
     props.ordersTable.grantReadWriteData(escrowCronFn.function);
     // Restore the cancelled order's listing stock (conditional update on the listing).
     props.cropsTable.grantReadWriteData(escrowCronFn.function);
+    // FUP-123: release the cancelled order's trip booking: read the trip (Query on the base table)
+    // and one conditional UpdateItem. No put, delete, scan or index.
+    escrowCronFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:UpdateItem"],
+        resources: [props.tripsTable.tableArn],
+      }),
+    );
     commissionRateParam.grantRead(escrowCronFn.function);
     disputeWindowParam.grantRead(escrowCronFn.function);
     escrowTimeoutParam.grantRead(escrowCronFn.function);

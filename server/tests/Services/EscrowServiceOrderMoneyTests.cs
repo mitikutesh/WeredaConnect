@@ -291,6 +291,30 @@ public class EscrowServiceOrderMoneyTests
             Arg.Any<int>());
     }
 
+    [Fact]
+    public async Task AnAdminRefund_BeforePickup_ReleasesTheOrdersTripBooking()
+    {
+        // FUP-123: the service hands its trip repository to the cancel, which gives the order's
+        // quintals back to the trip (500 kg = 5 quintals).
+        _orderStatus = "funded";
+        _deliveryStatus = "pending";
+        _orderExtra["tripId"] = "trip-1";
+        _orderExtra["quantity"] = "500";
+        var trips = Substitute.For<ITripRepository>();
+        trips.TryReleaseCapacityAsync("trip-1", OrderId, 5.0).Returns(true);
+        var service = new EscrowService(_escrowRepo, _auditRepo, _idempotencyRepo, _gateway, userRepo: null,
+            orderRepo: _orders, deliveryRepo: _deliveries, transactionAuditRepo: _txAudit, cropRepo: _crops, tripRepo: trips)
+        {
+            AlarmLog = _alarms.Add
+        };
+
+        var result = await service.RefundAsync(Refund(), AdminId, "admin", adminGroupVerified: true);
+
+        result.IsSuccess.Should().BeTrue();
+        _orderStatus.Should().Be("cancelled");
+        await trips.Received(1).TryReleaseCapacityAsync("trip-1", OrderId, 5.0);
+    }
+
     [Theory]
     [InlineData("in_transit")]
     [InlineData("pickup_confirmed")]
