@@ -4,6 +4,7 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { WeredaDynamoTable } from "../constructs/dynamodb-construct";
 import { EnvironmentConfig } from "../config/environments";
+import { webCorsOrigins } from "../config/cors-origins";
 
 export interface DatabaseStackProps extends cdk.StackProps {
   readonly envConfig: EnvironmentConfig;
@@ -752,6 +753,21 @@ export class DatabaseStack extends cdk.Stack {
       versioned: true,
       serverAccessLogsBucket: this.accessLogsBucket,
       serverAccessLogsPrefix: "uploads/",
+      // FRD-12: the web app PUTs a delivery photo straight to its presigned URL
+      // (Content-Type signed) and Flutter web (CanvasKit) fetches photos with
+      // XHR, so both need CORS. The CSP already allows the regional S3 hosts.
+      cors: [
+        {
+          allowedMethods: [
+            s3.HttpMethods.PUT,
+            s3.HttpMethods.GET,
+            s3.HttpMethods.HEAD,
+          ],
+          allowedOrigins: webCorsOrigins(envConfig),
+          allowedHeaders: ["Content-Type"],
+          maxAge: 3000,
+        },
+      ],
       lifecycleRules: [
         {
           expiration: cdk.Duration.days(7),
