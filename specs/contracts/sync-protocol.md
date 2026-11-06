@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.36.0
+1.37.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -100,6 +100,16 @@ This format ensures:
   (`LOCATION_NOT_ACTIVE:`, see Location pings).
   `serverData`/`serverVersion` are absent.
 - `status: "error"` — operation failed (validation, auth, etc.); `message` explains why
+- `serverData` (on `success` and `conflict`) is the entity row with the JSON types GET gives
+  the same row (1.37.0, SIM-25): numbers are JSON numbers (`version`, quantities, prices and
+  money fields such as `pricePerKg`, `pricePerUnit`, `orderTotal`, `capacity`,
+  `pricePerQuintal`, `bookedQuintals`, coordinates including the `latitude` and `longitude`
+  inside a delivery's `gpsPickup` and `gpsDropoff`, a rating's `stars`) and a trip's
+  `matchedListings` is an array of listing ids. Every other value keeps its type: a string
+  that reads as a number (a woreda code, a phone number) stays a string, a stored list such
+  as `photoIds` stays a list. A whole number comes without a decimal point, so clients read
+  numbers as `num`. Before 1.37.0 these numbers came as strings (`"version":"2"`,
+  `"pricePerKg":"18"`) and `matchedListings` as the text `"[]"`.
 
 ---
 
@@ -870,6 +880,7 @@ handling ships with LT-08, and no client sends the entity before it.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.37.0 | 2026-11-06 | Typed `serverData` (SIM-25): `success` and `conflict` rows carry numbers as JSON numbers (`version`, quantities, prices, money fields, coordinates, `stars`) and a trip's `matchedListings` as an array, the types GET returns for the same row; before, every number was a string and `matchedListings` the text `"[]"`. Other values keep their type. The mobile conflict resolver already read these as numbers and a list, so its crop, trip and order conflicts failed on the string shape and are now applied server-wins; it also no longer requires `totalPrice` on an order row (the server never stores it): the local total is kept, a new row starts at 0 as the order pull does. Web reads only `status` from a row. No new code |
 | 1.36.0 | 2026-11-06 | Drop-off landmark (LT-12, `order-lifecycle.md` 2.5.0): `dropoffNote` is a new order field on create and on the buyer's update until pickup; new permanent `ORDER_CONTACT_IN_TEXT` (a phone number in it) and `ORDER_DROPOFF_NOTE_LOCKED` (a change after pickup), both under the `ORDER_*` rule clients already apply (1.10.0), now with their own text in en, am and om (`errorContactInText`, `errorDropoffNoteLocked`); an order row in `serverData` leaves the note out for a caller who may not read it. Older clients revert and show the generic order refusal |
 | 1.35.0 | 2026-11-06 | Listings that orders depend on (ESC-18, `crop-listing-api.md` 1.7.0, `order-lifecycle.md` 2.4.0): behind `COMMITMENTS_ENABLED`, the server sends `CROP_HAS_ACTIVE_ORDERS: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.` on a `crop_listing` delete, or an update to `status: deleted`, while an order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`; when the orders cannot be read, the unprefixed `The listing's orders could not be checked. Please try again later.` (retryable). A quantity edit never gets the code. Clients already handle it (1.17.0: permanent, the listing reverted from `GET /crops/{id}`, `errorCropHasActiveOrders`). A funding that loses the listing's stock cancels the order on the server (`listing_out_of_stock`); clients see it through the order pull. No client change |
 | 1.34.0 | 2026-11-04 | Orders on a trip that left (L-7, `order-lifecycle.md` 2.3.0, `trip-listing-api.md` 2.2.0): the server sends `ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; choose another trip.` on an `order` create naming a trip whose departure day is over in Ethiopia, flag on or off. Clients already treat the code as permanent (1.10.0) and give it its own text on a refused create (1.17.0, `errorTripNotEligible`): the mobile queue removes the local order and explains it, web shows the same text. No client change; no new code |
@@ -908,4 +919,4 @@ handling ships with LT-08, and no client sends the entity before it.
 ---
 
 **Last Updated**: 2026-11-06
-**Version**: 1.35.0
+**Version**: 1.37.0

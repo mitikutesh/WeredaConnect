@@ -888,7 +888,8 @@ public partial class SyncFunction
             var result = await ProcessOperationAsync(operation, authenticatedUserId, authenticatedRole, context);
             context.Logger.LogInformation(
                 $"Op {MoneyAlarmLog.LogId(result.OperationId)}: status={result.Status}, msg={MoneyAlarmLog.LogText(result.Message ?? "none")}");
-            results.Add(result);
+            // SIM-25: numbers and matchedListings in serverData go out typed, as GET returns them.
+            results.Add(SyncServerData.Typed(result));
         }
 
         var successCount = results.Count(r => r.Status == "SYNC_SUCCESS" || r.Status == "SYNC_DUPLICATE");
