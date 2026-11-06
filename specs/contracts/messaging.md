@@ -151,6 +151,16 @@ endpoints (`device-tokens`) → SNS publish an FCM notification with data:
 Android only (iOS/APNs deferred). Recipients with no registered device fall back
 to the in-app unread badge.
 
+A tap (from the background, or the tap that cold-started the app) opens the
+thread (FUP-90). The app opens it only when the signed-in user is the
+recipient: `conversationId` must equal the deterministic id for
+`contextType`, `contextId`, `senderId` and that user, who is not the sender.
+A notification left for another account on a shared phone opens nothing. A
+thread the device holds opens at once while the inbox pulls the new message;
+a thread it holds nothing of is pulled first (bounded, 8 s), and when the
+device still holds none of it (offline, or a thread the read rule closes) the
+messages list opens instead. No wire change.
+
 ---
 
 ## Unread / read state
@@ -202,7 +212,6 @@ decides).
 
 - Foreground arrival is push-instant on native once FCM is configured (falls back to the 60 s poll on non-GMS devices); web has no push — its floor is the 60 s poll plus the instant resume/tab-refocus catch-up.
 - Cross-device / web sent-message history relies on the `SenderIdCreatedAtIndex` pull.
-- Tap-to-thread deep-linking from a push is deferred (no global navigator key yet); the notification still delivers and the inbox badge updates.
 - Order detail has a Contact section since 1.2.0 (ESC-48): each counterparty of an open order with Call, Copy and Message (order thread). Crop and trip detail no longer offer contact. Delivery detail has no contact entry; delivery threads started before stay reachable from the inbox.
 - The read rule (1.3.0) is server side only: a trucker's phone keeps the copies it pulled while committed, and web keeps them for the session. The server no longer serves them.
 
