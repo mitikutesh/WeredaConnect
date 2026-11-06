@@ -23,6 +23,8 @@ abstract class BaseOrderRepository {
 
   Future<Order?> getOrderById(String orderId);
 
+  /// [dropoffNote] is the buyer's optional drop-off landmark (LT-12): sent
+  /// trimmed, left out when empty.
   Future<Order> createOrder({
     required String listingId,
     required String buyerId,
@@ -37,7 +39,18 @@ abstract class BaseOrderRepository {
     String? truckerName,
     double? transportCost,
     double? commissionRate,
+    String? dropoffNote,
   });
+
+  /// LT-12: the buyer adds, changes or (with null or blank) clears the
+  /// drop-off landmark of a trucked order before pickup
+  /// (`canEditDropoffNote`). Throws `OrderActionNotAllowedException` for
+  /// anyone else or after pickup; the same note again is a no-op.
+  Future<void> updateDropoffNote(
+    String orderId,
+    String buyerId,
+    String? dropoffNote,
+  );
 
   /// The buyer's `payment_submitted`. [cbeTransactionId] is the demo
   /// transfer reference; live Telebirr payments send none (ESC-44), they are

@@ -59,6 +59,10 @@ class Order {
   /// Isar schema): the farm and the buyer's drop-off.
   String? pickupPlace;
   String? dropoffPlace;
+
+  /// LT-12: the buyer's drop-off landmark (order-lifecycle 2.5.0; see the
+  /// Isar schema).
+  String? dropoffNote;
 }
 
 /// Status of an order in its lifecycle.

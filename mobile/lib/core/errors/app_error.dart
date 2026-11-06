@@ -148,8 +148,13 @@ enum AppErrorCode {
   appUpdateRequiredKept,
 
   /// FUP-49: crop or trip text that buyers read held a phone number
-  /// (`CROP_CONTACT_IN_TEXT` / `TRIP_CONTACT_IN_TEXT`); nothing was saved.
+  /// (`CROP_CONTACT_IN_TEXT` / `TRIP_CONTACT_IN_TEXT`), and since LT-12 an
+  /// order's drop-off note (`ORDER_CONTACT_IN_TEXT`); nothing was saved.
   contactInText,
+
+  /// LT-12: the drop-off note changes only before pickup
+  /// (`ORDER_DROPOFF_NOTE_LOCKED`); the local change was undone.
+  dropoffNoteLocked,
 
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
@@ -247,6 +252,13 @@ AppErrorCode mapErrorToCode(Object error) {
     SyncRejectedException(:final message)
         when isOrderCancelNotAllowedMessage(message) =>
       AppErrorCode.orderCancelNotAllowed,
+    // LT-12: the drop-off note codes are ORDER_* too, with their own text.
+    SyncRejectedException(:final message)
+        when isDropoffNoteLockedMessage(message) =>
+      AppErrorCode.dropoffNoteLocked,
+    SyncRejectedException(:final message)
+        when isContactInTextMessage(message) =>
+      AppErrorCode.contactInText,
     SyncRejectedException(:final message)
         when isRevertableRejectionMessage(message) =>
       AppErrorCode.orderRefused,
@@ -262,9 +274,6 @@ AppErrorCode mapErrorToCode(Object error) {
     SyncRejectedException(:final message)
         when isContactLockedMessage(message) =>
       AppErrorCode.contactLocked,
-    SyncRejectedException(:final message)
-        when isContactInTextMessage(message) =>
-      AppErrorCode.contactInText,
     OrderCancelNotAllowedException() => AppErrorCode.orderCancelNotAllowed,
     OrderActionNotAllowedException() => AppErrorCode.orderRefused,
     AlreadyRatedException() => AppErrorCode.alreadyRated,
@@ -348,6 +357,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.appUpdateRequired => l10n.errorAppUpdateRequired,
     AppErrorCode.appUpdateRequiredKept => l10n.errorAppUpdateRequiredKept,
     AppErrorCode.contactInText => l10n.errorContactInText,
+    AppErrorCode.dropoffNoteLocked => l10n.errorDropoffNoteLocked,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -412,6 +422,12 @@ AppErrorCode syncRejectionErrorCode({
     if (isOrderTransportAttemptsExceededMessage(message)) {
       return AppErrorCode.transportAttemptsExceeded;
     }
+    // LT-12: a drop-off note change (a refused create already said the
+    // order was not placed above).
+    if (isDropoffNoteLockedMessage(message)) {
+      return AppErrorCode.dropoffNoteLocked;
+    }
+    if (isContactInTextMessage(message)) return AppErrorCode.contactInText;
     return isPaymentTotalOutOfRangeMessage(message)
         ? AppErrorCode.paymentTotalOutOfRange
         : AppErrorCode.orderRefused;

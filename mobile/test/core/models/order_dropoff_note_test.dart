@@ -1,0 +1,96 @@
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_dropoff_note.dart';
+
+/// LT-12: the client's mirror of the server's drop-off note rules
+/// (server/src/Helpers/OrderDropoffNote.cs): the 80 character limit counted
+/// in user-visible characters, the phone number screen and the edit window.
+void main() {
+  group('length, counted as the server counts it', () {
+    test('80 characters pass, 81 are too long', () {
+      expect(dropoffNoteProblem('a' * 80), isNull);
+      expect(dropoffNoteProblem('a' * 81), DropoffNoteProblem.tooLong);
+    });
+
+    test('an Amharic syllable is one character', () {
+      final eighty = 'ሰ' * 80;
+      expect(dropoffNoteLength(eighty), 80);
+      expect(dropoffNoteProblem(eighty), isNull);
+      expect(dropoffNoteProblem('ሰ' * 81), DropoffNoteProblem.tooLong);
+      expect(dropoffNoteLength('መርካቶ፣ አንዋር መስጊድ አጠገብ'), 20);
+    });
+
+    test('an emoji with a skin tone is one character', () {
+      const thumbs = '\u{1F44D}\u{1F3FD}';
+      expect(thumbs.length, 4);
+      expect(dropoffNoteLength(thumbs), 1);
+      expect(dropoffNoteProblem('${'a' * 79}$thumbs'), isNull);
+    });
+
+    test('surrounding spaces do not count', () {
+      expect(dropoffNoteProblem('  ${'a' * 80}  '), isNull);
+    });
+  });
+
+  group('the phone number screen', () {
+    for (final note in [
+      'Merkato, call 0911 234 567',
+      '+251-911-234567 at the gate',
+      'Kality ፱፩፩፪፫፬፭፮፯',
+    ]) {
+      test(note, () {
+        expect(dropoffNoteProblem(note), DropoffNoteProblem.phoneNumber);
+      });
+    }
+
+    test('a landmark with numbers that are not a phone', () {
+      expect(dropoffNoteProblem('Gate 2, block 14, near km 3'), isNull);
+    });
+  });
+
+  test('normalize trims and turns blank into none', () {
+    expect(normalizeDropoffNote('  Merkato  '), 'Merkato');
+    expect(normalizeDropoffNote('   '), isNull);
+    expect(normalizeDropoffNote(null), isNull);
+    expect(dropoffNoteProblem(null), isNull);
+  });
+
+  group('who may edit it, and until when', () {
+    Order order(OrderStatus status, {bool trip = true}) => Order()
+      ..orderId = 'order-1'
+      ..buyerId = 'buyer-1'
+      ..farmerId = 'farmer-1'
+      ..tripId = trip ? 'trip-1' : null
+      ..truckerId = trip ? 'trucker-1' : null
+      ..status = status;
+
+    for (final status in OrderStatus.values) {
+      final before = {
+        OrderStatus.created,
+        OrderStatus.pendingPayment,
+        OrderStatus.paymentSubmitted,
+        OrderStatus.paymentFailed,
+        OrderStatus.funded,
+        OrderStatus.awaitingTransport,
+        OrderStatus.accepted,
+      }.contains(status);
+      test('the buyer, ${status.name}: ${before ? 'yes' : 'no'}', () {
+        expect(canEditDropoffNote(order(status), 'buyer-1'), before);
+      });
+    }
+
+    test('never the farmer, the trucker or anyone else', () {
+      for (final caller in ['farmer-1', 'trucker-1', 'someone', '']) {
+        expect(canEditDropoffNote(order(OrderStatus.created), caller), isFalse);
+      }
+    });
+
+    test('never on a self-pickup order (no drop-off)', () {
+      expect(
+        canEditDropoffNote(order(OrderStatus.created, trip: false), 'buyer-1'),
+        isFalse,
+      );
+    });
+  });
+}

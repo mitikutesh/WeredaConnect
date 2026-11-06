@@ -46,6 +46,7 @@ void main() {
   Future<FakeConnectivity> pump(
     WidgetTester tester, {
     List<Delivery>? deliveries,
+    List<Order>? orderList,
     bool online = true,
     bool failLoad = false,
     String locale = 'en',
@@ -61,7 +62,7 @@ void main() {
         engine: rig.engine,
         loader: loaderFor(
           deliveries: deliveries ?? oneOnBoard(),
-          orders: orders(),
+          orders: orderList ?? orders(),
           failDeliveries: failLoad,
         ),
         connectivity: net,
@@ -270,6 +271,43 @@ void main() {
       await tester.tap(find.byKey(const Key('trip_mode_dropoff_qr')));
       await tester.pumpAndSettle();
       expect(opened, ['d-1']);
+    });
+
+    // LT-12: the buyer's landmark where the town says too little.
+    testWidgets('the buyer\'s landmark shows at the drop-offs still to do',
+        (tester) async {
+      rig = await EngineRig.signedIn();
+      await rig.engine.start(tripId);
+      final deliveries = oneOnBoard();
+      deliveries[1]
+        ..status = DeliveryStatus.inTransit
+        ..pickedUpAt = pickedUpAt.add(const Duration(minutes: 40));
+      await pump(
+        tester,
+        deliveries: deliveries,
+        orderList: [
+          orderFixture(
+            'd-1',
+            crop: 'wheat',
+            kg: 2000,
+            transportCost: 3000,
+            dropoffNote: 'Merkato, near Anwar Mosque',
+          ),
+          orderFixture('d-2', crop: 'maize', kg: 1000, transportCost: 1500),
+        ],
+      );
+
+      // The next stop (d-1's drop-off) and its row in the stop list.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('trip_mode_next_dropoff_note')),
+          matching: find.text('Merkato, near Anwar Mosque'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('trip_mode_dropoff_note')), findsOneWidget);
+      // d-2 has none; pickups never show one.
+      expect(find.text('Merkato, near Anwar Mosque'), findsNWidgets(2));
     });
 
     testWidgets('Amharic: times on the Ethiopian clock', (tester) async {

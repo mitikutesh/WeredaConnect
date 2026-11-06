@@ -54,6 +54,22 @@ void main() {
       expect(track.summary!.fixes, 7);
     });
 
+    // LT-12: the server sends the order's note in every phase, also after
+    // delivery when the point is gone (DeliveryFunction's track, as built).
+    test('the note without a point, as the server ends a track', () {
+      final json = endedTrackJson()
+        ..['dropoff'] = {
+          'latitude': null,
+          'longitude': null,
+          'note': 'Merkato, near Anwar Mosque',
+        };
+
+      final track = DeliveryTrack.fromJson(json);
+
+      expect(track.dropoff, isNull);
+      expect(track.dropoffNote, 'Merkato, near Anwar Mosque');
+    });
+
     test('reads every sharing state, and an unknown one as unknown', () {
       for (final (wire, sharing) in [
         ('not_started', TrackSharing.notStarted),

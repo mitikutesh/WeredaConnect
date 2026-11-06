@@ -2,6 +2,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
@@ -140,11 +141,13 @@ class WebOrderRepository extends BaseOrderRepository {
     String? truckerName,
     double? transportCost,
     double? commissionRate,
+    String? dropoffNote,
   }) async {
     // UUID like the mobile repositories: the server rejects other id
     // shapes (for example a delivery's tripId must be a UUID).
     final orderId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
+    final note = normalizeDropoffNote(dropoffNote);
 
     final payload = <String, dynamic>{
       'listingId': listingId,
@@ -160,6 +163,7 @@ class WebOrderRepository extends BaseOrderRepository {
       if (truckerId != null) 'truckerId': truckerId,
       if (truckerName != null) 'truckerName': truckerName,
       if (transportCost != null) 'transportCost': transportCost,
+      if (note != null) 'dropoffNote': note,
     };
 
     final response = await _api.post<Map<String, dynamic>>(
@@ -209,7 +213,8 @@ class WebOrderRepository extends BaseOrderRepository {
       ..transportCost = transportCost
       ..commissionRate = rate
       ..commissionAmount = commissionAmount
-      ..orderTotal = cropCost + (transportCost ?? 0) + commissionAmount;
+      ..orderTotal = cropCost + (transportCost ?? 0) + commissionAmount
+      ..dropoffNote = note;
   }
 
   /// The server applies an order update only when the payload's `version`
@@ -398,6 +403,32 @@ class WebOrderRepository extends BaseOrderRepository {
       'truckerResponse':
           accept ? CommitmentCommand.accept : CommitmentCommand.decline,
       if (!accept && declineReason != null) 'declineReason': declineReason,
+      'version': order.version,
+    });
+  }
+
+  /// LT-12: the buyer's drop-off landmark, with the mobile guards, sent at
+  /// once with the order's current version (web keeps no local copy). A
+  /// refusal (`ORDER_DROPOFF_NOTE_LOCKED`, `ORDER_CONTACT_IN_TEXT`) surfaces
+  /// as a sync rejection.
+  @override
+  Future<void> updateDropoffNote(
+    String orderId,
+    String buyerId,
+    String? dropoffNote,
+  ) async {
+    final order = await _currentOrder(orderId);
+    if (!canEditDropoffNote(order, buyerId)) {
+      throw const OrderActionNotAllowedException(
+        'Only the buyer of a trucked order can change its drop-off note, '
+        'and only before pickup.',
+      );
+    }
+    final note = normalizeDropoffNote(dropoffNote);
+    if (note == normalizeDropoffNote(order.dropoffNote)) return;
+    await _sendOrderUpdate(orderId, 'dropoff_note', {
+      // An empty note clears it on the server.
+      'dropoffNote': note ?? '',
       'version': order.version,
     });
   }

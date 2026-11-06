@@ -153,7 +153,16 @@ class _FakeOrderRepository extends BaseOrderRepository {
     String? truckerName,
     double? transportCost,
     double? commissionRate,
+    String? dropoffNote,
   }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> updateDropoffNote(
+    String orderId,
+    String buyerId,
+    String? dropoffNote,
+  ) =>
       throw UnimplementedError();
 
   @override

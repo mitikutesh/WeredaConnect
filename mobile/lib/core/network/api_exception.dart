@@ -185,17 +185,32 @@ bool isContactLockedMessage(String? message) =>
     message != null && message.startsWith(contactLockedCode);
 
 /// Sync rejection prefixes when crop or trip text that buyers read carries a
-/// phone number (FUP-49, sync-protocol.md 1.23.0). Nothing was written.
+/// phone number (FUP-49, sync-protocol.md 1.23.0), or an order's drop-off
+/// note does (LT-12, sync-protocol.md 1.36.0). Nothing was written.
 const String cropContactInTextCode = 'CROP_CONTACT_IN_TEXT';
 const String tripContactInTextCode = 'TRIP_CONTACT_IN_TEXT';
+const String orderContactInTextCode = 'ORDER_CONTACT_IN_TEXT';
 
-/// Whether a /sync per-operation error message refuses a crop listing or a
-/// trip because its text holds a phone number. Permanent: the same payload
-/// always gets the same answer, so it is never resent.
+/// Whether a /sync per-operation error message refuses a crop listing, a
+/// trip or an order's drop-off note because its text holds a phone number.
+/// Permanent: the same payload always gets the same answer, so it is never
+/// resent (the order code is also an `ORDER_*` refusal, so the order is put
+/// back to the server's view).
 bool isContactInTextMessage(String? message) =>
     message != null &&
     (message.startsWith(cropContactInTextCode) ||
-        message.startsWith(tripContactInTextCode));
+        message.startsWith(tripContactInTextCode) ||
+        message.startsWith(orderContactInTextCode));
+
+/// Sync rejection prefix when the buyer's drop-off note changes after pickup
+/// (LT-12, sync-protocol.md 1.36.0). Permanent like every `ORDER_*` refusal:
+/// the order is put back to the server's view.
+const String orderDropoffNoteLockedCode = 'ORDER_DROPOFF_NOTE_LOCKED';
+
+/// Whether a /sync per-operation error message refuses a drop-off note change
+/// because the goods were picked up (`ORDER_DROPOFF_NOTE_LOCKED: ...`).
+bool isDropoffNoteLockedMessage(String? message) =>
+    message != null && message.startsWith(orderDropoffNoteLockedCode);
 
 /// Sync rejection prefixes for a pickup or drop-off confirmed with a typed
 /// handoff code (T-1, sync-protocol.md 1.33.0): the code is not the

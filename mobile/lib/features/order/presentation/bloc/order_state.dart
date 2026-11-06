@@ -85,6 +85,12 @@ class OrderCancelled extends OrderState {
   const OrderCancelled();
 }
 
+/// LT-12: state after the buyer's drop-off landmark was saved (sent, or
+/// queued on the phone).
+class DropoffNoteSaved extends OrderState {
+  const DropoffNoteSaved();
+}
+
 /// State when a single order has been loaded.
 class SingleOrderLoaded extends OrderState {
   final Order order;

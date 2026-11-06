@@ -181,9 +181,11 @@ void checkOrderCancelAllowed(Order order, String userId, DateTime nowUtc) {
   );
 }
 
-/// Reads the commitment fields, and the order's own places (order-lifecycle
-/// 2.2.0), of a server order map (`GET /orders`, `/sync` rows) into [order].
-/// Every field is optional: an older server sends none.
+/// Reads the commitment fields, the order's own places (order-lifecycle
+/// 2.2.0) and the buyer's drop-off note (2.5.0, LT-12) of a server order map
+/// (`GET /orders`, `/sync` rows) into [order]. Every field is optional: an
+/// older server sends none, and the server leaves the note out for a trucker
+/// who has not committed, so a row without it clears the device's copy.
 void applyOrderCommitmentFields(Order order, Map<String, dynamic> m) {
   order
     ..fulfillment = _string(m['fulfillment'])
@@ -197,7 +199,8 @@ void applyOrderCommitmentFields(Order order, Map<String, dynamic> m) {
     ..declineReason = _string(m['declineReason'])
     ..cancelledBy = _string(m['cancelledBy'])
     ..pickupPlace = _string(m['pickupPlace'])
-    ..dropoffPlace = _string(m['dropoffPlace']);
+    ..dropoffPlace = _string(m['dropoffPlace'])
+    ..dropoffNote = _string(m['dropoffNote']);
 }
 
 String? _string(Object? value) =>

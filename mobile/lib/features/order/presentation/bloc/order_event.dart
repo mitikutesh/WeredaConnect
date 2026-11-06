@@ -111,6 +111,9 @@ class CreateOrder extends OrderEvent {
   final double? transportCost;
   final double? commissionRate;
 
+  /// LT-12: the buyer's optional drop-off landmark.
+  final String? dropoffNote;
+
   const CreateOrder({
     required this.listingId,
     required this.buyerId,
@@ -125,6 +128,7 @@ class CreateOrder extends OrderEvent {
     this.truckerName,
     this.transportCost,
     this.commissionRate,
+    this.dropoffNote,
   });
 
   @override
@@ -142,6 +146,7 @@ class CreateOrder extends OrderEvent {
         truckerName,
         transportCost,
         commissionRate,
+        dropoffNote,
       ];
 }
 
@@ -180,6 +185,23 @@ class CancelOrder extends OrderEvent {
 
   @override
   List<Object?> get props => [orderId, userId, reason];
+}
+
+/// LT-12: the buyer adds, changes or clears (null or blank) the drop-off
+/// landmark of an order before pickup.
+class UpdateDropoffNote extends OrderEvent {
+  final String orderId;
+  final String buyerId;
+  final String? dropoffNote;
+
+  const UpdateDropoffNote({
+    required this.orderId,
+    required this.buyerId,
+    this.dropoffNote,
+  });
+
+  @override
+  List<Object?> get props => [orderId, buyerId, dropoffNote];
 }
 
 /// Load a single order by its ID.
