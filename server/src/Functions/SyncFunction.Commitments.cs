@@ -289,6 +289,16 @@ public partial class SyncFunction
             await ReleaseTransportCancelSlotAsync(orderId, cancelledDeliveryId, context);
         }
 
+        // FRD-09: the trucker dropped out of a funded order they had accepted (a decline of a request is an
+        // answer, not a cancel).
+        if (decision.Effect == CommitmentEffect.ReleaseBookingAndCancelDelivery)
+        {
+            await TryRecordPatternSignalsAsync(authenticatedUserId, orderId, "order", "cancel_after_fund",
+                rules => rules.CheckCancelAfterFundAsync(
+                    authenticatedUserId, TransactionPatternService.Trucker, new[] { orderId }, DateTime.UtcNow),
+                context);
+        }
+
         return new SyncOperationResult
         {
             OperationId = operation.OperationId,
@@ -777,6 +787,9 @@ public partial class SyncFunction
         }
 
         var nowUtc = DateTime.UtcNow;
+
+        // FRD-09: the paid orders this cancel took the transport from, for the trucker's cancel-after-fund rate.
+        var lostTransport = new List<string>();
         foreach (var order in orders)
         {
             var orderId = ItemString(order, "orderId");
@@ -792,9 +805,13 @@ public partial class SyncFunction
             {
                 if (status == "funded" && OrderCommitment.FarmerResponseOf(order) != OrderCommitment.Response.Accepted)
                 {
-                    await _orderRepo.TryStampAsync(orderId,
+                    if (await _orderRepo.TryStampAsync(orderId,
                         new Dictionary<string, object> { { OrderCommitment.TruckerResponseField, OrderCommitment.Response.Cancelled } },
-                        new Dictionary<string, string> { { "status", "funded" } });
+                        new Dictionary<string, string> { { "status", "funded" } }))
+                    {
+                        lostTransport.Add(orderId);
+                    }
+
                     continue;
                 }
 
@@ -834,6 +851,7 @@ public partial class SyncFunction
                 var moved = await _orderRepo.TryAdvanceStatusAsync(orderId, status, OrderCommitment.AwaitingTransportStatus, fields);
                 if (moved != null)
                 {
+                    lostTransport.Add(orderId);
                     await EmitTxAuditAsync(context, orderId, "order", orderId, "order_updated", status,
                         OrderCommitment.AwaitingTransportStatus, ctxOverride: AuditContext.ForSystem(),
                         metadata: $"transportFailure={OrderCommitment.TransportFailure.TripCancelled};tripId={tripId}");
@@ -844,6 +862,16 @@ public partial class SyncFunction
                 context.Logger.LogError(
                     $"TRIP_CANCEL_CASCADE_FAILED tripId={MoneyAlarmLog.LogId(tripId)} orderId={MoneyAlarmLog.LogId(orderId)} reason=[{ex.GetType().Name}]");
             }
+        }
+
+        // FRD-09: cancelling a trip that paid orders were booked on is the trucker's cancel after funding,
+        // once per trip cancel whatever the number of orders it hit.
+        if (lostTransport.Count > 0)
+        {
+            var truckerId = AttrString(trip, "truckerId");
+            await TryRecordPatternSignalsAsync(truckerId, tripId, "trip", "cancel_after_fund",
+                rules => rules.CheckCancelAfterFundAsync(truckerId, TransactionPatternService.Trucker, lostTransport, nowUtc),
+                context);
         }
     }
 

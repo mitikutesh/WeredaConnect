@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.35.0
+1.36.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -1153,7 +1153,7 @@ A scheduled Lambda (every 6 hours) runs reconciliation:
 | Check | Implementation |
 |-------|---------------|
 | **Velocity check** | Max 5 escrow initiations per buyer per hour |
-| **Amount anomaly** | Planned (FRD-09): flag transactions above 3 standard deviations from the user's own average |
+| **Amount anomaly** | 1.36.0 (FRD-09): a buyer's order payment (`/sync` `payment_submitted`, after the payment gates and the write) above the mean plus 3 standard deviations of the buyer's own verified payments, with at least 5 of them and at least twice their mean, writes the soft signal `AMOUNT_ANOMALY` (weight 10) on the buyer; flag-only, the payment answer never changes. The same payment can write `NEW_ACCOUNT_LARGE_AMOUNT` and `KYC_THRESHOLD_STRUCTURING`, and a buyer's dispute `DISPUTE_RATE`. `specs/architecture/fraud-detection-architecture.md` section 15.1 |
 | **Self-trading** | buyerId and farmerId must be different users |
 | **Duplicate delivery payment** | One escrow per deliveryId (enforced by DeliveryIndex) |
 | **Fayda ID check** | Mandatory for high-value transactions (> 10,000 ETB) |
@@ -4025,6 +4025,7 @@ gate (1.22.0, 1.27.0) runs before the refund as for any stale order.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.36.0 | 2026-11-06 | Transaction pattern signals (FRD-09, fraud spec 3.12.0, section 15.1): the amount anomaly row of Fraud Prevention is built. After an order payment the gates let through, the buyer may get `AMOUNT_ANOMALY` (10, soft), `NEW_ACCOUNT_LARGE_AMOUNT` (10, soft) or `KYC_THRESHOLD_STRUCTURING` (20, hard); after a dispute the buyer raised (`POST /escrow/dispute` or a delivery dispute that froze the escrow), `DISPUTE_RATE` (10, soft) with the escrow as the entity. Written best effort after the write, thresholds in `FRAUD_*` configuration; they reach the money only through the risk tiers (section 17). `POST /escrow/initiate` writes none. No endpoint, status, field or answer change |
 | 1.35.0 | 2026-11-06 | Stock lost at funding (ESC-18, `order-lifecycle.md` 2.4.0): a funding whose listing no longer holds the order's quantity creates the order escrow as before, then the order is cancelled (`listing_out_of_stock`) and `ScheduleRefundForOrderAsync` arms the escrow with `refundReason: listing_out_of_stock`; the hourly sweep refunds the full amount once. Runs on the Telebirr webhook (funding and redelivery repair) and the mock auto-fund. `ORDER_STOCK_DECREMENT_FAILED ... reason=insufficient_stock` marks a loser that could not be cancelled by itself (a person decides). An escrow whose create failed is created once more; `ORDER_ESCROW_REFUND_SCHEDULE_FAILED` (`reason=no_escrow` when no record exists) now also comes from the webhook log group and feeds `{prefix}-order-escrow-problems`. No endpoint, status or field change |
 | 1.34.0 | 2026-10-26 | Order commitments (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): `ScheduleRefundForOrderAsync` now also runs when the order cron cancels a `funded` order whose farmer did not answer (`farmer_response_expired`) or an `awaiting_transport` order whose buyer did not decide in 48 hours (`transport_not_arranged`), and when the farmer cancels an `accepted` order before pickup (`farmer_cancelled`), all with `refundReason: order_cancelled`; the buyer's or the farmer's cancel in `awaiting_transport` arms `order_transport_failed` as the transport-failure cancel does; a trucker's decline, expiry or drop-out and a cancelled or full trip never refund by themselves (the order waits for the buyer); `awaiting_transport` joins the refundable statuses of the 7 day sweep as a backstop; no endpoint, status or field change |
 | 1.33.0 | 2026-10-23 | Payout delay (FRD-13): delivery confirm stamps `releaseNotBefore = max(disputeWindowEndsAt, deliveryConfirmedAt + delay)` (the longer of the farmer's and the trucker's delay: trusted 24 h, new 72 h, flagged 72 h, unscored the longest; `PAYOUT_DELAY_*` and `PAYOUT_TRUSTED_*` env, 0 to 168 hours); the auto-release and the trucker retry pay nothing before it (`payoutsDelayed` in the run summary, the overdue age counts from it); admin release, the dispute sweep and refunds are not delayed; the escrow reads carry `releaseNotBefore` for the farmer and the trucker while `escrowed` (a `held` escrow, which 1.31.0 shows old apps as `escrowed`, carries none) and for admins, never the buyer; mobile and web show "Payout expected on (date)"; an escrow confirmed before keeps today's behaviour |
@@ -4072,5 +4073,5 @@ gate (1.22.0, 1.27.0) runs before the refund as for any stale order.
 ---
 
 **Last Updated**: 2026-11-06
-**Version**: 1.35.0
+**Version**: 1.36.0
 **Status**: Draft (Phase R4)

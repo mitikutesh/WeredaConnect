@@ -5,6 +5,7 @@ using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using FluentAssertions;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Helpers;
@@ -102,17 +103,23 @@ public class SyncFunctionCommitmentTests
 
     private bool _fraudHoldEnabled;
 
+    // FRD-09: set by the pattern rule tests only; null keeps every other test as it was.
+    private IFraudDetectionService? _fraud;
+    private TransactionPatternService? _patterns;
+
     private SyncFunction MakeFunction(bool enabled = true)
     {
         var escrowService = new EscrowService(_escrows, _escrowAudit, idempotencyRepo: null, telebirrGateway: null,
             userRepo: _users, orderRepo: _orders, deliveryRepo: _deliveries);
         return new SyncFunction(_syncMeta, _crops, _dynamoDb, TripsTable, DeliveriesTable,
+            fraudService: _fraud,
             userRepo: _users, orderRepo: _orders, escrowRepo: _escrows, transactionAuditRepo: _txAudit,
             orderEscrowService: escrowService, deliveryRepo: _deliveries, tripRepo: _trips)
         {
             CommitmentsEnabled = enabled,
             FraudHoldEnabled = _fraudHoldEnabled,
-            EscrowsTableName = "test-escrows"
+            EscrowsTableName = "test-escrows",
+            PatternRules = _patterns
         };
     }
 
@@ -510,6 +517,147 @@ public class SyncFunctionCommitmentTests
         _written[OrderCommitment.FaultPartyField].Should().Be("farmer");
         await _deliveries.Received(1).TryCancelPendingAsync(DeliveryId);
         await _trips.Received(1).TryReleaseCapacityAsync(TripId, OrderId, 5.0);
+    }
+
+    // ===== FRD-09: the cancel-after-fund rate of the party who cancels =====
+
+    private IFraudDetectionService WithPatternRules()
+    {
+        _fraud = Substitute.For<IFraudDetectionService>();
+        _patterns = new TransactionPatternService(_orders, _escrows, TransactionPatternSettings.Default);
+        return _fraud;
+    }
+
+    private static Dictionary<string, object> PastOrder(string id, string status = "settled", string? cancelledBy = null,
+        string? faultParty = null, string? truckerResponse = null)
+    {
+        var order = new Dictionary<string, object>
+        {
+            { "orderId", id }, { "status", status },
+            { "createdAt", DateTime.UtcNow.AddDays(-10).ToString("o") },
+            { "paymentVerifiedAt", DateTime.UtcNow.AddDays(-10).ToString("o") }
+        };
+        if (cancelledBy != null)
+        {
+            order[OrderCommitment.CancelledByField] = cancelledBy;
+        }
+
+        if (faultParty != null)
+        {
+            order[OrderCommitment.FaultPartyField] = faultParty;
+        }
+
+        if (truckerResponse != null)
+        {
+            order[OrderCommitment.TruckerResponseField] = truckerResponse;
+        }
+
+        return order;
+    }
+
+    private static (List<Dictionary<string, object>>, Dictionary<string, AttributeValue>?) History(params Dictionary<string, object>[] rows)
+        => (rows.ToList(), null);
+
+    [Fact]
+    public async Task FarmerCancel_OfACommittedOrder_FarmerWhoCancelsOften_IsFlagged()
+    {
+        var fraud = WithPatternRules();
+        _orders.QueryOrdersAsync(null, FarmerId, null, null, null, 50, null).Returns(History(
+            PastOrder("o-1", "cancelled", cancelledBy: "farmer", faultParty: "farmer"),
+            PastOrder("o-2"), PastOrder("o-3"), PastOrder("o-4")));
+        _order = Order("accepted", version: 5, farmer: "accepted", trucker: "accepted", activeDeliveryId: DeliveryId);
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object> { { "status", "cancelled" }, { "version", 5 } },
+            authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        await fraud.Received(1).RecordFraudSignalAsync(FarmerId, "CANCEL_AFTER_FUND_RATE", OrderId, "order",
+            Arg.Is<string>(d => d.StartsWith("The farmer cancelled 2 of 5 funded orders")));
+    }
+
+    [Fact]
+    public async Task FarmerCancel_OfACommittedOrder_FirstCancel_IsNotFlagged()
+    {
+        var fraud = WithPatternRules();
+        _orders.QueryOrdersAsync(null, FarmerId, null, null, null, 50, null).Returns(History(
+            PastOrder("o-1"), PastOrder("o-2"), PastOrder("o-3"), PastOrder("o-4")));
+        _order = Order("accepted", version: 5, farmer: "accepted", trucker: "accepted", activeDeliveryId: DeliveryId);
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object> { { "status", "cancelled" }, { "version", 5 } },
+            authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        await fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+    }
+
+    [Fact]
+    public async Task FarmerCancel_InAwaitingTransport_IsNoFaultAndReadsNoHistory()
+    {
+        WithPatternRules();
+        _order = Order(OrderCommitment.AwaitingTransportStatus, version: 4, farmer: "accepted", trucker: "expired", activeDeliveryId: null);
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object> { { "status", "cancelled" }, { "version", 4 } });
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        await _orders.DidNotReceiveWithAnyArgs().QueryOrdersAsync(default, default, default, default, default, default, default);
+    }
+
+    [Fact]
+    public async Task BuyerCancel_InAwaitingTransport_IsNotTheCancelRule()
+    {
+        // The buyer's cancel follows the trucker's failure; the ESC-48 signal covers the buyer side.
+        WithPatternRules();
+        _order = Order(OrderCommitment.AwaitingTransportStatus, version: 4, farmer: "accepted", trucker: "declined", activeDeliveryId: null);
+
+        await SendAsync(BuyerId, new Dictionary<string, object> { { "status", "cancelled" }, { "version", 4 } });
+
+        await _orders.DidNotReceiveWithAnyArgs().QueryOrdersAsync(default, default, default, default, default, default, default);
+    }
+
+    [Fact]
+    public async Task TruckerDropOut_TruckerWhoDropsOutOften_IsFlagged()
+    {
+        var fraud = WithPatternRules();
+        _orders.QueryOrdersAsync(null, null, TruckerId, null, null, 50, null).Returns(History(
+            PastOrder("o-1", OrderCommitment.AwaitingTransportStatus, truckerResponse: "cancelled"),
+            PastOrder("o-2", truckerResponse: "accepted"), PastOrder("o-3", truckerResponse: "accepted"),
+            PastOrder("o-4", truckerResponse: "accepted")));
+        _order = Order("accepted", version: 5, farmer: "accepted", trucker: "accepted", activeDeliveryId: DeliveryId);
+
+        var result = await SendAsync(TruckerId, new Dictionary<string, object> { { "truckerResponse", "decline" }, { "version", 5 } },
+            authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        await fraud.Received(1).RecordFraudSignalAsync(TruckerId, "CANCEL_AFTER_FUND_RATE", OrderId, "order",
+            Arg.Is<string>(d => d.StartsWith("The trucker cancelled 2 of 5 funded orders")));
+    }
+
+    [Fact]
+    public async Task TruckerDecline_OfARequest_IsAnAnswerNotACancel()
+    {
+        WithPatternRules();
+        _order = Order("funded", version: 3, farmer: "accepted", trucker: "pending");
+
+        var result = await SendAsync(TruckerId, new Dictionary<string, object> { { "truckerResponse", "decline" }, { "version", 3 } });
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        await _orders.DidNotReceiveWithAnyArgs().QueryOrdersAsync(default, default, default, default, default, default, default);
+    }
+
+    [Fact]
+    public async Task TruckerDropOut_HistoryReadFails_TheDropOutStillStands()
+    {
+        var fraud = WithPatternRules();
+        _orders.QueryOrdersAsync(null, null, TruckerId, null, null, 50, null)
+            .ThrowsAsync(new ProvisionedThroughputExceededException("busy"));
+        _order = Order("accepted", version: 5, farmer: "accepted", trucker: "accepted", activeDeliveryId: DeliveryId);
+
+        var result = await SendAsync(TruckerId, new Dictionary<string, object> { { "truckerResponse", "decline" }, { "version", 5 } },
+            authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        _written![OrderCommitment.TransportFailureField].Should().Be(OrderCommitment.TransportFailure.TruckerCancelled);
+        await fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
     }
 
     // ===== the payment gate =====

@@ -90,6 +90,13 @@ public partial class SyncFunction
     /// </summary>
     internal PayoutDelayPolicy? PayoutDelay { get; init; }
 
+    /// <summary>
+    /// FRD-09 (fraud-detection-architecture.md 15.1): the transaction pattern rules, run after a payment, a
+    /// committed cancel, a delivery dispute or a delivery confirm succeeded. The Lambda wires it when the
+    /// signals table is set; without one (the test constructor) no rule runs and nothing is read.
+    /// </summary>
+    internal TransactionPatternService? PatternRules { get; init; }
+
     /// <summary>FRD-03: the farmer's accept of an order whose escrow is held for review (order-lifecycle 1.22.0).</summary>
     private const string OrderUnderReviewMessage = "This order is under review and cannot be accepted. Contact support.";
     // Optional: the order-funded escrow leg (escrow record at order funding,
@@ -674,6 +681,11 @@ public partial class SyncFunction
         FraudHoldEnabled = string.Equals(
             Environment.GetEnvironmentVariable("FRAUD_HOLD_ENABLED"), "true", StringComparison.OrdinalIgnoreCase);
         PayoutDelay = new PayoutDelayPolicy(_fraudService, _userRepo, _escrowRepo);
+
+        // FRD-09: the pattern rules read history only when their signals can be written.
+        PatternRules = string.IsNullOrEmpty(fraudSignalsTable)
+            ? null
+            : new TransactionPatternService(_orderRepo, _escrowRepo);
 
         // Optional: unified transaction-audit trail (order/delivery transitions).
         var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
@@ -2316,6 +2328,75 @@ public partial class SyncFunction
         {
             context.Logger.LogWarning(
                 $"Failed to record fraud signal {signalType} for user {userId}: [{ex.GetType().Name}]");
+        }
+    }
+
+    /// <summary>
+    /// FRD-09: run one transaction pattern check and write each hit as a signal on
+    /// <paramref name="userId"/> with the observed entity. Called only after the business write it
+    /// observes succeeded, and never changes the answer: a failed history read is logged (exception type
+    /// only) and writes nothing, a failed signal write is logged by <see cref="TryRecordFraudSignalAsync"/>.
+    /// No rules wired, no fraud service or no subject: nothing runs.
+    /// </summary>
+    private async Task TryRecordPatternSignalsAsync(
+        string? userId, string entityId, string entityType, string rule,
+        Func<TransactionPatternService, Task<IReadOnlyList<PatternHit>>> check, ILambdaContext context)
+    {
+        if (PatternRules == null || _fraudService == null || string.IsNullOrEmpty(userId))
+        {
+            return;
+        }
+
+        IReadOnlyList<PatternHit> hits;
+        try
+        {
+            hits = await check(PatternRules);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Pattern check {rule} skipped for {entityType} {MoneyAlarmLog.LogId(entityId)}: [{ex.GetType().Name}]");
+            return;
+        }
+
+        foreach (var hit in hits)
+        {
+            await TryRecordFraudSignalAsync(userId, hit.SignalType, entityId, entityType, hit.Description, context);
+        }
+    }
+
+    /// <summary>
+    /// FRD-09: the pattern rules a written delivery update feeds. A dispute this update froze the money for,
+    /// sent by the delivery's buyer: the buyer's dispute rate (the escrow as the entity). A confirmed delivery
+    /// with a trucker: the impossible delivery time, written on the delivery's trucker (not the caller, who is
+    /// usually the buyer). It reads only the written row: server times and the trucker's own pickup capture
+    /// time, nothing from the buyer's phone. A self-pickup has no trucker and no trip between the scans.
+    /// </summary>
+    private async Task TryRecordDeliveryPatternSignalsAsync(
+        SyncOperationRequest operation, Dictionary<string, AttributeValue> existing,
+        Dictionary<string, AttributeValue> written, DeliveryDisputeFreezeResult? freeze,
+        string? authenticatedUserId, ILambdaContext context)
+    {
+        if (PatternRules == null)
+        {
+            return;
+        }
+
+        if (freeze is { Outcome: DeliveryDisputeFreeze.Frozen, EscrowId: { Length: > 0 } escrowId }
+            && !string.IsNullOrEmpty(authenticatedUserId)
+            && AttrString(existing, "buyerId") == authenticatedUserId)
+        {
+            await TryRecordPatternSignalsAsync(authenticatedUserId, escrowId, "escrow", "dispute_rate",
+                rules => rules.CheckDisputeRateAsync(authenticatedUserId, escrowId, DateTime.UtcNow), context);
+        }
+
+        if (AttrString(written, "status") == "delivered"
+            && AttrString(written, "deliveryType") != SelfPickupDeliveryType
+            && AttrString(written, "truckerId") is { Length: > 0 } truckerId)
+        {
+            await TryRecordPatternSignalsAsync(truckerId, operation.EntityId, "delivery", "delivery_time",
+                rules => Task.FromResult(rules.CheckDeliveryTime(TransactionPatternRules.DeliveryTimeFactsFrom(written))),
+                context);
         }
     }
 
@@ -5569,6 +5650,21 @@ public partial class SyncFunction
                             attrValues[tsValAlias] = new AttributeValue { S = now };
                             updateParts.Add($"{tsAlias} = {tsValAlias}");
                             i++;
+
+                            // FRD-09: when the phone made the pickup scan (the operation's timestamp), which
+                            // differs from pickedUpAt when it synced late; the impossible delivery time rule
+                            // reads it at the confirm. Server-only; an implausible value is not stored.
+                            if (TransactionPatternRules.PlausibleCaptureTime(
+                                    operation.Timestamp, TransactionPatternRules.ParseUtc(now) ?? DateTime.UtcNow) is { } pickupCaptured)
+                            {
+                                attrNames[$"#f{i}"] = TransactionPatternRules.PickupCapturedAtField;
+                                attrValues[$":f{i}"] = new AttributeValue
+                                {
+                                    S = pickupCaptured.ToString("o", CultureInfo.InvariantCulture)
+                                };
+                                updateParts.Add($"#f{i} = :f{i}");
+                                i++;
+                            }
                         }
                         else if (tsStatus == "delivered")
                         {
@@ -5687,6 +5783,9 @@ public partial class SyncFunction
                                 existing.TryGetValue("truckerId", out var stampTruckerAttr) ? stampTruckerAttr.S : null,
                                 context);
                         }
+
+                        await TryRecordDeliveryPatternSignalsAsync(
+                            operation, existing, response.Attributes, freeze, authenticatedUserId, context);
 
                         return new SyncOperationResult
                         {
@@ -6586,6 +6685,10 @@ public partial class SyncFunction
         // FRD-03: set by the accept below when its write must check the escrow in the same transaction.
         EscrowRowKey? acceptFence = null;
 
+        // FRD-09: the payment the pattern rules observe once the payment_submitted write succeeded (the
+        // amount and the buyer's row the KYC gate read).
+        (decimal Total, UserDto? Buyer)? submittedPayment = null;
+
         // Validate status transition
         if (operation.Data.TryGetValue("status", out var newStatusObj))
         {
@@ -6682,6 +6785,7 @@ public partial class SyncFunction
                     };
                 }
 
+                submittedPayment = (orderTotal, buyer);
                 var stepUpError = StepUpPolicy.CheckPayment(
                     _requestAuthTime, buyer?.FaydaAuthenticatedAt, orderTotal, tier: riskTier);
                 if (stepUpError != null)
@@ -6883,6 +6987,17 @@ public partial class SyncFunction
             }
 
             var newVersion = version + 1;
+
+            // FRD-09 (fraud-detection-architecture.md 15.1): the buyer payment rules, on the payment the
+            // gates above let through. Flag-only and best effort: the answer below is the same either way.
+            if (appliedStatus == "payment_submitted" && submittedPayment is { } payment)
+            {
+                await TryRecordPatternSignalsAsync(authenticatedUserId, operation.EntityId, "order", "payment",
+                    rules => rules.CheckPaymentAsync(
+                        authenticatedUserId!, operation.EntityId, payment.Total, payment.Buyer?.CreatedAt,
+                        payment.Buyer?.FaydaVerified == true, DateTime.UtcNow),
+                    context);
+            }
 
             // Mock/demo payments have no real gateway to verify the transfer, so a
             // submitted payment is auto-verified server-side: advance
@@ -7683,6 +7798,17 @@ public partial class SyncFunction
             await TryRecordFraudSignalAsync(
                 ItemString(order, "buyerId"), ContactReveal.TransportCancelSignal, orderId, "order",
                 $"Buyer cancelled after a transport failure while contact with farmer {ItemString(order, "farmerId")} was open.",
+                context);
+        }
+
+        // FRD-09: the farmer backed out of a funded order they had accepted (at fault). The other committed
+        // cancels follow a transport failure the canceller did not cause, so they are not this rule's.
+        if (spec.CancelledBy == OrderCommitment.Party.Farmer && spec.FaultParty == OrderCommitment.Party.Farmer)
+        {
+            var farmerId = ItemString(order, "farmerId");
+            await TryRecordPatternSignalsAsync(farmerId, orderId, "order", "cancel_after_fund",
+                rules => rules.CheckCancelAfterFundAsync(
+                    farmerId, TransactionPatternService.Farmer, new[] { orderId }, DateTime.UtcNow),
                 context);
         }
 

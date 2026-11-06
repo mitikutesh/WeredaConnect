@@ -16,7 +16,8 @@ internal sealed record RiskScoreSettings(
     int CreditCap,
     int AdvisoryCap,
     int MaxPages,
-    int RejectTypeCap = FraudDetectionService.DefaultRiskRejectTypeCap)
+    int RejectTypeCap = FraudDetectionService.DefaultRiskRejectTypeCap,
+    int PatternTypeCap = FraudDetectionService.DefaultRiskPatternTypeCap)
 {
     public static RiskScoreSettings Default { get; } = new(
         FraudDetectionService.DefaultRiskWindowDays,
@@ -26,7 +27,8 @@ internal sealed record RiskScoreSettings(
         FraudDetectionService.DefaultRiskCreditCap,
         FraudDetectionService.DefaultRiskAdvisoryCap,
         FraudDetectionService.DefaultRiskMaxPages,
-        FraudDetectionService.DefaultRiskRejectTypeCap);
+        FraudDetectionService.DefaultRiskRejectTypeCap,
+        FraudDetectionService.DefaultRiskPatternTypeCap);
 
     public static RiskScoreSettings FromEnvironment() => From(Environment.GetEnvironmentVariable);
 
@@ -56,8 +58,18 @@ internal sealed record RiskScoreSettings(
             Read(env, "RISK_CREDIT_CAP", Default.CreditCap, min: 0),
             Read(env, "RISK_ADVISORY_CAP", Default.AdvisoryCap, min: 0),
             Math.Min(Read(env, "RISK_MAX_PAGES", Default.MaxPages, min: 1), FraudDetectionService.RiskMaxPagesCap),
-            Read(env, "RISK_REJECT_TYPE_CAP", Default.RejectTypeCap, min: 0));
+            Read(env, "RISK_REJECT_TYPE_CAP", Default.RejectTypeCap, min: 0),
+            Read(env, "RISK_PATTERN_TYPE_CAP", Default.PatternTypeCap, min: 0));
     }
+
+    /// <summary>
+    /// The per-type cap of a capped type over the window: <c>RISK_REJECT_TYPE_CAP</c> for the FRD-08
+    /// reject types, <c>RISK_PATTERN_TYPE_CAP</c> for the FRD-09 pattern types, null for every other type.
+    /// </summary>
+    internal int? CapOf(string signalType) =>
+        FraudDetectionService.IsCappedRejectType(signalType) ? RejectTypeCap
+        : FraudDetectionService.IsPatternSignal(signalType) ? PatternTypeCap
+        : null;
 
     private static int Read(Func<string, string?> env, string name, int fallback, int min) =>
         int.TryParse(env(name), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value >= min
@@ -80,8 +92,8 @@ internal sealed class RiskScoreCalculator
     private readonly Dictionary<string, (string Type, long Weight)> _entityBuckets = new(StringComparer.Ordinal);
     private readonly HashSet<string> _clearedEntities = new(StringComparer.Ordinal);
 
-    // FRD-08: counted weight of the capped reject types per type, all of it and the part no later
-    // row can clear.
+    // FRD-08: counted weight of the capped types per type (the reject types, and since FRD-09 the
+    // pattern types), all of it and the part no later row can clear.
     private readonly Dictionary<string, long> _cappedWeight = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _cappedFixedWeight = new(StringComparer.Ordinal);
 
@@ -218,7 +230,7 @@ internal sealed class RiskScoreCalculator
 
     private void Count(string signalType, long weight, bool clearable)
     {
-        if (FraudDetectionService.IsCappedRejectType(signalType))
+        if (_settings.CapOf(signalType) != null)
         {
             _cappedWeight[signalType] = _cappedWeight.GetValueOrDefault(signalType) + weight;
             if (!clearable)
@@ -236,9 +248,12 @@ internal sealed class RiskScoreCalculator
         }
     }
 
-    /// <summary>FRD-08: each capped reject type adds at most <c>RISK_REJECT_TYPE_CAP</c>.</summary>
+    /// <summary>
+    /// FRD-08: each capped reject type adds at most <c>RISK_REJECT_TYPE_CAP</c>; FRD-09: each pattern
+    /// type at most <c>RISK_PATTERN_TYPE_CAP</c>.
+    /// </summary>
     private long CappedSum(Dictionary<string, long> byType) =>
-        byType.Values.Sum(w => Math.Min(w, (long)_settings.RejectTypeCap));
+        byType.Sum(entry => Math.Min(entry.Value, (long)(_settings.CapOf(entry.Key) ?? 0)));
 
     public RiskScoreResult Result(bool truncated)
     {
