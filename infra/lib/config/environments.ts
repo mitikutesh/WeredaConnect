@@ -88,7 +88,8 @@ export interface EnvironmentConfig {
   /**
    * COMMITMENTS_ENABLED on the sync, order-cron and telebirr-webhook Lambdas (ESC-15): sequential
    * farmer-then-trucker commitments and the awaiting_transport status; escrow and escrow-cron read it
-   * to release the trip booking of an order they cancel (FUP-123). Default false. Turn it on for
+   * to release the trip booking of an order they cancel (FUP-123), and the trips browse to report
+   * the order lead to the apps (FUP-122). Default false. Turn it on for
    * an environment only once its web app and store builds render awaiting_transport and send the
    * farmer and trucker commands (app build 3, the ESC-15 client PR); dev is on, staging and prod off.
    */

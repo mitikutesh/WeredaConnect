@@ -8529,7 +8529,9 @@ public partial class SyncFunction
 
         // ESC-15/17: the farmer and the trucker each get a window to answer before the truck
         // leaves, so a trip departing within 24 hours takes no new order; and the order must
-        // fit in what the trip still has free (the atomic hold happens at funding).
+        // fit in what the trip still has free (the atomic hold happens at funding). GET /trips
+        // tells the apps this lead (OrderCommitment.OrderLeadHours, FUP-122) so their match
+        // suggestions drop the same trips with the same comparison.
         if (enforceBookings)
         {
             if (TryParseDepartureDateUtc(AttrString(trip, "departureDate"), requireIsoShape: false, out var departureUtc)

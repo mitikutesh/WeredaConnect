@@ -150,6 +150,15 @@ public static class OrderCommitment
     public static bool IsEnabled { get; } = string.Equals(
         Environment.GetEnvironmentVariable("COMMITMENTS_ENABLED"), "true", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// FUP-122: how many hours ahead a trip must depart for an order create to name it, as
+    /// <c>GET /trips</c> tells clients (<c>orderLeadHours</c>, trip-listing-api 2.3.0). With the
+    /// flag on it is <see cref="ResponseWindow"/>, the lead the order create checks; off, 0 (no
+    /// lead, only the left-trip rule). The apps drop such trips from the match suggestions.
+    /// </summary>
+    public static int OrderLeadHours(bool commitmentsEnabled) =>
+        commitmentsEnabled ? (int)ResponseWindow.TotalHours : 0;
+
     public static string Iso(DateTime utc) => utc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
 
     /// <summary>Reads a stored ISO time as UTC; false when missing or unreadable.</summary>

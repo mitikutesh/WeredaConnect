@@ -14,6 +14,32 @@ DateTime tripListingCutoff(DateTime now) => startOfDayInEthiopia(now.toUtc());
 bool tripHasLeft(Trip trip, DateTime now) =>
     trip.departureDate.isBefore(tripListingCutoff(now));
 
+/// FUP-122 (trip-listing-api.md 2.3.0): the `GET /trips` field saying how many
+/// hours ahead a trip must depart for an order create to name it. The server
+/// sends 24 while it runs the commitments (`COMMITMENTS_ENABLED`) and 0 when
+/// it does not; a server from before 2.3.0 sends nothing.
+const String orderLeadHoursField = 'orderLeadHours';
+
+/// [orderLeadHoursField] of a `GET /trips` page, or null when the page has
+/// none or it is not a number of at least 0 (unknown: matching then keeps
+/// only the FUP-85 day rule). A fraction is rounded up.
+int? orderLeadHoursFromWire(Map<String, dynamic> page) {
+  final raw = page[orderLeadHoursField];
+  if (raw is! num || !raw.isFinite || raw < 0) return null;
+  return raw.ceil();
+}
+
+/// Whether an order create would refuse [trip] for the commitments lead: it
+/// departs less than [orderLeadHours] hours after [now]. The same comparison
+/// as the server (`departureDate < now + lead`, `BindOrderToTrip`), so a trip
+/// exactly [orderLeadHours] ahead is still taken. No lead (null or 0) refuses
+/// nothing here, and [tripHasLeft] applies either way.
+bool tripInsideOrderLead(Trip trip, DateTime now, int? orderLeadHours) {
+  if (orderLeadHours == null || orderLeadHours <= 0) return false;
+  return trip.departureDate
+      .isBefore(now.toUtc().add(Duration(hours: orderLeadHours)));
+}
+
 /// A trucker's own trips for My Trips (L-7): the ones still ahead first, by
 /// departure (a trip on the road left earliest, so it leads), then the rest
 /// (a passed date, delivered, cancelled) newest departure first. Nothing is

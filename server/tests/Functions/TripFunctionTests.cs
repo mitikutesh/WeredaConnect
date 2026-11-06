@@ -1477,6 +1477,43 @@ public class TripFunctionTests
         Assert.Equal(expected, TripFunction.IsCancelledOrDeleted(trip));
     }
 
+    // --- FUP-122: the order lead the browse reports ---
+
+    [Theory]
+    [InlineData(true, 24)]
+    [InlineData(false, 0)]
+    public async Task HandleGetTrips_ReportsTheOrderLead_FromTheCommitmentsFlag(bool enabled, int expectedHours)
+    {
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateTripItem() }, null));
+        var function = new TripFunction(_mockTripRepo) { CommitmentsEnabled = enabled };
+
+        var response = await function.FunctionHandler(MakeGetRequest(), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        using var doc = JsonDocument.Parse(response.Body);
+        Assert.Equal(expectedHours, doc.RootElement.GetProperty("orderLeadHours").GetInt32());
+        Assert.Single(doc.RootElement.GetProperty("trips").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_EmptyPage_StillReportsTheOrderLead()
+    {
+        var function = new TripFunction(_mockTripRepo) { CommitmentsEnabled = true };
+
+        var response = await function.FunctionHandler(
+            MakeGetRequest(queryParams: new Dictionary<string, string> { { "status", "cancelled" } }), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        using var doc = JsonDocument.Parse(response.Body);
+        Assert.Equal(24, doc.RootElement.GetProperty("orderLeadHours").GetInt32());
+    }
+
     // --- Constructor Tests ---
 
     [Fact]

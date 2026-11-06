@@ -3,6 +3,7 @@ import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
@@ -40,7 +41,11 @@ class WebMatchingService extends BaseMatchingService {
   /// [MatchingService], so online and offline rankings agree.
   static const MatchScorer _scorer = MatchScorer();
 
-  WebMatchingService({required ApiClient api}) : _api = api;
+  final DateTime Function() _clock;
+
+  WebMatchingService({required ApiClient api, DateTime Function()? clock})
+      : _api = api,
+        _clock = clock ?? DateTime.now;
 
   @override
   Future<List<CropMatchResult>> matchListingsForIntent(
@@ -58,7 +63,7 @@ class WebMatchingService extends BaseMatchingService {
   /// with cheaper crop price breaking ties.
   Future<(List<CropMatchResult>, int)> _match(BuyerIntent intent) async {
     try {
-      final now = DateTime.now().toUtc();
+      final now = _clock().toUtc();
 
       // Buyers match against ALL farmers' active listings (role visibility).
       final crops = await _fetchAvailableCrops();
@@ -66,8 +71,9 @@ class WebMatchingService extends BaseMatchingService {
           crops.where((c) => _scorer.isCandidate(intent, c)).toList();
       if (candidates.isEmpty) return (const <CropMatchResult>[], 0);
 
-      // Pair each candidate crop with suggested trips (fetched once).
-      final allTrips = await _fetchOpenTrips();
+      // Pair each candidate crop with suggested trips (fetched once), with
+      // the order lead the same response reported (FUP-122).
+      final (allTrips, orderLeadHours) = await _fetchOpenTrips();
 
       final results = <CropMatchResult>[];
       for (final listing in candidates) {
@@ -76,6 +82,8 @@ class WebMatchingService extends BaseMatchingService {
           listing.locationName,
           intent.deliveryWoreda,
           intent.quantityNeeded,
+          now: now,
+          orderLeadHours: orderLeadHours,
           neededByDate: intent.neededByDate,
         );
 
@@ -167,12 +175,16 @@ class WebMatchingService extends BaseMatchingService {
     return crops;
   }
 
-  /// Fetch all open trips from the API, following pagination.
+  /// Fetch all open trips from the API, following pagination, with the order
+  /// lead the server reported (FUP-122, the first page's; null when it sent
+  /// none). Web reads both fresh on every match, so it caches neither.
   ///
   /// Errors are not swallowed: they propagate so the caller can report a real
   /// failure instead of treating it as "no trips available".
-  Future<List<Trip>> _fetchOpenTrips() async {
+  Future<(List<Trip>, int?)> _fetchOpenTrips() async {
     final allTrips = <Trip>[];
+    int? orderLeadHours;
+    var firstPage = true;
     String? nextToken;
     do {
       final params = <String, dynamic>{'status': 'open', 'limit': '50'};
@@ -181,6 +193,10 @@ class WebMatchingService extends BaseMatchingService {
         '/trips',
         queryParameters: params,
       );
+      if (firstPage) {
+        orderLeadHours = orderLeadHoursFromWire(data);
+        firstPage = false;
+      }
       final items = data['trips'] as List<dynamic>? ??
           data['items'] as List<dynamic>? ??
           [];
@@ -189,7 +205,7 @@ class WebMatchingService extends BaseMatchingService {
       );
       nextToken = data['nextToken'] as String?;
     } while (nextToken != null);
-    return allTrips;
+    return (allTrips, orderLeadHours);
   }
 
   /// Find trips for a specific listing → buyer delivery route.
@@ -200,12 +216,14 @@ class WebMatchingService extends BaseMatchingService {
     String deliveryWoreda,
     double quantityNeeded,
   ) async {
-    final allTrips = await _fetchOpenTrips();
+    final (allTrips, orderLeadHours) = await _fetchOpenTrips();
     return _filterTripsForRoute(
       allTrips,
       listing.locationName,
       deliveryWoreda,
       quantityNeeded,
+      now: _clock().toUtc(),
+      orderLeadHours: orderLeadHours,
     );
   }
 
@@ -216,6 +234,8 @@ class WebMatchingService extends BaseMatchingService {
   ///   whole-word partial, so "Adama, Oromia" meets "Ādama")
   /// - toWoreda names the delivery woreda (same rule)
   /// - departureDate in the future
+  /// - departureDate at least [orderLeadHours] ahead when the server runs the
+  ///   commitments (FUP-122, [tripInsideOrderLead])
   /// - room left (`remainingQuintals`, else capacity) >= quantityNeeded
   /// - departureDate on/before the buyer's deadline when one is set
   /// - Sorted by pricePerQuintal ascending
@@ -230,9 +250,10 @@ class WebMatchingService extends BaseMatchingService {
     String fromLocation,
     String toLocation,
     double quantityNeeded, {
+    required DateTime now,
+    required int? orderLeadHours,
     DateTime? neededByDate,
   }) {
-    final now = DateTime.now().toUtc();
     // FUP-85: compare by Ethiopia calendar day, not by instant, so a trip
     // departing today is suggested all day (parity with MatchingService).
     final todayStart = startOfDayInEthiopia(now);
@@ -249,6 +270,9 @@ class WebMatchingService extends BaseMatchingService {
       if (startOfDayInEthiopia(trip.departureDate).isBefore(todayStart)) {
         return false;
       }
+      // FUP-122: with the commitments on, the order create refuses a trip
+      // departing within the lead (24 hours), so it is not suggested.
+      if (tripInsideOrderLead(trip, now, orderLeadHours)) return false;
       // ESC-15: the room left, not the whole capacity, once the trip has
       // bookings.
       if (tripRoomLeft(trip) < quantityNeeded) return false;

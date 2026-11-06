@@ -13,7 +13,9 @@ import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/sync/order_lead_store.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/domain/crop_photos.dart';
 
@@ -35,6 +37,10 @@ class IsarMarketplaceSync implements MarketplaceSync {
   final Isar _isar;
   final Future<String?> Function()? _getCurrentUserId;
 
+  /// FUP-122: where the trip pull keeps the server's `orderLeadHours` for
+  /// the offline match suggestions.
+  final OrderLeadStore _orderLeadStore;
+
   /// Skip re-pulling a collection if it was refreshed within this window. A
   /// Buyer browsing then immediately running "Find matches" would otherwise
   /// trigger two back-to-back full network fetches + Isar rewrites, which is
@@ -49,9 +55,11 @@ class IsarMarketplaceSync implements MarketplaceSync {
     required ApiClient api,
     required Isar isar,
     Future<String?> Function()? getCurrentUserId,
+    OrderLeadStore? orderLeadStore,
   })  : _api = api,
         _isar = isar,
-        _getCurrentUserId = getCurrentUserId;
+        _getCurrentUserId = getCurrentUserId,
+        _orderLeadStore = orderLeadStore ?? OrderLeadStore();
 
   @override
   Future<void> pullAll() async {
@@ -76,13 +84,16 @@ class IsarMarketplaceSync implements MarketplaceSync {
   @override
   Future<void> pullTrips() async {
     if (_isFresh(_lastTripPull)) return;
-    final trips = await _fetchTrips();
+    final (trips, orderLeadHours) = await _fetchTrips();
     final userId = await _currentUserId();
 
     await _isar.writeTxn(() async {
       await _deleteStaleTrips(userId);
       await _isar.trips.putAllByTripId(trips);
     });
+    // FUP-122: kept with the trips it came with; none from the server
+    // (before trip-listing-api 2.3.0) forgets the old value.
+    await _orderLeadStore.write(orderLeadHours);
     _lastTripPull = DateTime.now();
   }
 
@@ -614,8 +625,12 @@ class IsarMarketplaceSync implements MarketplaceSync {
     return results;
   }
 
-  Future<List<Trip>> _fetchTrips() async {
+  /// Every open trip, and the order lead the server reported (FUP-122, the
+  /// first page's; null when it sent none).
+  Future<(List<Trip>, int?)> _fetchTrips() async {
     final results = <Trip>[];
+    int? orderLeadHours;
+    var firstPage = true;
     String? nextToken;
     do {
       final params = <String, dynamic>{'status': 'open', 'limit': '50'};
@@ -624,6 +639,10 @@ class IsarMarketplaceSync implements MarketplaceSync {
         '/trips',
         queryParameters: params,
       );
+      if (firstPage) {
+        orderLeadHours = orderLeadHoursFromWire(data);
+        firstPage = false;
+      }
       final items = data['trips'] as List<dynamic>? ??
           data['items'] as List<dynamic>? ??
           const <dynamic>[];
@@ -632,7 +651,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
       }
       nextToken = data['nextToken'] as String?;
     } while (nextToken != null);
-    return results;
+    return (results, orderLeadHours);
   }
 
   CropListing _parseCrop(Map<String, dynamic> m) {

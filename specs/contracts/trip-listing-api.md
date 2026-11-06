@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.2.1
+2.3.0
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -159,7 +159,8 @@ GET /trips?fromWoreda=Bishoftu&toWoreda=Addis%20Ababa&status=open&limit=20
   ],
   "nextToken": "base64-encoded-pagination-token",
   "hasMore": true,
-  "total": 12
+  "total": 12,
+  "orderLeadHours": 24
 }
 ```
 
@@ -168,6 +169,7 @@ GET /trips?fromWoreda=Bishoftu&toWoreda=Addis%20Ababa&status=open&limit=20
 - `nextToken` — Base64-encoded token for next page (null if no more results)
 - `hasMore` — Boolean indicating if more results available
 - `total` — Total count of matching trips (approximate, for UI display)
+- `orderLeadHours` (2.3.0, FUP-122): integer, on every page and for every caller. An order create refuses a trip whose `departureDate` is less than this many hours after the server's now (`departureDate < now + orderLeadHours`, so a trip exactly that far ahead is taken). `24` while the server runs the commitments (`COMMITMENTS_ENABLED` on the trips Lambda, the same value as on sync), `0` when it does not (no lead; the left-trip rule of 2.2.0 still applies). The list itself does not change: browse still returns every open trip that has not left. The apps leave trips inside the lead out of the buyer's match suggestions (mobile `MatchingService`, web `WebMatchingService`) with the same comparison on the device clock. The phone keeps the last value a trip pull returned for its offline matching (app-wide, kept over logout) and forgets it when a page comes without the field; a missing or unreadable value reads as unknown, which keeps the FUP-85 rule (a trip leaving today is suggested all day)
 
 **Error Codes**:
 - `400 Bad Request` — Invalid query parameter (e.g., negative minCapacity, invalid date format)
@@ -507,9 +509,10 @@ Common route patterns:
 | 2.1.0 | 2026-10-31 | Create and update accept `destinationLatitude` and `destinationLongitude` (both or neither, inside Ethiopia's box). No client sent a destination point before, so no trip had one and the live track had no drop-off point: the buyer's arrival window and the trucker's "about 12:35" never showed. Mobile and web send the point of the place picked in Create trip. A booked trip's stored point is frozen with the route; a missing one may be added |
 | 2.2.0 | 2026-11-04 | Trips that left (L-7): seen live, `GET /trips?status=open` listed departures from 2026-07-14 to 2026-11-01 as open. The browse of `open` now returns only trips with `departureDate` at or after the start of today in Ethiopia (Africa/Addis_Ababa), so a trip stays listed all of its day; the cutoff is in the key condition, not a filter; a `nextToken` from before Ethiopia midnight still works. The trucker's own list, `GET /trips/{id}` and other statuses are unchanged. An order create naming a trip that has left is refused with `ORDER_TRIP_NOT_ELIGIBLE` whatever `COMMITMENTS_ENABLED` (`order-lifecycle.md` 2.3.0, `sync-protocol.md` 1.34.0). Mobile and web apply the same cutoff to their open trips (cache and web reads), mark a trucker's open trip with a passed day as "Date passed" with the trips still ahead listed first, and check a chosen truck (open, not left, room for the quantity) before an order is placed. The buyer's cache no longer keeps open trips that left, so by-id reads from it (conversation trip context, live trip vehicle line) come back empty for them. The cutoff uses the device clock; the apps keep no server time offset |
 | 2.2.1 | 2026-11-06 | Release on the escrow cancels (FUP-123): the auto-refund sweep's cancel of a stale `funded` or `awaiting_transport` order, and the refund settlement's cancel before pickup (a `buyer_wins` verdict, an admin refund), now release the order's booking like the sync cancels; before, the trip kept a phantom booking, read too little room, and a full trip could stay `matched`. Behind `COMMITMENTS_ENABLED` like every booking write. Server only, no wire change, no client change |
+| 2.3.0 | 2026-11-06 | The order lead on the browse (FUP-122): with `COMMITMENTS_ENABLED` on, an order create refuses a trip departing in under 24 hours (2.0.0), but the buyer's match suggestions still offered such trips (FUP-85 keeps a trip leaving today all day), so a buyer could pick a truck the server then refused. `GET /trips` now returns `orderLeadHours` on every page: 24 with the flag on, 0 off (`OrderCommitment.OrderLeadHours`, the same `ResponseWindow` the order create checks). The trips Lambda now gets `COMMITMENTS_ENABLED` too. Additive: older apps ignore it, and the list is unchanged. Mobile caches the last value from its trip pull (SharedPreferences, for offline matching) and web reads it with the trips it matches; both drop from the suggestions a trip with `departureDate < now + orderLeadHours`. Lead 0 or unknown (an older server) keeps FUP-85. The buyer's trip browse is not filtered |
 
 ---
 
 **Last Updated**: 2026-11-06
-**Version**: 2.2.1
+**Version**: 2.3.0
 **Status**: Draft (Phase R4.1)

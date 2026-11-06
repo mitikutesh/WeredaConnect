@@ -70,6 +70,74 @@ void main() {
     });
   });
 
+  group('FUP-122: the order lead', () {
+    test('orderLeadHoursFromWire reads the GET /trips field', () {
+      expect(orderLeadHoursFromWire({'orderLeadHours': 24}), 24);
+      expect(orderLeadHoursFromWire({'orderLeadHours': 0}), 0);
+      expect(orderLeadHoursFromWire({'orderLeadHours': 24.0}), 24);
+      expect(orderLeadHoursFromWire({'orderLeadHours': 23.5}), 24);
+    });
+
+    test('a page without a usable lead reads as unknown', () {
+      expect(
+        orderLeadHoursFromWire(<String, dynamic>{'trips': <dynamic>[]}),
+        isNull,
+      );
+      expect(orderLeadHoursFromWire({'orderLeadHours': null}), isNull);
+      expect(orderLeadHoursFromWire({'orderLeadHours': '24'}), isNull);
+      expect(orderLeadHoursFromWire({'orderLeadHours': -1}), isNull);
+      expect(
+        orderLeadHoursFromWire({'orderLeadHours': double.infinity}),
+        isNull,
+      );
+    });
+
+    // The server refuses `departureDate < now + 24h`, so 24 hours exactly is
+    // still taken.
+    final now = DateTime.utc(2026, 11, 4, 9);
+
+    test('a trip leaving in under the lead is inside it', () {
+      final soon = trip(departure: now.add(const Duration(hours: 23)));
+      final edge = trip(
+        departure: now.add(const Duration(hours: 23, minutes: 59, seconds: 59)),
+      );
+      expect(tripInsideOrderLead(soon, now, 24), isTrue);
+      expect(tripInsideOrderLead(edge, now, 24), isTrue);
+    });
+
+    test('a trip exactly the lead ahead, or later, is not', () {
+      final exact = trip(departure: now.add(const Duration(hours: 24)));
+      final later =
+          trip(departure: now.add(const Duration(hours: 24, seconds: 1)));
+      expect(tripInsideOrderLead(exact, now, 24), isFalse);
+      expect(tripInsideOrderLead(later, now, 24), isFalse);
+    });
+
+    test('a trip for today (stored at Ethiopia midnight) is inside it', () {
+      expect(tripInsideOrderLead(trip(), now, 24), isTrue);
+    });
+
+    test('no lead (0 or unknown) refuses nothing', () {
+      final soon = trip(departure: now.add(const Duration(hours: 1)));
+      expect(tripInsideOrderLead(soon, now, 0), isFalse);
+      expect(tripInsideOrderLead(soon, now, null), isFalse);
+      expect(tripInsideOrderLead(trip(), now, null), isFalse);
+    });
+
+    test('reads a local now as its instant', () {
+      final exact = trip(departure: now.add(const Duration(hours: 24)));
+      expect(tripInsideOrderLead(exact, now.toLocal(), 24), isFalse);
+      expect(
+        tripInsideOrderLead(
+          exact,
+          now.add(const Duration(seconds: 1)).toLocal(),
+          24,
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('tripBookingProblem', () {
     final now = DateTime.utc(2026, 11, 4, 9);
 
