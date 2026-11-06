@@ -199,7 +199,8 @@ public sealed class EscrowService
         IDeliveryRepository? deliveryRepo = null,
         IOrderCheckoutRepository? orderCheckoutRepo = null,
         ITransactionAuditRepository? transactionAuditRepo = null,
-        ICropRepository? cropRepo = null)
+        ICropRepository? cropRepo = null,
+        ITripRepository? tripRepo = null)
     {
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
         _auditRepo = auditRepo ?? throw new ArgumentNullException(nameof(auditRepo));
@@ -210,7 +211,7 @@ public sealed class EscrowService
         _deliveryRepo = deliveryRepo;
         _orderCheckoutRepo = orderCheckoutRepo;
         _transactionAuditRepo = transactionAuditRepo;
-        _verdictMirror = new DisputeVerdictMirror(orderRepo, deliveryRepo, transactionAuditRepo, cropRepo);
+        _verdictMirror = new DisputeVerdictMirror(orderRepo, deliveryRepo, transactionAuditRepo, cropRepo, tripRepo);
         _orderMoneyMirror = new OrderMoneyMirror(orderRepo, deliveryRepo, transactionAuditRepo, _verdictMirror);
     }
 

@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.2.0
+2.2.1
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -353,7 +353,7 @@ holds `quantity / 100` quintals.
 | buyer `payment_submitted` | Refused with `ORDER_VALIDATION: This trip is no longer available; place a new order.` when the trip is no longer `open` or `matched`, has less room than the order, or departs in under 12 hours. Permanent; the client reverts the order. |
 | funding (`→ funded`) | The order's quintals are reserved in one conditional write on the trip's `remainingQuintals` (never below 0), and the order id is added to `bookedOrderIds`; at 0 the status becomes `matched`. A trip with no room or already cancelled sends the order to `awaiting_transport` (`trip_full` / `trip_cancelled`) instead, and the farmer is not asked. |
 | the trucker's accept (`truckerResponse: accept`) | The booking is verified and confirmed in the same transaction as the order write (`acceptedOrderIds`). |
-| the order leaves the trip (farmer decline or expiry, trucker decline, expiry or drop-out, a cancel in `awaiting_transport`, a trip cancel) | The quintals are released and the order id removed. |
+| the order leaves the trip (farmer decline or expiry, trucker decline, expiry or drop-out, a cancel in `awaiting_transport`, a trip cancel; since 2.2.1 also the escrow cancels with `cancelReason: escrow_refunded`: the 7 day auto-refund sweep's cancel of a `funded` or `awaiting_transport` order, and the refund settlement's cancel before pickup for a `buyer_wins` verdict or an admin refund) | The quintals are released and the order id removed. On the escrow cancels the release is best-effort: one that fails is logged (`TRIP_RELEASE_FAILED`) and never blocks the cancel, the stock restore or the refund. |
 
 **Frozen fields** (rule 12): once booked, `departureDate`, `pricePerQuintal`, `fromWoreda` and
 `toWoreda` cannot change (`TRIP_HAS_BOOKINGS`), and `capacity` cannot drop below `bookedQuintals`.
@@ -506,9 +506,10 @@ Common route patterns:
 | 2.0.0 | 2026-10-26 | Bookings (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): `TripDto` gains `bookedQuintals` and `remainingQuintals` (null on old rows, read as `capacity`), the row also `bookedOrderIds` and `acceptedOrderIds`; capacity is reserved per order at funding (atomic on `remainingQuintals`), verified at the trucker's accept and released when the order leaves the trip; order create refuses a trip departing in under 24 hours and a quantity above `remainingQuintals` (`TRIP_CAPACITY_EXCEEDED`), and `payment_submitted` a trip no longer open or matched, too small, or departing in under 12 hours (`ORDER_VALIDATION: This trip is no longer available; place a new order.`); `matched` means fully booked and is set by the system (a client `status: matched` is refused), `open → inTransit` is allowed with bookings; once booked `departureDate`, `pricePerQuintal`, `fromWoreda` and `toWoreda` are frozen and `capacity` may not drop below `bookedQuintals` (`TRIP_HAS_BOOKINGS`); cancelling (update or delete) is refused with `TRIP_HAS_BOOKINGS` while an order on the trip is `pickup_confirmed` or `in_transit`, otherwise funded and accepted orders move to `awaiting_transport` (`trip_cancelled`) with their pending deliveries cancelled and unpaid orders left alone; browse unchanged |
 | 2.1.0 | 2026-10-31 | Create and update accept `destinationLatitude` and `destinationLongitude` (both or neither, inside Ethiopia's box). No client sent a destination point before, so no trip had one and the live track had no drop-off point: the buyer's arrival window and the trucker's "about 12:35" never showed. Mobile and web send the point of the place picked in Create trip. A booked trip's stored point is frozen with the route; a missing one may be added |
 | 2.2.0 | 2026-11-04 | Trips that left (L-7): seen live, `GET /trips?status=open` listed departures from 2026-07-14 to 2026-11-01 as open. The browse of `open` now returns only trips with `departureDate` at or after the start of today in Ethiopia (Africa/Addis_Ababa), so a trip stays listed all of its day; the cutoff is in the key condition, not a filter; a `nextToken` from before Ethiopia midnight still works. The trucker's own list, `GET /trips/{id}` and other statuses are unchanged. An order create naming a trip that has left is refused with `ORDER_TRIP_NOT_ELIGIBLE` whatever `COMMITMENTS_ENABLED` (`order-lifecycle.md` 2.3.0, `sync-protocol.md` 1.34.0). Mobile and web apply the same cutoff to their open trips (cache and web reads), mark a trucker's open trip with a passed day as "Date passed" with the trips still ahead listed first, and check a chosen truck (open, not left, room for the quantity) before an order is placed. The buyer's cache no longer keeps open trips that left, so by-id reads from it (conversation trip context, live trip vehicle line) come back empty for them. The cutoff uses the device clock; the apps keep no server time offset |
+| 2.2.1 | 2026-11-06 | Release on the escrow cancels (FUP-123): the auto-refund sweep's cancel of a stale `funded` or `awaiting_transport` order, and the refund settlement's cancel before pickup (a `buyer_wins` verdict, an admin refund), now release the order's booking like the sync cancels; before, the trip kept a phantom booking, read too little room, and a full trip could stay `matched`. Behind `COMMITMENTS_ENABLED` like every booking write. Server only, no wire change, no client change |
 
 ---
 
-**Last Updated**: 2026-11-04
-**Version**: 2.2.0
+**Last Updated**: 2026-11-06
+**Version**: 2.2.1
 **Status**: Draft (Phase R4.1)

@@ -1462,6 +1462,35 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     expect(JSON.stringify(onTrips[0].Resource)).not.toContain('/index/');
   });
 
+  test.each([false, true])(
+    'escrow and escrow-cron query and update trips to release a cancelled order\'s booking (live=%s, FUP-123)',
+    (live) => {
+      const t = buildTemplate(live);
+      type PolicyResource = { Properties: { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } } };
+      const policies = [
+        ...Object.entries(t.findResources('AWS::IAM::Policy')),
+        ...Object.entries(t.findResources('AWS::IAM::ManagedPolicy')),
+      ];
+      for (const [functionName, rolePrefix] of [
+        ['wereda-connect-dev-escrow', 'EscrowFunctionServiceRole'],
+        ['wereda-connect-dev-escrow-cron', 'EscrowCronFunctionServiceRole'],
+      ]) {
+        t.hasResourceProperties('AWS::Lambda::Function', {
+          FunctionName: functionName,
+          Environment: { Variables: Match.objectLike({ TRIPS_TABLE: Match.anyValue(), COMMITMENTS_ENABLED: 'true' }) },
+        });
+        const onTrips = policies
+          .filter(([id]) => id.startsWith(rolePrefix))
+          .flatMap(([, p]) => (p as PolicyResource).Properties.PolicyDocument.Statement)
+          .filter((s) => JSON.stringify(s.Resource).includes('TripsTable'));
+        // One statement: read the trip and the conditional release, base table only.
+        expect(onTrips).toHaveLength(1);
+        expect(([] as unknown[]).concat(onTrips[0].Action).sort()).toEqual(['dynamodb:Query', 'dynamodb:UpdateItem']);
+        expect(JSON.stringify(onTrips[0].Resource)).not.toContain('/index/');
+      }
+    },
+  );
+
   test('ON: escrow Lambda drops TELEBIRR_MOCK and gets the secret + notify URL', () => {
     buildTemplate(true).hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-escrow',
@@ -1667,10 +1696,10 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
     }
   });
 
-  test('ESC-15: staging and prod keep the commitments off on sync and order-cron', () => {
+  test('ESC-15: staging and prod keep the commitments off on sync, order-cron, escrow and escrow-cron', () => {
     for (const envName of ['staging', 'prod']) {
       const template = liveTemplate(environments[envName]);
-      for (const fn of ['sync', 'order-cron']) {
+      for (const fn of ['sync', 'order-cron', 'escrow', 'escrow-cron']) {
         template.hasResourceProperties('AWS::Lambda::Function', {
           FunctionName: `wereda-connect-${envName}-${fn}`,
           Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'false' }) },

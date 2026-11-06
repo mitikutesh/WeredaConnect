@@ -350,7 +350,6 @@ From the follow-ups of #231, #234, #237 and #238. FUP-120 to FUP-122 above come 
 
 | ID | Sev | Scope | Task | Done when |
 |---|---|---|---|---|
-| FUP-123 | P2 | @Server | Escrow-cron and dispute-verdict cancels do not release trip capacity (#231): the trip keeps a phantom booking, so its room left reads too small and a full trip can stay `matched`. No money impact. Release the booking on those cancel paths with the helper the sync cancels use. | Tests: an escrow-cron refund cancel and a dispute-verdict cancel each release the order's booking. |
 | FUP-124 | P3 | @Server | A declined, expired or dropped-out trucker can still read the order's existing chat history; sends are closed (#231). | The message read path refuses a trucker who is not committed; test. |
 | FUP-125 | P3 | @Server | The commitment side-effect helpers in `OrderCronFunction` and `SyncFunction.Commitments` duplicate each other, and the command handler could split into validate, write and effects (#231). | One shared helper set; the existing commitment tests pass unchanged. |
 
