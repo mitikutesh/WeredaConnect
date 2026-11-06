@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
@@ -38,6 +39,9 @@ public class DeliveryFunctionTrackTests
     private readonly ITripLocationRepository _locations = Substitute.For<ITripLocationRepository>();
     private readonly ITripRepository _trips = Substitute.For<ITripRepository>();
     private readonly ICropRepository _crops = Substitute.For<ICropRepository>();
+
+    // LT-12: no order row unless a test sets one, so the note is null by default.
+    private readonly IOrderRepository _orders = Substitute.For<IOrderRepository>();
     private readonly TestLambdaContext _context = new();
     private readonly DeliveryFunction _function;
 
@@ -58,7 +62,7 @@ public class DeliveryFunctionTrackTests
             ["destinationLongitude"] = "38.74"
         });
         _crops.GetByIdAsync(ListingId).Returns(Listing("8.1504", "38.8196"));
-        _function = new DeliveryFunction(_deliveries, null, null, _locations, _trips, _crops) { Clock = () => Now };
+        _function = new DeliveryFunction(_deliveries, null, null, _locations, _trips, _crops, _orders) { Clock = () => Now };
     }
 
     // ===== Who may read it =====
@@ -517,7 +521,115 @@ public class DeliveryFunctionTrackTests
             .Should().BeSubsetOf(new[] { "GetByIdAsync", "QueryDeliveriesAsync" });
         _trips.ReceivedCalls().Select(c => c.GetMethodInfo().Name).Distinct().Should().Equal("GetByIdAsync");
         _crops.ReceivedCalls().Select(c => c.GetMethodInfo().Name).Distinct().Should().Equal("GetByIdAsync");
+        _orders.ReceivedCalls().Select(c => c.GetMethodInfo().Name).Distinct().Should().Equal("GetByIdAsync");
     }
+
+    // ===== LT-12: the order's drop-off note =====
+
+    [Theory]
+    [InlineData(BuyerId)]
+    [InlineData(FarmerId)]
+    [InlineData(TruckerId)]
+    public async Task OnTheRoad_EachPartyWhoMayReadIt_GetsTheNote(string caller)
+    {
+        OrderWithNote("in_transit", "accepted");
+
+        var (status, track) = await TrackAsync(caller);
+
+        status.Should().Be(200);
+        var dropoff = track.GetProperty("dropoff");
+        dropoff.GetProperty("note").GetString().Should().Be("Merkato, near Anwar Mosque");
+        dropoff.GetProperty("latitude").GetDouble().Should().Be(9.03);
+        await _orders.Received(1).GetByIdAsync("order-101");
+    }
+
+    [Fact]
+    public async Task BeforePickup_TheBuyersMap_IsLabelledWithTheNote()
+    {
+        _deliveries.GetByIdAsync(DeliveryId).Returns(Delivery("pending", pickedUpAt: null));
+        OrderWithNote("accepted", "accepted");
+
+        var (_, track) = await TrackAsync(BuyerId);
+
+        track.GetProperty("sharing").GetString().Should().Be("not_started");
+        track.GetProperty("dropoff").GetProperty("note").GetString().Should().Be("Merkato, near Anwar Mosque");
+    }
+
+    [Fact]
+    public async Task AfterDelivery_TheNoteStays_ButNoCoordinates()
+    {
+        _deliveries.GetByIdAsync(DeliveryId).Returns(Delivery("delivered", confirmedAt: "2026-10-27T09:00:00.0000000Z"));
+        OrderWithNote("delivered", "accepted");
+
+        var (_, track) = await TrackAsync(BuyerId);
+
+        track.GetProperty("sharing").GetString().Should().Be("ended");
+        var dropoff = track.GetProperty("dropoff");
+        dropoff.GetProperty("note").GetString().Should().Be("Merkato, near Anwar Mosque");
+        IsNull(dropoff, "latitude").Should().BeTrue();
+        IsNull(dropoff, "longitude").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ATruckerNotCommitted_GetsTheTrack_WithoutTheNote()
+    {
+        // The order's trucker dropped out: the delivery still names them, the note does not reach them.
+        OrderWithNote("awaiting_transport", "cancelled");
+
+        var (status, track) = await TrackAsync(TruckerId);
+
+        status.Should().Be(200);
+        IsNull(track.GetProperty("dropoff"), "note").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AnOrderThatCannotBeRead_LeavesTheNoteOut_AndTheTrackStands()
+    {
+        _orders.GetByIdAsync("order-101").ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var (status, track) = await TrackAsync(BuyerId);
+
+        status.Should().Be(200);
+        track.GetProperty("sharing").GetString().Should().Be("live");
+        IsNull(track.GetProperty("dropoff"), "note").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task WithoutTheOrdersTable_TheTrackHasNoNote()
+    {
+        OrderWithNote("in_transit", "accepted");
+        var function = new DeliveryFunction(_deliveries, null, null, _locations, _trips, _crops) { Clock = () => Now };
+
+        var response = await function.FunctionHandler(Request(BuyerId), _context);
+
+        response.StatusCode.Should().Be(200);
+        IsNull(JsonDocument.Parse(response.Body).RootElement.GetProperty("dropoff"), "note").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AnOutsider_NeverCausesTheOrderRead()
+    {
+        OrderWithNote("in_transit", "accepted");
+
+        var response = await _function.FunctionHandler(Request(OutsiderId), _context);
+
+        response.StatusCode.Should().Be(404);
+        response.Body.Should().NotContain("Merkato");
+        await _orders.DidNotReceiveWithAnyArgs().GetByIdAsync(default!);
+    }
+
+    private void OrderWithNote(string status, string truckerResponse)
+        => _orders.GetByIdAsync("order-101").Returns(new Dictionary<string, object>
+        {
+            ["orderId"] = "order-101",
+            ["buyerId"] = BuyerId,
+            ["farmerId"] = FarmerId,
+            ["truckerId"] = TruckerId,
+            ["tripId"] = TripId,
+            ["status"] = status,
+            ["truckerResponse"] = truckerResponse,
+            ["dropoffNote"] = "Merkato, near Anwar Mosque"
+        });
 
     [Fact]
     public async Task TheDeliveryRoute_WithoutTrack_StillReturnsTheDelivery()

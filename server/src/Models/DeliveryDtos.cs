@@ -350,7 +350,10 @@ public sealed record TrackPickupDto
     public string? At { get; init; }
 }
 
-/// <summary>The drop-off point and the buyer's landmark note (LT-12; null until then).</summary>
+/// <summary>
+/// The drop-off point and the buyer's landmark note (LT-12: the order's <c>dropoffNote</c> when the
+/// viewer may read it, else null).
+/// </summary>
 public sealed record TrackDropoffDto
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]

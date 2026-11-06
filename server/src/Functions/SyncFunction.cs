@@ -323,7 +323,9 @@ public partial class SyncFunction
         "paymentMethod", "cbeTransactionId",
         "status", "rejectionReason", "cancelReason",
         // ESC-15: the commitment commands (consumed by ProcessCommitmentCommandAsync, never written raw).
-        OrderCommitment.FarmerResponseField, OrderCommitment.TruckerResponseField, OrderCommitment.DeclineReasonField
+        OrderCommitment.FarmerResponseField, OrderCommitment.TruckerResponseField, OrderCommitment.DeclineReasonField,
+        // LT-12: the buyer's drop-off landmark (CheckDropoffNoteChangeAsync guards an update).
+        OrderDropoffNote.Field
     };
 
     // Server-calculated fields that clients must not set directly
@@ -363,7 +365,9 @@ public partial class SyncFunction
     /// </summary>
     private static readonly HashSet<string> UpdatableOrderFields = new()
     {
-        "status", "rejectionReason", "cancelReason", "paymentMethod", "cbeTransactionId"
+        "status", "rejectionReason", "cancelReason", "paymentMethod", "cbeTransactionId",
+        // LT-12: by the buyer only, until pickup (CheckDropoffNoteChangeAsync).
+        OrderDropoffNote.Field
     };
 
     /// <summary>
@@ -6220,7 +6224,9 @@ public partial class SyncFunction
 
     /// <summary>
     /// Process an order sync operation (create, update).
-    /// Uses server-authoritative state machine and commission calculation.
+    /// Uses server-authoritative state machine and commission calculation. LT-12: the order row a
+    /// result carries back leaves out the drop-off note when the caller may not read it
+    /// (<see cref="OrderDropoffNote.ForCaller"/>).
     /// </summary>
     private async Task<SyncOperationResult> ProcessOrderAsync(
         SyncOperationRequest operation,
@@ -6228,20 +6234,18 @@ public partial class SyncFunction
         string? authenticatedRole,
         ILambdaContext context)
     {
-        switch (operation.Action)
+        var result = operation.Action switch
         {
-            case "create":
-                return await ProcessOrderCreateAsync(operation, authenticatedUserId, authenticatedRole, context);
-            case "update":
-                return await ProcessOrderUpdateAsync(operation, authenticatedUserId, context);
-            default:
-                return new SyncOperationResult
-                {
-                    OperationId = operation.OperationId,
-                    Status = "error",
-                    Message = $"ORDER_VALIDATION: Invalid action '{operation.Action}' for orders. Allowed: create, update."
-                };
-        }
+            "create" => await ProcessOrderCreateAsync(operation, authenticatedUserId, authenticatedRole, context),
+            "update" => await ProcessOrderUpdateAsync(operation, authenticatedUserId, context),
+            _ => new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"ORDER_VALIDATION: Invalid action '{operation.Action}' for orders. Allowed: create, update."
+            }
+        };
+        return OrderDropoffNote.ForCaller(result, authenticatedUserId);
     }
 
     /// <summary>
@@ -6375,6 +6379,15 @@ public partial class SyncFunction
                 Status = "error",
                 Message = $"ORDER_VALIDATION: {string.Join(" ", validationErrors)}"
             };
+        }
+
+        // LT-12: the drop-off note is stored trimmed, and not at all when empty. Like listing text it
+        // may not carry a phone number (the farmer reads it before contact opens); checked after the
+        // field rules, so one payload always gets the same answer.
+        var dropoffNoteRefusal = ApplyCreateDropoffNote(operation);
+        if (dropoffNoteRefusal != null)
+        {
+            return dropoffNoteRefusal;
         }
 
         KeepServerCancelCodesReserved(operation.Data);
@@ -6553,6 +6566,18 @@ public partial class SyncFunction
                 Status = "error",
                 Message = "ORDER_UNAUTHORIZED: You can only update orders you are a participant in."
             }, FraudDetectionService.RoleForbiddenSignal, operation, "order", authenticatedUserId, context);
+        }
+
+        // LT-12: the drop-off note before any other rule, so a command or a status write never
+        // carries a note change past the buyer-only, phone and pickup checks.
+        if (operation.Data.ContainsKey(OrderDropoffNote.Field))
+        {
+            var noteRefusal = await CheckDropoffNoteChangeAsync(
+                operation, existingOrder, authenticatedUserId, orderBuyerId, context);
+            if (noteRefusal != null)
+            {
+                return noteRefusal;
+            }
         }
 
         if (isTruckerOnly)
@@ -8868,6 +8893,13 @@ public partial class SyncFunction
             {
                 errors.Add("cbeTransactionId must not exceed 100 characters.");
             }
+        }
+
+        // LT-12: one line of at most 80 user-visible characters (OrderDropoffNote.Length).
+        if (data.TryGetValue(OrderDropoffNote.Field, out var noteObj)
+            && OrderDropoffNote.ValidationError(noteObj) is { } noteError)
+        {
+            errors.Add(noteError);
         }
 
         return errors;

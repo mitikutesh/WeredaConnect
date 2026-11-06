@@ -289,8 +289,10 @@ public class OrderFunction
 
     /// <summary>
     /// Map a DynamoDB item dictionary to an OrderDto, without phone numbers (the admin transaction view).
+    /// The admin reads the drop-off note as dispute evidence (LT-12).
     /// </summary>
-    internal static OrderDto MapToOrderDto(Dictionary<string, object> item) => MapToOrderDto(item, null);
+    internal static OrderDto MapToOrderDto(Dictionary<string, object> item)
+        => MapToOrderDto(item, null) with { DropoffNote = OrderDropoffNote.Of(item) };
 
     /// <summary>
     /// Map a DynamoDB item dictionary to an OrderDto. <paramref name="phones"/> (user id to phone) fills
@@ -298,6 +300,8 @@ public class OrderFunction
     /// party; pass null phones for a caller who is not one). ESC-15: the trucker's number is filled only
     /// once the trucker committed, and a trucker caller's <c>contactOpen</c> is their own
     /// (<see cref="ContactReveal.IsTruckerOpen"/>); without a caller it is the buyer-farmer contact.
+    /// LT-12: the drop-off note only for a caller who may read it (<see cref="OrderDropoffNote.VisibleTo"/>),
+    /// never without one.
     /// </summary>
     internal static OrderDto MapToOrderDto(
         Dictionary<string, object> item, IReadOnlyDictionary<string, string>? phones, string? callerId = null)
@@ -329,6 +333,7 @@ public class OrderFunction
             TruckerName = GetStringOrNull(item, "truckerName"),
             PickupPlace = GetStringOrNull(item, "pickupPlace"),
             DropoffPlace = GetStringOrNull(item, "dropoffPlace"),
+            DropoffNote = OrderDropoffNote.For(item, callerId),
             TransportCost = GetDoubleOrNull(item, "transportCost"),
             CommissionRate = GetDouble(item, "commissionRate"),
             CommissionAmount = GetDouble(item, "commissionAmount"),
