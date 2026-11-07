@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -5,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 
+import 'package:wereda_connect/core/auth/session_signals.dart';
 import 'package:wereda_connect/core/network/auth_interceptor.dart';
 
 /// Adapter that replies 401 unless the request carries [validBearer].
@@ -43,6 +45,47 @@ class TokenAwareAdapter implements HttpClientAdapter {
 
   @override
   void close({bool force = false}) {}
+}
+
+/// Records each request's bearer; replies 401 to the bearers in [rejected]
+/// and 200 to the rest. [onFetch] runs before the reply (e.g. another tab
+/// signs in while the request is out).
+class RecordingAdapter implements HttpClientAdapter {
+  RecordingAdapter({this.rejected = const {}, this.onFetch});
+
+  final Set<String> rejected;
+  final Future<void> Function()? onFetch;
+  final bearers = <String?>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final auth = options.headers['Authorization'] as String?;
+    bearers.add(auth?.substring('Bearer '.length));
+    await onFetch?.call();
+    final status =
+        rejected.contains(auth?.substring('Bearer '.length)) ? 401 : 200;
+    return ResponseBody.fromString(
+      '{"data":"ok"}',
+      status,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+/// An unsigned JWT whose `sub` is [sub]; [issued] tells two apart.
+String jwt(String sub, {int issued = 0}) {
+  String part(Map<String, dynamic> m) =>
+      base64Url.encode(utf8.encode(jsonEncode(m))).replaceAll('=', '');
+  return '${part({'alg': 'none'})}.${part({'sub': sub, 'iat': issued})}.sig';
 }
 
 /// Fake FlutterSecureStorage for testing
@@ -435,8 +478,10 @@ void main() {
         final interceptor = AuthInterceptor(
           storage: testStorage,
           dio: testDio,
+          // Like the app's callback, this one persists the new bearer.
           refreshTokenCallback: (_) async {
             refreshCalls++;
+            await testStorage.write(key: 'id_token', value: 'fresh-token');
             return 'fresh-token';
           },
         );
@@ -572,6 +617,223 @@ void main() {
         expect(response.statusCode, 200);
         expect(seen, ['Bearer fresh-token']);
       });
+    });
+  });
+
+  // FUP-82: a refresh that outlives its session must not write it back.
+  group('the interceptor writes no tokens itself', () {
+    test('a refreshed bearer the callback did not keep is used, not stored',
+        () async {
+      // The app's callback keeps nothing when the session ended while it
+      // ran; the retry still finishes the old session's own request.
+      final storage = FakeSecureStorage();
+      await storage.write(key: 'id_token', value: 'expired-token');
+      await storage.write(key: 'refresh_token', value: 'r1');
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.test.com'))
+        ..httpClientAdapter = TokenAwareAdapter(validBearer: 'fresh-token');
+      dio.interceptors.add(
+        AuthInterceptor(
+          storage: storage,
+          dio: dio,
+          refreshTokenCallback: (_) async {
+            // A logout cleared the slots while the refresh ran.
+            await storage.delete(key: 'id_token');
+            await storage.delete(key: 'refresh_token');
+            return 'fresh-token';
+          },
+        ),
+      );
+
+      final response = await dio.get<dynamic>('/devices');
+
+      expect(response.statusCode, 200);
+      expect(await storage.read(key: 'id_token'), isNull);
+      expect(await storage.read(key: 'refresh_token'), isNull);
+    });
+
+    test('a rejected refresh keeps slots another sign-in rewrote meanwhile',
+        () async {
+      final storage = FakeSecureStorage();
+      await storage.write(key: 'id_token', value: 'old-id');
+      await storage.write(key: 'refresh_token', value: 'old-refresh');
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.test.com'))
+        ..httpClientAdapter = RecordingAdapter(rejected: {'old-id'});
+      dio.interceptors.add(
+        AuthInterceptor(
+          storage: storage,
+          dio: dio,
+          refreshTokenCallback: (_) async {
+            // The next user signed in before the refusal came back.
+            await storage.write(key: 'id_token', value: 'next-id');
+            await storage.write(key: 'refresh_token', value: 'next-refresh');
+            return null;
+          },
+        ),
+      );
+
+      await expectLater(
+        dio.get<dynamic>('/orders'),
+        throwsA(isA<DioException>()),
+      );
+
+      expect(await storage.read(key: 'id_token'), 'next-id');
+      expect(await storage.read(key: 'refresh_token'), 'next-refresh');
+    });
+  });
+
+  // FUP-96: web tabs share the token slots.
+  group('another account\'s session in the shared slots', () {
+    late FakeSecureStorage storage;
+    late SessionSignals signals;
+    late int otherAccountSignals;
+    late int refreshCalls;
+    String? tabUser;
+
+    setUp(() async {
+      storage = FakeSecureStorage();
+      signals = SessionSignals.forTesting();
+      otherAccountSignals = 0;
+      refreshCalls = 0;
+      tabUser = 'user-a';
+      final sub =
+          signals.onOtherAccountSignedIn.listen((_) => otherAccountSignals++);
+      addTearDown(sub.cancel);
+    });
+
+    Dio build(
+      RecordingAdapter adapter, {
+      Future<String?> Function(String)? refresh,
+      bool checkTab = true,
+    }) {
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.test.com'))
+        ..httpClientAdapter = adapter;
+      dio.interceptors.add(
+        AuthInterceptor(
+          storage: storage,
+          dio: dio,
+          signals: signals,
+          sessionSubject: checkTab ? () => tabUser : null,
+          refreshTokenCallback: refresh ??
+              (_) async {
+                refreshCalls++;
+                return null;
+              },
+        ),
+      );
+      return dio;
+    }
+
+    test('a stored token of another account is never sent', () async {
+      await storage.write(key: 'id_token', value: jwt('user-b'));
+      final adapter = RecordingAdapter();
+      final dio = build(adapter);
+
+      const body = {'entityId': 'crop-of-a'};
+      final error = await dio
+          .post<dynamic>('/sync', data: body)
+          .then<Object?>((_) => null, onError: (Object e) => e);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(error, isA<DioException>());
+      expect(
+        (error! as DioException).error,
+        isA<OtherAccountSessionException>(),
+      );
+      expect(adapter.bearers, isEmpty, reason: 'nothing left the tab');
+      expect(otherAccountSignals, 1);
+      expect(await storage.read(key: 'id_token'), jwt('user-b'));
+    });
+
+    test('the tab\'s own token is sent', () async {
+      await storage.write(key: 'id_token', value: jwt('user-a'));
+      final adapter = RecordingAdapter();
+      final dio = build(adapter);
+
+      await dio.get<dynamic>('/orders');
+
+      expect(adapter.bearers, [jwt('user-a')]);
+      expect(otherAccountSignals, 0);
+    });
+
+    test('no signed-in account, no check (login, mobile)', () async {
+      await storage.write(key: 'id_token', value: jwt('user-b'));
+      tabUser = null;
+      final adapter = RecordingAdapter();
+
+      await build(adapter).get<dynamic>('/orders');
+      await build(adapter, checkTab: false).get<dynamic>('/orders');
+
+      expect(adapter.bearers, [jwt('user-b'), jwt('user-b')]);
+      expect(otherAccountSignals, 0);
+    });
+
+    test('a token whose sub cannot be read is sent as before', () async {
+      await storage.write(key: 'id_token', value: 'not-a-jwt');
+      final adapter = RecordingAdapter();
+
+      await build(adapter).get<dynamic>('/orders');
+
+      expect(adapter.bearers, ['not-a-jwt']);
+      expect(otherAccountSignals, 0);
+    });
+
+    test(
+        'a 401 after another tab signed in: no refresh, no retry with the '
+        'other account\'s token', () async {
+      await storage.write(key: 'id_token', value: jwt('user-a'));
+      await storage.write(key: 'refresh_token', value: 'refresh-a');
+      final adapter = RecordingAdapter(
+        rejected: {jwt('user-a')},
+        onFetch: () async {
+          // Another tab signs user-b in while the request is out.
+          await storage.write(key: 'current_user_id', value: 'user-b');
+          await storage.write(key: 'id_token', value: jwt('user-b'));
+          await storage.write(key: 'refresh_token', value: 'refresh-b');
+        },
+      );
+      final dio = build(adapter);
+
+      await expectLater(
+        dio.get<dynamic>('/orders'),
+        throwsA(isA<DioException>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(adapter.bearers, [jwt('user-a')], reason: 'no retry');
+      expect(refreshCalls, 0);
+      expect(otherAccountSignals, 1);
+      expect(await storage.read(key: 'id_token'), jwt('user-b'));
+      expect(await storage.read(key: 'refresh_token'), 'refresh-b');
+    });
+
+    test('a refreshed bearer of another account is not retried with', () async {
+      await storage.write(key: 'id_token', value: jwt('user-a'));
+      await storage.write(key: 'refresh_token', value: 'refresh-b');
+      final adapter = RecordingAdapter(rejected: {jwt('user-a')});
+      final dio = build(adapter, refresh: (_) async => jwt('user-b'));
+
+      await expectLater(
+        dio.get<dynamic>('/orders'),
+        throwsA(isA<DioException>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(adapter.bearers, [jwt('user-a')], reason: 'no retry');
+      expect(otherAccountSignals, 1);
+    });
+
+    test('the tab\'s own refreshed bearer is retried with', () async {
+      await storage.write(key: 'id_token', value: jwt('user-a'));
+      await storage.write(key: 'refresh_token', value: 'refresh-a');
+      final adapter = RecordingAdapter(rejected: {jwt('user-a')});
+      final dio =
+          build(adapter, refresh: (_) async => jwt('user-a', issued: 1));
+
+      final response = await dio.get<dynamic>('/orders');
+
+      expect(response.statusCode, 200);
+      expect(adapter.bearers, [jwt('user-a'), jwt('user-a', issued: 1)]);
+      expect(otherAccountSignals, 0);
     });
   });
 }

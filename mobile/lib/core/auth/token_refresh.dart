@@ -28,6 +28,14 @@ typedef RefreshedTokensWriter = Future<void> Function(
 /// interceptor then clears the tokens) and raises
 /// [SessionSignals.sessionExpired] so the AuthBloc logs the user out.
 /// Transient failures are rethrown and keep the refresh token.
+///
+/// FUP-82: the answer can come after the session it refreshed is gone (a
+/// logout went ahead while the refresh was in flight, or another user has
+/// signed in since, here or in another web tab). Then nothing is written and
+/// no expiry is raised: the new tokens would put the old session back after
+/// the local clear, or overwrite the next user's. The refreshed ID token is
+/// still returned, so the interceptor can finish the old session's own
+/// request with it.
 Future<String?> Function(String refreshToken) buildRefreshTokenCallback({
   required Dio refreshDio,
   required FlutterSecureStorage storage,
@@ -40,6 +48,25 @@ Future<String?> Function(String refreshToken) buildRefreshTokenCallback({
   final sessionSignals = signals ?? SessionSignals.instance;
 
   return (String refreshToken) async {
+    // The session this refresh belongs to: this app's session count, and the
+    // refresh token in the shared slot (another web tab changes only that).
+    final generation = sessionSignals.generation;
+    bool sameGeneration() => sessionSignals.generation == generation;
+    // Whether this refresh's session is still the stored one. With
+    // [orCleared], an empty slot counts too: another web tab of the same
+    // account may have cleared it after its own refused refresh.
+    Future<bool> stillStored({bool orCleared = false}) async {
+      if (!sameGeneration()) return false;
+      try {
+        final stored = await storage.read(key: 'refresh_token');
+        final cleared = stored == null || stored.isEmpty;
+        if (stored != refreshToken && !(orCleared && cleared)) return false;
+      } on Object {
+        // An unreadable slot proves nothing; the session count decides.
+      }
+      return sameGeneration();
+    }
+
     try {
       final response = await refreshDio.post<dynamic>(
         ApiConfig.refreshEndpoint,
@@ -56,16 +83,28 @@ Future<String?> Function(String refreshToken) buildRefreshTokenCallback({
         expiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
       );
 
+      if (!await stillStored()) {
+        debugPrint('[TokenRefresh] session ended while refreshing; not kept');
+        return tokens.idToken;
+      }
+
       // Active slots read by the AuthInterceptor. The ID token is the bearer
       // (carries custom:role); the access token is kept for server-side
-      // revocation on logout.
-      await storage.write(key: 'access_token', value: tokens.accessToken);
-      await storage.write(key: 'id_token', value: tokens.idToken);
-      await storage.write(key: 'refresh_token', value: tokens.refreshToken);
+      // revocation on logout. The session count is checked before each
+      // write: a logout that starts between them moves it on first.
+      final slots = {
+        'access_token': tokens.accessToken,
+        'id_token': tokens.idToken,
+        'refresh_token': tokens.refreshToken,
+      };
+      for (final MapEntry(:key, :value) in slots.entries) {
+        if (!sameGeneration()) return tokens.idToken;
+        await storage.write(key: key, value: value);
+      }
 
       // Offline cache + 48h session timestamp, so AuthBloc sees fresh tokens.
       final phone = await storage.read(key: 'current_user_phone');
-      if (phone != null && phone.isNotEmpty) {
+      if (phone != null && phone.isNotEmpty && sameGeneration()) {
         try {
           await writer(phone, tokens);
         } on Object catch (e) {
@@ -78,7 +117,13 @@ Future<String?> Function(String refreshToken) buildRefreshTokenCallback({
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
       if (statusCode == 400 || statusCode == 401) {
-        sessionSignals.sessionExpired();
+        // The session is over unless it ended here first or another
+        // session took the slot: a refused refresh of an ended session must
+        // not sign out whoever came next. An emptied slot still signs out:
+        // another tab of this account found the same token dead.
+        if (await stillStored(orCleared: true)) {
+          sessionSignals.sessionExpired();
+        }
         return null;
       }
       rethrow;
