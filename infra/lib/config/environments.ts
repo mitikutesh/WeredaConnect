@@ -91,9 +91,18 @@ export interface EnvironmentConfig {
    * to release the trip booking of an order they cancel (FUP-123), and the trips browse to report
    * the order lead to the apps (FUP-122). Default false. Turn it on for
    * an environment only once its web app and store builds render awaiting_transport and send the
-   * farmer and trucker commands (app build 3, the ESC-15 client PR); dev is on, staging and prod off.
+   * farmer and trucker commands (app build 3, the ESC-15 client PR), and only with `minOrderAppBuild` at 3
+   * or more (ESC-25, a test pins it). Dev is on; staging and prod stay off until the owner turns them on
+   * after the ESC-25 gate is deployed there.
    */
   readonly commitmentsEnabled?: boolean;
+  /**
+   * MIN_ORDER_APP_BUILD on the sync Lambda (ESC-25, sync-protocol.md 1.41.0): `/sync` refuses every order
+   * operation from an app whose `X-App-Build` is below it (`APP_UPDATE_REQUIRED`; no header:
+   * `ORDER_VALIDATION`). Default 0, which turns the gate off. 3 is the first build that renders the
+   * commitments; it does not depend on `commitmentsEnabled`, so it goes on before the flag does.
+   */
+  readonly minOrderAppBuild?: number;
   /**
    * FRD-19 kill switch: FRAUD_AI_REVIEW_ENABLED on the fraud-advisory cron and AI_REVIEW_ENABLED on the
    * fraud-ai-reviewer Lambda (fraud-detection-architecture.md section 21). On, an hourly run sends the redacted
@@ -131,8 +140,10 @@ export const environments: Record<string, EnvironmentConfig> = {
     // FUP-61: dev holds the escrows of flagged parties; staging and prod stay off.
     fraudHoldEnabled: true,
     // ESC-15: the farmer, then the trucker, must accept a paid order; staging and prod stay off
-    // until their clients ship app build 3.
+    // until the owner turns them on after the ESC-25 gate is deployed there.
     commitmentsEnabled: true,
+    // ESC-25: apps before build 3 cannot act on orders.
+    minOrderAppBuild: 3,
     // FRD-19: the AI advisory reviewer stays off until the owner turns it on; the EU profile keeps the
     // redacted timelines in EU Regions.
     aiReviewEnabled: false,
@@ -156,6 +167,9 @@ export const environments: Record<string, EnvironmentConfig> = {
     name: 'staging',
     region: 'me-south-1',
     isProd: false,
+    // ESC-25: apps before build 3 cannot act on orders. The commitments (ESC-15) stay off until the
+    // owner turns them on here, after this gate is deployed.
+    minOrderAppBuild: 3,
     // FRD-19: off. me-south-1 has no EU or ME geo profile for current Claude models; if turned on, the reviewer
     // calls the EU profile from eu-central-1 (decision record, option 3).
     aiReviewEnabled: false,
@@ -177,6 +191,9 @@ export const environments: Record<string, EnvironmentConfig> = {
     name: 'prod',
     region: 'me-south-1',
     isProd: true,
+    // ESC-25: apps before build 3 cannot act on orders. The commitments (ESC-15) stay off until the
+    // owner turns them on here, after this gate is deployed.
+    minOrderAppBuild: 3,
     // FRD-19: off. me-south-1 has no EU or ME geo profile for current Claude models; if turned on, the reviewer
     // calls the EU profile from eu-central-1 (decision record, option 3).
     aiReviewEnabled: false,

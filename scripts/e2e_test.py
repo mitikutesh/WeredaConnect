@@ -69,6 +69,9 @@ from crop_photo_upload import CropPhotoUploadError, upload_crop_photos
 
 _BASE_URL = "https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com"
 PASSWORD = "testpass1a"  # 8+ chars, lowercase + digit
+# Sent on every call like the apps (FUP-61): /sync refuses order operations from an app
+# below MIN_ORDER_APP_BUILD, 3 in dev (ESC-25).
+APP_BUILD = "3"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -128,6 +131,7 @@ def api(method: str, path: str, token: Optional[str] = None,
     for attempt in range(retries + 1):
         req = Request(url, data=data, method=method)
         req.add_header("Content-Type", "application/json")
+        req.add_header("X-App-Build", APP_BUILD)
         if token:
             req.add_header("Authorization", f"Bearer {token}")
 

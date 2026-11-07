@@ -8,6 +8,7 @@ import 'package:http_mock_adapter/http_mock_adapter.dart';
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
@@ -1241,6 +1242,42 @@ void main() {
 
     expect(events.appUpdateRequired, isTrue);
     expect(updates, hasLength(1));
+  });
+
+  group('ESC-25: the server minimum-build gate refuses an order for good', () {
+    // The exact text the server sends (sync-protocol.md 1.41.0).
+    const message = 'APP_UPDATE_REQUIRED: This version of the app is too old '
+        'for orders. Update WeredaConnect to continue.';
+
+    for (final action in ['create', 'update']) {
+      test('on $action: rejected, reverted, not counted, flag raised',
+          () async {
+        final updates = <void>[];
+        final flagSub = events.onAppUpdateRequired.listen(updates.add);
+        addTearDown(flagSub.cancel);
+        await enqueue('op-1', action: action);
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty && updates.isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.entityType, 'order');
+        expect(reverts.single.$2, message);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        expect(
+          syncRejectionErrorCode(
+            entityType: 'order',
+            action: action,
+            message: message,
+          ),
+          AppErrorCode.appUpdateRequired,
+        );
+        expect(events.appUpdateRequired, isTrue);
+      });
+    }
   });
 
   test(
