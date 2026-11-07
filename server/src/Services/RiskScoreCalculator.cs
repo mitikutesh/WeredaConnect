@@ -299,6 +299,14 @@ internal sealed class RiskScoreCalculator
         : score >= settings.TierMedium ? RiskTier.Medium
         : RiskTier.Low;
 
+    /// <summary>
+    /// FRD-19: the tier of the rules alone, the enforcement score without any AI advisory weight (section 21).
+    /// Whatever moves or delays money reads this one; only the payment step-up reads the full tier. Without
+    /// advisory rows it is the tier itself.
+    /// </summary>
+    internal static RiskTier RulesTier(RiskScoreResult score, RiskScoreSettings settings) =>
+        TierFor(score.EnforcementScore, score.EnforcementScore, score.Truncated, settings);
+
     // Same comparison as the key condition; repeated here so a row the Query should not have
     // returned never counts.
     private bool InWindow(string signalKey) => string.CompareOrdinal(signalKey, SinceKey) >= 0;

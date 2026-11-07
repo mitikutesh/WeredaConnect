@@ -78,7 +78,7 @@ internal static partial class FraudAdvisory
     /// </summary>
     internal static bool RulesPutAtHighOrAbove(RiskScoreResult score, RiskScoreSettings settings) =>
         score.Source == RiskScoreSource.Computed
-        && (score.Tier == RiskTier.Critical || score.EnforcementScore >= settings.TierHigh);
+        && RiskScoreCalculator.RulesTier(score, settings) is RiskTier.High or RiskTier.Critical;
 
     /// <summary>
     /// The weight of one advisory row: <c>none</c> 0, <c>low</c> 3, <c>medium</c> 6, <c>high</c> 10, and never

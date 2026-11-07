@@ -87,7 +87,7 @@ public class PayoutDelayPolicyTests
     }
 
     private PayoutDelayPolicy Policy(PayoutDelaySettings? settings = null)
-        => new(_fraud, _users, _escrows, settings ?? PayoutDelaySettings.Default);
+        => new(_fraud, _users, _escrows, settings ?? PayoutDelaySettings.Default, RiskScoreSettings.Default);
 
     private Task<PayoutDelayDecision> DecideAsync(Dictionary<string, object>? escrow = null, PayoutDelaySettings? settings = null)
         => Policy(settings).DecideAsync(escrow ?? Escrow(), null, Confirmed, WindowEnd, Now);
@@ -243,6 +243,59 @@ public class PayoutDelayPolicyTests
         decision.Farmer.Should().Be(PayoutDelayClass.Flagged);
         decision.ReleaseNotBefore.Should().Be(Confirmed.AddHours(96));
         await _users.DidNotReceive().GetUserByIdAsync(FarmerId);
+    }
+
+    // ── FRD-19: AI advisory weight never changes a payout ──
+
+    [Theory]
+    [InlineData(10, 0, RiskTier.Low, "Trusted")]     // advice alone: trusted, as without it
+    [InlineData(35, 25, RiskTier.Medium, "New")]     // 25 of rules: new, the advice changes nothing
+    [InlineData(65, 55, RiskTier.High, "New")]       // HIGH only through the advice: not flagged
+    [InlineData(70, 60, RiskTier.High, "Flagged")]   // HIGH by the rules alone: flagged
+    public async Task AdvisoryWeight_NeverChangesTheDelayClass(int score, int enforcement, RiskTier tier, string expected)
+    {
+        _fraud.GetUserRiskScoreAsync(FarmerId).Returns(new RiskScoreResult
+        {
+            Score = score,
+            EnforcementScore = enforcement,
+            Tier = tier
+        });
+
+        var decision = await DecideAsync();
+
+        decision.Farmer.ToString().Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(0, RiskTier.Low, "Trusted")]
+    [InlineData(10, RiskTier.Low, "New")]
+    [InlineData(30, RiskTier.Medium, "New")]
+    [InlineData(60, RiskTier.High, "Flagged")]
+    [InlineData(100, RiskTier.Critical, "Flagged")]
+    public async Task WithoutAdvisoryRows_TheClassIsUnchanged(int score, RiskTier tier, string expected)
+    {
+        // Score and enforcement score are equal when no advisory row counts, so the rules tier is the tier.
+        _fraud.GetUserRiskScoreAsync(FarmerId).Returns(Scored(tier, score));
+
+        var decision = await DecideAsync();
+
+        decision.Farmer.ToString().Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task ATruncatedRead_StaysFlagged()
+    {
+        _fraud.GetUserRiskScoreAsync(FarmerId).Returns(new RiskScoreResult
+        {
+            Score = 20,
+            EnforcementScore = 20,
+            Tier = RiskTier.Critical,
+            Truncated = true
+        });
+
+        var decision = await DecideAsync();
+
+        decision.Farmer.Should().Be(PayoutDelayClass.Flagged);
     }
 
     [Theory]
