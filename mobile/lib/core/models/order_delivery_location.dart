@@ -5,7 +5,7 @@ import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 
-/// LT-14 (live-trip.md section 10, order-lifecycle.md 2.8.0): the order's own
+/// LT-14 (live-trip.md section 10, order-lifecycle.md 2.9.0): the order's own
 /// drop-off point, `deliveryLatitude` and `deliveryLongitude`. The buyer
 /// picks a place on Place order (starting from the intent's place or the
 /// registered place) and may change it until pickup, by the drop-off note's

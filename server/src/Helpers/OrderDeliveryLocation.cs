@@ -5,7 +5,7 @@ using WeredaConnect.Server.Services;
 namespace WeredaConnect.Server.Helpers;
 
 /// <summary>
-/// LT-14 (live-trip.md section 10, order-lifecycle.md 2.8.0, the "Delivery location" of
+/// LT-14 (live-trip.md section 10, order-lifecycle.md 2.9.0, the "Delivery location" of
 /// delivery-verification-api.md P.4): the order's own drop-off point, <c>deliveryLatitude</c> and
 /// <c>deliveryLongitude</c> (the names of the buyer intent's point). The buyer picks a place when
 /// ordering (the clients start from the intent's place or the buyer's registered place) and may

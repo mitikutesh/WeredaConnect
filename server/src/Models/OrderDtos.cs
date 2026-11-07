@@ -123,7 +123,7 @@ public sealed record OrderDto
     public string? DropoffNote { get; init; }
 
     /// <summary>
-    /// LT-14 (order-lifecycle 2.8.0): the order's own drop-off point, the place the buyer picked
+    /// LT-14 (order-lifecycle 2.9.0): the order's own drop-off point, the place the buyer picked
     /// (both or neither, inside Ethiopia's box). Only to the readers of <see cref="DropoffNote"/>
     /// (OrderDropoffNote.VisibleTo); null otherwise and when the order has none (the trip's
     /// destination is then the drop-off).

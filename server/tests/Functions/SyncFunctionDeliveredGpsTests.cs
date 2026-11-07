@@ -9,7 +9,7 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Functions;
 
 /// <summary>
-/// LT-14 (delivery-verification-api.md 2.1.0, GPS Validation; order-lifecycle.md 2.8.0): a trucker
+/// LT-14 (delivery-verification-api.md 2.1.0, GPS Validation; order-lifecycle.md 2.9.0): a trucker
 /// delivery's <c>gpsDropoff</c> passes within 5 km of EITHER the trip's destination point OR the order's
 /// own drop-off point (read strongly consistent); with neither it is not checked. Uses the delivery rig
 /// of <see cref="SyncFunctionTests"/>.

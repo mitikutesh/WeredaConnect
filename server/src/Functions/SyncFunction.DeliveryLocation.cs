@@ -5,7 +5,7 @@ using WeredaConnect.Server.Services;
 namespace WeredaConnect.Server.Functions;
 
 /// <summary>
-/// LT-14 (live-trip.md section 10, order-lifecycle.md 2.8.0): the order's own drop-off point,
+/// LT-14 (live-trip.md section 10, order-lifecycle.md 2.9.0): the order's own drop-off point,
 /// <c>deliveryLatitude</c> and <c>deliveryLongitude</c>. Set at create and changed by the buyer until
 /// pickup, in the drop-off note's edit window; read by <see cref="OrderDeliveryLocation.VisibleTo"/>
 /// (the trucker also while only asked). Ignored on an order without a trip (self-pickup).

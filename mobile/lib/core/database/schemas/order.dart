@@ -177,7 +177,7 @@ class Order {
   /// trucker only; null otherwise and when there is none.
   String? dropoffNote;
 
-  /// LT-14 (order-lifecycle 2.8.0): the order's own drop-off point, the place
+  /// LT-14 (order-lifecycle 2.9.0): the order's own drop-off point, the place
   /// the buyer picked (both or neither). Changed by the buyer until pickup;
   /// sent to the buyer, the farmer and, while the money is held, the order's
   /// trucker still on it (not asked yet, asked or committed). Null when there

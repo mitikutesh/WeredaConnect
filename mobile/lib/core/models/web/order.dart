@@ -64,7 +64,7 @@ class Order {
   /// Isar schema).
   String? dropoffNote;
 
-  /// LT-14: the order's own drop-off point (order-lifecycle 2.8.0; see the
+  /// LT-14: the order's own drop-off point (order-lifecycle 2.9.0; see the
   /// Isar schema).
   double? deliveryLatitude;
   double? deliveryLongitude;

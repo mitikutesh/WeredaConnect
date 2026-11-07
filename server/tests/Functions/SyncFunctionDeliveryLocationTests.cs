@@ -14,7 +14,7 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Functions;
 
 /// <summary>
-/// LT-14 (live-trip.md section 10, order-lifecycle.md 2.8.0): the order's own drop-off point,
+/// LT-14 (live-trip.md section 10, order-lifecycle.md 2.9.0): the order's own drop-off point,
 /// <c>deliveryLatitude</c> and <c>deliveryLongitude</c>, through <c>POST /sync</c>. On create: both or
 /// neither, numbers inside Ethiopia's box; a pair of nulls is no point. On update: only the buyer
 /// changes it, only before pickup (the order's status and its active delivery, read strongly
