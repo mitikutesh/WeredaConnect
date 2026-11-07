@@ -38,6 +38,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly notificationsTable: dynamodb.Table;
   public readonly tripLocationsTable: dynamodb.Table;
   public readonly listingReportsTable: dynamodb.Table;
+  public readonly reputationEventsTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
   public readonly accessLogsBucket: s3.Bucket;
 
@@ -788,6 +789,48 @@ export class DatabaseStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // ─── Reputation Events Table (ESC-28, reputation-architecture.md section 3) ─
+    // One partition per party. Penalty and completion rows are derived from order
+    // changes by ReputationStreamFunction; the sort key is the slot (`REQUEST#`,
+    // `CANCEL#`, `TRIP_CANCEL#`, `NOSHOW#`, `OVERDUE#` or `COMPLETED#` plus the order
+    // or trip id), so a replayed record finds its slot taken and writes nothing.
+    // System rows (`RESTRICTION#`, `OVERRIDE#`, `TIER#`, `HEAL#`) share the partition
+    // and never show in the party's event list. Rows expire on `purgeAt` (epoch
+    // seconds: 400 days after a penalty, restriction, override or tier row is
+    // recorded, 100 days for a completion, 7 for a heal marker); the TTL attribute
+    // can never be renamed on a live table. The NEW_IMAGE stream feeds
+    // OrderNotifyStreamFunction (penalty_recorded, tier_changed). Both GSIs are
+    // sparse and declared at table creation (the "one GSI per table update" limit
+    // only applies to an already-deployed table):
+    // - AppealStatusIndex: open appeals (`pending`) and open DELIVERY_OVERDUE
+    //   reviews (`review`), oldest first, for the admin queue;
+    // - DueIndex: every row that changes state at `dueAt`, one partition per UTC
+    //   day, so the daily job finds its work with one Query per day instead of a
+    //   Scan. Keys only: the job then reads each user's partition anyway.
+    const reputationEvents = new WeredaDynamoTable(this, "ReputationEventsTable", {
+      tableName: `${prefix}-reputation-events`,
+      partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "eventId", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+      timeToLiveAttribute: "purgeAt",
+      stream: dynamodb.StreamViewType.NEW_IMAGE,
+    });
+    this.reputationEventsTable = reputationEvents.table;
+
+    this.reputationEventsTable.addGlobalSecondaryIndex({
+      indexName: "AppealStatusIndex",
+      partitionKey: { name: "appealStatus", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "appealedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    this.reputationEventsTable.addGlobalSecondaryIndex({
+      indexName: "DueIndex",
+      partitionKey: { name: "dueDay", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "dueAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.KEYS_ONLY,
+    });
+
     // S3 access logs bucket (F-18: audit logging for compliance)
     this.accessLogsBucket = new s3.Bucket(this, "AccessLogsBucket", {
       bucketName: `${bucketPrefix}-access-logs-${this.account}`,
@@ -950,6 +993,11 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, "ListingReportsTableName", {
       value: this.listingReportsTable.tableName,
       description: "DynamoDB Listing Reports Table (buyers' reports, admin queue)",
+    });
+
+    new cdk.CfnOutput(this, "ReputationEventsTableName", {
+      value: this.reputationEventsTable.tableName,
+      description: "DynamoDB Reputation Events Table (penalties, completions and system rows, ESC-28)",
     });
   }
 }

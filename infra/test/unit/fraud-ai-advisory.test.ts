@@ -45,6 +45,7 @@ function apiTemplate(envConfig: EnvironmentConfig = devConfig): Template {
     notificationsTable: db.notificationsTable,
     tripLocationsTable: db.tripLocationsTable,
     listingReportsTable: db.listingReportsTable,
+    reputationEventsTable: db.reputationEventsTable,
     transactionAuditTable: db.transactionAuditTable,
     uploadsBucket: db.uploadsBucket,
   });

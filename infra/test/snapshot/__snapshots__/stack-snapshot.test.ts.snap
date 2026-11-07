@@ -93,6 +93,12 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "Ref": "RatingsTable70DFC9A0",
       },
     },
+    "ReputationEventsTableName": {
+      "Description": "DynamoDB Reputation Events Table (penalties, completions and system rows, ESC-28)",
+      "Value": {
+        "Ref": "ReputationEventsTable09C5651C",
+      },
+    },
     "SyncMetadataTableName": {
       "Description": "DynamoDB SyncMetadata Table",
       "Value": {
@@ -1711,6 +1717,95 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           "PointInTimeRecoveryEnabled": true,
         },
         "TableName": "wereda-connect-dev-ratings",
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "ReputationEventsTable09C5651C": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "userId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "eventId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "appealStatus",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "appealedAt",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "dueDay",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "dueAt",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "AppealStatusIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "appealStatus",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "appealedAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "DueIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "dueDay",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "dueAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "KEYS_ONLY",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "userId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "eventId",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_IMAGE",
+        },
+        "TableName": "wereda-connect-dev-reputation-events",
+        "TimeToLiveSpecification": {
+          "AttributeName": "purgeAt",
+          "Enabled": true,
+        },
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",

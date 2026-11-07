@@ -1280,6 +1280,24 @@ public class AccountDeletionServiceTests
             .Should().Contain("notifications=2;notificationsAnonymized=2");
     }
 
+    [Theory]
+    [InlineData("farmer")]
+    [InlineData("trucker")]
+    public async Task ReputationEvents_TheUsersPartitionIsDeleted_OthersStay(string role)
+    {
+        // ESC-28 (account-deletion.md 1.5.0): penalties, appeal text and photo refs, system rows.
+        var userId = PartyIds[role];
+        _repo.AddUser(Live(userId, role));
+        _repo.ReputationEvents[userId] = new HashSet<string> { "CANCEL#order-1", "TIER#2026-11-07T09:00:00.000Z#CANCEL#order-1", "HEAL#2026-11-07" };
+        _repo.ReputationEvents["someone-else"] = new HashSet<string> { "REQUEST#order-2" };
+
+        (await Delete(userId)).Result.Should().Be(AccountDeletionResult.Completed);
+
+        _repo.ReputationEvents[userId].Should().BeEmpty();
+        _repo.ReputationEvents["someone-else"].Should().ContainSingle();
+        _audit.WithAction("account_deleted").Single()["metadata"].ToString().Should().Contain("reputationEvents=3");
+    }
+
     [Fact]
     public async Task Inbox_ARowThatNamesNoOrder_MatchesByItsEscrowOrDeliveryId()
     {

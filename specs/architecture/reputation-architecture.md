@@ -1,14 +1,16 @@
 # Reputation Architecture
 
 ## Version
-1.0.0 | 2026-11-07 (ESC-27)
+1.1.0 | 2026-11-07 (ESC-28)
 
 ## Status
-PLANNED. Design for EPIC ESC phase P2 (ESC-28 to ESC-33); nothing is built. To be reviewed
-before P2 code starts.
+PARTLY BUILT. ESC-28 (the core write side) is built and ships dark: sections 3 (the table and
+its indexes), 5, 6.1, 6.2, 6.4, 7, 8, 9, 12.2 and the ESC-28 monitoring of 14; section 20 lists
+where the build reads the design. PLANNED: 6.3 (copies), 6.5, 6.6, 10, 11 and 13 (ESC-29 to
+ESC-33).
 
-**Contracts**: `specs/contracts/reputation-api.md` 1.0.0, `rating-api.md` 1.2.0,
-`user-entity.md` 2.0.0.
+**Contracts**: `specs/contracts/reputation-api.md` 1.1.0, `rating-api.md` 1.3.0,
+`user-entity.md` 2.1.0, `notifications-api.md` 1.5.0, `account-deletion.md` 1.6.0.
 **Rules and decisions**: `specs/features/three-party-escrow-commitments-reputation.md` 4.11,
 5.I, 5.K, 14 (D1 to D9). Product rules set by the user, not changed here: a farmer or trucker who
 declines or cancels a paid order gets penalty points and a lower rating and can be tagged "Low
@@ -113,6 +115,7 @@ only needed inside the 90 day windows, and purging them bounds the partition a b
 | `appealText`, `appealPhotoRef` | S | the party's appeal |
 | `appealDecision`, `decidedAt`, `decidedBy`, `decisionNote` | S | the admin's decision |
 | `sourceSeq` | S | the stream sequence number, for support |
+| `activePointsAfter` | N | on a penalty: the user's active points right after it (as built: the `activePoints` param of `penalty_recorded`, so the notify Lambda reads nothing) |
 | `version` | N | row compare-and-set for earn-back and decisions |
 | `purgeAt` | N | TTL |
 
@@ -122,7 +125,7 @@ only needed inside the 90 day windows, and purging them bounds the partition a b
 |---|---|---|
 | `RESTRICTION#{since}` | `RESTRICTION` | `cause` (`points`, `delivery_overdue`, `admin`), `since`, `until` (absent while an admin review is open), `status` (`active`, `ended`, `lifted`), `reason` and `by` (admin), `liftedAt`, `liftedBy`, `dueDay`/`dueAt` = `until` |
 | `OVERRIDE#{at}` | `ADMIN_TAG` or `ADMIN_UNTAG` | `tag` (`low` or `clear`), `until`, `reason`, `by`, `status` (`active`, `ended`, `replaced`), `dueDay`/`dueAt` = `until` |
-| `TIER#{at}` | `TIER_CHANGED` | `fromTier`, `toTier`, `restrictedUntil`; feeds `tier_changed` |
+| `TIER#{at}#{cause}` | `TIER_CHANGED` | `fromTier`, `toTier`, `restrictedUntil`; feeds `tier_changed`. `{cause}` is the slot that changed it, or `daily` and `refresh` (as built: unique when several orders of one write share a time) |
 | `HEAL#{yyyy-mm-dd}` | `HEAL` | `dueDay` = that day, `dueAt` = first write; upserted by any writer that leaves a best-effort step behind; deleted by the daily job |
 
 ### 3.3 Indexes
@@ -838,8 +841,65 @@ reversible before ESC-28 ships.
 
 ---
 
+## 20. As built (ESC-28)
+
+Code: `Helpers/ReputationPolicy.cs`, `Helpers/ReputationPolicySettings.cs`,
+`Helpers/ReputationDerivation.cs`, `Data/ReputationEventRepository.cs` (+ interface),
+`Data/DeviceReachability.cs`, `Services/ReputationService.cs`, `Services/ReputationRecordProcessor.cs`
+(and `ReputationParking`), `Services/ReputationJobs.cs` (daily job, unpark, rating backfill),
+`Functions/ReputationStreamFunction.cs`, the order-cron actions, `Services/NotificationRules.cs`
+and `Helpers/PushText.cs` (two types), `Data/RatingRepository.cs` (the rating transaction),
+`Data/UserRepository.cs` (the registration stamp), the account deletion step; infra in
+`database-stack.ts`, `api-stack.ts`, `monitoring-stack.ts`, `environments.ts`.
+
+How the build reads points the design left open:
+
+1. **Not built here (ESC-29)**: the copy refresh of 6.3. A write that changes a public field
+   (public tier, effective rating, reliability) still upserts the day's `HEAL#` marker, so the
+   daily job will retry the copy once ESC-29 adds it; today the job consumes the marker and
+   rewrites the aggregate.
+2. **TIER rows** are written whenever the tier about to be stored differs from the stored one (an
+   absent map reads as `good`), by the event transaction, the daily job and the refresh alike, so
+   a time-driven change (an ended restriction) is never written without its row.
+3. **Restriction start**: `since` is the recording time (the stream is seconds late; a parked
+   record replayed hours later does not start a restriction that has partly run).
+4. **R8** also needs `farmerResponse` in the old image (decision R25 applied to the farmer's
+   cancel). **R12** reads the order's `disputeReason`; ESC-36 must write `delivery_overdue` there
+   (the order takes no client `disputeReason`, so a buyer's dispute text cannot spell it).
+5. **Reachability** (7.3) is read only while `timeoutPenalties` is on; off, the expiry gets 0
+   (`timeout_penalties_off`) with no read.
+6. **Earn-back rule 4** checks `SELF_TRADE` and `SHARED_DEVICE_TRADE` on the order for the party
+   and the buyer. Without the fraud-signals table no earn-back is given (stricter, never one a
+   self-trade could buy). A failed signal read throws (the record is parked).
+7. **Request cap**: the active request points are checked at every moment of the candidate's
+   points life (its start and each later counted row's start), so it holds in any arrival order
+   like the other caps.
+8. **`nextChangeAt`** also takes a completion's expiry and the moment a row leaves the 90 day
+   reliability window, so a read past it recomputes reliability too.
+9. **Read-lag check** (the optional hardening of the design review): the map stores
+   `lastEventId` and `lastEventRecordedAt`; a writer whose strongly consistent events Query does
+   not return that row (recorded in the last 30 days, before any TTL could remove it) reads again
+   up to 3 times, then throws so the record is parked.
+10. **Rating refresh** (6.4) runs only while `reputationPenalties` is on. The rating create
+    transaction itself is not flagged.
+11. **The order-cron** body takes `catchUpDays` as a number or a numeric string (1 to 100);
+    `reputation_daily`, `reputation_unpark` and `reputation_recompute_all` log and return while
+    the flag is off; `reputation_backfill_ratings` is not flagged. Reserved concurrency 6 (six
+    rules since ESC-16 and ESC-28).
+12. **Parking** keeps the record's shape (keys, sequence number, record time, the projected
+    images), so `reputation_unpark` replays it through the same `ReputationRecordProcessor`. A
+    parking failure logs `REPUTATION_PARK_FAILED` (alarmed) and reports the record.
+13. **Monitoring**: the reputation stream's log group also carries the fraud signal filters
+    (it builds the fraud service for rule 4; ESC-33 makes it write signals). The six reputation
+    log metrics publish without a default.
+14. **Notifications**: the inbox key is `{record time}#{type}#{eventId}` like every other
+    source (the record time of an `INSERT` is the row's `recordedAt` within a second).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-11-07 | ESC-28 built: status PARTLY BUILT; section 20 (as built: copies left to ESC-29 with the heal marker kept, TIER rows on every stored tier change and keyed `TIER#{at}#{cause}`, restriction from the recording time, R8 needs the old `farmerResponse`, R12 on the order's `disputeReason`, reachability only with `timeoutPenalties`, earn-back none without the fraud table, the request cap over the candidate's whole life, `nextChangeAt` with completions and the reliability window, the read-lag check with `lastEventId`, the refresh behind `reputationPenalties`, `catchUpDays`, parking shape, monitoring, inbox key); `activePointsAfter` on penalty rows |
 | 1.0.0 | 2026-11-07 | First design (ESC-27): data model, stream derivation, policy and defaults, service and transaction, daily job, notifications, gates, matching, rollout and backfill, FRD hooks, failure modes, cost, ticket split ESC-28 to ESC-33, decisions R1 to R32. Review fixes before merge: caps and earn-back limits look both ways in time; strongly consistent events read under the version check; R8 and R9 keyed on the old status; suspended, short-window and request caps; crop owner index is `INCLUDE` (BatchGet for status, browse filter in code on the `INCLUDE` path); admins only on `/admin` routes; parked messages hold projected images; stream concurrency at or above the shard count; notify source filtered on `code` |

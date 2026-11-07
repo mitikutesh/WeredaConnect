@@ -40,6 +40,7 @@ describe('CDK Integration Tests', () => {
       notificationsTable: dbStack.notificationsTable,
       tripLocationsTable: dbStack.tripLocationsTable,
       listingReportsTable: dbStack.listingReportsTable,
+      reputationEventsTable: dbStack.reputationEventsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -92,6 +93,7 @@ describe('CDK Integration Tests', () => {
         notificationsTable: dbStack.notificationsTable,
         tripLocationsTable: dbStack.tripLocationsTable,
         listingReportsTable: dbStack.listingReportsTable,
+        reputationEventsTable: dbStack.reputationEventsTable,
         transactionAuditTable: dbStack.transactionAuditTable,
         uploadsBucket: dbStack.uploadsBucket,
       });

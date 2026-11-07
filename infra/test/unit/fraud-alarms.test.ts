@@ -193,8 +193,8 @@ describe('FRD-16: fraud signal metrics', () => {
   test('the total is a plain term with a zero default, so it counts the line bare or behind the runtime prefix', () => {
     const template = monitoringTemplate(true);
     const filters = filtersPublishing(template, 'FraudSignalsRecorded');
-    // Seven since FRD-16 and FRD-15, eight with FRD-19's fraud-advisory cron.
-    expect(filters.length).toBe(8);
+    // Seven since FRD-16 and FRD-15, eight with FRD-19's fraud-advisory cron, nine with ESC-28's reputation stream.
+    expect(filters.length).toBe(9);
     for (const filter of filters) {
       const pattern = filter.Properties.FilterPattern;
       expect(pattern).toBe('"FRAUD_SIGNAL_RECORDED"');
@@ -214,7 +214,7 @@ describe('FRD-16: fraud signal metrics', () => {
   test('the per-type metric takes the signal type as its one dimension, with no default (CloudWatch forbids both)', () => {
     const template = monitoringTemplate(true);
     const filters = filtersPublishing(template, 'FraudSignalsByType');
-    expect(filters.length).toBe(8);
+    expect(filters.length).toBe(9);
     for (const filter of filters) {
       const pattern = filter.Properties.FilterPattern;
       expect(pattern).toBe('{ $.event = "FRAUD_SIGNAL_RECORDED" }');

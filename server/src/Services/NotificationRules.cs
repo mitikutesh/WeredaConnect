@@ -25,12 +25,16 @@ public static class NotificationRules
     public const string DeliveriesTable = "deliveries";
     public const string EscrowsTable = "escrows";
 
+    /// <summary>ESC-28: the reputation-events table (penalty and tier rows, reputation-architecture.md section 9).</summary>
+    public const string ReputationTable = "reputation";
+
     public const string InsertEvent = "INSERT";
     public const string ModifyEvent = "MODIFY";
 
     public const string OrderEntity = "order";
     public const string DeliveryEntity = "delivery";
     public const string EscrowEntity = "escrow";
+    public const string ReputationEntity = "reputation";
 
     /// <summary>The buyer's window to report a problem after delivery, before the escrow auto-releases.</summary>
     public static readonly TimeSpan DisputeWindow = TimeSpan.FromHours(48);
@@ -82,8 +86,65 @@ public static class NotificationRules
                 => DeriveDeliveryMarkers(oldImage, newImage),
             EscrowsTable when eventName == ModifyEvent && oldImage.Exists && newImage.Exists
                 => DeriveEscrow(oldImage, newImage),
+            ReputationTable when eventName == InsertEvent && newImage.Exists
+                => DeriveReputation(newImage),
             _ => NoEvents
         };
+    }
+
+    // ===== reputation (ESC-28) =====
+
+    /// <summary>
+    /// A reputation-events row was inserted: a penalty with points above 0 tells its party
+    /// <c>penalty_recorded</c>; a <c>TIER_CHANGED</c> row tells them <c>tier_changed</c>. Every other
+    /// row (a zero-point penalty, a completion, a restriction, an override, a heal marker) is silent;
+    /// the stream filter already drops most of them. Only the party is told, never a buyer, and
+    /// there is no order to open: the tap opens My reputation.
+    /// </summary>
+    private static IReadOnlyList<NotificationEvent> DeriveReputation(StreamImage row)
+    {
+        var userId = row.String("userId");
+        var eventId = row.String("eventId");
+        var code = row.String("code");
+        if (userId.Length == 0 || eventId.Length == 0)
+        {
+            return NoEvents;
+        }
+
+        var p = new Dictionary<string, string>();
+        if (Models.ReputationCodes.Penalties.Contains(code))
+        {
+            var points = row.Number("points") ?? 0;
+            if (points <= 0)
+            {
+                return NoEvents;
+            }
+
+            Put(p, NotificationParams.EventId, eventId);
+            Put(p, NotificationParams.Code, code);
+            Put(p, NotificationParams.Points, ((int)points).ToString(CultureInfo.InvariantCulture));
+            if (row.Number("activePointsAfter") is { } active)
+            {
+                Put(p, NotificationParams.ActivePoints, ((int)active).ToString(CultureInfo.InvariantCulture));
+            }
+
+            return new[] { new NotificationEvent(userId, NotificationTypes.PenaltyRecorded, ReputationEntity, eventId, null, p) };
+        }
+
+        if (code == Models.ReputationCodes.TierChanged)
+        {
+            var toTier = row.String("toTier");
+            Put(p, NotificationParams.FromTier, row.String("fromTier"));
+            Put(p, NotificationParams.ToTier, toTier);
+            if (toTier == Models.ReputationTiers.Restricted)
+            {
+                Put(p, NotificationParams.RestrictedUntil, row.String("restrictedUntil"));
+            }
+
+            return new[] { new NotificationEvent(userId, NotificationTypes.TierChanged, ReputationEntity, eventId, null, p) };
+        }
+
+        return NoEvents;
     }
 
     // ===== orders =====

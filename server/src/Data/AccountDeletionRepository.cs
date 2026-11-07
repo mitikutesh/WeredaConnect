@@ -23,6 +23,9 @@ public sealed record AccountDeletionTables
     public required string MatchEvents { get; init; }
     public required string DeviceTokens { get; init; }
     public required string Notifications { get; init; }
+
+    /// <summary>ESC-28: the user's reputation events (appeal text and photo refs included) are deleted.</summary>
+    public required string ReputationEvents { get; init; }
 }
 
 /// <summary>
@@ -758,6 +761,26 @@ public sealed class AccountDeletionRepository : IAccountDeletionRepository
         {
             TableName = _tables.Notifications,
             Key = NotificationKey(userId, sortKey)
+        });
+
+    public async Task<List<string>> QueryReputationEventIdsAsync(string userId)
+        => (await QueryAllAsync(new QueryRequest
+        {
+            TableName = _tables.ReputationEvents,
+            KeyConditionExpression = "userId = :id",
+            ProjectionExpression = "eventId",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", S(userId) } }
+        }))
+            .Select(i => i.TryGetValue("eventId", out var key) ? key.S : null)
+            .Where(key => !string.IsNullOrEmpty(key))
+            .Select(key => key!)
+            .ToList();
+
+    public Task DeleteReputationEventAsync(string userId, string eventId)
+        => _dynamoDb.DeleteItemAsync(new DeleteItemRequest
+        {
+            TableName = _tables.ReputationEvents,
+            Key = new Dictionary<string, AttributeValue> { { "userId", S(userId) }, { "eventId", S(eventId) } }
         });
 
     public async Task<List<InboxEntry>> QueryNotificationsAsync(string recipientId)

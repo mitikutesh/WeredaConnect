@@ -48,7 +48,8 @@ public class AccountDeletionFunction
             Intents = Env("INTENTS_TABLE"),
             MatchEvents = Env("MATCH_EVENTS_TABLE"),
             DeviceTokens = Env("DEVICE_TOKENS_TABLE"),
-            Notifications = Env("NOTIFICATIONS_TABLE")
+            Notifications = Env("NOTIFICATIONS_TABLE"),
+            ReputationEvents = Env("REPUTATION_EVENTS_TABLE")
         };
 
         _service = new AccountDeletionService(

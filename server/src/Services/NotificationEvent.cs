@@ -74,6 +74,13 @@ public static class NotificationTypes
     public const string DisputeResolved = "dispute_resolved";
     public const string UnderReview = "under_review";
 
+    // Reputation (ESC-28, reputation-api.md section 10): from the reputation-events table, to the party only.
+    /// <summary>A penalty row with points above 0 was recorded for the recipient.</summary>
+    public const string PenaltyRecorded = "penalty_recorded";
+
+    /// <summary>The recipient's tier changed (a <c>TIER_CHANGED</c> row); to <c>warning</c> it is the private warning.</summary>
+    public const string TierChanged = "tier_changed";
+
     /// <summary>Every type, for the parity tests (push text in three languages, client ARB keys).</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -82,7 +89,8 @@ public static class NotificationTypes
         PaymentFailed, RequestReminder, PickupOverdue, PickupMissed,
         DeliveryScheduled, BuyerCollecting, PickedUp, HandoffRecorded, InTransit, TruckNearby, Delivered, DeliveredPayoutPending,
         OrderSettled, RefundSent, PayoutSent, PayoutBlocked, PayoutProcessing,
-        DisputeOpened, DisputeReceived, DisputeResolved, UnderReview
+        DisputeOpened, DisputeReceived, DisputeResolved, UnderReview,
+        PenaltyRecorded, TierChanged
     };
 
     /// <summary>Types that ask the recipient to do something; their push carries a deadline-bound time to live.</summary>
@@ -113,4 +121,15 @@ public static class NotificationParams
 
     /// <summary>LT-07, <c>truck_nearby</c>: minutes to the start of the arrival window, a multiple of 5; absent when 0 or unknown.</summary>
     public const string Minutes = "minutes";
+
+    /// <summary>ESC-28, <c>penalty_recorded</c>: the event's slot id, code, points and the party's active points after it.</summary>
+    public const string EventId = "eventId";
+    public const string Code = "code";
+    public const string Points = "points";
+    public const string ActivePoints = "activePoints";
+
+    /// <summary>ESC-28, <c>tier_changed</c>: the tiers before and after, and the restriction's end when restricted.</summary>
+    public const string FromTier = "fromTier";
+    public const string ToTier = "toTier";
+    public const string RestrictedUntil = "restrictedUntil";
 }

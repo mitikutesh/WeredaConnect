@@ -590,6 +590,15 @@ public sealed class AccountDeletionService
         }
 
         await PurgeNotificationsAsync(userId, scan, counts, budget);
+
+        // ESC-28: the user's reputation-events partition, appeal text and photo refs included
+        // (reputation-architecture.md 16). Writers refuse a deleting account, so nothing comes back.
+        foreach (var eventId in await _repo.QueryReputationEventIdsAsync(userId))
+        {
+            budget.ThrowIfLow();
+            await _repo.DeleteReputationEventAsync(userId, eventId);
+            counts.ReputationEvents++;
+        }
     }
 
     /// <summary>
@@ -904,10 +913,11 @@ public sealed class AccountDeletionService
         public int DeviceTokens { get; set; }
         public int Notifications { get; set; }
         public int NotificationsAnonymized { get; set; }
+        public int ReputationEvents { get; set; }
 
         public string ToMetadata()
             => FormattableString.Invariant(
-                   $"crops={Crops};trips={Trips};ordersCancelled={OrdersCancelled};orders={Orders};deliveries={Deliveries};escrows={Escrows};ratings={Ratings};messages={Messages};intents={Intents};matchEvents={MatchEvents};deviceTokens={DeviceTokens};notifications={Notifications};notificationsAnonymized={NotificationsAnonymized}")
+                   $"crops={Crops};trips={Trips};ordersCancelled={OrdersCancelled};orders={Orders};deliveries={Deliveries};escrows={Escrows};ratings={Ratings};messages={Messages};intents={Intents};matchEvents={MatchEvents};deviceTokens={DeviceTokens};notifications={Notifications};notificationsAnonymized={NotificationsAnonymized};reputationEvents={ReputationEvents}")
                + (Resumed ? ";resumed=true" : "");
     }
 

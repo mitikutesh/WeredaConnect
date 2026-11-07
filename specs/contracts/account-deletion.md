@@ -1,7 +1,7 @@
 # Account Deletion Contract
 
 ## Version
-1.5.0
+1.6.0
 
 ## Parties
 - **Mobile / Web** (client, ACC-03): Profile > "Delete account" flow, step-up re-auth, local wipe. Mobile and web are a platform pair and ship together.
@@ -200,6 +200,7 @@ No table scan except the one in Completion Sweep.
 | Ratings authored (buyer) | ratings GetItem `{orderId}:{farmerId}` and, when the order has a trucker, `{orderId}:{truckerId}`, per buyer order (there is no rater index) |
 | Ratings received (farmer, trucker) | ratings `RateeIdCreatedAtIndex` |
 | Notification inbox rows (1.4.0) | notifications Query PK `userId`: the user's own rows, then the rows of each other party named on the orders, escrows and deliveries found above, matched to those rows in memory (the table has no index by party) |
+| Reputation events (1.6.0) | reputation-events Query PK `userId` (keys only) |
 
 GSIs are eventually consistent. Steps 5, 8 and 9 plus the money-entry refusals in Effects on Other Endpoints close the race between a blocker check and a concurrent payment.
 
@@ -288,6 +289,7 @@ Every DynamoDB table in `infra/lib/stacks/database-stack.ts` and `infra/lib/cons
 | `match-events` | Delete | For each of the user's intents, hard delete the rows with PK `intentId`. Any row missed expires through the 90 day `ttl` |
 | `device-tokens` | Delete | Per row (PK `userId`, SK `endpointArn`): SNS `DeleteEndpoint(endpointArn)`, then DeleteItem. NotFound counts as done |
 | `notifications` | Delete (own rows) / Anonymize (counterparty rows) | Inbox rows (ESC-21, `notifications-api.md`): PK `userId`, SK `sortKey`, the notification type, ids and params (display names copied at event time, crop, kg, ETB, deadlines, reason codes; never a phone). `expiresAt` 90 days after the event. Step 10 (1.4.0, FUP-120): every row with PK `userId` = the user is deleted (Query, DeleteItem). For every other party named on the user's orders, escrows and deliveries (the Lookups set), their rows are read (Query PK their `userId`); a row about one of them (by its `orderId`, or by its escrow or delivery `entityId` when it names no order) gets the param of the user's role there (`buyerName`, `farmerName` or `truckerName`) set to the sentinel by an UpdateItem conditional on the row existing, so a row the TTL removed is not recreated. The other params, the other parties' names among them, and `expiresAt` stay. A row without that param, or already the sentinel, is not written. A failed read or write stops the run with `503 ACCOUNT_005` like the other step 10 writes, and the resume finds the rows already done. Known limit: a stream record about a change made before the deletion but processed after it (in flight, or retried up to a day late) writes its row with the name its image carried; that row keeps it until its TTL |
+| `reputation-events` | Delete | Reputation events (ESC-28, `reputation-api.md`, `reputation-architecture.md` section 3): PK `userId`, SK `eventId`; penalty and completion rows (codes, points, order, trip and buyer ids, times), appeal text and photo refs (ESC-29), and system rows (restrictions, admin overrides with their reason, tier changes, heal markers). `purgeAt` TTL of 7 to 400 days. Step 10 (1.6.0): every row with PK `userId` = the user is deleted (Query, DeleteItem), after the notifications. The other parties' partitions are untouched: a buyer id on a farmer's or trucker's event is a pseudonymous id, kept with the event like on the orders. Every reputation writer is conditional on `attribute_not_exists(deletionState)` on the users row, so nothing is recorded for the user once the deletion starts; the `reputation`, `ratingSum`, `ratingCount` and `ratingsAggregatedAt` attributes leave the users row with the tombstone. The appeal photos (`uploads/appeals/{userId}/`, ESC-29) are a follow-up of ESC-29 |
 | `trip-locations` | Retain until TTL | Live Trip check-ins (LT-05, `live-trip-api.md`): PK `tripId`, SK `sortKey` (`{capturedAt}#{kind}`), `truckerId`, coordinates (4 decimals), `accuracyM`, `source`, `mocked`, `pausedUntil`, `receivedAt`; `expiresAt` 60 days after capture. Kept as dispute and fraud evidence like the deliveries' `gpsPickup` and `gpsDropoff`; the deletion steps do not touch it |
 | `listing-reports` | Retain until TTL | Buyers' reports of listings (FUP-67, `listing-report-api.md`): PK `listingId`, SK `reporterId`, `listingType`, `ownerId`, a reason code, `status` and the admin review fields; no free text from the buyer. `expiresAt` 180 days after the report. Pseudonymous moderation evidence, like `fraud-signals`; the deletion steps do not touch it |
 | `fraud-signals` | Retain until TTL | Fraud prevention. PK `userId`, SK `signalKey`, weight and rule text; `expiresAt` 30 days after the signal. The one `~whitelist` row per user (FRD-05, fraud spec section 20) carries no rule text and expires at its `whitelistUntil`, up to `FRAUD_WHITELIST_DAYS` days (at most 365) after the admin's whitelist, inside the 400-day bound of the TTL rows. Not rewritten |
@@ -421,6 +423,7 @@ Built: `server/src/Functions/AccountDeletionFunction.cs`, `Services/AccountDelet
 - `UserRepository` maps a tombstone (no phone, no woreda) and every profile write (`UpdateUserAsync`) is conditional on `attribute_not_exists(deletionState)`, so no write can put personal data back on a deleting or deleted row.
 - Alarm `{prefix}-account-deletion-stuck` on `ACCOUNT_DELETION_STUCK` in the sweep log group.
 - Notifications inbox (1.4.0, FUP-120): step 10 ends with the `notifications` per-table row. Both Lambdas carry `NOTIFICATIONS_TABLE` and hold `dynamodb:Query`, `dynamodb:UpdateItem` and `dynamodb:DeleteItem` on `{prefix}-notifications`, nothing else. The `account_deleted` metadata adds `notifications` (own rows deleted) and `notificationsAnonymized` (other parties' rows rewritten).
+- Reputation events (1.6.0, ESC-28): after the inbox, the user's `reputation-events` partition is deleted. Both Lambdas carry `REPUTATION_EVENTS_TABLE` and hold `dynamodb:Query` and `dynamodb:DeleteItem` on `{prefix}-reputation-events` (base table only). The `account_deleted` metadata adds `reputationEvents` (rows deleted).
 
 How the implementation reads points this contract leaves open:
 
@@ -443,6 +446,7 @@ Not built yet (follow-ups):
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.6.0 | 2026-11-07 | Per-table policy: `reputation-events` (ESC-28) is Delete: step 10 deletes the user's partition (penalties, appeals, restrictions, overrides, tier and heal rows) after the inbox; Lookups row; both deletion Lambdas get Query and DeleteItem on the table; the `account_deleted` metadata counts `reputationEvents`. The reputation writers already refuse a deleting account. No wire change |
 | 1.5.0 | 2026-11-07 | Per-table policy: `listing-reports` (FUP-67, `listing-report-api.md` 1.0.0) retained until its 180 day TTL: ids, a reason code and the admin review fields, no free text from the buyer; no deletion step. No wire change |
 | 1.4.0 | 2026-11-06 | Per-table policy: `notifications` (ESC-21 inbox) is Delete for the user's own rows and Anonymize for the other parties' rows about a shared order, escrow or delivery: the user's copied name param becomes the sentinel, conditional on the row existing (FUP-120, replaces 1.3.1's "retain until TTL"). Lookups row for the inbox; both deletion Lambdas get Query, UpdateItem and DeleteItem on the table; the `account_deleted` metadata counts both writes; a stream record processed after the deletion is a known limit. No wire change |
 | 1.3.3 | 2026-10-31 | Per-table policy: `crops` also drops `photoIds` (`crop-listing-api.md` 1.6.0), so no photo URL is signed for a deleted farmer's listings; the photo objects expire with the photos bucket lifecycle (365 days) |
@@ -455,5 +459,5 @@ Not built yet (follow-ups):
 
 ---
 
-**Last Updated**: 2026-11-06
-**Version**: 1.4.0
+**Last Updated**: 2026-11-07
+**Version**: 1.6.0

@@ -50,6 +50,8 @@ interface DynamoTableDef {
  * FRD-16's per-type signal metrics ($6.30 at most for the 21 types of today; fraud spec section
  * 23.1) and the live webhook route's 6 detailed API Gateway metrics (at most $1.80; FUP-39).
  * Metric filters are free. Recount when an alarm, or a filter with a default, is added.
+ * ESC-28 (not in the count above): 10 reputation alarms, one metric each ($1.00), and 6 log filter
+ * metrics without a default, billed only in the hours a line is written.
  *
  * References Lambda functions and DynamoDB tables by name (no cross-stack refs needed).
  */
@@ -1633,9 +1635,10 @@ export class MonitoringStack extends cdk.Stack {
     accountDeletionStuckAlarm.addAlarmAction(snsAction);
     accountDeletionStuckAlarm.addOkAction(snsAction);
 
-    // ESC-21: the order notification stream consumer (orders, deliveries and escrows streams
-    // into the inbox table and FCM). Three standalone alarms: the aggregate LambdaErrors
-    // expression is already at its 10 metric cap. Names follow the api-stack resources
+    // ESC-21: the order notification stream consumer (orders, deliveries and escrows streams,
+    // and since ESC-28 the reputation-events stream, into the inbox table and FCM). Three
+    // standalone alarms: the aggregate LambdaErrors expression is already at its 10 metric
+    // cap. Names follow the api-stack resources
     // (`${prefix}-notify-dlq`, `${prefix}-order-notify-stream`); no cross-stack refs.
     const notifyStreamFunctionName = `${prefix}-order-notify-stream`;
 
@@ -1645,9 +1648,9 @@ export class MonitoringStack extends cdk.Stack {
     const notifyDlqAlarm = new cloudwatch.Alarm(this, 'NotifyDlqMessages', {
       alarmName: `${prefix}-notify-dlq-messages`,
       alarmDescription:
-        'Order notifications were dropped: a stream batch from the orders, deliveries or escrows ' +
-        'table failed all its retries or was older than one day, so its inbox rows and pushes were ' +
-        'never written (the orders, deliveries and escrows themselves are unaffected). Each message ' +
+        'Order notifications were dropped: a stream batch from the orders, deliveries, escrows or ' +
+        'reputation-events table failed all its retries or was older than one day, so its inbox rows ' +
+        'and pushes were never written (the source rows themselves are unaffected). Each message ' +
         'in the notify-dlq queue holds the stream ARN, shard and sequence range of the dropped ' +
         'records, not the records; the table stream keeps them for 24 hours. Find the derive or ' +
         'inbox write error in the order-notify-stream log group, fix it, then purge the queue to ' +
@@ -1674,8 +1677,8 @@ export class MonitoringStack extends cdk.Stack {
     const notifyIteratorAgeAlarm = new cloudwatch.Alarm(this, 'NotifyStreamIteratorAge', {
       alarmName: `${prefix}-notify-stream-iterator-age`,
       alarmDescription:
-        'order-notify-stream is more than 15 minutes behind the orders, deliveries or escrows ' +
-        'stream, so order notifications and pushes are late. Usual causes: a record failing and ' +
+        'order-notify-stream is more than 15 minutes behind the orders, deliveries, escrows or ' +
+        'reputation-events stream, so notifications and pushes are late. Usual causes: a record failing and ' +
         'retrying (see the log group), throttling at its reserved concurrency, or slow SNS or ' +
         'DynamoDB calls. A record that reaches one day of age is dropped to the notify-dlq queue.',
       metric: new cloudwatch.Metric({
@@ -1719,6 +1722,277 @@ export class MonitoringStack extends cdk.Stack {
     notifyStreamErrorsAlarm.addAlarmAction(snsAction);
     notifyStreamErrorsAlarm.addOkAction(snsAction);
 
+    // ─── ESC-28: reputation stream, parked records and reputation log lines ─────
+    // reputation-architecture.md section 14. Names follow the api-stack resources
+    // (`${prefix}-reputation-dlq`, `${prefix}-reputation-parked-dlq`, `${prefix}-reputation-stream`);
+    // no cross-stack refs. Standalone alarms, like the notify stream's: the aggregate LambdaErrors
+    // expression is at its 10 metric cap.
+    const reputationStreamFunctionName = `${prefix}-reputation-stream`;
+
+    // Metadata only: a record that failed and could not be parked either, after its 10 retries or
+    // 24 hours of age. Messages stay visible until purged (14 day retention).
+    const reputationDlqAlarm = new cloudwatch.Alarm(this, 'ReputationDlqMessages', {
+      alarmName: `${prefix}-reputation-dlq-messages`,
+      alarmDescription:
+        'Reputation events may be lost: an orders stream record failed in reputation-stream and could not ' +
+        'be parked either, or reached 24 hours of age, so only its metadata reached the reputation-dlq queue ' +
+        '(stream ARN, shard and sequence range, not the record). The orders stream keeps a record for 24 ' +
+        'hours; after that the event it carried is gone (no reconcile tool yet). Find the error ' +
+        '(REPUTATION_PARK_FAILED and the exception) in the reputation-stream log group, fix it, then purge ' +
+        'the queue to clear this alarm.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/SQS',
+        metricName: 'ApproximateNumberOfMessagesVisible',
+        dimensionsMap: { QueueName: `${prefix}-reputation-dlq` },
+        statistic: 'Maximum',
+        period: cdk.Duration.minutes(5),
+        label: 'Reputation DLQ Messages',
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator:
+        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    reputationDlqAlarm.addAlarmAction(snsAction);
+    reputationDlqAlarm.addOkAction(snsAction);
+
+    // A parked record that failed 5 hourly replays (the parked queue's redrive policy).
+    const reputationParkedDlqAlarm = new cloudwatch.Alarm(this, 'ReputationParkedDlqMessages', {
+      alarmName: `${prefix}-reputation-parked-dlq-messages`,
+      alarmDescription:
+        'A parked reputation record failed 5 replays (order-cron reputation_unpark, hourly) and moved to the ' +
+        'reputation-parked-dlq queue, so its reputation event is not recorded yet. Each message holds the ' +
+        'order keys and the projected attributes the derivation reads. Find the replay error in the ' +
+        'order-cron log group and fix it, then move the messages back to the reputation-parked queue (SQS ' +
+        'dead-letter redrive); the next unpark replays them, and a replay is safe because each event has a ' +
+        'fixed slot id.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/SQS',
+        metricName: 'ApproximateNumberOfMessagesVisible',
+        dimensionsMap: { QueueName: `${prefix}-reputation-parked-dlq` },
+        statistic: 'Maximum',
+        period: cdk.Duration.minutes(5),
+        label: 'Reputation Parked DLQ Messages',
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator:
+        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    reputationParkedDlqAlarm.addAlarmAction(snsAction);
+    reputationParkedDlqAlarm.addOkAction(snsAction);
+
+    // The consumer is falling behind the orders stream; at 24 hours a record goes to the DLQ.
+    const reputationIteratorAgeAlarm = new cloudwatch.Alarm(this, 'ReputationStreamIteratorAge', {
+      alarmName: `${prefix}-reputation-stream-iterator-age`,
+      alarmDescription:
+        'reputation-stream is more than 1 hour behind the orders stream, so reputation events land late. ' +
+        'Usual causes: more stream shards than its reserved concurrency (10), a record retrying (see the ' +
+        'log group), or slow DynamoDB calls. A record that reaches 24 hours of age goes to the ' +
+        'reputation-dlq queue and its event is lost.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/Lambda',
+        metricName: 'IteratorAge',
+        dimensionsMap: { FunctionName: reputationStreamFunctionName },
+        statistic: 'Maximum',
+        period: cdk.Duration.minutes(5),
+        label: 'Reputation Stream Iterator Age',
+      }),
+      threshold: 3600000,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    reputationIteratorAgeAlarm.addAlarmAction(snsAction);
+    reputationIteratorAgeAlarm.addOkAction(snsAction);
+
+    // As for the notify stream: a failed record is parked or reported through the partial batch
+    // response, never a Lambda error. Errors here mean the invocation itself died.
+    const reputationStreamErrorsAlarm = new cloudwatch.Alarm(this, 'ReputationStreamErrors', {
+      alarmName: `${prefix}-reputation-stream-errors`,
+      alarmDescription:
+        'reputation-stream invocations failed: timeout, out of memory, a runtime crash or a missing ' +
+        'environment variable. A failed record alone never counts here (it is parked, or retried through ' +
+        'the partial batch response). The whole batch is retried, bisected, and its metadata sent to the ' +
+        'reputation-dlq queue if it keeps failing. Check the reputation-stream log group.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/Lambda',
+        metricName: 'Errors',
+        dimensionsMap: { FunctionName: reputationStreamFunctionName },
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+        label: 'Reputation Stream Errors',
+      }),
+      threshold: 0,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    reputationStreamErrorsAlarm.addAlarmAction(snsAction);
+    reputationStreamErrorsAlarm.addOkAction(snsAction);
+
+    // The reputation log tokens (ReputationService, the stream and the order-cron actions), one metric
+    // each, counted on every log group that can write the line. No defaultValue: the lines are rare,
+    // and a metric published only when one appears is billed only for those hours (the risk filters'
+    // choice). The api-stack Lambda construct creates each log group explicitly, so a filter on it is
+    // safe on a fresh deploy.
+    const reputationStreamLogGroup = logs.LogGroup.fromLogGroupName(
+      this,
+      'ReputationStreamLogGroup',
+      `/aws/lambda/${reputationStreamFunctionName}`,
+    );
+    const reputationLogGroups = {
+      Stream: reputationStreamLogGroup,
+      OrderCron: orderCronLogGroup,
+      Sync: syncLogGroup,
+    };
+    const reputationLogAlarm = (
+      token: string,
+      metricName: string,
+      sources: Array<keyof typeof reputationLogGroups>,
+      alarm: {
+        nameSuffix: string;
+        label: string;
+        description: string;
+        threshold: number;
+        period: cdk.Duration;
+      },
+    ): cloudwatch.Alarm => {
+      for (const source of sources) {
+        new logs.MetricFilter(this, `${metricName}${source}Filter`, {
+          logGroup: reputationLogGroups[source],
+          filterPattern: logs.FilterPattern.literal(`"${token}"`),
+          metricNamespace,
+          metricName,
+          metricValue: '1',
+        });
+      }
+      const created = new cloudwatch.Alarm(this, metricName, {
+        alarmName: `${prefix}-${alarm.nameSuffix}`,
+        alarmDescription: alarm.description,
+        metric: new cloudwatch.Metric({
+          namespace: metricNamespace,
+          metricName,
+          statistic: 'Sum',
+          period: alarm.period,
+          label: alarm.label,
+        }),
+        threshold: alarm.threshold,
+        evaluationPeriods: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      created.addAlarmAction(snsAction);
+      created.addOkAction(snsAction);
+      return created;
+    };
+
+    const reputationPolicyInvalidAlarm = reputationLogAlarm(
+      'REPUTATION_POLICY_INVALID',
+      'ReputationPolicyInvalid',
+      ['Stream', 'OrderCron', 'Sync'],
+      {
+        nameSuffix: 'reputation-policy-invalid',
+        label: 'Reputation Policy Invalid',
+        threshold: 1,
+        period: cdk.Duration.minutes(5),
+        description:
+          `The reputation policy parameter /${prefix}/reputation/policy is missing or not JSON, or a key is ` +
+          'missing, not a number or out of range (REPUTATION_POLICY_INVALID key=<k> in the reputation-stream, ' +
+          'order-cron or sync log group). Each such key falls back to its default, so reputation keeps ' +
+          'working on the defaults. Fix the parameter (keys and ranges: reputation-architecture.md 5.9); ' +
+          'each Lambda container reads it once, so the fix applies as containers recycle.',
+      },
+    );
+
+    const reputationEventsTruncatedAlarm = reputationLogAlarm(
+      'REPUTATION_EVENTS_TRUNCATED',
+      'ReputationEventsTruncated',
+      ['Stream', 'OrderCron', 'Sync'],
+      {
+        nameSuffix: 'reputation-events-truncated',
+        label: 'Reputation Events Truncated',
+        threshold: 1,
+        period: cdk.Duration.minutes(5),
+        description:
+          'A user has more reputation event rows than eventsReadCap (REPUTATION_EVENTS_TRUNCATED in the ' +
+          'reputation-stream, order-cron or sync log group, with the userId), so their points and counts ' +
+          'were computed from the rows read and may be low. Check the partition (a runaway writer, or TTL ' +
+          'not purging on purgeAt) and raise eventsReadCap in the policy parameter if the volume is genuine.',
+      },
+    );
+
+    const reputationReviewOverdueAlarm = reputationLogAlarm(
+      'REPUTATION_REVIEW_OVERDUE',
+      'ReputationReviewOverdue',
+      ['OrderCron'],
+      {
+        nameSuffix: 'reputation-review-overdue',
+        label: 'Reputation Review Overdue',
+        threshold: 1,
+        period: cdk.Duration.minutes(5),
+        description:
+          'An open DELIVERY_OVERDUE review has waited more than 7 days in the admin reputation queue ' +
+          '(REPUTATION_REVIEW_OVERDUE from the daily order-cron job). The trucker stays restricted, with no ' +
+          'end date, until an admin decides it. Decide the oldest reviews in the admin console.',
+      },
+    );
+
+    const reputationAppealOverdueAlarm = reputationLogAlarm(
+      'REPUTATION_APPEAL_OVERDUE',
+      'ReputationAppealOverdue',
+      ['OrderCron'],
+      {
+        nameSuffix: 'reputation-appeal-overdue',
+        label: 'Reputation Appeal Overdue',
+        threshold: 1,
+        period: cdk.Duration.minutes(5),
+        description:
+          'A reputation appeal has waited more than 7 days for an admin decision (REPUTATION_APPEAL_OVERDUE ' +
+          'from the daily order-cron job). The penalty keeps counting until it is excused or upheld. Decide ' +
+          'the oldest pending appeals in the admin console.',
+      },
+    );
+
+    // A rate alarm: a single failed refresh is retried by the daily job (the heal marker), so only a
+    // steady rate needs a person.
+    const reputationCopyFailedAlarm = reputationLogAlarm(
+      'REPUTATION_COPY_FAILED',
+      'ReputationCopyFailed',
+      ['Stream', 'OrderCron', 'Sync'],
+      {
+        nameSuffix: 'reputation-copy-failed',
+        label: 'Reputation Copy Failed',
+        threshold: 5,
+        period: cdk.Duration.hours(1),
+        description:
+          'At least 5 reputation copy refreshes failed in an hour (REPUTATION_COPY_FAILED in the ' +
+          'reputation-stream, order-cron or sync log group), so the owner tier and rating copied onto some ' +
+          'crop and trip rows are stale. Each failure left a heal marker and the daily job retries it within ' +
+          'a day; a steady rate means DynamoDB throttling or a bug in the refresh. Read the logged errors.',
+      },
+    );
+
+    const reputationParkFailedAlarm = reputationLogAlarm(
+      'REPUTATION_PARK_FAILED',
+      'ReputationParkFailed',
+      ['Stream', 'OrderCron'],
+      {
+        nameSuffix: 'reputation-park-failed',
+        label: 'Reputation Park Failed',
+        threshold: 1,
+        period: cdk.Duration.minutes(5),
+        description:
+          'A reputation record could not be parked in the reputation-parked queue (REPUTATION_PARK_FAILED in ' +
+          'the reputation-stream or order-cron log group). The stream retries it, and after 10 retries or 24 ' +
+          'hours only its metadata reaches reputation-dlq and the event is lost. Check the SQS error: the ' +
+          'send permission, the REPUTATION_PARKED_QUEUE_URL value, or a message over the 256 KB limit.',
+      },
+    );
+
     // ─── FRD-16: fraud signal metrics and the risk alarms ────────────
     // Fraud spec section 23.1. Synthetic test: scripts/fraud_alarms_synthetic.sh.
     //
@@ -1741,6 +2015,9 @@ export class MonitoringStack extends cdk.Stack {
       ['Admin', fraudLogGroupOf('admin')],
       // FRD-19: the AI advisory cron scores users and writes AI_ADVISORY rows (one signal line each).
       ['FraudAdvisory', fraudLogGroupOf('fraud-advisory')],
+      // ESC-28: the reputation stream builds the fraud service for the earn-back check (it reads
+      // SELF_TRADE and SHARED_DEVICE_TRADE rows); ESC-33 makes it write NO_SHOW and DELIVERY_OVERDUE.
+      ['ReputationStream', fraudLogGroupOf('reputation-stream')],
       // The webhook log group exists only with the live gateway.
       ...(telebirrLive ? [['TelebirrWebhook', fraudLogGroupOf('telebirr-webhook')] as [string, logs.ILogGroup]] : []),
     ];
@@ -2094,6 +2371,17 @@ export class MonitoringStack extends cdk.Stack {
           notifyDlqAlarm,
           notifyIteratorAgeAlarm,
           notifyStreamErrorsAlarm,
+          // ESC-28 reputation stream, parked records and log lines
+          reputationDlqAlarm,
+          reputationParkedDlqAlarm,
+          reputationIteratorAgeAlarm,
+          reputationStreamErrorsAlarm,
+          reputationPolicyInvalidAlarm,
+          reputationEventsTruncatedAlarm,
+          reputationReviewOverdueAlarm,
+          reputationAppealOverdueAlarm,
+          reputationCopyFailedAlarm,
+          reputationParkFailedAlarm,
           // FRD-16 fraud signal volume and risk alarms
           signalVolumeSpikeAlarm,
           riskScoreUnavailableAlarm,

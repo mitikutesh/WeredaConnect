@@ -1,13 +1,13 @@
 # Notifications API Contract
 
 ## Version
-1.4.1
+1.5.0
 
 ## Parties
 - **Mobile** (client): pulls the inbox, renders the entries and the Action-needed cards, receives the Android push, opens the order on tap
 - **Web** (client): pulls and renders the inbox; no push
 - **Backend** (server): derives one event per party from an order, delivery or escrow change (`NotificationRules`), writes the inbox row, renders and sends the push, serves `GET /notifications`
-- **Infrastructure**: the three table streams, the `{prefix}-notifications` table, `OrderNotifyStreamFunction`, its dead-letter queue and alarms
+- **Infrastructure**: the four table streams (orders, deliveries, escrows and, since 1.5.0, reputation-events), the `{prefix}-notifications` table, `OrderNotifyStreamFunction`, its dead-letter queue and alarms
 
 ## Overview
 
@@ -153,7 +153,8 @@ Rules:
   never gets "accept by tonight" the next morning; the inbox entry is still there.
 - A tap opens the order (`orderId`), from the background and after a cold start; the app reads an
   order the device has not pulled yet from `GET /orders/{orderId}` first. A push without `orderId`
-  opens the app. The foreground handler pulls the inbox with `since` (and the order) instead of
+  opens the app. The reputation types (1.5.0) carry no `orderId` and `data.entity: reputation`:
+  ESC-31 opens My reputation on them; until then they open the app. The foreground handler pulls the inbox with `since` (and the order) instead of
   showing a tray entry, with one follow-up pull 3 seconds later.
 - Inbox-only events send no push: `dispute_received` (the disputer's own receipt) and
   `under_review` (an escrow frozen for fraud review).
@@ -239,6 +240,21 @@ nothing here: the order's mirror tells the parties. The deliveries stream's even
 The escrow names the trip's trucker from funding on, before the trucker is asked; a status change
 reaches the trucker only once a delivery (the trucker's own, after committing) is linked.
 
+### Reputation-events table (`INSERT`, 1.5.0, ESC-28)
+
+`reputation-api.md` section 10 and `reputation-architecture.md` section 9. The source filter
+passes only rows whose `code` is a penalty code or `TIER_CHANGED`; the rules then skip a penalty
+row with 0 points. Only the row's own party (`userId`, a farmer or a trucker) is ever told; a buyer
+never is. The rows exist only while `reputationPenalties` is on.
+
+| Row inserted | Party (`userId`) | Action required |
+|---|---|---|
+| a penalty (`DECLINED_REQUEST`, `RESPONSE_EXPIRED`, `CANCELLED_AFTER_ACCEPT`, `LATE_CANCEL`, `TRIP_CANCELLED_WITH_BOOKINGS`, `NO_SHOW`, `DELIVERY_OVERDUE`) with `points` above 0 | `penalty_recorded` (`eventId`, `code`, `points`, `activePoints`) | none |
+| `TIER_CHANGED` | `tier_changed` (`fromTier`, `toTier`, `restrictedUntil` when `toTier` is `restricted` and the restriction has an end) | none |
+
+Entity `reputation`, `entityId` the row's `eventId`, no `orderId`. The inbox key is
+`{record time}#{type}#{eventId}` like every other row, so a retried record writes nothing twice.
+
 The matrix is the complete list of types: every constant in `NotificationTypes.All` appears
 above, and nothing else is ever written. A new type is a version bump here first.
 
@@ -265,6 +281,12 @@ a type carries only the keys its text needs, and a missing key renders as nothin
 | `party` | `buyer`, `farmer` or `trucker`: the counterpart the text names (who disputed, who dropped out) |
 | `distanceKm` | `truck_nearby` (1.3.0): the truck's great circle distance to the drop-off point at the check-in, in km with one decimal (`3.2`), digits and a point only |
 | `minutes` | `truck_nearby` (1.3.0): minutes from the check-in to the start of the arrival window (the track's `eta.from`, `live-trip-api.md` section 2), a whole number rounded to 5; absent when it rounds to 0 or is unknown. Never a clock time |
+| `eventId` | `penalty_recorded` (1.5.0): the reputation event's slot id (`CANCEL#ord-7f3a`) |
+| `code` | `penalty_recorded` (1.5.0): the event code (`reputation-api.md` 1.1); clients localize it |
+| `points` | `penalty_recorded` (1.5.0): the points the event added, a whole number above 0 |
+| `activePoints` | `penalty_recorded` (1.5.0): the party's active points right after it |
+| `fromTier`, `toTier` | `tier_changed` (1.5.0): `good`, `warning`, `low` or `restricted` (the party's own internal tier) |
+| `restrictedUntil` | `tier_changed` to `restricted` (1.5.0): ISO 8601 UTC end of the restriction; absent while an admin review is open |
 
 Clients render the inbox text from `type` + `params` with their own localization (ARB keys per
 type in all three languages), so a language switch re-renders the whole history. The push text
@@ -359,6 +381,7 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.5.0 | 2026-11-07 | Two reputation types (ESC-28, `reputation-api.md` section 10): `penalty_recorded` and `tier_changed`, to the party only, from a fourth source, the reputation-events table stream (`INSERT`, filtered on `code`); params `eventId`, `code`, `points`, `activePoints`, `fromTier`, `toTier`, `restrictedUntil`; entity `reputation` with no `orderId`; push text in en, am and om (am and om await native review). Behind `reputationPenalties` (no row is written while it is off). Client inbox text and the My reputation tap: ESC-31 |
 | 1.4.1 | 2026-11-07 | Doc only (ESC-14 drift pass): the footer said Last Updated 2026-10-28, before 1.3.0's day and 1.4.0; it now carries the date and the version like the other contracts. No wire change |
 | 1.4.0 | 2026-11-04 | `amountEtb` is the recipient's own money on every order and escrow event (F-1): the farmer reads the crop leg and the trucker the transport leg, never the buyer's total (the farmer's `order_request` said "Buyer paid" with the buyer's total). A legacy order without `cropCost` gives the farmer no amount. The `order_request` push says the amount is the farmer's ("Buyer {buyer} paid 40,000 ETB for you, held safely until delivery.", the same in am and om). No new param, type or endpoint. |
 | 1.3.0 | 2026-10-28 | `truck_nearby` (LT-07, `live-trip-api.md` section 4): a new type for the buyer when a check-in puts the truck within 5 km of the drop-off, derived from the deliveries table `MODIFY` that stamps `nearbyNotifiedAt` (once per delivery, conditional write); params `truckerName`, `distanceKm` (one decimal) and `minutes` (to the start of the arrival window, rounded to 5, absent at 0); push text in en, am and om with no clock time; push time to live one hour; inbox text names the trucker without the minutes. The deliveries stream's filter also passes that `MODIFY`. |
@@ -369,5 +392,5 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 ---
 
 **Last Updated**: 2026-11-07
-**Version**: 1.4.1
+**Version**: 1.5.0
 **Status**: Draft

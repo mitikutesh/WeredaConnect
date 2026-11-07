@@ -104,6 +104,21 @@ export interface EnvironmentConfig {
    */
   readonly minOrderAppBuild?: number;
   /**
+   * REPUTATION_PENALTIES_ENABLED on the reputation-stream, order-cron and sync Lambdas (ESC-28,
+   * reputation-architecture.md section 7.4). On, the reputation stream records events from the orders
+   * stream and the daily job runs (reputation-api.md section 11); off, the stream acknowledges every record
+   * without a write and the daily job logs and returns. Default false. Turn it on only where
+   * `commitmentsEnabled` is on, after ESC-29 to ESC-33 ship (reputation-architecture.md 12.1 step 5).
+   */
+  readonly reputationPenalties?: boolean;
+  /**
+   * REPUTATION_TIMEOUT_PENALTIES_ENABLED on the reputation-stream and order-cron Lambdas (ESC-28): on,
+   * RESPONSE_EXPIRED carries its point; off, it is recorded with 0 points (`timeout_penalties_off`).
+   * Default false. Turned on last, after Android push delivery is confirmed on real devices
+   * (reputation-architecture.md 12.1 step 7).
+   */
+  readonly timeoutPenalties?: boolean;
+  /**
    * ESC-20: ESCROW_LEDGER_ENABLED on the sync and telebirr-webhook Lambdas (escrow-protocol.md 2.2.0, P.12).
    * On, a new order escrow is born on the escrow ledger (settlementModel ledger: per-leg write-ahead rows
    * instead of the whole-escrow settlement lock) and a duplicate payment gets its ledger refund row. Off, new
@@ -152,6 +167,9 @@ export const environments: Record<string, EnvironmentConfig> = {
     commitmentsEnabled: true,
     // ESC-25: apps before build 3 cannot act on orders.
     minOrderAppBuild: 3,
+    // ESC-28: reputation penalties and timeout penalties stay off until the rollout (reputation-architecture.md 12.1).
+    reputationPenalties: false,
+    timeoutPenalties: false,
     // ESC-20: new order escrows settle through the escrow ledger; staging and prod stay off.
     escrowLedgerEnabled: true,
     // FRD-19: the AI advisory reviewer stays off until the owner turns it on; the EU profile keeps the
@@ -180,6 +198,9 @@ export const environments: Record<string, EnvironmentConfig> = {
     // ESC-25: apps before build 3 cannot act on orders. The commitments (ESC-15) stay off until the
     // owner turns them on here, after this gate is deployed.
     minOrderAppBuild: 3,
+    // ESC-28: reputation penalties and timeout penalties stay off until the rollout (reputation-architecture.md 12.1).
+    reputationPenalties: false,
+    timeoutPenalties: false,
     // FRD-19: off. me-south-1 has no EU or ME geo profile for current Claude models; if turned on, the reviewer
     // calls the EU profile from eu-central-1 (decision record, option 3).
     aiReviewEnabled: false,
@@ -204,6 +225,9 @@ export const environments: Record<string, EnvironmentConfig> = {
     // ESC-25: apps before build 3 cannot act on orders. The commitments (ESC-15) stay off until the
     // owner turns them on here, after this gate is deployed.
     minOrderAppBuild: 3,
+    // ESC-28: reputation penalties and timeout penalties stay off until the rollout (reputation-architecture.md 12.1).
+    reputationPenalties: false,
+    timeoutPenalties: false,
     // FRD-19: off. me-south-1 has no EU or ME geo profile for current Claude models; if turned on, the reviewer
     // calls the EU profile from eu-central-1 (decision record, option 3).
     aiReviewEnabled: false,

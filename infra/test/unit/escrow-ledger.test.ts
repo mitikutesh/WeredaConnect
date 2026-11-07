@@ -33,6 +33,7 @@ function stacks(live: boolean, extra: Partial<typeof devConfig> = {}): { db: Tem
     escrowAuditTable: db.escrowAuditTable,
     escrowLedgerTable: db.escrowLedgerTable,
     listingReportsTable: db.listingReportsTable,
+    reputationEventsTable: db.reputationEventsTable,
     escrowIdempotencyTable: db.escrowIdempotencyTable,
     deliveryQrSecretsTable: db.deliveryQrSecretsTable,
     ordersTable: db.ordersTable,

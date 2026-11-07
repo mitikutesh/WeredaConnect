@@ -56,8 +56,24 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly notificationsTable: dynamodb.Table;
   readonly tripLocationsTable: dynamodb.Table;
   readonly listingReportsTable: dynamodb.Table;
+  readonly reputationEventsTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
+
+/**
+ * The reputation policy defaults (reputation-architecture.md section 5.9), written to
+ * /{prefix}/reputation/policy. A string, not JSON.stringify of an object, so `1.0` stays as written.
+ * The server keeps the same defaults and falls back to them, key by key, when the parameter is
+ * missing or a value is out of range (REPUTATION_POLICY_INVALID).
+ */
+const REPUTATION_POLICY_JSON =
+  '{"declinePoints":1,"expiryPoints":1,"cancelPoints":3,"lateCancelPoints":4,"tripCancelPoints":3,' +
+  '"tripLateCancelPoints":4,"noShowPoints":5,"overduePoints":5,"lateCancelHours":24,"pointsLifeDays":90,' +
+  '"pairCapDays":30,"dailyCapPoints":6,"expiryMinWindowHours":12,"requestPointsMax":9,"warningAt":3,' +
+  '"lowAt":6,"restrictAt":10,"restrictionDays":14,"repeatWindowDays":365,"ratingDeductionPerPoint":0.1,' +
+  '"ratingDeductionMax":1.0,"reliabilityMinOrders":3,"earnBackMinOrderEtb":500,"earnBackPer30Days":2,' +
+  '"earnBackBuyerRepeatDays":90,"appealWindowDays":7,"tagMaxDays":90,"adminRestrictMaxDays":365,' +
+  '"buyerDeclineSignalCount":3,"buyerDeclineSignalDays":30,"eventsReadCap":2000}';
 
 /**
  * Reference to a secret value in its per-environment backend: a Secrets
@@ -480,6 +496,22 @@ export class ApiStack extends cdk.Stack {
         }),
       );
 
+    // ESC-28: the reputation flags (environments.ts; off everywhere until the rollout of
+    // reputation-architecture.md 12.1). Penalties on reputation-stream, order-cron and sync; timeout
+    // penalties on the two that derive RESPONSE_EXPIRED (reputation-stream, and order-cron's unpark).
+    const reputationPenalties = envConfig.reputationPenalties ? "true" : "false";
+    const timeoutPenalties = envConfig.timeoutPenalties ? "true" : "false";
+
+    // ESC-28: the reputation policy (points, caps, tiers, windows; reputation-architecture.md 5.9),
+    // read once per container by every Lambda that recomputes a reputation: reputation-stream,
+    // order-cron and sync. Edited in place to tune the policy; the manual order-cron action
+    // reputation_recompute_all then applies it to every stored aggregate.
+    const reputationPolicyParam = new ssm.StringParameter(this, "ReputationPolicy", {
+      parameterName: `/${prefix}/reputation/policy`,
+      stringValue: REPUTATION_POLICY_JSON,
+      description: "Reputation policy settings, JSON (ESC-28, reputation-architecture.md 5.9)",
+    });
+
     const syncFn = new WeredaLambda(this, "SyncFunction", {
       functionName: `${prefix}-sync`,
       description: "POST /sync — offline-first sync engine batch processor",
@@ -527,6 +559,12 @@ export class ApiStack extends cdk.Stack {
         COMMITMENTS_ENABLED: commitmentsEnabled,
         // ESC-25: order operations from an app below this build are refused (0: off).
         MIN_ORDER_APP_BUILD: minOrderAppBuild,
+        // ESC-28 (rating-api 1.2.0 stored aggregate): a rating create is one transaction with the
+        // ratee's ratingSum and ratingCount, then a best-effort reputation refresh that reads the
+        // ratee's events and writes the reputation map, the heal marker and the copies.
+        REPUTATION_EVENTS_TABLE: props.reputationEventsTable.tableName,
+        REPUTATION_POLICY_PARAM: reputationPolicyParam.parameterName,
+        REPUTATION_PENALTIES_ENABLED: reputationPenalties,
         ...(syncTelebirrMock ? { TELEBIRR_MOCK: "true" } : {}),
       },
       timeout: cdk.Duration.seconds(30),
@@ -573,6 +611,24 @@ export class ApiStack extends cdk.Stack {
     // FRD-12: the delivery_photo attach HEADs the photo (s3:GetObject on the photo keys; the
     // bucket-level List lets a missing photo answer 404, not 403). Read only, photos only.
     props.uploadsBucket.grantRead(syncFn.function, "uploads/photos/*");
+    // ESC-28 (rating-api 1.2.0 stored aggregate): the rating create transaction ADDs ratingSum and
+    // ratingCount on the ratee's users row, and the best-effort refresh writes its reputation map
+    // (UpdateItem on the base table; sync keeps its read grant above). On reputation-events, the
+    // refresh reads the ratee's partition (base-table Query) and writes the heal marker and any tier
+    // row (PutItem, UpdateItem): no index, no delete.
+    syncFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:UpdateItem"],
+        resources: [props.usersTable.tableArn],
+      }),
+    );
+    syncFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"],
+        resources: [props.reputationEventsTable.tableArn],
+      }),
+    );
+    reputationPolicyParam.grantRead(syncFn.function);
 
     // ─── Pagination Secret (Secrets Manager prod / SSM dev+staging) ───
     // SECURITY: Generated at deploy time (prod) or by the seed script
@@ -867,7 +923,9 @@ export class ApiStack extends cdk.Stack {
 
     // ─── Order Notify Stream Function (ESC-21 order notifications) ─────
     // The orders, deliveries and escrows NEW_AND_OLD_IMAGES streams feed one
-    // consumer. NotificationRules turns each old/new image pair into events;
+    // consumer, and since ESC-28 the reputation-events NEW_IMAGE stream too
+    // (penalty_recorded, tier_changed; reputation-architecture.md section 9).
+    // NotificationRules turns each old/new image pair into events;
     // every event becomes an inbox row (notifications table) and, when the
     // event asks for one, an FCM push in the recipient's preferred language.
     // A record that keeps failing after its retries (and the batch bisection)
@@ -883,7 +941,7 @@ export class ApiStack extends cdk.Stack {
     const orderNotifyStreamFn = new WeredaLambda(this, "OrderNotifyStreamFunction", {
       functionName: `${prefix}-order-notify-stream`,
       description:
-        "Orders, deliveries and escrows streams: write the notification inbox and push to the recipient (ESC-21)",
+        "Orders, deliveries, escrows and reputation-events streams: write the notification inbox and push to the recipient (ESC-21, ESC-28)",
       handlerName: "OrderNotifyStreamFunction",
       environment: {
         DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
@@ -907,7 +965,7 @@ export class ApiStack extends cdk.Stack {
         resources: [fcmEndpointArnPattern],
       }),
     );
-    // Shared settings for the three sources. Partial batch responses retry
+    // Shared settings for the four sources. Partial batch responses retry
     // only the failed records; bisecting splits a batch that keeps failing so
     // one bad record cannot hold back the rest of its shard; records older
     // than a day are dropped (to the DLQ) rather than pushed late.
@@ -936,10 +994,34 @@ export class ApiStack extends cdk.Stack {
         OldImage: { nearbyNotifiedAt: { S: lambda.FilterRule.notExists() } },
       },
     });
+    // ESC-28: on the reputation-events stream, only the INSERT of a penalty row or a TIER# row
+    // reaches the notifier (the rules skip a penalty with 0 points). Heal markers, completions,
+    // restrictions, overrides and every later row update cost no invocation. The notifier reads
+    // only the record: no grant on the reputation-events table.
+    const reputationNotified = lambda.FilterCriteria.filter({
+      eventName: lambda.FilterRule.isEqual("INSERT"),
+      dynamodb: {
+        NewImage: {
+          code: {
+            S: lambda.FilterRule.or(
+              "DECLINED_REQUEST",
+              "RESPONSE_EXPIRED",
+              "CANCELLED_AFTER_ACCEPT",
+              "LATE_CANCEL",
+              "TRIP_CANCELLED_WITH_BOOKINGS",
+              "NO_SHOW",
+              "DELIVERY_OVERDUE",
+              "TIER_CHANGED",
+            ),
+          },
+        },
+      },
+    });
     for (const [table, filters] of [
       [props.ordersTable, [onEvent("MODIFY")]],
       [props.deliveriesTable, [onEvent("INSERT"), nearbyStamped]],
       [props.escrowsTable, [onEvent("MODIFY")]],
+      [props.reputationEventsTable, [reputationNotified]],
     ] as const) {
       orderNotifyStreamFn.function.addEventSource(
         new lambdaEventSources.DynamoEventSource(table, {
@@ -948,6 +1030,120 @@ export class ApiStack extends cdk.Stack {
         }),
       );
     }
+
+    // ─── Reputation Stream Function (ESC-28, reputation-architecture.md section 7) ─
+    // The second consumer of the orders stream (after order-notify-stream). DynamoDB Streams serve
+    // two readers per shard without throttling; a third consumer needs a fan-out first (EventBridge
+    // Pipes or Kinesis, section 7.1). Each record that matches a derivation rule becomes a
+    // reputation event on the party (ReputationService). A record whose handling throws is parked
+    // in the parked queue (only the attributes the derivation reads, well under 2 KB) and reported
+    // as processed, so its shard moves on; order-cron's hourly reputation_unpark replays it, and
+    // after 5 receives the redrive moves it to the parked DLQ. Only when parking fails too is the
+    // record a batch item failure: the stream retries it, then its metadata lands in the
+    // reputation DLQ. All three queues are alarmed in the monitoring stack.
+    const reputationDlq = new sqs.Queue(this, "ReputationDlq", {
+      queueName: `${prefix}-reputation-dlq`,
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+    });
+    const reputationParkedDlq = new sqs.Queue(this, "ReputationParkedDlq", {
+      queueName: `${prefix}-reputation-parked-dlq`,
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+    });
+    const reputationParkedQueue = new sqs.Queue(this, "ReputationParkedQueue", {
+      queueName: `${prefix}-reputation-parked`,
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      // Longer than the 5 minute order-cron run that receives from it, so a message being
+      // replayed is never handed out twice at once.
+      visibilityTimeout: cdk.Duration.minutes(6),
+      deadLetterQueue: { queue: reputationParkedDlq, maxReceiveCount: 5 },
+    });
+
+    const reputationStreamFn = new WeredaLambda(this, "ReputationStreamFunction", {
+      functionName: `${prefix}-reputation-stream`,
+      description:
+        "Orders stream: derive reputation events (penalties, completions) and park the records that fail (ESC-28)",
+      handlerName: "ReputationStreamFunction",
+      environment: {
+        REPUTATION_EVENTS_TABLE: props.reputationEventsTable.tableName,
+        // The party's row: role, deletionState, suspended and the reputation map (read, then
+        // written with a version compare-and-set in the event's transaction).
+        USERS_TABLE: props.usersTable.tableName,
+        // Reachability of a RESPONSE_EXPIRED party: one key-only Query, Limit 1.
+        DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
+        FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
+        REPUTATION_PARKED_QUEUE_URL: reputationParkedQueue.queueUrl,
+        REPUTATION_POLICY_PARAM: reputationPolicyParam.parameterName,
+        // Off: every record is acknowledged without a write (section 7.4).
+        REPUTATION_PENALTIES_ENABLED: reputationPenalties,
+        // Off: RESPONSE_EXPIRED is recorded with 0 points (timeout_penalties_off).
+        REPUTATION_TIMEOUT_PENALTIES_ENABLED: timeoutPenalties,
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      // Kept at or above the orders stream's shard count: a shard with no free concurrency waits,
+      // and its iterator age climbs towards the 24 hour maxRecordAge (alarmed at 1 hour).
+      reservedConcurrentExecutions: 10,
+    });
+    // Least privilege, base tables only (no index): the party's users row (GetItem, then the
+    // conditional UpdateItem of the reputation map); the party's events (Query) and the event,
+    // restriction, tier, earn-back and heal writes (PutItem, UpdateItem); the reachability Query on
+    // device tokens; the fraud signals Query (FRD hooks). Nothing is deleted.
+    reputationStreamFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+        resources: [props.usersTable.tableArn],
+      }),
+    );
+    reputationStreamFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"],
+        resources: [props.reputationEventsTable.tableArn],
+      }),
+    );
+    reputationStreamFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [props.deviceTokensTable.tableArn, props.fraudSignalsTable.tableArn],
+      }),
+    );
+    reputationParkedQueue.grantSendMessages(reputationStreamFn.function);
+    reputationPolicyParam.grantRead(reputationStreamFn.function);
+    // Section 7.1. Starting at LATEST: no points for anything before the deploy. Partial batch
+    // responses and bisection keep one bad record from holding its shard; parallelization factor 1
+    // keeps the per-shard order. The five filters run before the invoke, each on a MODIFY whose new
+    // image carries a value a derivation rule reads; anything else costs no invocation. They also
+    // match a later change of a row that keeps those values: the derivation compares the old and
+    // new images and ignores it.
+    const orderModifiedWith = (field: string, rule: string[] | { [key: string]: boolean }[]) =>
+      lambda.FilterCriteria.filter({
+        eventName: lambda.FilterRule.isEqual("MODIFY"),
+        dynamodb: { NewImage: { [field]: { S: rule } } },
+      });
+    reputationStreamFn.function.addEventSource(
+      new lambdaEventSources.DynamoEventSource(props.ordersTable, {
+        startingPosition: lambda.StartingPosition.LATEST,
+        batchSize: 25,
+        parallelizationFactor: 1,
+        retryAttempts: 10,
+        bisectBatchOnError: true,
+        reportBatchItemFailures: true,
+        maxRecordAge: cdk.Duration.hours(24),
+        onFailure: new lambdaEventSources.SqsDlq(reputationDlq),
+        filters: [
+          orderModifiedWith("farmerResponse", lambda.FilterRule.or("declined", "expired")),
+          orderModifiedWith("truckerResponse", lambda.FilterRule.or("declined", "expired", "cancelled")),
+          orderModifiedWith("transportFailure", lambda.FilterRule.exists()),
+          orderModifiedWith("cancelReason", lambda.FilterRule.or("farmer_cancelled", "farmer_no_show")),
+          orderModifiedWith("status", lambda.FilterRule.or("settled", "disputed")),
+        ],
+      }),
+    );
 
     // ─── R4 SSM Parameters ────────────────────────────────────────────
 
@@ -1763,12 +1959,12 @@ export class ApiStack extends cdk.Stack {
     props.notificationsTable.grantReadData(notificationFn.function);
     paginationSecret.grantRead(notificationFn.function);
 
-    // ─── Order Cron Function (auto-cancel expired unpaid orders, commitment deadlines, relationship patterns) ────
+    // ─── Order Cron Function (auto-cancel expired unpaid orders, commitment deadlines, relationship patterns, reputation) ────
 
     const orderCronFn = new WeredaLambda(this, "OrderCronFunction", {
       functionName: `${prefix}-order-cron`,
       description:
-        "Scheduled order jobs: auto-cancel expired unpaid orders, settle commitment deadlines, flag relationship patterns",
+        "Scheduled order jobs: auto-cancel expired unpaid orders, settle commitment deadlines, flag relationship patterns, run the daily reputation job, replay parked reputation records",
       handlerName: "OrderCronFunction",
       environment: {
         ORDERS_TABLE: props.ordersTable.tableName,
@@ -1796,12 +1992,25 @@ export class ApiStack extends cdk.Stack {
         // REPEATED_PAIR signals (fraud-detection-architecture.md 15.2). Without it, or without
         // USERS_TABLE, the action logs FRAUD_RELATIONSHIP_UNCONFIGURED and writes nothing.
         FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
+        // ESC-28 (reputation-architecture.md sections 8 and 7.5): reputation_daily expires points,
+        // ends restrictions and overrides and retries copies; reputation_unpark replays the parked
+        // stream records; reputation_backfill_ratings stamps the rating aggregates (ratings table)
+        // once per environment; reputation_recompute_all applies a policy change. Device tokens:
+        // the reachability read of a replayed RESPONSE_EXPIRED.
+        REPUTATION_EVENTS_TABLE: props.reputationEventsTable.tableName,
+        REPUTATION_PARKED_QUEUE_URL: reputationParkedQueue.queueUrl,
+        REPUTATION_POLICY_PARAM: reputationPolicyParam.parameterName,
+        REPUTATION_PENALTIES_ENABLED: reputationPenalties,
+        REPUTATION_TIMEOUT_PENALTIES_ENABLED: timeoutPenalties,
+        RATINGS_TABLE: props.ratingsTable.tableName,
+        DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
       },
       timeout: cdk.Duration.minutes(5),
       memorySize: 256,
-      // Four rules invoke it (two hourly, commitment_deadlines every 15 minutes since ESC-16,
-      // deadline_repair daily), so a run of each fits at once.
-      reservedConcurrentExecutions: 4,
+      // Six rules invoke it: auto-cancel and relationship patterns hourly, commitment_deadlines every
+      // 15 minutes (ESC-16), deadline_repair daily, and ESC-28's hourly reputation_unpark and daily
+      // reputation_daily, so a run of each fits at once.
+      reservedConcurrentExecutions: 6,
     });
     // ESC-16: the read grant covers the table's indexes, so the sweep's Query on DeadlineIndex too.
     props.ordersTable.grantReadWriteData(orderCronFn.function);
@@ -1835,6 +2044,56 @@ export class ApiStack extends cdk.Stack {
         resources: [props.fraudSignalsTable.tableArn],
       }),
     );
+    // ESC-28: the reputation actions. On reputation-events: the user's partition (base-table Query),
+    // the day partitions of DueIndex (daily job, recompute_all) and the admin queue's
+    // AppealStatusIndex (the overdue review and appeal lines); the expiry, end and tier writes and the
+    // delete of a processed heal marker. On users: the reputation map and the backfilled rating
+    // aggregates (UpdateItem; the read grant above covers RoleWaredaIndex for the backfill). On
+    // ratings: the ratee's ratings (RateeIdCreatedAtIndex) and their inAggregate flag. Device tokens:
+    // the reachability Query of a replayed record (fraud signals already has its Query above).
+    orderCronFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [
+          props.reputationEventsTable.tableArn,
+          `${props.reputationEventsTable.tableArn}/index/DueIndex`,
+          `${props.reputationEventsTable.tableArn}/index/AppealStatusIndex`,
+        ],
+      }),
+    );
+    orderCronFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"],
+        resources: [props.reputationEventsTable.tableArn],
+      }),
+    );
+    orderCronFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:UpdateItem"],
+        resources: [props.usersTable.tableArn],
+      }),
+    );
+    orderCronFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${props.ratingsTable.tableArn}/index/RateeIdCreatedAtIndex`],
+      }),
+    );
+    orderCronFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:UpdateItem"],
+        resources: [props.ratingsTable.tableArn],
+      }),
+    );
+    orderCronFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [props.deviceTokensTable.tableArn],
+      }),
+    );
+    // reputation_unpark receives up to 100 parked records a run and deletes each replayed one.
+    reputationParkedQueue.grantConsumeMessages(orderCronFn.function);
+    reputationPolicyParam.grantRead(orderCronFn.function);
 
     // EventBridge: auto-cancel expired orders every hour
     new events.Rule(this, "OrderCronHourly", {
@@ -1899,6 +2158,41 @@ export class ApiStack extends cdk.Stack {
           // Wrapped as `body` so it lands in APIGatewayProxyRequest.Body (Review C3).
           event: events.RuleTargetInput.fromObject({
             body: JSON.stringify({ action: "relationship_patterns" }),
+          }),
+        }),
+      ],
+    });
+
+    // EventBridge: ESC-28, the daily reputation job at 00:00 UTC (03:00 in Ethiopia): expire points
+    // and completions past their 90 days, end restrictions and overrides, retry the copies a heal
+    // marker asks for, log the overdue reviews and appeals (reputation-architecture.md section 8).
+    // A no-op while REPUTATION_PENALTIES_ENABLED is false (the handler logs and returns). The other
+    // reputation actions are invoked by hand, with no rule: reputation_backfill_ratings (once per
+    // environment, section 12.2) and reputation_recompute_all (after a policy change, section 8.3).
+    new events.Rule(this, "OrderCronReputationDaily", {
+      ruleName: `${prefix}-order-cron-reputation-daily`,
+      description: "Expire reputation points, end restrictions and retry copies once a day at 03:00 Ethiopia time (ESC-28)",
+      schedule: events.Schedule.expression("cron(0 0 * * ? *)"),
+      targets: [
+        new targets.LambdaFunction(orderCronFn.function, {
+          // Wrapped as `body` so it lands in APIGatewayProxyRequest.Body (Review C3).
+          event: events.RuleTargetInput.fromObject({
+            body: JSON.stringify({ action: "reputation_daily" }),
+          }),
+        }),
+      ],
+    });
+
+    // EventBridge: ESC-28, replay the parked reputation stream records every hour (section 7.5).
+    new events.Rule(this, "OrderCronReputationUnpark", {
+      ruleName: `${prefix}-order-cron-reputation-unpark`,
+      description: "Replay parked reputation stream records every hour (ESC-28)",
+      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
+      targets: [
+        new targets.LambdaFunction(orderCronFn.function, {
+          // Wrapped as `body` so it lands in APIGatewayProxyRequest.Body (Review C3).
+          event: events.RuleTargetInput.fromObject({
+            body: JSON.stringify({ action: "reputation_unpark" }),
           }),
         }),
       ],
@@ -2053,7 +2347,8 @@ export class ApiStack extends cdk.Stack {
     // the completion sweep (5 minutes, one at a time), which finishes or aborts every deletion
     // started more than an hour ago. Grants are per action: each table gets only the calls the
     // deletion makes on it (reads through the party indexes, conditional updates, and deletes of
-    // messages, intents, match events, device tokens and the user's notification inbox rows).
+    // messages, intents, match events, device tokens, the user's notification inbox rows and the
+    // user's reputation events).
     const accountDeletionEnv: Record<string, string> = {
       USERS_TABLE: props.usersTable.tableName,
       CROPS_TABLE: props.cropsTable.tableName,
@@ -2070,6 +2365,7 @@ export class ApiStack extends cdk.Stack {
       MATCH_EVENTS_TABLE: props.matchEventsTable.tableName,
       DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
       NOTIFICATIONS_TABLE: props.notificationsTable.tableName,
+      REPUTATION_EVENTS_TABLE: props.reputationEventsTable.tableName,
       COGNITO_USER_POOL_ID: this.userPool.userPoolId,
       COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
     };
@@ -2116,6 +2412,14 @@ export class ApiStack extends cdk.Stack {
       // FUP-120: the user's own inbox rows are deleted; in the other parties' inboxes the user's
       // copied name in a row about a shared order becomes the sentinel (conditional UpdateItem).
       props.notificationsTable.grant(fn, "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:DeleteItem");
+      // ESC-28: the user's reputation partition is deleted (account-deletion.md, per-table row).
+      // Base table only: the Query and the deletes are by the user's own key, never an index.
+      fn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["dynamodb:Query", "dynamodb:DeleteItem"],
+          resources: [props.reputationEventsTable.tableArn],
+        }),
+      );
       // Step 6 revokes every refresh token, step 12 deletes the user (username = sub).
       this.grantCognito(fn, [
         "cognito-idp:AdminUserGlobalSignOut",

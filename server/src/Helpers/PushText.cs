@@ -235,6 +235,12 @@ public static class PushText
         "hint" => Pick(PayoutHints, language, Get(p, NotificationParams.Reason)),
         "km" => Distance(language, Get(p, NotificationParams.DistanceKm)),
         "minutes" => Minutes(Get(p, NotificationParams.Minutes)),
+        // ESC-28: reputation pushes.
+        "points" => Minutes(Get(p, NotificationParams.Points)),
+        "total" => Count(Get(p, NotificationParams.ActivePoints)),
+        "cause" => PickOrEmpty(PenaltyCauses, language, Get(p, NotificationParams.Code)),
+        "tierline" => Pick(TierLines, language, Get(p, NotificationParams.ToTier)),
+        "until" => FormatDate(language, Get(p, NotificationParams.RestrictedUntil)),
         _ => string.Empty
     };
 
@@ -375,6 +381,16 @@ public static class PushText
             ? value.ToString(CultureInfo.InvariantCulture)
             : string.Empty;
 
+    /// <summary>A whole number of 0 or more (ESC-28's point total), else nothing.</summary>
+    private static string Count(string? value)
+        => int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number >= 0
+            ? number.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
+
+    /// <summary>The phrase for <paramref name="code"/>, or nothing for an unknown code (its optional part drops).</summary>
+    private static string PickOrEmpty(Dictionary<string, string[]> phrases, string language, string? code)
+        => code != null && phrases.TryGetValue(code, out var byLanguage) ? byLanguage[Index(language)] : string.Empty;
+
     private static string Pick(Dictionary<string, string[]> sentences, string language, string? code)
         => sentences.TryGetValue(code ?? string.Empty, out var byLanguage)
             ? byLanguage[Index(language)]
@@ -474,6 +490,73 @@ public static class PushText
         {
             string.Empty,
             new[] { "Open the app for the details.", "ዝርዝሩን በመተግበሪያው ይመልከቱ።", "Bal'ina isaa appii keessatti ilaalaa." }
+        }
+    };
+
+    /// <summary>
+    /// ESC-28: why penalty points were added, by event code (en, am, om). am and om await native review.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> PenaltyCauses = new(StringComparer.Ordinal)
+    {
+        { "DECLINED_REQUEST", new[] { "declining an order", "ትዕዛዝ ውድቅ በማድረግዎ", "ajaja diduu" } },
+        { "RESPONSE_EXPIRED", new[] { "not answering an order", "ለትዕዛዝ ምላሽ ባለመስጠትዎ", "ajajaaf deebii dhabuu" } },
+        { "CANCELLED_AFTER_ACCEPT", new[] { "cancelling an accepted order", "የተቀበሉትን ትዕዛዝ በመሰረዝዎ", "ajaja fudhatame haquu" } },
+        { "LATE_CANCEL", new[] { "cancelling close to pickup", "ለመረከቢያ ቀን ቅርብ ሆኖ በመሰረዝዎ", "yeroo fe'umsaatti dhihaatee haquu" } },
+        { "TRIP_CANCELLED_WITH_BOOKINGS", new[] { "cancelling a booked trip", "የተያዘ ጉዞ በመሰረዝዎ", "imala qabame haquu" } },
+        { "NO_SHOW", new[] { "missing a pickup", "ለመረከብ ባለመገኘትዎ", "fe'umsaaf dhiyaachuu dhabuu" } },
+        { "DELIVERY_OVERDUE", new[] { "a late delivery", "ማድረሻው በመዘግየቱ", "geejjiba tursiisuu" } }
+    };
+
+    /// <summary>
+    /// ESC-28: what a tier change means for the party, by the new tier (en, am, om); the empty key is
+    /// the fallback. am and om await native review.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> TierLines = new(StringComparer.Ordinal)
+    {
+        {
+            "good",
+            new[]
+            {
+                "Your reputation is back to good.",
+                "ዝናዎ ወደ ጥሩ ተመልሷል።",
+                "Maqaan gaariin keessan gara gaariitti deebi'eera."
+            }
+        },
+        {
+            "warning",
+            new[]
+            {
+                "This is a warning: more penalty points would show buyers a Low reputation label.",
+                "ማስጠንቀቂያ፦ ተጨማሪ የቅጣት ነጥብ ካገኙ ገዢዎች ዝቅተኛ ዝና የሚል ምልክት ያያሉ።",
+                "Akeekkachiisa: qabxiin adabbii dabalataa bitattoota mallattoo Maqaa Gadi Aanaa argisiisa."
+            }
+        },
+        {
+            "low",
+            new[]
+            {
+                "Buyers now see a Low reputation label on your listings and trips.",
+                "ገዢዎች አሁን በዝርዝሮችዎና በጉዞዎችዎ ላይ ዝቅተኛ ዝና የሚል ምልክት ያያሉ።",
+                "Bitattoonni amma tarreeffamaa fi imala keessan irratti mallattoo Maqaa Gadi Aanaa argu."
+            }
+        },
+        {
+            "restricted",
+            new[]
+            {
+                "You cannot take new orders for now. Your current orders continue.",
+                "ለጊዜው አዲስ ትዕዛዝ መቀበል አይችሉም። ያሉት ትዕዛዞችዎ ይቀጥላሉ።",
+                "Amma ajaja haaraa fudhachuu hin dandeessan. Ajajni keessan kan jiru itti fufa."
+            }
+        },
+        {
+            string.Empty,
+            new[]
+            {
+                "Open My reputation to see the change.",
+                "ለውጡን ለማየት የእኔ ዝና የሚለውን ይክፈቱ።",
+                "Jijjiirama ilaaluuf Maqaa Gaarii Koo banaa."
+            }
         }
     };
 
@@ -629,7 +712,13 @@ public static class PushText
             "Our team has decided on the reported problem. {decision}"),
         [NotificationTypes.UnderReview] = new(
             "Payment under review",
-            "Our team is checking the payment for your order. We will tell you when it is done.")
+            "Our team is checking the payment for your order. We will tell you when it is done."),
+        [NotificationTypes.PenaltyRecorded] = new(
+            "Penalty points added",
+            "Points were added[ for {cause}].[ Added: {points}.][ Total: {total}.] See My reputation to learn why or to appeal."),
+        [NotificationTypes.TierChanged] = new(
+            "Your reputation changed",
+            "{tierline}[ You can take new orders again after {until}.]")
     };
 
     private static readonly Dictionary<string, Template> Am = new(StringComparer.Ordinal)
@@ -732,7 +821,13 @@ public static class PushText
             "ቡድናችን ሪፖርት በተደረገው ችግር ላይ ወስኗል። {decision}"),
         [NotificationTypes.UnderReview] = new(
             "ክፍያው እየተገመገመ ነው",
-            "የትዕዛዝዎ ክፍያ በቡድናችን እየተመረመረ ነው። ሲጠናቀቅ እናሳውቅዎታለን።")
+            "የትዕዛዝዎ ክፍያ በቡድናችን እየተመረመረ ነው። ሲጠናቀቅ እናሳውቅዎታለን።"),
+        [NotificationTypes.PenaltyRecorded] = new(
+            "የቅጣት ነጥብ ተጨምሯል",
+            "[{cause} ምክንያት ]የቅጣት ነጥብ ተጨምሯል።[ የተጨመረ፦ {points}።][ ጠቅላላ፦ {total}።] ምክንያቱን ለማየት ወይም ይግባኝ ለማለት የእኔ ዝና የሚለውን ይክፈቱ።"),
+        [NotificationTypes.TierChanged] = new(
+            "ዝናዎ ተቀይሯል",
+            "{tierline}[ ከ{until} በኋላ እንደገና አዲስ ትዕዛዝ መቀበል ይችላሉ።]")
     };
 
     private static readonly Dictionary<string, Template> Om = new(StringComparer.Ordinal)
@@ -835,6 +930,12 @@ public static class PushText
             "Gareen keenya rakkoo gabaafame irratti murteesseera. {decision}"),
         [NotificationTypes.UnderReview] = new(
             "Kaffaltiin sakatta'amaa jira",
-            "Kaffaltiin ajaja keessanii gareen keenyaan sakatta'amaa jira. Yeroo xumuramu isinitti himna.")
+            "Kaffaltiin ajaja keessanii gareen keenyaan sakatta'amaa jira. Yeroo xumuramu isinitti himna."),
+        [NotificationTypes.PenaltyRecorded] = new(
+            "Qabxiin adabbii dabalameera",
+            "Qabxiin adabbii dabalameera[ sababa {cause}].[ Dabalame: {points}.][ Waliigala: {total}.] Sababa beekuuf ykn iyyachuuf Maqaa Gaarii Koo banaa."),
+        [NotificationTypes.TierChanged] = new(
+            "Maqaan gaariin keessan jijjiirameera",
+            "{tierline}[ Erga {until} booda ajaja haaraa fudhachuu dandeessu.]")
     };
 }

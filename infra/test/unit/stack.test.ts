@@ -29,8 +29,9 @@ describe('DatabaseStack', () => {
     // + notifications (order notification inbox, ESC-21) = 20,
     // + trip-locations (live trip check-ins, LT-05) = 21,
     // + escrow-ledger (per-leg money movements, ESC-20) = 22,
-    // + listing-reports (buyers' reports, FUP-67) = 23.
-    template.resourceCountIs('AWS::DynamoDB::Table', 23);
+    // + listing-reports (buyers' reports, FUP-67) = 23,
+    // + reputation-events (ESC-28) = 24.
+    template.resourceCountIs('AWS::DynamoDB::Table', 24);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -315,6 +316,7 @@ describe('ApiStack', () => {
       notificationsTable: dbStack.notificationsTable,
       tripLocationsTable: dbStack.tripLocationsTable,
       listingReportsTable: dbStack.listingReportsTable,
+      reputationEventsTable: dbStack.reputationEventsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -347,8 +349,9 @@ describe('ApiStack', () => {
     // + order-notify-stream and the notifications inbox read (ESC-21) = 28,
     // + the crop photo processor and the two CDK helpers its buckets bring
     // (bucket notifications, dev auto-delete) (crop-listing-api 1.6.0) = 31,
-    // + the AI advisory cron and its Bedrock reviewer (FRD-19) = 33.
-    template.resourceCountIs('AWS::Lambda::Function', 33);
+    // + the AI advisory cron and its Bedrock reviewer (FRD-19) = 33,
+    // + reputation-stream (ESC-28) = 34.
+    template.resourceCountIs('AWS::Lambda::Function', 34);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -554,9 +557,10 @@ describe('ApiStack', () => {
       .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
   }
 
-  test('ESC-21, LT-07: five stream mappings; the notifier reads orders and escrows on MODIFY, deliveries on INSERT and the nearby stamp', () => {
-    // crop-match-stream + message-stream + the three order notifier sources.
-    template.resourceCountIs('AWS::Lambda::EventSourceMapping', 5);
+  test('ESC-21, LT-07: seven stream mappings; the notifier reads orders and escrows on MODIFY, deliveries on INSERT and the nearby stamp', () => {
+    // crop-match-stream + message-stream + the four order notifier sources (ESC-28 added the
+    // reputation-events stream) + reputation-stream on the orders stream (ESC-28, reputation.test.ts).
+    template.resourceCountIs('AWS::Lambda::EventSourceMapping', 7);
 
     const dlqs = template.findResources('AWS::SQS::Queue', {
       Properties: { QueueName: 'wereda-connect-dev-notify-dlq' },
@@ -570,7 +574,8 @@ describe('ApiStack', () => {
         Properties: { FunctionName: { Ref: fnId } },
       }),
     ).map((m) => m.Properties);
-    expect(mappings).toHaveLength(3);
+    // The reputation-events source is checked in reputation.test.ts.
+    expect(mappings).toHaveLength(4);
 
     // LT-07: on the deliveries stream, only the MODIFY that stamps nearbyNotifiedAt (absent before,
     // present after) reaches the notifier; every other delivery update is filtered out.
@@ -623,8 +628,8 @@ describe('ApiStack', () => {
         ]),
       }),
     });
-    // The only queue in the stack.
-    template.resourceCountIs('AWS::SQS::Queue', 1);
+    // With the reputation DLQ, parked queue and parked DLQ (ESC-28), four queues in the stack.
+    template.resourceCountIs('AWS::SQS::Queue', 4);
   });
 
   test('ESC-21: order-notify-stream has its tables in env and only the grants it uses', () => {
@@ -652,8 +657,8 @@ describe('ApiStack', () => {
     expect(roleActions(role, (r) => r.includes('endpoint/GCM/wereda-connect-dev-fcm/*'))).toEqual(['sns:Publish']);
     // The event source mappings deliver failed batch metadata to the DLQ.
     expect(roleActions(role, (r) => r.includes('OrderNotifyDlq'))).toContain('sqs:SendMessage');
-    // Stream reads on the three source streams.
-    for (const table of ['OrdersTable', 'DeliveriesTable', 'EscrowsTable']) {
+    // Stream reads on the four source streams.
+    for (const table of ['OrdersTable', 'DeliveriesTable', 'EscrowsTable', 'ReputationEventsTable']) {
       const stream = roleActions(role, (r) => r.includes(`FnGetAtt${table}`) && r.includes('StreamArn'));
       expect([table, stream]).toEqual([table, expect.arrayContaining(['dynamodb:GetRecords', 'dynamodb:GetShardIterator'])]);
     }
@@ -1425,6 +1430,7 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       notificationsTable: dbStack.notificationsTable,
       tripLocationsTable: dbStack.tripLocationsTable,
       listingReportsTable: dbStack.listingReportsTable,
+      reputationEventsTable: dbStack.reputationEventsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -1670,11 +1676,12 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       const actions = actionsOn(tableId);
       expect([tableId, actions]).toEqual([tableId, expect.arrayContaining(['dynamodb:Query', 'dynamodb:UpdateItem'])]);
     }
-    // Every escrow mutation is ledgered (write grant, no read); profiles are only read.
+    // Every escrow mutation is ledgered (write grant, no read). Profiles are read, and since ESC-28
+    // the reputation actions update them (reputation.test.ts), but never put a whole row.
     expect(actionsOn('EscrowAuditTable')).toEqual(expect.arrayContaining(['dynamodb:PutItem']));
     expect(actionsOn('EscrowAuditTable')).not.toEqual(expect.arrayContaining(['dynamodb:Query']));
     expect(actionsOn('UsersTable')).toEqual(expect.arrayContaining(['dynamodb:GetItem']));
-    expect(actionsOn('UsersTable')).not.toEqual(expect.arrayContaining(['dynamodb:PutItem', 'dynamodb:UpdateItem']));
+    expect(actionsOn('UsersTable')).not.toContain('dynamodb:PutItem');
   });
 
   test('a second rule invokes the order cron with the commitment_deadlines body every 15 minutes (ESC-15, ESC-16)', () => {
@@ -1928,6 +1935,7 @@ describe('ApiStack (prod security)', () => {
       notificationsTable: dbStack.notificationsTable,
       tripLocationsTable: dbStack.tripLocationsTable,
       listingReportsTable: dbStack.listingReportsTable,
+      reputationEventsTable: dbStack.reputationEventsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -2056,6 +2064,7 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
       notificationsTable: dbStack.notificationsTable,
       tripLocationsTable: dbStack.tripLocationsTable,
       listingReportsTable: dbStack.listingReportsTable,
+      reputationEventsTable: dbStack.reputationEventsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -3101,6 +3110,10 @@ describe('MonitoringStack', () => {
     'EscrowInitiate', 'EscrowRelease', 'TelebirrInboxReplayRuns', 'FraudSignalsRecorded', 'FraudSignalsByType',
     'RiskScoreUnavailable', 'RiskScoreTruncated', 'RiskScoreUnknownRecord', 'RiskHoldOrderMismatch',
     'RiskTableUnconfigured', 'CleanDeliveryCreditFailed', 'OutcomeLabelFailed',
+    // ESC-28: the reputation log tokens on the sync and order-cron log groups (reputation-architecture.md 14).
+    // Points, not money: no payout or refund reads them.
+    'ReputationPolicyInvalid', 'ReputationEventsTruncated', 'ReputationReviewOverdue', 'ReputationAppealOverdue',
+    'ReputationCopyFailed', 'ReputationParkFailed',
   ];
 
   // The money filters, and the sync's FUP-27 dispute filter: a rate, not money, but an alarm that

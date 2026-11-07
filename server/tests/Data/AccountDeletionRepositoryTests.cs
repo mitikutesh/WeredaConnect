@@ -32,7 +32,8 @@ public class AccountDeletionRepositoryTests
         Intents = "intents",
         MatchEvents = "match-events",
         DeviceTokens = "device-tokens",
-        Notifications = "notifications"
+        Notifications = "notifications",
+        ReputationEvents = "reputation-events"
     };
 
     public AccountDeletionRepositoryTests()
