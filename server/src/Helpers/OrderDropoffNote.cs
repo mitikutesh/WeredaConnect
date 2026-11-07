@@ -120,19 +120,32 @@ public static class OrderDropoffNote
         => VisibleTo(order, userId) ? Of(order) : null;
 
     /// <summary>
+    /// The order fields only a reader of the note receives: the note and, LT-14, the order's own
+    /// drop-off point (<see cref="OrderDeliveryLocation"/>).
+    /// </summary>
+    private static readonly string[] ReaderOnlyFields =
+    {
+        Field, OrderDeliveryLocation.LatitudeField, OrderDeliveryLocation.LongitudeField
+    };
+
+    /// <summary>
     /// A sync result whose order row (<c>serverData</c>) goes to <paramref name="userId"/>: the note
-    /// left out when that caller may not read it (an uncommitted trucker's command answered with
-    /// the row). Any other result is returned unchanged.
+    /// and the drop-off point (LT-14) left out when that caller may not read them (an uncommitted
+    /// trucker's command answered with the row). Any other result is returned unchanged.
     /// </summary>
     public static SyncOperationResult ForCaller(SyncOperationResult result, string? userId)
     {
-        if (result.ServerData is not { } row || !row.ContainsKey(Field) || VisibleTo(row, userId))
+        if (result.ServerData is not { } row || !ReaderOnlyFields.Any(row.ContainsKey) || VisibleTo(row, userId))
         {
             return result;
         }
 
         var scrubbed = new Dictionary<string, object>(row);
-        scrubbed.Remove(Field);
+        foreach (var field in ReaderOnlyFields)
+        {
+            scrubbed.Remove(field);
+        }
+
         return result with { ServerData = scrubbed };
     }
 

@@ -330,12 +330,14 @@ public static class TripTrack
     }
 
     /// <summary>
-    /// The planned drop-off point of a delivery: the trip's destination point today, the reference the
-    /// delivered GPS check uses (the server has no coordinates for the buyer's registered place). The
-    /// one place LT-14 switches to the order's own point; <paramref name="delivery"/> is for that.
+    /// The planned drop-off point of a delivery (LT-14): its order's own point
+    /// (<see cref="OrderDeliveryLocation"/>), else the trip's destination point; null when neither has
+    /// one. The track, the other stops on a truck, the check-in effects, the admin trail and the
+    /// delivered GPS check all read it here. <paramref name="order"/> is the delivery's order row, or
+    /// null when it is unknown, could not be read, or (on a party's track) is not the caller's to read.
     /// </summary>
-    public static TrackPoint? PlannedDropoff(Dictionary<string, object>? trip, Dictionary<string, object> delivery)
-        => PointOf(trip, "destinationLatitude", "destinationLongitude");
+    public static TrackPoint? PlannedDropoff(Dictionary<string, object>? trip, IReadOnlyDictionary<string, object>? order)
+        => OrderDeliveryLocation.Of(order) ?? PointOf(trip, "destinationLatitude", "destinationLongitude");
 
     /// <summary>A stop still to do, or one done at a known time no earlier than the window's start.</summary>
     private static bool InWindow(bool done, string? doneAtText, DateTime windowStartUtc)
@@ -522,7 +524,7 @@ public static class TripTrack
     /// A coordinate pair from an item's two number attributes (stored numbers arrive as invariant
     /// text); null when either is missing or not a finite number.
     /// </summary>
-    public static TrackPoint? PointOf(Dictionary<string, object>? item, string latitudeKey, string longitudeKey)
+    public static TrackPoint? PointOf(IReadOnlyDictionary<string, object>? item, string latitudeKey, string longitudeKey)
     {
         if (item == null
             || NumberOf(item, latitudeKey) is not { } lat
@@ -540,7 +542,7 @@ public static class TripTrack
             ? PointOf(map, "latitude", "longitude")
             : null;
 
-    private static double? NumberOf(Dictionary<string, object> item, string key)
+    private static double? NumberOf(IReadOnlyDictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
         {

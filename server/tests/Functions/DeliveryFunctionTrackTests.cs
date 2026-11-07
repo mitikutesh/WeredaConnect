@@ -631,6 +631,133 @@ public class DeliveryFunctionTrackTests
             ["dropoffNote"] = "Merkato, near Anwar Mosque"
         });
 
+    // ===== LT-14: the order's own drop-off point =====
+
+    [Theory]
+    [InlineData(BuyerId)]
+    [InlineData(FarmerId)]
+    [InlineData(TruckerId)]
+    public async Task TheOrdersOwnPoint_IsTheDropoff_AndTheArrivalAimsAtIt(string caller)
+    {
+        OrderWithPoint("in_transit", "accepted", "8.9512", "38.7644");
+
+        var (status, track) = await TrackAsync(caller);
+
+        status.Should().Be(200);
+        var dropoff = track.GetProperty("dropoff");
+        dropoff.GetProperty("latitude").GetDouble().Should().Be(8.951);
+        dropoff.GetProperty("longitude").GetDouble().Should().Be(38.764);
+        var fixes = new List<TrackFix>
+        {
+            new(At(6, 0), 8.3, 38.85, "", 35, "hourly"),
+            new(At(7, 0), 8.5, 38.9, "", 35, "hourly"),
+            new(At(8, 42), 8.7523, 38.9786, "", 35, "hourly")
+        };
+        var expected = TripTrack.ArrivalWindow(fixes, new TrackPoint(8.9512, 38.7644), new List<TrackStop>(), Now, null)!;
+        track.GetProperty("eta").GetProperty("from").GetString().Should().Be(LocationPingRules.FormatUtc(expected.FromUtc));
+        track.GetProperty("remainingKm").GetDouble().Should().Be(Math.Round(expected.RemainingKm, 1, MidpointRounding.AwayFromZero));
+        // One read of the order serves the note and the point.
+        await _orders.Received(1).GetByIdAsync("order-101");
+    }
+
+    [Fact]
+    public async Task BeforePickup_TheBuyerSeesTheOrdersPoint()
+    {
+        _deliveries.GetByIdAsync(DeliveryId).Returns(Delivery("pending", pickedUpAt: null));
+        OrderWithPoint("accepted", "accepted", "8.9512", "38.7644");
+
+        var (_, track) = await TrackAsync(BuyerId);
+
+        track.GetProperty("sharing").GetString().Should().Be("not_started");
+        track.GetProperty("dropoff").GetProperty("latitude").GetDouble().Should().Be(8.951);
+    }
+
+    [Fact]
+    public async Task AnOrderWithoutAPoint_DropsOffAtTheTripsDestination()
+    {
+        OrderWithNote("in_transit", "accepted");
+
+        var (_, track) = await TrackAsync(BuyerId);
+
+        track.GetProperty("dropoff").GetProperty("latitude").GetDouble().Should().Be(9.03);
+        track.GetProperty("dropoff").GetProperty("longitude").GetDouble().Should().Be(38.74);
+    }
+
+    [Fact]
+    public async Task ATruckerNotCommitted_GetsTheTripsPoint_NotTheOrders()
+    {
+        OrderWithPoint("awaiting_transport", "cancelled", "8.9512", "38.7644");
+
+        var (status, track) = await TrackAsync(TruckerId);
+
+        status.Should().Be(200);
+        track.GetProperty("dropoff").GetProperty("latitude").GetDouble().Should().Be(9.03);
+        track.GetRawText().Should().NotContain("8.951");
+    }
+
+    [Fact]
+    public async Task AnOrderThatCannotBeRead_FallsBackToTheTripsPoint_AndTheTrackStands()
+    {
+        _orders.GetByIdAsync("order-101").ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var (status, track) = await TrackAsync(BuyerId);
+
+        status.Should().Be(200);
+        track.GetProperty("dropoff").GetProperty("latitude").GetDouble().Should().Be(9.03);
+    }
+
+    [Fact]
+    public async Task OtherStops_DropOffAtTheirOwnOrdersPoints_ElseTheTrips_AndNeverNamed()
+    {
+        var withPoint = OtherDelivery("del-102", "inTransit", "listing-102");
+        withPoint["pickedUpAt"] = "2026-10-27T05:30:00.0000000Z";
+        var withoutPoint = OtherDelivery("del-103", "pending", "listing-103");
+        var unreadable = OtherDelivery("del-104", "pending", "listing-104");
+        TripDeliveries(Delivery("inTransit"), withPoint, withoutPoint, unreadable);
+        _crops.GetByIdAsync("listing-102").Returns(Listing("8.155", "38.825"));
+        _crops.GetByIdAsync("listing-103").Returns(Listing("8.2", "38.83"));
+        _crops.GetByIdAsync("listing-104").Returns(Listing("8.25", "38.84"));
+        _orders.GetByIdAsync("order-del-102").Returns(new Dictionary<string, object>
+        {
+            ["orderId"] = "order-del-102", ["buyerId"] = "buyer-9", ["status"] = "in_transit",
+            ["deliveryLatitude"] = "8.5423", ["deliveryLongitude"] = "39.2687",
+            ["dropoffNote"] = "Other buyer's gate"
+        });
+        _orders.GetByIdAsync("order-del-103").Returns(new Dictionary<string, object>
+        {
+            ["orderId"] = "order-del-103", ["buyerId"] = "buyer-9", ["status"] = "accepted"
+        });
+        _orders.GetByIdAsync("order-del-104").ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var (status, track) = await TrackAsync(FarmerId);
+
+        status.Should().Be(200);
+        var dropoffs = track.GetProperty("otherStops").EnumerateArray()
+            .Where(s => s.GetProperty("kind").GetString() == "dropoff")
+            .Select(s => (s.GetProperty("latitude").GetDouble(), s.GetProperty("longitude").GetDouble()))
+            .ToList();
+        dropoffs.Should().Equal((8.54, 39.27), (9.03, 38.74), (9.03, 38.74));
+        var body = track.GetRawText();
+        body.Should().NotContain("Other buyer's gate");
+        body.Should().NotContain("8.5423");
+        body.Should().NotContain("order-del");
+    }
+
+    private void OrderWithPoint(string status, string truckerResponse, string latitude, string longitude)
+        => _orders.GetByIdAsync("order-101").Returns(new Dictionary<string, object>
+        {
+            ["orderId"] = "order-101",
+            ["buyerId"] = BuyerId,
+            ["farmerId"] = FarmerId,
+            ["truckerId"] = TruckerId,
+            ["tripId"] = TripId,
+            ["status"] = status,
+            ["truckerResponse"] = truckerResponse,
+            // As the orders table returns numbers: invariant text.
+            ["deliveryLatitude"] = latitude,
+            ["deliveryLongitude"] = longitude
+        });
+
     [Fact]
     public async Task TheDeliveryRoute_WithoutTrack_StillReturnsTheDelivery()
     {

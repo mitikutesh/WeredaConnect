@@ -93,7 +93,7 @@ public partial class SyncFunction
             return DropoffNoteContactRefusal(operation);
         }
 
-        var windowRefusal = await CheckDropoffNoteWindowAsync(operation, order, context);
+        var windowRefusal = await CheckDropoffEditWindowAsync(operation, order, OrderDropoffNote.LockedMessage, context);
         if (windowRefusal != null)
         {
             return windowRefusal;
@@ -104,17 +104,18 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// The edit window: the order is in <see cref="OrderDropoffNote.EditableOrderStatuses"/> and its
-    /// active delivery, read strongly consistent, is not picked up (the order follows its delivery
-    /// on a best-effort write, so the delivery decides when they disagree). A delivery that cannot
-    /// be read refuses for now with an unprefixed, retryable error.
+    /// The edit window of the drop-off note and, LT-14, of the order's drop-off point: the order is in
+    /// <see cref="OrderDropoffNote.EditableOrderStatuses"/> and its active delivery, read strongly
+    /// consistent, is not picked up (the order follows its delivery on a best-effort write, so the
+    /// delivery decides when they disagree). Outside it the refusal is <paramref name="lockedMessage"/>.
+    /// A delivery that cannot be read refuses for now with an unprefixed, retryable error.
     /// </summary>
-    private async Task<SyncOperationResult?> CheckDropoffNoteWindowAsync(
-        SyncOperationRequest operation, Dictionary<string, object> order, ILambdaContext context)
+    private async Task<SyncOperationResult?> CheckDropoffEditWindowAsync(
+        SyncOperationRequest operation, Dictionary<string, object> order, string lockedMessage, ILambdaContext context)
     {
         if (!OrderDropoffNote.EditableOrderStatuses.Contains(ItemString(order, "status")))
         {
-            return DropoffNoteLocked(operation);
+            return OrderRefusal(operation, lockedMessage);
         }
 
         var activeDeliveryId = ItemString(order, "activeDeliveryId");
@@ -131,13 +132,13 @@ public partial class SyncFunction
         catch (Exception ex)
         {
             context.Logger.LogWarning(
-                $"Drop-off note: delivery {MoneyAlarmLog.LogId(activeDeliveryId)} could not be read: [{ex.GetType().Name}]");
+                $"Drop-off edit: delivery {MoneyAlarmLog.LogId(activeDeliveryId)} could not be read: [{ex.GetType().Name}]");
             return TransientOrderError(operation, "The order's delivery could not be read. Please try again later.");
         }
 
         var deliveryStatus = delivery != null && delivery.TryGetValue("status", out var status) ? status.S : null;
         return deliveryStatus != null && OrderDropoffNote.PickedUpDeliveryStatuses.Contains(deliveryStatus)
-            ? DropoffNoteLocked(operation)
+            ? OrderRefusal(operation, lockedMessage)
             : null;
     }
 
@@ -158,10 +159,10 @@ public partial class SyncFunction
         Message = ContactInTextRefusal(OrderDropoffNote.ContactInTextCode, new List<string> { OrderDropoffNote.Field })
     };
 
-    private static SyncOperationResult DropoffNoteLocked(SyncOperationRequest operation) => new()
+    private static SyncOperationResult OrderRefusal(SyncOperationRequest operation, string message) => new()
     {
         OperationId = operation.OperationId,
         Status = "error",
-        Message = OrderDropoffNote.LockedMessage
+        Message = message
     };
 }

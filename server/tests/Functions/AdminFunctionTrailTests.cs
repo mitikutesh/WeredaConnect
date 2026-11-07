@@ -300,6 +300,43 @@ public class AdminFunctionTrailTests
     }
 
     [Fact]
+    public async Task APauseAtAnOrdersOwnDropoffPoint_IsOnTheStopList()
+    {
+        // LT-14: the order's own drop-off point is a planned stop, where the trip's destination
+        // (none here) would have been. The pause at 06:40 is placed at the 06:00 fix (8.1, 38.74).
+        _db.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "trips-test"), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new() { ["tripId"] = S(TripId), ["status"] = S("inTransit") }
+                }
+            });
+        _db.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "crops-test"), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() });
+        _db.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "orders-test"), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new() { ["orderId"] = S("order-101"), ["deliveryLatitude"] = N("8.11"), ["deliveryLongitude"] = N("38.74") }
+                }
+            });
+        var function = new AdminFunction(
+            _db, UsersTable, "orders-test", "", DeliveriesTable, "", tripLocationsTable: TripLocationsTable,
+            tripsTable: "trips-test", cropsTable: "crops-test") { Clock = () => Now };
+
+        var response = await function.FunctionHandler(Request(AdminGroup()), _context);
+
+        response.StatusCode.Should().Be(200);
+        var trail = JsonDocument.Parse(response.Body).RootElement;
+        trail.GetProperty("awayStops").GetArrayLength().Should().Be(0);
+        await _db.Received().QueryAsync(
+            Arg.Is<QueryRequest>(r => r.TableName == "orders-test" && r.ExpressionAttributeValues.Values.Any(v => v.S == "order-101")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task WithoutTheTripsTable_NoPlannedStopIsRead_AndTheScansAloneJudge()
     {
         var response = await Function().FunctionHandler(Request(AdminGroup()), _context);

@@ -70,12 +70,14 @@ public partial class AdminFunction
 
         var orderId = string.IsNullOrEmpty(escrow.OrderId) ? null : escrow.OrderId;
         OrderDto? order = null;
+        Dictionary<string, object>? orderRow = null;
         if (orderId != null && !string.IsNullOrEmpty(_ordersTable))
         {
             var orderItem = await QuerySingleItemAsync(_ordersTable, "orderId", orderId);
             if (orderItem != null)
             {
-                order = OrderFunction.MapToOrderDto(DynamoDbHelper.FromItem(orderItem));
+                orderRow = DynamoDbHelper.FromItem(orderItem);
+                order = OrderFunction.MapToOrderDto(orderRow);
             }
         }
 
@@ -154,7 +156,7 @@ public partial class AdminFunction
             Order = order,
             Delivery = delivery,
             Timeline = BuildTimeline(order, delivery, escrow, auditEntries, unifiedEvents),
-            Handoffs = await HandoffsAsync(deliveryRow, delivery, unifiedEvents, context),
+            Handoffs = await HandoffsAsync(deliveryRow, delivery, orderRow, unifiedEvents, context),
             Messages = messages,
             MessagesTruncated = messagesTruncated
         };
@@ -232,6 +234,7 @@ public partial class AdminFunction
     private async Task<List<AdminHandoffEvidenceDto>> HandoffsAsync(
         Dictionary<string, object>? row,
         DeliveryDto? delivery,
+        Dictionary<string, object>? orderRow,
         List<Dictionary<string, object>> unifiedEvents,
         ILambdaContext context)
     {
@@ -259,7 +262,7 @@ public partial class AdminFunction
             {
                 planned = selfPickup
                     ? await PlannedPickupAsync(delivery, context)
-                    : await PlannedDropoffAsync(row, context);
+                    : await PlannedDropoffAsync(row, orderRow, context);
             }
 
             handoffs.Add(Handoff(selfPickup ? SelfPickupType : "dropoff", delivery.ConfirmedAt, null,
@@ -359,9 +362,19 @@ public partial class AdminFunction
         }
     }
 
-    /// <summary>The trip's destination, the planned drop-off the delivered GPS check uses; null when unknown.</summary>
-    private async Task<LatLngDto?> PlannedDropoffAsync(Dictionary<string, object> row, ILambdaContext context)
+    /// <summary>
+    /// The planned drop-off the delivered GPS check uses (<see cref="TripTrack.PlannedDropoff"/>): the
+    /// order's own point (LT-14), else the trip's destination; null when unknown. The trip is read only
+    /// when the order has no point.
+    /// </summary>
+    private async Task<LatLngDto?> PlannedDropoffAsync(
+        Dictionary<string, object> row, Dictionary<string, object>? orderRow, ILambdaContext context)
     {
+        if (OrderDeliveryLocation.Of(orderRow) is { } orderPoint)
+        {
+            return LatLngOf(orderPoint);
+        }
+
         var tripId = AdminTrail.TripIdOf(row);
         if (string.IsNullOrEmpty(_tripsTable) || tripId == null)
         {
@@ -371,7 +384,7 @@ public partial class AdminFunction
         try
         {
             var trip = await new TripRepository(_dynamoDb, _tripsTable).GetByIdAsync(tripId);
-            return LatLngOf(TripTrack.PlannedDropoff(trip, row));
+            return LatLngOf(TripTrack.PlannedDropoff(trip, order: null));
         }
         catch (Exception ex)
         {

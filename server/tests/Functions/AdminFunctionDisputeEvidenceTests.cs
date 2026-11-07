@@ -212,6 +212,23 @@ public sealed class AdminFunctionDisputeEvidenceTests
     }
 
     [Fact]
+    public async Task TheDropoffHandoff_IsMeasuredFromTheOrdersOwnPoint_WhenItHasOne()
+    {
+        // LT-14: the buyer chose a drop-off point 0.02 degrees north of the trip's destination; the
+        // delivered GPS check used it, so the evidence does too, and the trip is not needed.
+        _order!["deliveryLatitude"] = N("9.022");
+        _order["deliveryLongitude"] = N("38.74");
+
+        var body = await EvidenceAsync();
+
+        var dropoff = body.GetProperty("handoffs")[1];
+        dropoff.GetProperty("planned").GetProperty("latitude").GetDouble().Should().Be(9.022);
+        dropoff.GetProperty("distanceKm").GetDouble().Should().Be(2.22);
+        // The admin's order carries the point too.
+        body.GetProperty("order").GetProperty("deliveryLatitude").GetDouble().Should().Be(9.022);
+    }
+
+    [Fact]
     public async Task TheDelivery_CarriesNoPhoneAndNoQrToken()
     {
         var body = await EvidenceAsync();

@@ -335,7 +335,9 @@ public partial class SyncFunction
         // ESC-15: the commitment commands (consumed by ProcessCommitmentCommandAsync, never written raw).
         OrderCommitment.FarmerResponseField, OrderCommitment.TruckerResponseField, OrderCommitment.DeclineReasonField,
         // LT-12: the buyer's drop-off landmark (CheckDropoffNoteChangeAsync guards an update).
-        OrderDropoffNote.Field
+        OrderDropoffNote.Field,
+        // LT-14: the order's own drop-off point (CheckDeliveryLocationChangeAsync guards an update).
+        OrderDeliveryLocation.LatitudeField, OrderDeliveryLocation.LongitudeField
     };
 
     // Server-calculated fields that clients must not set directly
@@ -379,7 +381,9 @@ public partial class SyncFunction
     {
         "status", "rejectionReason", "cancelReason", "paymentMethod", "cbeTransactionId",
         // LT-12: by the buyer only, until pickup (CheckDropoffNoteChangeAsync).
-        OrderDropoffNote.Field
+        OrderDropoffNote.Field,
+        // LT-14: by the buyer only, until pickup (CheckDeliveryLocationChangeAsync).
+        OrderDeliveryLocation.LatitudeField, OrderDeliveryLocation.LongitudeField
     };
 
     /// <summary>
@@ -842,6 +846,7 @@ public partial class SyncFunction
         _batchDeliveryWritten = false;
         _batchTripRows.Clear();
         _batchListingPoints.Clear();
+        _batchOrders.Clear();
         _batchPayoutDelays = new PayoutDelayBatch(_batchRiskScores);
         _batchAppBuild = ClientAppBuild.Read(request);
 
@@ -5529,29 +5534,23 @@ public partial class SyncFunction
                         }
                         else
                         {
-                            var tripId = existing.TryGetValue("tripId", out var tripIdAttr) ? tripIdAttr.S : null;
-                            if (tripId != null)
+                            // LT-14: the order's own drop-off point, else the trip's destination point
+                            // (TripTrack.PlannedDropoff). The point is locked from pickup on, so it is
+                            // the one the buyer chose before the goods left; a failed read throws and
+                            // answers the retryable internal error, never a check against the wrong point.
+                            var planned = await PlannedDropoffForConfirmAsync(existing);
+                            if (planned != null)
                             {
-                                var trip = await GetTripItemAsync(tripId);
-                                if (trip != null
-                                    && trip.TryGetValue("destinationLatitude", out var destLatAttr)
-                                    && trip.TryGetValue("destinationLongitude", out var destLonAttr))
+                                var distance = GpsValidator.HaversineDistance(
+                                    dropoffLat, dropoffLng, planned.Latitude, planned.Longitude);
+                                if (distance > 5.0)
                                 {
-                                    if (double.TryParse(destLatAttr.N, out var destLat)
-                                        && double.TryParse(destLonAttr.N, out var destLon))
+                                    return new SyncOperationResult
                                     {
-                                        var distance = GpsValidator.HaversineDistance(
-                                            dropoffLat, dropoffLng, destLat, destLon);
-                                        if (distance > 5.0)
-                                        {
-                                            return new SyncOperationResult
-                                            {
-                                                OperationId = operation.OperationId,
-                                                Status = "error",
-                                                Message = $"DELIVERY_GPS_PROXIMITY: Dropoff GPS is {distance:F1}km from trip destination (max 5km)."
-                                            };
-                                        }
-                                    }
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = $"DELIVERY_GPS_PROXIMITY: Dropoff GPS is {distance.ToString("F1", CultureInfo.InvariantCulture)}km from the drop-off point (max 5km)."
+                                    };
                                 }
                             }
                         }
@@ -6117,6 +6116,26 @@ public partial class SyncFunction
     }
 
     /// <summary>
+    /// LT-14: the point a trucker delivery's <c>gpsDropoff</c> is checked against
+    /// (delivery-verification-api.md, GPS Validation): the order's own drop-off point, read strongly
+    /// consistent, else the trip's destination point (<see cref="TripTrack.PlannedDropoff"/>). The
+    /// trip is read only when the order has no point. Null when neither has one: not checked.
+    /// </summary>
+    private async Task<TrackPoint?> PlannedDropoffForConfirmAsync(Dictionary<string, AttributeValue> delivery)
+    {
+        var orderId = delivery.TryGetValue("orderId", out var orderIdAttr) ? orderIdAttr.S : null;
+        var order = string.IsNullOrEmpty(orderId) ? null : await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+        if (OrderDeliveryLocation.Of(order) is { } point)
+        {
+            return point;
+        }
+
+        var tripId = delivery.TryGetValue("tripId", out var tripIdAttr) ? tripIdAttr.S : null;
+        var trip = string.IsNullOrEmpty(tripId) ? null : await GetTripItemAsync(tripId);
+        return TripTrack.PlannedDropoff(trip == null ? null : CropRepository.FromItem(trip), order: null);
+    }
+
+    /// <summary>
     /// Query for a trip item by tripId (partition key).
     /// </summary>
     private async Task<Dictionary<string, AttributeValue>?> GetTripItemAsync(string tripId)
@@ -6310,8 +6329,8 @@ public partial class SyncFunction
     /// <summary>
     /// Process an order sync operation (create, update).
     /// Uses server-authoritative state machine and commission calculation. LT-12: the order row a
-    /// result carries back leaves out the drop-off note when the caller may not read it
-    /// (<see cref="OrderDropoffNote.ForCaller"/>).
+    /// result carries back leaves out the drop-off note, and since LT-14 the order's drop-off point,
+    /// when the caller may not read them (<see cref="OrderDropoffNote.ForCaller"/>).
     /// </summary>
     private async Task<SyncOperationResult> ProcessOrderAsync(
         SyncOperationRequest operation,
@@ -6474,6 +6493,10 @@ public partial class SyncFunction
         {
             return dropoffNoteRefusal;
         }
+
+        // LT-14: the order's own drop-off point, checked with the field rules above; a pair of
+        // nulls is no point and is not stored.
+        ApplyCreateDeliveryLocation(operation);
 
         KeepServerCancelCodesReserved(operation.Data);
 
@@ -6668,6 +6691,17 @@ public partial class SyncFunction
             if (noteRefusal != null)
             {
                 return noteRefusal;
+            }
+        }
+
+        // LT-14: the order's own drop-off point, by the same rules and at the same place.
+        if (OrderDeliveryLocation.Sent(operation.Data))
+        {
+            var locationRefusal = await CheckDeliveryLocationChangeAsync(
+                operation, existingOrder, authenticatedUserId, orderBuyerId, context);
+            if (locationRefusal != null)
+            {
+                return locationRefusal;
             }
         }
 
@@ -9076,6 +9110,12 @@ public partial class SyncFunction
             && OrderDropoffNote.ValidationError(noteObj) is { } noteError)
         {
             errors.Add(noteError);
+        }
+
+        // LT-14: the drop-off point, both or neither, inside Ethiopia's box.
+        if (OrderDeliveryLocation.ValidationError(data) is { } locationError)
+        {
+            errors.Add(locationError);
         }
 
         return errors;

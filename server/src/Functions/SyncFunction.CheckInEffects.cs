@@ -33,6 +33,10 @@ public partial class SyncFunction
     // Listing locations (the planned pickups) read once per batch.
     private readonly Dictionary<string, TrackPoint?> _batchListingPoints = new(StringComparer.Ordinal);
 
+    // LT-14: the deliveries' orders (their own drop-off points) read once per batch; null for an
+    // order that does not exist.
+    private readonly Dictionary<string, Dictionary<string, object>?> _batchOrders = new(StringComparer.Ordinal);
+
     /// <summary>The effects of the new check-in <paramref name="row"/>. Never throws.</summary>
     private async Task RunCheckInEffectsAsync(
         LocationPing ping,
@@ -146,10 +150,12 @@ public partial class SyncFunction
 
     /// <summary>
     /// Each delivery on the road that the check-in shows within 5 km of its drop-off
-    /// (<see cref="TripTrack.PlannedDropoff"/>) and that has no <c>nearbyNotifiedAt</c> is stamped,
-    /// with the distance and the minutes to the start of the arrival window. The stamp is the only
-    /// write: its stream record sends <c>truck_nearby</c> to the buyer, and a stamp that is already
-    /// there (a repeat, another check-in first) fails its condition and sends nothing.
+    /// (<see cref="TripTrack.PlannedDropoff"/>: since LT-14 its order's own point, else the trip's
+    /// destination) and that has no <c>nearbyNotifiedAt</c> is stamped, with the distance and the
+    /// minutes to the start of the arrival window. The stamp is the only write: its stream record sends
+    /// <c>truck_nearby</c> to the buyer, and a stamp that is already there (a repeat, another check-in
+    /// first) fails its condition and sends nothing. A delivery whose order cannot be read is skipped
+    /// for this check-in (never judged by the trip's point instead); the next one tries again.
     /// </summary>
     private async Task TruckNearbyAsync(
         LocationPing ping, TripLocationRow row, TrackPoint fix, Dictionary<string, AttributeValue> tripItem,
@@ -158,21 +164,22 @@ public partial class SyncFunction
         Dictionary<string, object>? trip = null;
         foreach (var delivery in deliveries)
         {
-            if (Text(delivery, "truckerId") != row.TruckerId)
+            if (Text(delivery, "truckerId") != row.TruckerId
+                || !CheckInEffects.AwaitsNearby(delivery, ping.CapturedAtUtc))
             {
                 continue;
             }
 
             trip ??= CropRepository.FromItem(tripItem);
-            var dropoff = TripTrack.PlannedDropoff(trip, delivery);
-            if (CheckInEffects.NearbyKmOf(delivery, dropoff, fix, ping.CapturedAtUtc) is not { } km)
-            {
-                continue;
-            }
-
             var deliveryId = Text(delivery, "deliveryId") ?? string.Empty;
             try
             {
+                var dropoff = await PlannedDropoffAsync(trip, delivery);
+                if (CheckInEffects.NearbyKmOf(delivery, dropoff, fix, ping.CapturedAtUtc) is not { } km)
+                {
+                    continue;
+                }
+
                 // The minutes are a nicety: without them the push still goes, without its time part.
                 int? minutes = null;
                 try
@@ -226,7 +233,7 @@ public partial class SyncFunction
             }
 
             otherStops.AddRange(TripTrack.StopsOf(
-                other, await ListingPointAsync(other), TripTrack.PlannedDropoff(trip, other), windowStart));
+                other, await ListingPointAsync(other), await PlannedDropoffAsync(trip, other), windowStart));
         }
 
         var track = TripTrack.Build(delivery, rows, pickup: null, dropoff, otherStops, now);
@@ -316,6 +323,28 @@ public partial class SyncFunction
         }
 
         return point;
+    }
+
+    /// <summary>
+    /// LT-14: a delivery's planned drop-off point (<see cref="TripTrack.PlannedDropoff"/>): its order's
+    /// own point, its order read once per batch, else the trip's destination point. A failed read
+    /// throws to the caller's catch.
+    /// </summary>
+    private async Task<TrackPoint?> PlannedDropoffAsync(Dictionary<string, object> trip, Dictionary<string, object> delivery)
+    {
+        var orderId = Text(delivery, "orderId");
+        if (string.IsNullOrEmpty(orderId))
+        {
+            return TripTrack.PlannedDropoff(trip, order: null);
+        }
+
+        if (!_batchOrders.TryGetValue(orderId, out var order))
+        {
+            order = await _orderRepo.GetByIdAsync(orderId);
+            _batchOrders[orderId] = order;
+        }
+
+        return TripTrack.PlannedDropoff(trip, order);
     }
 
     /// <summary>Runs one effect; a failure is logged and goes no further (not to the ingest, not to the next effect).</summary>
