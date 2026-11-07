@@ -405,7 +405,7 @@ cascade run as for the update; and it stamps `deletedAt`. Only the trip's trucke
 (`TRIP_UNAUTHORIZED` otherwise), by either form.
 
 **Trips that left unbooked close themselves.** The order cron action `commitment_deadlines` (every 15
-minutes since 2.4.1, ESC-16) ends with a step that reads the `open` partition of the StatusDepartureDateIndex below the browse
+minutes since 2.5.1, ESC-16) ends with a step that reads the `open` partition of the StatusDepartureDateIndex below the browse
 cutoff (`departureDate` before the start of today in Ethiopia, 2.2.0; no Scan). It reads newest
 departures first, 10 pages of 100 rows and 200 closes a run at most: a trip is at the head of the read
 from the first run after its Ethiopia day ends, and the trips kept open after they left (booked, or
