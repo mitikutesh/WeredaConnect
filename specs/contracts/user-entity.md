@@ -1,7 +1,7 @@
 # User Entity Contract
 
 ## Version
-2.0.1
+2.1.0
 
 ## Parties
 - **Mobile** (client): caches the signed-in user in Isar (`core/database/schemas/user.dart`) for offline sign-in and display
@@ -26,7 +26,7 @@ built. 2.0.0 also adds the reputation attributes of EPIC ESC P2, marked PLANNED.
 | Part | State |
 |---|---|
 | Sections 1, 3 to 11 | as built on `main` (2026-11-07) |
-| Section 2 (`reputation`, `ratingSum`, `ratingCount`, `ratingsAggregatedAt`) | PLANNED: ESC-28 writes them, ESC-29 reads them (`reputation-api.md` 1.0.0, `rating-api.md` 1.2.0) |
+| Section 2 (`reputation`, `ratingSum`, `ratingCount`, `ratingsAggregatedAt`) | BUILT (2.1.0, ESC-28): written by the reputation stream, the order-cron's daily job and backfill, the rating create and registration; ESC-29 reads them (`reputation-api.md` 1.1.0, `rating-api.md` 1.3.0) |
 
 ---
 
@@ -62,7 +62,7 @@ value is left out (the serializer omits nulls).
 | `deletedAt` | S | never | the tombstone write | When the personal data was erased |
 | `createdAt` | S | yes | registration | ISO 8601 UTC |
 | `updatedAt` | S | yes | every write path (section 6) | ISO 8601 UTC of the last write |
-| `version` | N | yes | registration (1), `UpdateUserAsync` (+1), the tombstone (+1) | Concurrency for the profile write path; admin actions and the PLANNED reputation writes do not bump it (section 6) |
+| `version` | N | yes | registration (1), `UpdateUserAsync` (+1), the tombstone (+1) | Concurrency for the profile write path; admin actions and the reputation writes (ESC-28) do not bump it (section 6) |
 
 Not on the row (fixed in 2.0.0): `passwordHash` (Cognito holds the password; nothing about it
 is stored in DynamoDB or sent anywhere), `drivingLicensePath` and the Fayda ID scan paths (local
@@ -84,7 +84,7 @@ of setting `NULL` (the same for any other index key).
 
 ---
 
-## 2. Reputation attributes (PLANNED: ESC-28)
+## 2. Reputation attributes (BUILT: ESC-28, 2.1.0)
 
 Server-only. Never returned in the `user` object: the party reads them through
 `GET /reputation/me`, buyers through the public summary and the copied owner fields
@@ -114,6 +114,7 @@ The `reputation` map:
 | `override` | M | `{tag, reason, by, until}`, `tag` `low` or `clear`, while an admin tag is in force |
 | `nextChangeAt` | S | the earliest of the next point expiry, `restriction.until` and `override.until`; a read past it recomputes from the events |
 | `lastEventAt` | S | `occurredAt` of the newest event counted |
+| `lastEventId`, `lastEventRecordedAt` | S | 2.1.0: the newest event row written with the map and when; a writer whose events Query does not return it yet reads again (the read-lag check, `reputation-architecture.md` 6.1) |
 | `version` | N | the map's own compare-and-set counter, starting at 1 |
 | `updatedAt` | S | when the map was last written |
 
@@ -223,7 +224,7 @@ All three project `ALL`, so every write to the row is also written to each index
 | Index | Partition key | Sort key | Used by |
 |---|---|---|---|
 | `PhoneIndex` | `phoneNumber` | none | login and registration lookup (`Limit 1`) |
-| `RoleWaredaIndex` | `role` | `woreda` | no server code queries it today (the admin list scans); PLANNED: the rating backfill walks the `farmer` and `trucker` partitions |
+| `RoleWaredaIndex` | `role` | `woreda` | the rating backfill (ESC-28, order-cron `reputation_backfill_ratings`) walks the `farmer` and `trucker` partitions; the admin list scans |
 | `FaydaIdIndex` | `faydaId` | none | the Fayda duplicate check at registration and link (`Limit 1`) |
 
 A tombstone has no `phoneNumber`, `faydaId` or `woreda`, so it leaves all three indexes.
@@ -237,7 +238,7 @@ A tombstone has no `phoneNumber`, `faydaId` or `woreda`, so it leaves all three 
 | User by Fayda ID | `Query` `FaydaIdIndex`, `Limit 1` |
 | Phones or languages of many users | `BatchGetItem` projecting `userId` and the one attribute, 100 keys per call, up to 3 rounds for unprocessed keys |
 | Admin user list and dashboard counts | `Scan` with filters (admin only, paged) |
-| PLANNED: the rating backfill | `Query` `RoleWaredaIndex` for `role = farmer` and `role = trucker` |
+| The rating backfill (ESC-28) | `Query` `RoleWaredaIndex` for `role = farmer` and `role = trucker` |
 
 ### Item example
 
@@ -263,7 +264,7 @@ A tombstone has no `phoneNumber`, `faydaId` or `woreda`, so it leaves all three 
 }
 ```
 
-PLANNED (ESC-28) additions on the same row:
+ESC-28 additions on the same row (built in 2.1.0):
 ```json
 {
   "ratingSum": { "N": "58" },
@@ -299,8 +300,8 @@ PLANNED (ESC-28) additions on the same row:
 | `SyncFunction`, `user` entity | `preferredLanguage` (no write when unchanged) | `UpdateUserAsync` | +1 |
 | `AdminFunction` user action | `suspend`: `suspended`, `suspendReason`; `unsuspend`: `suspended: false`, removes `suspendReason`; `verify`: `faydaVerified`; `change_role`: `role`; each with `updatedAt` | `UpdateItem`, `attribute_exists(userId)`; audited (transaction-audit `user_{action}`) | not bumped |
 | Account deletion | section 7 | `UpdateItem` | +1 on the tombstone |
-| PLANNED: `ReputationService` | `reputation` | section 2 | not bumped |
-| PLANNED: rating create, backfill, role-change rebuild | `ratingSum`, `ratingCount`, `ratingsAggregatedAt` | `rating-api.md` 1.2.0 | not bumped |
+| `ReputationService` (ESC-28) | `reputation` | section 2 | not bumped |
+| Rating create, backfill (ESC-28); role-change rebuild (PLANNED, ESC-32) | `ratingSum`, `ratingCount`, `ratingsAggregatedAt` | `rating-api.md` 1.3.0 | not bumped |
 
 `UpdateUserAsync` is a read-modify-write: it `SET`s `phoneNumber`, `displayName`, `fullName`,
 `role`, `woreda`, `preferredLanguage`, `isPhoneVerified`, `profilePhotoRef`, `faydaId`,
@@ -328,7 +329,7 @@ attributes its caller changed.
 
 The tombstone keeps only `userId`, `role`, the three deletion attributes, `createdAt`,
 `updatedAt` and `version` (`AccountDeletionPolicy.TombstoneAllowlist`); every other attribute is
-removed, including any added later (the PLANNED section 2 attributes too). A deletion that
+removed, including any added later (the section 2 attributes too). A deletion that
 aborts removes `deletionState` and `deletionRequestedAt`. These attributes are never accepted
 from a client and never returned.
 
@@ -402,8 +403,8 @@ platform pair of the Isar schema: a field added to one is added to the other.
 
 - `Models/UserDto.cs`: `UserDto` (a `sealed record`) carries every section 1 attribute.
   `FaydaAuthenticatedAt`, `SuspendReason`, `DeletionState`, `DeletionRequestedAt` and `DeletedAt`
-  are `[JsonIgnore]`, so they never leave the server. PLANNED: the section 2 attributes stay off
-  `UserDto` (or are `[JsonIgnore]`); `ReputationService` reads them with its own projection.
+  are `[JsonIgnore]`, so they never leave the server. The section 2 attributes are not on
+  `UserDto`: `ReputationEventRepository` reads them with its own projection (ESC-28).
 - `Data/UserRepository.cs`: manual `ToItem` / `FromItem` marshalling on the low-level client
   (AOT: no Document Model, no reflection). `FromItem` maps a tombstone's missing phone and woreda
   to empty strings.
@@ -450,11 +451,11 @@ screened.
    (deletionState)` on `UpdateUserAsync`).
 9. **A tombstone keeps only the allow-list** of section 7.
 10. **Timestamps are ISO 8601 UTC**; local time is a display concern of the device.
-11. **PLANNED: the `reputation` map changes only together with the event that changes it**, in
+11. **The `reputation` map changes only together with the event that changes it**, in
     one transaction, under its own `reputation.version`.
-12. **PLANNED: reputation and rating aggregate writes never bump `version` or `updatedAt`**,
+12. **Reputation and rating aggregate writes never bump `version` or `updatedAt`**,
     and `UpdateUserAsync` never writes them.
-13. **PLANNED: nothing writes reputation onto a deleting account** (`attribute_not_exists
+13. **Nothing writes reputation onto a deleting account** (`attribute_not_exists
     (deletionState)` on every reputation write).
 
 ---
@@ -474,6 +475,7 @@ screened.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.1.0 | 2026-11-07 | Section 2 BUILT (ESC-28): `ReputationService` writes the `reputation` map (the stream, the daily job, the refresh after a rating), the rating create `ADD`s `ratingSum` and `ratingCount`, registration starts every new row at 0 with `ratingsAggregatedAt`, the backfill stamps older rows. The map gains `lastEventId` and `lastEventRecordedAt` (the read-lag check). Never returned in the `user` object; no wire change |
 | 2.0.1 | 2026-11-07 | `suspendReason`: an admin's `suspend` with a free-text reason no longer replaces a stored `fraud_confirmed` (FUP-103); the account stays held as confirmed fraud until `unsuspend`. Shape unchanged |
 | 2.0.0 | 2026-11-07 | Rewritten from the code (ESC-27): every attribute with its type, writer and whether the `user` object returns it; `passwordHash`, `drivingLicensePath` and the ID scan paths are not on the row; `profilePhotoRef` has no writer; the NULL-or-missing rule, with an open question on `UpdateUserAsync` writing `NULL` to the `FaydaIdIndex` key on rows without a Fayda ID; `knownDevices` is an unordered string set; table settings as built (default encryption, no stream, no TTL); access patterns; the writers table with version semantics (admin actions do not bump `version`) and the known `UpdateUserAsync` revert gap; the Isar schema and web model as built (field-level PII encryption; `preferredLanguage` not in Isar); sync is the `user` entity only; `UserJsonContext` and the embedded `MinimalUserDto` were never used. PLANNED (ESC-28): `reputation` map, top-level `ratingSum`, `ratingCount`, `ratingsAggregatedAt`, their write rules and invariants 11 to 13 (`reputation-api.md` 1.0.0, `rating-api.md` 1.2.0). No wire change for built clients |
 | 1.3.2 | 2026-11-07 | Doc only (ESC-14, survey 9.5): the row as built. `role` is changed by an admin's `change_role` (marketplace roles only, Cognito claim rewritten, user signed out), not immutable; new table of server-written fields (`fullName`, `faydaVerified`, `faydaVerifiedAt`, `faydaAuthenticatedAt`, `suspended`, `suspendReason`, `knownDevices`) saying which the register and login `user` object returns; `RoleWaredaIndex` projects `ALL` (was documented `KEYS_ONLY`); `FaydaIdIndex` documented. The full rewrite with `reputation` stays ESC-27 (user-entity 2.0.0). No wire change |
@@ -486,4 +488,4 @@ screened.
 ---
 
 **Last Updated**: 2026-11-07
-**Version**: 2.0.0
+**Version**: 2.1.0

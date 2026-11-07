@@ -1,13 +1,14 @@
 # Reputation API Contract
 
 ## Version
-1.0.0
+1.1.0
 
 ## Status
-PLANNED. Nothing in this contract is built yet. ESC-28 builds the events, the policy and the
-aggregate; ESC-29 the reads, the gates and the copied owner fields; ESC-30 the matching signal;
-ESC-31 the app; ESC-32 the admin endpoints; ESC-33 the fraud hooks. Each section names its
-ticket. Design: `specs/architecture/reputation-architecture.md`. Rules and decisions D1 to D9:
+PARTLY BUILT (1.1.0). BUILT in ESC-28: the events, the policy and the aggregate (section 1),
+the server side of the two notifications (section 10) and the flags and policy parameter
+(section 11), all shipping dark (both flags off everywhere). PLANNED: ESC-29 the reads, the gates
+and the copied owner fields; ESC-30 the matching signal; ESC-31 the app; ESC-32 the admin
+endpoints; ESC-33 the fraud hooks. Each section names its ticket. Design: `specs/architecture/reputation-architecture.md`. Rules and decisions D1 to D9:
 `specs/features/three-party-escrow-commitments-reputation.md` 4.11, 5.I and 14.
 
 ## Parties
@@ -50,14 +51,14 @@ The public summary never shows points, events, reasons, appeals or restriction d
 
 | Section | What | Ticket |
 |---|---|---|
-| 1 | Concepts: events, tiers, effective rating, reliability, restriction | ESC-28 |
+| 1 | Concepts: events, tiers, effective rating, reliability, restriction | ESC-28 (BUILT) |
 | 2 to 4 | Party and buyer reads | ESC-29 |
 | 5, 6 | Appeal photo and appeal | ESC-29 |
 | 7 | Owner fields copied onto crop and trip rows | ESC-29 (copy), ESC-30 (matching) |
 | 8 | Gates: `REPUTATION_RESTRICTED`, hidden restricted parties, suspension | ESC-29 |
 | 9 | Admin endpoints | ESC-32 |
-| 10 | Notifications `penalty_recorded`, `tier_changed` | ESC-28 (server), ESC-31 (app) |
-| 11 | Feature flags | ESC-28 |
+| 10 | Notifications `penalty_recorded`, `tier_changed` | ESC-28 (server, BUILT), ESC-31 (app) |
+| 11 | Feature flags | ESC-28 (BUILT) |
 | 12 | Error codes | all |
 | 13 | Offline and sync | ESC-31 |
 
@@ -70,7 +71,13 @@ there; section 9 sits behind the admin pool's.
 
 ---
 
-## 1. Concepts (ESC-28)
+## 1. Concepts (ESC-28, BUILT)
+
+Built in `Helpers/ReputationPolicy.cs` (the rules, pure), `Helpers/ReputationDerivation.cs` (the
+events from the orders stream), `Services/ReputationService.cs` (record, refresh, the daily step),
+`Functions/ReputationStreamFunction.cs` and the order-cron actions `reputation_daily`,
+`reputation_unpark`, `reputation_recompute_all`, `reputation_backfill_ratings`. What is not
+visible yet: nothing reads these values back to a client until ESC-29.
 
 ### 1.1 Event codes
 
@@ -635,7 +642,7 @@ restriction); `503 REPUTATION_UNAVAILABLE`; `500 REPUTATION_SERVER_ERROR`.
 
 ---
 
-## 10. Notifications (ESC-28 server, ESC-31 app)
+## 10. Notifications (ESC-28 server BUILT, ESC-31 app)
 
 Two new inbox and push types for the party (`notifications-api.md`; ESC-28 bumps it). They come
 from the `reputation-events` table stream into `OrderNotifyStreamFunction`, like the order events
@@ -647,11 +654,14 @@ from the `reputation-events` table stream into `OrderNotifyStreamFunction`, like
 | `tier_changed` | the tier changed (a `TIER_CHANGED` row) | `fromTier`, `toTier`, `restrictedUntil` when `toTier` is `restricted` | My reputation |
 
 `tier_changed` to `warning` is the private warning of spec 4.11. Push text in en, am and om
-(`Helpers/PushText.cs`).
+(`Helpers/PushText.cs`; am and om await native review). As built: a `TIER_CHANGED` row is written
+whenever the tier stored on the users row changes (a penalty, the daily job, a refresh), and
+`restrictedUntil` is absent while a `DELIVERY_OVERDUE` review is open (`notifications-api.md`
+1.5.0).
 
 ---
 
-## 11. Feature flags and policy
+## 11. Feature flags and policy (ESC-28, BUILT)
 
 Flags follow the environment config pattern of `commitmentsEnabled`
 (`infra/lib/config/environments.ts`, an env var on each Lambda that needs it; spec K3 named SSM,
@@ -670,6 +680,11 @@ commitment fields. The P3 codes (`NO_SHOW`, `DELIVERY_OVERDUE`) also need `picku
 Policy numbers (points, caps, thresholds, windows) live in one SSM String parameter
 `/{prefix}/reputation/policy` (JSON), read once per Lambda container; a missing or out-of-range
 value keeps its default and logs `REPUTATION_POLICY_INVALID` (architecture doc 5.9).
+
+As built: `reputationPenalties` and `timeoutPenalties` are in `infra/lib/config/environments.ts`,
+`false` in dev, staging and prod. `reputationPublicTags` is added with the reads (ESC-29). With
+`reputationPenalties` off nothing reads the policy parameter, the rating create still keeps the
+stored rating sum and count (`rating-api.md` 1.3.0) and the backfill still runs.
 
 ---
 
@@ -738,9 +753,10 @@ Error body: `{"error":{"code":"REPUTATION_FORBIDDEN","message":"..."}}`, as ever
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-11-07 | ESC-28 BUILT: section 1 (events from the orders stream, the policy with its caps, tiers, restriction, expiry and earn-back, the aggregate on the users row), section 10 on the server (`penalty_recorded`, `tier_changed`) and section 11 (`reputationPenalties`, `timeoutPenalties`, the SSM policy parameter); everything off by default. Sections 2 to 9 and 13 stay PLANNED (ESC-29 to ESC-33). No endpoint yet |
 | 1.0.0 | 2026-11-07 | New contract, PLANNED (ESC-27 for ESC-28 to ESC-33): event codes, tiers, caps, effective rating, reliability, restriction, expiry and earn-back; `GET /reputation/me`, `GET /reputation/{userId}`, `GET /reputation/me/events`, `POST /reputation/appeals/photo-url`, `POST /reputation/events/{eventId}/appeal`; copied owner fields on crop and trip rows; `REPUTATION_RESTRICTED` gates, hidden restricted parties, the suspension gate; admin panel, appeals queue, decision and tag or restrict endpoints; `penalty_recorded` and `tier_changed`; flags `reputationPenalties`, `timeoutPenalties`, `reputationPublicTags`; `REPUTATION_*` error codes |
 
 ---
 
 **Last Updated**: 2026-11-07
-**Version**: 1.0.0
+**Version**: 1.1.0

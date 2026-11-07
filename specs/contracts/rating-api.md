@@ -1,7 +1,7 @@
 # Rating API
 
 ## Version
-1.2.0
+1.3.0
 
 ## Parties
 Mobile, Web, Backend, Infrastructure, Admin
@@ -15,12 +15,11 @@ one rating per (order, ratee)**.
 - **Writes** go through the offline-first `/sync` endpoint as `rating` create
   operations (mirrors `buyer_intent`).
 - **Reads** are served by a dedicated `RatingFunction` at `GET /ratings`.
-- **Reputation** (1.2.0, PLANNED): the ratee's star sum and count are stored on
-  their users row when a rating is created (ESC-28), reads are limited to buyers
-  and the ratee and filtered by `rateeRole` (ESC-29), and the summary
-  carries the effective rating of `reputation-api.md` 1.0.0. See "Stored
-  aggregate" and "Read rules" below. Until those tickets ship, 1.1.0 behaviour
-  holds.
+- **Reputation**: the ratee's star sum and count are stored on their users row
+  when a rating is created (1.3.0, BUILT in ESC-28); reads are limited to buyers
+  and the ratee and filtered by `rateeRole`, and the summary carries the effective
+  rating of `reputation-api.md` (1.2.0, PLANNED: ESC-29). See "Stored aggregate"
+  and "Read rules" below. Until ESC-29 ships, the 1.1.0 read behaviour holds.
 
 ## Request Format
 
@@ -120,7 +119,7 @@ Standard `SyncOperationResult`: `status` is `success` (with `serverData` and
 `serverVersion: 1`), `duplicate` (idempotency replay), or `conflict` (a rating
 for this order+ratee already exists).
 
-## Stored aggregate (1.2.0, PLANNED: ESC-28)
+## Stored aggregate (1.2.0; BUILT in 1.3.0, ESC-28)
 
 Up to 1.1.0 every `GET /ratings` walked up to 50 pages of the ratee index to
 compute the summary, and browse called it once per farmer card (spec R3). Since
@@ -143,7 +142,10 @@ compute the summary, and browse called it once per farmer card (spec R3). Since
    operation fails as before and the client retries; nothing was written.
 3. **After the commit**, best effort: `ReputationService` recomputes the ratee's
    effective rating and refreshes their copied owner fields; a failure is logged
-   (`REPUTATION_COPY_FAILED`) and the `HEAL` row makes the daily job do it.
+   (`REPUTATION_COPY_FAILED`) and the `HEAL` row makes the daily job do it. As
+   built (1.3.0): the refresh runs only while `reputationPenalties` is on (no map is
+   written while the reputation build ships dark) and writes the `reputation` map
+   when a public field changed; the copies onto listings are ESC-29's.
 4. **Backfill**, once per environment before ESC-29 reads the aggregate
    (architecture doc 12.2): for each farmer and trucker (Query on
    `RoleWaredaIndex`, no Scan), sum their ratings without `inAggregate` whose
@@ -151,10 +153,20 @@ compute the summary, and browse called it once per farmer card (spec R3). Since
    inAggregate` on those rating rows (conditioned `attribute_not_exists`, so a
    rerun adds nothing twice), and stamp `ratingsAggregatedAt`. Ratings of another
    role get `inAggregate: false`. New registrations start with `ratingSum: 0`,
-   `ratingCount: 0` and `ratingsAggregatedAt`.
+   `ratingCount: 0` and `ratingsAggregatedAt`. As built (1.3.0): the order-cron
+   action `reputation_backfill_ratings`, invoked by hand, not flagged; a rerun
+   skips stamped users and flagged ratings. A farmer or trucker without a
+   `woreda` is not on `RoleWaredaIndex`: their row stays unstamped and reads keep
+   the 1.1.0 walk for them.
 5. **Role change.** An admin `change_role` rebuilds the aggregate for the new
    role (sum of the ratee's ratings with that `rateeRole`, `SET` conditioned on
-   the `ratingCount` it read) and flips `inAggregate` accordingly (ESC-32).
+   the `ratingCount` it read) and flips `inAggregate` accordingly (ESC-32, still
+   PLANNED).
+
+Built in ESC-28 (1.3.0): `RatingRepository.CreateAsync` (the transaction, the
+`inAggregate: false` fallback, `inAggregate` never taken from a payload nor
+returned), `UserRepository.CreateUserAsync` (the registration stamp),
+`RatingAggregateBackfill` (order-cron `reputation_backfill_ratings`).
 
 The wire shape of the create is unchanged; the mobile and web clients change
 nothing for it.
@@ -226,6 +238,7 @@ so an admin pool token gets `401`. Admins see a user's rating sum and count in
   returned to clients.
 
 ## Changelog
+- **1.3.0** (2026-11-07): BUILT (ESC-28): the stored aggregate. The `/sync` rating create is the transaction of "Stored aggregate" (rating, `ADD ratingSum, ratingCount`, heal marker), a changed role puts the rating alone with `inAggregate: false`, registration stamps `ratingSum: 0`, `ratingCount: 0`, `ratingsAggregatedAt`, and the order-cron action `reputation_backfill_ratings` runs the one-time backfill. The best-effort refresh after the commit runs only with `reputationPenalties` on. Read rules stay PLANNED (ESC-29). Create wire shape unchanged.
 - **1.2.0** (2026-11-07): PLANNED (ESC-27 for ESC-28 and ESC-29). Stored aggregate: the create puts the rating and `ADD`s the stars to the ratee's users row (`ratingSum`, `ratingCount`) in one transaction, conditioned on the ratee's role, plus a `HEAL` row for the daily job; a one-time backfill without Scan; a role change rebuilds it; ratings gain the server-only `inAggregate`. Read rules: `GET /ratings` and `GET /ratings/{id}` only for buyers (farmer and trucker ratees) and the ratee, else `403 RATING_FORBIDDEN` (admins use the admin reputation panel); new optional `rateeRole` filter; the summary comes from the users row when aggregated and gains `rateeRole` and `effectiveRating`; new optional `reputation` block (`reputation-api.md` 1.0.0) behind `reputationPublicTags`. Create wire shape unchanged.
 - **1.1.0** (2026-10-10): ratings also open on `disbursing` (ESC-09); `RATING_FORBIDDEN` reads "You can only rate a delivered order (delivered, disbursing or settled)."
 - **1.0.0** (2026-07-09) — Initial contract: buyer rates farmer/trucker after a
