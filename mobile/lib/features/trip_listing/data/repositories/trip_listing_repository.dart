@@ -281,7 +281,8 @@ class TripListingRepository extends BaseTripListingRepository {
   /// Shared trip status-transition logic.
   ///
   /// Looks up the trip, validates ownership and current status,
-  /// applies the new status, bumps version, and enqueues a sync op.
+  /// applies the new status, bumps version, and enqueues an `update` sync op
+  /// (every status change, the cancel included, is an update since ESC-17).
   ///
   /// Throws [TripValidationException] on any validation failure.
   Future<Trip> _transitionTrip({
@@ -290,7 +291,6 @@ class TripListingRepository extends BaseTripListingRepository {
     required bool Function(TripStatus) isValidStatus,
     required String statusErrorMessage,
     required TripStatus newStatus,
-    required String syncAction,
   }) async {
     final trip = await _isar.trips.filter().tripIdEqualTo(tripId).findFirst();
 
@@ -333,7 +333,7 @@ class TripListingRepository extends BaseTripListingRepository {
       userId: truckerId,
       entityType: 'trip',
       entityId: tripId,
-      action: syncAction,
+      action: 'update',
       data: jsonEncode({
         'status': newStatus.name,
         'version': baseVersion,
@@ -344,10 +344,15 @@ class TripListingRepository extends BaseTripListingRepository {
     return trip;
   }
 
-  /// Cancel a trip (soft delete).
+  /// Cancel a trip.
   ///
   /// Validates ownership, that the trip exists and is in a cancellable state
   /// (not already delivered or cancelled). Sets status=cancelled.
+  ///
+  /// ESC-17 (trip-listing-api.md 2.4.0): queued as an `update` to
+  /// `cancelled`, the same operation web sends, so the server checks it
+  /// against the trip's status transitions. Builds before it queued a
+  /// `delete`, which the server still takes.
   ///
   /// Throws [TripValidationException] if the trip cannot be cancelled.
   @override
@@ -362,7 +367,6 @@ class TripListingRepository extends BaseTripListingRepository {
           s != TripStatus.delivered && s != TripStatus.cancelled,
       statusErrorMessage: 'Trip cannot be cancelled in its current state.',
       newStatus: TripStatus.cancelled,
-      syncAction: 'delete',
     );
   }
 
@@ -380,7 +384,6 @@ class TripListingRepository extends BaseTripListingRepository {
       isValidStatus: (s) => s == TripStatus.matched,
       statusErrorMessage: 'Only matched trips can be started.',
       newStatus: TripStatus.inTransit,
-      syncAction: 'update',
     );
   }
 
@@ -398,7 +401,6 @@ class TripListingRepository extends BaseTripListingRepository {
       isValidStatus: (s) => s == TripStatus.inTransit,
       statusErrorMessage: 'Only in-transit trips can be marked as delivered.',
       newStatus: TripStatus.delivered,
-      syncAction: 'update',
     );
   }
 

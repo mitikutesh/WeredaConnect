@@ -386,6 +386,29 @@ void main() {
       expect(trip.status, TripStatus.matched);
       expect(tripReads, 2);
     });
+
+    // ESC-17 (trip-listing-api.md 2.4.0): the one cancel path. Mobile queues
+    // the same operation: an update to cancelled at the version the server
+    // holds, never a delete.
+    test('cancel sends an update to cancelled at the version read', () async {
+      answerSync({'status': 'success', 'serverVersion': 3});
+
+      await repository.cancelTrip(tripId: 'trip-1', truckerId: 'trucker-1');
+
+      final body = verify(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: captureAny<dynamic>(named: 'data'),
+        ),
+      ).captured.single as Map<String, dynamic>;
+      final op = (body['operations'] as List).single as Map<String, dynamic>;
+      expect(op['entityType'], 'trip');
+      expect(op['entityId'], 'trip-1');
+      expect(op['action'], 'update');
+      final data = op['data'] as Map<String, dynamic>;
+      expect(data['status'], 'cancelled');
+      expect(data['version'], 2);
+    });
   });
 
   // ESC-12 part B (sync-protocol.md 1.17.0): web has no queue, so a refusal

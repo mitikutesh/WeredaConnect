@@ -304,17 +304,50 @@ void main() {
       expect(fromDb!.status, TripStatus.cancelled);
       expect(fromDb.version, 2);
 
-      // Should have 2 sync ops: create + delete
+      // Should have 2 sync ops: create + the cancel. ESC-17: the cancel is an
+      // update to cancelled, the one cancel path web sends too
+      // (trip-listing-api.md 2.4.0), not the delete older builds queued.
       final pending = await syncQueue.getPendingOperations();
       expect(pending.length, 2);
-      expect(pending.last.action, 'delete');
+      expect(pending.last.action, 'update');
+      expect(pending.last.entityType, 'trip');
 
-      // The delete op must carry the version the server still holds (1, the
-      // pre-increment value) — NOT the locally-bumped 2. Sending 2 fails the
+      // The cancel must carry the version the server still holds (1, the
+      // pre-increment value), not the locally-bumped 2. Sending 2 fails the
       // server's optimistic-concurrency check and the cancel silently reverts.
-      final deleteData = jsonDecode(pending.last.data) as Map<String, dynamic>;
-      expect(deleteData['version'], 1);
-      expect(deleteData['status'], TripStatus.cancelled.name);
+      final cancelData = jsonDecode(pending.last.data) as Map<String, dynamic>;
+      expect(cancelData, {'status': 'cancelled', 'version': 1});
+    });
+
+    test('start and mark delivered queue an update too', () async {
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+      await isar.writeTxn(() async {
+        final row =
+            await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+        row!.status = TripStatus.matched;
+        await isar.trips.put(row);
+      });
+
+      await repository.startTrip(tripId: trip.tripId, truckerId: 'trucker-001');
+      await repository.markDelivered(
+        tripId: trip.tripId,
+        truckerId: 'trucker-001',
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      expect(
+        [for (final op in pending.skip(1)) op.action],
+        ['update', 'update'],
+      );
     });
 
     // --- Contract Edge Cases: Capacity Boundaries ---
