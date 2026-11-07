@@ -961,6 +961,35 @@ scripts/money_alarms_synthetic.sh --env dev
 scripts/money_alarms_synthetic.sh --env dev --fire --wait-clear
 ```
 
+Fraud signals and risk alarms (FRD-16; design, metrics and cost in
+`specs/architecture/fraud-detection-architecture.md` section 23.1). The dashboard row "Fraud Signals"
+shows the 15 minute total with its anomaly band, the signal types (metric `FraudSignalsByType`,
+dimension `SignalType`) and the risk lines:
+
+| Alarm | Meaning | First action |
+|---|---|---|
+| `<prefix>-fraud-signal-volume-spike` | (composite of `-fraud-signal-volume-anomaly` and `-fraud-signal-volume-floor`, which notify nothing themselves) the fraud signal rows written in one 15 minute period (`FRAUD_SIGNAL_RECORDED` lines) are above the learned band and at least 10; each row is one user, one type, one hour | find the type in "Fraud Signals by Type". One type from many users after a release (`ROLE_FORBIDDEN`, `IMMUTABLE_FIELD_CHANGE`, `STALE_VERSION_BURST`, `QR_HANDOFF_FAILURE`): a client bug, roll it back. New accounts, a relationship type or `IDOR_CREATE_CONFLICT` probes: open Fraud Review. A run of `scripts/e2e_fraud_personas.py` or the synthetic script fires it too. Nothing acts automatically on this alarm; the per-user risk tiers do |
+| `<prefix>-risk-score-unavailable` | a risk score read failed (`RISK_SCORE_UNAVAILABLE userId=.. error=..`); at a sync or escrow gate the user was scored LOW (only the baseline step-up applied), in a sweep the escrow was skipped | `error=EmptyUserId`: a caller bug. Otherwise check throttling on the fraud-signals table, the Lambda role's `dynamodb:Query` and its `FRAUD_SIGNALS_TABLE` |
+| `<prefix>-risk-score-truncated` | a user's signal rows did not fit in `RISK_MAX_PAGES` pages, so the user is CRITICAL (held, `FRAUD_ACCOUNT_HELD`) | Fraud Review: reject if it is abuse. Honest rows (a client bug): raise `RISK_MAX_PAGES` (at most 10) on sync, escrow, escrow-cron and admin; otherwise the tier holds until rows leave the 30 day window. Never delete rows by hand |
+| `<prefix>-risk-score-unknown-record` | a score read counted rows with an unknown `recordType` as signals | deploy one server build to every Lambda; a kind not in section 20 of the fraud spec: find who wrote it |
+| `<prefix>-risk-hold-order-mismatch` | an admin refund of a held escrow was refused (422) because its order cannot follow it (`RISK_HOLD_ORDER_MISMATCH escrowId=.. heldFor=.. legs=order:<status>`); nothing moved | open `/transactions/<orderId>`, reconcile the order with the parties, then release instead (goods delivered) or refund again once the order can be cancelled |
+| `<prefix>-risk-table-unconfigured` | escrow-cron's settlement gate reads no risk tier (`FRAUD_SIGNALS_TABLE` empty), so a CRITICAL party is paid as if LOW; logged once per hourly run | check the escrow-cron configuration and deploy the api stack |
+
+`CLEAN_DELIVERY_CREDIT_FAILED` (FRD-10) is a dashboard metric only, by design. The risk alarms use the
+money alarm shape (clear 75 to 90 minutes after the last line); the spike clears 15 to 30 minutes after
+the burst. The spike needs a trained anomaly model, so fire it a day or more after the first FRD-16
+deploy.
+
+```bash
+# Read-only: deployed filters match the server's exact lines (bare and behind the runtime prefix),
+# the per-type dimension, the spike alarm's wiring, alarm and anomaly model states
+scripts/fraud_alarms_synthetic.sh --env dev
+
+# Fire every fraud alarm once (30 synthetic signal lines plus one line per risk alarm; no
+# fraud-signals row, no money), then wait for them to clear (up to 2 hours)
+scripts/fraud_alarms_synthetic.sh --env dev --fire --wait-clear
+```
+
 ---
 
 ## Troubleshooting

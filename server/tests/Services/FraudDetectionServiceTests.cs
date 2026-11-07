@@ -477,6 +477,77 @@ public class FraudDetectionServiceTests
             () => _service.RecordFraudSignalAsync(UserId, "ROLE_FORBIDDEN", "crop-1", "crop", "msg"));
     }
 
+    // ===== FRD-16: one log line per signal row written (the signal metrics) =====
+
+    private FraudDetectionService ServiceLoggingTo(List<string> lines, string fraudSignalsTable = FraudSignalsTable) =>
+        new(_mockDynamoDb, CropsTable, fraudSignalsTable, _mockRateLimitRepo) { AlarmLog = lines.Add };
+
+    [Fact]
+    public async Task RecordFraudSignal_LogsTheSignalLineOnceTheRowIsWritten()
+    {
+        var lines = new List<string>();
+        _mockDynamoDb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new PutItemResponse());
+
+        await ServiceLoggingTo(lines).RecordFraudSignalAsync(
+            "user-with_underscore", "ROLE_FORBIDDEN", "crop-secret-1", "crop", "free text from a refusal");
+
+        // The exact line the metric filters of infra/lib/stacks/monitoring-stack.ts read (fraud spec 23.1).
+        var line = Assert.Single(lines);
+        Assert.Equal("{\"event\":\"FRAUD_SIGNAL_RECORDED\",\"signalType\":\"ROLE_FORBIDDEN\",\"entityType\":\"crop\"}", line);
+        // No user id, entity id or description.
+        Assert.DoesNotContain("user-with", line);
+        Assert.DoesNotContain("crop-secret", line);
+        Assert.DoesNotContain("free text", line);
+        using var json = System.Text.Json.JsonDocument.Parse(line);
+        Assert.Equal(FraudDetectionService.FraudSignalRecordedToken, json.RootElement.GetProperty("event").GetString());
+    }
+
+    [Fact]
+    public async Task RecordFraudSignal_TheWriteLimitLogsNoLine()
+    {
+        var lines = new List<string>();
+        _mockDynamoDb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns<PutItemResponse>(_ => throw new ConditionalCheckFailedException("exists"));
+
+        await ServiceLoggingTo(lines).RecordFraudSignalAsync(UserId, "ROLE_FORBIDDEN", "crop-1", "crop", "msg");
+
+        // A refusal the hourly limit absorbs is no new row, so the volume metric does not count it.
+        Assert.Empty(lines);
+    }
+
+    [Fact]
+    public async Task RecordFraudSignal_AFailedWriteOrNoTableLogsNoLine()
+    {
+        var lines = new List<string>();
+        _mockDynamoDb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns<PutItemResponse>(_ => throw new ProvisionedThroughputExceededException("busy"));
+
+        await Assert.ThrowsAsync<ProvisionedThroughputExceededException>(
+            () => ServiceLoggingTo(lines).RecordFraudSignalAsync(UserId, "ROLE_FORBIDDEN", "crop-1", "crop", "msg"));
+        await ServiceLoggingTo(lines, fraudSignalsTable: "").RecordFraudSignalAsync(UserId, "ROLE_FORBIDDEN", null, "crop", "msg");
+        await ServiceLoggingTo(lines).RecordFraudSignalAsync("", "ROLE_FORBIDDEN", null, "crop", "msg");
+
+        Assert.Empty(lines);
+    }
+
+    [Theory]
+    [InlineData("TYPE\"},\"x\":{\"y", "TYPEx:y")]
+    [InlineData("A B\nC\\D", "ABCD")]
+    [InlineData("", "-")]
+    [InlineData(null, "-")]
+    [InlineData("A_VERY_LONG_TYPE_A_VERY_LONG_TYPE_A_VERY_LONG_TYPE_A_VERY_LONG_TYPE_A_VERY_LONG_TYPE",
+        "A_VERY_LONG_TYPE_A_VERY_LONG_TYPE_A_VERY_LONG_TYPE_A_VERY_LONG_T")]
+    public void SignalRecordedLine_IsAlwaysValidJsonWithBoundedFields(string? signalType, string expectedType)
+    {
+        var line = FraudDetectionService.SignalRecordedLine(signalType, "or\"der");
+
+        using var json = System.Text.Json.JsonDocument.Parse(line);
+        Assert.Equal(expectedType, json.RootElement.GetProperty("signalType").GetString());
+        Assert.Equal("order", json.RootElement.GetProperty("entityType").GetString());
+        Assert.Equal(3, json.RootElement.EnumerateObject().Count());
+    }
+
     [Theory]
     [InlineData("IDOR_CREATE_CONFLICT", 40, false, "high")]
     [InlineData("ROLE_FORBIDDEN", 25, false, "high")]

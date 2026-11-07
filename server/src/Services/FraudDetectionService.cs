@@ -65,6 +65,12 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// <summary>Log alarm token: rows with an unknown <c>recordType</c> were read and counted as signals.</summary>
     public const string RiskScoreUnknownRecordToken = "RISK_SCORE_UNKNOWN_RECORD";
 
+    /// <summary>
+    /// FRD-16 log token: one signal row was written (section 23.1). Its line is JSON so a metric filter can
+    /// take the type as a dimension; the token is also a plain term for the total-volume filter.
+    /// </summary>
+    public const string FraudSignalRecordedToken = "FRAUD_SIGNAL_RECORDED";
+
     public FraudDetectionService(
         IAmazonDynamoDB dynamoDb,
         string cropsTable,
@@ -78,7 +84,7 @@ public sealed class FraudDetectionService : IFraudDetectionService
     }
 
     /// <summary>
-    /// Sink for the risk score alarm lines. Defaults to stdout, which Lambda ships to the
+    /// Sink for the risk score alarm lines and the FRD-16 signal line. Defaults to stdout, which Lambda ships to the
     /// function's CloudWatch log group. Tests replace it to capture the lines.
     /// </summary>
     public Action<string> AlarmLog { get; init; } = Console.WriteLine;
@@ -261,6 +267,8 @@ public sealed class FraudDetectionService : IFraudDetectionService
                 Item = item,
                 ConditionExpression = "attribute_not_exists(signalKey)"
             });
+            // FRD-16: one line per row written, so the signal metrics count the rows Fraud Review shows.
+            AlarmLog(SignalRecordedLine(signalType, entityType));
         }
         catch (ConditionalCheckFailedException)
         {
@@ -328,6 +336,16 @@ public sealed class FraudDetectionService : IFraudDetectionService
         // reads as truncated, CRITICAL (section 14.3).
         return startKey != null;
     }
+
+    /// <summary>
+    /// FRD-16 (section 23.1): the line of a signal row written,
+    /// <c>{"event":"FRAUD_SIGNAL_RECORDED","signalType":"&lt;type&gt;","entityType":"&lt;kind&gt;"}</c>. Server
+    /// values only, no user or entity id. Both fields keep <c>[A-Za-z0-9-_.:]</c> and are cut at 64
+    /// characters (empty is <c>-</c>), so the line is always valid JSON and the type, a metric dimension,
+    /// cannot carry free text.
+    /// </summary>
+    internal static string SignalRecordedLine(string? signalType, string? entityType) =>
+        $"{{\"event\":\"{FraudSignalRecordedToken}\",\"signalType\":\"{MoneyAlarmLog.Safe(signalType)}\",\"entityType\":\"{MoneyAlarmLog.Safe(entityType)}\"}}";
 
     // FRD-08 signal types (fraud-detection-architecture.md section 15). Each is written on the
     // caller of the refused operation; the webhook's payer mismatch on the buyer our own row names.
