@@ -168,3 +168,10 @@ export const transportFailureLabel = (code: string, t: Translate) =>
 /** ESC-15: who ended an order (buyer, farmer, trucker, system). */
 export const partyLabel = (party: string, t: Translate) =>
   labelOrRaw(t, `transactions.party_${party}`, party);
+
+/** A GPS fix as "8.75230, 38.97850" (the transaction view and the dispute evidence), or empty without both coordinates. */
+export function formatGps(v: unknown): string {
+  const p = v as Record<string, unknown> | null | undefined;
+  if (!p || p.latitude == null || p.longitude == null) return "";
+  return `${Number(p.latitude).toFixed(5)}, ${Number(p.longitude).toFixed(5)}`;
+}

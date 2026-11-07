@@ -1,29 +1,47 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
 import { ArrowLeft, Lock } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { DispositionChoiceCard, VerdictMessages } from "@/components/disputes/DisputeVerdict";
+import { EvidenceError, MessagesTab, PhotosTab, TimelineTab } from "@/components/disputes/EvidenceTabs";
 import { useDisputeVerdict } from "@/components/disputes/verdictFlow";
 import { TripTrailTab } from "@/components/trail/TripTrailTab";
 import { useLocale } from "@/hooks/useLocale";
-import { useEscrowDetail } from "@/hooks/useQuery";
+import { useDisputeEvidence, useEscrowDetail } from "@/hooks/useQuery";
+import { photosOf } from "@/lib/evidence";
 import { formatDateTime, formatETB } from "@/lib/i18n";
 import { fill } from "@/lib/trail";
 import { partyName } from "@/lib/user";
 
 type Row = Record<string, unknown>;
 
-/* The evidence tabs. LT-13 brings the Trip trail; FRD-14 adds the timeline, photos and messages
- * to this list and this page. */
-const tabs = ["trail"] as const;
+/* The evidence tabs, in the order of the admin trip evidence board: LT-13 brings the Trip trail,
+ * FRD-14 the Timeline (with the handoffs), the Photos and the Messages. */
+const tabs = ["timeline", "trail", "photos", "messages"] as const;
 type Tab = (typeof tabs)[number];
 
-const tabLabelKey: Record<Tab, string> = { trail: "trail.tab" };
+const tabLabelKey: Record<Tab, string> = {
+  timeline: "evidence.tabTimeline",
+  trail: "trail.tab",
+  photos: "evidence.tabPhotos",
+  messages: "evidence.tabMessages",
+};
+
+/** An evidence tab with the page's own cards (Decide) in the right column, as the Trip trail has them. */
+function WithAside({ children, aside }: { children: ReactNode; aside: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <div className="flex min-w-0 flex-col gap-6 lg:flex-[3]">{children}</div>
+      {aside && <aside className="flex min-w-0 flex-col gap-6 lg:flex-[2]">{aside}</aside>}
+    </div>
+  );
+}
 
 /**
- * LT-13: the dispute page, reached from the Disputes list. A minimal shell (the case and its
- * parties) with the evidence tabs, so FRD-14 can add its tabs next to the Trip trail.
+ * LT-13 and FRD-14: the dispute page, reached from the Disputes list. The case and its parties, the
+ * evidence tabs (Timeline with the handoffs, Trip trail, Photos, Messages) and Decide beside the
+ * evidence, so the admin resolves the dispute from this one screen.
  */
 export function DisputeDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -32,6 +50,7 @@ export function DisputeDetailPage() {
   const { data, isLoading, isError, error } = useEscrowDetail(id || "");
   const [tab, setTab] = useState<Tab>("trail");
   const verdictFlow = useDisputeVerdict(t);
+  const evidence = useDisputeEvidence(id || "");
 
   if (isLoading) {
     return <div className="text-text-muted">{t("common.loading")}</div>;
@@ -198,7 +217,9 @@ export function DisputeDetailPage() {
               tab === value ? "bg-white font-semibold shadow-sm" : "text-text-muted hover:text-text"
             }`}
           >
-            {t(tabLabelKey[value])}
+            {value === "photos" && photosOf(evidence.data).length > 0
+              ? fill(t("evidence.tabPhotosCount"), { count: photosOf(evidence.data).length })
+              : t(tabLabelKey[value])}
           </button>
         ))}
       </div>
@@ -206,6 +227,28 @@ export function DisputeDetailPage() {
       <div role="tabpanel" id={`dispute-panel-${tab}`} aria-labelledby={`dispute-tab-${tab}`}>
         {/* Admin trip evidence board: Decide in the evidence's right column. */}
         {tab === "trail" && <TripTrailTab deliveryId={String(escrow.deliveryId || "")} aside={decide} />}
+        {tab === "messages" && (
+          <WithAside aside={decide}>
+            <MessagesTab escrowId={String(escrow.escrowId || id || "")} evidence={evidence.data} />
+          </WithAside>
+        )}
+        {(tab === "timeline" || tab === "photos") && (
+          <WithAside aside={decide}>
+            {evidence.isLoading ? (
+              <Card>
+                <p role="status" className="text-sm text-text-muted">
+                  {t("evidence.loading")}
+                </p>
+              </Card>
+            ) : evidence.isError || !evidence.data ? (
+              <EvidenceError error={evidence.error} fallbackKey="evidence.loadFailed" onRetry={() => evidence.refetch()} />
+            ) : tab === "timeline" ? (
+              <TimelineTab evidence={evidence.data} />
+            ) : (
+              <PhotosTab evidence={evidence.data} />
+            )}
+          </WithAside>
+        )}
       </div>
     </div>
   );

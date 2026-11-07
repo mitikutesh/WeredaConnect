@@ -266,3 +266,42 @@ describe("trip trail strings exist in every locale", () => {
     }
   });
 });
+
+/* FRD-14: the dispute evidence tabs, their error codes and the audit row of a message read. */
+describe("dispute evidence strings exist in every locale", () => {
+  const evidenceKeys = Object.keys(en.evidence).map((k) => `evidence.${k}`);
+  const keys = [
+    ...evidenceKeys,
+    "errors.ADMIN_003",
+    "errors.ADMIN_004",
+    "errors.ADMIN_019",
+    "errors.ADMIN_020",
+    "transactions.action_admin_dispute_messages_read",
+  ];
+
+  for (const locale of locales) {
+    it(`${locale} has every evidence key`, () => {
+      expect(keys.filter((key) => t(key, locale) === key)).toEqual([]);
+    });
+  }
+
+  it("keeps the placeholders the tabs fill in", () => {
+    const placeholders: Record<string, string[]> = {
+      tabPhotosCount: ["{count}"],
+      method_qr: ["{who}"],
+      method_code: ["{who}"],
+      method_unknown: ["{who}"],
+      capturedAt: ["{time}"],
+      fromListing: ["{km}"],
+      fromDestination: ["{km}"],
+      messageFromTo: ["{from}", "{to}"],
+    };
+    for (const locale of locales) {
+      for (const [key, names] of Object.entries(placeholders)) {
+        for (const name of names) {
+          expect([locale, key, t(`evidence.${key}`, locale).includes(name)]).toEqual([locale, key, true]);
+        }
+      }
+    }
+  });
+});

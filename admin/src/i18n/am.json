@@ -205,6 +205,40 @@
     "awayStops": "ከዝርዝሩ ውጭ ያሉ ቆይታዎች",
     "awayStopRange": "ከ{from} እስከ {until} በ{place}፣ ከቅርቡ የታቀደ ቦታ ወይም የQR ቅኝት {km} ኪ.ሜ"
   },
+  "evidence": {
+    "tabTimeline": "የጊዜ ሰሌዳ",
+    "tabPhotos": "ፎቶዎች",
+    "tabPhotosCount": "ፎቶዎች · {count}",
+    "tabMessages": "መልዕክቶች",
+    "loading": "ማስረጃው በመጫን ላይ...",
+    "loadFailed": "ማስረጃውን መጫን አልተቻለም።",
+    "handoffs": "ርክክቦች",
+    "noHandoffs": "እስካሁን ርክክብ የለም፤ ምርቱ ገና አልተወሰደም።",
+    "leg_pickup": "መውሰጃ",
+    "leg_dropoff": "ማድረሻ",
+    "leg_self_pickup": "ከእርሻው በገዢው መውሰድ",
+    "method_qr": "QR በ{who} ተስካን አድርጓል",
+    "method_code": "ኮድ በ{who} ተጽፏል",
+    "method_unknown": "በ{who} ተረክቧል",
+    "whoUnknown": "ርክክቡን ማን እንዳደረገ አልተመዘገበም።",
+    "capturedAt": "በስልኩ ላይ በ{time} ተስካን አድርጓል",
+    "noGps": "በርክክቡ ጊዜ የGPS ቦታ አልተገኘም",
+    "fromListing": "ከዝርዝሩ ቦታ {km} ኪ.ሜ",
+    "fromDestination": "ከጉዞው መድረሻ {km} ኪ.ሜ",
+    "photosNote": "የፎቶ ማገናኛዎች ከ15 ደቂቃ በኋላ ያበቃሉ። አዲስ ለማግኘት ገጹን እንደገና ይጫኑ።",
+    "noPhoto_pickup": "የመነሻ ፎቶ የለም።",
+    "noPhoto_dropoff": "የመድረሻ ፎቶ የለም።",
+    "messagesPrivate": "የተዋዋዮቹ መልዕክቶች የግል ናቸው። ይህን ክርክር ለመወሰን ብቻ ይክፈቷቸው፤ እያንዳንዱ ንባብ በአስተዳዳሪ መለያዎ ስር በኦዲት መዝገብ ውስጥ ይጻፋል።",
+    "showMessages": "መልዕክቶቹን አሳይ",
+    "messagesLoading": "መልዕክቶቹ በመጫን ላይ...",
+    "messagesFailed": "መልዕክቶቹን መጫን አልተቻለም።",
+    "noMessages": "በዚህ ትዕዛዝ ወይም በማድረሻው ላይ መልዕክት የለም።",
+    "messagesAudited": "ለንባብ ብቻ። ይህ ንባብ በኦዲት መዝገብ ውስጥ ተጽፏል።",
+    "messagesTruncated": "አንድ ውይይት ከሚታየው በላይ መልዕክቶች አሉት፤ እዚህ ያሉት የቅርብ ጊዜዎቹ 100 ብቻ ናቸው።",
+    "context_order": "ትዕዛዝ",
+    "context_delivery": "ማድረሻ",
+    "messageFromTo": "ከ{from} ወደ {to}"
+  },
   "payouts": {
     "title": "በእጅ የሚከፈሉ ክፍያዎች",
     "subtitle": "የቴሌብር መተላለፊያው መፈጸም ያልቻላቸው ክፍያዎች። እያንዳንዱን ክፍል በቴሌብር የነጋዴ ፖርታል ይክፈሉ፣ ከዚያ የፖርታሉን የግብይት መለያ እዚህ ይመዝግቡ።",
@@ -618,7 +652,8 @@
     "action_fraud_hold": "ለግምገማ ተይዟል",
     "action_fraud_hold_release": "ከግምገማ በኋላ ተለቋል (አስተዳዳሪ)",
     "action_fraud_hold_refund": "ከግምገማ በኋላ ተመላሽ ሆኗል (አስተዳዳሪ)",
-    "action_outcome_label": "ውጤቱ ተመዝግቧል (አስተዳዳሪ)"
+    "action_outcome_label": "ውጤቱ ተመዝግቧል (አስተዳዳሪ)",
+    "action_admin_dispute_messages_read": "አስተዳዳሪው የክርክሩን መልዕክቶች አነበበ"
   },
   "analytics": {
     "title": "የግብይት መጠን",
@@ -729,7 +764,11 @@
     "ADMIN_016": "ይህ ምርጫ ትዕዛዙ አሁን ካለበት ሁኔታ ጋር አይስማማም። ገጹን እንደገና ይጫኑ እና ትዕዛዙን ያረጋግጡ።",
     "ADMIN_009": "ያልታወቀ ተግባር።",
     "ADMIN_017": "ይህ የእገዳ ምክንያት ለማጭበርበር ግምገማው ውድቅ ማድረጊያ ብቻ የተያዘ ነው።",
-    "ADMIN_018": "ማድረሻው አልተገኘም።"
+    "ADMIN_018": "ማድረሻው አልተገኘም።",
+    "ADMIN_003": "ኢስክሮው አልተገኘም።",
+    "ADMIN_004": "ይህ ክፍል በሰርቨሩ ላይ ገና አልተዘጋጀም።",
+    "ADMIN_019": "ይህ ኢስክሮ ክርክር የለውም፤ ስለዚህ የሚታይ ማስረጃ የለም።",
+    "ADMIN_020": "ንባቡ በኦዲት መዝገብ ውስጥ ሊጻፍ አልቻለም፤ ስለዚህ ምንም መልዕክት አይታይም። እንደገና ይሞክሩ።"
   },
   "language": {
     "english": "English",

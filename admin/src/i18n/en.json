@@ -205,6 +205,40 @@
     "awayStops": "Stops off the stop list",
     "awayStopRange": "{from} to {until} at {place}, {km} km from the nearest planned stop or QR scan"
   },
+  "evidence": {
+    "tabTimeline": "Timeline",
+    "tabPhotos": "Photos",
+    "tabPhotosCount": "Photos · {count}",
+    "tabMessages": "Messages",
+    "loading": "Loading the evidence...",
+    "loadFailed": "The evidence could not be loaded.",
+    "handoffs": "Handoffs",
+    "noHandoffs": "No handoff yet: the goods were not picked up.",
+    "leg_pickup": "Pickup",
+    "leg_dropoff": "Drop-off",
+    "leg_self_pickup": "Self-pickup at the farm",
+    "method_qr": "QR scanned by {who}",
+    "method_code": "Code typed by {who}",
+    "method_unknown": "Handed over by {who}",
+    "whoUnknown": "Who made the handoff is not recorded.",
+    "capturedAt": "Scanned on the phone at {time}",
+    "noGps": "No GPS fix at the handoff",
+    "fromListing": "{km} km from the listing",
+    "fromDestination": "{km} km from the trip's destination",
+    "photosNote": "Photo links expire after 15 minutes. Reload the page for new ones.",
+    "noPhoto_pickup": "No pickup photo.",
+    "noPhoto_dropoff": "No drop-off photo.",
+    "messagesPrivate": "The parties' messages are private. Open them only to decide this dispute: every read is written to the audit log under your admin account.",
+    "showMessages": "Show the messages",
+    "messagesLoading": "Loading the messages...",
+    "messagesFailed": "The messages could not be loaded.",
+    "noMessages": "No messages on this order or its delivery.",
+    "messagesAudited": "Read-only. This read was written to the audit log.",
+    "messagesTruncated": "A thread holds more messages than shown: only its newest 100 are here.",
+    "context_order": "Order",
+    "context_delivery": "Delivery",
+    "messageFromTo": "{from} to {to}"
+  },
   "payouts": {
     "title": "Manual Payouts",
     "subtitle": "Settlements the Telebirr gateway could not make. Pay each leg in the Telebirr merchant portal, then record the portal transaction ID here.",
@@ -618,7 +652,8 @@
     "action_fraud_hold": "Held for review",
     "action_fraud_hold_release": "Released after review (admin)",
     "action_fraud_hold_refund": "Refunded after review (admin)",
-    "action_outcome_label": "Outcome labelled (admin)"
+    "action_outcome_label": "Outcome labelled (admin)",
+    "action_admin_dispute_messages_read": "Admin read the dispute messages"
   },
   "analytics": {
     "title": "Transaction Volume",
@@ -729,7 +764,11 @@
     "ADMIN_016": "That choice does not fit the order's current state. Reload the page and check the order.",
     "ADMIN_009": "Unknown action.",
     "ADMIN_017": "This suspend reason is reserved for the Fraud Review reject action.",
-    "ADMIN_018": "Delivery not found."
+    "ADMIN_018": "Delivery not found.",
+    "ADMIN_003": "Escrow not found.",
+    "ADMIN_004": "This part is not configured on the server yet.",
+    "ADMIN_019": "This escrow has no dispute, so there is no evidence to show.",
+    "ADMIN_020": "The read could not be written to the audit log, so no message is shown. Try again."
   },
   "language": {
     "english": "English",

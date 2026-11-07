@@ -3,12 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { formatETB } from "@/lib/i18n";
+import type { DisputeEvidence } from "@/lib/evidence";
+import { formatDateTime, formatETB } from "@/lib/i18n";
 import type { DeliveryTrail } from "@/lib/trail";
 import { DisputeDetailPage } from "./DisputeDetailPage";
 
-/* LT-13: the dispute page and its Trip trail tab. The hooks are mocked; the English strings are
- * real, so the tests also prove the keys exist. */
+/* LT-13 and FRD-14: the dispute page, its Trip trail tab and its evidence tabs. The hooks are
+ * mocked; the English strings are real, so the tests also prove the keys exist. */
 
 type TrailQuery = {
   data: unknown;
@@ -23,6 +24,10 @@ const mocks = vi.hoisted(() => ({
   trail: undefined as unknown as TrailQuery,
   trailIds: [] as string[],
   mutate: vi.fn<(vars: unknown, opts?: MutateOptions) => void>(),
+  evidence: undefined as unknown as TrailQuery,
+  evidenceIds: [] as string[],
+  messages: undefined as unknown as TrailQuery,
+  messageCalls: [] as { escrowId: string; open: boolean }[],
 }));
 
 type MutateOptions = { onSuccess?: () => void; onError?: (err: unknown) => void; onSettled?: () => void };
@@ -33,6 +38,14 @@ vi.mock("@/hooks/useQuery", () => ({
   useDeliveryTrail: (deliveryId: string) => {
     mocks.trailIds.push(deliveryId);
     return mocks.trail;
+  },
+  useDisputeEvidence: (escrowId: string) => {
+    mocks.evidenceIds.push(escrowId);
+    return mocks.evidence;
+  },
+  useDisputeMessages: (escrowId: string, open: boolean) => {
+    mocks.messageCalls.push({ escrowId, open });
+    return open ? mocks.messages : { ...trailQuery(), data: undefined };
   },
 }));
 
@@ -187,6 +200,8 @@ describe("DisputeDetailPage Trip trail tab (LT-13)", () => {
     mocks.escrow.isError = false;
     mocks.trail = trailQuery();
     mocks.trailIds.length = 0;
+    mocks.evidence = trailQuery();
+    mocks.messages = trailQuery();
   });
 
   it("shows the case, opens on the Trip trail tab, and asks for the dispute's delivery trail", () => {
@@ -348,6 +363,8 @@ describe("DisputeDetailPage Decide", () => {
     mocks.trail = trailQuery();
     // The trail loads meanwhile, so the only alert could come from the verdict.
     mocks.trail.isLoading = true;
+    mocks.evidence = trailQuery();
+    mocks.messages = trailQuery();
     mocks.mutate.mockReset();
   });
 
@@ -431,5 +448,235 @@ describe("DisputeDetailPage Decide", () => {
     renderPage();
     expect(screen.queryByRole("heading", { name: "Decide" })).toBeNull();
     expect(screen.queryByText(/frozen/)).toBeNull();
+  });
+});
+
+/* FRD-14: the evidence package on the dispute page: the Timeline tab with the handoffs, the
+ * Photos tab, the Messages tab (read only on request, audited by the server) and Decide beside
+ * each of them, so the admin resolves from this one screen. */
+describe("DisputeDetailPage evidence (FRD-14)", () => {
+  beforeEach(() => {
+    mocks.escrow.data = escrow();
+    mocks.escrow.isLoading = false;
+    mocks.escrow.isError = false;
+    mocks.trail = trailQuery();
+    mocks.trail.isLoading = true;
+    mocks.evidence = trailQuery();
+    mocks.evidence.data = evidence();
+    mocks.evidenceIds.length = 0;
+    mocks.messages = trailQuery();
+    mocks.messageCalls.length = 0;
+    mocks.mutate.mockReset();
+  });
+
+  function evidence(): DisputeEvidence {
+    return {
+      escrow: { escrowId: "escrow-1", buyerId: "buyer-1", buyerName: "Sara", farmerId: "farmer-1", farmerName: "Abebe" },
+      order: { orderId: "ord-1", buyerId: "buyer-1", farmerId: "farmer-1", truckerId: "trucker-1", truckerName: "Dawit" },
+      delivery: {
+        deliveryId: "del-101",
+        buyerId: "buyer-1",
+        farmerId: "farmer-1",
+        truckerId: "trucker-1",
+        truckerName: "Dawit",
+        pickupPhotoUrl: "https://signed.example/pickup.webp",
+      },
+      timeline: [
+        { timestamp: "2026-10-27T05:05:00Z", entity: "delivery", action: "picked_up", actor: "trucker-1" },
+        { timestamp: "2026-10-27T09:50:00Z", entity: "delivery", action: "dispute", actor: "buyer-1" },
+      ],
+      handoffs: [
+        {
+          leg: "pickup",
+          at: "2026-10-27T05:05:00Z",
+          capturedAt: "2026-10-27T05:04:40Z",
+          actorId: "trucker-1",
+          actorRole: "trucker",
+          method: "qr",
+          gps: { latitude: 8.1504, longitude: 38.8196 },
+          planned: { latitude: 8.154, longitude: 38.8196 },
+          distanceKm: 0.4,
+        },
+        {
+          leg: "dropoff",
+          at: "2026-10-27T08:00:00Z",
+          actorId: "buyer-1",
+          actorRole: "buyer",
+          method: "code",
+          gps: { latitude: 9.03, longitude: 38.74 },
+          planned: { latitude: 9.1, longitude: 38.74 },
+          distanceKm: 7.78,
+        },
+      ],
+    };
+  }
+
+  async function openTab(name: RegExp | string) {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("tab", { name }));
+    return user;
+  }
+
+  it("offers the four evidence tabs in the board's order, the photos counted, and asks for this dispute's evidence", () => {
+    renderPage();
+
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Timeline",
+      "Trip trail",
+      "Photos · 1",
+      "Messages",
+    ]);
+    expect(mocks.evidenceIds).toContain("escrow-1");
+    // Nothing asks for the messages until the admin does.
+    expect(mocks.messageCalls.every((call) => !call.open)).toBe(true);
+  });
+
+  it("the Timeline tab shows each handoff: how, who, where and how far from the planned point", async () => {
+    await openTab("Timeline");
+
+    const panel = screen.getByRole("tabpanel");
+    expect(within(panel).getByRole("heading", { name: "Handoffs" })).toBeTruthy();
+    expect(within(panel).getByText("Pickup")).toBeTruthy();
+    expect(within(panel).getByText("QR scanned by Trucker · Dawit")).toBeTruthy();
+    expect(within(panel).getByText(`Scanned on the phone at ${formatDateTime("2026-10-27T05:04:40Z")}`)).toBeTruthy();
+    expect(within(panel).getByText("8.15040, 38.81960")).toBeTruthy();
+    expect(within(panel).getByText("0.4 km from the listing")).toBeTruthy();
+    expect(within(panel).getByText("Drop-off")).toBeTruthy();
+    expect(within(panel).getByText("Code typed by Buyer · Sara")).toBeTruthy();
+    expect(within(panel).getByText("7.78 km from the trip's destination")).toBeTruthy();
+    // The stitched timeline below the handoffs.
+    expect(within(panel).getByRole("heading", { name: "Timeline" })).toBeTruthy();
+    expect(within(panel).getByText("Disputed")).toBeTruthy();
+  });
+
+  it("a handoff without GPS or a known maker says so, and no handoff yet says the goods were not picked up", async () => {
+    mocks.evidence.data = {
+      ...evidence(),
+      handoffs: [{ leg: "self_pickup", at: "2026-10-27T08:00:00Z" }],
+    };
+    const user = await openTab("Timeline");
+    expect(screen.getByText("Self-pickup at the farm")).toBeTruthy();
+    expect(screen.getByText("Who made the handoff is not recorded.")).toBeTruthy();
+    expect(screen.getByText("No GPS fix at the handoff")).toBeTruthy();
+
+    mocks.evidence.data = { ...evidence(), handoffs: [] };
+    await user.click(screen.getByRole("tab", { name: "Trip trail" }));
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+    expect(screen.getByText("No handoff yet: the goods were not picked up.")).toBeTruthy();
+  });
+
+  it("the Photos tab shows the pickup photo full size on click and says the drop-off photo is missing", async () => {
+    await openTab(/^Photos/);
+
+    const link = screen.getByRole("link", { name: "Open the Pickup photo full size" });
+    expect(link.getAttribute("href")).toBe("https://signed.example/pickup.webp");
+    expect(screen.getByRole("img", { name: "Pickup photo" })).toBeTruthy();
+    expect(screen.getByText("No drop-off photo.")).toBeTruthy();
+    expect(screen.getByText("Photo links expire after 15 minutes. Reload the page for new ones.")).toBeTruthy();
+  });
+
+  it("says the evidence is loading, and shows its error in the words of the code with a retry", async () => {
+    mocks.evidence.isLoading = true;
+    mocks.evidence.data = undefined;
+    const user = await openTab("Timeline");
+    expect(screen.getByRole("status").textContent).toBe("Loading the evidence...");
+
+    mocks.evidence.isLoading = false;
+    mocks.evidence.isError = true;
+    mocks.evidence.error = { code: "ADMIN_019" };
+    await user.click(screen.getByRole("tab", { name: "Trip trail" }));
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+    expect(screen.getByRole("alert").textContent).toBe("This escrow has no dispute, so there is no evidence to show.");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(mocks.evidence.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("the Messages tab reads nothing until the admin asks, and says the read is audited", async () => {
+    const user = await openTab("Messages");
+
+    expect(screen.getByText(/The parties' messages are private/)).toBeTruthy();
+    expect(mocks.messageCalls.every((call) => !call.open)).toBe(true);
+
+    mocks.messages.data = {
+      ...evidence(),
+      messages: [
+        {
+          messageId: "m-1",
+          conversationId: "order:ord-1:buyer-1:farmer-1",
+          contextType: "order",
+          contextId: "ord-1",
+          senderId: "buyer-1",
+          recipientId: "farmer-1",
+          senderName: "Sara",
+          recipientName: "Abebe",
+          body: "Is the maize ready?",
+          createdAt: "2026-10-26T08:00:00Z",
+        },
+        {
+          messageId: "m-2",
+          conversationId: "delivery:del-101:buyer-1:trucker-1",
+          contextType: "delivery",
+          contextId: "del-101",
+          senderId: "buyer-1",
+          recipientId: "trucker-1",
+          body: "150 kg short.",
+          createdAt: "2026-10-27T08:10:00Z",
+        },
+      ],
+      messagesTruncated: true,
+    };
+    await user.click(screen.getByRole("button", { name: "Show the messages" }));
+
+    expect(mocks.messageCalls.some((call) => call.open && call.escrowId === "escrow-1")).toBe(true);
+    const list = screen.getByRole("list", { name: "Messages" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(within(items[0]).getByText("Buyer · Sara to Farmer · Abebe")).toBeTruthy();
+    expect(within(items[0]).getByText("Order")).toBeTruthy();
+    expect(within(items[0]).getByText("Is the maize ready?")).toBeTruthy();
+    expect(within(items[1]).getByText("Buyer · Sara to Trucker · Dawit")).toBeTruthy();
+    expect(within(items[1]).getByText("Delivery")).toBeTruthy();
+    expect(screen.getByText("Read-only. This read was written to the audit log.")).toBeTruthy();
+    expect(screen.getByText(/only its newest 100 are here/)).toBeTruthy();
+  });
+
+  it("a message read the server could not audit shows its refusal and no message", async () => {
+    const user = await openTab("Messages");
+    mocks.messages.isError = true;
+    mocks.messages.error = { code: "ADMIN_020" };
+    await user.click(screen.getByRole("button", { name: "Show the messages" }));
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "The read could not be written to the audit log, so no message is shown. Try again.",
+    );
+    expect(screen.queryByRole("list", { name: "Messages" })).toBeNull();
+  });
+
+  it("an empty read says there are no messages", async () => {
+    const user = await openTab("Messages");
+    mocks.messages.data = { ...evidence(), messages: [] };
+    await user.click(screen.getByRole("button", { name: "Show the messages" }));
+    expect(screen.getByText("No messages on this order or its delivery.")).toBeTruthy();
+  });
+
+  it("Decide sits beside every evidence tab, and resolves the dispute from there", async () => {
+    const user = await openTab("Timeline");
+    let aside = screen.getByRole("complementary");
+    expect(within(aside).getByRole("heading", { name: "Decide" })).toBeTruthy();
+
+    await user.click(screen.getByRole("tab", { name: "Messages" }));
+    aside = screen.getByRole("complementary");
+    await user.click(within(aside).getByRole("button", { name: "Buyer Wins" }));
+
+    const [vars] = mocks.mutate.mock.calls[0];
+    expect(vars).toEqual({ id: "escrow-1", body: { resolution: "buyer_wins", action: "refund" } });
+  });
+
+  it("a resolved dispute keeps its evidence, without Decide", async () => {
+    mocks.escrow.data = { escrow: { ...escrow().escrow, status: "dispute_resolved" } };
+    await openTab("Timeline");
+    expect(screen.getByRole("heading", { name: "Handoffs" })).toBeTruthy();
+    expect(screen.queryByRole("complementary")).toBeNull();
   });
 });
