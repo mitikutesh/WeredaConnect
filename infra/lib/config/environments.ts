@@ -103,6 +103,7 @@ export interface EnvironmentConfig {
    * commitments; it does not depend on `commitmentsEnabled`, so it goes on before the flag does.
    */
   readonly minOrderAppBuild?: number;
+  /**
    * ESC-20: ESCROW_LEDGER_ENABLED on the sync and telebirr-webhook Lambdas (escrow-protocol.md 2.1.0, P.12).
    * On, a new order escrow is born on the escrow ledger (settlementModel ledger: per-leg write-ahead rows
    * instead of the whole-escrow settlement lock) and a duplicate payment gets its ledger refund row. Off, new
