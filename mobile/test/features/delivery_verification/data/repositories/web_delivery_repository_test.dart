@@ -270,6 +270,64 @@ void main() {
     expect(delivery.version, 3);
   });
 
+  // FRD-12: web reads the handoff photo keys, so the delivery detail can load
+  // their presigned URLs for the three parties.
+  group('handoff photo keys on reads', () {
+    const pickupKey = 'uploads/photos/del-1/pickup-1700000000000.webp';
+    const dropoffKey = 'uploads/photos/del-1/dropoff-1700000000000.jpg';
+    final row = {
+      'deliveryId': 'del-1',
+      'status': 'delivered',
+      'pickupPhotoRef': pickupKey,
+      'dropoffPhotoRef': dropoffKey,
+      'version': 4,
+    };
+
+    test('GET by id carries both keys', () async {
+      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1'))
+          .thenAnswer((_) async => {'delivery': row});
+
+      final delivery =
+          await repository.getDeliveryById('del-1', userId: 'buyer-1');
+
+      expect(delivery!.pickupPhotoRef, pickupKey);
+      expect(delivery.dropoffPhotoRef, dropoffKey);
+    });
+
+    test('the list carries both keys', () async {
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/deliveries',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'deliveries': [row],
+        },
+      );
+
+      final deliveries =
+          await repository.getDeliveriesByUser('farmer-1', role: 'farmer');
+
+      expect(deliveries.single.pickupPhotoRef, pickupKey);
+      expect(deliveries.single.dropoffPhotoRef, dropoffKey);
+    });
+
+    test('a delivery without photos has no keys', () async {
+      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1')).thenAnswer(
+        (_) async => {
+          'delivery': {'deliveryId': 'del-1', 'status': 'pending'},
+        },
+      );
+
+      final delivery =
+          await repository.getDeliveryById('del-1', userId: 'buyer-1');
+
+      expect(delivery!.pickupPhotoRef, isNull);
+      expect(delivery.dropoffPhotoRef, isNull);
+    });
+  });
+
   group('persistQrNonce', () {
     setUp(() {
       when(() => api.get<Map<String, dynamic>>('/deliveries/del-1')).thenAnswer(

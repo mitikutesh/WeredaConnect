@@ -633,6 +633,10 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       ..pickupPlannedAt =
           DateTime.tryParse(m['pickupPlannedAt'] as String? ?? '')
       ..status = _parseDeliveryStatus(m['status'] as String?)
+      // FRD-12: the server keys of the handoff photos; the detail loads
+      // their presigned URLs from GET /deliveries/{id}.
+      ..pickupPhotoRef = m['pickupPhotoRef'] as String?
+      ..dropoffPhotoRef = m['dropoffPhotoRef'] as String?
       ..pickedUpAt = DateTime.tryParse(m['pickedUpAt'] as String? ?? '')
       ..confirmedAt = DateTime.tryParse(m['confirmedAt'] as String? ?? '')
       ..disputeReason = m['disputeReason'] as String?
