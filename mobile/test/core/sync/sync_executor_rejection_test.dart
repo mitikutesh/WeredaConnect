@@ -279,6 +279,9 @@ void main() {
         expect(reverts, hasLength(1));
         expect(reverts.single.$1.entityType, 'delivery');
         expect(reverts.single.$2, message);
+        // FUP-25: put back and explained, so it leaves the failed count.
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
         final event = rejections().single;
         expect(event.entityType, 'delivery');
         expect(event.entityId, 'del-1');
@@ -335,6 +338,7 @@ void main() {
         expect(await syncQueue.retryFailed(), 0);
         expect(reverts, hasLength(1));
         expect(reverts.single.$1.entityType, 'delivery');
+        expect(await syncQueue.getFailedCount(), 0);
         expect(rejections().single.message, message);
       });
     }
@@ -419,6 +423,9 @@ void main() {
       expect(reverts, hasLength(1));
       expect(reverts.single.$1.entityType, 'message');
       expect(reverts.single.$2, message);
+      // Its local copy was removed: nothing is left to act on.
+      expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+      expect(await syncQueue.getFailedCount(), 0);
       expect(rejections().single.entityType, 'message');
       expect(rejections().single.message, message);
     });

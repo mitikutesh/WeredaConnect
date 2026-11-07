@@ -1255,6 +1255,20 @@ class SyncExecutor {
       isContactLockedMessage(message) ||
       _isRevertableListingOrTripRejection(operation.entityType, message);
 
+  /// Whether a reverted [operation] leaves the "Sync failed" count
+  /// ([SyncQueue.markRevertedFor]) once [PermanentRejectionHandler] returned:
+  /// its local row went back to the server's view or was removed, and the
+  /// user was told why, so nothing is left to act on. A crop listing or trip
+  /// for the codes its revert undoes, every delivery the handler gets (it is
+  /// always put back, FUP-25), and a message refused because its thread is
+  /// closed (removed). Orders never count.
+  static bool _leavesFailedCount(SyncOperation operation, String? message) =>
+      switch (operation.entityType) {
+        'delivery' => true,
+        'message' => isContactLockedMessage(message),
+        _ => _isRevertableListingOrTripRejection(operation.entityType, message),
+      };
+
   /// Background operations the user never made (matching analytics,
   /// check-ins): a refusal is not announced. A refused check-in has no local
   /// row to put back and only leaves a gap in the trail (sync-protocol.md
@@ -1302,13 +1316,14 @@ class SyncExecutor {
   /// - a refused `create` rejects the operations queued behind it for that
   ///   entity, which could only loop on a transient "not found";
   /// - a refused order change (or any `ORDER_*` refusal), a delivery cancel
-  ///   refused after pickup, a refused delivery dispute, a message refused
-  ///   because its thread's contact is not open, and a crop listing or trip
-  ///   change refused by an ESC-12 part B code are undone through
-  ///   [PermanentRejectionHandler], once per entity, with the entity's first
-  ///   operation in the batch whose code undoes the change;
-  /// - a reverted crop listing or trip leaves the "Sync failed" count
-  ///   ([SyncQueue.markRevertedFor]) once the handler returned;
+  ///   refused after pickup, a refused delivery dispute or handoff, a message
+  ///   refused because its thread's contact is not open, and a crop listing
+  ///   or trip change refused by a code that says what the server holds are
+  ///   undone through [PermanentRejectionHandler], once per entity, with the
+  ///   entity's first operation in the batch whose code undoes the change;
+  /// - a reverted crop listing, trip, delivery or message leaves the "Sync
+  ///   failed" count ([SyncQueue.markRevertedFor]) once the handler returned
+  ///   ([_leavesFailedCount]);
   /// - every refusal is announced as a [SyncOperationRejected] event, once
   ///   per entity. The batch's events go out together after every undo has
   ///   finished: a screen that reloads reads the reverted rows, and the UI
@@ -1365,12 +1380,7 @@ class SyncExecutor {
           final handler = _onPermanentRejection;
           if (handler != null) {
             await handler(revertOp, revertMessage ?? '');
-            // Only crop listings and trips leave the failed count here; a
-            // reverted delivery still counts until FUP-25.
-            if (_isRevertableListingOrTripRejection(
-              revertOp.entityType,
-              revertMessage,
-            )) {
+            if (_leavesFailedCount(revertOp, revertMessage)) {
               await _syncQueue.markRevertedFor(
                 revertOp.entityType,
                 revertOp.entityId,

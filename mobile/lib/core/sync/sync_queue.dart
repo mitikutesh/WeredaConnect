@@ -260,8 +260,9 @@ class SyncQueue {
   /// Flag every rejected operation of one entity as reverted: its local row
   /// was put back to the server's view (or removed), so nothing is left for
   /// the user to act on and [getFailedCount] leaves them out. Called by the
-  /// sync executor once the revert handler returned (sync-protocol.md
-  /// 1.17.0). Operations still on their way, or that ran out of retries, are
+  /// sync executor once the revert handler returned for a crop listing or
+  /// trip (sync-protocol.md 1.17.0), a delivery or a message (1.42.0,
+  /// FUP-25). Operations still on their way, or that ran out of retries, are
   /// not touched: their own outcome settles the row.
   ///
   /// Returns the number of operations flagged.
@@ -426,8 +427,9 @@ class SyncQueue {
   /// those the server rejected for good, except rejected order operations,
   /// match events, check-ins, handoff photos and operations flagged reverted
   /// ([markRevertedFor]). A rejected order change was undone (the order went
-  /// back to the server's view) and explained, a reverted crop or trip change
-  /// likewise, a match event is background analytics the user never made,
+  /// back to the server's view) and explained, a reverted crop, trip,
+  /// delivery or message change likewise, a match event is background
+  /// analytics the user never made,
   /// a refused check-in only leaves a gap in the trail (sync-protocol.md
   /// Location pings), and a refused handoff photo leaves the handoff as it
   /// was (FRD-12), so nothing is left for the user to act on. Any other
