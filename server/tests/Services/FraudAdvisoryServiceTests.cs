@@ -463,6 +463,42 @@ public class FraudAdvisoryServiceTests
         await act.Should().ThrowAsync<ProvisionedThroughputExceededException>();
     }
 
+    [Fact]
+    public async Task TheReadsProjectOnlyTheTimelineFields_TheCodeLevelPiiGuard()
+    {
+        Candidates("buyer-1");
+        ScoreOf("buyer-1", 75, 75, RiskTier.High);
+
+        await RunAsync(Service());
+
+        static IEnumerable<string> Projected(string projection, Dictionary<string, string> names) =>
+            projection.Split(',').Select(p => names[p.Trim()]).OrderBy(n => n, StringComparer.Ordinal);
+
+        var gets = _ddb.ReceivedCalls().Select(c => c.GetArguments()[0]).OfType<GetItemRequest>().ToList();
+        var user = gets.Should().ContainSingle(g => g.TableName == UsersTable).Subject;
+        Projected(user.ProjectionExpression, user.ExpressionAttributeNames).Should()
+            .Equal("createdAt", "faydaVerified", "role");
+
+        var signals = Queries.Should().ContainSingle(q => q.TableName == FraudTable && q.IndexName == null).Subject;
+        Projected(signals.ProjectionExpression, signals.ExpressionAttributeNames).Should().Equal(
+            "createdAt", "entityId", "entityType", "recordType", "resolution", "signalKey", "signalType", "status", "weight");
+
+        var audits = Queries.Where(q => q.TableName == AuditTable).ToList();
+        audits.Should().HaveCount(2);
+        foreach (var audit in audits)
+        {
+            Projected(audit.ProjectionExpression, audit.ExpressionAttributeNames).Should().Equal(
+                "action", "actor", "actorRole", "entityType", "fromState", "timestamp", "toState");
+        }
+
+        var candidates = Queries.Should().ContainSingle(q => q.IndexName == FraudAdvisoryService.StatusIndex).Subject;
+        Projected(candidates.ProjectionExpression, candidates.ExpressionAttributeNames).Should().Equal("signalType", "userId");
+
+        // Never a description, phone, name, Fayda id, metadata, IP address or correlation id.
+        var allProjected = gets.Select(g => g.ProjectionExpression).Concat(Queries.Select(q => q.ProjectionExpression));
+        allProjected.Should().OnlyContain(p => !string.IsNullOrEmpty(p));
+    }
+
     // ── the cron handler ───────────────────────────────────
 
     [Fact]
@@ -486,16 +522,19 @@ public class FraudAdvisoryServiceTests
     }
 
     [Fact]
-    public async Task Handler_AFailedRun_Answers500()
+    public async Task Handler_AFailedRun_IsLoggedAndRethrown_SoTheErrorsAlarmCountsIt()
     {
         _ddb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
+        var logger = new TestLambdaLogger();
+        var context = new TestLambdaContext { Logger = logger };
 
-        var response = await new FraudAdvisoryCronFunction(Service(), () => Now)
-            .FunctionHandler(new Amazon.Lambda.APIGatewayEvents.APIGatewayProxyRequest(), _context);
+        var act = () => new FraudAdvisoryCronFunction(Service(), () => Now)
+            .FunctionHandler(new Amazon.Lambda.APIGatewayEvents.APIGatewayProxyRequest(), context);
 
-        response.StatusCode.Should().Be(500);
-        response.Body.Should().Contain("FRAUD_AI_REVIEW_ERROR");
+        await act.Should().ThrowAsync<ProvisionedThroughputExceededException>();
+        logger.Buffer.ToString().Should()
+            .Contain("FRAUD_AI_REVIEW_FAILED userId=- reason=run:ProvisionedThroughputExceededException");
     }
 
     // ── the Lambda reviewer client ─────────────────────────

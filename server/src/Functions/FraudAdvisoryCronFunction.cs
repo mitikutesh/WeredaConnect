@@ -1,5 +1,4 @@
 using Amazon.DynamoDBv2;
-using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 
@@ -17,8 +16,8 @@ namespace WeredaConnect.Server.Functions;
 /// <c>FRAUD_AI_REVIEW_OFF</c> and reads nothing. The reviewer has its own switch, so turning either off stops every
 /// Bedrock call.
 /// </para>
-/// Responses: 200 with the run summary (outcome <c>off</c>, <c>unconfigured</c>, <c>ok</c> or <c>partial</c>);
-/// 500 <c>FRAUD_AI_REVIEW_ERROR</c> when the candidate read failed.
+/// Responses: 200 with the run summary (outcome <c>off</c>, <c>unconfigured</c>, <c>ok</c> or <c>partial</c>). A
+/// failed candidate read is logged and rethrown: a Lambda error, which the <c>fraud-advisory-errors</c> alarm counts.
 /// </summary>
 public class FraudAdvisoryCronFunction
 {
@@ -81,8 +80,10 @@ public class FraudAdvisoryCronFunction
         }
         catch (Exception ex)
         {
+            // Rethrown, so the invocation is a Lambda error and the fraud-advisory-errors alarm counts it (a 500
+            // body would not). The async invoke has no retry; the next hourly run reads the lookback again.
             context.Logger.LogError($"{FraudAdvisory.FailedToken} userId=- reason=run:{ex.GetType().Name}");
-            return LambdaResponse.Error(500, "FRAUD_AI_REVIEW_ERROR", "The AI advisory run failed.");
+            throw;
         }
     }
 
