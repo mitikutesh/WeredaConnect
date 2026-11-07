@@ -1,7 +1,7 @@
 # Data Models Contract
 
-**Version**: 1.5.1
-**Last Updated**: 2026-11-06
+**Version**: 1.6.0
+**Last Updated**: 2026-11-07
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
 
@@ -311,7 +311,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt` | String? | No | Reminder markers 6 hours before a deadline (2.0.0) | order cron |
 | `pickupOverdueNotifiedAt` | String? | No | Stamped when `pickupDeadlineAt` passed on an accepted order (2.0.0) | order cron |
 
-Stored on the row but never returned: `paymentSubmittedAt`, `pendingPaymentAt`, `paymentHoldUntil`, the Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`), `cancelNote`, `adminQueue`, `adminQueueEscrowId`, `moneySweepSkip`, `moneySweepSkipAt` and the admin override flags (`refundOverride*`, `disputeOverride*`). Clients may send only `status` and its companions (`rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId`) and, since order-lifecycle 2.0.0, the commands `farmerResponse` / `truckerResponse` (`accept` or `decline`) with `declineReason`, and since 2.5.0 the buyer's `dropoffNote` (on create, and on update until pickup); everything else above is dropped or refused (`order-lifecycle.md`, Order Update Rules).
+Stored on the row but never returned: `paymentSubmittedAt`, `pendingPaymentAt`, `paymentHoldUntil`, the Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`), `cancelNote`, `adminQueue`, `adminQueueEscrowId`, `moneySweepSkip`, `moneySweepSkipAt`, the admin override flags (`refundOverride*`, `disputeOverride*`) and, since 1.6.0, the order's next deadline (`nextDeadlineAt`, `nextDeadlineKind`, `deadlineShard`: the sparse `DeadlineIndex` the order cron reads; order-lifecycle 2.8.0). Clients may send only `status` and its companions (`rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId`) and, since order-lifecycle 2.0.0, the commands `farmerResponse` / `truckerResponse` (`accept` or `decline`) with `declineReason`, and since 2.5.0 the buyer's `dropoffNote` (on create, and on update until pickup); everything else above is dropped or refused (`order-lifecycle.md`, Order Update Rules).
 
 **Indexes (DynamoDB)**: `orderId` (PK); `StatusCreatedAtIndex` (the crons page it by status); the party indexes behind `GET /orders` (`buyerId`, `farmerId`, `truckerId`); the sparse `AdminQueueIndex`.
 
@@ -429,6 +429,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.4.1 | 2026-11-06 | Order `cancelReason` lists the server code `listing_out_of_stock` (a funding that lost the listing's stock, order-lifecycle 2.4.0, ESC-18). No schema change | @Server |
 | 1.5.0 | 2026-11-06 | Order gains `dropoffNote`, the buyer's drop-off landmark (order-lifecycle 2.5.0, LT-12): server DTO, Isar schema and web mirror; returned per caller | @Server @Mobile |
 | 1.5.1 | 2026-11-06 | Order money fields are stored to the santim, `orderTotal` their exact sum (order-lifecycle 2.7.0, SIM-30); no field change | @Server |
+| 1.6.0 | 2026-11-07 | Order gains the server-only `nextDeadlineAt`, `nextDeadlineKind` and `deadlineShard` (never returned, dropped from client payloads), kept by every order write and read by the order cron through the sparse `DeadlineIndex` (order-lifecycle 2.8.0, ESC-16); no client change | @Server |
 
 ---
 

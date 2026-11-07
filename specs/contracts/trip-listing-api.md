@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.4.0
+2.4.1
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -337,7 +337,7 @@ Invalid transitions return `422 Unprocessable Entity`:
    - Permanent on clients since `sync-protocol.md` 1.17.0 (`errorTripHasBookings`); the trip is reverted to the server row.
 13. **Cancelling a booked trip** (2.0.0):
    - An update to `cancelled` or a `delete` is refused with `TRIP_HAS_BOOKINGS` while an order on the trip is `pickup_confirmed` or `in_transit` (goods on the move).
-   - Otherwise the cancel goes through and cascades: every `funded` or `accepted` order on the trip moves to `awaiting_transport` (`transportFailure: trip_cancelled`, `truckerResponse: cancelled`, `faultParty: trucker`, `order-lifecycle.md` 2.0.0), its pending delivery is cancelled and its booking released; unpaid orders are left alone (the payment gate refuses them later). The hourly order cron repeats the cascade for orders it missed.
+   - Otherwise the cancel goes through and cascades: every `funded` or `accepted` order on the trip moves to `awaiting_transport` (`transportFailure: trip_cancelled`, `truckerResponse: cancelled`, `faultParty: trucker`, `order-lifecycle.md` 2.0.0), its pending delivery is cancelled and its booking released; unpaid orders are left alone (the payment gate refuses them later). The order cron repeats the cascade for orders it missed when each is next due (`order-lifecycle.md` 2.8.0).
 
 ### Client-Side Validation
 
@@ -380,8 +380,8 @@ The buyers paid for that date, price and route.
 **Cancel cascade** (rule 13): refused with `TRIP_HAS_BOOKINGS` while goods are on the move
 (an order on the trip is `pickup_confirmed` or `in_transit`); otherwise the `funded` and
 `accepted` orders move to `awaiting_transport` (`transportFailure: trip_cancelled`), their pending
-deliveries are cancelled, and unpaid orders are left to the payment gate. The hourly order cron
-repeats the cascade for orders it missed.
+deliveries are cancelled, and unpaid orders are left to the payment gate. The order cron repeats
+the cascade for orders it missed when each is next due (`order-lifecycle.md` 2.8.0).
 
 **Browse is unchanged** by bookings: `GET /trips` lists `open` trips as before (since 2.2.0 only
 those that have not left). Clients read `remainingQuintals` for the free room.
@@ -402,8 +402,8 @@ does not go through the status transitions, so it still cancels any trip not yet
 cascade run as for the update; and it stamps `deletedAt`. Only the trip's trucker can cancel it
 (`TRIP_UNAUTHORIZED` otherwise), by either form.
 
-**Trips that left unbooked close themselves.** The hourly order cron action `commitment_deadlines`
-ends with a step that reads the `open` partition of the StatusDepartureDateIndex below the browse
+**Trips that left unbooked close themselves.** The order cron action `commitment_deadlines` (every 15
+minutes since 2.4.1, ESC-16) ends with a step that reads the `open` partition of the StatusDepartureDateIndex below the browse
 cutoff (`departureDate` before the start of today in Ethiopia, 2.2.0; no Scan). It reads newest
 departures first, 10 pages of 100 rows and 200 closes a run at most: a trip is at the head of the read
 from the first run after its Ethiopia day ends, and the trips kept open after they left (booked, or
@@ -576,10 +576,11 @@ Common route patterns:
 | 2.2.1 | 2026-11-06 | Release on the escrow cancels (FUP-123): the auto-refund sweep's cancel of a stale `funded` or `awaiting_transport` order, and the refund settlement's cancel before pickup (a `buyer_wins` verdict, an admin refund), now release the order's booking like the sync cancels; before, the trip kept a phantom booking, read too little room, and a full trip could stay `matched`. Behind `COMMITMENTS_ENABLED` like every booking write. Server only, no wire change, no client change |
 | 2.3.0 | 2026-11-06 | The order lead on the browse (FUP-122): with `COMMITMENTS_ENABLED` on, an order create refuses a trip departing in under 24 hours (2.0.0), but the buyer's match suggestions still offered such trips (FUP-85 keeps a trip leaving today all day), so a buyer could pick a truck the server then refused. `GET /trips` now returns `orderLeadHours` on every page: 24 with the flag on, 0 off (`OrderCommitment.OrderLeadHours`, the same `ResponseWindow` the order create checks). The trips Lambda now gets `COMMITMENTS_ENABLED` too. Additive: older apps ignore it, and the list is unchanged. Mobile caches the last value from its trip pull (SharedPreferences, for offline matching) and web reads it with the trips it matches; both drop from the suggestions a trip with `departureDate < now + orderLeadHours`. Lead 0 or unknown (an older server) keeps FUP-85. The buyer's trip browse is not filtered |
 | 2.4.0 | 2026-11-07 | Trip lifecycle (ESC-17, design 4.10 and G4): one cancel path, mobile now sends an `update` to `cancelled` like web and refuses locally a trip not `open` or `matched` (the legacy `delete` stays accepted with its old rules: no transition check, same `TRIP_HAS_BOOKINGS` check and cascade, `deletedAt`); the hourly `commitment_deadlines` run closes `open` trips whose Ethiopia day is over, that hold no booking and that no live order names (`cancelled`, new server-written `cancelReason: expired` and `cancelledAt`, version CAS, read newest departures first through the StatusDepartureDateIndex, bounded per run); an `inTransit` trip becomes `delivered` once every delivery on it is `delivered`, `disputed` or `cancelled`, one is done and no `funded`, `accepted`, `pickup_confirmed` or `in_transit` order on it lacks a done delivery (hooked on the `/sync` delivery writes, version CAS); a change to a trip already cancelled, delivered or deleted answers `conflict` with the stored row when it asks for what holds or its version is behind (before: `TRIP_TERMINAL_STATE` / `TRIP_ALREADY_CANCELLED` errors the apps retried). Both server moves behind `COMMITMENTS_ENABLED`. No new index, no wire change for clients beyond the conflict |
+| 2.4.1 | 2026-11-07 | Order deadlines (ESC-16, `order-lifecycle.md` 2.8.0): the order cron's catch-up of a trip-cancel cascade runs when each missed order is next due (its reminder, deadline or pickup deadline), no longer every hour, and `commitment_deadlines` (with the departed-trip close of 2.4.0) runs every 15 minutes instead of hourly; `orderLeadHours` and the order-create lead follow the SSM parameter `/{prefix}/orders/response-window-hours` (24 by default), which the trips Lambda now reads like the order writers. Server only, no wire change |
 | 2.3.1 | 2026-11-07 | Doc only (ESC-14, survey 9.2): Security Considerations said `GET /trips` and `GET /trips/{id}` are public; both sit behind the JWT authorizer and the F-36 role rules (buyers and admins any trip, a trucker their own, everyone else `403 TRIP_FORBIDDEN`). Browse and Get Single Trip now say that a caller without a valid token gets `401` from API Gateway (not `403`), list the `401` and `403` answers, show the `{"trip": {...}}` wrapper the server has always sent for `GET /trips/{id}`, and give that endpoint's error order (`404` before the role check). The status transition note that a matched cancel "re-opens matched listings" is left for ESC-17, which owns trip cancel. No wire change |
 
 ---
 
 **Last Updated**: 2026-11-07
-**Version**: 2.4.0
+**Version**: 2.4.1
 **Status**: Draft (Phase R4.1)

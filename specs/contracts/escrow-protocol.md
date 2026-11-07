@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.0.0
+2.1.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -24,7 +24,7 @@ ledger, so part of it can go back to the buyer while the rest stays held (design
 
 | Part | Status | Where |
 |---|---|---|
-| Everything from "Escrow Lifecycle" to "Additions in 1.40.0": the whole-escrow settlement lock (1.10.0), the row-level manual payout queue (1.8.0), the hourly trucker retry (1.11.0), refunds of the whole `amount` armed with `expiresAt` and `refundReason` (1.1.0, 1.34.0), the 21-day cap (1.13.0), dispute verdicts `farmer_wins` and `buyer_wins` (1.9.0, 1.21.0) | **Built** | the 1.x sections |
+| Everything from "Escrow Lifecycle" to "Additions in 2.1.0": the whole-escrow settlement lock (1.10.0), the row-level manual payout queue (1.8.0), the hourly trucker retry (1.11.0), refunds of the whole `amount` armed with `expiresAt` and `refundReason` (1.1.0, 1.34.0), the 21-day cap (1.13.0; with the commitments on, a live order escrow is held to it in one write since 2.1.0), dispute verdicts `farmer_wins` and `buyer_wins` (1.9.0, 1.21.0) | **Built** | the 1.x sections |
 | The `escrow-ledger` table and `LedgerOpenIndex`, the write-ahead protocol, per-leg releases and refunds, the invariant, the ledger sweep, the admin per-leg verdict (`partial_refund`), the automatic refund of a duplicate payment | **PLANNED, ESC-20** | "Planned in 2.0.0", P.1 to P.9 and P.11 to P.13 |
 | The transport rebind after a transport failure: `refund#transport-delta#{n}`, `refund#transport`, `shift#commission-to-transport#{n}` | **PLANNED, ESC-19** (needs ESC-20) | "Planned in 2.0.0", P.10 |
 | A buyer top-up for a replacement truck that costs more than the commission left (`topup#{n}`) | **Later, ESC-37 (P4)** | P.10 |
@@ -193,7 +193,8 @@ exists. The server materializes an escrow record at that moment so
   or terminal (`rejected`/`cancelled`) order; a progressing order
   (`accepted` … `disbursing`) gets `expiresAt` pushed +48h instead, never past funding +
   21 days (1.13.0, ESC-06: at the cap the order enters the admin stuck-order queue; see
-  §Additions in 1.13.0). Fail-safe: if
+  §Additions in 1.13.0). Since 2.1.0 (ESC-16), with `COMMITMENTS_ENABLED` on, it is held to
+  the cap in one write instead (§Additions in 2.1.0). Fail-safe: if
   the orders table isn't wired, order-sourced escrows are skipped, never refunded
   blind. A stale-funded order is cancelled FIRST via version-CAS
   (`cancelReason: escrow_refunded`) — the CAS fences out a concurrent farmer
@@ -2885,7 +2886,8 @@ reasons are unchanged.
   delivery could not be paid).
 - Goods moving at the cap (`pickup_confirmed`, `in_transit`) leave the queue only through a
   dispute and its verdict, or a confirmed delivery.
-- ESC-16 replaces the cap with the T12 deadline and stops the sweep extending order escrows at all.
+- Since 2.1.0 (ESC-16), with `COMMITMENTS_ENABLED` on, the sweep no longer extends a live order
+  escrow 48 hours at a time: it holds it to `capAt` in one write (§Additions in 2.1.0).
 
 ---
 
@@ -4220,6 +4222,31 @@ read, no other index, no write); the audit row uses its existing transaction-aud
 
 ---
 
+## Additions in 2.1.0 (order escrows held to the cap, ESC-16)
+
+Spec 4.5: the order deadlines own an order's life, so the escrow sweep stops extending order
+escrows. Retires, with `COMMITMENTS_ENABLED` on, the rolling extension of 1.13.0
+(`expiresAt = min(now + 48h, capAt)` on every run that finds a progressing order).
+
+| Order (auto-refund sweep, `source: order`, `expiresAt` passed) | `COMMITMENTS_ENABLED` off | on (since 2.1.0) |
+|---|---|---|
+| `accepted` ... `disbursing` (progressing), before `capAt` | `expiresAt = min(now + 48h, capAt)` (1.13.0) | `expiresAt = capAt` in one write, logged `ORDER_ESCROW_HELD_TO_CAP escrowId=<id> orderId=<id> until=<capAt>`; the escrow next comes back to the sweep at the cap |
+| from `capAt` | the admin queue (1.13.0) | unchanged |
+| refundable (`funded`, `awaiting_transport`, `rejected`, `cancelled`) | refunded as before | unchanged |
+
+The write is the same conditional `TryExtendExpiryAsync` (only while the escrow is a plain hold:
+`escrowed`, no `refundReason`, no settlement lock, no open manual payout), so a refund scheduled
+since the read keeps its expiry and nothing is logged. Every order exit that refunds schedules the
+refund itself (`expiresAt` moved to that moment with `refundReason`), so holding to the cap delays
+nothing on the normal paths. If that scheduling fails it logs the alarmed
+`ORDER_ESCROW_REFUND_SCHEDULE_FAILED` as before; the escrow then waits for an admin or for the cap,
+where a refundable order is refunded. `capAt` is the T12 deadline (funding + 21 days); it stays a
+constant of the escrow cron (not an SSM parameter) in 2.1.0.
+
+No endpoint, status, field or client change. `/escrow/initiate` escrows keep their 1.15.0 rule.
+
+---
+
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
 
 > **PLANNED. Nothing in this section is built at 2.0.0.** ESC-20 builds P.1 to P.9 and P.11 to
@@ -4415,8 +4442,8 @@ ref=<ref> check=<I1..I4>` (any occurrence alarms) and answers the caller as a fa
 The auto-release and auto-refund sweeps keep deciding **when** money moves (dispute window, payout
 delay, the 7 day stale order rule, the 21 day cap); for a ledger escrow they write the release or
 refund rows instead of calling the gateway under the lock. A cancel or rejection writes `refund#all`
-with the order write (P.5 step 1) instead of arming `expiresAt` and `refundReason`. ESC-16 removes
-the 48h extension of order escrows (spec 4.5).
+with the order write (P.5 step 1) instead of arming `expiresAt` and `refundReason`. The 48h extension
+of order escrows is gone with the commitments on since 2.1.0 (ESC-16, spec 4.5).
 
 ### P.7 Audit
 
@@ -4561,6 +4588,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.1.0 | 2026-11-07 | Order escrows held to the cap (ESC-16, spec 4.5, `order-lifecycle.md` 2.8.0): with `COMMITMENTS_ENABLED` on, the auto-refund sweep no longer extends a live order escrow 48 hours at a time; it sets `expiresAt` to the 21 day cap in one conditional write (`ORDER_ESCROW_HELD_TO_CAP`), and at the cap the order enters the admin queue as before. Off, the 1.13.0 rule stays. No endpoint, status, field or client change |
 | 2.0.0 | 2026-11-07 | Three-party money model, PLANNED (ESC-14 for ESC-19 and ESC-20): a new "Reading this contract" table says what is built and what is planned, and "Planned in 2.0.0" (P.1 to P.13) specifies the `escrow-ledger` table (PK `escrowId`, SK `ref`) with the sparse `LedgerOpenIndex` (`openStatus`, `dueAt`), the refs (`release#farmer`, `release#trucker#{id}`, `refund#all`, `verdict#{farmer,trucker,buyer}`, `refund#transport-delta#{n}`, `refund#transport`, `shift#commission-to-transport#{n}`, `refund#duplicate#{paymentOrderId}`, `topup#{n}` reserved for ESC-37), the escrow's `settlementModel`, `legStatus`, `refundedTotal`, `releasedTotal` and `previousTruckerIds`, the write-ahead protocol (row `pending` with the escrow CAS in one transaction, `done`, `failed` with 3 attempts, `sent` with a status check, `manual`), invariants I1 to I4 (`ESCROW_LEDGER_INVARIANT`), the 15 minute `ledger_sweep` (`LEDGER_ROW_OVERDUE`), per-movement audit rows, the manual queue and record on ledger refs, the per-leg verdict (`partial_refund`, `action: split`, `ADMIN_021`, a proposed commission rule), the automatic refund of a decided duplicate payment, the transport rebind of D4 (marked as awaiting the user's confirmation, with the open question of a cheaper truck after a shift; the order side follows `sync-protocol.md` 1.40.0, back to `funded` when the farmer had not accepted), the escrow status per leg in any order (a trucker payout before the farmer's keeps `escrowed`; an open duplicate refund blocks neither `completed` nor `refunded`), per-row `refund_sent` replacing the status rule for ledger escrows, and the migration rule. Major because the money model changes; nothing built changes. Doc fixes against the code (survey 1.16 and 9.4): `POST /escrow/release` answers `completed` when every leg is paid and `released` while the transport leg is owed (with `truckerPayout` and `truckerTelebirrRef`), its `trigger` is not stored and its `deliveryId` is not compared; the gateway calls are not retried inside a call (30 s, unknown outcome parked); reconciliation waits 150 minutes for a row without a Telebirr reference and covers holds only; the auto-refund notice is the buyer's `refund_sent` from the escrows stream; Future Enhancements no longer lists the webhook, the trucker payment and the streams as missing; Parties add Web, Admin and Infrastructure; `EscrowDto` gains `orderId` (already returned) and `deliveryId` is empty until linkage. Already fixed before 2.0.0: `dispute_resolved` in the state table (1.3.0), the retry and alert promises (1.10.0), the commission rule (1.39.0) |
 | 1.40.0 | 2026-11-07 | Dispute evidence (FRD-14): `GET /admin/disputes/{escrowId}/evidence`, admin group only, answers the escrow, order, delivery (photos, no phones or QR token), the stitched timeline and the handoffs (QR scan or typed code, who, GPS, distance to the planned point); with `include=messages` also the order's and delivery's message threads (`messaging.md` 1.4.0), each read audited as `admin_dispute_messages_read` before it is answered (`503 ADMIN_020` otherwise). `404 ADMIN_019` for an escrow that never had a dispute. Infra: the route, `MESSAGES_TABLE` and Query on `ConversationIdCreatedAtIndex` for the admin Lambda. |
 | 1.39.0 | 2026-11-06 | Commission rule and rounding (SIM-30, `order-lifecycle.md` 2.7.0): Commission Calculation now states the rule the server applies, a percentage of the crop cost (SSM `/{prefix}/escrow/commission-rate`, default 0.05) that the buyer pays on top of the order, held in the escrow and kept by the platform at release (refunded in full with the rest), with `commission = amount − farmerPayout − truckerPayout`; the 2.5 % deducted-at-release text was only true of the legacy initiate without an order, now marked as such. The order create rounds `cropCost`, `transportCost` and `commissionAmount` to the santim (halves away from zero, exact decimals) and `orderTotal` is their exact sum, so the order's commission equals the escrow's to the santim (was an unrounded double such as 0.9500000000000001). The money rule is unchanged; only an order whose crop or transport cost has more than 2 decimals (a fractional kg) can see its total move by a santim, since its legs are now rounded before they are added. No endpoint, status or field change |
