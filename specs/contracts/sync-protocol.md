@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.42.0
+1.43.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -221,9 +221,9 @@ These rules must always hold:
 - `DELIVERY_CANCEL_NOT_ALLOWED` (since 1.11.0) → Mark as permanently rejected and revert the local delivery (see Delivery cancel)
 - `DELIVERY_DISPUTE_REFUSED` and `DELIVERY_DISPUTE_EXPIRED` (since 1.12.0) → Mark as permanently rejected and revert the local delivery (see Delivery dispute); `DELIVERY_DISPUTE_RETRY` is transient and retried
 - `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED`, `DELIVERY_CODE_LOCKED_DROPOFF` and `DELIVERY_CODE_GPS_REQUIRED` (since 1.33.0) → Mark as permanently rejected and revert the local delivery (see Typed handoff code)
-- `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` (since 1.23.0) → Mark as permanently rejected; since 1.42.0 also revert the local crop listing or trip (see Listing text refusal)
-- `DELIVERY_NONCE_MISSING` (since 1.42.0) → Mark as permanently rejected and revert the local delivery (see Refusals no retry can pass)
-- Every `*_UNAUTHORIZED` code but a role gate (`... Only farmers can ...`, `truckers`, `buyers`), `RATING_FORBIDDEN: You can only rate your own orders.` and a `CROP_VALIDATION`, `TRIP_VALIDATION` or `DELIVERY_VALIDATION` `... is immutable and cannot be changed on update.` (since 1.42.0) → Mark as permanently rejected, not reverted (see Refusals no retry can pass)
+- `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` (since 1.23.0) → Mark as permanently rejected; since 1.43.0 also revert the local crop listing or trip (see Listing text refusal)
+- `DELIVERY_NONCE_MISSING` (since 1.43.0) → Mark as permanently rejected and revert the local delivery (see Refusals no retry can pass)
+- Every `*_UNAUTHORIZED` code but a role gate (`... Only farmers can ...`, `truckers`, `buyers`), `RATING_FORBIDDEN: You can only rate your own orders.` and a `CROP_VALIDATION`, `TRIP_VALIDATION` or `DELIVERY_VALIDATION` `... is immutable and cannot be changed on update.` (since 1.43.0) → Mark as permanently rejected, not reverted (see Refusals no retry can pass)
 - `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` (since 1.31.0) → Mark as permanently rejected, not reverted (see Location pings); `LOCATION_NOT_ACTIVE` comes as `deferred`, not as an error
 
 **Retry State Management**:
@@ -356,7 +356,7 @@ payment.` Clients are unchanged (1.18.0 below).
 
 | Code | Mobile client (sync queue) | Web client (calls `/sync` directly) |
 |------|----------------------------|-------------------------------------|
-| `FRAUD_ACCOUNT_HELD:` | Permanent, as before. A refused order operation is reverted as in 1.10.0 (a refused create removes the local order, a refused `payment_submitted` puts the server's order back); a refused crop or trip create keeps its local row, like the other `FRAUD_*` codes (until 1.42.0: since then it is removed, with the 1.17.0 revert, FUP-51). For every entity and action the user is told, in en, am and om: "Your account is under review, so this action is paused. Contact support." The batch result's error message picks the code too. | The refused call fails with the same text (crop, trip and order create, payment). |
+| `FRAUD_ACCOUNT_HELD:` | Permanent, as before. A refused order operation is reverted as in 1.10.0 (a refused create removes the local order, a refused `payment_submitted` puts the server's order back); a refused crop or trip create keeps its local row, like the other `FRAUD_*` codes (until 1.43.0: since then it is removed, with the 1.17.0 revert, FUP-51). For every entity and action the user is told, in en, am and om: "Your account is under review, so this action is paused. Contact support." The batch result's error message picks the code too. | The refused call fails with the same text (crop, trip and order create, payment). |
 | `AUTH_041:` | Unchanged: kept pending, the Fayda login opens, the operation goes again after it. The prompt no longer names an amount, since the server may ask at any amount. | Unchanged: the payment screen opens the Fayda login and sends the same payment again, with the same prompt. |
 
 The escrow routes (`/escrow/initiate`, `/escrow/order-checkout`, `/escrow/dispute`) and the
@@ -552,8 +552,8 @@ Mobile client (sync queue):
 | Case | Client action |
 |------|---------------|
 | Any of the five codes (`APP_UPDATE_REQUIRED` only on an `order`) | Mark the operation rejected: never sent again, a reconnect does not reset it. |
-| Refused `crop_listing` with `REPUTATION_RESTRICTED` or `CROP_HAS_ACTIVE_ORDERS`; refused `trip` with `REPUTATION_RESTRICTED` or `TRIP_HAS_BOOKINGS`; since 1.42.0 (FUP-51) also a `crop_listing` with `CROP_CONTACT_IN_TEXT` and a `trip` with `TRIP_CONTACT_IN_TEXT`, and either with `FRAUD_ACCOUNT_HELD` | Reverted with the order rules. A refused `create` was never stored: remove the local row. A refused update or delete: re-read `GET /crops/{id}` or `GET /trips/{id}` (the owner's own read: only a farmer sends crop operations and only a trucker trip operations) and replace the local row (server wins), unless another operation for it is still queued. A 404 (deleted, or for a trip cancelled) or 403 removes the local row. Any other failed read puts the local version back to the lowest version the refused operations sent and clears the pull stamp, so the next crop or trip pull overwrites the row. |
-| Reverted crop listing or trip | Once the revert returned (a failed read included, since the next pull settles the row), its rejected operations are flagged `reverted` and leave the "Sync failed" count: nothing is left for the user to act on. A revert that threw keeps them counted. Since 1.42.0 (FUP-25) the same holds for a reverted delivery and for a message removed because its thread is closed. |
+| Refused `crop_listing` with `REPUTATION_RESTRICTED` or `CROP_HAS_ACTIVE_ORDERS`; refused `trip` with `REPUTATION_RESTRICTED` or `TRIP_HAS_BOOKINGS`; since 1.43.0 (FUP-51) also a `crop_listing` with `CROP_CONTACT_IN_TEXT` and a `trip` with `TRIP_CONTACT_IN_TEXT`, and either with `FRAUD_ACCOUNT_HELD` | Reverted with the order rules. A refused `create` was never stored: remove the local row. A refused update or delete: re-read `GET /crops/{id}` or `GET /trips/{id}` (the owner's own read: only a farmer sends crop operations and only a trucker trip operations) and replace the local row (server wins), unless another operation for it is still queued. A 404 (deleted, or for a trip cancelled) or 403 removes the local row. Any other failed read puts the local version back to the lowest version the refused operations sent and clears the pull stamp, so the next crop or trip pull overwrites the row. |
+| Reverted crop listing or trip | Once the revert returned (a failed read included, since the next pull settles the row), its rejected operations are flagged `reverted` and leave the "Sync failed" count: nothing is left for the user to act on. A revert that threw keeps them counted. Since 1.43.0 (FUP-25) the same holds for a reverted delivery and for a message removed because its thread is closed. |
 | Any other refusal of a crop listing or trip (`FRAUD_*` other than `FRAUD_ACCOUNT_HELD`, `SYNC_VALIDATION`, `*_UNAUTHORIZED`, a changed immutable field, a code meant for another entity, a whole batch refused) | Unchanged: not reverted, still counted. When one entity has several refused operations in a batch, the first one whose code undoes the change drives the revert; the first refusal is what the user is told. |
 | Refused delivery `create` that reaches the delivery revert (any code that undoes a delivery change) | The server never stored it: the local delivery is removed without a read. Every other refused delivery change is still re-read and never removed (1.11.0). |
 | Order operation refused with one of the five codes | Reverted like any permanent order rejection (1.10.0), not counted. |
@@ -586,7 +586,7 @@ Rules for server authors:
   operation answered with it until the app is updated, so sending it there only delays that
   operation.
 - `CROP_VALIDATION` and `TRIP_VALIDATION` stay retryable: they also carry "The farmer profile
-  could not be read" when the users table read fails. Since 1.42.0 the client treats only their
+  could not be read" when the users table read fails. Since 1.43.0 the client treats only their
   immutable-field text (`... is immutable and cannot be changed on update.`) as permanent, and
   `CROP_UNAUTHORIZED` and `TRIP_UNAUTHORIZED` as permanent except their role gate (Refusals no
   retry can pass): never send those for a read that failed.
@@ -636,7 +636,7 @@ an unchanged echo is not checked), so the same operation always gets the same an
 
 | Server answer | Mobile client (sync queue) | Web client |
 |---|---|---|
-| `CROP_CONTACT_IN_TEXT:` or `TRIP_CONTACT_IN_TEXT:` | Permanent: mark the operation rejected (never resent, not reset by a reconnect). Since 1.42.0 (FUP-51) reverted with the 1.17.0 rules: a refused create removes the local row, a refused update puts back the server's row, and the operations leave the "Sync failed" count (before, the row stayed and counted as failed). Only the entity's own code reverts: `TRIP_CONTACT_IN_TEXT` on a crop listing does not. Explained in en, am and om with `errorContactInText` ("Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow."). | Failure with the same text; nothing local to undo. |
+| `CROP_CONTACT_IN_TEXT:` or `TRIP_CONTACT_IN_TEXT:` | Permanent: mark the operation rejected (never resent, not reset by a reconnect). Since 1.43.0 (FUP-51) reverted with the 1.17.0 rules: a refused create removes the local row, a refused update puts back the server's row, and the operations leave the "Sync failed" count (before, the row stayed and counted as failed). Only the entity's own code reverts: `TRIP_CONTACT_IN_TEXT` on a crop listing does not. Explained in en, am and om with `errorContactInText` ("Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow."). | Failure with the same text; nothing local to undo. |
 
 The crop and trip forms run the same detector before anything is queued (offline-first) and show
 the same text under the field, so the refusal comes back only for an operation queued by an older
@@ -648,7 +648,7 @@ Clients from before 1.23.0 do not know the codes: they retry them like any other
 their local change; every retry gets the same refusal.
 
 The crop and trip revert for permanent refusals (1.17.0, ESC-12 part B, FUP-01) reverts only the
-codes it lists. Since 1.42.0 (FUP-51) these two codes are on that list.
+codes it lists. Since 1.43.0 (FUP-51) these two codes are on that list.
 
 ---
 
@@ -929,7 +929,7 @@ are in `delivery-verification-api.md` 1.25.0, section 4b. What matters to the sy
   it. A `success` carries the delivery's `serverVersion` and no `serverData`.
 - Since 1.39.0 a `pickupPhotoRef` or `dropoffPhotoRef` in a `delivery` create or update is still
   shape-checked (`DELIVERY_INVALID_FIELD` as before) but a valid key is dropped, not written.
-  Since 1.42.0 (FUP-08) the mobile queue leaves either field out of a `delivery` operation unless
+  Since 1.43.0 (FUP-08) the mobile queue leaves either field out of a `delivery` operation unless
   it holds this delivery's upload key, so an operation an old build queued with a photo file path
   goes through instead of being refused on every sync.
 
@@ -976,7 +976,7 @@ is nothing for the user to do (an exception to invariant 1's "tells the user why
 
 ---
 
-## Refusals no retry can pass (1.42.0, FUP-110, FUP-138)
+## Refusals no retry can pass (1.43.0, FUP-110, FUP-138)
 
 Client change only; the server sends these as before. The FRD-08 refusals (1.27.0) that the same
 payload always gets, and that the shipped apps never cause, are no longer resent: before, the queue
@@ -995,7 +995,7 @@ good (cancel after pickup, refused or late dispute, typed code, missing nonce) a
 because its thread is closed are flagged `reverted` and leave the "Sync failed" count, like a
 reverted crop listing or trip (1.17.0). A revert that threw keeps them counted.
 
-Clients before 1.42.0 retry these codes like any other error.
+Clients before 1.43.0 retry these codes like any other error.
 
 ---
 
@@ -1152,7 +1152,7 @@ funding.
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.42.0 | 2026-11-07 | Mobile sync refusals (B1: FUP-08, FUP-25, FUP-51, FUP-74, FUP-110, FUP-138), client only: every `*_UNAUTHORIZED` but a role gate (a token without the role claim gets it too), `RATING_FORBIDDEN` for another user's order, the immutable-field `CROP_VALIDATION`, `TRIP_VALIDATION` and `DELIVERY_VALIDATION` texts and `DELIVERY_NONCE_MISSING` are permanent (see Refusals no retry can pass; `CROP_UNAUTHORIZED` and `TRIP_UNAUTHORIZED` no longer stay retryable, 1.17.0); `DELIVERY_NONCE_MISSING` is reverted like a refused typed code; `CROP_CONTACT_IN_TEXT`, `TRIP_CONTACT_IN_TEXT` and `FRAUD_ACCOUNT_HELD` revert a crop listing or trip (1.17.0 rules); a reverted delivery and a message removed for a closed thread leave the "Sync failed" count; the mobile queue leaves a `pickupPhotoRef` or `dropoffPhotoRef` that is not this delivery's upload key out of a `delivery` operation (an old build's file path); the old `ORDER_VALIDATION` total text is no longer read as `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` (1.24.0). No server change |
+| 1.43.0 | 2026-11-07 | Mobile sync refusals (B1: FUP-08, FUP-25, FUP-51, FUP-74, FUP-110, FUP-138), client only: every `*_UNAUTHORIZED` but a role gate (a token without the role claim gets it too), `RATING_FORBIDDEN` for another user's order, the immutable-field `CROP_VALIDATION`, `TRIP_VALIDATION` and `DELIVERY_VALIDATION` texts and `DELIVERY_NONCE_MISSING` are permanent (see Refusals no retry can pass; `CROP_UNAUTHORIZED` and `TRIP_UNAUTHORIZED` no longer stay retryable, 1.17.0); `DELIVERY_NONCE_MISSING` is reverted like a refused typed code; `CROP_CONTACT_IN_TEXT`, `TRIP_CONTACT_IN_TEXT` and `FRAUD_ACCOUNT_HELD` revert a crop listing or trip (1.17.0 rules); a reverted delivery and a message removed for a closed thread leave the "Sync failed" count; the mobile queue leaves a `pickupPhotoRef` or `dropoffPhotoRef` that is not this delivery's upload key out of a `delivery` operation (an old build's file path); the old `ORDER_VALIDATION` total text is no longer read as `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` (1.24.0). No server change |
 | 1.42.0 | 2026-11-07 | Drop-off place (LT-14, `order-lifecycle.md` 2.9.0): `deliveryLatitude` and `deliveryLongitude` are new order fields on create and on the buyer's update until pickup; new permanent `ORDER_DELIVERY_LOCATION_LOCKED` (a change after pickup) under the `ORDER_*` rule, with its own text in en, am and om (`errorDeliveryLocationLocked`); an order row in `serverData` leaves the point out for a caller who may not read it, and carries it as numbers. Older clients revert and show the generic order refusal |
 | 1.41.0 | 2026-11-07 | Minimum app version for order operations built (ESC-25): `/sync` refuses every `order` operation (create, update, delete) from a build below `MIN_ORDER_APP_BUILD` on the sync Lambda (infra `minOrderAppBuild`, 3 in dev, staging and prod; 0 or absent = off; independent of `COMMITMENTS_ENABLED`) before any read or write: `APP_UPDATE_REQUIRED: This version of the app is too old for orders. Update WeredaConnect to continue.` to an app that sends `X-App-Build`, `ORDER_VALIDATION:` with the same text to one that sends none (confirmed). Nothing stored, no idempotency key, no fraud signal; the rest of the batch goes on; other entities and `/escrow/*` are not gated. `COMMITMENTS_ENABLED` stays off in staging and prod until the owner turns it on after the gate is deployed. No client change: mobile and web already treat it as permanent on an order and show `errorAppUpdateRequired` (1.17.0) |
 | 1.40.0 | 2026-11-07 | Two PLANNED sections (ESC-14), nothing built changes. Minimum app version for order operations (ESC-25): the server refuses every `order` operation, create and update, from a build below a per-environment minimum (proposed `MIN_ORDER_APP_BUILD`, 0 or absent = off; build 3 is the first that renders the commitments) before any read or write, with `APP_UPDATE_REQUIRED:` to an app that sends `X-App-Build` and, proposed, `ORDER_VALIDATION:` with the same text to one that sends none (it may predate the 1.17.0 client, FUP-75); other entities and the `/escrow/*` routes are not gated. Transport choice (ESC-19): the buyer's `transportChoice` command (`trip` with `tripId`, `self_pickup` with `pickupDate`, `cancel`) in `awaiting_transport`; a choice on an order the farmer has not accepted (the D14 park) goes back to `funded` with the farmer asked and `farmerDeadlineAt` restamped, the trucker asked after the farmer (D10); the eligible trip rules (`open` or `matched`), the order fields `transportAttempts` (with its `outcome` values and the backfill) and `refundedTotal`, the `replacement_request` push, and its refusals (`ORDER_UNAUTHORIZED`, `ORDER_ACTION_NOT_ALLOWED`, `ORDER_DEADLINE_PASSED`, `ORDER_TRIP_NOT_ELIGIBLE`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED`, `TRIP_CAPACITY_EXCEEDED` at read time and in a race, `ORDER_VALIDATION`), all already handled by the clients. D4 is marked as awaiting the user's confirmation, with the open question of a cheaper truck after a shift. Doc fix: Permanent order rejections listed `ORDER_TRIP_NOT_ELIGIBLE` as planned; it is sent since 1.34.0 |
@@ -1197,4 +1197,4 @@ funding.
 ---
 
 **Last Updated**: 2026-11-07
-**Version**: 1.42.0
+**Version**: 1.43.0

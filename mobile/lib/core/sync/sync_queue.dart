@@ -261,7 +261,7 @@ class SyncQueue {
   /// was put back to the server's view (or removed), so nothing is left for
   /// the user to act on and [getFailedCount] leaves them out. Called by the
   /// sync executor once the revert handler returned for a crop listing or
-  /// trip (sync-protocol.md 1.17.0), a delivery or a message (1.42.0,
+  /// trip (sync-protocol.md 1.17.0), a delivery or a message (1.43.0,
   /// FUP-25). Operations still on their way, or that ran out of retries, are
   /// not touched: their own outcome settles the row.
   ///
