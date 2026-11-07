@@ -1908,10 +1908,15 @@ export class ApiStack extends cdk.Stack {
       }),
     );
     aiReviewerFn.grantInvoke(fraudAdvisoryFn.function);
+    // EventBridge invokes the cron asynchronously: no Lambda retry, so a run that timed out after a review
+    // never calls Bedrock again for it. The next hourly run reads the lookback anyway.
+    fraudAdvisoryFn.function.configureAsyncInvoke({ retryAttempts: 0 });
 
     new events.Rule(this, "FraudAdvisoryHourly", {
       ruleName: `${prefix}-fraud-advisory-hourly`,
-      description: "FRD-19: AI advisory review of new HIGH and CRITICAL fraud users every hour (a no-op while off)",
+      description: "FRD-19: AI advisory review of new HIGH and CRITICAL fraud users every hour (disabled while off)",
+      // Off, the rule does not run at all; the cron's own switch still guards a run invoked by hand.
+      enabled: envConfig.aiReviewEnabled === true,
       schedule: events.Schedule.rate(cdk.Duration.hours(1)),
       targets: [
         new targets.LambdaFunction(fraudAdvisoryFn.function, {

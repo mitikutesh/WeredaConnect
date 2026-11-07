@@ -156,10 +156,11 @@ describe('FRD-19 AI advisory reviewer (ApiStack)', () => {
     expect(statements.flatMap(actionsOf).some((a) => a.startsWith('bedrock:'))).toBe(false);
   });
 
-  test('an hourly rule runs the cron', () => {
+  test('an hourly rule runs the cron, disabled while the switch is off', () => {
     template.hasResourceProperties('AWS::Events::Rule', {
       Name: 'wereda-connect-dev-fraud-advisory-hourly',
       ScheduleExpression: 'rate(1 hour)',
+      State: 'DISABLED',
       Targets: Match.arrayWith([
         Match.objectLike({
           Arn: { 'Fn::GetAtt': [Match.stringLikeRegexp('^FraudAdvisoryCronFunction'), 'Arn'] },
@@ -169,10 +170,21 @@ describe('FRD-19 AI advisory reviewer (ApiStack)', () => {
     });
   });
 
-  test('aiReviewEnabled turns both switches on', () => {
+  test('aiReviewEnabled turns both switches and the rule on', () => {
     const on = apiTemplate({ ...devConfig, aiReviewEnabled: true });
     expect(functionOf(on, REVIEWER).props.Environment.Variables.AI_REVIEW_ENABLED).toBe('true');
     expect(functionOf(on, CRON).props.Environment.Variables.FRAUD_AI_REVIEW_ENABLED).toBe('true');
+    on.hasResourceProperties('AWS::Events::Rule', {
+      Name: 'wereda-connect-dev-fraud-advisory-hourly',
+      State: 'ENABLED',
+    });
+  });
+
+  test('the async invoke of the cron is never retried (a retry could call Bedrock again)', () => {
+    template.hasResourceProperties('AWS::Lambda::EventInvokeConfig', {
+      FunctionName: { Ref: functionOf(template, CRON).id },
+      MaximumRetryAttempts: 0,
+    });
   });
 
   test('every environment ships with the reviewer off', () => {
