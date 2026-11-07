@@ -684,15 +684,31 @@ public class DeliveryFunctionTrackTests
     }
 
     [Fact]
-    public async Task ATruckerNotCommitted_GetsTheOrdersPoint_WhileTheMoneyIsHeld_ButNotTheNote()
+    public async Task AnAskedTrucker_GetsTheOrdersPoint_ButNotTheNote()
     {
-        OrderWithPoint("awaiting_transport", "cancelled", "8.9512", "38.7644");
+        OrderWithPoint("funded", "pending", "8.9512", "38.7644");
 
         var (status, track) = await TrackAsync(TruckerId);
 
         status.Should().Be(200);
         track.GetProperty("dropoff").GetProperty("latitude").GetDouble().Should().Be(8.951);
         IsNull(track.GetProperty("dropoff"), "note").Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("declined")]
+    [InlineData("expired")]
+    [InlineData("cancelled")]
+    [InlineData("failed_capacity")]
+    public async Task ATruckerWhoLeftTheOrder_GetsTheTripsPoint_NotTheOrders(string truckerResponse)
+    {
+        OrderWithPoint("awaiting_transport", truckerResponse, "8.9512", "38.7644");
+
+        var (status, track) = await TrackAsync(TruckerId);
+
+        status.Should().Be(200);
+        track.GetProperty("dropoff").GetProperty("latitude").GetDouble().Should().Be(9.03);
+        track.GetRawText().Should().NotContain("8.951");
     }
 
     [Fact]

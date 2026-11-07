@@ -87,11 +87,19 @@ public class OrderDeliveryLocationTests
     [InlineData(BuyerId, "funded", "pending", true)]
     [InlineData(FarmerId, "funded", "pending", true)]
     [InlineData(BuyerId, "created", "none", true)]
-    // The trucker reads it while the money is held, asked or committed (the note waits for the commitment).
+    // The trucker reads it while the money is held and the trucker is still on the order: not asked
+    // yet, asked or committed (the note waits for the commitment).
     [InlineData(TruckerId, "funded", "pending", true)]
     [InlineData(TruckerId, "funded", "not_asked", true)]
     [InlineData(TruckerId, "accepted", "accepted", true)]
-    [InlineData(TruckerId, "awaiting_transport", "declined", true)]
+    // An order from before the commitments counts by its status (TruckerResponseOf).
+    [InlineData(TruckerId, "accepted", "", true)]
+    [InlineData(TruckerId, "funded", "", true)]
+    // A trucker who left the order reads nothing more, though it keeps the truckerId.
+    [InlineData(TruckerId, "awaiting_transport", "declined", false)]
+    [InlineData(TruckerId, "awaiting_transport", "expired", false)]
+    [InlineData(TruckerId, "awaiting_transport", "cancelled", false)]
+    [InlineData(TruckerId, "awaiting_transport", "failed_capacity", false)]
     [InlineData(TruckerId, "created", "none", false)]
     [InlineData(TruckerId, "pending_payment", "none", false)]
     [InlineData(TruckerId, "cancelled", "accepted", false)]

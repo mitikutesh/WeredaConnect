@@ -43,7 +43,6 @@ public class OrderFunctionDeliveryLocationTests
     [Theory]
     [InlineData("funded", "pending")]
     [InlineData("funded", "not_asked")]
-    [InlineData("awaiting_transport", "declined")]
     public async Task ATruckerOnlyAsked_GetsThePoint_ButNotTheNote(string status, string truckerResponse)
     {
         // The trucker decides on the transport request knowing where the goods go.
@@ -60,6 +59,11 @@ public class OrderFunctionDeliveryLocationTests
     [Theory]
     [InlineData("pending_payment", "none")]
     [InlineData("cancelled", "accepted")]
+    // A trucker who left the order (it keeps the truckerId while the buyer chooses again).
+    [InlineData("awaiting_transport", "declined")]
+    [InlineData("awaiting_transport", "expired")]
+    [InlineData("awaiting_transport", "cancelled")]
+    [InlineData("awaiting_transport", "failed_capacity")]
     public async Task ATruckerOfAnOrderWhoseMoneyIsNotHeld_SeesTheOrder_WithoutThePoint(string status, string truckerResponse)
     {
         _orders.GetByIdAsync("order-001").Returns(Order(status, truckerResponse));

@@ -385,7 +385,7 @@ public class DeliveryFunction
                 : new List<TripLocationRow>();
 
             // LT-12, LT-14: the delivery's order, for its note (the trucker once committed) and its
-            // own drop-off point (the trucker while the money is held), each only to a caller who may
+            // own drop-off point (the trucker still on a held order), each only to a caller who may
             // read it; best effort.
             var orders = new Dictionary<string, Dictionary<string, object>?>(StringComparer.Ordinal);
             var order = await OrderOfAsync(delivery, orders, context);

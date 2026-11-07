@@ -695,7 +695,8 @@ until pickup (`order-lifecycle.md` 2.8.0). The server refuses, nothing written:
 
 and `ORDER_UNAUTHORIZED: Only the buyer can change the drop-off place.` for a change from anyone but
 the buyer and for either field at all from a party who may not read the point (the trucker of an
-order whose money is not held; an asked trucker reads it), `ORDER_VALIDATION` for half a point, a value that is not a number or one outside the
+order whose money is not held, or one who declined, expired, dropped out or failed on capacity; an
+asked trucker reads it), `ORDER_VALIDATION` for half a point, a value that is not a number or one outside the
 box. An unchanged echo from a party who reads it is dropped. The clients send only the centroid of a
 place picked from the bundled list, checked against the box first, so an offline order never meets
 the validation refusal.
@@ -706,8 +707,8 @@ the validation refusal.
 
 On an order without a trip (self-pickup) the fields are ignored: dropped, never refused, never
 stored. An order row in `serverData` leaves the point out for a caller who may not read it, by its
-own rule (the buyer, the farmer, the order's trucker while the money is held), and the note by the
-note's.
+own rule (the buyer, the farmer, the order's trucker while the money is held and the trucker is
+still on the order), and the note by the note's.
 Deploy order: a server before 1.42.0 refuses the fields (`ORDER_VALIDATION: Unknown fields`,
 permanent), so the server ships before clients that send them.
 

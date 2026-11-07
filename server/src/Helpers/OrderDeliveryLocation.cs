@@ -87,10 +87,13 @@ public static class OrderDeliveryLocation
 
     /// <summary>
     /// Whether <paramref name="userId"/> may read the point of this order row: its buyer and its
-    /// farmer always; its trucker (<c>truckerId</c>, committed or only asked) while the order's money
-    /// is held (<see cref="ContactReveal.OpenOrderStatuses"/>), so the trucker answers the transport
-    /// request knowing where the goods go; anyone else never. Wider than the drop-off note's rule
-    /// (<see cref="OrderDropoffNote.VisibleTo"/>), which waits for the trucker's commitment.
+    /// farmer always; its trucker (<c>truckerId</c>) while the order's money is held
+    /// (<see cref="ContactReveal.OpenOrderStatuses"/>) and the trucker is still on the order: not
+    /// asked yet, asked, or committed (<see cref="TruckerStillOn"/>), so the trucker answers the
+    /// transport request knowing where the goods go; a trucker who declined, expired, dropped out or
+    /// failed on capacity reads nothing more, also the order's later changes; anyone else never.
+    /// Wider than the drop-off note's rule (<see cref="OrderDropoffNote.VisibleTo"/>), which waits for
+    /// the trucker's commitment.
     /// </summary>
     public static bool VisibleTo(IReadOnlyDictionary<string, object> order, string? userId)
     {
@@ -105,8 +108,20 @@ public static class OrderDeliveryLocation
         }
 
         return userId == Text(order, "truckerId")
-               && ContactReveal.OpenOrderStatuses.Contains(Text(order, "status") ?? string.Empty);
+               && ContactReveal.OpenOrderStatuses.Contains(Text(order, "status") ?? string.Empty)
+               && TruckerStillOn.Contains(OrderCommitment.TruckerResponseOf(order));
     }
+
+    /// <summary>
+    /// The trucker answers (<see cref="OrderCommitment.TruckerResponseOf"/>, so an order from before
+    /// the commitments counts by its status) of a trucker still on the order. Not <c>declined</c>,
+    /// <c>expired</c>, <c>cancelled</c> (a drop-out) or <c>failed_capacity</c>: those orders keep the
+    /// <c>truckerId</c> in <c>awaiting_transport</c>, but the trucker has left them.
+    /// </summary>
+    private static readonly IReadOnlySet<string> TruckerStillOn = new HashSet<string>(StringComparer.Ordinal)
+    {
+        OrderCommitment.Response.NotAsked, OrderCommitment.Response.Pending, OrderCommitment.Response.Accepted
+    };
 
     /// <summary>The point <paramref name="userId"/> may read on this row (<see cref="VisibleTo"/>), else null.</summary>
     public static TrackPoint? For(IReadOnlyDictionary<string, object>? order, string? userId)

@@ -403,6 +403,26 @@ public class SyncFunctionDeliveryLocationTests
         await NothingWritten();
     }
 
+    [Theory]
+    [InlineData("declined", StoredLat, StoredLng)]
+    [InlineData("expired", NewLat, NewLng)]
+    [InlineData("cancelled", StoredLat, StoredLng)]
+    [InlineData("failed_capacity", null, null)]
+    public async Task ATruckerWhoLeftTheOrder_GetsTheSameRefusal_WhateverThePoint(
+        string truckerResponse, double? lat, double? lng)
+    {
+        // The order waits for the buyer's new choice and keeps the truckerId; the trucker who left
+        // learns nothing of the point, not even whether a probe matches it.
+        _order = Order("awaiting_transport");
+        _order["truckerResponse"] = truckerResponse;
+
+        var result = await UpdateAsync(TruckerId, lat, lng, role: "trucker");
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().Be(NotBuyer);
+        await NothingWritten();
+    }
+
     // ===== A self-pickup order has no drop-off =====
 
     [Fact]
@@ -457,10 +477,10 @@ public class SyncFunctionDeliveryLocationTests
     // ===== The row a result carries back =====
 
     [Fact]
-    public async Task TheRowSentBackToATruckerNotCommitted_KeepsThePoint_ButNotTheNote()
+    public async Task TheRowSentBackToATruckerWhoDroppedOut_LeavesThePointAndTheNoteOut()
     {
-        // The trucker dropped out of an order whose money is still held: the point is still theirs to
-        // read (its own rule), the note is not (LT-12).
+        // The trucker dropped out of an order whose money is still held: it keeps the truckerId, but
+        // reads neither the point (it left the order) nor the note (LT-12).
         _order = Order("accepted");
         _order["truckerResponse"] = "cancelled";
         _order["dropoffNote"] = "Merkato, near Anwar Mosque";
@@ -476,8 +496,8 @@ public class SyncFunctionDeliveryLocationTests
         result.GetProperty("status").GetString().Should().Be("conflict", result.ToString());
         var row = result.GetProperty("serverData");
         row.GetProperty("status").GetString().Should().Be("accepted");
-        row.GetProperty("deliveryLatitude").GetDouble().Should().Be(StoredLat);
-        row.GetProperty("deliveryLongitude").GetDouble().Should().Be(StoredLng);
+        row.TryGetProperty("deliveryLatitude", out _).Should().BeFalse();
+        row.TryGetProperty("deliveryLongitude", out _).Should().BeFalse();
         row.TryGetProperty("dropoffNote", out _).Should().BeFalse();
     }
 
