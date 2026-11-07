@@ -23,12 +23,13 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates twenty-one DynamoDB tables with PAY_PER_REQUEST billing', () => {
+  test('creates twenty-two DynamoDB tables with PAY_PER_REQUEST billing', () => {
     // 12 core + intents + device_tokens + match_events + ratings + transaction-audit
     // + delivery-qr-secrets + messages (in-app chat) = 19,
     // + notifications (order notification inbox, ESC-21) = 20,
-    // + trip-locations (live trip check-ins, LT-05) = 21.
-    template.resourceCountIs('AWS::DynamoDB::Table', 21);
+    // + trip-locations (live trip check-ins, LT-05) = 21,
+    // + listing-reports (buyers' reports, FUP-67) = 22.
+    template.resourceCountIs('AWS::DynamoDB::Table', 22);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -216,6 +217,37 @@ describe('DatabaseStack', () => {
     });
   });
 
+  test('FUP-67: listing-reports is keyed by listing and reporter, expires on expiresAt, with the status queue index', () => {
+    const tables = template.findResources('AWS::DynamoDB::Table', {
+      Properties: { TableName: 'wereda-connect-dev-listing-reports' },
+    });
+    const ids = Object.keys(tables);
+    expect(ids).toHaveLength(1);
+    const props = tables[ids[0]].Properties;
+    // One report per buyer and listing: the conditional put is on this key.
+    expect(props.KeySchema).toEqual([
+      { AttributeName: 'listingId', KeyType: 'HASH' },
+      { AttributeName: 'reporterId', KeyType: 'RANGE' },
+    ]);
+    expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
+    expect(props.GlobalSecondaryIndexes).toEqual([
+      {
+        IndexName: 'StatusCreatedAtIndex',
+        KeySchema: [
+          { AttributeName: 'status', KeyType: 'HASH' },
+          { AttributeName: 'createdAt', KeyType: 'RANGE' },
+        ],
+        Projection: { ProjectionType: 'ALL' },
+      },
+    ]);
+    expect(props.StreamSpecification).toBeUndefined();
+    expect(props.BillingMode).toBe('PAY_PER_REQUEST');
+    expect(props.PointInTimeRecoverySpecification).toEqual({ PointInTimeRecoveryEnabled: true });
+    template.hasOutput('ListingReportsTableName', {
+      Value: { Ref: Match.stringLikeRegexp('^ListingReportsTable') },
+    });
+  });
+
   test('creates S3 buckets with encryption (uploads + access logs)', () => {
     template.resourceCountIs('AWS::S3::Bucket', 2);
     template.hasResourceProperties('AWS::S3::Bucket', {
@@ -280,6 +312,7 @@ describe('ApiStack', () => {
       messagesTable: dbStack.messagesTable,
       notificationsTable: dbStack.notificationsTable,
       tripLocationsTable: dbStack.tripLocationsTable,
+      listingReportsTable: dbStack.listingReportsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -345,8 +378,9 @@ describe('ApiStack', () => {
     // plus GET /admin/deliveries/{id}/trail (LT-13, dispute evidence) → 64,
     // plus POST /crops/{id}/photos (crop-listing-api 1.6.0) → 65,
     // plus GET /admin/escrows/held (FRD-07, the held queue) → 66,
-    // plus GET /admin/disputes/{id}/evidence (FRD-14, the dispute evidence package) → 67 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 67);
+    // plus GET /admin/disputes/{id}/evidence (FRD-14, the dispute evidence package) → 67,
+    // plus GET /admin/listing-reports and POST /admin/listing-reports/{listingId}/review (FUP-67) → 69 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 69);
   });
 
   // ─── Crop photos (crop-listing-api 1.6.0) ───
@@ -703,6 +737,39 @@ describe('ApiStack', () => {
     const adminReads = roleActions('AdminFunctionServiceRole', (r) => r.includes('TripLocationsTable'));
     const everyRole = roleActions('', (r) => r.includes('TripLocationsTable'));
     expect(everyRole.length).toBe(onTable.length + deliveryReads.length + adminReads.length);
+  });
+
+  test('FUP-67: only the sync and admin Lambdas touch listing-reports, sync writes and admin reviews', () => {
+    for (const fn of ['wereda-connect-dev-sync', 'wereda-connect-dev-admin']) {
+      template.hasResourceProperties('AWS::Lambda::Function', {
+        FunctionName: fn,
+        Environment: { Variables: Match.objectLike({ LISTING_REPORTS_TABLE: Match.anyValue() }) },
+      });
+    }
+    // A report is a GetItem (the repeat check) and one conditional PutItem.
+    const syncActions = roleActions('SyncFunctionServiceRole', (r) => r.includes('ListingReportsTable'));
+    expect([...new Set(syncActions)].sort()).toEqual(['dynamodb:GetItem', 'dynamodb:PutItem']);
+    // The queue reads the status index and a listing's reports; a review is a conditional UpdateItem.
+    const adminActions = roleActions('AdminFunctionServiceRole', (r) => r.includes('ListingReportsTable'));
+    expect([...new Set(adminActions)].sort()).toEqual(['dynamodb:Query', 'dynamodb:UpdateItem']);
+    expect(roleActions('AdminFunctionServiceRole', (r) => r.includes('ListingReportsTable') && r.includes('/index/*')))
+      .toContain('dynamodb:Query');
+    const everyRole = roleActions('', (r) => r.includes('ListingReportsTable'));
+    expect(everyRole.length).toBe(syncActions.length + adminActions.length);
+  });
+
+  test('FUP-67: the listing report queue routes sit on the admin authorizer', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    for (const routeKey of ['GET /admin/listing-reports', 'POST /admin/listing-reports/{listingId}/review']) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: routeKey,
+        AuthorizationType: 'JWT',
+        AuthorizerId: { Ref: adminAuthorizerId },
+      });
+    }
   });
 
   test('LT-06: GET /deliveries/{id}/track reaches the delivery Lambda on the mobile authorizer, which only reads', () => {
@@ -1354,6 +1421,7 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       messagesTable: dbStack.messagesTable,
       notificationsTable: dbStack.notificationsTable,
       tripLocationsTable: dbStack.tripLocationsTable,
+      listingReportsTable: dbStack.listingReportsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -1855,6 +1923,7 @@ describe('ApiStack (prod security)', () => {
       messagesTable: dbStack.messagesTable,
       notificationsTable: dbStack.notificationsTable,
       tripLocationsTable: dbStack.tripLocationsTable,
+      listingReportsTable: dbStack.listingReportsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -1981,6 +2050,7 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
       messagesTable: dbStack.messagesTable,
       notificationsTable: dbStack.notificationsTable,
       tripLocationsTable: dbStack.tripLocationsTable,
+      listingReportsTable: dbStack.listingReportsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
