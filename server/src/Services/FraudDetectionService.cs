@@ -285,6 +285,8 @@ public sealed class FraudDetectionService : IFraudDetectionService
         {
             { "userId", new AttributeValue { S = userId } },
             { "signalKey", new AttributeValue { S = signalKey } },
+            // FUP-103: the row kind of section 20. Rows written before carry none and still read as signals.
+            { "recordType", new AttributeValue { S = RecordTypeSignal } },
             { "signalId", new AttributeValue { S = BuildSignalId(userId, signalKey) } },
             { "signalType", new AttributeValue { S = signalType } },
             { "severity", new AttributeValue { S = SignalSeverity(weight) } },

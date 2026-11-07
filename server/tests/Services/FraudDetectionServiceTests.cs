@@ -458,6 +458,8 @@ public class FraudDetectionServiceTests
         Assert.NotNull(captured);
         Assert.Equal(FraudSignalsTable, captured!.TableName);
         Assert.Equal(FarmerId, captured.Item["userId"].S);
+        // FUP-103: the row kind of section 20, which every reader also accepts absent (rows written before).
+        Assert.Equal(FraudDetectionService.RecordTypeSignal, captured.Item["recordType"].S);
         Assert.EndsWith("#PRICE_ANOMALY", captured.Item["signalKey"].S);
         Assert.Equal("PRICE_ANOMALY", captured.Item["signalType"].S);
         Assert.Equal("medium", captured.Item["severity"].S);

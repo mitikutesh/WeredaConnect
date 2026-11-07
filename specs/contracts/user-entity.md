@@ -1,7 +1,7 @@
 # User Entity Contract
 
 ## Version
-1.3.2
+1.3.3
 
 ## Parties
 - **Mobile** (client) -- stores user profile in Isar for offline access, displays user info
@@ -48,7 +48,7 @@ The server keeps these on the users row (`UserRepository`). No client may write 
 | `faydaVerifiedAt` | string (ISO 8601) | Yes | When it was verified |
 | `faydaAuthenticatedAt` | string (ISO 8601) | Never | The last Fayda sign-in through `/user/fayda-link`; payments above 10,000 ETB need it to be recent (`AUTH_041`) |
 | `suspended` | boolean | Yes | Set and cleared by an admin (`suspend`, `unsuspend`); blocks login, OTP verification and refresh (`AUTH_025`, `auth-api.md`) |
-| `suspendReason` | string | Never | Why an admin suspended the account; `fraud_confirmed` is the Fraud Review reject (FRD-05) |
+| `suspendReason` | string | Never | Why an admin suspended the account; `fraud_confirmed` is the Fraud Review reject (FRD-05). Since 1.3.3 a later `suspend` with another reason keeps `fraud_confirmed`; only `unsuspend` clears it |
 | `knownDevices` | string set | Yes | Install ids (`X-Device-Id`) that have signed in, newest last, at most 10; a new one triggers a sign-in notice |
 | `deletionState`, `deletionRequestedAt`, `deletedAt` | | Never | Account deletion (Deletion fields below, 1.1.0) |
 
@@ -453,6 +453,7 @@ Given Ethiopian mobile data costs:
 | 1.3.0 | 2026-10-24 | `preferredLanguage` is written from the app's Settings through the `/sync` `user` entity (`sync-protocol.md` 1.28.0, SIM-37, #220) |
 | 1.3.1 | 2026-11-06 | `preferredLanguage` is read back: after a sign-in the app shows it unless the user picked a language on that device (`auth-api.md` 2.12.3, SIM-37). Shape unchanged |
 | 1.3.2 | 2026-11-07 | Doc only (ESC-14, survey 9.5): the row as built. `role` is changed by an admin's `change_role` (marketplace roles only, Cognito claim rewritten, user signed out), not immutable; new table of server-written fields (`fullName`, `faydaVerified`, `faydaVerifiedAt`, `faydaAuthenticatedAt`, `suspended`, `suspendReason`, `knownDevices`) saying which the register and login `user` object returns; `RoleWaredaIndex` projects `ALL` (was documented `KEYS_ONLY`); `FaydaIdIndex` documented. The full rewrite with `reputation` stays ESC-27 (user-entity 2.0.0). No wire change |
+| 1.3.3 | 2026-11-07 | `suspendReason`: an admin's `suspend` with a free-text reason no longer replaces a stored `fraud_confirmed` (FUP-103); the account stays held as confirmed fraud until `unsuspend`. Shape unchanged |
 
 ---
 

@@ -58,7 +58,7 @@ Each contract file follows this structure:
 |----------|------|---------|---------|
 | Sync Protocol | `sync-protocol.md` | 1.41.0 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 2.13.1 | Mobile, Backend, Infrastructure |
-| User Entity | `user-entity.md` | 1.3.2 | Mobile, Backend, Infrastructure |
+| User Entity | `user-entity.md` | 1.3.3 | Mobile, Backend, Infrastructure |
 | Rating API | `rating-api.md` | 1.1.0 | Mobile, Backend, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.7.0 | Mobile, Backend, Admin |
 | Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.0.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |

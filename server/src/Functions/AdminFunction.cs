@@ -1458,9 +1458,10 @@ public partial class AdminFunction
         var now = nowUtc.ToString("o");
         var adminUserId = AuthHelper.GetUserId(request) ?? "admin";
 
-        // FRD-05: the side effect comes before the review stamp, so a failure in between leaves the signal
-        // pending and the admin can act again: the user suspended or the whitelist written, never a
-        // reviewed signal without them. The row is checked first, so a bad id has no side effect.
+        // FRD-05: the suspension comes before the review stamp, so a failure in between leaves the signal
+        // pending and the admin can act again, never a reviewed signal with the user not suspended. FUP-103:
+        // the whitelist row and the stamp are one transaction, so neither lands without the other. The row is
+        // checked first, so a bad id has no side effect.
         // FRD-18: the same read carries what the outcome label links (its type, entity, prior decision).
         var signalRow = await ReadSignalRowAsync(signalUserId, signalKey);
         if (signalRow == null)
@@ -1484,16 +1485,10 @@ public partial class AdminFunction
             cognitoNote = suspension.CognitoNote;
         }
 
-        string? whitelistUntil = null;
-        if (body.Action == "whitelist")
-        {
-            whitelistUntil = await WriteWhitelistAsync(signalUserId, nowUtc, adminUserId, body.Notes);
-        }
-
         // status becomes "reviewed" (the admin UI keys on that value); the
         // chosen verb (approve/reject/whitelist) is kept in "resolution".
         // Still conditional: a row that went away since the read is not recreated.
-        var updateRequest = new UpdateItemRequest
+        var stamp = new Update
         {
             TableName = _fraudSignalsTable,
             Key = new Dictionary<string, AttributeValue>
@@ -1521,13 +1516,30 @@ public partial class AdminFunction
             }
         };
 
-        try
+        string? whitelistUntil = null;
+        bool stamped;
+        if (body.Action == "whitelist")
         {
-            await _dynamoDb.UpdateItemAsync(updateRequest);
+            (whitelistUntil, var whitelistRow) = WhitelistRow(signalUserId, nowUtc, adminUserId, body.Notes);
+            stamped = await StampWithWhitelistAsync(stamp, whitelistRow);
         }
-        catch (ConditionalCheckFailedException)
+        else
         {
+            stamped = await StampAsync(stamp);
+        }
+
+        if (!stamped && body.Action != "reject")
+        {
+            // Nothing was written: approve has no side effect, and the whitelist row went with the stamp.
             return LambdaResponse.Error(404, "ADMIN_006", "Fraud signal not found.");
+        }
+
+        if (!stamped)
+        {
+            // FUP-103: the row went away (its TTL) between the read and the stamp, after the suspension. The
+            // suspension stands, so the reject is answered and audited as done, not as a missing signal.
+            context.Logger.LogWarning(
+                $"FRAUD_REJECT_SIGNAL_GONE signalId={MoneyAlarmLog.LogId(signalId)} userId={MoneyAlarmLog.LogId(signalUserId)}");
         }
 
         await TransactionAuditWriter.EmitAsync(
@@ -1554,9 +1566,10 @@ public partial class AdminFunction
             {
                 "approve" => "Fraud signal approved. It no longer counts toward the user's risk score.",
                 "whitelist" => $"Fraud signal whitelisted. It no longer counts, and the user's soft signals do not count until {whitelistUntil}.",
-                _ => cognitoNote == null
-                    ? "Fraud signal rejected. The user is suspended (fraud_confirmed) and signed out."
-                    : $"Fraud signal rejected. The user is suspended (fraud_confirmed), but {cognitoNote}"
+                _ => (cognitoNote == null
+                        ? "Fraud signal rejected. The user is suspended (fraud_confirmed) and signed out."
+                        : $"Fraud signal rejected. The user is suspended (fraud_confirmed), but {cognitoNote}")
+                    + (stamped ? "" : " The signal had expired and was removed before its review could be recorded on it.")
             },
             WhitelistUntil = whitelistUntil
         };
@@ -1667,11 +1680,12 @@ public partial class AdminFunction
     }
 
     /// <summary>
-    /// FRD-05: writes the user's one whitelist row (section 20) and returns its end (ISO 8601). A new
-    /// whitelist replaces the old one. <c>expiresAt</c>, the table's TTL attribute, is the same instant,
-    /// so the row goes once it no longer applies.
+    /// FRD-05: the user's one whitelist row (section 20) and its end (ISO 8601). A new whitelist replaces the
+    /// old one. <c>expiresAt</c>, the table's TTL attribute, is the same instant, so the row goes once it no
+    /// longer applies.
     /// </summary>
-    private async Task<string> WriteWhitelistAsync(string userId, DateTime nowUtc, string adminUserId, string? notes)
+    private static (string UntilIso, Dictionary<string, AttributeValue> Item) WhitelistRow(
+        string userId, DateTime nowUtc, string adminUserId, string? notes)
     {
         var until = nowUtc.AddDays(FraudDetectionService.WhitelistDaysFrom(Environment.GetEnvironmentVariable));
         var untilIso = until.ToString("o", CultureInfo.InvariantCulture);
@@ -1690,8 +1704,56 @@ public partial class AdminFunction
             item["reviewNotes"] = new AttributeValue { S = notes };
         }
 
-        await _dynamoDb.PutItemAsync(new PutItemRequest { TableName = _fraudSignalsTable, Item = item });
-        return untilIso;
+        return (untilIso, item);
+    }
+
+    /// <summary>The review stamp of approve and reject; false when its condition failed (the row is gone).</summary>
+    private async Task<bool> StampAsync(Update stamp)
+    {
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = stamp.TableName,
+                Key = stamp.Key,
+                ConditionExpression = stamp.ConditionExpression,
+                UpdateExpression = stamp.UpdateExpression,
+                ExpressionAttributeNames = stamp.ExpressionAttributeNames,
+                ExpressionAttributeValues = stamp.ExpressionAttributeValues
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// FUP-103: the whitelist's stamp and its whitelist row in one transaction. Before, the row was written
+    /// first, so a failed stamp left it behind with the signal pending, and an approve or a reject chosen
+    /// instead kept the soft bypass until <c>whitelistUntil</c>. False when the stamp's condition failed (the
+    /// row is gone), with nothing written; any other failure throws (answered 500) with nothing written.
+    /// </summary>
+    private async Task<bool> StampWithWhitelistAsync(Update stamp, Dictionary<string, AttributeValue> whitelistRow)
+    {
+        try
+        {
+            await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest
+            {
+                TransactItems = new List<TransactWriteItem>
+                {
+                    new() { Update = stamp },
+                    new() { Put = new Put { TableName = _fraudSignalsTable, Item = whitelistRow } }
+                }
+            });
+            return true;
+        }
+        catch (TransactionCanceledException ex)
+            when (ex.CancellationReasons is { Count: > 0 } reasons && reasons[0]?.Code == "ConditionalCheckFailed")
+        {
+            return false;
+        }
     }
 
     private static readonly (string Index, string Field, string Party)[] PartyEscrowIndexes =
@@ -1941,9 +2003,12 @@ public partial class AdminFunction
             Action = body.Action,
             Status = "completed",
             UpdatedAt = outcome.UpdatedAt,
-            Message = outcome.CognitoNote == null
-                ? $"User action '{body.Action}' completed successfully."
-                : $"User action '{body.Action}' recorded, but {outcome.CognitoNote}"
+            Message = (outcome.CognitoNote == null
+                    ? $"User action '{body.Action}' completed successfully."
+                    : $"User action '{body.Action}' recorded, but {outcome.CognitoNote}")
+                + (outcome.ReasonKept
+                    ? $" The suspend reason stays {FraudConfirmedReason} (a Fraud Review reject); unsuspend first to replace it."
+                    : "")
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.UserActionResponse);
@@ -1956,9 +2021,11 @@ public partial class AdminFunction
     /// </summary>
     private const string FraudConfirmedReason = EscrowHoldFields.ReasonFraudConfirmed;
 
-    /// <summary>What <see cref="ApplyUserActionAsync"/> did: an error to answer with, or the update time and
-    /// the note for the admin when Cognito could not be updated.</summary>
-    private readonly record struct UserActionOutcome(APIGatewayProxyResponse? Error, string UpdatedAt, string? CognitoNote);
+    /// <summary>What <see cref="ApplyUserActionAsync"/> did: an error to answer with, or the update time, the
+    /// note for the admin when Cognito could not be updated, and whether a suspend kept the stored
+    /// <c>fraud_confirmed</c> reason instead of the one given (FUP-103).</summary>
+    private readonly record struct UserActionOutcome(
+        APIGatewayProxyResponse? Error, string UpdatedAt, string? CognitoNote, bool ReasonKept = false);
 
     /// <summary>
     /// The one implementation of the admin user actions: the profile row, Cognito, the audit rows. The user
@@ -2035,7 +2102,73 @@ public partial class AdminFunction
                     LambdaResponse.Error(400, "ADMIN_009", $"Unknown action: {body.Action}"), now, null);
         }
 
-        var updateRequest = new UpdateItemRequest
+        // FUP-103: a free-text reason never replaces fraud_confirmed. That reason is what the settlement sweep
+        // holds the user's escrows as and what the outcome labels record, so it stays until an unsuspend.
+        var guardFraudReason = body.Action == "suspend" && body.Reason != null && body.Reason != FraudConfirmedReason;
+        var reasonKept = false;
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(UserUpdate(userId, updateParts, removeParts, attrNames, attrValues, guardFraudReason));
+        }
+        catch (ConditionalCheckFailedException ex) when (guardFraudReason && ex.Item is { Count: > 0 })
+        {
+            // The row exists, so it holds fraud_confirmed: suspend again without the free-text reason.
+            reasonKept = true;
+            updateParts.Remove("#suspendReason = :reason");
+            attrNames.Remove("#suspendReason");
+            attrValues.Remove(":reason");
+            try
+            {
+                await _dynamoDb.UpdateItemAsync(UserUpdate(userId, updateParts, removeParts, attrNames, attrValues, guardFraudReason: false));
+            }
+            catch (ConditionalCheckFailedException)
+            {
+                return new UserActionOutcome(LambdaResponse.Error(404, "ADMIN_007", "User not found."), now, null);
+            }
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return new UserActionOutcome(LambdaResponse.Error(404, "ADMIN_007", "User not found."), now, null);
+        }
+
+        // FUP-95: the audit row follows the profile write it records, before anything that can still fail. A
+        // failed phone read or Cognito call after it answers 500, and the suspension already stands.
+        var actingAdminId = AuthHelper.GetUserId(request) ?? "admin";
+        await TransactionAuditWriter.EmitAsync(
+            TxAuditRepo(), context, userId, "user", userId,
+            $"user_{body.Action}", null, null,
+            AuditContext.From(request, actingAdminId, "admin"),
+            metadata: body.Action == "change_role" ? body.NewRole
+                : reasonKept ? $"keptReason={FraudConfirmedReason};reason={body.Reason}"
+                : body.Reason);
+
+        // The DynamoDB flag alone left refreshed and live tokens working: push the
+        // change into Cognito so sessions actually end (or the new role is issued).
+        var cognitoNote = await ApplyAccountControlAsync(userId, body.Action, attrValues, context);
+
+        AuditLogger.LogAudit("ADMIN", "USER_ACTION",
+            userId: actingAdminId, correlationId: AuditLogger.GetCorrelationId(request),
+            entityType: "user", entityId: userId, detail: body.Action, outcome: "success");
+
+        return new UserActionOutcome(null, now, cognitoNote, reasonKept);
+    }
+
+    /// <summary>
+    /// The profile write of a user action. With <paramref name="guardFraudReason"/> it also requires that the
+    /// stored reason is not <c>fraud_confirmed</c> and returns the old row when the condition fails, so a
+    /// missing user (no row) and a kept reason can be told apart.
+    /// </summary>
+    private UpdateItemRequest UserUpdate(
+        string userId, List<string> updateParts, List<string> removeParts,
+        Dictionary<string, string> attrNames, Dictionary<string, AttributeValue> attrValues, bool guardFraudReason)
+    {
+        var values = new Dictionary<string, AttributeValue>(attrValues);
+        if (guardFraudReason)
+        {
+            values[":fraudReason"] = new AttributeValue { S = FraudConfirmedReason };
+        }
+
+        return new UpdateItemRequest
         {
             TableName = _usersTable,
             Key = new Dictionary<string, AttributeValue>
@@ -2044,35 +2177,13 @@ public partial class AdminFunction
             },
             UpdateExpression = "SET " + string.Join(", ", updateParts)
                 + (removeParts.Count > 0 ? " REMOVE " + string.Join(", ", removeParts) : ""),
-            ExpressionAttributeNames = attrNames,
-            ExpressionAttributeValues = attrValues,
-            ConditionExpression = "attribute_exists(userId)"
+            ExpressionAttributeNames = new Dictionary<string, string>(attrNames),
+            ExpressionAttributeValues = values,
+            ConditionExpression = guardFraudReason
+                ? "attribute_exists(userId) AND (attribute_not_exists(#suspendReason) OR #suspendReason <> :fraudReason)"
+                : "attribute_exists(userId)",
+            ReturnValuesOnConditionCheckFailure = guardFraudReason ? ReturnValuesOnConditionCheckFailure.ALL_OLD : null
         };
-
-        try
-        {
-            await _dynamoDb.UpdateItemAsync(updateRequest);
-        }
-        catch (ConditionalCheckFailedException)
-        {
-            return new UserActionOutcome(LambdaResponse.Error(404, "ADMIN_007", "User not found."), now, null);
-        }
-
-        // The DynamoDB flag alone left refreshed and live tokens working: push the
-        // change into Cognito so sessions actually end (or the new role is issued).
-        var cognitoNote = await ApplyAccountControlAsync(userId, body.Action, attrValues, context);
-
-        var actingAdminId = AuthHelper.GetUserId(request) ?? "admin";
-        await TransactionAuditWriter.EmitAsync(
-            TxAuditRepo(), context, userId, "user", userId,
-            $"user_{body.Action}", null, null,
-            AuditContext.From(request, actingAdminId, "admin"),
-            metadata: body.Action == "change_role" ? body.NewRole : body.Reason);
-        AuditLogger.LogAudit("ADMIN", "USER_ACTION",
-            userId: actingAdminId, correlationId: AuditLogger.GetCorrelationId(request),
-            entityType: "user", entityId: userId, detail: body.Action, outcome: "success");
-
-        return new UserActionOutcome(null, now, cognitoNote);
     }
 
     /// <summary>
