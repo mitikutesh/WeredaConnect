@@ -74,6 +74,23 @@ public static class TransactionAuditWriter
     }
 
     /// <summary>
+    /// FRD-14: append one event that must land, such as an admin's read of private messages. Unlike
+    /// <see cref="EmitAsync"/> a failed write is not swallowed: the caller answers without the data
+    /// rather than leave the read unrecorded.
+    /// </summary>
+    public static Task EmitRequiredAsync(
+        ITransactionAuditRepository repo,
+        string transactionId,
+        string entityType,
+        string entityId,
+        string action,
+        AuditContext ctx,
+        string? metadata = null)
+        => repo.AppendAsync(BuildEntry(
+            $"txaudit-{Guid.NewGuid():N}", transactionId, entityType, entityId, action,
+            null, null, ctx, DateTime.UtcNow.ToString("o"), metadata));
+
+    /// <summary>
     /// ESC-47: append one event at a deterministic key (<paramref name="timestamp"/> under
     /// <paramref name="transactionId"/>) unless a row with that key exists, so a repair can write a
     /// missing row and a replay never writes it twice. Best effort, like <see cref="EmitAsync"/>.

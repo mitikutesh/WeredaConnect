@@ -20,6 +20,7 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/escrows/{id}/audit     → audit trail
 /// - GET  /admin/disputes               → disputed escrows
 /// - POST /admin/disputes/{id}/resolve  → resolve dispute
+/// - GET  /admin/disputes/{id}/evidence → the dispute's evidence package (admin group only, FRD-14)
 /// - GET  /admin/fraud-signals          → fraud signals list
 /// - POST /admin/fraud-signals/{id}/action → review fraud signal
 /// - GET  /admin/users                  → user list with search
@@ -180,6 +181,7 @@ public partial class AdminFunction
                 ("GET", ["admin", "escrows", _]) => await HandleGetEscrowAsync(segments[2], context),
                 ("GET", ["admin", "disputes"]) => await HandleListDisputesAsync(request, context),
                 ("POST", ["admin", "disputes", _, "resolve"]) => await HandleResolveDisputeAsync(segments[2], request, context),
+                ("GET", ["admin", "disputes", _, "evidence"]) => await HandleDisputeEvidenceAsync(segments[2], request, context),
                 ("GET", ["admin", "fraud-signals"]) => await HandleListFraudSignalsAsync(request, context),
                 ("POST", ["admin", "fraud-signals", _, "action"]) => await HandleFraudActionAsync(segments[2], request, context),
                 ("GET", ["admin", "users"]) => await HandleListUsersAsync(request, context),
@@ -2616,7 +2618,7 @@ public partial class AdminFunction
     /// timeline. ISO-8601 timestamps sort lexically; empty timestamps are dropped.
     /// </summary>
     private static List<AdminTransactionTimelineEvent> BuildTimeline(
-        OrderDto order,
+        OrderDto? order,
         DeliveryDto? delivery,
         EscrowDto? escrow,
         List<EscrowAuditEntryDto> auditEntries,
@@ -2690,8 +2692,9 @@ public partial class AdminFunction
         }
 
         // Order leg synthesised from timestamp fields — only when the unified trail
-        // has no order events (e.g. an order created before Phase 2).
-        if (!hasUnifiedOrder)
+        // has no order events (e.g. an order created before Phase 2). FRD-14: a dispute's escrow
+        // can come without its order (no orderId, or the order is gone).
+        if (!hasUnifiedOrder && order != null)
         {
             Add(order.CreatedAt, "order", "order_created", "created", order.BuyerName ?? order.BuyerId);
             Add(order.PaymentVerifiedAt, "order", "payment_verified", "funded",

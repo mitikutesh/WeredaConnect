@@ -685,3 +685,74 @@ public sealed record AdminTrailSummaryDto
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public double? MaxKmh { get; init; }
 }
+
+// ──────────────────────────────────────────────
+// Dispute evidence (FRD-14)
+// ──────────────────────────────────────────────
+
+/// <summary>
+/// FRD-14: GET /admin/disputes/{escrowId}/evidence response (escrow-protocol.md 1.40.0), the evidence
+/// of one dispute on one screen: the escrow with its dispute, the order, the delivery with its handoff
+/// photos (FRD-12), the stitched timeline of the transaction monitor, the handoffs (QR scan or typed
+/// code, who, GPS and the distance to the planned point) and, only when asked for, the order's and
+/// the delivery's message threads (every such read is audited). Admin group only.
+/// </summary>
+public sealed record AdminDisputeEvidenceResponse
+{
+    public required EscrowDto Escrow { get; init; }
+
+    /// <summary>The escrow's order; null for an escrow without one, or when the order is gone.</summary>
+    public OrderDto? Order { get; init; }
+
+    /// <summary>The delivery, without the phones and the QR token; null when none is linked yet.</summary>
+    public DeliveryDto? Delivery { get; init; }
+
+    /// <summary>The order, delivery and escrow legs in time order, as on the transaction view.</summary>
+    public required List<AdminTransactionTimelineEvent> Timeline { get; init; }
+
+    /// <summary>The handoffs that happened, in time order: the pickup, then the drop-off (or the self-pickup).</summary>
+    public required List<AdminHandoffEvidenceDto> Handoffs { get; init; }
+
+    /// <summary>
+    /// The messages of the order's and the delivery's threads, oldest first; only with
+    /// <c>include=messages</c>, otherwise left out.
+    /// </summary>
+    public List<MessageDto>? Messages { get; init; }
+
+    /// <summary>True when a thread held more messages than one read returns (the newest are kept).</summary>
+    public bool? MessagesTruncated { get; init; }
+}
+
+/// <summary>
+/// FRD-14: one handoff of a disputed delivery. <c>pickup</c> is the trucker's scan of the farmer's QR,
+/// <c>dropoff</c> the buyer's scan at delivery, <c>self_pickup</c> the buyer's scan at the farm.
+/// </summary>
+public sealed record AdminHandoffEvidenceDto
+{
+    /// <summary><c>pickup</c>, <c>dropoff</c> or <c>self_pickup</c>.</summary>
+    public required string Leg { get; init; }
+
+    /// <summary>The server's time of the handoff (<c>pickedUpAt</c> or <c>confirmedAt</c>).</summary>
+    public string? At { get; init; }
+
+    /// <summary>The phone's time of the pickup scan (<c>pickupCapturedAt</c>), when recorded.</summary>
+    public string? CapturedAt { get; init; }
+
+    /// <summary>Who made the handoff, from its audit row; null for a delivery older than that trail.</summary>
+    public string? ActorId { get; init; }
+
+    /// <summary><c>buyer</c>, <c>farmer</c> or <c>trucker</c> when <see cref="ActorId"/> is one of the parties.</summary>
+    public string? ActorRole { get; init; }
+
+    /// <summary><c>qr</c> (the QR scanned) or <c>code</c> (the typed code), from the audit row; null when not recorded.</summary>
+    public string? Method { get; init; }
+
+    /// <summary>The phone's position at the handoff, when it had a fix.</summary>
+    public LatLngDto? Gps { get; init; }
+
+    /// <summary>The planned point: the listing's location for a pickup, the trip's destination for a drop-off.</summary>
+    public LatLngDto? Planned { get; init; }
+
+    /// <summary>Great-circle distance from <see cref="Gps"/> to <see cref="Planned"/> in km, 2 decimals.</summary>
+    public double? DistanceKm { get; init; }
+}

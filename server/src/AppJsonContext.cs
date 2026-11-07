@@ -161,6 +161,10 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(AdminEscrowAuditResponse))]
 [JsonSerializable(typeof(AdminDisputeListResponse))]
 [JsonSerializable(typeof(AdminDeliveryTrailResponse))]
+// FRD-14: the dispute evidence package.
+[JsonSerializable(typeof(AdminDisputeEvidenceResponse))]
+[JsonSerializable(typeof(AdminHandoffEvidenceDto))]
+[JsonSerializable(typeof(List<AdminHandoffEvidenceDto>))]
 [JsonSerializable(typeof(ResolveDisputeRequest))]
 [JsonSerializable(typeof(ResolveDisputeResponse))]
 [JsonSerializable(typeof(FraudSignalDto))]
