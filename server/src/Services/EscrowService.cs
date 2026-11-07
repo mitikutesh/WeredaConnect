@@ -2399,7 +2399,7 @@ public sealed partial class EscrowService
     /// settlement in flight (ESC-03), then the status, and on an <c>escrowed</c> row a scheduled
     /// refund (FUP-32: armed, for example by a transport cancel, after this request read the escrow).
     /// </summary>
-    private static EscrowResult<DisputeEscrowResponse> DisputeRaceRefusal(Dictionary<string, object>? latest)
+    internal static EscrowResult<DisputeEscrowResponse> DisputeRaceRefusal(Dictionary<string, object>? latest)
     {
         if (latest == null)
         {
@@ -2416,6 +2416,14 @@ public sealed partial class EscrowService
         {
             return EscrowResult<DisputeEscrowResponse>.Failure(
                 409, "ESCROW_INVALID_TRANSITION", "A settlement is in progress for this escrow; it can no longer be disputed.");
+        }
+
+        // ESC-20: a ledger escrow whose crop leg is decided is being paid out or refunded through its rows.
+        if (IsLedgerEscrow(latest) && LedgerEscrow.From(latest).LegState(LedgerEscrowFields.LegCrop) is { } crop
+            && crop != LedgerEscrowFields.Held)
+        {
+            return EscrowResult<DisputeEscrowResponse>.Failure(
+                409, "ESCROW_INVALID_TRANSITION", "This payment is already being settled; it can no longer be disputed.");
         }
 
         var status = GetString(latest, "status");

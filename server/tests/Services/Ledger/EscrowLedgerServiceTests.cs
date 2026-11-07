@@ -694,6 +694,22 @@ public class EscrowLedgerServiceTests
         _alarms.Should().Contain(l => l.StartsWith("MANUAL_PAYOUT_OVERDUE") && l.Contains("ref=release.farmer"));
     }
 
+    // ── Disputes ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task ADisputeRefusedOnADecidedLedgerEscrow_SaysThePaymentIsBeingSettled()
+    {
+        Seed();
+        _gateway.Script.Enqueue((false, TelebirrGatewayErrors.PayoutNotSupported, null));
+        _gateway.Script.Enqueue((false, TelebirrGatewayErrors.PayoutNotSupported, null));
+        await Service().ReleaseAsync(Release(), "system"); // decided, waiting in the manual queue: still escrowed
+
+        var refusal = EscrowService.DisputeRaceRefusal(_ledger.Copy(EscrowId));
+
+        refusal.Error!.HttpStatus.Should().Be(409);
+        refusal.Error.Message.Should().Contain("already being settled");
+    }
+
     // ── Birth and reads ─────────────────────────────────────────────────────
 
     [Theory]
