@@ -213,7 +213,7 @@ bool isDropoffNoteLockedMessage(String? message) =>
     message != null && message.startsWith(orderDropoffNoteLockedCode);
 
 /// Sync rejection prefix when the order's drop-off point changes after
-/// pickup (LT-14, sync-protocol.md 1.41.0). Permanent like every `ORDER_*`
+/// pickup (LT-14, sync-protocol.md 1.42.0). Permanent like every `ORDER_*`
 /// refusal: the order is put back to the server's view.
 const String orderDeliveryLocationLockedCode = 'ORDER_DELIVERY_LOCATION_LOCKED';
 
