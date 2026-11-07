@@ -4323,8 +4323,8 @@ never reaches the gateway.
 | `verdict#farmer`, `verdict#trucker`, `verdict#buyer` | an admin partial verdict (P.8) | as entered by the admin | P.8 |
 | `refund#transport-delta#{n}` | a cheaper replacement truck (ESC-19) | old transport cost minus new | P.10 |
 | `refund#transport` | the switch to self-pickup (ESC-19) | the whole transport leg | P.10 |
-| `shift#commission-to-transport#{n}` | a pricier replacement truck covered by the platform (D4, ESC-19); no gateway call | new transport cost minus old, at most the commission left | P.10 |
-| `refund#duplicate#{gatewayRef}` | a second payment for the same order (P.9); `{gatewayRef}` is that payment's Telebirr `payment_order_id` | the captured amount | none: outside `amount` |
+| `shift#commission-to-transport#{n}` | a pricier replacement truck covered by the platform (D4, **awaiting the user's confirmation**, P.10; ESC-19); no gateway call | new transport cost minus old, at most the commission left | P.10 |
+| `refund#duplicate#{paymentOrderId}` | a second payment for the same order (P.9); `{paymentOrderId}` is that payment's Telebirr `payment_order_id` (spec 4.9 wrote `{gatewayRef}` for the same value) | the captured amount | none: outside `amount` |
 | `topup#{n}` | reserved for ESC-37 (P4): the buyer pays the extra of a truck beyond the commission left | | not specified yet |
 
 `{n}` is the attempt number of the replacement truck in the order's `transportAttempts` (2 or 3; the
@@ -4368,10 +4368,15 @@ when the money has moved, in the write that makes the deciding row `done`:
 
 | Escrow `status` | When |
 |---|---|
-| `escrowed` (or `disputed`, `dispute_resolved`, `held`, as built) | no release or verdict payout is `done` yet. A partial refund (P.10) keeps the escrow `escrowed` |
-| `released` | `release#farmer` (or `verdict#farmer`) is `done` and a leg or a row is still open |
+| `escrowed` (or `disputed`, `dispute_resolved`, `held`, as built) | no farmer payout (`release#farmer`, `verdict#farmer`) is `done` yet. A trucker payout done first or a partial refund (P.10) keeps the escrow `escrowed` |
+| `released` | a farmer payout (`release#farmer` or `verdict#farmer`) is `done` and a leg or a row of `amount` is still open |
 | `completed` | every leg is `released`, `refunded` or `kept`, at least one leg was released, and every row of `amount` is `done` |
-| `refunded` | every leg is `refunded` and every row is `done`: the whole `amount` went back |
+| `refunded` | every leg is `refunded` and every row of `amount` is `done`: the whole `amount` went back |
+
+The legs settle in any order: the transport leg may be paid while the crop leg is still held (the
+farmer blocked by the identity gate, F1, or a split verdict with `farmerAmount` 0), and the farmer
+leg while the transport leg waits (F2). "Rows of `amount`" leaves out `refund#duplicate#...` (P.9):
+an open duplicate refund never holds back `completed` or `refunded`.
 
 The order follows (1.17.0): `delivered -> disbursing` when the first release row is written, and
 `-> settled` when the escrow becomes `completed`. `refundPending` (SIM-20) is true while a refund row
@@ -4459,7 +4464,8 @@ escrow path wrote transaction-audit rows) for ledger escrows.
 
 - When the webhook decides for good that a captured payment is a duplicate (an
   `order_payment_duplicate` row with a named `payment_order_id`, the "decided for good" rule of 1.20.0),
-  it also writes `refund#duplicate#{payment_order_id}` under `escrow-order-{orderId}`: `pending`,
+  it also writes `refund#duplicate#{paymentOrderId}` (that `payment_order_id`) under
+  `escrow-order-{orderId}`: `pending`,
   payee the buyer, amount the captured amount, `reason: duplicate_payment`. The escrow row is not
   written: the payment is outside `amount`, `refundedTotal` and I1. The sweep makes the call.
 - A duplicate whose amount is unknown (`reason=currency`, a give-up row, rows that disagree) gets no
@@ -4475,17 +4481,35 @@ The buyer's choice in `awaiting_transport` with no open request (`sync-protocol.
 `transportChoice`; spec 4.7). The server computes every amount: the new transport cost is the order's
 quintals times the new trip's `pricePerQuintal`, rounded to the santim like 1.39.0 (F8).
 
+> **D4 awaits the user's confirmation** (spec 14: confirm the reading when ESC-19 starts): a pricier
+> truck is covered from the commission, at most the commission left. **Open question for the user:**
+> after a D4 shift, a later cheaper truck refunds "old cost minus new" from the current
+> `truckerPayout`, so the commission the platform shifted ends up with the buyer. Example: transport
+> 1,000 and commission 750; truck 2 at 1,500 shifts 500 (transport 1,500, commission 250); truck 3 at
+> 800 refunds 700 (transport 800), and the platform has lost the 500 it shifted. Shift the 500 back to
+> the commission first (`shift#transport-to-commission#{n}` of 500, then refund 200), or let the buyer
+> keep it? The table below is the reading as written; ESC-19 changes the cheaper-truck row if the
+> user picks the first answer.
+
 | Choice | Ledger row | Escrow change |
 |---|---|---|
-| a cheaper truck | `refund#transport-delta#{n}` (old cost minus new) | `truckerPayout` = new cost, `refundedTotal` + delta; the transport leg stays `held` |
+| a cheaper truck | `refund#transport-delta#{n}` (old cost minus new; see the open question above after a shift) | `truckerPayout` = new cost, `refundedTotal` + delta; the transport leg stays `held` |
 | a truck at the same price | none | `truckerId` only |
-| a pricier truck, extra at most the commission left (D4) | `shift#commission-to-transport#{n}`, written `done` | `truckerPayout` + extra, `commission` - extra; I1 holds and nothing reaches the gateway; the buyer pays nothing more |
+| a pricier truck, extra at most the commission left (D4, awaiting confirmation) | `shift#commission-to-transport#{n}`, written `done` | `truckerPayout` + extra, `commission` - extra; I1 holds and nothing reaches the gateway; the buyer pays nothing more |
 | a pricier truck, extra above the commission left | none: refused with `ORDER_TRIP_NOT_ELIGIBLE` (the top-up is ESC-37) | none |
 | collect it myself | `refund#transport` (the whole transport leg) | `truckerPayout` = 0, transport `refunded`, `refundedTotal` + leg; `truckerId` moves to `previousTruckerIds` |
 | cancel | `refund#all` | P.4 |
 
+- **The order side** follows `sync-protocol.md` 1.40.0 (Transport choice): with the farmer already
+  accepted, the order stays `awaiting_transport` and the new trucker is asked at once; with the farmer
+  not yet accepted (the D14 park), the order goes back to `funded` with the farmer asked
+  (`farmerResponse: pending`, `truckerResponse: not_asked`, `farmerDeadlineAt` restamped against the
+  new departure, or the chosen `pickupDate` for a self-pickup) and the trucker is asked after the
+  farmer's accept (D10). The money moves the same way in both cases: the escrow is rebound at the
+  choice, and the farmer's later decline or deadline refunds what is still held (`refund#all`).
 - **One transaction**: the order (`tripId`, `truckerId`, `truckerName`, `transportCost`,
-  `transportAttempts`, `fulfillment`, the order's `refundedTotal`, version CAS), the escrow (`truckerId`,
+  `transportAttempts`, `fulfillment`, its status and commitment stamps, the order's `refundedTotal`,
+  version CAS), the escrow (`truckerId`,
   `truckerPayout`, `commission`, `legStatus`, `refundedTotal`, `previousTruckerIds`, conditioned on the
   previous `truckerId`, on the transport leg being `held` and on the escrow version) and the ledger row.
   The new trip's capacity is reserved by the booking rules of `trip-listing-api.md` 2.0.0 before it; a
@@ -4505,7 +4529,10 @@ quintals times the new trip's `pricePerQuintal`, rounded to the santim like 1.39
 - Apps show a partial refund ("{refundedTotal} ETB returned to you") while the escrow is still
   `escrowed` (ESC-23 adds the strings in en, am and om).
 - Every refund row that becomes `done` sends the buyer `refund_sent` with that row's amount
-  (`notifications-api.md` changes with the ticket).
+  (`notifications-api.md` changes with the ticket). For a ledger escrow this per-row notice replaces
+  the built rule that sends `refund_sent` when the escrow becomes `refunded` (`notifications-api.md`
+  1.0.0, escrows table): the status change sends nothing, so a full refund is announced once, by its
+  `refund#all` row.
 
 ### P.12 Infrastructure and rollout
 
@@ -4533,7 +4560,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
-| 2.0.0 | 2026-11-07 | Three-party money model, PLANNED (ESC-14 for ESC-19 and ESC-20): a new "Reading this contract" table says what is built and what is planned, and "Planned in 2.0.0" (P.1 to P.13) specifies the `escrow-ledger` table (PK `escrowId`, SK `ref`) with the sparse `LedgerOpenIndex` (`openStatus`, `dueAt`), the refs (`release#farmer`, `release#trucker#{id}`, `refund#all`, `verdict#{farmer,trucker,buyer}`, `refund#transport-delta#{n}`, `refund#transport`, `shift#commission-to-transport#{n}`, `refund#duplicate#{gatewayRef}`, `topup#{n}` reserved for ESC-37), the escrow's `settlementModel`, `legStatus`, `refundedTotal`, `releasedTotal` and `previousTruckerIds`, the write-ahead protocol (row `pending` with the escrow CAS in one transaction, `done`, `failed` with 3 attempts, `sent` with a status check, `manual`), invariants I1 to I4 (`ESCROW_LEDGER_INVARIANT`), the 15 minute `ledger_sweep` (`LEDGER_ROW_OVERDUE`), per-movement audit rows, the manual queue and record on ledger refs, the per-leg verdict (`partial_refund`, `action: split`, `ADMIN_021`, a proposed commission rule), the automatic refund of a decided duplicate payment, the transport rebind of D4 and the migration rule. Major because the money model changes; nothing built changes. Doc fixes against the code (survey 1.16 and 9.4): `POST /escrow/release` answers `completed` when every leg is paid and `released` while the transport leg is owed (with `truckerPayout` and `truckerTelebirrRef`), its `trigger` is not stored and its `deliveryId` is not compared; the gateway calls are not retried inside a call (30 s, unknown outcome parked); reconciliation waits 150 minutes for a row without a Telebirr reference and covers holds only; the auto-refund notice is the buyer's `refund_sent` from the escrows stream; Future Enhancements no longer lists the webhook, the trucker payment and the streams as missing; Parties add Web, Admin and Infrastructure; `EscrowDto` gains `orderId` (already returned) and `deliveryId` is empty until linkage. Already fixed before 2.0.0: `dispute_resolved` in the state table (1.3.0), the retry and alert promises (1.10.0), the commission rule (1.39.0) |
+| 2.0.0 | 2026-11-07 | Three-party money model, PLANNED (ESC-14 for ESC-19 and ESC-20): a new "Reading this contract" table says what is built and what is planned, and "Planned in 2.0.0" (P.1 to P.13) specifies the `escrow-ledger` table (PK `escrowId`, SK `ref`) with the sparse `LedgerOpenIndex` (`openStatus`, `dueAt`), the refs (`release#farmer`, `release#trucker#{id}`, `refund#all`, `verdict#{farmer,trucker,buyer}`, `refund#transport-delta#{n}`, `refund#transport`, `shift#commission-to-transport#{n}`, `refund#duplicate#{paymentOrderId}`, `topup#{n}` reserved for ESC-37), the escrow's `settlementModel`, `legStatus`, `refundedTotal`, `releasedTotal` and `previousTruckerIds`, the write-ahead protocol (row `pending` with the escrow CAS in one transaction, `done`, `failed` with 3 attempts, `sent` with a status check, `manual`), invariants I1 to I4 (`ESCROW_LEDGER_INVARIANT`), the 15 minute `ledger_sweep` (`LEDGER_ROW_OVERDUE`), per-movement audit rows, the manual queue and record on ledger refs, the per-leg verdict (`partial_refund`, `action: split`, `ADMIN_021`, a proposed commission rule), the automatic refund of a decided duplicate payment, the transport rebind of D4 (marked as awaiting the user's confirmation, with the open question of a cheaper truck after a shift; the order side follows `sync-protocol.md` 1.40.0, back to `funded` when the farmer had not accepted), the escrow status per leg in any order (a trucker payout before the farmer's keeps `escrowed`; an open duplicate refund blocks neither `completed` nor `refunded`), per-row `refund_sent` replacing the status rule for ledger escrows, and the migration rule. Major because the money model changes; nothing built changes. Doc fixes against the code (survey 1.16 and 9.4): `POST /escrow/release` answers `completed` when every leg is paid and `released` while the transport leg is owed (with `truckerPayout` and `truckerTelebirrRef`), its `trigger` is not stored and its `deliveryId` is not compared; the gateway calls are not retried inside a call (30 s, unknown outcome parked); reconciliation waits 150 minutes for a row without a Telebirr reference and covers holds only; the auto-refund notice is the buyer's `refund_sent` from the escrows stream; Future Enhancements no longer lists the webhook, the trucker payment and the streams as missing; Parties add Web, Admin and Infrastructure; `EscrowDto` gains `orderId` (already returned) and `deliveryId` is empty until linkage. Already fixed before 2.0.0: `dispute_resolved` in the state table (1.3.0), the retry and alert promises (1.10.0), the commission rule (1.39.0) |
 | 1.40.0 | 2026-11-07 | Dispute evidence (FRD-14): `GET /admin/disputes/{escrowId}/evidence`, admin group only, answers the escrow, order, delivery (photos, no phones or QR token), the stitched timeline and the handoffs (QR scan or typed code, who, GPS, distance to the planned point); with `include=messages` also the order's and delivery's message threads (`messaging.md` 1.4.0), each read audited as `admin_dispute_messages_read` before it is answered (`503 ADMIN_020` otherwise). `404 ADMIN_019` for an escrow that never had a dispute. Infra: the route, `MESSAGES_TABLE` and Query on `ConversationIdCreatedAtIndex` for the admin Lambda. |
 | 1.39.0 | 2026-11-06 | Commission rule and rounding (SIM-30, `order-lifecycle.md` 2.7.0): Commission Calculation now states the rule the server applies, a percentage of the crop cost (SSM `/{prefix}/escrow/commission-rate`, default 0.05) that the buyer pays on top of the order, held in the escrow and kept by the platform at release (refunded in full with the rest), with `commission = amount − farmerPayout − truckerPayout`; the 2.5 % deducted-at-release text was only true of the legacy initiate without an order, now marked as such. The order create rounds `cropCost`, `transportCost` and `commissionAmount` to the santim (halves away from zero, exact decimals) and `orderTotal` is their exact sum, so the order's commission equals the escrow's to the santim (was an unrounded double such as 0.9500000000000001). The money rule is unchanged; only an order whose crop or transport cost has more than 2 decimals (a fractional kg) can see its total move by a santim, since its legs are now rounded before they are added. No endpoint, status or field change |
 | 1.38.0 | 2026-11-06 | The escrow version (SIM-29): every write that changes what an escrow read returns adds 1 to `version` with `ADD`: the delivery link, the delivery confirmation stamp, a scheduled refund (also inside the 1.25.0 transaction), the 21 day cap extension and stamp, a backfilled `truckerId`, the admin verdict and a later disposition now too, and the hold, release, refund and completion writes add 1 instead of writing 2 or the read value plus 1 or 2. Locks, block reasons and the deletion scrub leave it alone. No write is conditioned on it and no client sends it; no endpoint, status or client change |
