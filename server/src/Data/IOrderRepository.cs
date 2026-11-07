@@ -229,6 +229,24 @@ public interface IOrderRepository
     /// Returns false when the order is missing or its status moved on.
     /// </summary>
     Task<bool> TryMarkMoneySweepSkipAsync(string orderId, string status, string markedAt);
+
+    /// <summary>
+    /// ESC-16: one page of the orders whose next deadline (<see cref="Helpers.OrderDeadlines"/>) is before
+    /// <paramref name="dueBefore"/> (ISO 8601 UTC), oldest deadline first, from the sparse
+    /// <c>DeadlineIndex</c> (a Query, never a Scan). <paramref name="limit"/> is 1 to 100. The index copy
+    /// is eventually consistent: the caller re-reads a row before acting on it.
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDueDeadlinesAsync(
+        string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
+    /// ESC-16: set the order's next deadline to <paramref name="deadline"/> (remove it when null),
+    /// without bumping <c>version</c> or <c>updatedAt</c>, only while the order is still at
+    /// <paramref name="expectedVersion"/>: a write since then has stamped its own deadline. Used by the
+    /// order cron to correct a row it found due for nothing, to retry a row later, and by its repair
+    /// walk. False when the order is missing or its version moved.
+    /// </summary>
+    Task<bool> TrySetDeadlineAsync(string orderId, string createdAt, int expectedVersion, Helpers.OrderDeadline? deadline);
 }
 
 /// <summary>ESC-45 (D8): the server-only order field that holds an order for a pending payment.</summary>

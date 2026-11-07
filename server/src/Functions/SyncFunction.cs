@@ -365,7 +365,9 @@ public partial class SyncFunction
         "pendingPaymentAt",
         // Fieldway trip bookings (order-lifecycle 2.2.0): the farm and the drop-off place of the
         // order, stamped at create from the listing and the buyer's profile.
-        "pickupPlace", "dropoffPlace"
+        "pickupPlace", "dropoffPlace",
+        // ESC-16: the order's next deadline (DeadlineIndex); every order write derives it itself.
+        OrderDeadlines.AtField, OrderDeadlines.KindField, OrderDeadlines.ShardField
     };
 
     /// <summary>
@@ -8911,7 +8913,8 @@ public partial class SyncFunction
             if (TryParseDepartureDateUtc(AttrString(trip, "departureDate"), requireIsoShape: false, out var departureUtc)
                 && departureUtc < nowUtc + OrderCommitment.ResponseWindow)
             {
-                return "This trip leaves within 24 hours; choose a later trip.";
+                // ESC-16: the lead is the response window read from SSM (24 hours by default).
+                return $"This trip leaves within {OrderTimings.HoursText(OrderCommitment.ResponseWindow)} hours; choose a later trip.";
             }
 
             var remaining = RemainingQuintalsOf(trip);

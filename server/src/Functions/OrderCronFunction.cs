@@ -12,11 +12,16 @@ namespace WeredaConnect.Server.Functions;
 /// <summary>
 /// EventBridge scheduled event handler for order background jobs.
 /// Routes based on "action" field in the request body:
-///   - auto_cancel_expired (hourly): cancel unpaid orders older than 24h
-///   - commitment_deadlines (hourly, ESC-15): settle the response windows of paid orders (the
-///     farmer's, the trucker's and the buyer's), notice cancelled trips, and stamp the reminder
-///     and pickup-overdue markers the notification layer reads; then close the open trips that
-///     left with no booking and no live order (ESC-17: cancelled, cancelReason expired)
+///   - auto_cancel_expired (hourly): cancel unpaid orders older than 24h (T1) and fail payments
+///     not verified in 24h (T2); both windows from SSM since ESC-16 (<see cref="OrderTimings"/>)
+///   - commitment_deadlines (every 15 minutes since ESC-16; ESC-15): settle the response windows
+///     of paid orders (the farmer's, the trucker's and the buyer's), notice cancelled trips, and
+///     stamp the reminder and pickup-overdue markers the notification layer reads. ESC-16: the due
+///     orders come from the sparse DeadlineIndex (<see cref="OrderDeadlines"/>), not from walking
+///     the status partitions. Then close the open trips that left with no booking and no live
+///     order (ESC-17: cancelled, cancelReason expired)
+///   - deadline_repair (daily, ESC-16): stamp the next deadline on paid orders that lack it or
+///     carry a wrong one (orders from before ESC-16, or a stamp that failed); decides nothing
 ///   - relationship_patterns (hourly, FRD-15): flag self-trading, shared devices and repeated
 ///     buyer and farmer pairs on recently funded orders as fraud signals
 ///
@@ -24,7 +29,7 @@ namespace WeredaConnect.Server.Functions;
 /// - 400: ORDER_CRON_VALIDATION - Invalid or missing action
 /// - 500: ORDER_CRON_ERROR - Unexpected failure during processing
 /// </summary>
-public class OrderCronFunction
+public partial class OrderCronFunction
 {
     private readonly IOrderRepository _orderRepo;
     // Optional: unified transaction-audit trail. Auto-cancel is a system-driven
@@ -62,8 +67,6 @@ public class OrderCronFunction
     internal static readonly TimeSpan RelationshipScanTime = TimeSpan.FromMinutes(4);
 
     internal const string RelationshipUnconfiguredToken = "FRAUD_RELATIONSHIP_UNCONFIGURED";
-
-    private const int ExpirationHours = 24;
 
     /// <summary>ESC-45: pending inbox rows read per run (pages of 100); past it the payment-failed step waits a run.</summary>
     private const int MaxPendingInboxPages = 20;
@@ -191,7 +194,7 @@ public class OrderCronFunction
         if (string.IsNullOrEmpty(action))
         {
             return LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
-                $"Missing 'action' field. Expected: auto_cancel_expired, {CommitmentsAction} or {RelationshipAction}.");
+                $"Missing 'action' field. Expected: auto_cancel_expired, {CommitmentsAction}, {RepairAction} or {RelationshipAction}.");
         }
 
         var safeAction = action.Length > 50 ? action[..50] : action;
@@ -203,9 +206,10 @@ public class OrderCronFunction
             {
                 "auto_cancel_expired" => await HandleAutoCancelExpiredAsync(context),
                 CommitmentsAction => await HandleCommitmentDeadlinesAsync(context),
+                RepairAction => await HandleDeadlineRepairAsync(context),
                 RelationshipAction => await HandleRelationshipPatternsAsync(context),
                 _ => LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
-                    $"Unknown action '{safeAction}'. Expected: auto_cancel_expired, {CommitmentsAction} or {RelationshipAction}.")
+                    $"Unknown action '{safeAction}'. Expected: auto_cancel_expired, {CommitmentsAction}, {RepairAction} or {RelationshipAction}.")
             };
         }
         catch (Exception ex)
@@ -217,14 +221,15 @@ public class OrderCronFunction
     }
 
     /// <summary>
-    /// Auto-cancel orders left in "created" or "pending_payment" status for 24 hours.
+    /// Auto-cancel orders left in "created" or "pending_payment" status for 24 hours (T1; ESC-16:
+    /// <see cref="OrderTimings.UnpaidExpiry"/>, from SSM).
     /// These are orders where the buyer never completed payment. A "created" order counts from
     /// createdAt, a "pending_payment" order from when it last entered that status (ESC-47).
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleAutoCancelExpiredAsync(ILambdaContext context)
     {
         var now = DateTime.UtcNow;
-        var cutoff = now.AddHours(-ExpirationHours).ToString("o");
+        var cutoff = (now - OrderTimings.Current.UnpaidExpiry).ToString("o");
 
         var cancelledCount = 0;
 
@@ -264,7 +269,8 @@ public class OrderCronFunction
         string status, string createdBefore, DateTime now, ILambdaContext context)
     {
         var orders = await _orderRepo.QueryByStatusForCronAsync(status, createdBefore);
-        var threshold = now.AddHours(-ExpirationHours);
+        var expiry = OrderTimings.Current.UnpaidExpiry;
+        var threshold = now - expiry;
         var cancelledCount = 0;
 
         foreach (var order in orders)
@@ -291,7 +297,7 @@ public class OrderCronFunction
             {
                 { "status", "cancelled" },
                 { "cancelledAt", now.ToString("o") },
-                { "cancelReason", $"Auto-cancelled: no payment within {ExpirationHours} hours." }
+                { "cancelReason", $"Auto-cancelled: no payment within {OrderTimings.HoursText(expiry)} hours." }
             };
 
             var result = await _orderRepo.UpdateAsync(orderId, updateData, version);
@@ -303,7 +309,7 @@ public class OrderCronFunction
                     _transactionAuditRepo, context, orderId, "order", orderId,
                     "order_cancelled", status, "cancelled",
                     AuditContext.ForSystem(),
-                    metadata: $"Auto-cancelled: no payment within {ExpirationHours}h.");
+                    metadata: $"Auto-cancelled: no payment within {OrderTimings.HoursText(expiry)}h.");
             }
             else
             {
@@ -317,7 +323,8 @@ public class OrderCronFunction
 
     /// <summary>
     /// ESC-01: move <c>payment_submitted</c> orders whose payment clock (<c>paymentSubmittedAt</c>,
-    /// or <c>createdAt</c> for orders from before it was stamped) passed 24 hours to
+    /// or <c>createdAt</c> for orders from before it was stamped) passed 24 hours (T2; ESC-16:
+    /// <see cref="OrderTimings.PaymentVerification"/>, from SSM) to
     /// <c>payment_failed</c>, version-checked so a concurrent funding wins.
     /// ESC-45 (D8): never while a verified Telebirr payment for the order is pending in the webhook
     /// inbox (its replay may still fund it): such orders are skipped, both by the inbox's pending
@@ -326,7 +333,8 @@ public class OrderCronFunction
     /// </summary>
     private async Task<int> FailStalePaymentsAsync(DateTime now, ILambdaContext context)
     {
-        var threshold = now.AddHours(-ExpirationHours);
+        var verification = OrderTimings.Current.PaymentVerification;
+        var threshold = now - verification;
         var nowIso = WebhookInbox.Iso(now);
 
         HashSet<string>? pendingPaymentOrders = null;
@@ -389,7 +397,7 @@ public class OrderCronFunction
                     _transactionAuditRepo, context, orderId, "order", orderId,
                     "order_updated", "payment_submitted", "payment_failed",
                     AuditContext.ForSystem(),
-                    metadata: $"No confirmed payment within {ExpirationHours}h.");
+                    metadata: $"No confirmed payment within {OrderTimings.HoursText(verification)}h.");
             }
             else
             {
@@ -469,6 +477,21 @@ public class OrderCronFunction
         public int DepartedTripsClosed;
         public int DepartedTripsKept;
 
+        /// <summary>ESC-16: rows the deadline index returned as due (each read again before acting).</summary>
+        public int Due;
+
+        /// <summary>ESC-16: due rows with nothing to do, whose deadline was corrected.</summary>
+        public int Restamped;
+
+        /// <summary>ESC-16: rows that must wait (an unreadable delivery, goods on the move), looked at again later.</summary>
+        public int Retried;
+
+        /// <summary>ESC-16: rows whose decision threw; the rest of the run went on.</summary>
+        public int RowErrors;
+
+        /// <summary>ESC-16: why the sweep stopped before the index ran out (<c>time</c>, <c>lambda</c>, <c>pages</c>), or null.</summary>
+        public string? StopReason;
+
         public Dictionary<string, string> Summary(string outcome) => new()
         {
             { "action", CommitmentsAction },
@@ -485,8 +508,29 @@ public class OrderCronFunction
             { "tripReads", TripReads.ToString() },
             { "departedTripsClosed", DepartedTripsClosed.ToString() },
             { "departedTripsKept", DepartedTripsKept.ToString() },
+            { "due", Due.ToString() },
+            { "restamped", Restamped.ToString() },
+            { "retried", Retried.ToString() },
+            { "rowErrors", RowErrors.ToString() },
+            { "stopReason", StopReason ?? "" },
             { "completedAt", NowIso }
         };
+    }
+
+    /// <summary>ESC-16: what deciding one due order did.</summary>
+    private enum DeadlineOutcome
+    {
+        /// <summary>Nothing was due on the row as read again.</summary>
+        None,
+
+        /// <summary>A transition or a marker was written (the write stamped the next deadline).</summary>
+        Applied,
+
+        /// <summary>The row changed since it was read (the write that changed it stamped its deadline).</summary>
+        Conflict,
+
+        /// <summary>Something must happen but cannot yet (an unreadable delivery, goods on the move).</summary>
+        Waiting
     }
 
     /// <summary>
@@ -510,7 +554,9 @@ public class OrderCronFunction
     }
 
     /// <summary>
-    /// ESC-15: the hourly walk over paid orders. Every status transition is a version CAS on the
+    /// ESC-15: settle the commitment deadlines of paid orders. ESC-16: every 15 minutes, over the
+    /// orders the sparse <c>DeadlineIndex</c> says are due (<see cref="SweepDueDeadlinesAsync"/>),
+    /// each read again before it is decided. Every status transition is a version CAS on the
     /// row as read (<see cref="IOrderRepository.UpdateAsync"/>), so a party's answer that lands
     /// first wins and the cron only logs the conflict. Markers (reminders, pickup overdue) are
     /// stamped without a version bump, conditioned on the status the row was read in.
@@ -539,112 +585,101 @@ public class OrderCronFunction
             return JsonResponse(run.Summary("unconfigured"));
         }
 
-        await WalkFundedAsync(run, _escrowService, _cropRepo, _tripRepo);
-        await WalkAcceptedAsync(run, _tripRepo);
-        await WalkAwaitingTransportAsync(run, _escrowService, _cropRepo);
+        await SweepDueDeadlinesAsync(run, _escrowService, _cropRepo, _tripRepo);
         await CloseDepartedTripsAsync(run, _tripRepo);
 
         context.Logger.LogInformation(
-            $"Commitment deadlines complete: {run.FarmerExpired} farmer windows expired, {run.TruckerExpired} trucker windows expired, "
+            $"Commitment deadlines complete: {run.Due} due orders read, "
+            + $"{run.FarmerExpired} farmer windows expired, {run.TruckerExpired} trucker windows expired, "
             + $"{run.TripCancelled} trip cancellations applied, {run.BuyerChoiceExpired} buyer choices expired, "
             + $"{run.FarmerReminders}/{run.TruckerReminders}/{run.BuyerReminders} reminders stamped, "
             + $"{run.PickupOverdue} pickups overdue, {run.Conflicts} conflicts, {run.TripReads} trip reads, "
-            + $"{run.DepartedTripsClosed} departed trips closed, {run.DepartedTripsKept} departed trips kept.");
+            + $"{run.Restamped} deadlines corrected, {run.Retried} retried later, {run.RowErrors} row errors, "
+            + $"{run.DepartedTripsClosed} departed trips closed, {run.DepartedTripsKept} departed trips kept"
+            + (run.StopReason != null ? $", the deadline sweep stopped early ({run.StopReason})." : "."));
 
-        return JsonResponse(run.Summary("ok"));
+        return JsonResponse(run.Summary(run.StopReason == null ? "ok" : "partial"));
     }
 
     /// <summary>
-    /// <c>funded</c> orders: (a) a farmer who never answered cancels the order (refund, stock back,
-    /// truck freed); (b) a trucker who never answered fails the transport; (c) a trip that is gone
-    /// fails the transport, or is only noted when the trucker was not asked yet; (e) reminders.
+    /// A due <c>funded</c> order: (a) a farmer who never answered cancels the order (refund, stock
+    /// back, truck freed); (b) a trucker who never answered fails the transport; (c) a trip that is
+    /// gone fails the transport, or is only noted when the trucker was not asked yet; (e) reminders.
     /// One decision per row per run: after a transition the version has moved on.
     /// </summary>
-    private async Task WalkFundedAsync(CommitmentRun run, EscrowService escrow, ICropRepository crops, ITripRepository trips)
+    private async Task<DeadlineOutcome> DecideFundedAsync(
+        Dictionary<string, object> order, string orderId, CommitmentRun run,
+        EscrowService escrow, ICropRepository crops, ITripRepository trips)
     {
-        var orders = await _orderRepo.QueryByStatusForCronAsync("funded") ?? new List<Dictionary<string, object>>();
-        foreach (var order in orders)
+        var farmer = OrderCommitment.FarmerResponseOf(order);
+        var trucker = OrderCommitment.TruckerResponseOf(order);
+
+        // Only a stamped deadline expires the farmer's request. A funded row from before the
+        // stamps (no farmerDeadlineAt) is left to the 7-day escrow sweep as before, so the
+        // first run after the flag turns on never cancels and refunds every old order at once.
+        if (farmer == OrderCommitment.Response.Pending
+            && GetString(order, OrderCommitment.FarmerDeadlineAtField).Length > 0
+            && OrderCommitment.FarmerDeadlineOf(order) is { } farmerDeadline
+            && run.Now > farmerDeadline)
         {
-            var orderId = GetString(order, "orderId");
-            var farmer = OrderCommitment.FarmerResponseOf(order);
-            var trucker = OrderCommitment.TruckerResponseOf(order);
-
-            // Only a stamped deadline expires the farmer's request. A funded row from before the
-            // stamps (no farmerDeadlineAt) is left to the 7-day escrow sweep as before, so the
-            // first run after the flag turns on never cancels and refunds every old order at once.
-            if (farmer == OrderCommitment.Response.Pending
-                && GetString(order, OrderCommitment.FarmerDeadlineAtField).Length > 0
-                && OrderCommitment.FarmerDeadlineOf(order) is { } farmerDeadline
-                && run.Now > farmerDeadline)
-            {
-                await ExpireFarmerAsync(order, orderId, trucker, run, escrow, crops, trips);
-                continue;
-            }
-
-            if (trucker == OrderCommitment.Response.Pending
-                && OrderCommitment.TruckerDeadlineOf(order) is { } truckerDeadline
-                && run.Now > truckerDeadline)
-            {
-                await ExpireTruckerAsync(order, orderId, run, trips);
-                continue;
-            }
-
-            if (await TripIsGoneAsync(order, trucker, run, trips))
-            {
-                await FailFundedForCancelledTripAsync(order, orderId, farmer, run);
-                continue;
-            }
-
-            await RemindFarmerAsync(order, orderId, farmer, run);
-            await RemindTruckerAsync(order, orderId, trucker, run);
+            return await ExpireFarmerAsync(order, orderId, trucker, run, escrow, crops, trips);
         }
+
+        if (trucker == OrderCommitment.Response.Pending
+            && OrderCommitment.TruckerDeadlineOf(order) is { } truckerDeadline
+            && run.Now > truckerDeadline)
+        {
+            return await ExpireTruckerAsync(order, orderId, run, trips);
+        }
+
+        if (await TripIsGoneAsync(order, trucker, run, trips))
+        {
+            return await FailFundedForCancelledTripAsync(order, orderId, farmer, run);
+        }
+
+        var farmerReminder = await RemindFarmerAsync(order, orderId, farmer, run);
+        var truckerReminder = await RemindTruckerAsync(order, orderId, trucker, run);
+        return farmerReminder == DeadlineOutcome.Applied || truckerReminder == DeadlineOutcome.Applied
+            ? DeadlineOutcome.Applied
+            : farmerReminder == DeadlineOutcome.Conflict || truckerReminder == DeadlineOutcome.Conflict
+                ? DeadlineOutcome.Conflict
+                : DeadlineOutcome.None;
     }
 
     /// <summary>
-    /// <c>accepted</c> orders: (c) a trip that is gone parks the order with the buyer and cancels
-    /// its pending delivery; (f) a pickup past its deadline is marked overdue once.
+    /// A due <c>accepted</c> order: (c) a trip that is gone parks the order with the buyer and
+    /// cancels its pending delivery; (f) a pickup past its deadline is marked overdue once.
     /// </summary>
-    private async Task WalkAcceptedAsync(CommitmentRun run, ITripRepository trips)
+    private async Task<DeadlineOutcome> DecideAcceptedAsync(
+        Dictionary<string, object> order, string orderId, CommitmentRun run, ITripRepository trips)
     {
-        var orders = await _orderRepo.QueryByStatusForCronAsync("accepted") ?? new List<Dictionary<string, object>>();
-        foreach (var order in orders)
+        if (await TripIsGoneAsync(order, OrderCommitment.TruckerResponseOf(order), run, trips))
         {
-            var orderId = GetString(order, "orderId");
-            if (await TripIsGoneAsync(order, OrderCommitment.TruckerResponseOf(order), run, trips))
-            {
-                await FailAcceptedForCancelledTripAsync(order, orderId, run);
-                continue;
-            }
-
-            await MarkPickupOverdueAsync(order, orderId, run);
+            return await FailAcceptedForCancelledTripAsync(order, orderId, run);
         }
+
+        return await MarkPickupOverdueAsync(order, orderId, run);
     }
 
     /// <summary>
-    /// <c>awaiting_transport</c> orders: (d) a buyer who did not decide in 48 hours is refunded
-    /// (nobody is at fault); (e) a reminder before that.
+    /// A due <c>awaiting_transport</c> order: (d) a buyer who did not decide in 48 hours is
+    /// refunded (nobody is at fault); (e) a reminder before that.
     /// </summary>
-    private async Task WalkAwaitingTransportAsync(CommitmentRun run, EscrowService escrow, ICropRepository crops)
+    private async Task<DeadlineOutcome> DecideAwaitingTransportAsync(
+        Dictionary<string, object> order, string orderId, CommitmentRun run, EscrowService escrow, ICropRepository crops)
     {
-        var orders = await _orderRepo.QueryByStatusForCronAsync(OrderCommitment.AwaitingTransportStatus)
-            ?? new List<Dictionary<string, object>>();
-        foreach (var order in orders)
+        var deadline = OrderCommitment.BuyerChoiceDeadlineOf(order);
+        if (deadline is { } due && run.Now > due)
         {
-            var orderId = GetString(order, "orderId");
-            var deadline = OrderCommitment.BuyerChoiceDeadlineOf(order);
-            if (deadline is { } due && run.Now > due)
-            {
-                await ExpireBuyerChoiceAsync(order, orderId, run, escrow, crops);
-                continue;
-            }
-
-            await RemindBuyerAsync(order, orderId, deadline, run);
+            return await ExpireBuyerChoiceAsync(order, orderId, run, escrow, crops);
         }
+
+        return await RemindBuyerAsync(order, orderId, deadline, run);
     }
 
     // ── (a) farmer window expired ──
 
-    private async Task ExpireFarmerAsync(
+    private async Task<DeadlineOutcome> ExpireFarmerAsync(
         Dictionary<string, object> order, string orderId, string trucker, CommitmentRun run,
         EscrowService escrow, ICropRepository crops, ITripRepository trips)
     {
@@ -661,7 +696,7 @@ public class OrderCronFunction
         if (!await ApplyTransitionAsync(order, orderId, fields, "funded", "cancelled",
                 "order_cancelled", "farmer_response_expired", run))
         {
-            return;
+            return DeadlineOutcome.Conflict;
         }
 
         run.FarmerExpired++;
@@ -675,11 +710,13 @@ public class OrderCronFunction
         {
             await ReleaseTripCapacityAsync(order, orderId, run, trips);
         }
+
+        return DeadlineOutcome.Applied;
     }
 
     // ── (b) trucker window expired ──
 
-    private async Task ExpireTruckerAsync(
+    private async Task<DeadlineOutcome> ExpireTruckerAsync(
         Dictionary<string, object> order, string orderId, CommitmentRun run, ITripRepository trips)
     {
         var fields = OrderCommitment.TransportFailedFields(
@@ -689,11 +726,12 @@ public class OrderCronFunction
         if (!await ApplyTransitionAsync(order, orderId, fields, "funded", OrderCommitment.AwaitingTransportStatus,
                 "order_updated", "trucker_expired", run))
         {
-            return;
+            return DeadlineOutcome.Conflict;
         }
 
         run.TruckerExpired++;
         await ReleaseTripCapacityAsync(order, orderId, run, trips);
+        return DeadlineOutcome.Applied;
     }
 
     // ── (c) the trip is gone ──
@@ -741,7 +779,7 @@ public class OrderCronFunction
                || GetString(trip, "status") == "cancelled";
     }
 
-    private async Task FailFundedForCancelledTripAsync(
+    private async Task<DeadlineOutcome> FailFundedForCancelledTripAsync(
         Dictionary<string, object> order, string orderId, string farmer, CommitmentRun run)
     {
         if (farmer != OrderCommitment.Response.Accepted)
@@ -756,7 +794,7 @@ public class OrderCronFunction
                 run.Conflicts++;
                 run.Context.Logger.LogWarning(
                     $"Commitment deadlines: order {MoneyAlarmLog.LogId(orderId)} left funded before its trip cancellation was noted.");
-                return;
+                return DeadlineOutcome.Conflict;
             }
 
             run.TripCancelled++;
@@ -764,19 +802,22 @@ public class OrderCronFunction
                 _transactionAuditRepo, run.Context, orderId, "order", orderId,
                 "order_updated", "funded", "funded", AuditContext.ForSystem(),
                 metadata: "trip_cancelled: trucker response set to cancelled before the farmer answered");
-            return;
+            return DeadlineOutcome.Applied;
         }
 
         var fields = OrderCommitment.TransportFailedFields(
             OrderCommitment.TransportFailure.TripCancelled, OrderCommitment.Response.Cancelled, run.Now);
-        if (await ApplyTransitionAsync(order, orderId, fields, "funded", OrderCommitment.AwaitingTransportStatus,
+        if (!await ApplyTransitionAsync(order, orderId, fields, "funded", OrderCommitment.AwaitingTransportStatus,
                 "order_updated", "trip_cancelled", run))
         {
-            run.TripCancelled++;
+            return DeadlineOutcome.Conflict;
         }
+
+        run.TripCancelled++;
+        return DeadlineOutcome.Applied;
     }
 
-    private async Task FailAcceptedForCancelledTripAsync(
+    private async Task<DeadlineOutcome> FailAcceptedForCancelledTripAsync(
         Dictionary<string, object> order, string orderId, CommitmentRun run)
     {
         var deliveryId = GetString(order, "activeDeliveryId");
@@ -794,14 +835,14 @@ public class OrderCronFunction
             {
                 run.Context.Logger.LogWarning(
                     $"Commitment deadlines: delivery {MoneyAlarmLog.LogId(deliveryId)} of order {MoneyAlarmLog.LogId(orderId)} could not be read [{ex.GetType().Name}]; the trip cancellation waits a run.");
-                return;
+                return DeadlineOutcome.Waiting;
             }
 
             if (delivery != null && GetString(delivery, "status") is not ("pending" or "cancelled"))
             {
                 run.Context.Logger.LogWarning(
                     $"Commitment deadlines: trip of order {MoneyAlarmLog.LogId(orderId)} is cancelled but its delivery {MoneyAlarmLog.LogId(deliveryId)} is {GetString(delivery, "status")}; left for the parties.");
-                return;
+                return DeadlineOutcome.Waiting;
             }
         }
 
@@ -810,13 +851,13 @@ public class OrderCronFunction
         if (!await ApplyTransitionAsync(order, orderId, fields, "accepted", OrderCommitment.AwaitingTransportStatus,
                 "order_updated", "trip_cancelled", run))
         {
-            return;
+            return DeadlineOutcome.Conflict;
         }
 
         run.TripCancelled++;
         if (deliveryId.Length == 0 || _deliveryRepo == null)
         {
-            return;
+            return DeadlineOutcome.Applied;
         }
 
         try
@@ -838,11 +879,13 @@ public class OrderCronFunction
             run.Context.Logger.LogWarning(
                 $"Commitment deadlines: cancelling delivery {MoneyAlarmLog.LogId(deliveryId)} of order {MoneyAlarmLog.LogId(orderId)} failed [{ex.GetType().Name}].");
         }
+
+        return DeadlineOutcome.Applied;
     }
 
     // ── (d) buyer did not decide ──
 
-    private async Task ExpireBuyerChoiceAsync(
+    private async Task<DeadlineOutcome> ExpireBuyerChoiceAsync(
         Dictionary<string, object> order, string orderId, CommitmentRun run, EscrowService escrow, ICropRepository crops)
     {
         var fields = new Dictionary<string, object>
@@ -857,12 +900,13 @@ public class OrderCronFunction
         if (!await ApplyTransitionAsync(order, orderId, fields, OrderCommitment.AwaitingTransportStatus, "cancelled",
                 "order_cancelled", "transport_not_arranged", run))
         {
-            return;
+            return DeadlineOutcome.Conflict;
         }
 
         run.BuyerChoiceExpired++;
         await ScheduleRefundAsync(orderId, run, escrow);
         await RestoreStockAsync(order, orderId, run, crops);
+        return DeadlineOutcome.Applied;
     }
 
     // ── (e) reminders ──
@@ -876,7 +920,7 @@ public class OrderCronFunction
         => deadline - now <= OrderCommitment.ReminderLead
            && deadline - askedAt >= OrderCommitment.MinReminderWindow;
 
-    private async Task RemindFarmerAsync(Dictionary<string, object> order, string orderId, string farmer, CommitmentRun run)
+    private async Task<DeadlineOutcome> RemindFarmerAsync(Dictionary<string, object> order, string orderId, string farmer, CommitmentRun run)
     {
         // A funded row from before the feature has no farmerResponse attribute: the conditional
         // stamp below could never match it, so it is not attempted.
@@ -887,10 +931,10 @@ public class OrderCronFunction
             || !OrderCommitment.TryParseUtc(GetString(order, "paymentVerifiedAt"), out var askedAt)
             || !ReminderDue(deadline, askedAt, run.Now))
         {
-            return;
+            return DeadlineOutcome.None;
         }
 
-        await StampAsync(orderId,
+        return await StampAsync(orderId,
             new Dictionary<string, object> { { OrderCommitment.FarmerReminderAtField, run.NowIso } },
             new Dictionary<string, string>
             {
@@ -899,7 +943,7 @@ public class OrderCronFunction
             "farmer reminder", run, () => run.FarmerReminders++);
     }
 
-    private async Task RemindTruckerAsync(Dictionary<string, object> order, string orderId, string trucker, CommitmentRun run)
+    private async Task<DeadlineOutcome> RemindTruckerAsync(Dictionary<string, object> order, string orderId, string trucker, CommitmentRun run)
     {
         if (trucker != OrderCommitment.Response.Pending
             || GetString(order, OrderCommitment.TruckerResponseField).Length == 0
@@ -908,10 +952,10 @@ public class OrderCronFunction
             || !OrderCommitment.TryParseUtc(GetString(order, OrderCommitment.TruckerAskedAtField), out var askedAt)
             || !ReminderDue(deadline, askedAt, run.Now))
         {
-            return;
+            return DeadlineOutcome.None;
         }
 
-        await StampAsync(orderId,
+        return await StampAsync(orderId,
             new Dictionary<string, object> { { OrderCommitment.TruckerReminderAtField, run.NowIso } },
             new Dictionary<string, string>
             {
@@ -920,17 +964,17 @@ public class OrderCronFunction
             "trucker reminder", run, () => run.TruckerReminders++);
     }
 
-    private async Task RemindBuyerAsync(Dictionary<string, object> order, string orderId, DateTime? deadline, CommitmentRun run)
+    private async Task<DeadlineOutcome> RemindBuyerAsync(Dictionary<string, object> order, string orderId, DateTime? deadline, CommitmentRun run)
     {
         // The buyer's window is always the full 48 hours (BuyerChoiceWindow), so only the lead matters.
         if (GetString(order, OrderCommitment.BuyerChoiceReminderAtField).Length > 0
             || deadline is not { } due
             || due - run.Now > OrderCommitment.ReminderLead)
         {
-            return;
+            return DeadlineOutcome.None;
         }
 
-        await StampAsync(orderId,
+        return await StampAsync(orderId,
             new Dictionary<string, object> { { OrderCommitment.BuyerChoiceReminderAtField, run.NowIso } },
             new Dictionary<string, string> { { "status", OrderCommitment.AwaitingTransportStatus } },
             "buyer choice reminder", run, () => run.BuyerReminders++);
@@ -938,16 +982,16 @@ public class OrderCronFunction
 
     // ── (f) pickup overdue ──
 
-    private async Task MarkPickupOverdueAsync(Dictionary<string, object> order, string orderId, CommitmentRun run)
+    private async Task<DeadlineOutcome> MarkPickupOverdueAsync(Dictionary<string, object> order, string orderId, CommitmentRun run)
     {
         if (GetString(order, OrderCommitment.PickupOverdueNotifiedAtField).Length > 0
             || !PickupDeadline.TryParse(GetString(order, PickupDeadline.Field), out var pickupDeadline)
             || pickupDeadline >= run.Now)
         {
-            return;
+            return DeadlineOutcome.None;
         }
 
-        await StampAsync(orderId,
+        return await StampAsync(orderId,
             new Dictionary<string, object> { { OrderCommitment.PickupOverdueNotifiedAtField, run.NowIso } },
             new Dictionary<string, string> { { "status", "accepted" } },
             "pickup overdue marker", run, () => run.PickupOverdue++);
@@ -1133,20 +1177,24 @@ public class OrderCronFunction
         return true;
     }
 
-    /// <summary>A marker write: no version bump, conditioned on the state the row was read in.</summary>
-    private async Task StampAsync(
+    /// <summary>
+    /// A marker write: no version bump, conditioned on the state the row was read in. ESC-16: the
+    /// same write moves the order's next deadline past the marker (<see cref="IOrderRepository.TryStampAsync"/>).
+    /// </summary>
+    private async Task<DeadlineOutcome> StampAsync(
         string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expected,
         string what, CommitmentRun run, Action onStamped)
     {
         if (await _orderRepo.TryStampAsync(orderId, fields, expected))
         {
             onStamped();
-            return;
+            return DeadlineOutcome.Applied;
         }
 
         run.Conflicts++;
         run.Context.Logger.LogInformation(
             $"Commitment deadlines: order {MoneyAlarmLog.LogId(orderId)} moved on before its {what} was stamped.");
+        return DeadlineOutcome.Conflict;
     }
 
     /// <summary>

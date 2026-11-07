@@ -185,6 +185,17 @@ public class EscrowCronFunction
     /// <summary>FRD-03: the orders table the auto-refund sweep fences its hold on (<c>ORDERS_TABLE</c>).</summary>
     internal string? OrdersTableName { get; init; }
 
+    /// <summary>
+    /// ESC-16: <c>COMMITMENTS_ENABLED</c>. On, the order deadlines own an order escrow's life (spec 4.5):
+    /// the auto-refund sweep no longer pushes the expiry of an order escrow whose trade is live by
+    /// 48 hours at a time, it sets it once to the hold cap (T12), where an admin decides. Off, the
+    /// rolling extension stays as it was. Tests set it in the object initializer.
+    /// </summary>
+    internal bool CommitmentsEnabled { get; init; } = OrderCommitment.IsEnabled;
+
+    /// <summary>ESC-16: the log token of an order escrow held to its cap instead of extended.</summary>
+    internal const string OrderEscrowHeldToCapToken = "ORDER_ESCROW_HELD_TO_CAP";
+
     /// <summary>FRD-03: the skip reason when a trigger finds <see cref="FraudHoldEnabled"/> off.</summary>
     internal const string RiskSkipFlagOff = "flag_off";
 
@@ -966,6 +977,23 @@ public class EscrowCronFunction
 
                         if (orderStatus != null && ProgressingOrderStatuses.Contains(orderStatus))
                         {
+                            if (CommitmentsEnabled)
+                            {
+                                // ESC-16 (spec 4.5): the order deadlines own the trade's life now: every
+                                // order exit that refunds schedules the refund itself (the expiry moves to
+                                // that moment). So no rolling extension: the hold runs to the cap (T12) in
+                                // one write, and the next look is the cap's admin queue. Conditional, so a
+                                // refund scheduled since the read above keeps its expiry.
+                                if (await _escrowRepo.TryExtendExpiryAsync(escrowId, escrowCreatedAt, capAt.Value.ToString("o")))
+                                {
+                                    context.Logger.LogInformation(
+                                        $"{OrderEscrowHeldToCapToken} escrowId={MoneyAlarmLog.LogId(escrowId)} "
+                                        + $"orderId={MoneyAlarmLog.LogId(escrowOrderId)} until={capAt.Value:o}");
+                                }
+
+                                continue;
+                            }
+
                             // Trade is live: push the expiry forward and re-check next sweep. Conditional,
                             // so a refund scheduled since the read above keeps its expiry.
                             var extendTo = now.AddHours(OrderEscrowExpiryExtensionHours);
