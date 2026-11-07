@@ -119,6 +119,10 @@ class IsarMarketplaceSync implements MarketplaceSync {
           // Never regress to an older server version than what we already hold.
           if (d.version < existing.version) continue;
           d.id = existing.id;
+          // FRD-12: until the server holds a handoff photo, this phone keeps
+          // the path of the one it took (its upload waits in the queue).
+          d.pickupPhotoRef ??= _localPhotoPath(existing.pickupPhotoRef);
+          d.dropoffPhotoRef ??= _localPhotoPath(existing.dropoffPhotoRef);
         }
         await _isar.deliverys.put(d);
       }
@@ -582,6 +586,11 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// (pending / syncing / failed). These must survive a marketplace refresh.
   /// Operations the server rejected for good never get there, so they do not
   /// protect their row: a pull may overwrite it with the server's view.
+  /// [ref] when it is a photo file on this phone (an absolute path), else
+  /// null: a server key always comes from the server's own row.
+  static String? _localPhotoPath(String? ref) =>
+      ref != null && ref.startsWith('/') ? ref : null;
+
   Future<Set<String>> _entityIdsWithPendingUploads() async {
     final ops = await _isar.syncOperations
         .filter()

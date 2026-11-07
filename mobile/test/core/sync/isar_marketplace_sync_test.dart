@@ -541,6 +541,35 @@ void main() {
       expect(stored.single.version, 2);
     });
 
+    // FRD-12: the trucker's pickup photo waits in the queue (its own
+    // delivery_photo op), so the server has no key yet; the pull keeps the
+    // phone's file path so the photo still shows. A server key wins.
+    test(
+        'pullDeliveries keeps this phone\'s photo path until the server '
+        'holds the photo', () async {
+      const local = '/data/user/0/app/files/photos/del-1/pickup-1.webp';
+      await isar.writeTxn(() async {
+        await isar.deliverys.put(
+          _localDelivery(status: DeliveryStatus.pickedUp, version: 2)
+            ..pickupPhotoRef = local,
+        );
+      });
+
+      stubApi(deliveries: [_deliveryJson()]);
+      final sync = buildSync(currentUserId: () async => 'trucker-1');
+      await sync.pullDeliveries();
+      expect((await isar.deliverys.where().findFirst())!.pickupPhotoRef, local);
+
+      const key = 'uploads/photos/del-1/pickup-1700000000000.webp';
+      stubApi(
+        deliveries: [
+          {..._deliveryJson(), 'pickupPhotoRef': key},
+        ],
+      );
+      await buildSync(currentUserId: () async => 'trucker-1').pullDeliveries();
+      expect((await isar.deliverys.where().findFirst())!.pickupPhotoRef, key);
+    });
+
     test(
         'pullDeliveries never clobbers a delivery with an un-synced local '
         'write (offline buyer confirmation is preserved)', () async {

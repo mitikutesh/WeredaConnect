@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
@@ -420,14 +421,9 @@ class DeliveryRepository extends BaseDeliveryRepository {
       };
     }
 
-    // Only a server upload key travels in the op. The camera path hands over
-    // the local file path (uploads are FRD-12) and the server refuses anything
-    // but its own key, which used to fail the whole pickup. Isar keeps the
-    // local path above so the photo stays on the device.
-    if (photoRef != null &&
-        DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
-      syncData['pickupPhotoRef'] = photoRef;
-    }
+    // No photo ref travels in the handoff op: the photo has its own
+    // operation, queued below (FRD-12). Isar keeps the local path above so
+    // the photo shows on this phone.
 
     if (scannedQrNonce != null) {
       syncData['scannedQrNonce'] = scannedQrNonce;
@@ -443,6 +439,12 @@ class DeliveryRepository extends BaseDeliveryRepository {
       action: 'update',
       data: jsonEncode(syncData),
       operationId: _uuid.v4(),
+    );
+    await _enqueueHandoffPhoto(
+      userId: truckerId,
+      deliveryId: deliveryId,
+      type: 'pickup',
+      photoRef: photoRef,
     );
   }
 
@@ -494,11 +496,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
       };
     }
 
-    // Server upload keys only, as in confirmPickup.
-    if (photoRef != null &&
-        DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
-      syncData['dropoffPhotoRef'] = photoRef;
-    }
+    // The photo has its own operation, as in confirmPickup.
 
     if (scannedQrNonce != null) {
       syncData['scannedQrNonce'] = scannedQrNonce;
@@ -515,7 +513,42 @@ class DeliveryRepository extends BaseDeliveryRepository {
       data: jsonEncode(syncData),
       operationId: _uuid.v4(),
     );
+    await _enqueueHandoffPhoto(
+      userId: buyerId,
+      deliveryId: deliveryId,
+      type: 'dropoff',
+      photoRef: photoRef,
+    );
     // The listing is left alone, as on create (FUP-18).
+  }
+
+  /// FRD-12: queue the handoff photo this phone took, behind the handoff
+  /// itself. The sync preflight uploads the file when online and attaches
+  /// its key (`delivery_photo`). The photo is optional evidence: no photo,
+  /// or a ref that is not this phone's file for this delivery, queues
+  /// nothing, and a queue that refuses it never fails the handoff.
+  Future<void> _enqueueHandoffPhoto({
+    required String userId,
+    required String deliveryId,
+    required String type,
+    required String? photoRef,
+  }) async {
+    if (photoRef == null ||
+        !DeliveryConstants.isLocalPhotoPath(photoRef, deliveryId)) {
+      return;
+    }
+    try {
+      await _syncQueue.enqueue(
+        userId: userId,
+        entityType: deliveryPhotoEntityType,
+        entityId: deliveryPhotoEntityId(deliveryId, type),
+        action: 'create',
+        data: jsonEncode({deliveryPhotoLocalPathKey: photoRef}),
+        operationId: _uuid.v4(),
+      );
+    } on Object catch (e) {
+      debugPrint('[DeliveryRepository] handoff photo not queued: $e');
+    }
   }
 
   /// Mark delivery as in transit by trucker. Status → inTransit.

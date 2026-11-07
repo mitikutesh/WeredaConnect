@@ -883,6 +883,12 @@ class AppLocalizationsAm extends AppLocalizations {
   String get restNoPhoto => 'ፎቶ የለም';
 
   @override
+  String get deliveryPhotoOnlineOnly => 'በኢንተርኔት ሲገናኙ ይታያል';
+
+  @override
+  String get deliveryPhotoFailed => 'ፎቶው አልተቀመጠም። እንደገና ይሞክሩ።';
+
+  @override
   String get deliveryMarkInTransit => 'በመጓጓዝ ላይ ምልክት';
 
   @override

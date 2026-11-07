@@ -46,6 +46,17 @@ abstract final class DeliveryConstants {
   /// Photo fallback quality if initial compression exceeds size limit.
   static const int photoFallbackQuality = 60;
 
+  /// The last try when the fallback is still over the size limit (FRD-12):
+  /// a smaller photo at a lower quality. Over the limit even then, the photo
+  /// is dropped.
+  static const int photoLastQuality = 45;
+
+  /// Width of the last try.
+  static const int photoLastWidth = 640;
+
+  /// Height of the last try.
+  static const int photoLastHeight = 480;
+
   /// Dispute window duration from delivery confirmation.
   static const Duration disputeWindow = Duration(hours: 48);
 
@@ -67,16 +78,24 @@ abstract final class DeliveryConstants {
   );
 
   /// Shape of a photo key issued by `POST /deliveries/{id}/photos`:
-  /// `uploads/photos/{deliveryId}/{pickup|dropoff}-{ms}.webp`. Mirrors the
-  /// server's `PhotoRefRegex` (`SyncFunction.cs`): a delivery sync op whose
-  /// `pickupPhotoRef` / `dropoffPhotoRef` has any other shape is refused as a
-  /// whole (`DELIVERY_INVALID_FIELD`), so a local file path must never be sent.
+  /// `uploads/photos/{deliveryId}/{pickup|dropoff}-{ms}.{webp|jpg}` (the
+  /// phone sends WebP, the browser JPEG; FRD-12). Mirrors the server's
+  /// `DeliveryPhotoKeys`: a `delivery_photo` attach with any other key is
+  /// refused, so a local file path must never be sent.
   static final RegExp serverPhotoRefRegex = RegExp(
-    r'^uploads/photos/[a-zA-Z0-9\-]+/(pickup|dropoff)-\d+\.webp$',
+    r'^uploads/photos/[a-zA-Z0-9\-]+/(pickup|dropoff)-\d+\.(webp|jpg)$',
   );
 
   /// True when [ref] is a server upload key that belongs to [deliveryId].
   static bool isServerPhotoRef(String ref, String deliveryId) =>
       serverPhotoRefRegex.hasMatch(ref) &&
       ref.startsWith('uploads/photos/$deliveryId/');
+
+  /// True when [ref] is a photo file this phone took for [deliveryId]: an
+  /// absolute path inside its `photos/{deliveryId}/` directory (the
+  /// `PhotoManager` layout). The sync queue uploads such a file (FRD-12).
+  static bool isLocalPhotoPath(String ref, String deliveryId) =>
+      ref.startsWith('/') &&
+      !ref.contains('..') &&
+      ref.contains('/photos/$deliveryId/');
 }

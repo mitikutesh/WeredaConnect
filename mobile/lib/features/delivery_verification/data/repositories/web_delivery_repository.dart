@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
@@ -228,12 +230,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         'longitude': gpsPickup.longitude,
       };
     }
-    // Server upload keys only (the server refuses any other shape and would
-    // fail the whole pickup); same rule as the mobile repository.
-    if (photoRef != null &&
-        DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
-      data['pickupPhotoRef'] = photoRef;
-    }
+    // The photo is attached after the handoff, by its own operation (FRD-12).
     if (scannedQrNonce != null) {
       data['scannedQrNonce'] = scannedQrNonce;
     } else if (scannedQrCode != null) {
@@ -259,6 +256,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       },
     );
     ensureSyncSucceeded(response);
+    await _attachHandoffPhoto(deliveryId, 'pickup', photoRef);
   }
 
   @override
@@ -282,10 +280,6 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         'latitude': gpsDropoff.latitude,
         'longitude': gpsDropoff.longitude,
       };
-    }
-    if (photoRef != null &&
-        DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
-      data['dropoffPhotoRef'] = photoRef;
     }
     if (scannedQrNonce != null) {
       data['scannedQrNonce'] = scannedQrNonce;
@@ -312,6 +306,46 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       },
     );
     ensureSyncSucceeded(response);
+    await _attachHandoffPhoto(deliveryId, 'dropoff', photoRef);
+  }
+
+  /// FRD-12: attach the photo the browser uploaded when it was taken
+  /// (`delivery_photo`). Best effort, after the handoff succeeded: the
+  /// photo is optional evidence, so a refusal or a network failure is
+  /// logged and the confirmed handoff stands.
+  Future<void> _attachHandoffPhoto(
+    String deliveryId,
+    String type,
+    String? photoRef,
+  ) async {
+    if (photoRef == null ||
+        !DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
+      return;
+    }
+    final entityId = deliveryPhotoEntityId(deliveryId, type);
+    try {
+      final response = await _api.post<Map<String, dynamic>>(
+        '/sync',
+        data: {
+          'syncBatchId': _uuid.v4(),
+          'clientId': 'web',
+          'operations': [
+            {
+              'operationId': _uuid.v4(),
+              'entityType': deliveryPhotoEntityType,
+              'action': 'create',
+              'entityId': entityId,
+              'timestamp': DateTime.now().toUtc().toIso8601String(),
+              'idempotencyKey': 'web_photo_${entityId}_$photoRef',
+              'data': {deliveryPhotoRefKey: photoRef},
+            },
+          ],
+        },
+      );
+      ensureSyncSucceeded(response);
+    } on Object catch (e) {
+      debugPrint('[WebDeliveryRepository] handoff photo not attached: $e');
+    }
   }
 
   @override

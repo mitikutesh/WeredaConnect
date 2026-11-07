@@ -355,17 +355,93 @@ void main() {
       expect(sentData().containsKey('pickupPhotoRef'), isFalse);
     });
 
-    test('confirmPickup sends a server photo key', () async {
+    /// Every /sync body sent, in order.
+    List<Map<String, dynamic>> sentBodies() => verify(
+          () => api.post<Map<String, dynamic>>(
+            '/sync',
+            data: captureAny<dynamic>(named: 'data'),
+          ),
+        ).captured.cast<Map<String, dynamic>>();
+
+    Map<String, dynamic> opOf(Map<String, dynamic> body) =>
+        (body['operations'] as List).single as Map<String, dynamic>;
+
+    // FRD-12: the browser uploaded the photo when it was taken; after the
+    // handoff succeeded, its key is attached by a delivery_photo op.
+    test('confirmPickup attaches the uploaded photo after the pickup',
+        () async {
       await repository.confirmPickup(
         deliveryId: 'del-1',
         truckerId: 'trucker-1',
-        photoRef: 'uploads/photos/del-1/pickup-1700000000000.webp',
+        photoRef: 'uploads/photos/del-1/pickup-1700000000000.jpg',
       );
 
-      expect(
-        sentData()['pickupPhotoRef'],
-        'uploads/photos/del-1/pickup-1700000000000.webp',
+      final bodies = sentBodies();
+      expect(bodies, hasLength(2));
+      final handoff = opOf(bodies[0]);
+      expect((handoff['data'] as Map)['status'], 'pickedUp');
+      expect((handoff['data'] as Map).containsKey('pickupPhotoRef'), isFalse);
+      final photo = opOf(bodies[1]);
+      expect(photo['entityType'], 'delivery_photo');
+      expect(photo['entityId'], 'del-1#pickup');
+      expect(photo['action'], 'create');
+      expect(photo['data'], {
+        'photoRef': 'uploads/photos/del-1/pickup-1700000000000.jpg',
+      });
+    });
+
+    test('a refused photo attach leaves the confirmed handoff standing',
+        () async {
+      var calls = 0;
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer((_) async {
+        calls++;
+        return calls == 1
+            ? {
+                'results': [
+                  {'status': 'success'},
+                ],
+              }
+            : {
+                'results': [
+                  {
+                    'status': 'error',
+                    'message': 'DELIVERY_PHOTO_EXISTS: This handoff already '
+                        'has its photo.',
+                  },
+                ],
+              };
+      });
+
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        photoRef: 'uploads/photos/del-1/dropoff-1700000000000.jpg',
       );
+
+      expect(calls, 2);
+    });
+
+    test('a refused handoff attaches no photo', () async {
+      answerSync({
+        'results': [
+          {'status': 'error', 'message': 'DELIVERY_NONCE_MISMATCH: no'},
+        ],
+      });
+
+      await expectLater(
+        repository.confirmPickup(
+          deliveryId: 'del-1',
+          truckerId: 'trucker-1',
+          photoRef: 'uploads/photos/del-1/pickup-1700000000000.jpg',
+        ),
+        throwsA(isA<SyncRejectedException>()),
+      );
+      expect(sentBodies(), hasLength(1));
     });
 
     test('confirmDelivery omits a local photo path', () async {
@@ -414,17 +490,31 @@ void main() {
       expect(sentData().containsKey('scannedQrCode'), isFalse);
     });
 
-    test('confirmDelivery sends a server photo key', () async {
+    test('confirmDelivery attaches the uploaded drop-off photo', () async {
       await repository.confirmDelivery(
         deliveryId: 'del-1',
         buyerId: 'buyer-1',
-        photoRef: 'uploads/photos/del-1/dropoff-1700000000000.webp',
+        photoRef: 'uploads/photos/del-1/dropoff-1700000000000.jpg',
       );
 
+      final bodies = sentBodies();
+      expect(bodies, hasLength(2));
       expect(
-        sentData()['dropoffPhotoRef'],
-        'uploads/photos/del-1/dropoff-1700000000000.webp',
+        (opOf(bodies[0])['data'] as Map).containsKey('dropoffPhotoRef'),
+        isFalse,
       );
+      expect(opOf(bodies[1])['entityId'], 'del-1#dropoff');
+    });
+
+    test('a local path is never attached', () async {
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        photoRef:
+            '/data/user/0/app/files/photos/del-1/dropoff-1700000000000.webp',
+      );
+
+      expect(sentBodies(), hasLength(1));
     });
   });
 

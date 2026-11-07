@@ -12,6 +12,7 @@ import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/location_ping_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/models/conflict_event.dart';
@@ -1174,8 +1175,9 @@ class SyncExecutor {
   /// full trip, a listing with active orders, and an order command from an
   /// app below the minimum version (any other operation refused for the app
   /// version was held back earlier), and a crop listing or trip whose text
-  /// holds a phone number (1.23.0, FUP-49), and every `LOCATION_*` refusal
-  /// of a check-in (1.31.0, LT-08).
+  /// holds a phone number (1.23.0, FUP-49), every `LOCATION_*` refusal
+  /// of a check-in (1.31.0, LT-08), and every `DELIVERY_PHOTO_*` refusal of a
+  /// handoff photo (1.39.0, FRD-12).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
@@ -1190,7 +1192,8 @@ class SyncExecutor {
         isCropHasActiveOrdersMessage(message) ||
         isAppUpdateRequiredMessage(message) ||
         isContactInTextMessage(message) ||
-        isLocationRejectionMessage(message);
+        isLocationRejectionMessage(message) ||
+        isDeliveryPhotoRejectionMessage(message);
   }
 
   /// Whether a crop listing or trip refusal undoes the local change
@@ -1220,10 +1223,12 @@ class SyncExecutor {
   /// Background operations the user never made (matching analytics,
   /// check-ins): a refusal is not announced. A refused check-in has no local
   /// row to put back and only leaves a gap in the trail (sync-protocol.md
-  /// Location pings).
+  /// Location pings). A refused handoff photo (FRD-12) is optional evidence
+  /// the handoff did not need: nothing to undo, nothing to retry.
   static const _unannouncedEntityTypes = {
     'match_event',
     locationPingEntityType,
+    deliveryPhotoEntityType,
   };
 
   /// The UI event for a refused (or, for `APP_UPDATE_REQUIRED`, held)

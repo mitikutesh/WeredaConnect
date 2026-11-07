@@ -34,6 +34,7 @@ import 'package:wereda_connect/features/conflict_resolution/data/services/confli
 import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_sync_preflight.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/delivery_photo_sync_preflight.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
@@ -177,6 +178,10 @@ Future<void> runMobile({
     notice: () => checkInNoticeFor(languageProvider.locale),
   );
 
+  final cropPhotoPreflight =
+      CropPhotoSyncPreflight(isar: IsarService.instance.db);
+  final deliveryPhotoPreflight =
+      DeliveryPhotoSyncPreflight(saveData: syncQueue.replaceData);
   final syncExecutor = SyncExecutor(
     syncQueue: syncQueue,
     connectivityMonitor: connectivityMonitor,
@@ -206,8 +211,12 @@ Future<void> runMobile({
     onLocationSharingEnded: checkInEngine.onSharingEnded,
     onPickupRejected: checkInEngine.onPickupRejected,
     // A crop listing's create waits until its photos are in the incoming
-    // bucket (crop-listing-api.md 1.6.0).
-    preflight: CropPhotoSyncPreflight(isar: IsarService.instance.db).call,
+    // bucket (crop-listing-api.md 1.6.0); a handoff photo's attach waits
+    // until the photo is in the uploads bucket (FRD-12). Each answers true
+    // for the other's operations.
+    preflight: (operation) async =>
+        await cropPhotoPreflight(operation) &&
+        await deliveryPhotoPreflight(operation),
   );
   final syncWorker = SyncWorker(
     executor: syncExecutor,

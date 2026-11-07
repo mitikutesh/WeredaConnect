@@ -42,6 +42,9 @@ class SyncQueue {
 
   Future<void> markSynced(String operationId) async {}
 
+  /// No queue on web: a handoff photo goes up straight away (FRD-12).
+  Future<void> replaceData(String operationId, String data) async {}
+
   Future<void> markFailed(String operationId) async {}
 
   Future<void> incrementRetry(String operationId) async {}
