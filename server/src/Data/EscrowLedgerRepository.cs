@@ -191,6 +191,38 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
             response.LastEvaluatedKey?.Count > 0 ? response.LastEvaluatedKey : null);
     }
 
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? Next)> QueryOwedTransportLegsAsync(
+        string status, Dictionary<string, AttributeValue>? startKey)
+    {
+        var response = await _dynamoDb.QueryAsync(new QueryRequest
+        {
+            TableName = _escrowsTable,
+            IndexName = "StatusExpiresIndex",
+            KeyConditionExpression = "#status = :status",
+            FilterExpression = "#model = :ledger AND #legs.#transport = :held AND #legs.#crop <> :held",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                ["#status"] = "status",
+                ["#model"] = LedgerEscrowFields.SettlementModel,
+                ["#legs"] = LedgerEscrowFields.LegStatus,
+                ["#transport"] = LedgerEscrowFields.LegTransport,
+                ["#crop"] = LedgerEscrowFields.LegCrop
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":status"] = S(status),
+                [":ledger"] = S(LedgerEscrowFields.ModelLedger),
+                [":held"] = S(LedgerEscrowFields.Held)
+            },
+            ScanIndexForward = true,
+            Limit = 100,
+            ExclusiveStartKey = startKey
+        });
+        return (response.Items.Select(DynamoDbHelper.FromItem).ToList(),
+            response.LastEvaluatedKey?.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
     // ── Writes ──────────────────────────────────────────────────────────────
 
     private async Task<LedgerWrite> TransactAsync(

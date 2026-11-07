@@ -57,6 +57,13 @@ public sealed class UnappliedPaymentService
     /// <param name="claimTable">escrow-idempotency, where the refund claim row goes; the record call needs it.</param>
     /// <param name="scanPageSize">Rows per Scan page; only tests pass a smaller one, to cross page boundaries.</param>
     /// <param name="maxTrailQueries">Trail reads per list call; only tests pass a smaller one.</param>
+    /// <summary>
+    /// ESC-20 (escrow-protocol.md 2.1.0, P.9): the duplicate payment's row in the escrow ledger, if any (order id,
+    /// payment order id). A payment refunded through the ledger is recorded in the manual payout queue, never here,
+    /// so it can never be refunded twice. Null when the ledger is not wired.
+    /// </summary>
+    internal Func<string, string, Task<LedgerRow?>>? LedgerDuplicateRow { get; init; }
+
     public UnappliedPaymentService(
         IEscrowAuditRepository auditRepo, IOrderRepository orderRepo, ITransactionAuditRepository? txAuditRepo,
         string? claimTable, int scanPageSize = ScanPageSize, int maxTrailQueries = MaxTrailQueriesPerCall)
@@ -285,6 +292,15 @@ public sealed class UnappliedPaymentService
             return Fail(409, "ESCROW_043",
                 $"The amount differs from the captured amount ({UnappliedPayments.FormatAmount(captured)} {Currency}).",
                 "amount");
+        }
+
+        if (LedgerDuplicateRow != null && await LedgerDuplicateRow(orderId, paymentOrderId) is { } ledgerRow)
+        {
+            return Fail(409, "ESCROW_045",
+                $"This payment is refunded through the escrow ledger ({ledgerRow.Status}). "
+                + (ledgerRow.Status == "manual"
+                    ? "Record the portal refund in the manual payout queue instead."
+                    : "Nothing to record here."));
         }
 
         var paymentMerchOrderId = target.MerchOrderId ?? NullIfEmpty(merchOrderId);

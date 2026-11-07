@@ -95,6 +95,26 @@ public sealed record ResolveDisputeRequest
 
     /// <summary>FUP-16: why the admin chose <see cref="Disposition"/>, 10 to 500 characters; stored in the audit trail.</summary>
     public string? Reason { get; init; }
+
+    /// <summary>
+    /// ESC-20 (escrow-protocol.md 2.1.0, P.8): the split of a <c>partial_refund</c> verdict (<c>action: split</c>),
+    /// in ETB with at most 2 decimals: what the farmer is paid out of the crop leg held.
+    /// </summary>
+    public decimal? FarmerAmount { get; init; }
+
+    /// <summary>ESC-20: what the trucker is paid out of the transport leg held.</summary>
+    public decimal? TruckerAmount { get; init; }
+
+    /// <summary>ESC-20: what goes back to the buyer.</summary>
+    public decimal? BuyerRefund { get; init; }
+}
+
+/// <summary>ESC-20 (P.8): the amounts of a split verdict as recorded on the escrow.</summary>
+public sealed record VerdictAmountsDto
+{
+    public required decimal FarmerAmount { get; init; }
+    public required decimal TruckerAmount { get; init; }
+    public required decimal BuyerRefund { get; init; }
 }
 
 /// <summary>
@@ -110,6 +130,9 @@ public sealed record ResolveDisputeResponse
 
     /// <summary>FUP-16: the disposition recorded on the verdict, if any.</summary>
     public string? Disposition { get; init; }
+
+    /// <summary>ESC-20 (P.8): the split, on a <c>partial_refund</c> verdict.</summary>
+    public VerdictAmountsDto? VerdictAmounts { get; init; }
 }
 
 // ──────────────────────────────────────────────

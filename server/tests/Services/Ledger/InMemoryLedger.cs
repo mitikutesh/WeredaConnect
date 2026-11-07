@@ -226,6 +226,18 @@ internal sealed class InMemoryLedger : IEscrowLedgerRepository
         return Task.FromResult(LedgerWrite.Written);
     }
 
+    public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? Next)> QueryOwedTransportLegsAsync(
+        string status, Dictionary<string, AttributeValue>? startKey)
+    {
+        var items = Escrows.Values
+            .Where(e => (string)e["status"] == status && LedgerEscrowFields.IsLedger(e))
+            .Select(e => LedgerEscrow.From(e))
+            .Where(e => e.IsHeld(LedgerEscrowFields.LegTransport) && !e.IsHeld(LedgerEscrowFields.LegCrop))
+            .Select(e => Copy(e.EscrowId)!)
+            .ToList();
+        return Task.FromResult((items, (Dictionary<string, AttributeValue>?)null));
+    }
+
     public Task<(List<LedgerRow> Rows, Dictionary<string, AttributeValue>? Next)> QueryOpenAsync(
         string openStatus, string dueBefore, int limit, Dictionary<string, AttributeValue>? startKey)
     {

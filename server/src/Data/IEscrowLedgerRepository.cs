@@ -51,6 +51,14 @@ internal interface IEscrowLedgerRepository
     /// </summary>
     Task<(List<LedgerRow> Rows, Dictionary<string, AttributeValue>? Next)> QueryOpenAsync(
         string openStatus, string dueBefore, int limit, Dictionary<string, AttributeValue>? startKey);
+
+    /// <summary>
+    /// F2: one page of ledger escrows in <paramref name="status"/> (<c>StatusExpiresIndex</c>, oldest first) whose
+    /// crop leg is decided and whose transport leg is still held: the trucker failed the identity gate at the
+    /// release. The hourly retry pays them once the gate passes.
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? Next)> QueryOwedTransportLegsAsync(
+        string status, Dictionary<string, AttributeValue>? startKey);
 }
 
 /// <summary>The outcome of a ledger write.</summary>
