@@ -19,7 +19,7 @@ Audio notes (`audioNoteRef`) and photos cannot be screened for phone numbers (FU
 2. **Never your own listing.** Refused on the server; never shown by the clients.
 3. **The reporter stays hidden.** Only admins read reports. Nothing is written to the listing, the owner is not notified, and no client route returns a report. The server log line carries no ids.
 4. **Reason codes, no free text.** A report holds pseudonymous ids and a reason code only, so it carries no personal data to erase or screen.
-5. **One report per buyer and listing.** A repeat answers `duplicate` and costs no quota.
+5. **One report per buyer and listing.** A later repeat answers `duplicate` and costs no quota (two reports of the same listing sent at the same moment may spend one quota each; the loser still answers `duplicate`).
 6. **Daily limit.** At most 10 reports per buyer per UTC day (rate-limits table, key `LISTING_REPORT#{buyerId}#{yyyy-MM-dd}`); more are refused.
 7. **Offline first.** On mobile a report made offline waits in the sync queue and is sent when the phone is online.
 
