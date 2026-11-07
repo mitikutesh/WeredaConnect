@@ -39,6 +39,28 @@ String deliveryPhotoEntityId(String deliveryId, String type) =>
 bool isDeliveryPhotoRejectionMessage(String? message) =>
     message != null && message.startsWith('DELIVERY_PHOTO_');
 
+/// The `delivery` operation fields that held a handoff photo before FRD-12.
+/// The server still shape-checks them there but never writes them
+/// (`sync-protocol.md` 1.39.0).
+const List<String> deliveryOpPhotoRefFields = [
+  'pickupPhotoRef',
+  'dropoffPhotoRef',
+];
+
+final RegExp _photoKeyPattern = RegExp(
+  r'^uploads/photos/([a-zA-Z0-9\-]+)/(pickup|dropoff)-\d+\.(webp|jpg)$',
+);
+
+/// Whether [ref] is an upload key of a photo of [deliveryId]
+/// (`uploads/photos/{deliveryId}/{pickup|dropoff}-{millis}.{webp|jpg}`), the
+/// only value the server accepts in a [deliveryOpPhotoRefFields] field. A
+/// file path on the phone, another delivery's key or any other value is not.
+bool isDeliveryPhotoKeyOf(Object? ref, String deliveryId) {
+  if (ref is! String) return false;
+  final match = _photoKeyPattern.firstMatch(ref);
+  return match != null && match.group(1) == deliveryId;
+}
+
 /// The handoff photos that go with a refused `delivery` operation, given its
 /// [action] and its payload's `status`: a create was never stored, so both;
 /// a refused pickup takes its pickup photo, a refused delivery confirm its

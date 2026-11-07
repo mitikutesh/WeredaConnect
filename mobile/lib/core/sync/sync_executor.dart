@@ -90,10 +90,29 @@ typedef OperationSyncedHandler = Future<void> Function(
 /// The operation data the server gets. Keys the client keeps for itself
 /// (prefixed `_`, such as the order status a refused payment goes back to)
 /// are left out: the server refuses unknown fields.
-Object? wireOperationData(String data) {
+///
+/// FUP-08: a `delivery` operation queued by a build before SIM-60 may carry
+/// a photo file path in `pickupPhotoRef` or `dropoffPhotoRef`. The server
+/// refuses any value there that is not this delivery's upload key
+/// (`DELIVERY_INVALID_FIELD`, retried without end) and drops a valid key
+/// unwritten (`sync-protocol.md` 1.39.0), so such a value is left out and the
+/// rest of the operation goes through.
+Object? wireOperationData(
+  String data, {
+  String? entityType,
+  String? entityId,
+}) {
   final decoded = jsonDecode(data);
   if (decoded is Map<String, dynamic>) {
     decoded.removeWhere((key, _) => key.startsWith('_'));
+    if (entityType == 'delivery' && entityId != null) {
+      for (final field in deliveryOpPhotoRefFields) {
+        if (decoded.containsKey(field) &&
+            !isDeliveryPhotoKeyOf(decoded[field], entityId)) {
+          decoded.remove(field);
+        }
+      }
+    }
   }
   return decoded;
 }
@@ -822,7 +841,11 @@ class SyncExecutor {
               'entityType': op.entityType,
               'entityId': op.entityId,
               'action': op.action,
-              'data': wireOperationData(op.data),
+              'data': wireOperationData(
+                op.data,
+                entityType: op.entityType,
+                entityId: op.entityId,
+              ),
               'timestamp': op.createdAt.toIso8601String(),
             },
           )
