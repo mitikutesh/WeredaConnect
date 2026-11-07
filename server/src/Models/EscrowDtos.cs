@@ -531,6 +531,18 @@ public sealed record EscrowDto
     public string? HeldFor { get; init; }
 
     public required int Version { get; init; }
+
+    /// <summary>
+    /// ESC-20 (escrow-protocol.md 2.1.0, P.11): a ledger escrow's legs, <c>crop</c>, <c>transport</c> and
+    /// <c>commission</c>, each <c>held</c>, <c>released</c>, <c>refunded</c> or <c>kept</c>. Null on a 1.x escrow.
+    /// </summary>
+    public Dictionary<string, string>? LegStatus { get; init; }
+
+    /// <summary>ESC-20: the part of <see cref="Amount"/> decided for the buyer so far. Null on a 1.x escrow.</summary>
+    public decimal? RefundedTotal { get; init; }
+
+    /// <summary>ESC-20: the part of <see cref="Amount"/> decided for the farmer and the trucker so far. Null on a 1.x escrow.</summary>
+    public decimal? ReleasedTotal { get; init; }
 }
 
 /// <summary>

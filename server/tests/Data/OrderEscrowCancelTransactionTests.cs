@@ -163,7 +163,9 @@ public class OrderEscrowCancelTransactionTests
         arm.UpdateExpression.Should().Be("SET #expiresAt = :at, #refundReason = :reason, #updated = :at ADD #version :one");
         arm.ConditionExpression.Should().Be(
             "#status = :escrowed AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout) "
-            + "AND (attribute_not_exists(#confirmed) OR size(#confirmed) = :zero)");
+            + "AND (attribute_not_exists(#confirmed) OR size(#confirmed) = :zero) "
+            // ESC-20: never on a ledger escrow whose crop leg is decided.
+            + "AND " + EscrowRepository.LedgerCropHeldCondition);
         arm.ExpressionAttributeNames.Should().Contain(new Dictionary<string, string>
         {
             ["#expiresAt"] = "expiresAt",

@@ -13,7 +13,7 @@ namespace WeredaConnect.Server.Services;
 /// disputes, and refunds via Telebirr integration.
 /// AOT-compatible — no reflection used.
 /// </summary>
-public sealed class EscrowService
+public sealed partial class EscrowService
 {
     private readonly IEscrowRepository _escrowRepo;
     private readonly IEscrowAuditRepository _auditRepo;
@@ -908,6 +908,16 @@ public sealed class EscrowService
             record["truckerId"] = truckerId;
         }
 
+        // ESC-20: behind ESCROW_LEDGER_ENABLED (and only with the table wired) a new order escrow is born on
+        // the ledger: every leg with money held, nothing refunded or released yet (escrow-protocol.md 2.1.0, P.2).
+        if (LedgerBirthEnabled && LedgerRepo != null)
+        {
+            record[LedgerEscrowFields.SettlementModel] = LedgerEscrowFields.ModelLedger;
+            record[LedgerEscrowFields.LegStatus] = EscrowLedgerBook.BirthLegs(farmerPayout, truckerPayout, commission);
+            record[LedgerEscrowFields.RefundedTotal] = 0m;
+            record[LedgerEscrowFields.ReleasedTotal] = 0m;
+        }
+
         var buyerName = GetStringOrNull(order, "buyerName");
         var farmerName = GetStringOrNull(order, "farmerName");
         if (!string.IsNullOrEmpty(buyerName))
@@ -1685,6 +1695,15 @@ public sealed class EscrowService
                 404, "ESCROW_016", "Escrow not found.");
         }
 
+        // 3b. FUP-147: a release names the delivery it pays for; when the escrow is linked to one, they must agree.
+        var escrowDeliveryId = GetStringOrNull(escrowItem, "deliveryId");
+        if (!string.IsNullOrEmpty(request.DeliveryId) && !string.IsNullOrEmpty(escrowDeliveryId)
+            && !string.Equals(request.DeliveryId, escrowDeliveryId, StringComparison.Ordinal))
+        {
+            return EscrowResult<ReleaseEscrowResponse>.Failure(
+                422, "ESCROW_VALIDATION", "deliveryId does not match the delivery this escrow pays for.", "deliveryId");
+        }
+
         // 4. Validate state transition: "escrowed", or "dispute_resolved" with a verdict that
         //    does not contradict a release (ESC-03). FRD-03: a held escrow leaves only through an admin
         //    in the admin group with a reason, and is then checked on the status it was held from.
@@ -1736,6 +1755,12 @@ public sealed class EscrowService
             && await CheckAdminReleaseOrderAsync(escrowItem, authenticatedUserId) is { } releaseBlock)
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(releaseBlock.HttpStatus, releaseBlock.Code, releaseBlock.Message);
+        }
+
+        // 4a4. ESC-20: a ledger escrow settles leg by leg through write-ahead rows, never under the lock.
+        if (IsLedgerEscrow(escrowItem))
+        {
+            return await ReleaseLedgerAsync(request, escrowItem, currentStatus, authenticatedUserId, progress);
         }
 
         var farmerPayout = GetDecimal(escrowItem, "farmerPayout");
@@ -2001,7 +2026,9 @@ public sealed class EscrowService
         var releaseFields = new Dictionary<string, object>
         {
             { "telebirrReleaseRef", releaseResponse.TelebirrRef ?? "" },
-            { "releasedAt", now }
+            { "releasedAt", now },
+            // FUP-147: the trigger is stored with the release it caused.
+            { "releaseTrigger", request.Trigger }
         };
         if (!string.IsNullOrEmpty(truckerReleaseRef))
         {
@@ -2684,6 +2711,11 @@ public sealed class EscrowService
         }
 
         var resolution = GetStringOrNull(escrow, "disputeResolution");
+        if (status == "dispute_resolved" && resolution == DisputeVerdicts.PartialRefund && IsLedgerEscrow(escrow))
+        {
+            return "The dispute verdict is a split (partial_refund): the settlement sweep pays it leg by leg.";
+        }
+
         var contrary = op == "release" ? "buyer_wins" : "farmer_wins";
         if (status == "dispute_resolved" && resolution == contrary)
         {
@@ -3090,7 +3122,8 @@ public sealed class EscrowService
     private async Task<SettlementBlock?> MirrorVerdictAsync(
         Dictionary<string, object> escrow, string actor, string op, string? overrideReason = null)
     {
-        var resolution = GetStringOrNull(escrow, "disputeResolution");
+        // ESC-20: a split verdict needs the goods delivered, so the order follows it as farmer_wins.
+        var resolution = DisputeVerdicts.MirrorDirection(GetStringOrNull(escrow, "disputeResolution"));
         if (resolution is not ("farmer_wins" or "buyer_wins"))
         {
             return null;
@@ -3657,6 +3690,12 @@ public sealed class EscrowService
             && await PrepareAdminRefundOrderAsync(escrowItem, authenticatedUserId, overrideReason) is { } refundBlock)
         {
             return EscrowResult<RefundEscrowResponse>.Failure(refundBlock.HttpStatus, refundBlock.Code, refundBlock.Message);
+        }
+
+        // 4a4. ESC-20: a ledger escrow refunds every held leg through one write-ahead row, never under the lock.
+        if (IsLedgerEscrow(escrowItem))
+        {
+            return await RefundLedgerAsync(request, escrowItem, currentStatus, settleFrom, authenticatedUserId, progress);
         }
 
         var amount = GetDecimal(escrowItem, "amount");
@@ -5396,6 +5435,14 @@ public sealed class EscrowService
         var (items, lastEvaluatedKey) = await _escrowRepo.QueryOpenManualPayoutsAsync(limit, exclusiveStartKey);
         var userCache = new Dictionary<string, UserDto?>(StringComparer.Ordinal);
         var payouts = new List<ManualPayoutDto>(items.Count);
+
+        // ESC-20 (P.8): the ledger's manual rows, one entry per escrow, on the first page (oldest first);
+        // the 1.x queue follows, paged by its token, until it is drained.
+        if (exclusiveStartKey == null)
+        {
+            payouts.AddRange(await ListLedgerManualPayoutsAsync(userCache));
+        }
+
         foreach (var item in items)
         {
             payouts.Add(await MapManualPayoutAsync(item, userCache));
@@ -5437,6 +5484,27 @@ public sealed class EscrowService
                 400, "ESCROW_037",
                 "externalRef must be the Telebirr transaction id: 4 to 64 letters, digits or . _ : / -",
                 "externalRef");
+        }
+
+        // ESC-20 (P.8): a ledger ref (URL-encoded in the path, release%23farmer) records one ledger row.
+        var ledgerRef = Uri.UnescapeDataString(leg);
+        if (ledgerRef.Contains('#', StringComparison.Ordinal))
+        {
+            var ledgerResult = await CompleteLedgerManualPayoutAsync(escrowId, ledgerRef, reference, actorUserId);
+            if (!ledgerResult.IsSuccess && ledgerResult.Error!.HttpStatus is 404 or 409)
+            {
+                try
+                {
+                    await AppendAuditAsync(escrowId, "manual_payout_refused", "", "", actorUserId,
+                        metadata: $"ref={ledgerRef};code={ledgerResult.Error.Code};attemptedRef={reference}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"ESCROW_MANUAL_PAYOUT_REFUSAL_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+                }
+            }
+
+            return ledgerResult;
         }
 
         if (!ManualPayoutFields.IsLeg(leg))
@@ -6333,7 +6401,12 @@ public sealed class EscrowService
             CompletedAt = GetStringOrNull(item, "completedAt"),
             RefundPending = IsRefundPending(item),
             RefundReason = GetStringOrNull(item, "refundReason"),
-            Version = GetInt(item, "version")
+            Version = GetInt(item, "version"),
+            LegStatus = IsLedgerEscrow(item)
+                ? new Dictionary<string, string>(LedgerEscrow.From(item).Legs, StringComparer.Ordinal)
+                : null,
+            RefundedTotal = IsLedgerEscrow(item) ? GetDecimal(item, LedgerEscrowFields.RefundedTotal) : null,
+            ReleasedTotal = IsLedgerEscrow(item) ? GetDecimal(item, LedgerEscrowFields.ReleasedTotal) : null
         };
     }
 
@@ -6352,6 +6425,12 @@ public sealed class EscrowService
         }
 
         if (!string.IsNullOrEmpty(GetStringOrNull(item, "refundReason")))
+        {
+            return true;
+        }
+
+        // ESC-20: a ledger escrow whose refund is decided reads escrowed until its refund row is done.
+        if (IsLedgerEscrow(item) && LedgerEscrow.From(item).LegState(LedgerEscrowFields.LegCrop) == LedgerEscrowFields.Refunded)
         {
             return true;
         }
