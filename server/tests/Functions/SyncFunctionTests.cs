@@ -2864,6 +2864,8 @@ public partial class SyncFunctionTests
             { "buyerPhone", new AttributeValue { S = "+251933333333" } },
             { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
             { "qrNonce", new AttributeValue { S = qrNonce } },
+            { "pickupPhotoVersionId", new AttributeValue { S = "photo-version-pickup-1" } },
+            { "dropoffPhotoVersionId", new AttributeValue { S = "photo-version-dropoff-1" } },
             { "status", new AttributeValue { S = status } },
             { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
             { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
@@ -6598,6 +6600,9 @@ public partial class SyncFunctionTests
         Assert.DoesNotContain("qrNonce", response.Body);
         // ESC-48: nor any party's phone number.
         AssertNoDeliveryPhones(response.Body);
+        // FRD-12: nor the server-only photo version ids.
+        Assert.DoesNotContain("PhotoVersionId", response.Body);
+        Assert.DoesNotContain("photo-version-", response.Body);
     }
 
     private static void AssertNoDeliveryPhones(string body)
