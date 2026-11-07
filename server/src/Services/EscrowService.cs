@@ -1595,6 +1595,11 @@ public sealed class EscrowService
             MoneyAlarmLog.MarkSettlementInFlight(ex);
             throw;
         }
+        finally
+        {
+            // FRD-18: whatever the answer, a held exit whose money is committed gets its outcome label.
+            await LabelHeldExitAsync(progress);
+        }
     }
 
     /// <summary>
@@ -1608,7 +1613,14 @@ public sealed class EscrowService
         public bool Locked { get; set; }
 
         public bool Recorded { get; set; }
+
+        /// <summary>FRD-18: an admin exit of a held escrow whose decision row is written (section 20.1).</summary>
+        public HeldExitDecision? HeldExit { get; set; }
     }
+
+    /// <summary>FRD-18: the admin's exit of a held escrow, as read before its decision row, and who decided it when.</summary>
+    private sealed record HeldExitDecision(
+        Dictionary<string, object> Escrow, string Op, string Reason, string DecidedAt, AuditContext Context);
 
     private async Task<EscrowResult<ReleaseEscrowResponse>> ReleaseCoreAsync(
         ReleaseEscrowRequest request, string authenticatedUserId, string? role,
@@ -1693,6 +1705,12 @@ public sealed class EscrowService
         if (heldExit && await RecordHeldExitAsync(escrowItem, "release", request.Reason!, authenticatedUserId) is { } heldAuditBlock)
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(heldAuditBlock.HttpStatus, heldAuditBlock.Code, heldAuditBlock.Message);
+        }
+
+        if (heldExit)
+        {
+            progress.HeldExit = new HeldExitDecision(escrowItem, "release", request.Reason!.Trim(), DateTime.UtcNow.ToString("o"),
+                _auditContext ?? new AuditContext { Actor = authenticatedUserId, ActorRole = "admin" });
         }
 
         // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
@@ -2773,6 +2791,57 @@ public sealed class EscrowService
     }
 
     /// <summary>
+    /// FRD-18 (section 20.1): the outcome label of an admin exit of a held escrow, once the exit committed
+    /// the money: the settlement lock was taken and kept (paid, queued for an admin in the manual payout
+    /// queue, or a gateway outcome that is not known). A refusal before the lock, or a definite gateway
+    /// refusal that freed it, leaves the escrow held and unlabelled, and the admin's next exit labels it.
+    /// A held escrow is held once and leaves once, so the key time is its <c>heldAt</c>. Best effort: it
+    /// never changes the answer, and runs in the wrappers' <c>finally</c>, so it never throws.
+    /// </summary>
+    private async Task LabelHeldExitAsync(SettlementProgress progress)
+    {
+        if (progress.HeldExit is not { } exit || !progress.Locked)
+        {
+            return;
+        }
+
+        try
+        {
+            var escrow = exit.Escrow;
+            var escrowId = GetString(escrow, "escrowId");
+            var orderId = GetStringOrNull(escrow, "orderId");
+            var heldAt = GetStringOrNull(escrow, EscrowHoldFields.HeldAt);
+            await OutcomeLabelWriter.WriteAsync(_transactionAuditRepo, new OutcomeLabel
+            {
+                Case = OutcomeLabels.CaseHeldEscrow,
+                CaseId = escrowId,
+                Outcome = OutcomeLabels.HeldExitOutcome(exit.Op),
+                Source = exit.Op == "release" ? "fraud_hold_release" : "fraud_hold_refund",
+                TransactionId = string.IsNullOrEmpty(orderId) ? escrowId : orderId,
+                KeyTime = heldAt ?? exit.DecidedAt,
+                AdminId = exit.Context.Actor,
+                LabelledAt = exit.DecidedAt,
+                Reason = exit.Reason,
+                OrderId = orderId,
+                EscrowId = escrowId,
+                DeliveryId = GetStringOrNull(escrow, "deliveryId"),
+                BuyerId = GetStringOrNull(escrow, "buyerId"),
+                FarmerId = GetStringOrNull(escrow, "farmerId"),
+                TruckerId = GetStringOrNull(escrow, "truckerId"),
+                Amount = GetDecimalOrNull(escrow, "amount"),
+                HoldReason = GetStringOrNull(escrow, EscrowHoldFields.HoldReason),
+                HeldFor = GetStringOrNull(escrow, EscrowHoldFields.HeldFor),
+                HeldFromStatus = GetStringOrNull(escrow, EscrowHoldFields.HeldFromStatus),
+                HeldAt = heldAt
+            }, exit.Context);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"OUTCOME_LABEL_FAILED case={OutcomeLabels.CaseHeldEscrow} error={ex.GetType().Name}");
+        }
+    }
+
+    /// <summary>
     /// FRD-03 (section 18.3): the order side of an admin refund of an escrow held from <c>escrowed</c>,
     /// by what the sweep was about to do (<c>heldFor</c>). A verdict held from <c>dispute_resolved</c> goes
     /// through <see cref="MirrorVerdictAsync"/> instead, as the dispute sweep would. Null when the refund
@@ -3442,6 +3511,11 @@ public sealed class EscrowService
             MoneyAlarmLog.MarkSettlementInFlight(ex);
             throw;
         }
+        finally
+        {
+            // FRD-18: whatever the answer, a held exit whose money is committed gets its outcome label.
+            await LabelHeldExitAsync(progress);
+        }
     }
 
     private async Task<EscrowResult<RefundEscrowResponse>> RefundCoreAsync(
@@ -3545,6 +3619,12 @@ public sealed class EscrowService
         if (heldExit && await RecordHeldExitAsync(escrowItem, "refund", request.Reason!, authenticatedUserId) is { } heldAuditBlock)
         {
             return EscrowResult<RefundEscrowResponse>.Failure(heldAuditBlock.HttpStatus, heldAuditBlock.Code, heldAuditBlock.Message);
+        }
+
+        if (heldExit)
+        {
+            progress.HeldExit = new HeldExitDecision(escrowItem, "refund", request.Reason!.Trim(), DateTime.UtcNow.ToString("o"),
+                _auditContext ?? new AuditContext { Actor = authenticatedUserId, ActorRole = "admin" });
         }
 
         // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a

@@ -477,6 +477,7 @@
     "entity_order": "Order",
     "entity_delivery": "Delivery",
     "entity_escrow": "Escrow",
+    "entity_label": "Outcome",
     "stage_awaiting_payment": "Awaiting payment",
     "stage_in_progress": "In progress",
     "stage_delivered": "Delivered",
@@ -604,7 +605,8 @@
     "action_dispute_resolved_waiting_for_delivery": "Dispute: waiting for delivery (admin)",
     "action_fraud_hold": "Held for review",
     "action_fraud_hold_release": "Released after review (admin)",
-    "action_fraud_hold_refund": "Refunded after review (admin)"
+    "action_fraud_hold_refund": "Refunded after review (admin)",
+    "action_outcome_label": "Outcome labelled (admin)"
   },
   "analytics": {
     "title": "Transaction Volume",

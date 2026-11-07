@@ -477,6 +477,7 @@
     "entity_order": "Ajaja",
     "entity_delivery": "Geejjiba",
     "entity_escrow": "Eeskiroo",
+    "entity_label": "Bu'aa",
     "stage_awaiting_payment": "Kaffaltii eeggachaa",
     "stage_in_progress": "Adeemsa keessa",
     "stage_delivered": "Geejjibame",
@@ -604,7 +605,8 @@
     "action_dispute_resolved_waiting_for_delivery": "Waldhabdee: geejjiba eegaa jira (bulchaa)",
     "action_fraud_hold": "Gamaaggamaaf qabame",
     "action_fraud_hold_release": "Gamaaggama booda gadhiifame (bulchaa)",
-    "action_fraud_hold_refund": "Gamaaggama booda deebi'e kaffaltame (bulchaa)"
+    "action_fraud_hold_refund": "Gamaaggama booda deebi'e kaffaltame (bulchaa)",
+    "action_outcome_label": "Bu'aan galmeeffame (bulchaa)"
   },
   "analytics": {
     "title": "Hanga Daldala",

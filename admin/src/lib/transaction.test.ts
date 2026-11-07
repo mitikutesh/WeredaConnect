@@ -13,8 +13,21 @@ import {
   partyLabel,
   stageLabel,
   timelineActionLabel,
+  timelineEntityLabel,
   transportFailureLabel,
 } from "./transaction";
+
+describe("outcome label rows (FRD-18)", () => {
+  it("name the entity and the action in all three locales, and leave an unknown entity raw", () => {
+    const en = (key: string) => translate(key, "en");
+    expect(timelineEntityLabel("label", en)).toBe("Outcome");
+    expect(timelineEntityLabel("label", (key) => translate(key, "am"))).toBe("ውጤት");
+    expect(timelineEntityLabel("label", (key) => translate(key, "om"))).toBe("Bu'aa");
+    expect(timelineEntityLabel("escrow", en)).toBe("Escrow");
+    expect(timelineEntityLabel("fraud", en)).toBe("fraud");
+    expect(timelineActionLabel("outcome_label", en)).toBe("Outcome labelled (admin)");
+  });
+});
 
 describe("held escrow (FRD-03)", () => {
   it("has a badge colour and a label, and its audit actions are labelled", () => {

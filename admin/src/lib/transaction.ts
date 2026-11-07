@@ -149,6 +149,10 @@ export const timelineActionLabel = (action: string, t: Translate) => {
   return label === key ? humanize(action) : label;
 };
 
+/** The timeline leg of an audit row (order, delivery, escrow, FRD-18 label), or its raw entity type. */
+export const timelineEntityLabel = (entity: string, t: Translate) =>
+  labelOrRaw(t, `transactions.entity_${entity}`, entity);
+
 /** ESC-06: why an order waits in the admin stuck-order queue (hold_cap). */
 export const adminQueueLabel = (reason: string, t: Translate) =>
   labelOrRaw(t, `transactions.adminQueue_${reason}`, reason);

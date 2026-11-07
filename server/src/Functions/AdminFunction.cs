@@ -668,6 +668,9 @@ public partial class AdminFunction
         AuditLogger.LogAudit("ADMIN", "RESOLVE_DISPUTE",
             userId: adminUserId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "escrow", entityId: escrowId, outcome: "success");
+        await OutcomeLabelWriter.WriteAsync(TxAuditRepo(),
+            DisputeLabel(item, disputeOrderId, body, applyDisposition, dispositionReason, adminUserId, now),
+            AuditContext.From(request, adminUserId, "admin"), context);
 
         if (applyDisposition != null)
         {
@@ -692,6 +695,70 @@ public partial class AdminFunction
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.ResolveDisputeResponse);
+    }
+
+    /// <summary>
+    /// FRD-18 (section 20.1): the outcome label of a dispute verdict, written once with the verdict (a
+    /// replay records nothing new, the label included). Keyed on the verdict's time, the escrow's
+    /// <c>disputeResolvedAt</c>. The reason is the disposition's, else the admin's notes.
+    /// </summary>
+    private static OutcomeLabel DisputeLabel(
+        Dictionary<string, AttributeValue> escrow, string transactionId, ResolveDisputeRequest body,
+        string? disposition, string? dispositionReason, string adminUserId, string resolvedAt)
+    {
+        string? Field(string name) => escrow.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value.S) ? value.S : null;
+
+        var escrowId = Field("escrowId") ?? transactionId;
+        return new OutcomeLabel
+        {
+            Case = OutcomeLabels.CaseDispute,
+            CaseId = escrowId,
+            Outcome = body.Resolution,
+            Source = "admin_dispute_resolved",
+            TransactionId = transactionId,
+            KeyTime = resolvedAt,
+            AdminId = adminUserId,
+            LabelledAt = resolvedAt,
+            Reason = dispositionReason ?? body.Notes,
+            OrderId = Field("orderId"),
+            EscrowId = escrowId,
+            DeliveryId = Field("deliveryId"),
+            BuyerId = Field("buyerId"),
+            FarmerId = Field("farmerId"),
+            TruckerId = Field("truckerId"),
+            Amount = escrow.TryGetValue("amount", out var amount)
+                     && decimal.TryParse(amount.N, NumberStyles.Number, CultureInfo.InvariantCulture, out var value)
+                ? value
+                : null,
+            DisputedBy = Field("disputedBy"),
+            Disposition = disposition
+        };
+    }
+
+    /// <summary>
+    /// FRD-18: a replay of a recorded verdict that is not refused re-ensures its outcome label from what the
+    /// escrow stored (the verdict's <c>disputeResolvedAt</c> and <c>disputeResolvedBy</c>), so a label the first
+    /// write lost heals through the conditional put, and one already there is left alone. Only for a verdict on a raised
+    /// dispute (<c>disputedBy</c>) with its time stored: the FRD-03 refund of an escrow held for release also
+    /// records <c>buyer_wins</c>, and that case is labelled as a held exit.
+    /// </summary>
+    private async Task RepairDisputeLabelAsync(
+        Dictionary<string, AttributeValue> latest, string resolution, string? disposition, string? dispositionReason,
+        APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        string? Field(string name) => latest.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value.S) ? value.S : null;
+
+        if (Field("disputedBy") == null || Field("disputeResolvedAt") is not { } resolvedAt)
+        {
+            return;
+        }
+
+        var resolvedBy = Field("disputeResolvedBy") ?? AuthHelper.GetUserId(request) ?? "admin";
+        var label = DisputeLabel(latest, Field("orderId") ?? Field("escrowId") ?? "",
+            new ResolveDisputeRequest { Resolution = resolution, Action = resolution == "farmer_wins" ? "release" : "refund" },
+            disposition, string.IsNullOrEmpty(dispositionReason) ? null : dispositionReason, resolvedBy, resolvedAt);
+        // Who decided is stored; where from is not, so the replaying request's address is not put on the label.
+        await OutcomeLabelWriter.WriteAsync(TxAuditRepo(), label, new AuditContext { Actor = resolvedBy, ActorRole = "admin" }, context);
     }
 
     /// <summary>
@@ -744,11 +811,15 @@ public partial class AdminFunction
                     dispositionAt = now;
                 }
 
+                // FRD-18: past the refusals, which change nothing, the label a lost write left out heals.
+                await RepairDisputeLabelAsync(latest, resolution, chosen, reason, request, context);
                 return await ApplyDispositionAsync(mirror, latest, resolution, chosen!, reason, plan.Legs, dispositionAt,
                     recordedAt, latestStatus, adminUserId, request, context);
             }
         }
 
+        await RepairDisputeLabelAsync(latest, resolution, recordedDisposition,
+            latest.TryGetValue(DisputeDispositionFields.Reason, out var storedReason) ? storedReason.S : null, request, context);
         await MirrorVerdictAsync(latest, resolution, recordedAt, adminUserId, context);
         return LambdaResponse.Ok(new ResolveDisputeResponse
         {
@@ -1388,7 +1459,9 @@ public partial class AdminFunction
         // FRD-05: the side effect comes before the review stamp, so a failure in between leaves the signal
         // pending and the admin can act again: the user suspended or the whitelist written, never a
         // reviewed signal without them. The row is checked first, so a bad id has no side effect.
-        if (!await IsSignalRowAsync(signalUserId, signalKey))
+        // FRD-18: the same read carries what the outcome label links (its type, entity, prior decision).
+        var signalRow = await ReadSignalRowAsync(signalUserId, signalKey);
+        if (signalRow == null)
         {
             return LambdaResponse.Error(404, "ADMIN_006", "Fraud signal not found.");
         }
@@ -1465,6 +1538,8 @@ public partial class AdminFunction
         AuditLogger.LogAudit("ADMIN", "FRAUD_ACTION",
             userId: adminUserId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "fraudSignal", entityId: signalId, detail: body.Action, outcome: "success");
+        await LabelFraudDecisionAsync(signalId, signalUserId, signalKey, signalRow, body, adminUserId, now,
+            whitelistUntil, request, context);
 
         var response = new FraudActionResponse
         {
@@ -1501,10 +1576,12 @@ public partial class AdminFunction
     }
 
     /// <summary>
-    /// FRD-05: whether the row the action names exists and is a signal (legacy rows carry no
-    /// <c>recordType</c>), read consistently so a row written a moment ago is seen.
+    /// FRD-05: the row the action names when it exists and is a signal (legacy rows carry no
+    /// <c>recordType</c>), else null; read consistently so a row written a moment ago is seen. FRD-18: it
+    /// also projects what the outcome label needs: the signal's type, entity and first time, and the
+    /// decision it carries now (<c>status</c>, <c>resolution</c>, <c>reviewedAt</c>).
     /// </summary>
-    private async Task<bool> IsSignalRowAsync(string userId, string signalKey)
+    private async Task<Dictionary<string, AttributeValue>?> ReadSignalRowAsync(string userId, string signalKey)
     {
         var response = await _dynamoDb.GetItemAsync(new GetItemRequest
         {
@@ -1515,12 +1592,76 @@ public partial class AdminFunction
                 { "signalKey", new AttributeValue { S = signalKey } }
             },
             ConsistentRead = true,
-            ProjectionExpression = "#u, #rt",
-            ExpressionAttributeNames = new Dictionary<string, string> { { "#u", "userId" }, { "#rt", "recordType" } }
+            ProjectionExpression = "#u, #rt, #st, #res, #ra, #type, #et, #eid, #ca",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#u", "userId" },
+                { "#rt", "recordType" },
+                { "#st", "status" },
+                { "#res", "resolution" },
+                { "#ra", "reviewedAt" },
+                { "#type", "signalType" },
+                { "#et", "entityType" },
+                { "#eid", "entityId" },
+                { "#ca", "createdAt" }
+            }
         });
         return response?.Item is { Count: > 0 } item
-            && (!item.TryGetValue("recordType", out var recordType)
-                || recordType.S == FraudDetectionService.RecordTypeSignal);
+               && (!item.TryGetValue("recordType", out var recordType)
+                   || recordType.S == FraudDetectionService.RecordTypeSignal)
+            ? item
+            : null;
+    }
+
+    /// <summary>
+    /// FRD-18 (section 20.1): the outcome label of a Fraud Review decision, after its stamp and audit row.
+    /// One label per decision that changes what the signal says: a decision the signal already carries
+    /// (a retry, or the same verb again) writes none. The key time is the previous decision's
+    /// <c>reviewedAt</c>, or the signal's own <c>createdAt</c> while it was pending, so two identical
+    /// decisions in flight write one row and every change of mind writes its own. Best effort: a failed
+    /// write is logged and the action answers as before.
+    /// </summary>
+    private async Task LabelFraudDecisionAsync(
+        string signalId, string signalUserId, string signalKey, Dictionary<string, AttributeValue> signalRow,
+        FraudActionRequest body, string adminUserId, string now, string? whitelistUntil,
+        APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        string? Field(string name) => signalRow.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value.S) ? value.S : null;
+
+        var reviewed = Field("status") == "reviewed";
+        if (reviewed && Field("resolution") == body.Action)
+        {
+            context.Logger.LogInformation(
+                $"OUTCOME_LABEL_EXISTS case={OutcomeLabels.CaseFraudSignal} outcome={OutcomeLabels.FraudOutcome(body.Action)} caseId={MoneyAlarmLog.LogId(signalId)} reason=same_decision");
+            return;
+        }
+
+        var createdAt = Field("createdAt") ?? signalKey.Split('#')[0];
+        var entityType = Field("entityType");
+        var entityId = Field("entityId");
+        var orderId = SignalOrderId(entityType, entityId);
+        await OutcomeLabelWriter.WriteAsync(TxAuditRepo(), new OutcomeLabel
+        {
+            Case = OutcomeLabels.CaseFraudSignal,
+            CaseId = signalId,
+            Outcome = OutcomeLabels.FraudOutcome(body.Action)!,
+            Source = $"fraud_{body.Action}",
+            TransactionId = signalId,
+            KeyTime = reviewed ? Field("reviewedAt") ?? createdAt : createdAt,
+            AdminId = adminUserId,
+            LabelledAt = now,
+            Reason = body.Notes,
+            SubjectUserId = signalUserId,
+            SignalIds = new[] { signalId },
+            SignalType = Field("signalType") ?? (signalKey.Contains('#') ? signalKey[(signalKey.IndexOf('#') + 1)..] : null),
+            SignalEntityType = entityType,
+            SignalEntityId = entityId,
+            SignalCreatedAt = createdAt,
+            OrderId = orderId,
+            EscrowId = entityType == "escrow" ? entityId : null,
+            DeliveryId = entityType == "delivery" ? entityId : null,
+            WhitelistUntil = whitelistUntil
+        }, AuditContext.From(request, adminUserId, "admin"), context);
     }
 
     /// <summary>
@@ -2374,9 +2515,19 @@ public partial class AdminFunction
             ActorRole = GetStringOrNull(item, "actorRole"),
             IpAddress = GetStringOrNull(item, "ipAddress"),
             CorrelationId = GetStringOrNull(item, "correlationId"),
-            Timestamp = GetString(item, "timestamp"),
+            Timestamp = ShownTimestamp(item) ?? "",
             Metadata = GetStringOrNull(item, "metadata"),
         };
+
+    /// <summary>
+    /// FRD-18: when a transaction-audit row happened, as the timeline and the audit log show it. An outcome
+    /// label is keyed on its case's time (fraud spec section 20.1), so it shows <c>labelledAt</c>, when the
+    /// admin decided; every other row, and a label without it, shows its <c>timestamp</c>.
+    /// </summary>
+    private static string? ShownTimestamp(Dictionary<string, object> item) =>
+        GetString(item, "entityType") == OutcomeLabels.EntityType && GetStringOrNull(item, "labelledAt") is { Length: > 0 } decided
+            ? decided
+            : GetStringOrNull(item, "timestamp");
 
     /// <summary>
     /// Look up the escrow for an order via the OrderIndex GSI (sparse — only escrows
@@ -2528,7 +2679,7 @@ public partial class AdminFunction
                     : null;
             }
 
-            Add(GetStringOrNull(e, "timestamp"), entity, action,
+            Add(ShownTimestamp(e), entity, action,
                 toState: GetStringOrNull(e, "toState"),
                 actor: GetStringOrNull(e, "actor"),
                 detail: GetStringOrNull(e, "metadata"),

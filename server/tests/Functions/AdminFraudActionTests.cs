@@ -52,6 +52,7 @@ public class AdminFraudActionTests
     private Exception? _failNextUserUpdate;
     private Exception? _failNextUserRead;
     private Exception? _failNextWhitelistPut;
+    private Exception? _failNextLabelPut;
 
     public AdminFraudActionTests()
     {
@@ -60,9 +61,16 @@ public class AdminFraudActionTests
                 ? Task.FromException<UpdateItemResponse>(ex)
                 : Task.FromResult(new UpdateItemResponse()));
         _ddb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
-            .Returns(ci => ci.ArgAt<PutItemRequest>(0).TableName == FraudTable && Take(ref _failNextWhitelistPut) is { } ex
-                ? Task.FromException<PutItemResponse>(ex)
-                : Task.FromResult(new PutItemResponse()));
+            .Returns(ci =>
+            {
+                var put = ci.ArgAt<PutItemRequest>(0);
+                var failure = put.TableName == FraudTable ? Take(ref _failNextWhitelistPut)
+                    : IsLabel(put) ? Take(ref _failNextLabelPut)
+                    : null;
+                return failure != null
+                    ? Task.FromException<PutItemResponse>(failure)
+                    : Task.FromResult(new PutItemResponse());
+            });
         _ddb.GetItemAsync(Arg.Any<GetItemRequest>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
@@ -158,6 +166,12 @@ public class AdminFraudActionTests
         .Where(p => p.TableName == TxAuditTable)
         .Select(p => p.Item["action"].S)
         .ToList();
+
+    private static bool IsLabel(PutItemRequest put) =>
+        put.TableName == TxAuditTable && put.Item.TryGetValue("action", out var action) && action.S == "outcome_label";
+
+    /// <summary>FRD-18: the outcome label rows written, in order.</summary>
+    private List<PutItemRequest> LabelPuts => Puts.Where(IsLabel).ToList();
 
     private string? AuditMetadata(string action) => Puts
         .Where(p => p.TableName == TxAuditTable && p.Item["action"].S == action)
@@ -300,7 +314,7 @@ public class AdminFraudActionTests
         WhitelistPut.Should().BeNull();
         Queries.Should().BeEmpty();
         await _cognito.DidNotReceiveWithAnyArgs().AdminDisableUserAsync(default!);
-        AuditActions.Should().Equal("fraud_approve");
+        AuditActions.Should().Equal("fraud_approve", "outcome_label");
     }
 
     // ──────────────────────────────────────────────
@@ -357,7 +371,7 @@ public class AdminFraudActionTests
         Trace.Should().ContainInOrder(
             $"GetItemAsync:{FraudTable}", $"UpdateItemAsync:{UsersTable}", $"UpdateItemAsync:{FraudTable}",
             $"PutItemAsync:{TxAuditTable}", $"QueryAsync:{EscrowsTable}");
-        AuditActions.Should().Equal("user_suspend", "fraud_reject");
+        AuditActions.Should().Equal("user_suspend", "fraud_reject", "outcome_label");
         AuditMetadata("fraud_reject").Should().Be("Same photos as farmer-9");
         AuditMetadata("user_suspend").Should().Be("fraud_confirmed");
     }
@@ -466,7 +480,7 @@ public class AdminFraudActionTests
             && u.ExpressionAttributeValues[":reason"].S == "fraud_confirmed");
         await _cognito.Received(1).AdminDisableUserAsync(Phone);
         await _cognito.Received(1).AdminGlobalSignOutAsync(Phone);
-        AuditActions.Should().Equal("user_suspend", "fraud_reject");
+        AuditActions.Should().Equal("user_suspend", "fraud_reject", "outcome_label");
     }
 
     [Fact]
@@ -554,7 +568,7 @@ public class AdminFraudActionTests
         UserUpdates.Should().BeEmpty();
         Trace.Should().ContainInOrder(
             $"GetItemAsync:{FraudTable}", $"PutItemAsync:{FraudTable}", $"UpdateItemAsync:{FraudTable}", $"PutItemAsync:{TxAuditTable}");
-        AuditActions.Should().Equal("fraud_whitelist");
+        AuditActions.Should().Equal("fraud_whitelist", "outcome_label");
         AuditMetadata("fraud_whitelist").Should().Be($"whitelistUntil={put.Item["whitelistUntil"].S};notes=Known GPS drift in Jimma");
     }
 
@@ -577,7 +591,7 @@ public class AdminFraudActionTests
         // The one row written again in place: the retry is idempotent.
         WhitelistPuts.Should().HaveCount(2).And.OnlyContain(p =>
             p.Item["userId"].S == UserId && p.Item["signalKey"].S == "~whitelist" && p.Item["recordType"].S == "whitelist");
-        AuditActions.Should().Equal("fraud_whitelist");
+        AuditActions.Should().Equal("fraud_whitelist", "outcome_label");
     }
 
     [Fact]
@@ -659,5 +673,166 @@ public class AdminFraudActionTests
         update.UpdateExpression.Should().EndWith(" REMOVE #suspendReason");
         update.ExpressionAttributeNames["#suspendReason"].Should().Be("suspendReason");
         update.ExpressionAttributeValues[":suspended"].BOOL.Should().BeFalse();
+    }
+
+    // ──────────────────────────────────────────────
+    // FRD-18: the outcome label of each decision (section 20.1)
+    // ──────────────────────────────────────────────
+
+    private const string SignalCreatedAt = "2026-11-01T09:12:00.0000000Z";
+
+    /// <summary>A pending signal on an order escrow, as the consistent read returns it.</summary>
+    private void SignalRowIs(string? status = null, string? resolution = null, string? reviewedAt = null)
+    {
+        _signalRow = new Dictionary<string, AttributeValue>
+        {
+            { "userId", new AttributeValue { S = UserId } },
+            { "signalType", new AttributeValue { S = "SELF_TRADE" } },
+            { "entityType", new AttributeValue { S = "escrow" } },
+            { "entityId", new AttributeValue { S = "escrow-order-ord-7" } },
+            { "createdAt", new AttributeValue { S = SignalCreatedAt } },
+            { "status", new AttributeValue { S = status ?? "pending" } }
+        };
+        if (resolution != null)
+        {
+            _signalRow["resolution"] = new AttributeValue { S = resolution };
+        }
+
+        if (reviewedAt != null)
+        {
+            _signalRow["reviewedAt"] = new AttributeValue { S = reviewedAt };
+        }
+    }
+
+    [Theory]
+    [InlineData("approve", "false_positive", 1)]
+    [InlineData("reject", "fraud_confirmed", 2)]
+    [InlineData("whitelist", "whitelisted", 3)]
+    public async Task EveryDecision_WritesExactlyOneLabel_LinkedToItsSignalUserAndTransaction(
+        string action, string outcome, int slot)
+    {
+        SignalRowIs();
+        var key = SignalKey("SELF_TRADE");
+        var signalId = FraudDetectionService.BuildSignalId(UserId, key);
+
+        var response = await ActAsync(action, key, notes: "Checked the device ids");
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var label = LabelPuts.Should().ContainSingle().Subject;
+        label.ConditionExpression.Should().Be("attribute_not_exists(transactionId)");
+        var item = label.Item;
+        item["transactionId"].S.Should().Be(signalId);
+        // Pending until now, so the key is the signal's own first time plus the outcome's slot.
+        item["timestamp"].S.Should().Be(DateTime.Parse(SignalCreatedAt, CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind).ToUniversalTime().AddTicks(slot).ToString("o", CultureInfo.InvariantCulture));
+        item["entityId"].S.Should().Be("outcome-labels");
+        item["labelCase"].S.Should().Be("fraud_signal");
+        item["labelCaseId"].S.Should().Be(signalId);
+        item["labelOutcome"].S.Should().Be(outcome);
+        item["labelSource"].S.Should().Be($"fraud_{action}");
+        item["labelReason"].S.Should().Be("Checked the device ids");
+        item["actor"].S.Should().Be("admin-1");
+        item["subjectUserId"].S.Should().Be(UserId);
+        item["signalIds"].L.Select(v => v.S).Should().Equal(signalId);
+        item["signalType"].S.Should().Be("SELF_TRADE");
+        item["signalEntityType"].S.Should().Be("escrow");
+        item["escrowId"].S.Should().Be("escrow-order-ord-7");
+        item["orderId"].S.Should().Be("ord-7");
+        item["labelledAt"].S.Should().Be(SignalUpdate.ExpressionAttributeValues[":reviewedAt"].S);
+        item.ContainsKey("whitelistUntil").Should().Be(action == "whitelist");
+        // After the stamp and its audit row.
+        Trace.Should().ContainInOrder($"UpdateItemAsync:{FraudTable}", $"PutItemAsync:{TxAuditTable}", $"PutItemAsync:{TxAuditTable}");
+    }
+
+    [Fact]
+    public async Task TheReadAskedForWhatTheLabelLinks()
+    {
+        await ActAsync("approve");
+
+        var read = Requests<GetItemRequest>().Single(r => r.TableName == FraudTable);
+        read.ConsistentRead.Should().BeTrue();
+        read.ExpressionAttributeNames.Values.Should().Contain(new[]
+        {
+            "userId", "recordType", "status", "resolution", "reviewedAt", "signalType", "entityType", "entityId", "createdAt"
+        });
+    }
+
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("reject")]
+    [InlineData("whitelist")]
+    public async Task TheDecisionTheSignalAlreadyCarries_WritesNoLabel(string action)
+    {
+        // A retry after a lost answer, or the same verb again: the first decision has its label.
+        SignalRowIs("reviewed", action, "2026-11-02T08:00:00.0000000Z");
+
+        var response = await ActAsync(action);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        LabelPuts.Should().BeEmpty();
+        AuditActions.Should().Contain($"fraud_{action}");
+    }
+
+    [Fact]
+    public async Task AChangeOfMind_WritesItsOwnLabel_KeyedOnThePreviousDecision()
+    {
+        SignalRowIs("reviewed", "reject", "2026-11-02T08:00:00.0000000Z");
+
+        var response = await ActAsync("approve");
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var item = LabelPuts.Should().ContainSingle().Subject.Item;
+        item["labelOutcome"].S.Should().Be("false_positive");
+        item["timestamp"].S.Should().Be("2026-11-02T08:00:00.0000001Z");
+    }
+
+    [Fact]
+    public async Task TwoIdenticalDecisionsInFlight_BuildOneKey_SoTheConditionalPutKeepsOne()
+    {
+        // Both read the signal pending before either stamped it.
+        SignalRowIs();
+        var key = SignalKey("SELF_TRADE");
+
+        await ActAsync("reject", key);
+        await ActAsync("reject", key);
+
+        var labels = LabelPuts;
+        labels.Should().HaveCount(2);
+        labels[1].Item["transactionId"].S.Should().Be(labels[0].Item["transactionId"].S);
+        labels[1].Item["timestamp"].S.Should().Be(labels[0].Item["timestamp"].S);
+        labels.Should().OnlyContain(p => p.ConditionExpression == "attribute_not_exists(transactionId)");
+    }
+
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("reject")]
+    [InlineData("whitelist")]
+    public async Task ALabelThatFailsOrIsAlreadyThere_DoesNotFailTheDecision(string action)
+    {
+        SignalRowIs();
+        _failNextLabelPut = new ProvisionedThroughputExceededException("throttled");
+
+        var failed = await ActAsync(action);
+
+        failed.StatusCode.Should().Be(200, failed.Body);
+        Json(failed).GetProperty("resolution").GetString().Should().Be(action);
+        SignalUpdate.ExpressionAttributeValues[":status"].S.Should().Be("reviewed");
+
+        _failNextLabelPut = new ConditionalCheckFailedException("already labelled");
+        (await ActAsync(action)).StatusCode.Should().Be(200);
+    }
+
+    [Fact]
+    public async Task ALegacyRowWithoutCreatedAt_IsKeyedOnTheHourInItsKey()
+    {
+        // The default row carries no createdAt, no type and no entity.
+        var key = SignalKey("PRICE_ANOMALY", new DateTime(2026, 11, 1, 9, 0, 0, DateTimeKind.Utc));
+
+        await ActAsync("approve", key);
+
+        var item = LabelPuts.Single().Item;
+        item["timestamp"].S.Should().Be("2026-11-01T09:00:00.0000001Z");
+        item["signalType"].S.Should().Be("PRICE_ANOMALY");
+        item.Should().NotContainKeys("orderId", "escrowId", "deliveryId");
     }
 }

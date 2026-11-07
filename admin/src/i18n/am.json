@@ -477,6 +477,7 @@
     "entity_order": "ትዕዛዝ",
     "entity_delivery": "ማድረስ",
     "entity_escrow": "ኢስክሮ",
+    "entity_label": "ውጤት",
     "stage_awaiting_payment": "ክፍያ በመጠበቅ ላይ",
     "stage_in_progress": "በሂደት ላይ",
     "stage_delivered": "ተደርሷል",
@@ -604,7 +605,8 @@
     "action_dispute_resolved_waiting_for_delivery": "ክርክር፦ ማድረሱን በመጠባበቅ ላይ (አስተዳዳሪ)",
     "action_fraud_hold": "ለግምገማ ተይዟል",
     "action_fraud_hold_release": "ከግምገማ በኋላ ተለቋል (አስተዳዳሪ)",
-    "action_fraud_hold_refund": "ከግምገማ በኋላ ተመላሽ ሆኗል (አስተዳዳሪ)"
+    "action_fraud_hold_refund": "ከግምገማ በኋላ ተመላሽ ሆኗል (አስተዳዳሪ)",
+    "action_outcome_label": "ውጤቱ ተመዝግቧል (አስተዳዳሪ)"
   },
   "analytics": {
     "title": "የግብይት መጠን",
