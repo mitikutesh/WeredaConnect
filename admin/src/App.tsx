@@ -12,6 +12,7 @@ import { DisputeDetailPage } from "@/pages/DisputeDetailPage";
 import { ManualPayoutsPage } from "@/pages/ManualPayoutsPage";
 import { UnappliedPaymentsPage } from "@/pages/UnappliedPaymentsPage";
 import { FraudReviewPage } from "@/pages/FraudReviewPage";
+import { ListingReportsPage } from "@/pages/ListingReportsPage";
 import { UsersPage } from "@/pages/UsersPage";
 import { UserDetailPage } from "@/pages/UserDetailPage";
 import { RevenuePage } from "@/pages/RevenuePage";
@@ -74,6 +75,7 @@ function AppRoutes() {
         <Route path="payouts" element={<ManualPayoutsPage />} />
         <Route path="unapplied-payments" element={<UnappliedPaymentsPage />} />
         <Route path="fraud-review" element={<FraudReviewPage />} />
+        <Route path="listing-reports" element={<ListingReportsPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="users/:id" element={<UserDetailPage />} />
         <Route path="revenue" element={<RevenuePage />} />
