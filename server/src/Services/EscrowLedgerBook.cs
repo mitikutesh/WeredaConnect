@@ -434,8 +434,9 @@ internal static class EscrowLedgerBook
     /// The escrow status the rows call for (P.5), or null to leave it. The status follows the money: it
     /// moves in the write that makes the deciding row <c>done</c>.
     /// <list type="bullet">
-    /// <item><c>refunded</c>: every leg refunded and every row of amount done.</item>
-    /// <item><c>completed</c>: every leg released, refunded or kept, at least one released, every row of amount done.</item>
+    /// <item><c>refunded</c>: every leg decided, the crop leg refunded (the sale did not happen; a transport leg
+    /// paid before stays paid and counted in <c>releasedTotal</c>), every row of amount done.</item>
+    /// <item><c>completed</c>: every leg released, refunded or kept, the crop leg released, every row of amount done.</item>
     /// <item><c>released</c>: a farmer payout is done and something is still open.</item>
     /// </list>
     /// A duplicate refund (outside <c>amount</c>) never holds back <c>completed</c> or <c>refunded</c>.
@@ -449,14 +450,14 @@ internal static class EscrowLedgerBook
         string? target = null;
         if (allDecided && allDone)
         {
-            if (legs.Values.All(s => s == LedgerEscrowFields.Refunded))
+            // The crop leg names the outcome: a trucker paid first (F1) and the crop money back to the buyer is
+            // a refund, not a completed sale, so the order is never shown settled for it.
+            target = escrow.LegState(LedgerEscrowFields.LegCrop) switch
             {
-                target = "refunded";
-            }
-            else if (legs.Values.Any(s => s == LedgerEscrowFields.Released))
-            {
-                target = "completed";
-            }
+                LedgerEscrowFields.Refunded => "refunded",
+                LedgerEscrowFields.Released => "completed",
+                _ => null
+            };
         }
 
         if (target == null && rowsOfAmount.Any(r => LedgerRefs.IsFarmerPayout(r.Ref) && r.Status == LedgerFields.StatusDone))

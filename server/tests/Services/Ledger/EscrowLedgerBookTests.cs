@@ -270,12 +270,19 @@ public class EscrowLedgerBookTests
     }
 
     [Fact]
-    public void StatusFor_ASplitWithNothingForTheFarmer_CompletesOnceEveryRowIsDone()
+    public void StatusFor_TheCropLegNamesTheOutcome_ACropRefundIsRefundedEvenWithTheTruckerPaid()
     {
+        // A split with nothing for the farmer: the trucker is paid, the crop and commission go back.
         var after = EscrowLedgerBook.PlanSplit(Escrow(), 0m, 1_500m, 15_750m, "v").Plan!.After;
         EscrowLedgerBook.StatusFor(after with { Status = "dispute_resolved" },
                 new[] { Row("verdict#trucker", 1_500m, "done"), Row("verdict#buyer", 15_750m, "done") })
-            .Should().Be("completed");
+            .Should().Be("refunded");
+        // The trucker paid first (the farmer blocked), then refund#all of what is still held.
+        var truckerPaid = Escrow(legs: new() { ["crop"] = "held", ["transport"] = "released", ["commission"] = "held" }, released: 1_500m);
+        var refunded = EscrowLedgerBook.PlanRefundAll(truckerPaid, "verdict:buyer_wins")!.After;
+        EscrowLedgerBook.StatusFor(refunded,
+                new[] { Row("release#trucker#trucker-1", 1_500m, "done"), Row("refund#all", 15_750m, "done") })
+            .Should().Be("refunded");
         var all = EscrowLedgerBook.PlanSplit(Escrow(), 0m, 0m, 17_250m, "v").Plan!.After;
         EscrowLedgerBook.StatusFor(all with { Status = "dispute_resolved" }, new[] { Row("verdict#buyer", 17_250m, "done") })
             .Should().Be("refunded");

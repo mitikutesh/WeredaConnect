@@ -169,6 +169,50 @@ public class EscrowCronLedgerTests
     }
 
     [Fact]
+    public async Task ATransportLegBlockedForADayAfterTheFarmerWasPaid_LogsTheTruckerOverdueLine()
+    {
+        Seed("released", e =>
+        {
+            e[LedgerEscrowFields.LegStatus] = new Dictionary<string, object>
+            {
+                ["crop"] = "released", ["transport"] = "held", ["commission"] = "kept"
+            };
+            e[LedgerEscrowFields.ReleasedTotal] = 15_000m;
+            e["releasedAt"] = DateTime.UtcNow.AddHours(-30).ToString("o");
+        });
+        Verified("trucker-5", "+251911000052", false);
+        var context = new TestLambdaContext { RemainingTime = TimeSpan.FromMinutes(4), Logger = new TestLambdaLogger() };
+
+        var response = await _function.FunctionHandler(Cron("auto_release_and_refund"), context);
+
+        JsonSerializer.Deserialize(response.Body, AppJsonContext.Default.DictionaryStringString)!["ledgerTransportLegsOverdue"].Should().Be("1");
+        ((TestLambdaLogger)context.Logger).Buffer.ToString().Should()
+            .Contain($"TRUCKER_PAYOUT_OVERDUE escrowId={EscrowId} reason=phone_unverified ageHours=30");
+    }
+
+    [Fact]
+    public async Task ATransportLegBlockedForLessThanADay_IsNotOverdue()
+    {
+        Seed("released", e =>
+        {
+            e[LedgerEscrowFields.LegStatus] = new Dictionary<string, object>
+            {
+                ["crop"] = "released", ["transport"] = "held", ["commission"] = "kept"
+            };
+            e[LedgerEscrowFields.ReleasedTotal] = 15_000m;
+            e["releasedAt"] = DateTime.UtcNow.AddHours(-3).ToString("o");
+        });
+        Verified("trucker-5", "+251911000052", false);
+        var context = new TestLambdaContext { RemainingTime = TimeSpan.FromMinutes(4), Logger = new TestLambdaLogger() };
+
+        var response = await _function.FunctionHandler(Cron("auto_release_and_refund"), context);
+
+        var summary = JsonSerializer.Deserialize(response.Body, AppJsonContext.Default.DictionaryStringString)!;
+        (summary["ledgerTransportLegsBlocked"], summary["ledgerTransportLegsOverdue"]).Should().Be(("1", "0"));
+        ((TestLambdaLogger)context.Logger).Buffer.ToString().Should().NotContain("TRUCKER_PAYOUT_OVERDUE");
+    }
+
+    [Fact]
     public async Task TheReconciliationActionList_NamesTheLedgerSweep()
     {
         var response = await _function.FunctionHandler(Cron("nope"), _context);

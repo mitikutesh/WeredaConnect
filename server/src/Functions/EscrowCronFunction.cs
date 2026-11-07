@@ -530,6 +530,7 @@ public class EscrowCronFunction
             { "truckerLegsOverdue", trucker.Overdue.ToString() },
             { "ledgerTransportLegsDecided", ledgerTransport.Decided.ToString() },
             { "ledgerTransportLegsBlocked", ledgerTransport.Blocked.ToString() },
+            { "ledgerTransportLegsOverdue", ledgerTransport.Overdue.ToString() },
             { "adminQueueEntered", _adminQueueEntered.ToString() },
             { "adminQueueOverdue", (queueOverdue + _adminQueueOverdue).ToString() },
             { "adminQueueCleared", queueCleared.ToString() },
@@ -1827,13 +1828,18 @@ public class EscrowCronFunction
     {
         public int Decided { get; set; }
         public int Blocked { get; set; }
+        public int Overdue { get; set; }
     }
 
     /// <summary>
     /// ESC-20 (F2): ledger escrows whose crop leg is decided while the transport leg is still held, because
     /// the trucker failed the identity gate at the release. Each is retried once the gate passes (the
     /// trucker row is decided and called); the block is recorded once per reason. Replaces the 1.x trucker
-    /// retry for ledger escrows. At most <see cref="TruckerRetryMaxRows"/> rows a run.
+    /// retry for ledger escrows. At most <see cref="TruckerRetryMaxRows"/> rows a run. A transport leg still
+    /// blocked more than 24 hours after the farmer was paid (<c>releasedAt</c>) logs the 1.x
+    /// <c>TRUCKER_PAYOUT_OVERDUE</c> line every run (alarm <c>trucker-payouts-overdue</c>): no ledger row exists
+    /// for it, so <c>LEDGER_ROW_OVERDUE</c> cannot. The read starts from the oldest row every run (no cursor;
+    /// blocked rows at the head can hold back newer ones past the cap, a follow-up).
     /// </summary>
     private async Task<LedgerTransportCounts> RetryLedgerTransportLegsAsync(ILambdaContext context)
     {
@@ -1872,10 +1878,20 @@ public class EscrowCronFunction
 
                     try
                     {
-                        switch (await _escrowService.RetryLedgerTransportLegAsync(escrow))
+                        var retry = await _escrowService.RetryLedgerTransportLegAsync(escrow);
+                        switch (retry.Outcome)
                         {
                             case EscrowService.LedgerCallOutcome.Blocked:
                                 counts.Blocked++;
+                                if (ParseUtc(GetStringOrNull(escrow, "releasedAt")) is { } releasedAt
+                                    && DateTime.UtcNow - releasedAt >= MoneyAlarmLog.QueueAlarmAfter)
+                                {
+                                    context.Logger.LogWarning(MoneyAlarmLog.TruckerPayoutOverdue(
+                                        GetStringOrNull(escrow, "escrowId"), retry.BlockReason ?? "blocked",
+                                        (int)(DateTime.UtcNow - releasedAt).TotalHours));
+                                    counts.Overdue++;
+                                }
+
                                 break;
                             case null:
                                 break;
