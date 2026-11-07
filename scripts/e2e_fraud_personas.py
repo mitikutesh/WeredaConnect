@@ -49,15 +49,24 @@ Usage:
   python3 scripts/e2e_fraud_personas.py --dry-run            # print the plan, no network
   python3 scripts/e2e_fraud_personas.py                      # all personas against dev
   python3 scripts/e2e_fraud_personas.py --personas idor,gps --report /tmp/r.md
-  python3 scripts/e2e_fraud_personas.py --state-file s.json  # keep the accounts for a re-check
-  python3 scripts/e2e_fraud_personas.py --recheck s.json     # later: signals and held escrows
+  python3 scripts/e2e_fraud_personas.py --state-file /tmp/frd17-state.json  # keep the accounts (outside the repo)
+  python3 scripts/e2e_fraud_personas.py --recheck /tmp/frd17-state.json     # later: tiers and held escrows
 
 Exit codes: 0 every persona matched its expectation (detected or honestly not
-detected), 1 a persona deviated, 2 setup failed (API down, registration or
-admin login refused).
+detected), 1 a persona deviated, 2 setup failed (API refused, admin login
+refused, registration refused, or a --state-file path inside a git checkout).
+--recheck: 0 every hold target is held or not due yet, 1 a target is past its
+farmer deadline plus --hold-grace-hours and not held, 2 setup failed.
+
+Observation (FRD-07): GET /admin/fraud-signals lists one status at a time, so
+both `pending` and `reviewed` are read (a row an admin rejected is `reviewed`
+and still counts), and each page's `users[]` carries the server's score and
+tier. Those are what the run asserts; a replica of section 14.2 recomputes them
+from the rows as a cross-check and a disagreement is flagged.
 """
 import argparse
 import base64
+import calendar
 import json
 import os
 import random
@@ -215,8 +224,9 @@ PERSONAS: Dict[str, Persona] = {
         expect={"spammer": Expect(
             signals=["FRAUD_DUPLICATE_LISTING", "FRAUD_VELOCITY_EXCEEDED"], optional=["PRICE_ANOMALY"],
             tier="MEDIUM",
-            challenge="none (a farmer makes no payment); the duplicate and the 6th and 7th listing are refused; "
-                      "creates stay allowed below CRITICAL (the 7th listing meets FRAUD_VELOCITY_EXCEEDED, not FRAUD_ACCOUNT_HELD)",
+            challenge="none (a farmer makes no payment); the duplicate and both creates after the 5th accepted listing "
+                      "are refused; creates stay allowed below CRITICAL (the 8th create attempt meets FRAUD_VELOCITY_EXCEEDED, "
+                      "not FRAUD_ACCOUNT_HELD)",
             hold="none (below CRITICAL)")},
         detection="Rules 1 to 3 (live)"),
     "selftrade": Persona(
@@ -464,6 +474,7 @@ class Run:
         self.left_on_dev: List[str] = []
         self.cleanup: List[tuple] = []
         self.signals: Dict[str, List[dict]] = {}
+        self.server_scores: Dict[str, dict] = {}
         self.signals_error: Optional[str] = None
         self.support_listing: Optional[dict] = None
         self.started = time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime())
@@ -703,7 +714,7 @@ def persona_spammer(run: Run):
     listing("chickpea", 60.0, "FRAUD_VELOCITY_EXCEEDED")
     time.sleep(3)  # let the score read see this hour's rows
     _, res = create_listing(run, a, "lentils", 70.0, 10.0)
-    run.step(p, a.label, "create lentils @ 70.0 ETB/kg (8th listing, tier gate first)",
+    run.step(p, a.label, "create lentils @ 70.0 ETB/kg (8th create attempt, the tier gate runs first)",
              "refused FRAUD_VELOCITY_EXCEEDED, not FRAUD_ACCOUNT_HELD (below CRITICAL)", msg(res),
              "FRAUD_VELOCITY_EXCEEDED" in msg(res) and "FRAUD_ACCOUNT_HELD" not in msg(res), "gate")
     for crop_id in made:
@@ -774,8 +785,9 @@ def persona_idor(run: Run):
     run.step(p, buyer.label, "cancel another buyer's order", "refused ORDER_UNAUTHORIZED (no new row: one per type per hour)",
              msg(res), "ORDER_UNAUTHORIZED" in msg(res))
     r = run.get(buyer, f"/orders/{victim_order}")
-    run.step(p, buyer.label, "read another buyer's order over REST", "403 or 404, not a signal source (by decision)",
-             f"HTTP {r.status}", r.status in (403, 404), "info")
+    # A 200 here is a role-visibility leak: kind abuse, so it fails the persona (the read writes no signal by decision).
+    run.step(p, buyer.label, "read another buyer's order over REST", "refused 403 or 404 (not a signal source, by decision)",
+             f"HTTP {r.status}", r.status in (403, 404), "abuse")
     time.sleep(3)  # the score is read eventually consistent at the start of the next batch
     res = pay(run, buyer, own_order)
     run.step(p, buyer.label, "pay its own order (20 kg teff, under 10,000 ETB) with a fresh password", "refused AUTH_041 (HIGH)", msg(res),
@@ -816,6 +828,7 @@ def persona_idor(run: Run):
         run.ids["idor-hold-order"] = held_order
         run.ids["idor-hold-escrow"] = escrow_of(run, victim, held_order)
         due = funded.get("farmerDeadlineAt")
+        run.ids["idor-hold-deadline"] = due or ""
         run.notes[p].append(f"hold target: order `{held_order}`, escrow `{run.ids['idor-hold-escrow']}`, "
                             f"farmer deadline {due}; after it the order cron cancels it and the auto-refund sweep "
                             "should write `held` (holdReason risk_critical), dev has FRAUD_HOLD_ENABLED on")
@@ -1056,47 +1069,106 @@ def admin_token(args) -> Tuple[Optional[str], str]:
     return token, err or ""
 
 
-def read_signals(http: Http, token: str, user_ids: set, max_pages: int) -> Tuple[Dict[str, List[dict]], str]:
+SIGNAL_STATUSES = ("pending", "reviewed")
+ADMIN_PAGE = 50  # FRD-07: the index pages hold at most 50 rows
+
+
+def read_signals(http, token: str, user_ids: set, max_pages: int) -> Tuple[Dict[str, List[dict]], Dict[str, dict], str]:
+    """The persona accounts' signal rows and the server's score of each (FRD-07). GET /admin/fraud-signals lists
+    one status at a time (`pending` by default), so both statuses are read: a row an admin rejected is `reviewed`
+    and still counts (section 14.2). Each page's `users[]` carries the score and tier of its users. Returns
+    (rows by user, users[] entry by user, problem); a page cap that leaves rows unread is a problem."""
     found: Dict[str, List[dict]] = defaultdict(list)
-    next_token = None
-    pages = 0
-    while pages < max_pages:
-        params = {"limit": "100"}
-        if next_token:
-            params["nextToken"] = next_token
-        r = http.call("GET", "/admin/fraud-signals", token=token, params=params)
-        if r.status != 200:
-            return found, f"GET /admin/fraud-signals HTTP {r.status}: {r.body[:120]}"
-        d = r.json()
-        for row in d.get("signals", []):
-            if row.get("userId") in user_ids:
-                row["bucket"] = signal_bucket(row.get("signalId", ""), row.get("createdAt", ""))
-                found[row["userId"]].append(row)
-        pages += 1
-        next_token = d.get("nextToken")
-        if not next_token:
-            return found, ""
-    return found, f"stopped after {max_pages} pages; rows beyond them were not read"
+    scores: Dict[str, dict] = {}
+    problems = []
+    for status in SIGNAL_STATUSES:
+        next_token = None
+        for _ in range(max_pages):
+            params = {"status": status, "limit": str(ADMIN_PAGE)}
+            if next_token:
+                params["nextToken"] = next_token
+            r = http.call("GET", "/admin/fraud-signals", token=token, params=params)
+            if r.status != 200:
+                return found, scores, f"GET /admin/fraud-signals?status={status} HTTP {r.status}: {r.body[:120]}"
+            d = r.json()
+            for row in d.get("signals") or []:
+                if row.get("userId") in user_ids:
+                    row["bucket"] = signal_bucket(row.get("signalId", ""), row.get("createdAt", ""))
+                    found[row["userId"]].append(row)
+            for user in d.get("users") or []:
+                if user.get("userId") in user_ids:
+                    scores[user["userId"]] = user
+            next_token = d.get("nextToken")
+            if not next_token:
+                break
+        else:
+            problems.append(f"{status}: stopped after {max_pages} pages, rows beyond them were not read")
+    return found, scores, "; ".join(problems)
 
 
-def read_held_escrows(http: Http, token: str, user_ids: set, max_pages: int) -> Tuple[List[dict], str]:
+def read_held_escrows(http, token: str, watch: set, max_pages: int) -> Tuple[List[dict], str]:
+    """Held escrows naming a watched user or escrow id, from the indexed held queue (FRD-07,
+    GET /admin/escrows/held)."""
     held = []
     next_token = None
     for _ in range(max_pages):
-        params = {"status": "held", "limit": "100"}
+        params = {"limit": str(ADMIN_PAGE)}
         if next_token:
             params["nextToken"] = next_token
-        r = http.call("GET", "/admin/escrows", token=token, params=params)
+        r = http.call("GET", "/admin/escrows/held", token=token, params=params)
         if r.status != 200:
-            return held, f"GET /admin/escrows HTTP {r.status}"
+            return held, f"GET /admin/escrows/held HTTP {r.status}: {r.body[:120]}"
         d = r.json()
-        for row in d.get("escrows", []):
-            if user_ids & {str(v) for v in row.values() if isinstance(v, str)}:
+        for row in d.get("escrows") or []:
+            if watch & {str(v) for v in row.values() if isinstance(v, str)}:
                 held.append(row)
         next_token = d.get("nextToken")
         if not next_token:
-            break
-    return held, ""
+            return held, ""
+    return held, f"stopped after {max_pages} pages of held escrows"
+
+
+def parse_iso(text: Optional[str]) -> Optional[float]:
+    """Epoch seconds of an ISO 8601 UTC time (any fraction digits), None when it does not parse."""
+    try:
+        return float(calendar.timegm(time.strptime((text or "")[:19], "%Y-%m-%dT%H:%M:%S")))
+    except ValueError:
+        return None
+
+
+def hold_targets(state: dict, extra: Optional[List[str]]) -> List[dict]:
+    """The escrows a run expects held: the state's hold target, plus `ESCROW_ID=DEADLINE` from --hold-target
+    (state files written before the deadline was kept)."""
+    targets: Dict[str, Optional[str]] = {}
+    ids = state.get("ids") or {}
+    if ids.get("idor-hold-escrow"):
+        targets[ids["idor-hold-escrow"]] = ids.get("idor-hold-deadline") or None
+    for item in extra or []:
+        escrow_id, _, deadline = item.partition("=")
+        if escrow_id:
+            targets[escrow_id.strip()] = deadline.strip() or targets.get(escrow_id.strip())
+    return [{"escrowId": k, "deadline": v} for k, v in targets.items()]
+
+
+def evaluate_holds(targets: List[dict], held: Dict[str, dict], now: float, grace_hours: float) -> Tuple[List[str], int]:
+    """One line per hold target and the --recheck exit code: 1 when a target is past its farmer deadline plus
+    the grace (the order cron cancels the order, then the hourly auto-refund sweep meets the gate) and is not
+    held, else 0."""
+    lines, code = [], 0
+    for t in targets:
+        escrow_id, deadline = t["escrowId"], t.get("deadline")
+        due = parse_iso(deadline)
+        if escrow_id in held:
+            row = held[escrow_id]
+            lines.append(f"- `{escrow_id}`: HELD, holdReason {row.get('holdReason')}, heldFor {row.get('heldFor')}")
+        elif due is None:
+            lines.append(f"- `{escrow_id}`: not held; deadline unknown, pass --hold-target {escrow_id}=<farmerDeadlineAt>")
+        elif now < due + grace_hours * 3600:
+            lines.append(f"- `{escrow_id}`: not held yet, due after {deadline} plus {grace_hours:g} h")
+        else:
+            lines.append(f"- `{escrow_id}`: NOT HELD although its deadline {deadline} plus {grace_hours:g} h has passed")
+            code = 1
+    return lines, code
 
 
 # ── Verdicts and report ───────────────────────────────────────────────────
@@ -1106,12 +1178,25 @@ def account_outcome(run: Run, label: str, exp: Expect) -> dict:
     acct = run.accounts.get(label)
     rows = run.signals.get(acct.user_id, []) if acct else []
     types = sorted({r.get("signalType", "") for r in rows})
-    score, tier = risk_score(rows)
+    replica_score, replica_tier = risk_score(rows)
+    score, tier, source = server_tier(run, acct.user_id if acct else "", rows, replica_score, replica_tier)
     missing = [t for t in exp.signals if t not in types]
     unexpected = [t for t in types if t not in exp.signals + exp.optional]
     wrongly_present = [t for t in exp.absent if t in types]
-    return {"types": types, "score": score, "tier": tier, "missing": missing, "unexpected": unexpected,
-            "wrongly_present": wrongly_present, "rows": rows}
+    return {"types": types, "score": score, "tier": tier, "source": source, "replica_score": replica_score,
+            "replica_tier": replica_tier, "mismatch": source == "server" and (score, tier) != (replica_score, replica_tier),
+            "missing": missing, "unexpected": unexpected, "wrongly_present": wrongly_present, "rows": rows}
+
+
+def server_tier(run: Run, user_id: str, rows: List[dict], replica_score: int, replica_tier: str) -> Tuple[int, str, str]:
+    """(score, tier, source): the server's (FRD-07 `users[]`) when it computed one; a user with no signal row is
+    in no page, so LOW; otherwise (a server before FRD-07, or a score it could not read) the replica."""
+    user = run.server_scores.get(user_id)
+    if user and user.get("scoreAvailable", True) and user.get("riskTier"):
+        return int(user.get("riskScore") or 0), str(user["riskTier"]).upper(), "server"
+    if not user and not rows and run.server_scores:
+        return 0, "LOW", "server"
+    return replica_score, replica_tier, "replica"
 
 
 def persona_verdict(run: Run, persona: Persona) -> Tuple[str, bool]:
@@ -1122,26 +1207,35 @@ def persona_verdict(run: Run, persona: Persona) -> Tuple[str, bool]:
         return f"INCOMPLETE: {run.aborted[persona.key]}", False
     steps = [s for s in run.steps if s.persona == persona.key]
     failed = [s for s in steps if not s.ok and s.kind != "info"]
-    if run.signals_error and not run.signals:
-        return "UNOBSERVED: the admin signal read failed", False
+    if run.signals_error:
+        return f"UNOBSERVED: {run.signals_error}", False
     detected = False
     matched = not failed
     expects_any = any(e.signals for e in persona.expect.values())
+    disagree = ""
     for label, exp in persona.expect.items():
         out = account_outcome(run, label, exp)
         detected = detected or any(t in out["types"] for t in exp.signals)
         if out["missing"] or out["wrongly_present"] or out["tier"] != exp.tier:
             matched = False
+        if out["mismatch"]:
+            disagree = "; the replica disagrees with the server's score"
     enforced = any(s.ok and s.kind == "gate" and ("refused" in s.expect) for s in steps) or any(
         s.ok and s.kind == "abuse" and "refused" in s.expect for s in steps)
     if not expects_any:
         any_signal = any(account_outcome(run, l, e)["types"] for l, e in persona.expect.items())
-        return ("NOT DETECTED (no rule today)" if not any_signal else "UNEXPECTED SIGNAL"), matched and not any_signal
+        return ("NOT DETECTED (no rule today)" if not any_signal else "UNEXPECTED SIGNAL") + disagree, \
+            matched and not any_signal
     if detected and enforced:
-        return "DETECTED AND ENFORCED", matched
+        return "DETECTED AND ENFORCED" + disagree, matched
     if detected:
-        return "DETECTED, NOT ENFORCED (flag only)", matched
-    return "NOT DETECTED", False
+        return "DETECTED, NOT ENFORCED (flag only)" + disagree, matched
+    return "NOT DETECTED" + disagree, False
+
+
+def run_exit_code(verdicts: List[Tuple[str, str, bool]]) -> int:
+    """0 when every persona matched its expectation, else 1 (2 is returned earlier, for setup failures)."""
+    return 0 if all(matched for _, _, matched in verdicts) else 1
 
 
 def md_escape(text: str) -> str:
@@ -1155,15 +1249,17 @@ def render_report(run: Run, selected: List[str]) -> str:
     w(f"FRD-17. Script `scripts/e2e_fraud_personas.py`, API `{run.http.base}`, started {run.started}, "
       f"{run.http.calls} HTTP calls. Expectations come from `specs/architecture/fraud-detection-architecture.md` "
       f"(sections 2, 14 to 18) and the server code on `main` at the time of the run.\n")
-    w("Observed signals are the rows `GET /admin/fraud-signals` returned for each persona account; the tier is "
-      "computed from them with the scoring rules of section 14.2 (the score itself is never returned by the API) and "
-      "cross-checked by the gates the persona met: a payment with a fresh password passes at LOW and MEDIUM, "
-      "meets `AUTH_041` at HIGH and `FRAUD_ACCOUNT_HELD` at CRITICAL; a create meets `FRAUD_ACCOUNT_HELD` only at CRITICAL.\n")
+    w("Observed signals are the rows `GET /admin/fraud-signals` returned for each persona account, read for both "
+      "statuses (`pending` and `reviewed`). The score and tier are the server's, from the same responses' `users[]` "
+      "(FRD-07); a replica of section 14.2 recomputes them from the rows as a cross-check, and a disagreement is "
+      "flagged (a server without `users[]` leaves the replica's numbers). The gates the persona met cross-check the "
+      "tier: a payment with a fresh password passes at LOW and MEDIUM, meets `AUTH_041` at HIGH and "
+      "`FRAUD_ACCOUNT_HELD` at CRITICAL; a create meets `FRAUD_ACCOUNT_HELD` only at CRITICAL.\n")
     if run.signals_error:
         w(f"Signal read: {run.signals_error}\n")
 
     w("## Summary\n")
-    w("| Persona | Accounts | Expected signals | Observed signals | Tier exp / obs | Challenge | Hold | Verdict |")
+    w("| Persona | Accounts | Expected signals | Observed signals | Tier exp / obs | Challenge (expected) | Hold (expected) | Verdict |")
     w("|---|---|---|---|---|---|---|---|")
     all_matched = True
     for key in selected:
@@ -1177,7 +1273,7 @@ def render_report(run: Run, selected: List[str]) -> str:
             o = account_outcome(run, label, exp)
             exp_sig = ", ".join(exp.signals + [f"({t})" for t in exp.optional]) or "none"
             obs = ", ".join(o["types"]) or "none"
-            w(f"| {persona.title} | {label} | {exp_sig} | {obs} | {exp.tier} / {o['tier']} ({o['score']}) | "
+            w(f"| {persona.title} | {label} | {exp_sig} | {obs} | {exp.tier} / {o['tier']} ({o['score']}, {o['source']}) | "
               f"{md_escape(exp.challenge)} | {md_escape(exp.hold)} | {verdict}{'' if matched else ' (deviates)'} |")
     w("\nParenthesised signals are data dependent (the price rule needs 5 or more recent listings of the type with a spread).\n")
 
@@ -1202,7 +1298,9 @@ def render_report(run: Run, selected: List[str]) -> str:
             o = account_outcome(run, label, exp)
             acct = run.accounts.get(label)
             w(f"**{label}** (`{acct.user_id if acct else 'not registered'}`): signals "
-              f"{', '.join(o['types']) or 'none'}; score {o['score']}, tier {o['tier']} (expected {exp.tier}).")
+              f"{', '.join(o['types']) or 'none'}; score {o['score']}, tier {o['tier']} from the {o['source']} "
+              f"(expected {exp.tier}; replica {o['replica_score']}, {o['replica_tier']}"
+              f"{', DISAGREES' if o['mismatch'] else ''}).")
             for t in exp.signals + exp.optional:
                 rule, producer = RULES.get(t, ("?", "?"))
                 seen = "seen" if t in o["types"] else ("not seen" if t in exp.signals else "not seen (data dependent)")
@@ -1223,7 +1321,7 @@ def render_report(run: Run, selected: List[str]) -> str:
         w("## Support accounts (counterparties, should stay clean)\n")
         for a in support:
             rows = run.signals.get(a.user_id, [])
-            score, tier = risk_score(rows)
+            score, tier, _ = server_tier(run, a.user_id, rows, *risk_score(rows))
             w(f"- {a.label} ({a.role}, `{a.user_id}`): signals "
               f"{', '.join(sorted({r.get('signalType') for r in rows})) or 'none'}, tier {tier}.")
         w("")
@@ -1356,6 +1454,101 @@ def self_test() -> int:
     for p in PERSONAS.values():
         check(f"`{p.key}`" in text, f"report has a section for {p.key}")
 
+    # Verdicts: every way a persona can fail (a fresh run from the same fixture for each case)
+    def fixture() -> Run:
+        r = Run(Http(DEV_BASE_URL, 0), "frd17-selftest", random.Random(1), verbose=False)
+        r.accounts = dict(run.accounts)
+        r.signals = {k: list(v) for k, v in run.signals.items()}
+        r.step("idor", "idor-buyer", "pay", "refused AUTH_041 (HIGH)", "AUTH_041: ...", True, "gate")
+        return r
+
+    def verdict(r: Run, key: str) -> Tuple[str, bool]:
+        return persona_verdict(r, PERSONAS[key])
+
+    base = fixture()
+    check(verdict(base, "idor") == ("DETECTED AND ENFORCED", True), "baseline idor matches")
+    r = fixture()
+    r.step("idor", "idor-buyer", "create on another order id", "conflict", "success", False, "abuse")
+    check(verdict(r, "idor")[1] is False, "a failed abuse step deviates")
+    r = fixture()
+    r.step("idor", "idor-buyer", "read another buyer's order over REST", "refused 403 or 404", "HTTP 200", False, "abuse")
+    check(verdict(r, "idor")[1] is False, "a REST read answered 200 (role-visibility leak) deviates")
+    r = fixture()
+    r.step("idor", "-", "a note", "anything", "something else", False, "info")
+    check(verdict(r, "idor")[1] is True, "a failed info step does not deviate")
+    r = fixture()
+    r.signals["u-idor-buyer"] = expected_rows(["IDOR_CREATE_CONFLICT", "IMMUTABLE_FIELD_CHANGE"])
+    check(verdict(r, "idor")[1] is False, "a missing expected signal deviates")
+    r = fixture()
+    r.signals_error = "reviewed: stopped after 40 pages"
+    check(verdict(r, "idor")[0].startswith("UNOBSERVED") and verdict(r, "idor")[1] is False,
+          "any signal read problem is UNOBSERVED")
+    r = fixture()
+    r.aborted["idor"] = "trip order failed"
+    check(verdict(r, "idor")[0].startswith("INCOMPLETE") and verdict(r, "idor")[1] is False, "an abort is INCOMPLETE")
+    r = fixture()
+    r.signals["u-self-buyer"] = expected_rows(["ROLE_FORBIDDEN"])
+    check(verdict(r, "selftrade") == ("UNEXPECTED SIGNAL", False), "any signal on the self-trader is UNEXPECTED SIGNAL")
+    check(verdict(base, "selftrade") == ("NOT DETECTED (no rule today)", True), "a clean self-trader matches")
+    check(verdict(base, "payer") == ("NOT EXERCISABLE ON DEV", True), "the payer persona is not exercisable")
+
+    # The server's tier (FRD-07 users[]) decides; the replica only cross-checks
+    r = fixture()
+    r.server_scores = {"u-idor-buyer": {"userId": "u-idor-buyer", "riskScore": 115, "riskTier": "critical",
+                                        "scoreAvailable": True}}
+    v = verdict(r, "idor")
+    check(v[1] is False and "replica disagrees" in v[0], "a server tier above the expectation deviates and is flagged")
+    r.server_scores["u-idor-buyer"].update(riskScore=90, riskTier="high")
+    check(verdict(r, "idor") == ("DETECTED AND ENFORCED", True), "a server tier that agrees matches")
+    out = account_outcome(r, "self-buyer", PERSONAS["selftrade"].expect["self-buyer"])
+    check((out["tier"], out["source"]) == ("LOW", "server"), "a user in no page is LOW by the server")
+    r.server_scores["u-idor-buyer"].update(scoreAvailable=False)
+    check(account_outcome(r, "idor-buyer", PERSONAS["idor"].expect["idor-buyer"])["source"] == "replica",
+          "an unavailable server score falls back to the replica")
+
+    # Both statuses are read, and users[] collected from every page (stub API)
+    class StubHttp:
+        def __init__(self):
+            self.statuses = []
+
+        def call(self, method, path, token=None, params=None, **_):
+            status = (params or {}).get("status")
+            self.statuses.append(status)
+            page = {"pending": {"signals": [{"userId": "u1", "signalType": "ROLE_FORBIDDEN", "signalId": "x",
+                                             "createdAt": "2026-11-07T10:00:00Z"}],
+                                "users": [{"userId": "u1", "riskScore": 25, "riskTier": "low"}]},
+                    "reviewed": {"signals": [{"userId": "u1", "signalType": "IDOR_CREATE_CONFLICT", "signalId": "y",
+                                              "createdAt": "2026-11-07T11:00:00Z", "resolution": "reject"},
+                                             {"userId": "other", "signalType": "GPS_JUMP", "signalId": "z",
+                                              "createdAt": "2026-11-07T11:00:00Z"}],
+                                 "users": [{"userId": "u1", "riskScore": 65, "riskTier": "high"},
+                                           {"userId": "other", "riskScore": 10, "riskTier": "low"}]}}[status]
+            return Resp(200, json.dumps(page))
+
+    stub = StubHttp()
+    rows, scores, problem = read_signals(stub, "t", {"u1"}, 3)
+    check(stub.statuses == ["pending", "reviewed"], "the signal read asks for pending and reviewed")
+    check(sorted(x["signalType"] for x in rows["u1"]) == ["IDOR_CREATE_CONFLICT", "ROLE_FORBIDDEN"]
+          and "other" not in rows, "a rejected (reviewed) row is kept, other users are not")
+    check(scores.get("u1", {}).get("riskTier") == "high" and not problem, "users[] is collected from every page")
+    check(risk_score(rows["u1"]) == (65, "HIGH"), "a rejected row still counts in the replica")
+
+    # Exit codes
+    check(run_exit_code([("a", "x", True), ("b", "y", True)]) == 0, "all personas matched: exit 0")
+    check(run_exit_code([("a", "x", True), ("b", "y", False)]) == 1, "a deviating persona: exit 1")
+    now = parse_iso("2026-11-08T03:00:00Z")
+    targets = [{"escrowId": "e-due", "deadline": "2026-11-07T23:43:47.2862315Z"}]
+    check(evaluate_holds(targets, {}, now, 2)[1] == 1, "a target past its deadline and grace, not held: exit 1")
+    check(evaluate_holds(targets, {"e-due": {"holdReason": "risk_critical"}}, now, 2)[1] == 0, "a held target: exit 0")
+    check(evaluate_holds(targets, {}, parse_iso("2026-11-08T00:30:00Z"), 2)[1] == 0, "inside the grace: exit 0")
+    check(evaluate_holds([{"escrowId": "e", "deadline": None}], {}, now, 2)[1] == 0, "an unknown deadline does not fail")
+    state = {"ids": {"idor-hold-escrow": "e1", "idor-hold-deadline": "2026-11-07T22:41:00Z"}}
+    check(hold_targets(state, ["e2=2026-11-07T23:00:00Z"]) == [
+        {"escrowId": "e1", "deadline": "2026-11-07T22:41:00Z"}, {"escrowId": "e2", "deadline": "2026-11-07T23:00:00Z"}],
+        "hold targets come from the state and --hold-target")
+    check(state_path_problem(os.path.join(REPO_ROOT, "frd17-state.json")) is not None, "a state file in the repo is refused")
+    check(state_path_problem("/tmp/frd17-state.json") is None, "a state file in /tmp is allowed")
+
     for f in failures:
         print(f"  [X] {f}")
     print(f"self-test: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
@@ -1363,37 +1556,52 @@ def self_test() -> int:
 
 
 def recheck(args) -> int:
+    """Re-read an earlier run's accounts: the server's tiers (with the replica as a cross-check) and the held
+    queue. Exit code from evaluate_holds: 1 when a hold target is overdue and not held; 2 on a setup failure."""
     with open(args.recheck) as fh:
         state = json.load(fh)
-    http = Http(state.get("base") or args.base_url, args.pace)
+    base = state.get("base") or args.base_url
+    problem = guard_base_url(base, args.allow_any_api)
+    if problem:
+        print(problem)
+        return 2
+    http = Http(base, args.pace)
     token, err = admin_token(args)
     if not token:
         print(f"admin login failed: {err}")
         return 2
-    users = {a["userId"]: a["label"] for a in state["accounts"]}
-    signals, err = read_signals(http, token, set(users), args.max_signal_pages)
-    held, err2 = read_held_escrows(http, token, set(users), 20)
-    lines = [f"\n## Re-check {time.strftime('%Y-%m-%d %H:%M:%SZ', time.gmtime())} (run `{state['runId']}`)\n"]
+    users = {a["userId"]: a["label"] for a in state["accounts"] if a.get("userId")}
+    targets = hold_targets(state, args.hold_target)
+    signals, scores, err = read_signals(http, token, set(users), args.max_signal_pages)
+    held_rows, err2 = read_held_escrows(http, token, set(users) | {t["escrowId"] for t in targets}, 20)
+    if err2:
+        print(f"held escrow read failed: {err2}")
+        return 2
+    run = Run(http, state.get("runId", "?"), random.Random(0), verbose=False)
+    run.server_scores = scores
+    lines = [f"\n## Re-check {time.strftime('%Y-%m-%d %H:%M:%SZ', time.gmtime())} (run `{state.get('runId')}`)\n"]
     for user_id, label in users.items():
         rows = signals.get(user_id, [])
-        score, tier = risk_score(rows)
-        lines.append(f"- {label}: {', '.join(sorted({r['signalType'] for r in rows})) or 'none'}; score {score}, tier {tier}")
-    lines.append("")
-    target = state.get("ids", {}).get("idor-hold-escrow")
-    lines.append(f"Held escrows naming a persona account: {len(held)}"
-                 + "".join(f"\n- `{e.get('escrowId')}` holdReason {e.get('holdReason')} heldFor {e.get('heldFor')}" for e in held))
-    if target:
-        lines.append(f"\nHold target `{target}`: {'HELD' if any(e.get('escrowId') == target for e in held) else 'not held yet'}.")
-    for e in (err, err2):
-        if e:
-            lines.append(f"\nRead note: {e}")
+        replica = risk_score(rows)
+        score, tier, source = server_tier(run, user_id, rows, *replica)
+        flag = ", DISAGREES" if source == "server" and (score, tier) != replica else ""
+        lines.append(f"- {label}: {', '.join(sorted({r['signalType'] for r in rows})) or 'none'}; "
+                     f"score {score}, tier {tier} from the {source} (replica {replica[0]}, {replica[1]}{flag})")
+    held = {e.get("escrowId"): e for e in held_rows}
+    lines.append(f"\nHeld escrows naming a persona account or a hold target: {len(held_rows)}")
+    lines.extend(f"- `{e.get('escrowId')}` holdReason {e.get('holdReason')} heldFor {e.get('heldFor')}" for e in held_rows)
+    hold_lines, code = evaluate_holds(targets, held, time.time(), args.hold_grace_hours)
+    lines.append(f"\nHold targets (grace {args.hold_grace_hours:g} h after the farmer deadline):")
+    lines.extend(hold_lines or ["- none in the state file; pass --hold-target ESCROW_ID=DEADLINE"])
+    if err:
+        lines.append(f"\nSignal read note: {err}")
     text = "\n".join(lines) + "\n"
     print(text)
     if args.report:
         with open(args.report, "a") as fh:
             fh.write(text)
         print(f"appended to {args.report}")
-    return 0
+    return code
 
 
 def main() -> int:
@@ -1405,7 +1613,11 @@ def main() -> int:
     ap.add_argument("--self-test", action="store_true", help="offline checks of the personas and the score replica")
     ap.add_argument("--report", default=None, help="markdown report path (default specs/reports/fraud-personas-<date>.md)")
     ap.add_argument("--state-file", default=None, help="write the accounts (with passwords) and ids for --recheck")
-    ap.add_argument("--recheck", default=None, help="state file of an earlier run: re-read signals and held escrows")
+    ap.add_argument("--recheck", default=None, help="state file of an earlier run: re-read tiers and held escrows")
+    ap.add_argument("--hold-target", action="append", default=None, metavar="ESCROW_ID=DEADLINE",
+                    help="with --recheck: an escrow expected held after its farmer deadline (repeatable)")
+    ap.add_argument("--hold-grace-hours", type=float, default=2.0,
+                    help="with --recheck: hours after the deadline before a missing hold fails (order cron, hourly sweep)")
     ap.add_argument("--no-cleanup", action="store_true", help="leave every created row in place")
     ap.add_argument("--pace", type=float, default=0.3, help="seconds between requests")
     ap.add_argument("--seed", type=int, default=None)
@@ -1420,6 +1632,9 @@ def main() -> int:
         return self_test()
     if args.recheck:
         return recheck(args)
+    if args.state_file and state_path_problem(args.state_file):
+        print(state_path_problem(args.state_file))
+        return 2
     selected = [k.strip() for k in args.personas.split(",") if k.strip()]
     unknown = [k for k in selected if k not in PERSONAS]
     if unknown:
@@ -1441,6 +1656,11 @@ def main() -> int:
     print(f"Adversarial personas {run_id} against {http.base}: {', '.join(selected)}")
     if http.call("GET", "/health").status != 200:
         print("API health check failed")
+        return 2
+    # The read-back needs the admin; fail before anything is created on the stack.
+    token, err = admin_token(args)
+    if not token:
+        print(f"admin login failed: {err}")
         return 2
 
     runners = {"spammer": persona_spammer, "selftrade": persona_selftrade, "idor": persona_idor,
@@ -1477,16 +1697,14 @@ def main() -> int:
 
     print("\n== Reading the signals back (admin Fraud Review API)")
     time.sleep(5)
-    token, err = admin_token(args)
-    if token:
-        ids = {a.user_id for a in run.accounts.values()}
-        run.signals, run.signals_error = read_signals(http, token, ids, args.max_signal_pages)
-        run.signals_error = run.signals_error or None
-        for a in run.accounts.values():
-            rows = run.signals.get(a.user_id, [])
-            print(f"  {a.label}: {sorted({r['signalType'] for r in rows}) or 'none'} -> {risk_score(rows)}")
-    else:
-        run.signals_error = f"admin login failed ({err}); signals not read"
+    ids = {a.user_id for a in run.accounts.values()}
+    run.signals, run.server_scores, problem = read_signals(http, token, ids, args.max_signal_pages)
+    run.signals_error = problem or None
+    for a in run.accounts.values():
+        rows = run.signals.get(a.user_id, [])
+        print(f"  {a.label}: {sorted({r['signalType'] for r in rows}) or 'none'} -> "
+              f"{server_tier(run, a.user_id, rows, *risk_score(rows))} (replica {risk_score(rows)})")
+    if run.signals_error:
         print(f"  {run.signals_error}")
 
     if "spammer" in selected and "spammer" in run.accounts:
@@ -1506,7 +1724,7 @@ def main() -> int:
     for key, verdict, matched in verdicts:
         print(f"  {key}: {verdict}{'' if matched else '  (DEVIATES)'}")
     print(f"\nreport: {report}\nHTTP calls: {http.calls}")
-    return 0 if all(m for _, _, m in verdicts) else 1
+    return run_exit_code(verdicts)
 
 
 def do_cleanup(run: Run):
@@ -1531,6 +1749,20 @@ def do_cleanup(run: Run):
             run.left_on_dev.append(f"{kind} of `{entity_id}` failed: {e}")
 
 
+def state_path_problem(path: str) -> Optional[str]:
+    """The state file holds the synthetic accounts' passwords: never inside a git checkout (any directory on
+    its path holding a `.git`), so it cannot be staged by accident."""
+    directory = os.path.dirname(os.path.realpath(path))
+    while True:
+        if os.path.exists(os.path.join(directory, ".git")):
+            return (f"refusing --state-file {path}: it holds passwords and is inside the git checkout {directory}; "
+                    "use a path outside it, e.g. /tmp/frd17-state.json")
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            return None
+        directory = parent
+
+
 def save_state(run: Run, args):
     if not args.state_file:
         return
@@ -1538,9 +1770,11 @@ def save_state(run: Run, args):
              "accounts": [{"label": a.label, "role": a.role, "persona": a.persona, "phone": a.phone,
                            "password": a.password, "deviceId": a.device_id, "userId": a.user_id}
                           for a in run.accounts.values()]}
-    with open(args.state_file, "w") as fh:
+    fd = os.open(args.state_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)  # an existing file keeps its old mode otherwise
+    with os.fdopen(fd, "w") as fh:
         json.dump(state, fh, indent=2)
-    print(f"state: {args.state_file} (holds the synthetic accounts' passwords; keep it out of git)")
+    print(f"state: {args.state_file} (mode 0600, holds the synthetic accounts' passwords)")
 
 
 if __name__ == "__main__":
