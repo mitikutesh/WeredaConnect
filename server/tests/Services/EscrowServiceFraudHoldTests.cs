@@ -887,6 +887,28 @@ public class EscrowServiceFraudHoldTests
     }
 
     [Fact]
+    public async Task AdminRefund_ThatThrowsAfterTheLock_IsLabelled_AndTheExceptionStillSaysTheMoneyMayHaveMoved()
+    {
+        CaptureLabels();
+        EscrowIs(Held("refund", orderEscrow: false, withOrder: false));
+        // The gateway refunded; the settled status write times out, then finds the row moved, and the re-read fails.
+        var attempts = 0;
+        _escrows.UpdateStatusAsync("escrow-initiate-1", CreatedAt, "refunded", "held", Arg.Any<Dictionary<string, object>?>())
+            .Returns(_ => ++attempts == 1
+                ? throw new Amazon.DynamoDBv2.AmazonDynamoDBException("timeout")
+                : throw new ConditionalCheckFailedException("status moved"));
+        _escrows.GetByIdAsync("escrow-initiate-1", true).ThrowsAsync(new Amazon.DynamoDBv2.AmazonDynamoDBException("down"));
+
+        var act = () => AdminRefund(Refund("escrow-initiate-1"));
+
+        var thrown = await act.Should().ThrowAsync<ConditionalCheckFailedException>();
+        WeredaConnect.Server.Helpers.MoneyAlarmLog.ExceptionOutcome(thrown.Which)
+            .Should().Be(WeredaConnect.Server.Helpers.MoneyAlarmLog.OutcomeUnknown);
+        await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        _labels.Should().ContainSingle(l => S(l, "labelOutcome") == "hold_refunded");
+    }
+
+    [Fact]
     public async Task AdminRelease_ALabelThatCannotBeWritten_DoesNotFailTheRelease()
     {
         EscrowIs(Held("release"));

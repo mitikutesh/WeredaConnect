@@ -736,6 +736,32 @@ public partial class AdminFunction
     }
 
     /// <summary>
+    /// FRD-18: a replay of a recorded verdict that is not refused re-ensures its outcome label from what the
+    /// escrow stored (the verdict's <c>disputeResolvedAt</c> and <c>disputeResolvedBy</c>), so a label the first
+    /// write lost heals through the conditional put, and one already there is left alone. Only for a verdict on a raised
+    /// dispute (<c>disputedBy</c>) with its time stored: the FRD-03 refund of an escrow held for release also
+    /// records <c>buyer_wins</c>, and that case is labelled as a held exit.
+    /// </summary>
+    private async Task RepairDisputeLabelAsync(
+        Dictionary<string, AttributeValue> latest, string resolution, string? disposition, string? dispositionReason,
+        APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        string? Field(string name) => latest.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value.S) ? value.S : null;
+
+        if (Field("disputedBy") == null || Field("disputeResolvedAt") is not { } resolvedAt)
+        {
+            return;
+        }
+
+        var resolvedBy = Field("disputeResolvedBy") ?? AuthHelper.GetUserId(request) ?? "admin";
+        var label = DisputeLabel(latest, Field("orderId") ?? Field("escrowId") ?? "",
+            new ResolveDisputeRequest { Resolution = resolution, Action = resolution == "farmer_wins" ? "release" : "refund" },
+            disposition, string.IsNullOrEmpty(dispositionReason) ? null : dispositionReason, resolvedBy, resolvedAt);
+        // Who decided is stored; where from is not, so the replaying request's address is not put on the label.
+        await OutcomeLabelWriter.WriteAsync(TxAuditRepo(), label, new AuditContext { Actor = resolvedBy, ActorRole = "admin" }, context);
+    }
+
+    /// <summary>
     /// The same verdict again. ESC-03: nothing new is recorded and the legs are mirrored again.
     /// FUP-16: on a verdict not settled yet whose legs cannot follow it, the disposition in the request
     /// (or the one already recorded) is applied: a new choice is recorded on the escrow first
@@ -785,11 +811,15 @@ public partial class AdminFunction
                     dispositionAt = now;
                 }
 
+                // FRD-18: past the refusals, which change nothing, the label a lost write left out heals.
+                await RepairDisputeLabelAsync(latest, resolution, chosen, reason, request, context);
                 return await ApplyDispositionAsync(mirror, latest, resolution, chosen!, reason, plan.Legs, dispositionAt,
                     recordedAt, latestStatus, adminUserId, request, context);
             }
         }
 
+        await RepairDisputeLabelAsync(latest, resolution, recordedDisposition,
+            latest.TryGetValue(DisputeDispositionFields.Reason, out var storedReason) ? storedReason.S : null, request, context);
         await MirrorVerdictAsync(latest, resolution, recordedAt, adminUserId, context);
         return LambdaResponse.Ok(new ResolveDisputeResponse
         {
@@ -2485,9 +2515,19 @@ public partial class AdminFunction
             ActorRole = GetStringOrNull(item, "actorRole"),
             IpAddress = GetStringOrNull(item, "ipAddress"),
             CorrelationId = GetStringOrNull(item, "correlationId"),
-            Timestamp = GetString(item, "timestamp"),
+            Timestamp = ShownTimestamp(item) ?? "",
             Metadata = GetStringOrNull(item, "metadata"),
         };
+
+    /// <summary>
+    /// FRD-18: when a transaction-audit row happened, as the timeline and the audit log show it. An outcome
+    /// label is keyed on its case's time (fraud spec section 20.1), so it shows <c>labelledAt</c>, when the
+    /// admin decided; every other row, and a label without it, shows its <c>timestamp</c>.
+    /// </summary>
+    private static string? ShownTimestamp(Dictionary<string, object> item) =>
+        GetString(item, "entityType") == OutcomeLabels.EntityType && GetStringOrNull(item, "labelledAt") is { Length: > 0 } decided
+            ? decided
+            : GetStringOrNull(item, "timestamp");
 
     /// <summary>
     /// Look up the escrow for an order via the OrderIndex GSI (sparse — only escrows
@@ -2639,7 +2679,7 @@ public partial class AdminFunction
                     : null;
             }
 
-            Add(GetStringOrNull(e, "timestamp"), entity, action,
+            Add(ShownTimestamp(e), entity, action,
                 toState: GetStringOrNull(e, "toState"),
                 actor: GetStringOrNull(e, "actor"),
                 detail: GetStringOrNull(e, "metadata"),

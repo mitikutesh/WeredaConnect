@@ -1087,21 +1087,157 @@ public class AdminFunctionTests
         item.Should().NotContainKey("disposition");
     }
 
-    [Fact]
-    public async Task ResolveDispute_TheSameVerdictAgain_WritesNoSecondLabel()
+    private static Dictionary<string, AttributeValue> RecordedVerdictAt(string resolvedAt, bool disputeRaised = true)
     {
-        var settled = DisputedEscrow(("status", "dispute_resolved"), ("disputeResolution", "buyer_wins"),
-            ("disputeResolvedAt", "2026-09-21T08:00:00.0000000Z"));
-        EscrowReads(DisputedEscrow(), settled);
+        var escrow = DisputedEscrow(("status", "dispute_resolved"), ("disputeResolution", "buyer_wins"),
+            ("disputeResolvedAt", resolvedAt), ("disputeResolvedBy", "admin-7"));
+        if (!disputeRaised)
+        {
+            escrow.Remove("disputedBy");
+        }
+
+        return escrow;
+    }
+
+    private void TheVerdictIsAlreadyRecorded(Dictionary<string, AttributeValue> recorded)
+    {
+        EscrowReads(DisputedEscrow(), recorded);
         _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new ConditionalCheckFailedException("moved"));
+    }
+
+    [Fact]
+    public async Task ResolveDispute_AReplay_ReEnsuresTheLabelAtTheVerdictsOwnKey_SoALostOneHeals()
+    {
+        // The verdict: its label is keyed on the verdict time.
+        EscrowReads(DisputedEscrow());
+        (await WithAuditOnly().FunctionHandler(ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context))
+            .StatusCode.Should().Be(200);
+        var resolvedAt = Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync))
+            .Single(u => u.TableName == EscrowsTable).ExpressionAttributeValues[":resolvedAt"].S;
+
+        // The same verdict again, from what the escrow stored.
+        TheVerdictIsAlreadyRecorded(RecordedVerdictAt(resolvedAt));
+        var replay = await WithAuditOnly().FunctionHandler(ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context);
+
+        replay.StatusCode.Should().Be(200, replay.Body);
+        replay.Body.Should().Contain("Verdict already recorded.");
+        var labels = LabelPuts;
+        labels.Should().HaveCount(2);
+        labels.Should().OnlyContain(p => p.ConditionExpression == "attribute_not_exists(transactionId)");
+        labels[1].Item["transactionId"].S.Should().Be(labels[0].Item["transactionId"].S);
+        labels[1].Item["timestamp"].S.Should().Be(labels[0].Item["timestamp"].S);
+        labels[1].Item["labelOutcome"].S.Should().Be("buyer_wins");
+        labels[1].Item["labelledAt"].S.Should().Be(resolvedAt);
+        labels[1].Item["actor"].S.Should().Be("admin-7"); // who decided, not who replayed
+        labels[1].Item.Should().NotContainKey("ipAddress");
+    }
+
+    [Fact]
+    public async Task ResolveDispute_AReplay_WhoseLabelIsThere_WritesNothingNew_AndAnswersAsBefore()
+    {
+        TheVerdictIsAlreadyRecorded(RecordedVerdictAt("2026-09-21T08:00:00.0000000Z"));
+        _dynamoDb.PutItemAsync(
+                Arg.Is<PutItemRequest>(p => p.TableName == TxAuditTable && p.Item.ContainsKey("action")
+                                            && p.Item["action"].S == "outcome_label"),
+                Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("labelled"));
 
         var response = await WithAuditOnly().FunctionHandler(
             ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context);
 
         response.StatusCode.Should().Be(200, response.Body);
         response.Body.Should().Contain("Verdict already recorded.");
+        LabelPuts.Should().ContainSingle().Which.Item["timestamp"].S.Should().Be("2026-09-21T08:00:00.0000004Z");
+        Calls<PutItemRequest>(nameof(IAmazonDynamoDB.PutItemAsync)).Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task ResolveDispute_AReplayOfAVerdictWithNoDisputeRaised_WritesNoLabel()
+    {
+        // FRD-03: the refund of an escrow held for release records buyer_wins too; it is labelled as a held exit.
+        TheVerdictIsAlreadyRecorded(RecordedVerdictAt("2026-09-21T08:00:00.0000000Z", disputeRaised: false));
+
+        var response = await WithAuditOnly().FunctionHandler(
+            ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
         LabelPuts.Should().BeEmpty();
+    }
+
+    private static Dictionary<string, AttributeValue> LabelRow() => new()
+    {
+        ["auditId"] = S("label-dispute-escrow-1-buyer_wins-x"),
+        ["transactionId"] = S("order-1"),
+        ["timestamp"] = S("2026-07-01T09:00:00.0000004Z"),
+        ["labelledAt"] = S("2026-07-03T15:30:00.0000000Z"),
+        ["entityType"] = S("label"),
+        ["entityId"] = S("outcome-labels"),
+        ["action"] = S("outcome_label"),
+        ["toState"] = S("buyer_wins"),
+        ["actor"] = S("admin-1"),
+    };
+
+    [Fact]
+    public async Task GetTransaction_AnOutcomeLabel_ShowsWhenTheAdminDecided()
+    {
+        var db = Substitute.For<IAmazonDynamoDB>();
+        var orderItem = new Dictionary<string, AttributeValue>
+        {
+            ["orderId"] = S("order-1"), ["buyerId"] = S("buyer-1"), ["farmerId"] = S("farmer-1"),
+            ["cropType"] = S("teff"), ["quantity"] = Num("100"), ["orderTotal"] = Num("5000"),
+            ["status"] = S("dispute_resolved"), ["createdAt"] = S("2026-07-01T08:00:00Z"),
+            ["updatedAt"] = S("2026-07-03T15:30:00Z"),
+        };
+        var orderEvent = new Dictionary<string, AttributeValue>
+        {
+            ["auditId"] = S("txaudit-1"), ["transactionId"] = S("order-1"), ["entityType"] = S("order"),
+            ["entityId"] = S("order-1"), ["action"] = S("order_created"), ["actor"] = S("buyer-1"),
+            ["timestamp"] = S("2026-07-01T08:00:00Z"), ["labelledAt"] = S("2026-07-09T00:00:00Z"),
+        };
+        db.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var req = ci.Arg<QueryRequest>();
+                List<Dictionary<string, AttributeValue>> items =
+                    req.IndexName == "OrderIndex" ? new()
+                    : req.TableName == OrdersTable ? new() { orderItem }
+                    : req.TableName == TxAuditTable ? new() { orderEvent, LabelRow() }
+                    : new();
+                return new QueryResponse { Items = items, LastEvaluatedKey = new Dictionary<string, AttributeValue>() };
+            });
+
+        var response = await new AdminFunction(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable)
+            .FunctionHandler(AdminGet("/admin/transactions/order-1"), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var timeline = JsonDocument.Parse(response.Body).RootElement.GetProperty("timeline").EnumerateArray().ToList();
+        timeline.Single(e => e.GetProperty("action").GetString() == "outcome_label")
+            .GetProperty("timestamp").GetString().Should().Be("2026-07-03T15:30:00.0000000Z");
+        // Any other row keeps its own time; it is ordered by the time shown.
+        timeline.Single(e => e.GetProperty("action").GetString() == "order_created")
+            .GetProperty("timestamp").GetString().Should().Be("2026-07-01T08:00:00Z");
+        timeline.Last().GetProperty("action").GetString().Should().Be("outcome_label");
+    }
+
+    [Fact]
+    public async Task AuditLog_AnOutcomeLabel_ShowsWhenTheAdminDecided()
+    {
+        var db = Substitute.For<IAmazonDynamoDB>();
+        db.ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ScanResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>> { LabelRow() },
+                LastEvaluatedKey = new Dictionary<string, AttributeValue>(),
+            });
+
+        var response = await new AdminFunction(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable)
+            .FunctionHandler(AdminGet("/admin/audit"), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var entry = JsonDocument.Parse(response.Body).RootElement.GetProperty("entries").EnumerateArray().Single();
+        entry.GetProperty("timestamp").GetString().Should().Be("2026-07-03T15:30:00.0000000Z");
+        entry.GetProperty("action").GetString().Should().Be("outcome_label");
     }
 
     [Fact]
@@ -1584,6 +1720,12 @@ public class AdminFunctionTests
         updates.Single(u => u.TableName == OrdersTable).ExpressionAttributeValues[":to"].S.Should().Be("dispute_resolved");
         Calls<PutItemRequest>(nameof(IAmazonDynamoDB.PutItemAsync))
             .Should().ContainSingle(p => p.TableName == AuditTable && p.Item["action"].S == "dispute_resolved_settled_early");
+        // FRD-18: the replay re-ensures the verdict's label at the verdict's key, with the choice it applies.
+        var label = LabelPuts.Should().ContainSingle().Subject.Item;
+        label["timestamp"].S.Should().Be("2026-09-21T08:00:00.0000005Z");
+        label["labelOutcome"].S.Should().Be("farmer_wins");
+        label["disposition"].S.Should().Be("settle_now");
+        label["labelReason"].S.Should().Be(Reason);
     }
 
     [Fact]
