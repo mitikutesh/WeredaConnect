@@ -172,6 +172,23 @@ class PhotoManager {
     }
   }
 
+  /// Delete every photo file of a handoff ([type]) this phone kept for
+  /// [deliveryId], the retakes included: once the server attached the
+  /// handoff's photo (FRD-12) none is needed any more. Leaves the delivery's
+  /// other handoff alone.
+  Future<void> deleteLocalPhotos(String deliveryId, PhotoType type) async {
+    if (!DeliveryConstants.uuidRegex.hasMatch(deliveryId)) return;
+    final appDir = await getApplicationDocumentsDirectory();
+    final photoDir = Directory('${appDir.path}/photos/$deliveryId');
+    if (!photoDir.existsSync()) return;
+    for (final file in photoDir.listSync().whereType<File>()) {
+      final name = file.uri.pathSegments.last;
+      if (name.startsWith('${type.name}-') && name.endsWith('.webp')) {
+        await file.delete();
+      }
+    }
+  }
+
   /// Get the photo storage directory for a delivery, creating it if needed.
   Future<Directory> _getPhotoDir(String deliveryId) async {
     final appDir = await getApplicationDocumentsDirectory();

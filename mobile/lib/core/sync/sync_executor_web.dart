@@ -35,6 +35,11 @@ typedef PickupRejectedHandler = Future<void> Function(String deliveryId);
 /// a listing's photos before its own `POST /sync`).
 typedef OperationPreflight = Future<bool> Function(SyncOperation operation);
 
+/// Mobile hook after an operation was applied; never called on web.
+typedef OperationSyncedHandler = Future<void> Function(
+  SyncOperation operation,
+);
+
 /// Status of a sync batch execution.
 enum SyncBatchStatus {
   success,
@@ -92,6 +97,7 @@ class SyncExecutor {
     LocationSharingEndedHandler? onLocationSharingEnded,
     PickupRejectedHandler? onPickupRejected,
     OperationPreflight? preflight,
+    OperationSyncedHandler? onOperationSynced,
   });
 
   Stream<SyncBatchResult> get onSyncResult => const Stream.empty();

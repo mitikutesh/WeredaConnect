@@ -21,47 +21,79 @@ typedef OperationDataWriter = Future<void> Function(
   String data,
 );
 
+/// Whether an operation of the delivery itself (its create, a handoff) still
+/// waits in the queue (`SyncQueue.hasOpenOperationsFor`).
+typedef DeliveryOpsOpen = Future<bool> Function(String deliveryId);
+
+/// Called once the server attached the photo [photoRef] (the photo's file
+/// [localPath] is no longer needed on the phone).
+typedef DeliveryPhotoAttached = Future<void> Function({
+  required String deliveryId,
+  required String type,
+  required String photoRef,
+  required String? localPath,
+});
+
 /// Uploads a handoff photo before its `delivery_photo` operation goes to
 /// `POST /sync` (FRD-12, delivery-verification-api.md 1.25.0). Plugged into
 /// the mobile `SyncExecutor` as part of its preflight.
 ///
-/// The operation is queued with the photo file's path. Once the photo is in
-/// the uploads bucket, its payload becomes `{"photoRef": key}`, in memory for
-/// this batch and in the queue for any later run, so a photo goes up once.
+/// The operation is queued with the photo file's path (a `_` key, never sent).
+/// Once the photo is in the uploads bucket, its payload becomes
+/// `{"photoRef": key}`, in memory for this batch and in the queue for any
+/// later run, so a photo goes up once.
 ///
 /// Answers true when the operation can go: it is not a photo, it is readied
 /// already, or the upload just worked. False keeps it queued (offline, a
 /// server error, a failed PUT, a delivery whose own create is still on its
-/// way) for the next sync run, without using a retry. A refusal that can
-/// never change (not this user's photo, over the cap, the handoff has its
-/// photo) and a file that is gone also answer true without a key: the
-/// server then refuses the operation for good (`DELIVERY_PHOTO_INVALID`)
-/// and the queue settles it, instead of the photo waiting forever.
+/// way) for the next sync run, without using a retry. Every wait is bounded:
+/// a refusal that can never change (not this user's photo, over the cap, the
+/// handoff has its photo, the delivery was cancelled), a file that is gone, a
+/// delivery the server does not know once none of its own operations waits
+/// on the phone ([notFoundGrace] after the photo was queued), and the
+/// [maxPutRefusals]th refused PUT all answer true without a key: the server
+/// then refuses the operation for good (`DELIVERY_PHOTO_INVALID`) and the
+/// queue settles it, instead of the photo waiting forever.
 class DeliveryPhotoSyncPreflight {
+  /// How long after it was queued a photo still waits for a delivery the
+  /// server does not know, once no operation of that delivery waits on the
+  /// phone (a slow index read just after the delivery's create).
+  static const Duration notFoundGrace = Duration(minutes: 10);
+
+  /// PUTs that S3 refused (a 4xx) before the photo is given up: a fresh
+  /// presigned URL is refused only for a reason the next one shares, so a
+  /// 200 KB upload is not repeated on every sync.
+  static const int maxPutRefusals = 3;
+
+  /// Payload key counting the refused PUTs (a `_` key, never sent).
+  static const String putRefusalsKey = '_putRefusals';
+
   final DeliveryPhotoUploader _uploader;
   final PhotoFileReader _readFile;
   final OperationDataWriter _saveData;
+  final DeliveryOpsOpen _deliveryOpsOpen;
+  final DeliveryPhotoAttached? _onAttached;
+  final DateTime Function() _now;
 
   DeliveryPhotoSyncPreflight({
     required OperationDataWriter saveData,
+    required DeliveryOpsOpen deliveryOpsOpen,
+    DeliveryPhotoAttached? onAttached,
     DeliveryPhotoUploader? uploader,
     PhotoFileReader? readFile,
+    DateTime Function()? now,
   })  : _saveData = saveData,
+        _deliveryOpsOpen = deliveryOpsOpen,
+        _onAttached = onAttached,
         _uploader = uploader ?? DeliveryPhotoUploader(),
-        _readFile = readFile ?? readKeptPhoto;
+        _readFile = readFile ?? readKeptPhoto,
+        _now = now ?? DateTime.now;
 
   Future<bool> call(SyncOperation operation) async {
     if (operation.entityType != deliveryPhotoEntityType) return true;
 
-    final Map<String, dynamic> data;
-    try {
-      final decoded = jsonDecode(operation.data);
-      if (decoded is! Map<String, dynamic>) return true;
-      data = decoded;
-    } on FormatException {
-      return true;
-    }
-    if (data[deliveryPhotoRefKey] is String) return true;
+    final data = _decode(operation.data);
+    if (data == null || data[deliveryPhotoRefKey] is String) return true;
 
     final photo = parseDeliveryPhotoEntityId(operation.entityId);
     final path = data[deliveryPhotoLocalPathKey];
@@ -73,7 +105,7 @@ class DeliveryPhotoSyncPreflight {
     if (bytes == null ||
         (contentType != 'image/webp' && contentType != 'image/jpeg')) {
       debugPrint('[DeliveryPhotoSyncPreflight] no photo file to send');
-      await _ready(operation, const {});
+      await _giveUp(operation, path);
       return true;
     }
 
@@ -85,37 +117,116 @@ class DeliveryPhotoSyncPreflight {
         bytes: bytes,
         contentType: contentType!,
       );
+    } on NotFoundException {
+      return _waitForDelivery(operation, photo.deliveryId, path);
     } on ApiException catch (e) {
       if (_refusedForGood(e)) {
         debugPrint('[DeliveryPhotoSyncPreflight] upload refused for good: $e');
-        await _ready(operation, const {});
+        await _giveUp(operation, path);
         return true;
       }
       return false;
     } on DioException catch (e) {
-      debugPrint('[DeliveryPhotoSyncPreflight] photo PUT failed, will retry: '
-          '${e.type}');
-      return false;
+      return _putFailed(operation, data, path, e);
     } on Object catch (e) {
       debugPrint('[DeliveryPhotoSyncPreflight] upload failed, will retry: $e');
       return false;
     }
 
-    await _ready(operation, {deliveryPhotoRefKey: photoRef});
+    await _save(operation, {
+      deliveryPhotoRefKey: photoRef,
+      deliveryPhotoLocalPathKey: path,
+    });
     return true;
   }
 
-  /// Gives [operation] its final payload, for this batch and later runs.
-  Future<void> _ready(SyncOperation operation, Map<String, String> data) async {
+  /// After the server attached a photo (a `success` or `duplicate` answer):
+  /// the phone's file is no longer needed.
+  Future<void> onSynced(SyncOperation operation) async {
+    if (operation.entityType != deliveryPhotoEntityType) return;
+    final data = _decode(operation.data);
+    final photoRef = data?[deliveryPhotoRefKey];
+    final photo = parseDeliveryPhotoEntityId(operation.entityId);
+    final onAttached = _onAttached;
+    if (photoRef is! String || photo == null || onAttached == null) return;
+    final path = data?[deliveryPhotoLocalPathKey];
+    try {
+      await onAttached(
+        deliveryId: photo.deliveryId,
+        type: photo.type,
+        photoRef: photoRef,
+        localPath: path is String ? path : null,
+      );
+    } on Object catch (e) {
+      debugPrint('[DeliveryPhotoSyncPreflight] attach clean-up failed: $e');
+    }
+  }
+
+  /// The server does not know the delivery. Wait while one of its own
+  /// operations (its create) still waits on the phone, or for
+  /// [notFoundGrace] after the photo was queued; then give the photo up.
+  Future<bool> _waitForDelivery(
+    SyncOperation operation,
+    String deliveryId,
+    String path,
+  ) async {
+    if (await _deliveryOpsOpen(deliveryId)) return false;
+    if (_now().difference(operation.createdAt) < notFoundGrace) return false;
+    debugPrint('[DeliveryPhotoSyncPreflight] the delivery is unknown: '
+        'the photo is given up');
+    await _giveUp(operation, path);
+    return true;
+  }
+
+  /// A PUT that did not reach S3, or got a 5xx, waits for the next run. A
+  /// refusal (4xx) is counted, and the [maxPutRefusals]th gives the photo up.
+  Future<bool> _putFailed(
+    SyncOperation operation,
+    Map<String, dynamic> data,
+    String path,
+    DioException e,
+  ) async {
+    final status = e.response?.statusCode;
+    if (status == null || status < 400 || status >= 500) {
+      debugPrint('[DeliveryPhotoSyncPreflight] photo PUT failed, will retry: '
+          '${e.type}');
+      return false;
+    }
+    final refusals = ((data[putRefusalsKey] as num?)?.toInt() ?? 0) + 1;
+    if (refusals >= maxPutRefusals) {
+      debugPrint('[DeliveryPhotoSyncPreflight] photo PUT refused $refusals '
+          'times ($status): the photo is given up');
+      await _giveUp(operation, path);
+      return true;
+    }
+    await _save(operation, {...data, putRefusalsKey: refusals});
+    return false;
+  }
+
+  /// Sends the operation without a key, so the server refuses it for good.
+  Future<void> _giveUp(SyncOperation operation, String path) =>
+      _save(operation, {deliveryPhotoLocalPathKey: path});
+
+  /// Gives [operation] a new payload, for this batch and later runs.
+  Future<void> _save(SyncOperation operation, Map<String, Object?> data) async {
     final encoded = jsonEncode(data);
     operation.data = encoded;
     await _saveData(operation.operationId, encoded);
   }
 
+  static Map<String, dynamic>? _decode(String data) {
+    try {
+      final decoded = jsonDecode(data);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
   /// A presign refusal that the same photo can never pass: a 400 (over the
-  /// cap), a 409 (the handoff has its photo) or a 403 naming this photo's
-  /// rules. A 401 (an expired session), a 404 (the delivery's create may
-  /// still be on its way) and a 5xx are worth another try.
+  /// cap), a 409 (the handoff has its photo, the delivery was cancelled) or
+  /// a 403 naming this photo's rules. A 401 (an expired session) and a 5xx
+  /// are worth another try; a 404 is decided by [_waitForDelivery].
   static bool _refusedForGood(ApiException e) =>
       e is ValidationException ||
       e is ConflictException ||

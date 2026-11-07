@@ -85,4 +85,7 @@ class PhotoManager {
 
   /// The browser keeps no photo files.
   Future<void> deleteLocalPhoto(String path) async {}
+
+  /// The browser keeps no photo files.
+  Future<void> deleteLocalPhotos(String deliveryId, PhotoType type) async {}
 }

@@ -77,6 +77,7 @@ void main() {
   late StreamSubscription<SecurityEvent> sub;
   late List<SyncOperation> reverts;
   late _FakeUploader uploader;
+  late List<String> cleanedUp;
   late SyncExecutor executor;
   late List<Map<String, dynamic>> requests;
   late Map<String, Map<String, Object>> answers;
@@ -104,10 +105,20 @@ void main() {
     requests = [];
     answers = {};
     uploader = _FakeUploader();
+    cleanedUp = [];
     final preflight = DeliveryPhotoSyncPreflight(
       uploader: uploader,
       readFile: (path) async => path == _path ? _webp : null,
       saveData: queue.replaceData,
+      deliveryOpsOpen: (deliveryId) =>
+          queue.hasOpenOperationsFor('delivery', deliveryId),
+      onAttached: ({
+        required deliveryId,
+        required type,
+        required photoRef,
+        required localPath,
+      }) async =>
+          cleanedUp.add('$deliveryId#$type $photoRef $localPath'),
     );
     executor = SyncExecutor(
       syncQueue: queue,
@@ -117,6 +128,7 @@ void main() {
       securityEvents: events,
       onPermanentRejection: (op, _) async => reverts.add(op),
       preflight: preflight.call,
+      onOperationSynced: preflight.onSynced,
     );
     adapter.onPost(
       '/sync',
@@ -186,6 +198,8 @@ void main() {
     expect(ops[1]['entityId'], '$_deliveryId#pickup');
     expect(ops[1]['data'], {'photoRef': _key});
     expect(await queue.getPendingCount(), 0);
+    // Attached: the phone's file goes.
+    expect(cleanedUp, ['$_deliveryId#pickup $_key $_path']);
   });
 
   test('offline for the upload, only the photo waits: the pickup goes',
@@ -223,6 +237,93 @@ void main() {
     expect(uploader.calls, 1);
     expect(sentOps().last['data'], {'photoRef': _key});
     expect(await queue.getPendingCount(), 0);
+  });
+
+  test('a refused delivery create rejects its waiting photos', () async {
+    await queue.enqueue(
+      userId: _userId,
+      entityType: 'delivery',
+      entityId: _deliveryId,
+      action: 'create',
+      data: jsonEncode({'status': 'pending'}),
+      operationId: 'op-create',
+    );
+    await enqueuePickupWithPhoto();
+    // The delivery is unknown to the server: its create is in this batch.
+    uploader.answer = () async => throw const NotFoundException();
+    answers['op-create'] = {
+      'status': 'error',
+      'message': 'DELIVERY_ORDER_REQUIRED: orderId is required.',
+    };
+
+    await executor.executeBatch();
+
+    final photo = await queue.getOperation('op-photo');
+    expect(SyncQueue.isRejected(photo!), isTrue);
+    expect(await queue.getPendingCount(), 0);
+    expect(await queue.getFailedCount(), 1, reason: 'the create only');
+    expect(
+      sentOps().map((op) => op['operationId']),
+      isNot(contains('op-photo')),
+    );
+  });
+
+  test('a refused pickup rejects its pickup photo, not the drop-off photo',
+      () async {
+    await enqueuePickupWithPhoto();
+    await queue.enqueue(
+      userId: _userId,
+      entityType: deliveryPhotoEntityType,
+      entityId: deliveryPhotoEntityId(_deliveryId, 'dropoff'),
+      action: 'create',
+      data: jsonEncode({deliveryPhotoLocalPathKey: _path}),
+      operationId: 'op-dropoff-photo',
+      keyTimestamp: DateTime.utc(2026, 11, 7, 9),
+    );
+    // Both photos wait for the next run (offline for the uploads).
+    uploader.answer = () async => throw const NetworkException();
+    answers['op-pickup'] = {
+      'status': 'error',
+      'message': 'DELIVERY_CODE_MISMATCH: The code does not match.',
+    };
+
+    await executor.executeBatch();
+
+    expect(
+      SyncQueue.isRejected((await queue.getOperation('op-photo'))!),
+      isTrue,
+    );
+    expect(
+      (await queue.getOperation('op-dropoff-photo'))!.status,
+      SyncStatus.pending,
+    );
+  });
+
+  test(
+      'a cancelled delivery ends the photo: the presign refusal sends it '
+      'without a key and the server settles it', () async {
+    await enqueuePickupWithPhoto();
+    uploader.answer = () async => throw const ConflictException(
+          'The delivery was cancelled.',
+          409,
+          'DELIVERY_PHOTO_REFUSED',
+        );
+    answers['op-photo'] = {
+      'status': 'error',
+      'message': 'DELIVERY_PHOTO_INVALID: photoRef must be the key POST '
+          '/deliveries/{id}/photos issued for this photo.',
+    };
+
+    await executor.executeBatch();
+
+    expect(sentOps().last['operationId'], 'op-photo');
+    expect(sentOps().last['data'], <String, dynamic>{});
+    expect(
+      SyncQueue.isRejected((await queue.getOperation('op-photo'))!),
+      isTrue,
+    );
+    expect(await queue.getFailedCount(), 0);
+    expect(cleanedUp, isEmpty);
   });
 
   test('a refused attach is final, silent and leaves no failure to retry',

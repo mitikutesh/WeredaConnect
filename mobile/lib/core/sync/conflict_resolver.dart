@@ -238,8 +238,13 @@ class ConflictResolver {
           delivery!.gpsDropoff = null;
         }
 
-        delivery!.pickupPhotoRef = serverData['pickupPhotoRef'] as String?;
-        delivery!.dropoffPhotoRef = serverData['dropoffPhotoRef'] as String?;
+        // FRD-12: until the server holds a handoff photo, this phone keeps
+        // the path of the one it took (its upload waits in the queue), as a
+        // delivery pull does.
+        delivery!.pickupPhotoRef = serverData['pickupPhotoRef'] as String? ??
+            _localPhotoPath(delivery!.pickupPhotoRef);
+        delivery!.dropoffPhotoRef = serverData['dropoffPhotoRef'] as String? ??
+            _localPhotoPath(delivery!.dropoffPhotoRef);
         delivery!.disputeReason = serverData['disputeReason'] as String?;
 
         // Timestamps
@@ -358,6 +363,11 @@ class ConflictResolver {
   }
 
   /// Whether a `/sync` row field holds a value (a non-empty string).
+  /// [ref] when it is a photo file on this phone (an absolute path), else
+  /// null: a server key always comes from the server's own row.
+  static String? _localPhotoPath(String? ref) =>
+      ref != null && ref.startsWith('/') ? ref : null;
+
   static bool _hasValue(Object? value) =>
       value != null && value.toString().isNotEmpty;
 

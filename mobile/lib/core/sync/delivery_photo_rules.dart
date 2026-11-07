@@ -9,10 +9,11 @@ const String deliveryPhotoEntityType = 'delivery_photo';
 /// Data key of the server's upload key, the only field the server takes.
 const String deliveryPhotoRefKey = 'photoRef';
 
-/// Data key of the photo file while it waits on the phone. The preflight
-/// replaces the whole payload with [deliveryPhotoRefKey] once the photo is
-/// uploaded, so a device path never reaches the server.
-const String deliveryPhotoLocalPathKey = 'localPath';
+/// Data key of the photo file on the phone. A `_` key: the sync executor
+/// never sends it (`wireOperationData`), so a device path never reaches the
+/// server; the preflight keeps it next to [deliveryPhotoRefKey] once the
+/// photo is uploaded, to delete the file after the attach.
+const String deliveryPhotoLocalPathKey = '_localPath';
 
 /// The entity id of a delivery's [type] photo (`pickup` or `dropoff`):
 /// `{deliveryId}#{type}`. It names the photo, not the delivery, so a photo
@@ -37,3 +38,14 @@ String deliveryPhotoEntityId(String deliveryId, String type) =>
 /// `DELIVERY_PHOTO_*` error (a `deferred` answer is not an error).
 bool isDeliveryPhotoRejectionMessage(String? message) =>
     message != null && message.startsWith('DELIVERY_PHOTO_');
+
+/// The handoff photos that go with a refused `delivery` operation, given its
+/// [action] and its payload's `status`: a create was never stored, so both;
+/// a refused pickup takes its pickup photo, a refused delivery confirm its
+/// drop-off photo; anything else none.
+List<String> handoffPhotoTypesOf(String action, Object? status) {
+  if (action == 'create') return const ['pickup', 'dropoff'];
+  if (status == 'pickedUp') return const ['pickup'];
+  if (status == 'delivered') return const ['dropoff'];
+  return const [];
+}

@@ -80,6 +80,13 @@ typedef PickupRejectedHandler = Future<void> Function(String deliveryId);
 /// 1.6.0, `CropPhotoSyncPreflight`).
 typedef OperationPreflight = Future<bool> Function(SyncOperation operation);
 
+/// Called after the server applied an operation (`success` or `duplicate`).
+/// Used to delete a handoff photo's file once it is attached (FRD-12,
+/// `DeliveryPhotoSyncPreflight.onSynced`).
+typedef OperationSyncedHandler = Future<void> Function(
+  SyncOperation operation,
+);
+
 /// The operation data the server gets. Keys the client keeps for itself
 /// (prefixed `_`, such as the order status a refused payment goes back to)
 /// are left out: the server refuses unknown fields.
@@ -353,6 +360,7 @@ class SyncExecutor {
   final LocationSharingEndedHandler? _onLocationSharingEnded;
   final PickupRejectedHandler? _onPickupRejected;
   final OperationPreflight? _preflight;
+  final OperationSyncedHandler? _onOperationSynced;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   StreamSubscription<void>? _stepUpSubscription;
@@ -454,6 +462,7 @@ class SyncExecutor {
     LocationSharingEndedHandler? onLocationSharingEnded,
     PickupRejectedHandler? onPickupRejected,
     OperationPreflight? preflight,
+    OperationSyncedHandler? onOperationSynced,
   })  : _syncQueue = syncQueue,
         _connectivityMonitor = connectivityMonitor,
         _dio = dio,
@@ -469,7 +478,8 @@ class SyncExecutor {
         _onPermanentRejection = onPermanentRejection,
         _onLocationSharingEnded = onLocationSharingEnded,
         _onPickupRejected = onPickupRejected,
-        _preflight = preflight;
+        _preflight = preflight,
+        _onOperationSynced = onOperationSynced;
 
   /// Stream of sync batch results for UI indicators.
   ///
@@ -864,6 +874,7 @@ class SyncExecutor {
       switch (status) {
         case 'success':
           await _syncQueue.markAsSynced(operationId);
+          await _notifySynced(operation);
           succeeded++;
 
         case 'conflict':
@@ -907,6 +918,7 @@ class SyncExecutor {
         case 'duplicate':
           // Already processed by server — safe to remove from queue
           await _syncQueue.markAsSynced(operationId);
+          await _notifySynced(operation);
           succeeded++;
 
         case 'deferred':
@@ -1289,6 +1301,21 @@ class SyncExecutor {
           operation.entityId,
         );
       }
+      // FRD-12: a handoff photo goes with its handoff. A refused delivery
+      // create, pickup or delivery confirm rejects the photo waiting behind
+      // it, which could otherwise only wait for a delivery or a handoff the
+      // server never took.
+      if (operation.entityType == 'delivery') {
+        for (final type in handoffPhotoTypesOf(
+          operation.action,
+          _statusOf(operation),
+        )) {
+          await _syncQueue.rejectOpenOperationsFor(
+            deliveryPhotoEntityType,
+            deliveryPhotoEntityId(operation.entityId, type),
+          );
+        }
+      }
     }
 
     final settled = <String>{};
@@ -1367,6 +1394,26 @@ class SyncExecutor {
       } on Object catch (e) {
         debugPrint('[SYNC] pickup-rejected handler failed: $e');
       }
+    }
+  }
+
+  /// Tell [OperationSyncedHandler] an operation was applied. A failing
+  /// handler never fails the batch.
+  Future<void> _notifySynced(SyncOperation operation) async {
+    try {
+      await _onOperationSynced?.call(operation);
+    } on Object catch (e) {
+      debugPrint('[SYNC] synced handler failed: $e');
+    }
+  }
+
+  /// The `status` an operation's payload sets, if any.
+  static Object? _statusOf(SyncOperation operation) {
+    try {
+      final data = jsonDecode(operation.data);
+      return data is Map ? data['status'] : null;
+    } on FormatException {
+      return null;
     }
   }
 

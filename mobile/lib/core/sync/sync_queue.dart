@@ -488,6 +488,24 @@ class SyncQueue {
     return _findByOperationId(operationId);
   }
 
+  /// Whether an operation of the entity still waits to reach the server
+  /// (pending or on its way). A handoff photo waits for its delivery's own
+  /// create this way (FRD-12).
+  Future<bool> hasOpenOperationsFor(String entityType, String entityId) async {
+    final open = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(entityType)
+        .entityIdEqualTo(entityId)
+        .group(
+          (q) => q
+              .statusEqualTo(SyncStatus.pending)
+              .or()
+              .statusEqualTo(SyncStatus.syncing),
+        )
+        .count();
+    return open > 0;
+  }
+
   /// Replace the payload of a waiting operation, keeping its place in the
   /// queue, its idempotency key and its retries. Used by a preflight that
   /// readied the operation (a handoff photo's upload key, FRD-12), so a

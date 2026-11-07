@@ -45,6 +45,10 @@ class SyncQueue {
   /// No queue on web: a handoff photo goes up straight away (FRD-12).
   Future<void> replaceData(String operationId, String data) async {}
 
+  /// No queue on web, so nothing waits.
+  Future<bool> hasOpenOperationsFor(String entityType, String entityId) async =>
+      false;
+
   Future<void> markFailed(String operationId) async {}
 
   Future<void> incrementRetry(String operationId) async {}
