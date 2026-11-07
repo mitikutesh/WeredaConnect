@@ -987,36 +987,86 @@ ESC-25). Server rule unchanged: send `APP_UPDATE_REQUIRED` on order operations o
 ## Transport choice (1.40.0, PLANNED: ESC-19)
 
 > **PLANNED. Not built at 1.40.0.** ESC-19 builds it, on the escrow ledger of ESC-20
-> (`escrow-protocol.md` 2.0.0, P.10). Source: spec 4.7, 8 and 10.1, decision D4. Built today in
-> `awaiting_transport` (Order commitments, 1.29.0): the buyer's cancel (`status: cancelled`), the
-> farmer's cancel without penalty, and the 48 hour `buyerChoiceDeadlineAt`.
+> (`escrow-protocol.md` 2.0.0, P.10). Source: spec 4.7, 8 and 10.1, decisions D4, D10 and D14. Built
+> today in `awaiting_transport` (Order commitments, 1.29.0): the buyer's cancel (`status: cancelled`),
+> the farmer's cancel without penalty, and the 48 hour `buyerChoiceDeadlineAt`.
+>
+> **D4 awaits the user's confirmation** (spec 14: confirm the reading when ESC-19 starts): a pricier
+> truck is covered from the commission, at most the commission left. **Open question for the user:**
+> after a D4 shift, a later cheaper truck refunds "old cost minus new" from the current
+> `truckerPayout`, so the commission the platform shifted ends up with the buyer. Example: transport
+> 1,000 and commission 750; truck 2 at 1,500 shifts 500 from the commission; truck 3 at 800 refunds
+> 700, and the platform has lost the 500 it shifted. Shift the 500 back to the commission first
+> (refund 200), or let the buyer keep it? `escrow-protocol.md` P.10 asks the same.
 
 One more order `update` command, sent by the order's buyer with the pre-increment `version`, alone
 in `data` (any other key with it is `ORDER_VALIDATION`):
 
 | `data` | Effect |
 |---|---|
-| `{"transportChoice": {"kind": "trip", "tripId": "trip-202"}, "version": n}` | Another truck. The server rebinds the order (`tripId`, `truckerId`, `truckerName`, `transportCost` computed from the new trip, a new `transportAttempts` entry), reserves the trip's capacity and rebinds the escrow (cheaper: the difference is refunded; pricier: covered from the commission, D4). If the farmer already accepted, the new trucker is asked at once (`truckerResponse: pending`, `truckerDeadlineAt` = T6 = min(now + 24h, new departure - 12h)); otherwise the farmer is asked first (D10). The order stays `awaiting_transport` until the new trucker accepts (`accepted`) or the attempt fails (decline or T6: the trucker's fault is recorded and the buyer gets a fresh 48 hours) |
-| `{"transportChoice": {"kind": "self_pickup", "pickupDate": "2026-11-20"}, "version": n}` | Collect it myself. `pickupDate` is an ISO date 1 to 7 days ahead, counted in Ethiopia time (Africa/Addis_Ababa). `fulfillment: self_pickup`, `truckerResponse: none`, the transport leg refunded, the trip's capacity released; `accepted` (with `pickupDeadlineAt`) when the farmer already accepted, else `funded` with the farmer asked |
+| `{"transportChoice": {"kind": "trip", "tripId": "trip-202"}, "version": n}` | Another truck: the rebind below, then the farmer's or the trucker's answer |
+| `{"transportChoice": {"kind": "self_pickup", "pickupDate": "2026-11-20"}, "version": n}` | Collect it myself: below |
 | `{"transportChoice": {"kind": "cancel"}, "version": n}` | Cancel: the same as the built buyer cancel (`transport_failed_buyer_cancelled`, full refund with commission, stock and capacity returned). The legacy `status: cancelled` stays accepted |
 
-**Eligible trip** (spec 4.7): `open` with `remainingQuintals` at least the order's quintals; departing
-at least `orderLeadHours` (24) from now and no more than 7 days after the original `pickupDate`; its
-trucker not restricted (`REPUTATION_RESTRICTED`, P2) and not already tried on this order; its extra
-transport cost at most the commission still held. At most 3 trucks per order, the original included.
+**Another truck.** The server rebinds the order (`tripId`, `truckerId`, `truckerName`, `transportCost`
+computed from the new trip, a new `transportAttempts` entry with `outcome: pending`), reserves the
+trip's capacity, rebinds the escrow (cheaper: the difference is refunded; pricier: covered from the
+commission, D4, awaiting confirmation) and removes `buyerChoiceDeadlineAt`. What follows depends on
+the farmer:
+
+- **The farmer already accepted:** the order stays `awaiting_transport` and the new trucker is asked
+  at once (`truckerResponse: pending`, `truckerAskedAt`, `truckerDeadlineAt` = T6 = the built
+  `ResponseDeadline` against the new departure: min(now + 24h, departure - 12h), at least 1 hour
+  from now). The trucker's accept makes the order `accepted` (with `pickupDeadlineAt`, as built).
+  A decline or T6 fails the attempt (`outcome: declined` or `expired`, the trucker's fault
+  recorded) and the buyer chooses again with a fresh 48 hours (`buyerChoiceDeadlineAt`).
+- **The farmer has not accepted yet** (the D14 park: the trip was full or cancelled at funding, so
+  the order went `funded -> awaiting_transport` with `farmerResponse: pending`, and the farmer can
+  answer only in `funded`): the order goes back to `funded` with the farmer asked:
+  `farmerResponse: pending`, `truckerResponse: not_asked`, and `farmerDeadlineAt` **restamped**
+  against the new departure with the same rule (the old deadline was against the failed trip). The
+  trucker is asked after the farmer's accept (D10), as for any trip order; the farmer's decline or
+  deadline ends the order as built (`rejected` or `cancelled`, full refund).
+
+**Collect it myself.** `pickupDate` is an ISO date 1 to 7 days ahead, counted in Ethiopia time
+(Africa/Addis_Ababa). `fulfillment: self_pickup`, `truckerResponse: none`, the transport leg refunded,
+the trip's capacity released, `buyerChoiceDeadlineAt` removed. Farmer already accepted: `accepted`,
+with `pickupDeadlineAt` = the switch + 7 days, the built self-pickup window (`PickupDeadline`, counted
+from acceptance). Farmer not yet: `funded` with the farmer asked (`farmerResponse: pending`,
+`farmerDeadlineAt` restamped with the same rule against the start of `pickupDate` in Ethiopia time);
+the farmer's accept makes it `accepted` with `pickupDeadlineAt` = that accept + 7 days. The P3 pickup
+judgement (ESC-34, `delivery-verification-api.md` 2.0.0 P.2) later judges at `pickupDate` + 24 hours
+plus the grace instead.
+
+**Eligible trip** (spec 4.7): status `open` or `matched`, as the order create accepts (a `matched` trip
+is full since D12, so the room rule below refuses it); `remainingQuintals` at least the order's
+quintals; departing at least `orderLeadHours` (24) from now and no more than 7 days after the original
+`pickupDate`; its trucker not restricted (`REPUTATION_RESTRICTED`, P2) and not already tried on this
+order; its extra transport cost at most the commission still held. At most 3 trucks per order, the
+original included.
 
 **New order fields** (server-written, returned by `GET /orders`, dropped when a client sends them):
-`transportAttempts` (at most 3 entries `{tripId, truckerId, transportCost, outcome, requestedAt,
-closedAt}`, the first being the original trip) and `refundedTotal` (ETB returned so far; `orderTotal`
-stays what the buyer paid).
+
+- `transportAttempts`: at most 3 entries `{tripId, truckerId, transportCost, outcome, requestedAt,
+  closedAt}`, the first being the original trip. `outcome`: `pending` (asked, or waiting for the
+  farmer's accept), `accepted` (the committed truck), `declined`, `expired`, `cancelled` (the trucker
+  dropped out after accepting), `trip_cancelled`, `trip_full` (the failure values match
+  `transportFailure`, D11), `order_closed` (the order ended while the attempt was open, such as the
+  farmer's cancel), and `no_show` from P3 (ESC-34). **Backfill:** an order already in
+  `awaiting_transport` when ESC-19 deploys gets entry 1 from its original trip (`outcome` from its
+  `transportFailure`, `requestedAt` = `truckerAskedAt`, else `paymentVerifiedAt`; `closedAt` =
+  `truckerRespondedAt`, else its `updatedAt`); any other order gets entry 1 at its first transport
+  event.
+- `refundedTotal`: ETB returned so far; `orderTotal` stays what the buyer paid.
 
 | Refusal | When |
 |---|---|
-| `ORDER_ACTION_NOT_ALLOWED:` | not the order's buyer, the order not `awaiting_transport`, or a replacement request still open |
+| `ORDER_UNAUTHORIZED:` | the caller is not the order's buyer (the built answer to an order command from the wrong party) |
+| `ORDER_ACTION_NOT_ALLOWED:` | the order is not `awaiting_transport`, or a replacement request is still open |
 | `ORDER_DEADLINE_PASSED:` | `buyerChoiceDeadlineAt` has passed |
-| `ORDER_TRIP_NOT_ELIGIBLE:` | the trip fails a rule above (the text names which), or the `pickupDate` is outside 1 to 7 days |
+| `ORDER_TRIP_NOT_ELIGIBLE:` | the trip fails a rule above other than its room (status, departure window, trucker), its extra cost is above the commission left, or the `pickupDate` is outside 1 to 7 days |
+| `TRIP_CAPACITY_EXCEEDED:` | the trip has less room than the order's quintals. The same code when the room is too small at the buyer's request (read) and when the reservation write loses a race, as the order create (`trip-listing-api.md` 2.0.0) |
 | `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | the order already used 3 trucks |
-| `TRIP_CAPACITY_EXCEEDED:` | the trip lost its room between the buyer's read and the write |
 | `ORDER_VALIDATION:` | a malformed choice, an unknown `kind`, or other keys with it |
 
 All are permanent and already handled by the clients (1.10.0, 1.17.0): mobile reverts the local order
@@ -1024,13 +1074,17 @@ and shows the code's text; web shows the failure. An unprefixed error (a trip or
 be read) stays retryable. The buyer may browse cached trips offline; the server checks the choice when
 it arrives (spec section 7). The choice sheet is ESC-23's.
 
+**Pushes** (spec 4.12, `notifications-api.md` bumps with ESC-19): the new trucker gets
+`replacement_request` when asked; a farmer asked again after the D14 park gets `order_request` as at
+funding.
+
 ---
 
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.40.0 | 2026-11-07 | Two PLANNED sections (ESC-14), nothing built changes. Minimum app version for order operations (ESC-25): the server refuses every `order` operation, create and update, from a build below a per-environment minimum (proposed `MIN_ORDER_APP_BUILD`, 0 or absent = off; build 3 is the first that renders the commitments) before any read or write, with `APP_UPDATE_REQUIRED:` to an app that sends `X-App-Build` and, proposed, `ORDER_VALIDATION:` with the same text to one that sends none (it may predate the 1.17.0 client, FUP-75); other entities and the `/escrow/*` routes are not gated. Transport choice (ESC-19): the buyer's `transportChoice` command (`trip` with `tripId`, `self_pickup` with `pickupDate`, `cancel`) in `awaiting_transport`, the eligible trip rules, the order fields `transportAttempts` and `refundedTotal`, and its refusals (`ORDER_ACTION_NOT_ALLOWED`, `ORDER_DEADLINE_PASSED`, `ORDER_TRIP_NOT_ELIGIBLE`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED`, `TRIP_CAPACITY_EXCEEDED`, `ORDER_VALIDATION`), all already handled by the clients. Doc fix: Permanent order rejections listed `ORDER_TRIP_NOT_ELIGIBLE` as planned; it is sent since 1.34.0 |
+| 1.40.0 | 2026-11-07 | Two PLANNED sections (ESC-14), nothing built changes. Minimum app version for order operations (ESC-25): the server refuses every `order` operation, create and update, from a build below a per-environment minimum (proposed `MIN_ORDER_APP_BUILD`, 0 or absent = off; build 3 is the first that renders the commitments) before any read or write, with `APP_UPDATE_REQUIRED:` to an app that sends `X-App-Build` and, proposed, `ORDER_VALIDATION:` with the same text to one that sends none (it may predate the 1.17.0 client, FUP-75); other entities and the `/escrow/*` routes are not gated. Transport choice (ESC-19): the buyer's `transportChoice` command (`trip` with `tripId`, `self_pickup` with `pickupDate`, `cancel`) in `awaiting_transport`; a choice on an order the farmer has not accepted (the D14 park) goes back to `funded` with the farmer asked and `farmerDeadlineAt` restamped, the trucker asked after the farmer (D10); the eligible trip rules (`open` or `matched`), the order fields `transportAttempts` (with its `outcome` values and the backfill) and `refundedTotal`, the `replacement_request` push, and its refusals (`ORDER_UNAUTHORIZED`, `ORDER_ACTION_NOT_ALLOWED`, `ORDER_DEADLINE_PASSED`, `ORDER_TRIP_NOT_ELIGIBLE`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED`, `TRIP_CAPACITY_EXCEEDED` at read time and in a race, `ORDER_VALIDATION`), all already handled by the clients. D4 is marked as awaiting the user's confirmation, with the open question of a cheaper truck after a shift. Doc fix: Permanent order rejections listed `ORDER_TRIP_NOT_ELIGIBLE` as planned; it is sent since 1.34.0 |
 | 1.39.0 | 2026-11-07 | Handoff photos (FRD-12, `delivery-verification-api.md` 1.25.0): new create-only entity `delivery_photo` (`{deliveryId}#{pickup\|dropoff}`, `{photoRef}`), sent by the photo's taker only, attaching an uploaded photo without moving the delivery's version; `DELIVERY_PHOTO_INVALID`, `_FORBIDDEN`, `_REFUSED`, `_EXISTS`, `_MISSING` and `_TOO_LARGE` are permanent, not reverted, not announced and not counted as failures; `DELIVERY_PHOTO_PENDING` answers `deferred`; a photo ref in a `delivery` op is shape-checked but no longer written. Mobile uploads the photo in a batch preflight and stores the key in the operation; every wait is bounded (a presign `404` only while the delivery's own create waits on the phone and 10 minutes, the third refused `PUT`), a refused delivery create, pickup or delivery confirm rejects its waiting photo, and an attached photo's files are deleted; web uploads at capture and attaches after the confirm |
 | 1.38.0 | 2026-11-06 | Idempotency and races (SIM-28): the server stores a payload fingerprint with each idempotency key (SHA-256 of a canonical JSON of `entityType`, `entityId`, `action`, `clientVersion` and `data`; keys sorted, numbers by value; `operationId` and `timestamp` left out) in the new `payloadFingerprint` attribute; a key sent again with a different payload answers `error` `SYNC_VALIDATION: idempotency key already used for a different operation payload; ...` instead of `duplicate`, nothing processed or stored; records from before keep answering `duplicate`. A status change that is not a valid transition from the stored status and carries a version behind the stored one answers `conflict` with the row (to a caller who may ask for that status, `order-lifecycle.md` 2.6.0) instead of `ORDER_VALIDATION: Invalid status transition`, `DELIVERY_INVALID_TRANSITION`, `TRIP_INVALID_TRANSITION` or `CROP_INVALID_TRANSITION`; at the current version the error stands. No client change: `SYNC_VALIDATION` is already permanent and `conflict` already resolved server-wins (mobile) or a failure (web) |
 | 1.37.0 | 2026-11-06 | Typed `serverData` (SIM-25): `success` and `conflict` rows carry numbers as JSON numbers (`version`, quantities, prices, money fields, coordinates, `stars`) and a trip's `matchedListings` as an array, the types GET returns for the same row; before, every number was a string and `matchedListings` the text `"[]"`. Other values keep their type. The mobile conflict resolver already read these as numbers and a list, so its crop, trip and order conflicts failed on the string shape and are now applied server-wins; it also no longer requires `totalPrice` on an order row (the server never stores it): the local total is kept, a new row starts at 0 as the order pull does. Web reads only `status` from a row. No new code |
