@@ -668,6 +668,9 @@ public partial class AdminFunction
         AuditLogger.LogAudit("ADMIN", "RESOLVE_DISPUTE",
             userId: adminUserId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "escrow", entityId: escrowId, outcome: "success");
+        await OutcomeLabelWriter.WriteAsync(TxAuditRepo(),
+            DisputeLabel(item, disputeOrderId, body, applyDisposition, dispositionReason, adminUserId, now),
+            AuditContext.From(request, adminUserId, "admin"), context);
 
         if (applyDisposition != null)
         {
@@ -692,6 +695,44 @@ public partial class AdminFunction
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.ResolveDisputeResponse);
+    }
+
+    /// <summary>
+    /// FRD-18 (section 20.1): the outcome label of a dispute verdict, written once with the verdict (a
+    /// replay records nothing new, the label included). Keyed on the verdict's time, the escrow's
+    /// <c>disputeResolvedAt</c>. The reason is the disposition's, else the admin's notes.
+    /// </summary>
+    private static OutcomeLabel DisputeLabel(
+        Dictionary<string, AttributeValue> escrow, string transactionId, ResolveDisputeRequest body,
+        string? disposition, string? dispositionReason, string adminUserId, string resolvedAt)
+    {
+        string? Field(string name) => escrow.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value.S) ? value.S : null;
+
+        var escrowId = Field("escrowId") ?? transactionId;
+        return new OutcomeLabel
+        {
+            Case = OutcomeLabels.CaseDispute,
+            CaseId = escrowId,
+            Outcome = body.Resolution,
+            Source = "admin_dispute_resolved",
+            TransactionId = transactionId,
+            KeyTime = resolvedAt,
+            AdminId = adminUserId,
+            LabelledAt = resolvedAt,
+            Reason = dispositionReason ?? body.Notes,
+            OrderId = Field("orderId"),
+            EscrowId = escrowId,
+            DeliveryId = Field("deliveryId"),
+            BuyerId = Field("buyerId"),
+            FarmerId = Field("farmerId"),
+            TruckerId = Field("truckerId"),
+            Amount = escrow.TryGetValue("amount", out var amount)
+                     && decimal.TryParse(amount.N, NumberStyles.Number, CultureInfo.InvariantCulture, out var value)
+                ? value
+                : null,
+            DisputedBy = Field("disputedBy"),
+            Disposition = disposition
+        };
     }
 
     /// <summary>
@@ -1388,7 +1429,9 @@ public partial class AdminFunction
         // FRD-05: the side effect comes before the review stamp, so a failure in between leaves the signal
         // pending and the admin can act again: the user suspended or the whitelist written, never a
         // reviewed signal without them. The row is checked first, so a bad id has no side effect.
-        if (!await IsSignalRowAsync(signalUserId, signalKey))
+        // FRD-18: the same read carries what the outcome label links (its type, entity, prior decision).
+        var signalRow = await ReadSignalRowAsync(signalUserId, signalKey);
+        if (signalRow == null)
         {
             return LambdaResponse.Error(404, "ADMIN_006", "Fraud signal not found.");
         }
@@ -1465,6 +1508,8 @@ public partial class AdminFunction
         AuditLogger.LogAudit("ADMIN", "FRAUD_ACTION",
             userId: adminUserId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "fraudSignal", entityId: signalId, detail: body.Action, outcome: "success");
+        await LabelFraudDecisionAsync(signalId, signalUserId, signalKey, signalRow, body, adminUserId, now,
+            whitelistUntil, request, context);
 
         var response = new FraudActionResponse
         {
@@ -1501,10 +1546,12 @@ public partial class AdminFunction
     }
 
     /// <summary>
-    /// FRD-05: whether the row the action names exists and is a signal (legacy rows carry no
-    /// <c>recordType</c>), read consistently so a row written a moment ago is seen.
+    /// FRD-05: the row the action names when it exists and is a signal (legacy rows carry no
+    /// <c>recordType</c>), else null; read consistently so a row written a moment ago is seen. FRD-18: it
+    /// also projects what the outcome label needs: the signal's type, entity and first time, and the
+    /// decision it carries now (<c>status</c>, <c>resolution</c>, <c>reviewedAt</c>).
     /// </summary>
-    private async Task<bool> IsSignalRowAsync(string userId, string signalKey)
+    private async Task<Dictionary<string, AttributeValue>?> ReadSignalRowAsync(string userId, string signalKey)
     {
         var response = await _dynamoDb.GetItemAsync(new GetItemRequest
         {
@@ -1515,12 +1562,76 @@ public partial class AdminFunction
                 { "signalKey", new AttributeValue { S = signalKey } }
             },
             ConsistentRead = true,
-            ProjectionExpression = "#u, #rt",
-            ExpressionAttributeNames = new Dictionary<string, string> { { "#u", "userId" }, { "#rt", "recordType" } }
+            ProjectionExpression = "#u, #rt, #st, #res, #ra, #type, #et, #eid, #ca",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#u", "userId" },
+                { "#rt", "recordType" },
+                { "#st", "status" },
+                { "#res", "resolution" },
+                { "#ra", "reviewedAt" },
+                { "#type", "signalType" },
+                { "#et", "entityType" },
+                { "#eid", "entityId" },
+                { "#ca", "createdAt" }
+            }
         });
         return response?.Item is { Count: > 0 } item
-            && (!item.TryGetValue("recordType", out var recordType)
-                || recordType.S == FraudDetectionService.RecordTypeSignal);
+               && (!item.TryGetValue("recordType", out var recordType)
+                   || recordType.S == FraudDetectionService.RecordTypeSignal)
+            ? item
+            : null;
+    }
+
+    /// <summary>
+    /// FRD-18 (section 20.1): the outcome label of a Fraud Review decision, after its stamp and audit row.
+    /// One label per decision that changes what the signal says: a decision the signal already carries
+    /// (a retry, or the same verb again) writes none. The key time is the previous decision's
+    /// <c>reviewedAt</c>, or the signal's own <c>createdAt</c> while it was pending, so two identical
+    /// decisions in flight write one row and every change of mind writes its own. Best effort: a failed
+    /// write is logged and the action answers as before.
+    /// </summary>
+    private async Task LabelFraudDecisionAsync(
+        string signalId, string signalUserId, string signalKey, Dictionary<string, AttributeValue> signalRow,
+        FraudActionRequest body, string adminUserId, string now, string? whitelistUntil,
+        APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        string? Field(string name) => signalRow.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value.S) ? value.S : null;
+
+        var reviewed = Field("status") == "reviewed";
+        if (reviewed && Field("resolution") == body.Action)
+        {
+            context.Logger.LogInformation(
+                $"OUTCOME_LABEL_EXISTS case={OutcomeLabels.CaseFraudSignal} outcome={OutcomeLabels.FraudOutcome(body.Action)} caseId={MoneyAlarmLog.LogId(signalId)} reason=same_decision");
+            return;
+        }
+
+        var createdAt = Field("createdAt") ?? signalKey.Split('#')[0];
+        var entityType = Field("entityType");
+        var entityId = Field("entityId");
+        var orderId = SignalOrderId(entityType, entityId);
+        await OutcomeLabelWriter.WriteAsync(TxAuditRepo(), new OutcomeLabel
+        {
+            Case = OutcomeLabels.CaseFraudSignal,
+            CaseId = signalId,
+            Outcome = OutcomeLabels.FraudOutcome(body.Action)!,
+            Source = $"fraud_{body.Action}",
+            TransactionId = signalId,
+            KeyTime = reviewed ? Field("reviewedAt") ?? createdAt : createdAt,
+            AdminId = adminUserId,
+            LabelledAt = now,
+            Reason = body.Notes,
+            SubjectUserId = signalUserId,
+            SignalIds = new[] { signalId },
+            SignalType = Field("signalType") ?? (signalKey.Contains('#') ? signalKey[(signalKey.IndexOf('#') + 1)..] : null),
+            SignalEntityType = entityType,
+            SignalEntityId = entityId,
+            SignalCreatedAt = createdAt,
+            OrderId = orderId,
+            EscrowId = entityType == "escrow" ? entityId : null,
+            DeliveryId = entityType == "delivery" ? entityId : null,
+            WhitelistUntil = whitelistUntil
+        }, AuditContext.From(request, adminUserId, "admin"), context);
     }
 
     /// <summary>
@@ -2517,8 +2628,15 @@ public partial class AdminFunction
         {
             var entity = GetString(e, "entityType");
             var action = GetString(e, "action");
-            if (entity == "order") hasUnifiedOrder = true;
-            if (entity == "delivery") hasUnifiedDelivery = true;
+            if (entity == "order")
+            {
+                hasUnifiedOrder = true;
+            }
+
+            if (entity == "delivery")
+            {
+                hasUnifiedDelivery = true;
+            }
 
             LatLngDto? location = null;
             if (entity == "delivery" && delivery != null)
@@ -3034,7 +3152,10 @@ public partial class AdminFunction
     {
         var distinct = userIds.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
         var result = new Dictionary<string, string>();
-        if (distinct.Count == 0) return result;
+        if (distinct.Count == 0)
+        {
+            return result;
+        }
 
         // BatchGetItem supports max 100 keys per request
         foreach (var batch in distinct.Chunk(100))
@@ -3074,7 +3195,9 @@ public partial class AdminFunction
                         var id = item.TryGetValue("userId", out var uid) ? uid.S : "";
                         var name = item.TryGetValue("displayName", out var dn) ? dn.S : "";
                         if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
+                        {
                             result[id] = name;
+                        }
                     }
                 }
 

@@ -766,4 +766,174 @@ public class EscrowServiceFraudHoldTests
         outcome.Should().Be(EscrowService.StaleSettlementOutcome.Parked);
         EscrowService.StaleLockStatuses.Should().Contain("held");
     }
+
+    // ──────────────────────────────────────────────
+    // FRD-18: the outcome label of a held exit (fraud spec section 20.1)
+    // ──────────────────────────────────────────────
+
+    private readonly List<Dictionary<string, object>> _labels = new();
+
+    /// <summary>Records every label the transaction-audit repository receives; the put succeeds.</summary>
+    private void CaptureLabels(bool written = true)
+        => _txAudit.AppendIfAbsentAsync(Arg.Do<Dictionary<string, object>>(e =>
+            {
+                if (S(e, "action") == "outcome_label")
+                {
+                    _labels.Add(e);
+                }
+            }))
+            .Returns(written);
+
+    [Fact]
+    public async Task AdminRelease_FromHeld_WritesOneHoldReleasedLabel_KeyedOnTheHold()
+    {
+        CaptureLabels();
+        EscrowIs(Held("release"));
+        OrderIs("delivered");
+        DeliveryIs("delivered");
+
+        var result = await AdminRelease();
+
+        result.IsSuccess.Should().BeTrue(result.Error?.Message);
+        var label = _labels.Should().ContainSingle().Subject;
+        S(label, "transactionId").Should().Be(OrderId);
+        S(label, "timestamp").Should().Be("2026-10-20T10:00:00.0000006Z"); // heldAt plus the hold_released slot
+        S(label, "entityId").Should().Be("outcome-labels");
+        S(label, "labelCase").Should().Be("held_escrow");
+        S(label, "labelCaseId").Should().Be(EscrowId);
+        S(label, "labelOutcome").Should().Be("hold_released");
+        S(label, "labelSource").Should().Be("fraud_hold_release");
+        S(label, "labelReason").Should().Be(Reason);
+        S(label, "actor").Should().Be(AdminId);
+        S(label, "orderId").Should().Be(OrderId);
+        S(label, "escrowId").Should().Be(EscrowId);
+        S(label, "deliveryId").Should().Be(DeliveryId);
+        S(label, "buyerId").Should().Be(BuyerId);
+        S(label, "farmerId").Should().Be(FarmerId);
+        label["amount"].Should().Be(8_000m);
+        S(label, "holdReason").Should().Be("account_suspended");
+        S(label, "heldFor").Should().Be("release");
+        S(label, "heldFromStatus").Should().Be("escrowed");
+        S(label, "heldAt").Should().Be("2026-10-20T10:00:00.0000000Z");
+        // After the money: the release audit row comes first.
+        Received.InOrder(() =>
+        {
+            _audit.AppendAsync(Arg.Is<Dictionary<string, object>>(e => S(e, "action") == "release"));
+            _txAudit.AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e => S(e, "action") == "outcome_label"));
+        });
+    }
+
+    [Fact]
+    public async Task AdminRefund_FromHeld_WritesOneHoldRefundedLabel_OnTheEscrowWhenThereIsNoOrder()
+    {
+        CaptureLabels();
+        EscrowIs(Held("refund", orderEscrow: false, withOrder: false));
+
+        var result = await AdminRefund(Refund("escrow-initiate-1"));
+
+        result.IsSuccess.Should().BeTrue(result.Error?.Message);
+        var label = _labels.Should().ContainSingle().Subject;
+        S(label, "transactionId").Should().Be("escrow-initiate-1");
+        S(label, "labelOutcome").Should().Be("hold_refunded");
+        S(label, "labelSource").Should().Be("fraud_hold_refund");
+        S(label, "timestamp").Should().Be("2026-10-20T10:00:00.0000007Z");
+        label.Should().NotContainKey("orderId");
+    }
+
+    [Fact]
+    public async Task AdminRefund_QueuedForAnAdmin_IsCommitted_AndLabelled()
+    {
+        CaptureLabels();
+        EscrowIs(Held("refund", orderEscrow: false, withOrder: false));
+        _gateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
+            .Returns(new RefundFundsResponse { Success = false, ErrorCode = TelebirrGatewayErrors.PayoutNotSupported });
+        _escrows.TryQueueManualPayoutAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+            .Returns(true);
+
+        var result = await AdminRefund(Refund("escrow-initiate-1"));
+
+        result.Error!.Code.Should().Be("ESCROW_034");
+        _labels.Should().ContainSingle(l => S(l, "labelOutcome") == "hold_refunded");
+    }
+
+    [Fact]
+    public async Task AdminRefund_ADefiniteGatewayRefusal_LeavesItHeld_AndUnlabelled()
+    {
+        CaptureLabels();
+        EscrowIs(Held("refund", orderEscrow: false, withOrder: false));
+        _gateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
+            .Returns(new RefundFundsResponse { Success = false, ErrorCode = "INSUFFICIENT_BALANCE" });
+
+        var result = await AdminRefund(Refund("escrow-initiate-1"));
+
+        result.Error!.Code.Should().Be("ESCROW_013");
+        await _escrows.Received(1).ReleaseSettlementLockAsync("escrow-initiate-1", CreatedAt);
+        _labels.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AdminExit_RefusedBeforeTheLock_IsUnlabelled()
+    {
+        CaptureLabels();
+        EscrowIs(Held("refund", orderEscrow: false, withOrder: false));
+        _audit.AppendAsync(Arg.Is<Dictionary<string, object>>(e => S(e, "action") == "fraud_hold_refund"))
+            .ThrowsAsync(new InvalidOperationException("ddb"));
+
+        var result = await AdminRefund(Refund("escrow-initiate-1"));
+
+        result.Error!.HttpStatus.Should().Be(503);
+        _labels.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AdminRelease_ALabelThatCannotBeWritten_DoesNotFailTheRelease()
+    {
+        EscrowIs(Held("release"));
+        OrderIs("delivered");
+        DeliveryIs("delivered");
+        _txAudit.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>())
+            .ThrowsAsync(new InvalidOperationException("ddb"));
+
+        var result = await AdminRelease();
+
+        result.IsSuccess.Should().BeTrue(result.Error?.Message);
+        result.Value!.Status.Should().Be("completed");
+    }
+
+    [Fact]
+    public async Task AdminRelease_SentAgainAfterItPaid_WritesNoSecondLabel()
+    {
+        CaptureLabels();
+        EscrowIs(Held("release"));
+        OrderIs("delivered");
+        DeliveryIs("delivered");
+        (await AdminRelease()).IsSuccess.Should().BeTrue();
+
+        // The retry finds its idempotency record completed and the escrow paid.
+        var paid = Held("release");
+        paid["status"] = "completed";
+        EscrowIs(paid);
+        _idempotency.GetAsync(Release().IdempotencyKey)
+            .Returns(new Dictionary<string, object> { { "escrowId", EscrowId }, { "status", "completed" } });
+
+        var retry = await AdminRelease();
+
+        retry.IsSuccess.Should().BeTrue(retry.Error?.Message);
+        _labels.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task ASweepSettlement_IsNotAHeldExit_AndWritesNoLabel()
+    {
+        CaptureLabels();
+        var escrowed = Held("refund", orderEscrow: false, withOrder: false);
+        escrowed["status"] = "escrowed";
+
+        EscrowIs(escrowed);
+        var result = await _service.RefundAsync(Refund("escrow-initiate-1"), "system");
+
+        result.IsSuccess.Should().BeTrue(result.Error?.Message);
+        _labels.Should().BeEmpty();
+    }
 }

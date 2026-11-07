@@ -1035,6 +1035,93 @@ public class AdminFunctionTests
             Arg.Any<CancellationToken>());
     }
 
+    // ===== FRD-18: a dispute verdict writes its outcome label (fraud spec section 20.1) =====
+
+    /// <summary>The verdict handler with the transaction-audit table and no order or delivery table to mirror into.</summary>
+    private AdminFunction WithAuditOnly() => new(_dynamoDb, UsersTable, "", EscrowsTable, "", "", TxAuditTable);
+
+    private List<PutItemRequest> LabelPuts => Calls<PutItemRequest>(nameof(IAmazonDynamoDB.PutItemAsync))
+        .Where(p => p.TableName == TxAuditTable && p.Item.TryGetValue("action", out var a) && a.S == "outcome_label")
+        .ToList();
+
+    [Theory]
+    [InlineData("buyer_wins", "refund", 4)]
+    [InlineData("farmer_wins", "release", 5)]
+    public async Task ResolveDispute_EachVerdict_WritesExactlyOneLabel_KeyedOnTheVerdictTime(
+        string resolution, string action, int slot)
+    {
+        var escrow = DisputedEscrow(("buyerId", "buyer-9"), ("farmerId", "farmer-9"), ("truckerId", "trucker-9"),
+            ("deliveryId", "delivery-9"));
+        escrow["amount"] = Num("8000");
+        EscrowReads(escrow);
+
+        var response = await WithAuditOnly().FunctionHandler(
+            ResolveRequest(new { resolution, action, notes = "Photos show the maize was wet." }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var resolvedAt = Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync))
+            .Single(u => u.TableName == EscrowsTable).ExpressionAttributeValues[":resolvedAt"].S;
+        var label = LabelPuts.Should().ContainSingle().Subject;
+        label.ConditionExpression.Should().Be("attribute_not_exists(transactionId)");
+        var item = label.Item;
+        item["transactionId"].S.Should().Be("order-9");
+        item["timestamp"].S.Should().Be(DateTime.Parse(resolvedAt, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime().AddTicks(slot)
+            .ToString("o", System.Globalization.CultureInfo.InvariantCulture));
+        item["entityId"].S.Should().Be("outcome-labels");
+        item["labelCase"].S.Should().Be("dispute");
+        item["labelCaseId"].S.Should().Be("escrow-9");
+        item["labelOutcome"].S.Should().Be(resolution);
+        item["labelSource"].S.Should().Be("admin_dispute_resolved");
+        item["labelledAt"].S.Should().Be(resolvedAt);
+        item["labelReason"].S.Should().Be("Photos show the maize was wet.");
+        item["actor"].S.Should().Be("admin-1");
+        item["orderId"].S.Should().Be("order-9");
+        item["escrowId"].S.Should().Be("escrow-9");
+        item["deliveryId"].S.Should().Be("delivery-9");
+        item["buyerId"].S.Should().Be("buyer-9");
+        item["farmerId"].S.Should().Be("farmer-9");
+        item["truckerId"].S.Should().Be("trucker-9");
+        item["amount"].N.Should().Be("8000");
+        item["disputedBy"].S.Should().Be("buyer-9");
+        item.Should().NotContainKey("disposition");
+    }
+
+    [Fact]
+    public async Task ResolveDispute_TheSameVerdictAgain_WritesNoSecondLabel()
+    {
+        var settled = DisputedEscrow(("status", "dispute_resolved"), ("disputeResolution", "buyer_wins"),
+            ("disputeResolvedAt", "2026-09-21T08:00:00.0000000Z"));
+        EscrowReads(DisputedEscrow(), settled);
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("moved"));
+
+        var response = await WithAuditOnly().FunctionHandler(
+            ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        response.Body.Should().Contain("Verdict already recorded.");
+        LabelPuts.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ResolveDispute_ALabelThatCannotBeWritten_DoesNotFailTheVerdict()
+    {
+        EscrowReads(DisputedEscrow());
+        _dynamoDb.PutItemAsync(
+                Arg.Is<PutItemRequest>(p => p.TableName == TxAuditTable && p.Item.ContainsKey("action")
+                                            && p.Item["action"].S == "outcome_label"),
+                Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
+
+        var response = await WithAuditOnly().FunctionHandler(
+            ResolveRequest(new { resolution = "farmer_wins", action = "release" }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        response.Body.Should().Contain("settlement sweep releases");
+        LabelPuts.Should().ContainSingle();
+    }
+
     // ===== FUP-16: filtered admin lists page past filtered-out rows =====
 
     private static Dictionary<string, AttributeValue> PageKey(string escrowId)
@@ -1234,6 +1321,11 @@ public class AdminFunctionTests
         puts.Should().ContainSingle(p => p.TableName == TxAuditTable && p.Item["entityType"].S == "order"
                                          && p.Item["action"].S == "dispute_resolved" && p.Item["actor"].S == "system");
         puts.Should().NotContain(p => p.Item.ContainsKey("action") && p.Item["action"].S == "dispute_verdict_mismatch");
+        // FRD-18: one label, carrying the disposition chosen with the verdict and its reason.
+        var label = LabelPuts.Should().ContainSingle().Subject.Item;
+        label["labelOutcome"].S.Should().Be("buyer_wins");
+        label["disposition"].S.Should().Be("return_to_farmer");
+        label["labelReason"].S.Should().Be(Reason);
     }
 
     [Fact]

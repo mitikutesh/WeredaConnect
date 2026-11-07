@@ -296,7 +296,7 @@ public sealed class DisputeSettlementDynamoDbTests
         var txRows = await TxRepo.GetByTransactionAsync(orderId);
         txRows.Select(r => $"{r["entityType"]}:{r["action"]}").Should().BeEquivalentTo(
             "escrow:admin_dispute_resolved", "order:dispute", "order:dispute_resolved",
-            "delivery:dispute", "delivery:dispute_resolved");
+            "delivery:dispute", "delivery:dispute_resolved", "label:outcome_label");
 
         // The same verdict again (a double click): 200, the escrow's real status, nothing new.
         var replay = await Admin().FunctionHandler(Verdict(escrowId, "buyer_wins", "refund"), new TestLambdaContext());
@@ -374,7 +374,7 @@ public sealed class DisputeSettlementDynamoDbTests
         (await AuditActionsAsync(escrowId)).Should().Equal("admin_dispute_resolved", "dispute_resolved_goods_returned");
         (await TxRepo.GetByTransactionAsync(orderId)).Select(r => $"{r["entityType"]}:{r["action"]}").Should().BeEquivalentTo(
             "escrow:admin_dispute_resolved", "escrow:dispute_resolved_goods_returned",
-            "delivery:delivery_cancelled", "order:dispute_resolved");
+            "delivery:delivery_cancelled", "order:dispute_resolved", "label:outcome_label");
 
         await MakeSweepableAsync(escrowId);
         await SweepAsync();
