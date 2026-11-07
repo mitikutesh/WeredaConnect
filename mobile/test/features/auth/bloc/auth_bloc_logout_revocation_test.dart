@@ -598,6 +598,61 @@ void main() {
       expect(cacheWrites, isEmpty);
     });
 
+    test(
+        'a refresh that starts after the unregister keeps nothing, even when '
+        'it answers before the session is cleared', () async {
+      // Started after the unregister (say a sync request's 401), so it
+      // shares the session count the logout is still on.
+      when(
+        () => service.logout(
+          phoneNumber: any(named: 'phoneNumber'),
+          accessToken: any(named: 'accessToken'),
+          refreshToken: any(named: 'refreshToken'),
+          clearCache: any(named: 'clearCache'),
+        ),
+      ).thenAnswer((_) async {
+        lateRefresh = refresh('live-refresh');
+      });
+      // It answers while the offline cache is being cleared.
+      when(() => offlineCache.clearCredentials(any())).thenAnswer((_) async {
+        refreshServer.gate.complete();
+        await lateRefresh;
+      });
+      final bloc = await signedIn(service, signals: signals);
+      _store['refresh_token'] = 'live-refresh';
+
+      await logOut(bloc);
+
+      expect(await lateRefresh, 'late-id');
+      expect(cacheWrites, isEmpty, reason: 'offline cache stays cleared');
+      expectSessionCleared();
+    });
+
+    test('a stale tab\'s logout leaves another account\'s refresh token',
+        () async {
+      final bloc = await signedIn(service, signals: signals);
+      _store
+        ..['current_user_id'] = 'user-002'
+        ..['refresh_token'] = 'other-refresh';
+      String? slotDuringRevoke;
+      when(
+        () => service.logout(
+          phoneNumber: any(named: 'phoneNumber'),
+          accessToken: any(named: 'accessToken'),
+          refreshToken: any(named: 'refreshToken'),
+          clearCache: any(named: 'clearCache'),
+        ),
+      ).thenAnswer((_) async {
+        await Future<void>.delayed(Duration.zero);
+        slotDuringRevoke = _store['refresh_token'];
+      });
+
+      await logOut(bloc);
+
+      expect(slotDuringRevoke, 'other-refresh');
+      expect(_store['refresh_token'], 'other-refresh');
+    });
+
     test('a refresh that answers within the logout is kept (control)',
         () async {
       when(() => service.unregisterDeviceToken(any())).thenAnswer((_) async {

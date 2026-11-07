@@ -205,10 +205,10 @@ class AuthInterceptor extends QueuedInterceptor {
       final retryResponse = await _retry(err.requestOptions, newBearerToken);
       handler.resolve(retryResponse);
     } on Object {
-      // Transient error (timeout, network, failed retry) — keep refresh
-      // token intact. The callback only returns null for server rejections
-      // (400/401), which is handled above with _clearTokens(). Rethrown
-      // exceptions are transient — the refresh token is likely still valid.
+      // Transient error (timeout, network, failed retry): keep the refresh
+      // token. The callback only returns null for server rejections
+      // (400/401), handled above with _clearTokensIfUnchanged(). Rethrown
+      // exceptions are transient: the refresh token is likely still valid.
       handler.next(err);
     }
   }

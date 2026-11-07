@@ -52,12 +52,15 @@ Future<String?> Function(String refreshToken) buildRefreshTokenCallback({
     // refresh token in the shared slot (another web tab changes only that).
     final generation = sessionSignals.generation;
     bool sameGeneration() => sessionSignals.generation == generation;
-    Future<bool> stillStored() async {
+    // Whether this refresh's session is still the stored one. With
+    // [orCleared], an empty slot counts too: another web tab of the same
+    // account may have cleared it after its own refused refresh.
+    Future<bool> stillStored({bool orCleared = false}) async {
       if (!sameGeneration()) return false;
       try {
-        if (await storage.read(key: 'refresh_token') != refreshToken) {
-          return false;
-        }
+        final stored = await storage.read(key: 'refresh_token');
+        final cleared = stored == null || stored.isEmpty;
+        if (stored != refreshToken && !(orCleared && cleared)) return false;
       } on Object {
         // An unreadable slot proves nothing; the session count decides.
       }
@@ -114,9 +117,13 @@ Future<String?> Function(String refreshToken) buildRefreshTokenCallback({
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
       if (statusCode == 400 || statusCode == 401) {
-        // Only the session still stored is over; a refused refresh of one
-        // that already ended must not sign out whoever came next.
-        if (await stillStored()) sessionSignals.sessionExpired();
+        // The session is over unless it ended here first or another
+        // session took the slot: a refused refresh of an ended session must
+        // not sign out whoever came next. An emptied slot still signs out:
+        // another tab of this account found the same token dead.
+        if (await stillStored(orCleared: true)) {
+          sessionSignals.sessionExpired();
+        }
         return null;
       }
       rethrow;

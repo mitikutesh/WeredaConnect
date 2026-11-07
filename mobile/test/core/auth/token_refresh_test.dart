@@ -239,6 +239,33 @@ void main() {
       expect(expired, 0);
     });
 
+    // Two web tabs on one account, its refresh token dead: the first tab's
+    // refusal empties the shared slot before the second tab's comes back.
+    for (final emptied in [null, '']) {
+      test(
+          'a refused refresh after another tab emptied the slot ("$emptied") '
+          'still signs out', () async {
+        var expired = 0;
+        final sub = signals.onSessionExpired.listen((_) => expired++);
+        addTearDown(sub.cancel);
+        storedRefresh = 'r1';
+        replyRejected(whileOut: () => storedRefresh = emptied);
+
+        expect(await callback('r1'), isNull);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(expired, 1);
+      });
+    }
+
+    test('an emptied slot is not written by a successful refresh', () async {
+      storedRefresh = 'r1';
+      replyTokens(whileOut: () => storedRefresh = null);
+
+      expect(await callback('r1'), 'late-id');
+      expectNothingWritten();
+    });
+
     test('an unreadable slot leaves the decision to the session count',
         () async {
       when(() => storage.read(key: 'refresh_token'))

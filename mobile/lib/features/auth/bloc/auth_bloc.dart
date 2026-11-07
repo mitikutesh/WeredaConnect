@@ -872,10 +872,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // Revoke the refresh token server-side, in parallel with the local
       // clear below. clearCache: false because the bloc clears credentials
       // itself; the service's deferred clear could wipe a re-login's cache.
-      final revocation = _revokeServerSession(
-        phoneNumber,
-        await _liveTokens(userId: userId, fallback: tokens),
-      );
+      final live = await _liveTokens(userId: userId, fallback: tokens);
+      final revocation = _revokeServerSession(phoneNumber, live);
+
+      // FUP-82: the refresh token leaves its slot now, before the slow clears
+      // below. A refresh that starts after the unregister (a sync request's
+      // 401) shares the current session count, so it would otherwise write
+      // its tokens, and the offline cache, around the cache clear below.
+      // Without the slot it has nothing to refresh, or finds its token gone
+      // and keeps nothing.
+      await _forgetRefreshToken(live.refreshToken);
 
       // Always clear business data to prevent data leakage on shared devices
       if (_isar != null) {
@@ -939,6 +945,20 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
     } on Object {
       return stateCopy;
+    }
+  }
+
+  /// Delete the stored refresh token when it is still [refreshToken], the
+  /// leaving session's own. On web the slot may hold another account's
+  /// token (signed in from another tab); that one stays. Best effort.
+  Future<void> _forgetRefreshToken(String refreshToken) async {
+    try {
+      final stored = await _secureStorage.read(key: _activeRefreshTokenKey);
+      if (stored == refreshToken) {
+        await _secureStorage.delete(key: _activeRefreshTokenKey);
+      }
+    } on Object catch (e) {
+      debugPrint('[AuthBloc] refresh token not dropped early: $e');
     }
   }
 
