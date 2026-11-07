@@ -24,6 +24,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly paymentsTable: dynamodb.Table;
   public readonly escrowsTable: dynamodb.Table;
   public readonly escrowAuditTable: dynamodb.Table;
+  public readonly escrowLedgerTable: dynamodb.Table;
   public readonly transactionAuditTable: dynamodb.Table;
   public readonly escrowIdempotencyTable: dynamodb.Table;
   public readonly deliveryQrSecretsTable: dynamodb.Table;
@@ -381,6 +382,28 @@ export class DatabaseStack extends cdk.Stack {
       isProd: envConfig.isProd,
     });
     this.escrowAuditTable = escrowAudit.table;
+
+    // ESC-20: escrow ledger (escrow-protocol.md 2.1.0, P.3). One row per money movement of an order
+    // escrow (PK escrowId, SK ref such as release#farmer or refund#all), written before the gateway is
+    // called and never deleted or re-keyed: no TTL, money records are kept. Point-in-time recovery and
+    // (prod) RETAIN come from the construct.
+    const escrowLedger = new WeredaDynamoTable(this, "EscrowLedgerTable", {
+      tableName: `${prefix}-escrow-ledger`,
+      partitionKey: { name: "escrowId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "ref", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.escrowLedgerTable = escrowLedger.table;
+
+    // GSI: the open rows (sparse: a done row carries neither key), by status and when the ledger sweep
+    // looks next: pending, sent and failed rows for the 15 minute sweep, manual rows for the admin
+    // payout queue (oldest first). See EscrowLedgerRepository.QueryOpenAsync.
+    this.escrowLedgerTable.addGlobalSecondaryIndex({
+      indexName: "LedgerOpenIndex",
+      partitionKey: { name: "openStatus", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "dueAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
 
     // Transaction audit table (immutable append-only, cross-entity).
     // Unified who/what/when/where trail for the transaction lifecycle legs that
@@ -856,6 +879,11 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, "EscrowAuditTableName", {
       value: this.escrowAuditTable.tableName,
       description: "DynamoDB Escrow Audit Table",
+    });
+
+    new cdk.CfnOutput(this, "EscrowLedgerTableName", {
+      value: this.escrowLedgerTable.tableName,
+      description: "DynamoDB Escrow Ledger Table (ESC-20)",
     });
 
     new cdk.CfnOutput(this, "EscrowIdempotencyTableName", {

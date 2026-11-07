@@ -23,12 +23,13 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates twenty-one DynamoDB tables with PAY_PER_REQUEST billing', () => {
+  test('creates twenty-two DynamoDB tables with PAY_PER_REQUEST billing', () => {
     // 12 core + intents + device_tokens + match_events + ratings + transaction-audit
     // + delivery-qr-secrets + messages (in-app chat) = 19,
     // + notifications (order notification inbox, ESC-21) = 20,
-    // + trip-locations (live trip check-ins, LT-05) = 21.
-    template.resourceCountIs('AWS::DynamoDB::Table', 21);
+    // + trip-locations (live trip check-ins, LT-05) = 21,
+    // + escrow-ledger (per-leg money movements, ESC-20) = 22.
+    template.resourceCountIs('AWS::DynamoDB::Table', 22);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -269,6 +270,7 @@ describe('ApiStack', () => {
       paymentsTable: dbStack.paymentsTable,
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
@@ -1343,6 +1345,7 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       paymentsTable: dbStack.paymentsTable,
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
@@ -1844,6 +1847,7 @@ describe('ApiStack (prod security)', () => {
       paymentsTable: dbStack.paymentsTable,
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
@@ -1970,6 +1974,7 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
       paymentsTable: dbStack.paymentsTable,
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
