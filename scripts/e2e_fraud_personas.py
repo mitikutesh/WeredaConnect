@@ -123,7 +123,7 @@ TIER_MEDIUM, TIER_HIGH, TIER_CRITICAL = 30, 60, 100
 RULES = {
     "FRAUD_DUPLICATE_LISTING": ("Rule 1", "FraudDetectionService.CheckListingCreationAsync, recorded by the SyncFunction crop create"),
     "FRAUD_VELOCITY_EXCEEDED": ("Rule 3", "FraudDetectionService.CheckListingCreationAsync (5 listings per hour), SyncFunction crop create"),
-    "PRICE_ANOMALY": ("Rule 2", "FraudDetectionService.CheckListingCreationAsync (3 sigma over the last 50 listings of the type), flag only"),
+    "PRICE_ANOMALY": ("Rule 2", "FraudDetectionService.CheckListingCreationAsync (more than 3 robust spreads from the median of the last 50 listings of the type: 1.4826 x MAD, floored at 10% of the median), flag only"),
     "IDOR_CREATE_CONFLICT": ("FRD-08", "SyncFunction create conflict on a crop, trip, order or delivery id the caller does not own"),
     "ROLE_FORBIDDEN": ("FRD-08", "SyncFunction.RefuseWithSignalAsync: role gates, caller id binding, rows the caller is no party to"),
     "IMMUTABLE_FIELD_CHANGE": ("FRD-08", "SyncFunction.RejectImmutableFieldChanges (crop SIM-02, order SIM-06)"),
