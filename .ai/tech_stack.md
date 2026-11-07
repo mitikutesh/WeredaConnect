@@ -60,7 +60,7 @@ Single source of truth for dependency versions and technology choices.
 ## Infrastructure Stack
 
 - **AWS CDK**: `2.273.x` (TypeScript), **Node.js**: `20.20.0 LTS`, **TypeScript**: `7.0.x`
-- TypeScript 7 (native `tsc`) has no JS compiler API, so `infra/package.json` installs it under the alias `@typescript/native` and aliases `@typescript/typescript6` (TS 6 JS API) as `typescript` for ts-jest and ts-node. `tsc` (lint/build) runs TS 7; jest and `cdk synth` compile with TS 6. Keep both aliases in place until ts-jest and ts-node support TS 7 directly.
+- TypeScript 7 (native `tsc`) has no JS compiler API, so `infra/package.json` installs it under the alias `@typescript/native` and aliases `@typescript/typescript6` (TS 6 JS API) as `typescript` for ts-jest and ts-node. `tsc` (lint/build) runs TS 7; jest and `cdk synth` compile with TS 6. Keep both aliases in place until ts-jest and ts-node support TS 7 directly. The TS 6 alias re-exports its dependency `@typescript/old`, which ships a `tsc` bin too; npm links the first package in path order (`@typescript/native` before `@typescript/old`), so `.bin/tsc` is TS 7 (FUP-57). `npm run lint` prints the version, and `infra/test/unit/ci-hygiene.test.ts` fails if the link ever lands on TS 6, so do not rename the alias without checking it. The CDK app stays on ts-node (the optional tsx move is closed): ts-node works on the TS 6 alias, and tsx would add esbuild, a native package with an install script, to the deploy path for no gain.
 
 ### AWS Services
 
