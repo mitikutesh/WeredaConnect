@@ -4,7 +4,7 @@
 Application step (see `.ai/push-notifications-setup.md`) for push delivery.
 
 ## Version
-1.3.0
+1.4.0
 
 Offline-first, asynchronous chat between the two legitimate parties of a
 marketplace context. There is **no real-time transport**: messages are created
@@ -89,6 +89,17 @@ never asked reads none of that order's threads, nor of its deliveries' threads.
   `settled`, a decided dispute, an admin override refund), as the buyer and the farmer do.
   Sending follows the contact (above), so a closed order takes no new message from anyone.
 - Crop and trip threads are unchanged.
+
+### Admin read of a dispute (1.4.0, FRD-14)
+
+The parties are not the only readers of one case: an admin in the admin group may read the order and
+delivery threads of an order whose escrow has a dispute, to decide it, through
+`GET /admin/disputes/{escrowId}/evidence?include=messages` (`escrow-protocol.md` 1.40.0). Only those
+threads (every pair of the order's or the delivery's parties, `conversationId` as above), read only, at
+most the newest 100 messages per thread, no phone (as for the parties). Every such read writes an
+`admin_dispute_messages_read` transaction-audit row with the admin and the counts before anything is
+answered; a read that cannot be audited answers no message. No other admin route returns messages, and
+`GET /messages` is unchanged.
 
 ---
 
@@ -216,6 +227,7 @@ decides).
 - The read rule (1.3.0) is server side only: a trucker's phone keeps the copies it pulled while committed, and web keeps them for the session. The server no longer serves them.
 
 ## Changelog
+- **1.4.0** (2026-11-07): Admin read of a dispute (FRD-14): an admin in the admin group reads the order and delivery threads of a disputed order through `GET /admin/disputes/{escrowId}/evidence?include=messages` (`escrow-protocol.md` 1.40.0), read only, at most 100 per thread, every read audited (`admin_dispute_messages_read`) before it is answered. The parties' reads are unchanged.
 - **1.3.0** (2026-11-06): Read rule (FUP-124): on order and delivery threads the order's trucker reads only while committed to the transport. A trucker who declined, let the request expire, dropped out or was never asked gets an empty thread page with no `nextToken`, loses those messages from the `since` pull and gets `403 MESSAGE_FORBIDDEN` by id. A failed order or delivery read answers `500 MESSAGE_SERVER_ERROR` instead of a partial pull. Buyer and farmer reads, a committed trucker's reads and crop and trip threads are unchanged. No client change.
 - **1.2.0** (2026-10-17): Contact only after the money is held (ESC-48): crop and trip threads take no new message (`MESSAGE_CONTACT_LOCKED`, owners too); order and delivery threads only while the order's contact is open; a refused resend of a stored message is a `duplicate`; `senderPhone`/`recipientPhone` are no longer stored nor returned by any read; clients take the number from the order; order detail gets the Contact entry.
 - **1.1.0** (2026-10-01): `GET /messages?since=` is validated. A value that is not empty, a `yyyy-MM-dd` date or a UTC `...Z` timestamp now gets `400 MESSAGE_VALIDATION` instead of a 200 with the wrong window (SIM-34). Both shipped clients already send `toUtc().toIso8601String()` or an empty cursor, so their pulls are unchanged.

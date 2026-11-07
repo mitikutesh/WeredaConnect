@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { DisputeEvidence } from "@/lib/evidence";
 import type { DeliveryTrail } from "@/lib/trail";
 
 // Dashboard
@@ -69,6 +70,37 @@ export function useDeliveryTrail(deliveryId: string) {
     queryKey: ["admin", "deliveries", deliveryId, "trail"],
     queryFn: () => api.get<DeliveryTrail>(`/admin/deliveries/${encodeURIComponent(deliveryId)}/trail`),
     enabled: !!deliveryId,
+  });
+}
+
+/**
+ * FRD-14: the evidence of one dispute (admin group only): the timeline, the handoffs and the photos.
+ * Never the messages; the verdict refreshes it (the "disputes" key).
+ */
+export function useDisputeEvidence(escrowId: string) {
+  return useQuery({
+    queryKey: ["admin", "disputes", escrowId, "evidence"],
+    queryFn: () => api.get<DisputeEvidence>(`/admin/disputes/${encodeURIComponent(escrowId)}/evidence`),
+    enabled: !!escrowId,
+  });
+}
+
+/**
+ * FRD-14: the dispute's message threads, read only once the admin asks. The server audits every
+ * read, so the query never runs by itself (no refetch on focus, no retry, kept out of the "disputes"
+ * key the verdict refreshes) and nothing stays cached once the Messages tab closes.
+ */
+export function useDisputeMessages(escrowId: string, open: boolean) {
+  return useQuery({
+    queryKey: ["admin", "dispute-messages", escrowId],
+    queryFn: () =>
+      api.get<DisputeEvidence>(`/admin/disputes/${encodeURIComponent(escrowId)}/evidence?include=messages`),
+    enabled: open && !!escrowId,
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 

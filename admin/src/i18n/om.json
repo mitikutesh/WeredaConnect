@@ -205,6 +205,40 @@
     "awayStops": "Dhaabbiiwwan tarree dhaabbii ala",
     "awayStopRange": "{from} hanga {until} {place} irratti, bakka karoorfame ykn iskaanii QR dhihoo irraa km {km}"
   },
+  "evidence": {
+    "tabTimeline": "Sarara Yeroo",
+    "tabPhotos": "Suuraalee",
+    "tabPhotosCount": "Suuraalee · {count}",
+    "tabMessages": "Ergaalee",
+    "loading": "Ragaan fe'amaa jira...",
+    "loadFailed": "Ragaa fe'uun hin danda'amne.",
+    "handoffs": "Walharkaan qaqqabsiisuu",
+    "noHandoffs": "Ammallee walharkaan qaqqabsiisuun hin jiru: oomishni hin fudhatamne.",
+    "leg_pickup": "Fudhannaa",
+    "leg_dropoff": "Geessisa",
+    "leg_self_pickup": "Bitataan qonnaa irraa fudhate",
+    "method_qr": "QR {who}n iskaanii godhame",
+    "method_code": "Koodiin {who}n barreeffame",
+    "method_unknown": "{who}n walharkaan qaqqabsiifame",
+    "whoUnknown": "Eenyu akka walharkaan qaqqabsiise hin galmoofne.",
+    "capturedAt": "Bilbila irratti {time} iskaanii godhame",
+    "noGps": "Yeroo walharkaan qaqqabsiisuu GPS'n hin argamne",
+    "fromListing": "Bakka tarree irraa km {km}",
+    "fromDestination": "Bakka imalli itti xumuramu irraa km {km}",
+    "photosNote": "Hidhaawwan suuraa daqiiqaa 15 booda dhumatu. Haaraa argachuuf fuula irra deebi'ii fe'i.",
+    "noPhoto_pickup": "Suuraan fudhannaa hin jiru.",
+    "noPhoto_dropoff": "Suuraan geessisaa hin jiru.",
+    "messagesPrivate": "Ergaaleen hirmaattotaa dhuunfaa dha. Waldhabdee kana murteessuuf qofa bani: dubbisni hundi akkaawuntii bulchiinsaa keessan jalatti galmee odiitii keessatti barreeffama.",
+    "showMessages": "Ergaalee agarsiisi",
+    "messagesLoading": "Ergaaleen fe'amaa jiru...",
+    "messagesFailed": "Ergaalee fe'uun hin danda'amne.",
+    "noMessages": "Ajaja kana ykn geejjiba isaa irratti ergaan hin jiru.",
+    "messagesAudited": "Dubbisuuf qofa. Dubbisni kun galmee odiitii keessatti barreeffameera.",
+    "messagesTruncated": "Marii tokko keessa ergaaleen agarsiifaman caalaa jiru: kanneen haaraa 100 qofatu asitti argama.",
+    "context_order": "Ajaja",
+    "context_delivery": "Geejjiba",
+    "messageFromTo": "{from} irraa gara {to}"
+  },
   "payouts": {
     "title": "Kaffaltii Harkaan",
     "subtitle": "Kaffaltiiwwan karaan Telebirr raawwachuu hin dandeenye. Kutaa tokkoon tokkoon poortaalii daldalaa Telebirr irratti kaffalaa, ergasii eenyummeessaa daldalaa poortaalichaa asitti galmeessaa.",
@@ -618,7 +652,8 @@
     "action_fraud_hold": "Gamaaggamaaf qabame",
     "action_fraud_hold_release": "Gamaaggama booda gadhiifame (bulchaa)",
     "action_fraud_hold_refund": "Gamaaggama booda deebi'e kaffaltame (bulchaa)",
-    "action_outcome_label": "Bu'aan galmeeffame (bulchaa)"
+    "action_outcome_label": "Bu'aan galmeeffame (bulchaa)",
+    "action_admin_dispute_messages_read": "Bulchaan ergaalee waldhabdee dubbise"
   },
   "analytics": {
     "title": "Hanga Daldala",
@@ -729,7 +764,11 @@
     "ADMIN_016": "Filannoon kun haala ajajichi amma keessa jiru waliin hin walsimu. Fuula irra deebi'ii fe'iitii ajaja sana mirkaneeffadhu.",
     "ADMIN_009": "Gochi hin beekamne.",
     "ADMIN_017": "Sababni dhaabbii kun gocha didu Gamaaggama Gosoota qofaaf qabameera.",
-    "ADMIN_018": "Geejjibni hin argamne."
+    "ADMIN_018": "Geejjibni hin argamne.",
+    "ADMIN_003": "Eeskiroon hin argamne.",
+    "ADMIN_004": "Kutaan kun ammallee sarvarii irratti hin qophoofne.",
+    "ADMIN_019": "Eeskiroon kun waldhabdee hin qabu, kanaaf ragaan agarsiifamu hin jiru.",
+    "ADMIN_020": "Dubbisni galmee odiitii keessatti barreeffamuu hin dandeenye, kanaaf ergaan tokkollee hin agarsiifamu. Irra deebi'ii yaali."
   },
   "language": {
     "english": "English",

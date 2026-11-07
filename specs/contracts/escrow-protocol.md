@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.39.0
+1.40.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -4084,10 +4084,94 @@ so no client change.
 
 ---
 
+## Additions in 1.40.0 (dispute evidence, FRD-14)
+
+The admin dispute page (`/disputes/{escrowId}`) shows the evidence of one dispute on one screen and
+records the verdict there (`POST /admin/disputes/{id}/resolve`, unchanged). The Trip trail tab keeps its
+own route (`GET /admin/deliveries/{id}/trail`, `live-trip-api.md` section 3).
+
+### GET /admin/disputes/{escrowId}/evidence
+
+Admin group only (`cognito:groups` holds `admin`; a role claim alone is refused): anyone else gets
+`403 ADMIN_001`. Read only, except the audit row of a message read (below).
+
+| Query | Meaning |
+|-------|---------|
+| `include=messages` | Also read the parties' messages (audited). Without it no message is read. |
+
+Answer `200`:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `escrow` | `EscrowDto` | With `dispute` and the parties' names, as `GET /admin/escrows/{id}` |
+| `order` | `OrderDto` | The escrow's order; left out for an escrow without one or when the order is gone |
+| `delivery` | `DeliveryDto` | Left out when none is linked. No phone and no QR token; `pickupPhotoUrl` and `dropoffPhotoUrl` as on the transaction view (`delivery-verification-api.md` 1.25.0) |
+| `timeline` | array | The stitched timeline of `GET /admin/transactions/{orderId}` (order, delivery and escrow legs, time order) |
+| `handoffs` | array | The handoffs that happened, see below |
+| `messages` | array | Only with `include=messages`: `MessageDto` (`messaging.md`), oldest first |
+| `messagesTruncated` | bool | Only with `include=messages`: a thread held more than 100 messages (its newest 100 are returned) |
+
+A handoff:
+
+| Field | Notes |
+|-------|-------|
+| `leg` | `pickup` (the trucker's scan of the farmer's QR), `dropoff` (the buyer's scan at delivery) or `self_pickup` (the buyer's scan at the farm) |
+| `at` | The server's `pickedUpAt` or `confirmedAt` (else the audit row's time) |
+| `capturedAt` | The phone's `pickupCapturedAt` (pickup only, when recorded) |
+| `actorId`, `actorRole` | Who made the transition, from its transaction-audit row; `actorRole` is `buyer`, `farmer` or `trucker` when the actor is one of the delivery's parties. Left out for a delivery older than that trail |
+| `method` | `qr` or `code` from the transition's audit metadata (`handoff=qr`, `handoff=code`, `delivery-verification-api.md` 1.22.0); left out when not recorded |
+| `gps` | `gpsPickup` (pickup) or `gpsDropoff` (drop-off and self-pickup) |
+| `planned` | The listing's location (pickup and self-pickup) or the trip's destination (drop-off, the point the delivered GPS check uses); read only for a handoff with GPS, best effort |
+| `distanceKm` | Great-circle km from `gps` to `planned`, 2 decimals; left out without both or for a fix at (0, 0) |
+
+Reads: the escrow, the order, the delivery (key reads), the transaction-audit rows of the order and of
+the delivery (`EntityIndex`), the escrow audit trail, and for a handoff with GPS its listing or trip.
+Never a Scan. A missing order, delivery, audit leg or planned point is left out, never an error.
+
+### The message read
+
+With `include=messages` the server reads the threads of the disputed order and of its delivery: for
+each context, the thread of every pair of its parties (`conversationId` as `messaging.md` sets it), so
+at most six Queries of 100 on `ConversationIdCreatedAtIndex`, and keeps only rows of the thread asked
+for. Before it answers it writes one transaction-audit row: `entityType: escrow`, `entityId` the escrow,
+`action: admin_dispute_messages_read`, the admin as `actor` (`actorRole: admin`, IP and correlation id),
+`metadata: messages={n};threads={m}`, under the order (the escrow without one). The admin timeline shows
+it. A write that fails answers `503 ADMIN_020` and no message: no read goes unrecorded. The structured
+log line `READ_DISPUTE_MESSAGES` follows. The admin app asks only when the admin presses Show the
+messages, and never refetches that read by itself.
+
+### Errors
+
+| Status | Code | When |
+|--------|------|------|
+| 403 | `ADMIN_001` | Not in the admin group |
+| 404 | `ADMIN_003` | No escrow with that id |
+| 404 | `ADMIN_019` | The escrow never had a dispute (no `disputeId` or `disputeReason`), so no other order's messages can be read here |
+| 503 | `ADMIN_004` | The escrows table, or for `include=messages` the messages or transaction-audit table, is not configured |
+| 503 | `ADMIN_020` | `include=messages`: the audit row could not be written, so no message is answered |
+
+### Infrastructure
+
+Route `GET /admin/disputes/{id}/evidence` on the admin authorizer. The admin Lambda gets
+`MESSAGES_TABLE` and `dynamodb:Query` on the messages table's `ConversationIdCreatedAtIndex` only (no item
+read, no other index, no write); the audit row uses its existing transaction-audit write.
+
+### Not in 1.40.0 (known limits)
+
+- QR scans are the transitions that consumed the farmer's nonce; a refused scan or a wrong typed code
+  (counted in the `delivery-qr-secrets` row) is not shown, since the admin Lambda does not read that
+  table.
+- Crop and trip threads (before any order) are not read: they hold no message about this order since
+  `messaging.md` 1.2.0.
+- A thread is one page of its newest 100 messages; `messagesTruncated` says when more exist.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.40.0 | 2026-11-07 | Dispute evidence (FRD-14): `GET /admin/disputes/{escrowId}/evidence`, admin group only, answers the escrow, order, delivery (photos, no phones or QR token), the stitched timeline and the handoffs (QR scan or typed code, who, GPS, distance to the planned point); with `include=messages` also the order's and delivery's message threads (`messaging.md` 1.4.0), each read audited as `admin_dispute_messages_read` before it is answered (`503 ADMIN_020` otherwise). `404 ADMIN_019` for an escrow that never had a dispute. Infra: the route, `MESSAGES_TABLE` and Query on `ConversationIdCreatedAtIndex` for the admin Lambda. |
 | 1.39.0 | 2026-11-06 | Commission rule and rounding (SIM-30, `order-lifecycle.md` 2.7.0): Commission Calculation now states the rule the server applies, a percentage of the crop cost (SSM `/{prefix}/escrow/commission-rate`, default 0.05) that the buyer pays on top of the order, held in the escrow and kept by the platform at release (refunded in full with the rest), with `commission = amount − farmerPayout − truckerPayout`; the 2.5 % deducted-at-release text was only true of the legacy initiate without an order, now marked as such. The order create rounds `cropCost`, `transportCost` and `commissionAmount` to the santim (halves away from zero, exact decimals) and `orderTotal` is their exact sum, so the order's commission equals the escrow's to the santim (was an unrounded double such as 0.9500000000000001). The money rule is unchanged; only an order whose crop or transport cost has more than 2 decimals (a fractional kg) can see its total move by a santim, since its legs are now rounded before they are added. No endpoint, status or field change |
 | 1.38.0 | 2026-11-06 | The escrow version (SIM-29): every write that changes what an escrow read returns adds 1 to `version` with `ADD`: the delivery link, the delivery confirmation stamp, a scheduled refund (also inside the 1.25.0 transaction), the 21 day cap extension and stamp, a backfilled `truckerId`, the admin verdict and a later disposition now too, and the hold, release, refund and completion writes add 1 instead of writing 2 or the read value plus 1 or 2. Locks, block reasons and the deletion scrub leave it alone. No write is conditioned on it and no client sends it; no endpoint, status or client change |
 | 1.37.0 | 2026-11-06 | Missing fields on `POST /escrow/release` and `POST /escrow/refund` (SIM-27): a missing, `null` or blank `escrowId` or `trigger` answers `400 ESCROW_VALIDATION`, a release `deliveryId` `400 ESCROW_002`, an `idempotencyKey` `400 ESCROW_003`, each with `field`, checked right after the body is read (where a malformed body was already answered, so before the caller's role). Before, an absent field failed deserialization and answered `400 ESCROW_001 "Invalid JSON in request body."`, the amount code, and a blank `escrowId` reached the store. The error tables now also list `ESCROW_001` for a body that is not JSON and `ESCROW_VALIDATION` for a `trigger` outside the enum, as served. Release and refund are admin and system calls; no app change. `POST /escrow/initiate` and `POST /escrow/dispute` are unchanged |
@@ -4138,6 +4222,6 @@ so no client change.
 
 ---
 
-**Last Updated**: 2026-11-06
-**Version**: 1.39.0
+**Last Updated**: 2026-11-07
+**Version**: 1.40.0
 **Status**: Draft (Phase R4)
