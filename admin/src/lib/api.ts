@@ -62,14 +62,17 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    // Redirect to login on auth failures
-    if (response.status === 401 || response.status === 403) {
+    const text = await response.text().catch(() => "");
+    const parsed = parseErrorResponse(text);
+
+    // Redirect to login on auth failures. A 403 that carries a server error
+    // code (e.g. ESCROW_029 on a release) is a business refusal for a valid
+    // session: show it instead of signing the admin out.
+    if (response.status === 401 || (response.status === 403 && !parsed.code)) {
       logout();
       window.location.href = "/";
     }
 
-    const text = await response.text().catch(() => "");
-    const parsed = parseErrorResponse(text);
     throw new ApiError(response.status, parsed.message, parsed.code, parsed.field);
   }
 

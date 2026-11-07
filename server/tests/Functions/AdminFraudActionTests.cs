@@ -146,8 +146,6 @@ public class AdminFraudActionTests
 
     private List<QueryRequest> Queries => Requests<QueryRequest>();
 
-    private List<ScanRequest> Scans => Requests<ScanRequest>();
-
     private UpdateItemRequest SignalUpdate => Updates.Single(u => u.TableName == FraudTable);
 
     private IEnumerable<UpdateItemRequest> UserUpdates => Updates.Where(u => u.TableName == UsersTable);
@@ -620,88 +618,7 @@ public class AdminFraudActionTests
             .Should().Be(expected);
     }
 
-    // ──────────────────────────────────────────────
-    // List and dashboard
-    // ──────────────────────────────────────────────
-
-    private void ScanPages(params ScanResponse[] pages)
-    {
-        var queue = new Queue<ScanResponse>(pages);
-        _ddb.ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>())
-            .Returns(_ => Task.FromResult(queue.Count > 0
-                ? queue.Dequeue()
-                : new ScanResponse { Items = new List<Dictionary<string, AttributeValue>>(), LastEvaluatedKey = new Dictionary<string, AttributeValue>() }));
-    }
-
-    private static Dictionary<string, AttributeValue> SignalItem(string id) => new()
-    {
-        { "signalId", new AttributeValue { S = id } },
-        { "userId", new AttributeValue { S = UserId } },
-        { "signalType", new AttributeValue { S = "PRICE_ANOMALY" } },
-        { "severity", new AttributeValue { S = "medium" } },
-        { "description", new AttributeValue { S = "d" } },
-        { "status", new AttributeValue { S = "reviewed" } },
-        { "resolution", new AttributeValue { S = "approve" } },
-        { "createdAt", new AttributeValue { S = "2026-10-20T10:00:00Z" } }
-    };
-
-    private static APIGatewayProxyRequest Get(string path, Dictionary<string, string>? query = null) => new()
-    {
-        HttpMethod = "GET",
-        Path = path,
-        QueryStringParameters = query,
-        RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
-        {
-            Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" }, { "role", "admin" } }
-        }
-    };
-
-    [Fact]
-    public async Task List_ExcludesCreditAndWhitelistRows_AndReadsOnPastPagesTheyEmptied()
-    {
-        ScanPages(
-            new ScanResponse { Items = new List<Dictionary<string, AttributeValue>>(), LastEvaluatedKey = new Dictionary<string, AttributeValue> { { "userId", new AttributeValue { S = "u" } } } },
-            new ScanResponse { Items = new List<Dictionary<string, AttributeValue>> { SignalItem("sig-1") }, LastEvaluatedKey = new Dictionary<string, AttributeValue>() });
-
-        var response = await Function().FunctionHandler(Get("/admin/fraud-signals"), _context);
-
-        response.StatusCode.Should().Be(200);
-        Scans.Should().HaveCount(2);
-        Scans.Should().OnlyContain(s => s.TableName == FraudTable
-            && s.FilterExpression == "(attribute_not_exists(#recordType) OR #recordType = :signalRecord)"
-            && s.ExpressionAttributeNames["#recordType"] == "recordType"
-            && s.ExpressionAttributeValues[":signalRecord"].S == "signal");
-        var signal = Json(response).GetProperty("signals")[0];
-        signal.GetProperty("resolution").GetString().Should().Be("approve");
-    }
-
-    [Fact]
-    public async Task List_WithAStatus_FiltersOnBoth()
-    {
-        ScanPages(new ScanResponse { Items = new List<Dictionary<string, AttributeValue>> { SignalItem("sig-1") }, LastEvaluatedKey = new Dictionary<string, AttributeValue>() });
-
-        await Function().FunctionHandler(Get("/admin/fraud-signals", new Dictionary<string, string> { { "status", "pending" } }), _context);
-
-        var scan = Scans.Single();
-        scan.FilterExpression.Should().Be("#field = :value AND (attribute_not_exists(#recordType) OR #recordType = :signalRecord)");
-        scan.ExpressionAttributeNames["#field"].Should().Be("status");
-        scan.ExpressionAttributeValues[":value"].S.Should().Be("pending");
-        scan.ExpressionAttributeValues[":signalRecord"].S.Should().Be("signal");
-    }
-
-    [Fact]
-    public async Task Dashboard_CountsSignalRowsOnly()
-    {
-        ScanPages();
-
-        var response = await Function().FunctionHandler(Get("/admin/dashboard/stats"), _context);
-
-        response.StatusCode.Should().Be(200);
-        var count = Scans.Single(s => s.TableName == FraudTable);
-        count.Select.Should().Be(Select.COUNT);
-        count.FilterExpression.Should().Be("(attribute_not_exists(#recordType) OR #recordType = :signalRecord)");
-        count.ExpressionAttributeValues[":signalRecord"].S.Should().Be("signal");
-    }
+    // The list and the dashboard count (FRD-07, a Query on the status index): AdminFraudReviewQueueTests.
 
     // ──────────────────────────────────────────────
     // The user action route and the reserved reason

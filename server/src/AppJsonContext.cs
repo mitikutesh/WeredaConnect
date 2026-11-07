@@ -170,6 +170,9 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(FraudActionResponse))]
 [JsonSerializable(typeof(FraudOpenEscrowDto))]
 [JsonSerializable(typeof(List<FraudOpenEscrowDto>))]
+// FRD-07: the risk score of each user on a Fraud Review page.
+[JsonSerializable(typeof(FraudSignalUserDto))]
+[JsonSerializable(typeof(List<FraudSignalUserDto>))]
 [JsonSerializable(typeof(AdminUserListResponse))]
 [JsonSerializable(typeof(AdminUserDetailResponse))]
 [JsonSerializable(typeof(UserActionRequest))]

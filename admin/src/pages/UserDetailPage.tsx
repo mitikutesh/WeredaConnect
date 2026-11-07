@@ -16,6 +16,8 @@ export function UserDetailPage() {
 
   const resp = data as Record<string, unknown> | undefined;
   const user = (resp?.user as Record<string, unknown>) || {};
+  // FRD-07: admin-only, next to the user in the response; fraud_confirmed is the Fraud Review reject.
+  const suspendReason = typeof resp?.suspendReason === "string" ? resp.suspendReason : "";
 
   if (isLoading) {
     return <div className="text-text-muted">{t("common.loading")}</div>;
@@ -68,6 +70,14 @@ export function UserDetailPage() {
               <dt className="text-text-muted">{t("users.joined")}</dt>
               <dd>{user.createdAt ? formatDate(String(user.createdAt)) : ""}</dd>
             </div>
+            {Boolean(user.suspended) && suspendReason && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-text-muted">{t("users.suspendReason")}</dt>
+                <dd className="text-right">
+                  {suspendReason === "fraud_confirmed" ? t("users.suspendReason_fraud_confirmed") : suspendReason}
+                </dd>
+              </div>
+            )}
           </dl>
 
           <div className="mt-6 flex flex-wrap gap-2">

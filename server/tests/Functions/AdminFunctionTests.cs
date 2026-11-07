@@ -561,6 +561,9 @@ public class AdminFunctionTests
                 Items = new List<Dictionary<string, AttributeValue>>(),
                 LastEvaluatedKey = new Dictionary<string, AttributeValue>(),
             });
+        // FRD-07: the held escrow count is a Query on the escrows status index.
+        db.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Count = 0, LastEvaluatedKey = new Dictionary<string, AttributeValue>() });
 
         var fn = new AdminFunction(
             db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);

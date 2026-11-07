@@ -18,7 +18,15 @@ public sealed record AdminDashboardStatsResponse
     public required int DisputedEscrows { get; init; }
     public required int TotalOrders { get; init; }
     public required int ActiveListings { get; init; }
+
+    /// <summary>
+    /// Signals waiting for review (<c>status: pending</c>). FRD-07: a count on the sparse status index; before
+    /// it, a Scan counted every signal row, reviewed ones included.
+    /// </summary>
     public required int FraudSignalsCount { get; init; }
+
+    /// <summary>FRD-07: escrows frozen for fraud review (<c>held</c>), the length of the held queue.</summary>
+    public int HeldEscrows { get; init; }
     public required decimal TotalEscrowVolume { get; init; }
     public required decimal TotalCommissions { get; init; }
     public required string GeneratedAt { get; init; }
@@ -127,17 +135,57 @@ public sealed record FraudSignalDto
     public string? ReviewedBy { get; init; }
     public string? ReviewedAt { get; init; }
     public string? ReviewNotes { get; init; }
+
+    /// <summary>
+    /// When the first refusal of the row's hour happened. Since FRD-08 one row stands for every refusal of its
+    /// type in one UTC hour (fraud-detection-architecture.md section 14.3), so this is the first, not the only one.
+    /// </summary>
     public required string CreatedAt { get; init; }
+
+    /// <summary>
+    /// FRD-07: the order of the transaction timeline the signal belongs to, when its entity names one: an
+    /// <c>order</c> signal, or an <c>escrow</c> signal on an order escrow (<c>escrow-order-{orderId}</c>).
+    /// </summary>
+    public string? OrderId { get; init; }
 }
 
 /// <summary>
-/// GET /admin/fraud-signals response.
+/// GET /admin/fraud-signals response. FRD-07: one page of the status index, newest first, and the risk score of
+/// each user on the page, so Fraud Review groups the signals by user.
 /// </summary>
 public sealed record AdminFraudSignalListResponse
 {
     public required List<FraudSignalDto> Signals { get; init; }
     public string? NextToken { get; init; }
     public required int Total { get; init; }
+
+    /// <summary>FRD-07: one entry per distinct user of <see cref="Signals"/>, in their first appearance order.</summary>
+    public List<FraudSignalUserDto> Users { get; init; } = [];
+}
+
+/// <summary>
+/// FRD-07: a user's risk score as Fraud Review shows it (fraud-detection-architecture.md sections 14 and 16). The
+/// score is admin-only: parties never read it (section 17).
+/// </summary>
+public sealed record FraudSignalUserDto
+{
+    public required string UserId { get; init; }
+    public string? DisplayName { get; init; }
+
+    /// <summary>The full score, AI advisory weight included (section 14.2).</summary>
+    public required int RiskScore { get; init; }
+
+    /// <summary>The score without the advisory weight, which decides CRITICAL.</summary>
+    public required int EnforcementScore { get; init; }
+
+    /// <summary><c>low</c>, <c>medium</c>, <c>high</c> or <c>critical</c>.</summary>
+    public required string RiskTier { get; init; }
+
+    /// <summary>Rows were left unread after the page cap, so the tier is CRITICAL (section 14.3).</summary>
+    public bool Truncated { get; init; }
+
+    /// <summary>False when the score could not be read; the score and tier then say nothing.</summary>
+    public required bool ScoreAvailable { get; init; }
 }
 
 /// <summary>
@@ -223,6 +271,12 @@ public sealed record AdminUserListResponse
 public sealed record AdminUserDetailResponse
 {
     public required UserDto User { get; init; }
+
+    /// <summary>
+    /// FRD-07: why the account is suspended, as the admin typed it, or <c>fraud_confirmed</c> after a Fraud Review
+    /// reject (section 18.1). Admin-only: <see cref="UserDto.SuspendReason"/> is never serialized to a party.
+    /// </summary>
+    public string? SuspendReason { get; init; }
 }
 
 /// <summary>

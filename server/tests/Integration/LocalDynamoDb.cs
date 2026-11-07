@@ -121,7 +121,8 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
         await CreateAsync(Users, ("userId", null));
         await CreateAsync(Crops, ("cropId", "createdAt"));
         await CreateAsync(Trips, ("tripId", "createdAt"));
-        await CreateAsync(FraudSignals, ("userId", "signalKey"));
+        // FRD-07: Fraud Review's sparse status index.
+        await CreateAsync(FraudSignals, ("userId", "signalKey"), ("StatusCreatedAtIndex", "status", "createdAt"));
     }
 
     public async Task DisposeAsync()

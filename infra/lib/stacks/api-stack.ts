@@ -2568,6 +2568,8 @@ export class ApiStack extends cdk.Stack {
     // table (a conditional Put needs nothing more; ConditionCheckItem is only for ConditionCheck
     // items, which this transaction has none of). PutItem only: no read, update or delete.
     props.escrowIdempotencyTable.grant(adminFn.function, "dynamodb:PutItem");
+    // FRD-07: the read grant covers the table's indexes too, so Fraud Review and the dashboard
+    // count Query the sparse StatusCreatedAtIndex instead of scanning the table.
     props.fraudSignalsTable.grantReadWriteData(adminFn.function);
     props.usersTable.grantWriteData(adminFn.function);
     // Transaction audit: admin actions are logged here, and the monitor +
@@ -2612,6 +2614,9 @@ export class ApiStack extends cdk.Stack {
     const adminGetPaths = [
       "/admin/dashboard/stats",
       "/admin/escrows",
+      // FRD-07: the held queue (escrows frozen for fraud review), a Query on StatusExpiresIndex.
+      // A static segment, so it wins over /admin/escrows/{id}.
+      "/admin/escrows/held",
       "/admin/escrows/{id}",
       "/admin/escrows/{id}/audit",
       "/admin/disputes",

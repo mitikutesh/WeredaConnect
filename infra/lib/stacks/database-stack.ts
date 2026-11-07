@@ -481,6 +481,18 @@ export class DatabaseStack extends cdk.Stack {
       Enabled: true,
     });
 
+    // GSI: Fraud Review queue (FRD-07). Sparse: only signal rows carry `status`
+    // (`pending`, then `reviewed`); credit and whitelist rows have none, so they are
+    // never indexed. Replaces the admin list and dashboard Scans. The only GSI of this
+    // table: CloudFormation adds one GSI per table per update, so a second one waits
+    // for a later deploy. See AdminFunction.HandleListFraudSignalsAsync.
+    this.fraudSignalsTable.addGlobalSecondaryIndex({
+      indexName: "StatusCreatedAtIndex",
+      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // ─── Orders Table (buyer-initiated orders) ─────────────────────
     // The NEW_AND_OLD_IMAGES stream feeds OrderNotifyStreamFunction (ESC-21):
     // the rules compare the old and new status of each MODIFY.

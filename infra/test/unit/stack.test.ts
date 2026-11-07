@@ -67,6 +67,37 @@ describe('DatabaseStack', () => {
     });
   });
 
+  test('FRD-07: fraud-signals carries one sparse StatusCreatedAtIndex and keeps its keys and TTL', () => {
+    const tables = template.findResources('AWS::DynamoDB::Table', {
+      Properties: { TableName: 'wereda-connect-dev-fraud-signals' },
+    });
+    const ids = Object.keys(tables);
+    expect(ids).toHaveLength(1);
+    const props = tables[ids[0]].Properties;
+    expect(props.KeySchema).toEqual([
+      { AttributeName: 'userId', KeyType: 'HASH' },
+      { AttributeName: 'signalKey', KeyType: 'RANGE' },
+    ]);
+    // A live table's TTL attribute can never be renamed.
+    expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
+    // Exactly one index: CloudFormation adds one GSI per table per update, and credit and
+    // whitelist rows carry no status, so they stay out of the Fraud Review queue.
+    expect(props.GlobalSecondaryIndexes).toEqual([
+      {
+        IndexName: 'StatusCreatedAtIndex',
+        KeySchema: [
+          { AttributeName: 'status', KeyType: 'HASH' },
+          { AttributeName: 'createdAt', KeyType: 'RANGE' },
+        ],
+        Projection: { ProjectionType: 'ALL' },
+      },
+    ]);
+    expect(props.AttributeDefinitions).toEqual(expect.arrayContaining([
+      { AttributeName: 'status', AttributeType: 'S' },
+      { AttributeName: 'createdAt', AttributeType: 'S' },
+    ]));
+  });
+
   test('orders table carries the sparse AdminQueueIndex (ESC-06)', () => {
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       TableName: 'wereda-connect-dev-orders',
@@ -275,8 +306,9 @@ describe('ApiStack', () => {
     // plus GET /notifications (ESC-21, order notification inbox) → 62,
     // plus GET /deliveries/{id}/track (LT-06, live trip) → 63,
     // plus GET /admin/deliveries/{id}/trail (LT-13, dispute evidence) → 64,
-    // plus POST /crops/{id}/photos (crop-listing-api 1.6.0) → 65 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 65);
+    // plus POST /crops/{id}/photos (crop-listing-api 1.6.0) → 65,
+    // plus GET /admin/escrows/held (FRD-07, the held queue) → 66 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 66);
   });
 
   // ─── Crop photos (crop-listing-api 1.6.0) ───
@@ -730,10 +762,14 @@ describe('ApiStack', () => {
 
     // reject: the open escrows come from the buyer, farmer and trucker indexes.
     expect(actionsOf((r) => r.includes('EscrowsTable') && r.includes('/index/*'))).toContain('dynamodb:Query');
-    // The signal-row read, the review stamp, the whitelist row, and the list and count scans.
+    // The signal-row read, the review stamp and the whitelist row.
     expect(actionsOf((r) => r.includes('FraudSignalsTable'))).toEqual(
-      expect.arrayContaining(['dynamodb:GetItem', 'dynamodb:UpdateItem', 'dynamodb:PutItem', 'dynamodb:Scan']),
+      expect.arrayContaining(['dynamodb:GetItem', 'dynamodb:UpdateItem', 'dynamodb:PutItem']),
     );
+    // FRD-07: the list and the dashboard count Query the sparse status index; the risk score per
+    // user Queries the table's own keys. The held queue Queries StatusExpiresIndex (escrows, above).
+    expect(actionsOf((r) => r.includes('FraudSignalsTable') && r.includes('/index/*'))).toContain('dynamodb:Query');
+    expect(actionsOf((r) => r.includes('FraudSignalsTable'))).toContain('dynamodb:Query');
     // reject suspends through the user action path: the profile row, then Cognito on the mobile pool.
     expect(actionsOf((r) => r.includes('UsersTable'))).toEqual(
       expect.arrayContaining(['dynamodb:GetItem', 'dynamodb:UpdateItem']),
@@ -750,7 +786,12 @@ describe('ApiStack', () => {
     const adminAuthorizerId = Object.entries(authorizers)
       .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
     expect(adminAuthorizerId).toBeDefined();
-    for (const routeKey of ['GET /admin/payments/unapplied', 'POST /admin/payments/{orderId}/refund-manual']) {
+    // FRD-07: the held queue, next to /admin/escrows/{id}.
+    for (const routeKey of [
+      'GET /admin/payments/unapplied',
+      'POST /admin/payments/{orderId}/refund-manual',
+      'GET /admin/escrows/held',
+    ]) {
       template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
         RouteKey: routeKey,
         AuthorizationType: 'JWT',

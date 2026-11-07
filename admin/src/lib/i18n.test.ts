@@ -108,6 +108,15 @@ describe("fraud review strings exist in every locale", () => {
     "escrows.disputed",
     "escrows.dispute_resolved",
     "escrows.held",
+    // FRD-07: the held queue's amount column and its queued-payout answer, the dashboard's held
+    // count, and the suspend reason on the user page.
+    "escrows.amount",
+    "errors.ESCROW_034",
+    "errors.ESCROW_016",
+    "dashboard.fraudFlags",
+    "dashboard.heldEscrows",
+    "users.suspendReason",
+    "users.suspendReason_fraud_confirmed",
   ];
   for (const locale of locales) {
     it(`${locale} has every fraud key and the codes`, () => {
@@ -119,6 +128,26 @@ describe("fraud review strings exist in every locale", () => {
     for (const locale of locales) {
       expect(t("fraud.result_reject", locale)).toContain("{userId}");
       expect(t("fraud.result_whitelist", locale)).toContain("{date}");
+      // FRD-07
+      expect(t("fraud.riskScore", locale)).toContain("{score}");
+      expect(t("fraud.riskScore", locale)).toContain("{tier}");
+      expect(t("fraud.confirm_release", locale)).toContain("{amount}");
+      expect(t("fraud.confirm_refund", locale)).toContain("{amount}");
+    }
+  });
+
+  it("FRD-07: labels every risk tier, hold reason and held-for value the server sends", () => {
+    const values = [
+      ...["low", "medium", "high", "critical"].map((v) => `fraud.tier_${v}`),
+      ...["fraud_confirmed", "account_suspended", "risk_critical"].map((v) => `fraud.holdReason_${v}`),
+      ...["release", "refund"].map((v) => `fraud.heldFor_${v}`),
+      ...["release", "refund"].map((v) => `fraud.confirm_${v}`),
+      ...["release", "refund"].map((v) => `fraud.confirmButton_${v}`),
+      ...["release", "refund"].map((v) => `fraud.verdictOnly_${v}`),
+      ...["release", "refund"].map((v) => `fraud.settled_${v}`),
+    ];
+    for (const locale of locales) {
+      expect(values.filter((key) => t(key, locale) === key)).toEqual([]);
     }
   });
 

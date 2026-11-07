@@ -84,11 +84,81 @@ export function useResolveDispute() {
   });
 }
 
-// Fraud Signals
-export function useFraudSignals(params?: string) {
-  return useQuery({
-    queryKey: ["admin", "fraud-signals", params],
-    queryFn: () => api.get(`/admin/fraud-signals${params ? `?${params}` : ""}`),
+// Fraud Signals. FRD-07: one status partition of the server's status index, newest first, 50 a
+// page with the risk score of each user on it; the page loads the next one on demand.
+export function useFraudSignals(status: "pending" | "reviewed") {
+  return useInfiniteQuery({
+    queryKey: ["admin", "fraud-signals", status],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ signals?: unknown[]; users?: unknown[]; nextToken?: string | null }>(
+        `/admin/fraud-signals?status=${status}&limit=50${
+          pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""
+        }`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+/** FRD-07: the held queue, escrows frozen for fraud review, oldest first. */
+export function useHeldEscrows() {
+  return useInfiniteQuery({
+    queryKey: ["admin", "escrows", "held"],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ escrows?: unknown[]; nextToken?: string | null }>(
+        `/admin/escrows/held?limit=50${pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""}`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+/** What the escrow routes answer: the settled escrow, or the 202 envelope of a queued payout (ESCROW_034). */
+export interface HeldExitResult {
+  status?: string;
+  error?: { code?: string; message?: string };
+}
+
+/**
+ * FRD-07: release or refund a held escrow through the escrow routes (fraud-detection-architecture.md
+ * section 18.3): admin group only, with a reason of 10 to 500 characters that the server audits.
+ * The release route asks for a delivery reference it does not check against the row; an escrow
+ * without a delivery (a self-pickup order) sends its order or escrow id there.
+ */
+export function useSettleHeldEscrow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      escrow,
+      op,
+      reason,
+    }: {
+      escrow: { escrowId: string; deliveryId?: string; orderId?: string };
+      op: "release" | "refund";
+      reason: string;
+    }) => {
+      const idempotencyKey = `admin:${escrow.escrowId}:${op}:${Date.now()}`;
+      return op === "release"
+        ? api.post<HeldExitResult>("/escrow/release", {
+            escrowId: escrow.escrowId,
+            trigger: "admin_override",
+            deliveryId: escrow.deliveryId || escrow.orderId || escrow.escrowId,
+            idempotencyKey,
+            reason,
+          })
+        : api.post<HeldExitResult>("/escrow/refund", {
+            escrowId: escrow.escrowId,
+            trigger: "admin_override",
+            idempotencyKey,
+            reason,
+          });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+    },
   });
 }
 
