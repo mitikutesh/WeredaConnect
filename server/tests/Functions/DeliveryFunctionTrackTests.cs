@@ -684,9 +684,21 @@ public class DeliveryFunctionTrackTests
     }
 
     [Fact]
-    public async Task ATruckerNotCommitted_GetsTheTripsPoint_NotTheOrders()
+    public async Task ATruckerNotCommitted_GetsTheOrdersPoint_WhileTheMoneyIsHeld_ButNotTheNote()
     {
         OrderWithPoint("awaiting_transport", "cancelled", "8.9512", "38.7644");
+
+        var (status, track) = await TrackAsync(TruckerId);
+
+        status.Should().Be(200);
+        track.GetProperty("dropoff").GetProperty("latitude").GetDouble().Should().Be(8.951);
+        IsNull(track.GetProperty("dropoff"), "note").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ATruckerOfAnOrderWhoseMoneyWentBack_GetsTheTripsPoint_NotTheOrders()
+    {
+        OrderWithPoint("cancelled", "accepted", "8.9512", "38.7644");
 
         var (status, track) = await TrackAsync(TruckerId);
 
@@ -719,13 +731,18 @@ public class DeliveryFunctionTrackTests
         _crops.GetByIdAsync("listing-104").Returns(Listing("8.25", "38.84"));
         _orders.GetByIdAsync("order-del-102").Returns(new Dictionary<string, object>
         {
-            ["orderId"] = "order-del-102", ["buyerId"] = "buyer-9", ["status"] = "in_transit",
-            ["deliveryLatitude"] = "8.5423", ["deliveryLongitude"] = "39.2687",
+            ["orderId"] = "order-del-102",
+            ["buyerId"] = "buyer-9",
+            ["status"] = "in_transit",
+            ["deliveryLatitude"] = "8.5423",
+            ["deliveryLongitude"] = "39.2687",
             ["dropoffNote"] = "Other buyer's gate"
         });
         _orders.GetByIdAsync("order-del-103").Returns(new Dictionary<string, object>
         {
-            ["orderId"] = "order-del-103", ["buyerId"] = "buyer-9", ["status"] = "accepted"
+            ["orderId"] = "order-del-103",
+            ["buyerId"] = "buyer-9",
+            ["status"] = "accepted"
         });
         _orders.GetByIdAsync("order-del-104").ThrowsAsync(new AmazonDynamoDBException("throttled"));
 
@@ -753,6 +770,7 @@ public class DeliveryFunctionTrackTests
             ["tripId"] = TripId,
             ["status"] = status,
             ["truckerResponse"] = truckerResponse,
+            ["dropoffNote"] = "Merkato, near Anwar Mosque",
             // As the orders table returns numbers: invariant text.
             ["deliveryLatitude"] = latitude,
             ["deliveryLongitude"] = longitude

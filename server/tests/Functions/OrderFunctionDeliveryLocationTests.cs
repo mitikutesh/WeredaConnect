@@ -12,8 +12,8 @@ namespace WeredaConnect.Server.Tests.Functions;
 
 /// <summary>
 /// LT-14: <c>GET /orders</c> and <c>GET /orders/{id}</c> return the order's own drop-off point
-/// (<c>deliveryLatitude</c>, <c>deliveryLongitude</c>) to the readers of the drop-off note: the buyer,
-/// the farmer, and the trucker only once committed. The admin view reads it.
+/// (<c>deliveryLatitude</c>, <c>deliveryLongitude</c>) to the buyer, the farmer, and the order's trucker
+/// while the money is held, committed or only asked (wider than the note). The admin view reads it.
 /// </summary>
 public class OrderFunctionDeliveryLocationTests
 {
@@ -42,9 +42,25 @@ public class OrderFunctionDeliveryLocationTests
 
     [Theory]
     [InlineData("funded", "pending")]
+    [InlineData("funded", "not_asked")]
     [InlineData("awaiting_transport", "declined")]
+    public async Task ATruckerOnlyAsked_GetsThePoint_ButNotTheNote(string status, string truckerResponse)
+    {
+        // The trucker decides on the transport request knowing where the goods go.
+        var stored = Order(status, truckerResponse);
+        stored["dropoffNote"] = "Merkato";
+        _orders.GetByIdAsync("order-001").Returns(stored);
+
+        var order = await DetailAsync("trucker-001");
+
+        PointOf(order).Should().Be((8.5423, 39.2687));
+        order.TryGetProperty("dropoffNote", out _).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("pending_payment", "none")]
     [InlineData("cancelled", "accepted")]
-    public async Task ATruckerNotCommitted_SeesTheOrder_WithoutThePoint(string status, string truckerResponse)
+    public async Task ATruckerOfAnOrderWhoseMoneyIsNotHeld_SeesTheOrder_WithoutThePoint(string status, string truckerResponse)
     {
         _orders.GetByIdAsync("order-001").Returns(Order(status, truckerResponse));
 
@@ -56,21 +72,23 @@ public class OrderFunctionDeliveryLocationTests
     }
 
     [Fact]
-    public async Task TheTruckersList_CarriesThePoint_OnlyOnTheCommittedOrders()
+    public async Task TheTruckersList_CarriesThePoint_OnlyWhileTheMoneyIsHeld()
     {
         var committed = Order("accepted", "accepted");
         var asked = Order("funded", "pending", orderId: "order-002");
+        var unpaid = Order("pending_payment", "none", orderId: "order-003");
         _orders.QueryOrdersAsync(
                 Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
                 Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
-            .Returns((new List<Dictionary<string, object>> { committed, asked }, (Dictionary<string, AttributeValue>?)null));
+            .Returns((new List<Dictionary<string, object>> { committed, asked, unpaid }, (Dictionary<string, AttributeValue>?)null));
 
         var response = await _function.FunctionHandler(Request("/orders", "trucker-001", role: "trucker"), _context);
 
         response.StatusCode.Should().Be(200);
         var orders = JsonDocument.Parse(response.Body).RootElement.GetProperty("orders");
         PointOf(orders[0]).Should().Be((8.5423, 39.2687));
-        PointOf(orders[1]).Should().BeNull();
+        PointOf(orders[1]).Should().Be((8.5423, 39.2687));
+        PointOf(orders[2]).Should().BeNull();
     }
 
     [Fact]

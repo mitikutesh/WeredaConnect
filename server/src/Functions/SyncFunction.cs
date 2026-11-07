@@ -5534,24 +5534,20 @@ public partial class SyncFunction
                         }
                         else
                         {
-                            // LT-14: the order's own drop-off point, else the trip's destination point
-                            // (TripTrack.PlannedDropoff). The point is locked from pickup on, so it is
-                            // the one the buyer chose before the goods left; a failed read throws and
-                            // answers the retryable internal error, never a check against the wrong point.
-                            var planned = await PlannedDropoffForConfirmAsync(existing);
-                            if (planned != null)
+                            // LT-14: within 5 km of EITHER the order's own drop-off point OR the trip's
+                            // destination point. The order's point defaults to the buyer's registered
+                            // or intent place, so a buyer who meets the truck at its destination still
+                            // passes; a failed order read throws and answers the retryable internal
+                            // error, never a refusal judged without it.
+                            var distance = await DropoffDistanceForConfirmAsync(existing, dropoffLat, dropoffLng);
+                            if (distance is { } km && km > 5.0)
                             {
-                                var distance = GpsValidator.HaversineDistance(
-                                    dropoffLat, dropoffLng, planned.Latitude, planned.Longitude);
-                                if (distance > 5.0)
+                                return new SyncOperationResult
                                 {
-                                    return new SyncOperationResult
-                                    {
-                                        OperationId = operation.OperationId,
-                                        Status = "error",
-                                        Message = $"DELIVERY_GPS_PROXIMITY: Dropoff GPS is {distance.ToString("F1", CultureInfo.InvariantCulture)}km from the drop-off point (max 5km)."
-                                    };
-                                }
+                                    OperationId = operation.OperationId,
+                                    Status = "error",
+                                    Message = $"DELIVERY_GPS_PROXIMITY: Dropoff GPS is {km.ToString("F1", CultureInfo.InvariantCulture)}km from the drop-off point (max 5km)."
+                                };
                             }
                         }
                     }
@@ -6116,23 +6112,36 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// LT-14: the point a trucker delivery's <c>gpsDropoff</c> is checked against
-    /// (delivery-verification-api.md, GPS Validation): the order's own drop-off point, read strongly
-    /// consistent, else the trip's destination point (<see cref="TripTrack.PlannedDropoff"/>). The
-    /// trip is read only when the order has no point. Null when neither has one: not checked.
+    /// LT-14: how far a trucker delivery's <c>gpsDropoff</c> is from its drop-off
+    /// (delivery-verification-api.md 2.1.0, GPS Validation): the great circle km to the nearer of the
+    /// trip's destination point and the order's own drop-off point (read strongly consistent). The
+    /// trip is read first, and a fix within 5 km of it answers without the order read. Null when
+    /// neither point exists: not checked.
     /// </summary>
-    private async Task<TrackPoint?> PlannedDropoffForConfirmAsync(Dictionary<string, AttributeValue> delivery)
+    private async Task<double?> DropoffDistanceForConfirmAsync(
+        Dictionary<string, AttributeValue> delivery, double latitude, double longitude)
     {
-        var orderId = delivery.TryGetValue("orderId", out var orderIdAttr) ? orderIdAttr.S : null;
-        var order = string.IsNullOrEmpty(orderId) ? null : await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
-        if (OrderDeliveryLocation.Of(order) is { } point)
-        {
-            return point;
-        }
-
+        double? nearest = null;
         var tripId = delivery.TryGetValue("tripId", out var tripIdAttr) ? tripIdAttr.S : null;
         var trip = string.IsNullOrEmpty(tripId) ? null : await GetTripItemAsync(tripId);
-        return TripTrack.PlannedDropoff(trip == null ? null : CropRepository.FromItem(trip), order: null);
+        if (TripTrack.PlannedDropoff(trip == null ? null : CropRepository.FromItem(trip), order: null) is { } tripPoint)
+        {
+            nearest = GpsValidator.HaversineDistance(latitude, longitude, tripPoint.Latitude, tripPoint.Longitude);
+            if (nearest <= 5.0)
+            {
+                return nearest;
+            }
+        }
+
+        var orderId = delivery.TryGetValue("orderId", out var orderIdAttr) ? orderIdAttr.S : null;
+        var order = string.IsNullOrEmpty(orderId) ? null : await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+        if (OrderDeliveryLocation.Of(order) is { } orderPoint)
+        {
+            var toOrder = GpsValidator.HaversineDistance(latitude, longitude, orderPoint.Latitude, orderPoint.Longitude);
+            nearest = nearest is { } toTrip ? Math.Min(toTrip, toOrder) : toOrder;
+        }
+
+        return nearest;
     }
 
     /// <summary>
@@ -6329,8 +6338,9 @@ public partial class SyncFunction
     /// <summary>
     /// Process an order sync operation (create, update).
     /// Uses server-authoritative state machine and commission calculation. LT-12: the order row a
-    /// result carries back leaves out the drop-off note, and since LT-14 the order's drop-off point,
-    /// when the caller may not read them (<see cref="OrderDropoffNote.ForCaller"/>).
+    /// result carries back leaves out the drop-off note when the caller may not read it
+    /// (<see cref="OrderDropoffNote.ForCaller"/>); LT-14: the same for the order's drop-off point, by
+    /// its own rule (<see cref="OrderDeliveryLocation.ForCaller"/>).
     /// </summary>
     private async Task<SyncOperationResult> ProcessOrderAsync(
         SyncOperationRequest operation,
@@ -6349,7 +6359,7 @@ public partial class SyncFunction
                 Message = $"ORDER_VALIDATION: Invalid action '{operation.Action}' for orders. Allowed: create, update."
             }
         };
-        return OrderDropoffNote.ForCaller(result, authenticatedUserId);
+        return OrderDeliveryLocation.ForCaller(OrderDropoffNote.ForCaller(result, authenticatedUserId), authenticatedUserId);
     }
 
     /// <summary>
@@ -6472,6 +6482,9 @@ public partial class SyncFunction
                 Message = $"ORDER_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
             };
         }
+
+        // LT-14: an order without a trip (self-pickup) has no drop-off; its point is ignored, never refused.
+        IgnoreCreateDeliveryLocationWithoutTrip(operation);
 
         // Validate required fields
         var validationErrors = ValidateOrderFields(operation.Data, isCreate: true);

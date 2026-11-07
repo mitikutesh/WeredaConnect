@@ -694,8 +694,8 @@ until pickup (`order-lifecycle.md` 2.8.0). The server refuses, nothing written:
 `ORDER_DELIVERY_LOCATION_LOCKED: The drop-off place can only be changed before pickup.`
 
 and `ORDER_UNAUTHORIZED: Only the buyer can change the drop-off place.` for a change from anyone but
-the buyer and for either field at all from a party who may not read the point (a trucker not
-committed), `ORDER_VALIDATION` for half a point, a value that is not a number or one outside the
+the buyer and for either field at all from a party who may not read the point (the trucker of an
+order whose money is not held; an asked trucker reads it), `ORDER_VALIDATION` for half a point, a value that is not a number or one outside the
 box. An unchanged echo from a party who reads it is dropped. The clients send only the centroid of a
 place picked from the bundled list, checked against the box first, so an offline order never meets
 the validation refusal.
@@ -704,7 +704,10 @@ the validation refusal.
 |---|---|---|
 | `ORDER_DELIVERY_LOCATION_LOCKED:` | Permanent under the `ORDER_*` rule: the order is put back to the server's view, explained with `errorDeliveryLocationLocked` ("The goods were picked up, so the drop-off place can no longer be changed."). | Failure with the same text. |
 
-An order row in `serverData` leaves the point out for a caller who may not read it, as the note.
+On an order without a trip (self-pickup) the fields are ignored: dropped, never refused, never
+stored. An order row in `serverData` leaves the point out for a caller who may not read it, by its
+own rule (the buyer, the farmer, the order's trucker while the money is held), and the note by the
+note's.
 Deploy order: a server before 1.42.0 refuses the fields (`ORDER_VALIDATION: Unknown fields`,
 permanent), so the server ships before clients that send them.
 

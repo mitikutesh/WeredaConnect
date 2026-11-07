@@ -86,18 +86,29 @@ public class OrderDeliveryLocationTests
     [Theory]
     [InlineData(BuyerId, "funded", "pending", true)]
     [InlineData(FarmerId, "funded", "pending", true)]
-    [InlineData(TruckerId, "funded", "pending", false)]
+    [InlineData(BuyerId, "created", "none", true)]
+    // The trucker reads it while the money is held, asked or committed (the note waits for the commitment).
+    [InlineData(TruckerId, "funded", "pending", true)]
+    [InlineData(TruckerId, "funded", "not_asked", true)]
     [InlineData(TruckerId, "accepted", "accepted", true)]
-    [InlineData(TruckerId, "awaiting_transport", "declined", false)]
+    [InlineData(TruckerId, "awaiting_transport", "declined", true)]
+    [InlineData(TruckerId, "created", "none", false)]
+    [InlineData(TruckerId, "pending_payment", "none", false)]
+    [InlineData(TruckerId, "cancelled", "accepted", false)]
     [InlineData("someone-else", "accepted", "accepted", false)]
     [InlineData(null, "accepted", "accepted", false)]
-    public void For_FollowsTheNotesReaders(string? caller, string status, string truckerResponse, bool reads)
+    public void For_TheBuyerAndFarmer_AndTheTruckerWhileTheMoneyIsHeld(
+        string? caller, string status, string truckerResponse, bool reads)
     {
         var order = new Dictionary<string, object>
         {
-            ["buyerId"] = BuyerId, ["farmerId"] = FarmerId, ["truckerId"] = TruckerId,
-            ["status"] = status, ["truckerResponse"] = truckerResponse,
-            ["deliveryLatitude"] = "8.5423", ["deliveryLongitude"] = "39.2687"
+            ["buyerId"] = BuyerId,
+            ["farmerId"] = FarmerId,
+            ["truckerId"] = TruckerId,
+            ["status"] = status,
+            ["truckerResponse"] = truckerResponse,
+            ["deliveryLatitude"] = "8.5423",
+            ["deliveryLongitude"] = "39.2687"
         };
 
         var point = OrderDeliveryLocation.For(order, caller);
@@ -113,22 +124,72 @@ public class OrderDeliveryLocationTests
     }
 
     [Fact]
-    public void ForCaller_ScrubsThePoint_AndTheNote_ForATruckerNotCommitted()
+    public void ForCaller_KeepsThePointForAnAskedTrucker_AndScrubsOnlyTheNote()
     {
         var row = new Dictionary<string, object>
         {
-            ["buyerId"] = BuyerId, ["farmerId"] = FarmerId, ["truckerId"] = TruckerId,
-            ["status"] = "funded", ["truckerResponse"] = "pending",
-            ["deliveryLatitude"] = "8.5423", ["deliveryLongitude"] = "39.2687"
+            ["buyerId"] = BuyerId,
+            ["farmerId"] = FarmerId,
+            ["truckerId"] = TruckerId,
+            ["status"] = "funded",
+            ["truckerResponse"] = "pending",
+            ["dropoffNote"] = "Merkato",
+            ["deliveryLatitude"] = "8.5423",
+            ["deliveryLongitude"] = "39.2687"
         };
         var result = new SyncOperationResult { OperationId = "op", Status = "conflict", ServerData = row };
 
-        var trucker = OrderDropoffNote.ForCaller(result, TruckerId).ServerData!;
-        trucker.Should().NotContainKey("deliveryLatitude").And.NotContainKey("deliveryLongitude");
-        trucker["status"].Should().Be("funded");
+        var trucker = OrderDeliveryLocation.ForCaller(OrderDropoffNote.ForCaller(result, TruckerId), TruckerId).ServerData!;
+        trucker["deliveryLatitude"].Should().Be("8.5423");
+        trucker.Should().NotContainKey("dropoffNote");
+    }
 
-        var buyer = OrderDropoffNote.ForCaller(result, BuyerId).ServerData!;
-        buyer["deliveryLatitude"].Should().Be("8.5423");
+    [Fact]
+    public void ForCaller_ScrubsThePoint_ForATruckerOfAnOrderWhoseMoneyIsNotHeld()
+    {
+        var row = new Dictionary<string, object>
+        {
+            ["buyerId"] = BuyerId,
+            ["farmerId"] = FarmerId,
+            ["truckerId"] = TruckerId,
+            ["status"] = "pending_payment",
+            ["deliveryLatitude"] = "8.5423",
+            ["deliveryLongitude"] = "39.2687"
+        };
+        var result = new SyncOperationResult { OperationId = "op", Status = "conflict", ServerData = row };
+
+        var trucker = OrderDeliveryLocation.ForCaller(result, TruckerId).ServerData!;
+        trucker.Should().NotContainKey("deliveryLatitude").And.NotContainKey("deliveryLongitude");
+        trucker["status"].Should().Be("pending_payment");
+
+        OrderDeliveryLocation.ForCaller(result, BuyerId).ServerData!["deliveryLatitude"].Should().Be("8.5423");
+    }
+
+    [Theory]
+    [InlineData("trip-1", null, null, true)]
+    [InlineData(null, "trucker-1", null, true)]
+    [InlineData("trip-1", "trucker-1", "trucker", true)]
+    [InlineData("trip-1", "trucker-1", "self_pickup", false)]
+    [InlineData(null, null, null, false)]
+    public void HasTrip_OnlyATruckedOrderHasADropoff(string? tripId, string? truckerId, string? fulfillment, bool has)
+    {
+        var order = new Dictionary<string, object> { ["orderId"] = "o-1" };
+        if (tripId != null)
+        {
+            order["tripId"] = tripId;
+        }
+
+        if (truckerId != null)
+        {
+            order["truckerId"] = truckerId;
+        }
+
+        if (fulfillment != null)
+        {
+            order["fulfillment"] = fulfillment;
+        }
+
+        OrderDeliveryLocation.HasTrip(order).Should().Be(has);
     }
 
     private static Dictionary<string, object> Payload(string json)

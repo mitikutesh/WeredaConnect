@@ -212,20 +212,33 @@ public sealed class AdminFunctionDisputeEvidenceTests
     }
 
     [Fact]
-    public async Task TheDropoffHandoff_IsMeasuredFromTheOrdersOwnPoint_WhenItHasOne()
+    public async Task TheDropoffHandoff_IsMeasuredFromTheOrdersOwnPoint_WhenItIsTheNearer()
     {
-        // LT-14: the buyer chose a drop-off point 0.02 degrees north of the trip's destination; the
-        // delivered GPS check used it, so the evidence does too, and the trip is not needed.
+        // LT-14: the delivered GPS check passes within 5 km of the order's point or the trip's
+        // destination; the evidence shows the one nearer to the buyer's fix (9.002, 38.74).
+        _order!["deliveryLatitude"] = N("9.003");
+        _order["deliveryLongitude"] = N("38.74");
+
+        var body = await EvidenceAsync();
+
+        var dropoff = body.GetProperty("handoffs")[1];
+        dropoff.GetProperty("planned").GetProperty("latitude").GetDouble().Should().Be(9.003);
+        dropoff.GetProperty("distanceKm").GetDouble().Should().Be(0.11);
+        // The admin's order carries the point too.
+        body.GetProperty("order").GetProperty("deliveryLatitude").GetDouble().Should().Be(9.003);
+    }
+
+    [Fact]
+    public async Task TheDropoffHandoff_AtTheTripsDestination_IsMeasuredFromIt_NotTheFartherOrderPoint()
+    {
         _order!["deliveryLatitude"] = N("9.022");
         _order["deliveryLongitude"] = N("38.74");
 
         var body = await EvidenceAsync();
 
         var dropoff = body.GetProperty("handoffs")[1];
-        dropoff.GetProperty("planned").GetProperty("latitude").GetDouble().Should().Be(9.022);
-        dropoff.GetProperty("distanceKm").GetDouble().Should().Be(2.22);
-        // The admin's order carries the point too.
-        body.GetProperty("order").GetProperty("deliveryLatitude").GetDouble().Should().Be(9.022);
+        dropoff.GetProperty("planned").GetProperty("latitude").GetDouble().Should().Be(9.0);
+        dropoff.GetProperty("distanceKm").GetDouble().Should().Be(0.22);
     }
 
     [Fact]

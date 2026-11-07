@@ -179,8 +179,9 @@ class Order {
 
   /// LT-14 (order-lifecycle 2.8.0): the order's own drop-off point, the place
   /// the buyer picked (both or neither). Changed by the buyer until pickup;
-  /// sent to the readers of [dropoffNote] only. Null when there is none: the
-  /// trip's destination is then the drop-off.
+  /// sent to the buyer, the farmer and, while the money is held, the order's
+  /// trucker (asked or committed). Null when there is none: the trip's
+  /// destination is then the drop-off.
   double? deliveryLatitude;
   double? deliveryLongitude;
 }

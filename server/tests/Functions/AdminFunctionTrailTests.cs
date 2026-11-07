@@ -5,6 +5,7 @@ using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using FluentAssertions;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Functions;
 using Xunit;
 
@@ -289,7 +290,8 @@ public class AdminFunctionTrailTests
             });
         var function = new AdminFunction(
             _db, UsersTable, "", "", DeliveriesTable, "", tripLocationsTable: TripLocationsTable,
-            tripsTable: "trips-test", cropsTable: "crops-test") { Clock = () => Now };
+            tripsTable: "trips-test", cropsTable: "crops-test")
+        { Clock = () => Now };
 
         var response = await function.FunctionHandler(Request(AdminGroup()), _context);
 
@@ -324,7 +326,8 @@ public class AdminFunctionTrailTests
             });
         var function = new AdminFunction(
             _db, UsersTable, "orders-test", "", DeliveriesTable, "", tripLocationsTable: TripLocationsTable,
-            tripsTable: "trips-test", cropsTable: "crops-test") { Clock = () => Now };
+            tripsTable: "trips-test", cropsTable: "crops-test")
+        { Clock = () => Now };
 
         var response = await function.FunctionHandler(Request(AdminGroup()), _context);
 
@@ -334,6 +337,39 @@ public class AdminFunctionTrailTests
         await _db.Received().QueryAsync(
             Arg.Is<QueryRequest>(r => r.TableName == "orders-test" && r.ExpressionAttributeValues.Values.Any(v => v.S == "order-101")),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AnOrderThatCannotBeRead_FallsBackToTheTripsPoint_ForThatStopOnly()
+    {
+        // The trip's destination is where the pause was (8.1, 38.74); the order read fails, so that
+        // stop is the trip's point and the stop list still judges the pause.
+        _db.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "trips-test"), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new()
+                    {
+                        ["tripId"] = S(TripId), ["status"] = S("inTransit"),
+                        ["destinationLatitude"] = N("8.11"), ["destinationLongitude"] = N("38.74")
+                    }
+                }
+            });
+        _db.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "crops-test"), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() });
+        _db.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "orders-test"), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+        var function = new AdminFunction(
+            _db, UsersTable, "orders-test", "", DeliveriesTable, "", tripLocationsTable: TripLocationsTable,
+            tripsTable: "trips-test", cropsTable: "crops-test")
+        { Clock = () => Now };
+
+        var response = await function.FunctionHandler(Request(AdminGroup()), _context);
+
+        response.StatusCode.Should().Be(200);
+        var trail = JsonDocument.Parse(response.Body).RootElement;
+        trail.GetProperty("awayStops").GetArrayLength().Should().Be(0);
     }
 
     [Fact]

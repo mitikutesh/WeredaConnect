@@ -351,6 +351,15 @@ void main() {
     expect(change, findsNothing);
   });
 
+  testWidgets('an asked trucker sees it before answering, without Change',
+      (tester) async {
+    final order = _order(OrderStatus.funded)..truckerResponse = 'pending';
+    await show(tester, order, UserRole.trucker, 'trucker-001');
+
+    expect(nameText(tester), 'Adama');
+    expect(change, findsNothing);
+  });
+
   testWidgets('a trucker the server sent no point to sees no card',
       (tester) async {
     await show(

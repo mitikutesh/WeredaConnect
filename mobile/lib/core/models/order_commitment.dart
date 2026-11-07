@@ -185,8 +185,9 @@ void checkOrderCancelAllowed(Order order, String userId, DateTime nowUtc) {
 /// 2.2.0), the buyer's drop-off note (2.5.0, LT-12) and the order's own
 /// drop-off point (2.8.0, LT-14) of a server order map (`GET /orders`,
 /// `/sync` rows) into [order]. Every field is optional: an older server sends
-/// none, and the server leaves the note and the point out for a trucker who
-/// has not committed, so a row without them clears the device's copy.
+/// none, and the server leaves the note out for a trucker who has not
+/// committed and the point out for a trucker of an order whose money is not
+/// held, so a row without them clears the device's copy.
 void applyOrderCommitmentFields(Order order, Map<String, dynamic> m) {
   order
     ..fulfillment = _string(m['fulfillment'])

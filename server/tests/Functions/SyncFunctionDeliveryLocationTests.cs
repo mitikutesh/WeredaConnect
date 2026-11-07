@@ -97,6 +97,24 @@ public class SyncFunctionDeliveryLocationTests
             });
         _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable))
             .Returns(_ => DeliveryResponse(_deliveryStatus));
+        // An open trip of trucker-001, leaving in three days: the creates below are trucked orders.
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-trips-table"))
+            .Returns(_ => new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new()
+                    {
+                        { "tripId", new AttributeValue { S = "trip-001" } },
+                        { "truckerId", new AttributeValue { S = TruckerId } },
+                        { "truckerName", new AttributeValue { S = "Tadesse Worku" } },
+                        { "status", new AttributeValue { S = "open" } },
+                        { "departureDate", new AttributeValue { S = DateTime.UtcNow.AddDays(3).ToString("o") } },
+                        { "capacity", new AttributeValue { N = "100" } },
+                        { "pricePerQuintal", new AttributeValue { N = "120" } }
+                    }
+                }
+            });
 
         _function = new SyncFunction(_syncMeta, _crops, _dynamoDb, "test-trips-table", DeliveriesTable,
             userRepo: _users, orderRepo: _orders);
@@ -344,16 +362,37 @@ public class SyncFunctionDeliveryLocationTests
         _written.Should().NotContainKey("deliveryLatitude");
     }
 
-    [Theory]
-    [InlineData(StoredLat, StoredLng)]
-    [InlineData(NewLat, NewLng)]
-    [InlineData(null, null)]
-    [InlineData(51.5, -0.12)]
-    public async Task ATruckerNotCommitted_GetsTheSameRefusal_WhateverThePoint(double? lat, double? lng)
+    [Fact]
+    public async Task AnAskedTrucker_ReadsThePoint_SoAnEchoPasses_AndAChangeIsRefused()
     {
-        // No equality oracle: the same answer whether the probe matches the stored point or not.
+        // The trucker answers the transport request knowing where the goods go: the point is theirs
+        // to read while the money is held, committed or not (the note waits for the commitment).
         _order = Order("funded");
         _order["truckerResponse"] = "pending";
+
+        // The echo passes the point's rules and is dropped; the rest of the payload then meets the
+        // trucker's own rule (no status to set).
+        var echo = await UpdateAsync(TruckerId, StoredLat, StoredLng, role: "trucker");
+        echo.GetProperty("message").GetString().Should()
+            .Be("ORDER_UNAUTHORIZED: The trucker may only set pickup_confirmed, in_transit or delivered.", echo.ToString());
+
+        _written = null;
+        var change = await UpdateAsync(TruckerId, NewLat, NewLng, role: "trucker");
+        change.GetProperty("status").GetString().Should().Be("error");
+        change.GetProperty("message").GetString().Should().Be(NotBuyer);
+        await NothingWritten();
+    }
+
+    [Theory]
+    [InlineData("created", StoredLat, StoredLng)]
+    [InlineData("created", NewLat, NewLng)]
+    [InlineData("pending_payment", null, null)]
+    [InlineData("cancelled", 51.5, -0.12)]
+    public async Task ATruckerOfAnOrderWhoseMoneyIsNotHeld_GetsTheSameRefusal_WhateverThePoint(
+        string status, double? lat, double? lng)
+    {
+        // No equality oracle: the same answer whether the probe matches the stored point or not.
+        _order = Order(status);
 
         var result = await UpdateAsync(TruckerId, lat, lng, role: "trucker");
 
@@ -364,13 +403,67 @@ public class SyncFunctionDeliveryLocationTests
         await NothingWritten();
     }
 
+    // ===== A self-pickup order has no drop-off =====
+
+    [Fact]
+    public async Task Create_WithoutATrip_IgnoresThePoint_EvenABadOne()
+    {
+        var data = new Dictionary<string, object>
+        {
+            { "buyerId", BuyerId }, { "farmerId", FarmerId }, { "listingId", "listing-001" },
+            { "buyerName", "Selam Traders" }, { "farmerName", "Abebe Kebede" },
+            { "cropType", "teff" }, { "quantity", 50 }, { "pricePerUnit", 45.5 },
+            { "deliveryLatitude", 51.5 }, { "deliveryLongitude", -0.12 }
+        };
+
+        var result = await RunAsync(BuyerId, "buyer", new SyncOperationRequest
+        {
+            OperationId = "op-create-sp",
+            IdempotencyKey = $"{BuyerId}:order:{OrderId}:create:777",
+            EntityType = "order",
+            EntityId = OrderId,
+            Action = "create",
+            Data = data
+        });
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        _created.Should().NotContainKey("deliveryLatitude").And.NotContainKey("deliveryLongitude");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Update_OnASelfPickupOrder_IgnoresThePoint(bool stampedSelfPickup)
+    {
+        _order = Order("funded", withPoint: false);
+        if (stampedSelfPickup)
+        {
+            _order["fulfillment"] = "self_pickup";
+        }
+        else
+        {
+            _order.Remove("tripId");
+            _order.Remove("truckerId");
+            _order.Remove("truckerName");
+        }
+
+        var result = await UpdateAsync(BuyerId, NewLat, NewLng, extra: new() { { "dropoffNote", "Kality" } });
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        _written.Should().NotContainKey("deliveryLatitude").And.NotContainKey("deliveryLongitude");
+        _written!["dropoffNote"].Should().Be("Kality");
+    }
+
     // ===== The row a result carries back =====
 
     [Fact]
-    public async Task TheRowSentBackToATruckerNotCommitted_LeavesThePointOut()
+    public async Task TheRowSentBackToATruckerNotCommitted_KeepsThePoint_ButNotTheNote()
     {
+        // The trucker dropped out of an order whose money is still held: the point is still theirs to
+        // read (its own rule), the note is not (LT-12).
         _order = Order("accepted");
         _order["truckerResponse"] = "cancelled";
+        _order["dropoffNote"] = "Merkato, near Anwar Mosque";
         _deliveryStatus = "pickedUp";
         _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
             .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict."));
@@ -383,8 +476,9 @@ public class SyncFunctionDeliveryLocationTests
         result.GetProperty("status").GetString().Should().Be("conflict", result.ToString());
         var row = result.GetProperty("serverData");
         row.GetProperty("status").GetString().Should().Be("accepted");
-        row.TryGetProperty("deliveryLatitude", out _).Should().BeFalse();
-        row.TryGetProperty("deliveryLongitude", out _).Should().BeFalse();
+        row.GetProperty("deliveryLatitude").GetDouble().Should().Be(StoredLat);
+        row.GetProperty("deliveryLongitude").GetDouble().Should().Be(StoredLng);
+        row.TryGetProperty("dropoffNote", out _).Should().BeFalse();
     }
 
     [Fact]
@@ -420,7 +514,8 @@ public class SyncFunctionDeliveryLocationTests
         {
             { "buyerId", BuyerId }, { "farmerId", FarmerId }, { "listingId", "listing-001" },
             { "buyerName", "Selam Traders" }, { "farmerName", "Abebe Kebede" },
-            { "cropType", "teff" }, { "quantity", 50 }, { "pricePerUnit", 45.5 }
+            { "cropType", "teff" }, { "quantity", 50 }, { "pricePerUnit", 45.5 },
+            { "tripId", "trip-001" }, { "truckerId", TruckerId }
         };
         foreach (var (key, value) in point)
         {

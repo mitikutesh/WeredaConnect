@@ -278,7 +278,8 @@ class _BookingCard extends StatelessWidget {
     final buyer = partyDisplayName(order.buyerName, l10n);
     // The order's own places (order-lifecycle 2.2.0), else the trip's route
     // on an order from before them. LT-14: the drop-off place the buyer
-    // picked (sent once the trucker committed) before the registered one.
+    // picked (sent to the trucker while asked, so the answer reads the
+    // real town) before the registered one.
     final from = _place(order.pickupPlace) ?? trip.fromWoreda;
     final to = deliveryPlaceOf(order, PlaceRepository.instance)
             ?.displayName(Localizations.localeOf(context).languageCode) ??

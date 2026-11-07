@@ -254,24 +254,33 @@ order `update` (`{"deliveryLatitude": 8.5872, "deliveryLongitude": 39.1213, "ver
 | Rule | Answer (nothing written) |
 |---|---|
 | Both or neither; each a JSON number; latitude 3 to 15, longitude 32.5 to 48.5 (the box of a `location_ping` and of a trip's destination point). A pair of nulls is no point: not stored on create, and on update it clears the point (the trip's destination is the drop-off again) | `ORDER_VALIDATION: deliveryLatitude and deliveryLongitude must be sent together.` / `... deliveryLatitude must be a number between 3 and 15.` / `... deliveryLongitude must be a number between 32.5 and 48.5.` |
-| Update only, first of all: a party who may not read the point (the note's readers, below: a trucker not committed) sends either field at all, whatever the value | `ORDER_UNAUTHORIZED: Only the buyer can change the drop-off place.`, before the stored point is looked at, so the answer never tells where it is |
+| Update only, first of all: a party who may not read the point (below: the trucker of an order whose money is not held) sends either field at all, whatever the value | `ORDER_UNAUTHORIZED: Only the buyer can change the drop-off place.`, before the stored point is looked at, so the answer never tells where it is |
 | Update only: from a party who reads it, the stored point again is an unchanged echo, dropped from the payload wherever the order is | (no refusal) |
 | Update only: a change from anyone but the order's buyer | the same `ORDER_UNAUTHORIZED` text (with the `ROLE_FORBIDDEN` fraud signal) |
 | Update only: the edit window of the drop-off note (the order status and its active delivery, read strongly consistent) | `ORDER_DELIVERY_LOCATION_LOCKED: The drop-off place can only be changed before pickup.`; a delivery that cannot be read refuses for now with the retryable `The order's delivery could not be read. Please try again later.` |
 
 The checks run in that order, on update right after the drop-off note's and before every other
 order rule. The new code is permanent under the `ORDER_*` rule (`sync-protocol.md` 1.42.0). A
-change is not a transition: no transaction-audit row. Who reads it is the drop-off note's rule
-(the buyer and the farmer always, the trucker once committed to a held order, admins in the
-transaction detail, nobody else): `GET /orders`, `GET /orders/{id}` and the `/sync` row fill it per
-caller, as numbers.
+change is not a transition: no transaction-audit row.
+
+Only a trucked order has a drop-off point: on an order without a trip (no `tripId` and no
+`truckerId`, or `fulfillment: self_pickup`) the fields are ignored, dropped on create before the
+field rules and on update before any rule, never refused and never stored.
+
+Who reads it, its own rule, wider than the note's: the buyer and the farmer always; the order's trucker (`truckerId`, committed or only asked) while the money is held (`funded`, `awaiting_transport`, `accepted`, `pickup_confirmed`, `in_transit`, `delivered`, `disbursing`, `settled`, `disputed`), so the trucker answers the transport request knowing where the goods go; admins in the transaction detail; nobody else. An asked trucker
+reads the place (a town centroid from the public place list, the same detail as `dropoffPlace`)
+but not the landmark, which still waits for the commitment. `GET /orders`, `GET /orders/{id}` and
+the `/sync` row fill it per caller, as numbers.
 
 What reads it, each before the trip's destination point (`TripTrack.PlannedDropoff`):
 - the live track's `dropoff` for a caller who may read it, and the truck's other stops, each from
   its own order (`live-trip-api.md` 1.1.0);
 - the check-in effects: `truck_nearby` within 5 km of it, and the arrival minutes it quotes;
-- the delivered GPS check of a trucker delivery, within 5 km (`delivery-verification-api.md` 2.1.0);
-- the admin trail's planned stops and the dispute evidence's planned drop-off.
+- the delivered GPS check of a trucker delivery, which passes within 5 km of EITHER the order's point
+  or the trip's destination point (the point defaults to the registered place, so a buyer who meets
+  the truck at its destination is never stranded; `delivery-verification-api.md` 2.1.0);
+- the admin trail's planned stops (an order that cannot be read gives that stop the trip's point)
+  and the dispute evidence's planned drop-off (the nearer of the two points to the buyer's fix).
 
 The server has no coordinates for a registered woreda, so an order placed by an older client, or
 whose place is off the list, has no point and keeps the trip's destination. `dropoffPlace` stays
@@ -908,7 +917,7 @@ its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
 
 ## Changelog
 
-- **2.9.0 (2026-11-07)**: Drop-off place (LT-14, `specs/features/live-trip.md` section 10; builds the "Delivery location" of `delivery-verification-api.md` P.4): the optional `deliveryLatitude` and `deliveryLongitude` on create and, by the buyer only, on update until pickup (the drop-off note's window); both or neither, numbers inside Ethiopia's box, a pair of nulls clears it; new permanent code `ORDER_DELIVERY_LOCATION_LOCKED`; returned to the drop-off note's readers only, as numbers. The live track, the truck's other stops, `truck_nearby`, the delivered GPS check, the admin trail and the dispute evidence read it before the trip's destination. The clients pick a place, starting from the intent's place or the registered place. Companions: `data-models.md` 1.6.0, `sync-protocol.md` 1.42.0, `live-trip-api.md` 1.1.0, `delivery-verification-api.md` 2.1.0, `escrow-protocol.md` 2.0.1.
+- **2.9.0 (2026-11-07)**: Drop-off place (LT-14, `specs/features/live-trip.md` section 10; builds the "Delivery location" of `delivery-verification-api.md` P.4): the optional `deliveryLatitude` and `deliveryLongitude` on create and, by the buyer only, on update until pickup (the drop-off note's window) on a trucked order (ignored without a trip); both or neither, numbers inside Ethiopia's box, a pair of nulls clears it; new permanent code `ORDER_DELIVERY_LOCATION_LOCKED`; returned as numbers to the buyer, the farmer and the order's trucker while the money is held (asked or committed; the note keeps its narrower rule). The live track, the truck's other stops, `truck_nearby`, the admin trail and the dispute evidence read it before the trip's destination; the delivered GPS check passes within 5 km of either point. The clients pick a place, starting from the intent's place or the registered place. Companions: `data-models.md` 1.6.0, `sync-protocol.md` 1.42.0, `live-trip-api.md` 1.1.0, `delivery-verification-api.md` 2.1.0, `escrow-protocol.md` 2.0.1.
 - **2.8.0 (2026-11-07)**: Order deadlines (ESC-16, spec 4.5): every order write keeps the order's next deadline on the row (server-only `nextDeadlineAt`, `nextDeadlineKind`, `deadlineShard`: dropped from client payloads, not in the `GET /orders` answers, echoed only in a sync result's raw `serverData`), and `commitment_deadlines` runs every 15 minutes over the sparse `DeadlineIndex` (Query, oldest first, each row read again before it is decided) instead of walking the `funded`, `awaiting_transport` and `accepted` partitions every hour; a daily `deadline_repair`, and a repair pass `commitment_deadlines` runs itself once a day per container (so the first run after a deploy stamps the orders in flight), stamp rows that lack the deadline. The windows of T1 to T7 and the order-create lead are SSM parameters under `/{prefix}/orders/`, actually read, with the old values as defaults; T2 never goes below 22h10m, the close of the last checkout (spec 4.5's 6 hours is not adopted). With `COMMITMENTS_ENABLED` on, the escrow sweep holds a live order escrow to its 21-day cap in one write instead of extending it 48 hours at a time, and its hourly order-money sweep stamps a delivered order's escrow that missed its delivery stamp (alarm `escrow-delivery-stamp-failures`; `escrow-protocol.md` 2.1.0). The decisions, codes and statuses are unchanged; the cancelled-trip catch-up runs when the order is next due. No client change. Companion: `data-models.md` 1.6.0.
 - **2.7.0 (2026-11-06)**: Order money to the santim (SIM-30, `escrow-protocol.md` 1.39.0): order create rounds `cropCost`, `transportCost` and `commissionAmount` to 2 decimals (halves away from zero, exact decimals) and stores `orderTotal` as their exact sum, so a commission is no longer stored as an unrounded double (0.9500000000000001) and the order's commission equals its escrow's. The rule is unchanged (5 % of the crop cost, on top, never on transport); an order whose crop or transport cost has more than 2 decimals (a fractional kg) can see its total move by a santim. The mobile and web previews and the apps' local copy of a new order round the same way. No field, status or endpoint change.
 - **2.6.0 (2026-11-06)**: Race losers (SIM-28, `sync-protocol.md` 1.38.0): a client status change that is not a valid transition from the stored status, sent with a version behind the stored one by a caller who may ask for that status (`ValidateOrderTransitionAuth` passes), answers `conflict` with the order row instead of `ORDER_VALIDATION: Invalid status transition`; nothing is written. At the current version, or for a system-managed status or another party's, the error stands. The ESC-09 note under "The order follows the money" is updated. No client change: a conflict is already resolved server-wins.

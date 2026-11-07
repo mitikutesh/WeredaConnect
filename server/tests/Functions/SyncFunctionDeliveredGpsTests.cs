@@ -9,10 +9,10 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Functions;
 
 /// <summary>
-/// LT-14 (delivery-verification-api.md, GPS Validation; order-lifecycle.md 2.8.0): a trucker delivery's
-/// <c>gpsDropoff</c> is checked within 5 km of the order's own drop-off point, read strongly consistent,
-/// else of the trip's destination point; with neither it is not checked. Uses the delivery rig of
-/// <see cref="SyncFunctionTests"/>.
+/// LT-14 (delivery-verification-api.md 2.1.0, GPS Validation; order-lifecycle.md 2.8.0): a trucker
+/// delivery's <c>gpsDropoff</c> passes within 5 km of EITHER the trip's destination point OR the order's
+/// own drop-off point (read strongly consistent); with neither it is not checked. Uses the delivery rig
+/// of <see cref="SyncFunctionTests"/>.
 /// </summary>
 public partial class SyncFunctionTests
 {
@@ -35,14 +35,27 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
-    public async Task Delivered_AtTheTripsDestination_ButFarFromTheOrdersPoint_IsRefused()
+    public async Task Delivered_AtTheTripsDestination_FarFromTheOrdersPoint_StillPasses()
     {
+        // The order's point defaults to the buyer's registered place; a buyer who met the truck at its
+        // destination is not stranded by it.
         var body = await ConfirmWithGpsAsync(AddisLat, AddisLng, OrderPoint(AdamaLat, AdamaLng), (AddisLat, AddisLng));
+
+        body.Should().Contain("\"status\":\"success\"", body);
+    }
+
+    [Fact]
+    public async Task Delivered_FarFromBothPoints_IsRefused_WithTheDistanceToTheNearer()
+    {
+        // Mojo: about 16 km from Adama (the order's point), about 60 km from Addis Ababa (the trip's).
+        var body = await ConfirmWithGpsAsync(8.5872, 39.1213, OrderPoint(AdamaLat, AdamaLng), (AddisLat, AddisLng));
 
         var result = JsonDocument.Parse(body).RootElement.GetProperty("results")[0];
         result.GetProperty("status").GetString().Should().Be("error");
-        result.GetProperty("message").GetString().Should()
-            .MatchRegex(@"^DELIVERY_GPS_PROXIMITY: Dropoff GPS is \d+\.\dkm from the drop-off point \(max 5km\)\.$");
+        var message = result.GetProperty("message").GetString()!;
+        message.Should().MatchRegex(@"^DELIVERY_GPS_PROXIMITY: Dropoff GPS is \d+\.\dkm from the drop-off point \(max 5km\)\.$");
+        var km = double.Parse(message.Split(" is ")[1].Split("km")[0], CultureInfo.InvariantCulture);
+        km.Should().BeInRange(10, 25);
         await _mockDynamoDb.DidNotReceive().UpdateItemAsync(
             Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"));
     }
@@ -71,7 +84,8 @@ public partial class SyncFunctionTests
     {
         _mockOrderRepo.GetByIdAsync(GpsOrderId, true).ThrowsAsync(new Amazon.DynamoDBv2.AmazonDynamoDBException("throttled"));
 
-        var body = await ConfirmWithGpsAsync(AddisLat, AddisLng, order: null, (AddisLat, AddisLng), stubOrder: false);
+        // Far from the trip's destination, so only the order could pass it.
+        var body = await ConfirmWithGpsAsync(AdamaLat, AdamaLng, order: null, (AddisLat, AddisLng), stubOrder: false);
 
         var result = JsonDocument.Parse(body).RootElement.GetProperty("results")[0];
         result.GetProperty("status").GetString().Should().Be("error");

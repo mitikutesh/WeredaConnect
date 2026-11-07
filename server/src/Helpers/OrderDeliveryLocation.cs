@@ -1,4 +1,6 @@
 using System.Text.Json;
+using WeredaConnect.Server.Models;
+using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Helpers;
 
@@ -7,10 +9,12 @@ namespace WeredaConnect.Server.Helpers;
 /// delivery-verification-api.md P.4): the order's own drop-off point, <c>deliveryLatitude</c> and
 /// <c>deliveryLongitude</c> (the names of the buyer intent's point). The buyer picks a place when
 /// ordering (the clients start from the intent's place or the buyer's registered place) and may
-/// change it until pickup, by the rules of the drop-off note (<see cref="OrderDropoffNote"/>: the
-/// same readers, the same edit window). The track, the other stops on a truck, the check-in effects
-/// and the delivered GPS check read it before the trip's destination point
-/// (<see cref="TripTrack.PlannedDropoff"/>).
+/// change it until pickup, in the drop-off note's edit window (<see cref="OrderDropoffNote"/>). Its
+/// readers are wider than the note's (<see cref="VisibleTo"/>): the order's trucker reads it while
+/// asked, before committing, since the drop-off town decides the answer and the point is a town
+/// centroid from the public place list. Only a trucked order has one: on an order without a trip
+/// (self-pickup) it is ignored. The track, the other stops on a truck, the check-in effects and the
+/// delivered GPS check read it (<see cref="TripTrack.PlannedDropoff"/>).
 /// </summary>
 public static class OrderDeliveryLocation
 {
@@ -82,18 +86,74 @@ public static class OrderDeliveryLocation
         => TripTrack.PointOf(order, LatitudeField, LongitudeField);
 
     /// <summary>
-    /// The point <paramref name="userId"/> may read on this row: the readers of the drop-off note
-    /// (<see cref="OrderDropoffNote.VisibleTo"/>: the buyer, the farmer, the trucker once committed
-    /// to a held order), else null.
+    /// Whether <paramref name="userId"/> may read the point of this order row: its buyer and its
+    /// farmer always; its trucker (<c>truckerId</c>, committed or only asked) while the order's money
+    /// is held (<see cref="ContactReveal.OpenOrderStatuses"/>), so the trucker answers the transport
+    /// request knowing where the goods go; anyone else never. Wider than the drop-off note's rule
+    /// (<see cref="OrderDropoffNote.VisibleTo"/>), which waits for the trucker's commitment.
     /// </summary>
+    public static bool VisibleTo(IReadOnlyDictionary<string, object> order, string? userId)
+    {
+        if (string.IsNullOrEmpty(userId))
+        {
+            return false;
+        }
+
+        if (userId == Text(order, "buyerId") || userId == Text(order, "farmerId"))
+        {
+            return true;
+        }
+
+        return userId == Text(order, "truckerId")
+               && ContactReveal.OpenOrderStatuses.Contains(Text(order, "status") ?? string.Empty);
+    }
+
+    /// <summary>The point <paramref name="userId"/> may read on this row (<see cref="VisibleTo"/>), else null.</summary>
     public static TrackPoint? For(IReadOnlyDictionary<string, object>? order, string? userId)
-        => order != null && OrderDropoffNote.VisibleTo(order, userId) ? Of(order) : null;
+        => order != null && VisibleTo(order, userId) ? Of(order) : null;
+
+    /// <summary>
+    /// A trucked order (a trip or a trucker bound; not <c>fulfillment: self_pickup</c>): the only
+    /// kind with a drop-off point. On any other order the fields are ignored.
+    /// </summary>
+    public static bool HasTrip(IReadOnlyDictionary<string, object> order)
+        => Text(order, OrderCommitment.FulfillmentField) != OrderCommitment.Fulfillment.SelfPickup
+           && (!string.IsNullOrEmpty(Text(order, "tripId")) || !string.IsNullOrEmpty(Text(order, "truckerId")));
+
+    /// <summary>Drops both fields from a payload (ignored, never stored).</summary>
+    public static void Drop(Dictionary<string, object> data)
+    {
+        data.Remove(LatitudeField);
+        data.Remove(LongitudeField);
+    }
+
+    /// <summary>
+    /// A sync result whose order row (<c>serverData</c>) goes to <paramref name="userId"/>: the point
+    /// left out when that caller may not read it (<see cref="VisibleTo"/>). Any other result is
+    /// returned unchanged.
+    /// </summary>
+    public static SyncOperationResult ForCaller(SyncOperationResult result, string? userId)
+    {
+        if (result.ServerData is not { } row
+            || !(row.ContainsKey(LatitudeField) || row.ContainsKey(LongitudeField))
+            || VisibleTo(row, userId))
+        {
+            return result;
+        }
+
+        var scrubbed = new Dictionary<string, object>(row);
+        Drop(scrubbed);
+        return result with { ServerData = scrubbed };
+    }
 
     /// <summary>The same point, or both none (a stored number comes back as invariant text).</summary>
     public static bool Same(TrackPoint? a, TrackPoint? b)
         => a == null || b == null
             ? a == null && b == null
             : Math.Abs(a.Latitude - b.Latitude) < 1e-9 && Math.Abs(a.Longitude - b.Longitude) < 1e-9;
+
+    private static string? Text(IReadOnlyDictionary<string, object> item, string key)
+        => item.TryGetValue(key, out var value) ? value?.ToString() : null;
 
     private static bool IsNull(object? value)
         => value is null || value is JsonElement { ValueKind: JsonValueKind.Null };

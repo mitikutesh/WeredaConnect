@@ -262,7 +262,7 @@ public partial class AdminFunction
             {
                 planned = selfPickup
                     ? await PlannedPickupAsync(delivery, context)
-                    : await PlannedDropoffAsync(row, orderRow, context);
+                    : await PlannedDropoffAsync(row, orderRow, delivery.GpsDropoff, context);
             }
 
             handoffs.Add(Handoff(selfPickup ? SelfPickupType : "dropoff", delivery.ConfirmedAt, null,
@@ -363,34 +363,38 @@ public partial class AdminFunction
     }
 
     /// <summary>
-    /// The planned drop-off the delivered GPS check uses (<see cref="TripTrack.PlannedDropoff"/>): the
-    /// order's own point (LT-14), else the trip's destination; null when unknown. The trip is read only
-    /// when the order has no point.
+    /// The planned drop-off the delivered GPS check measured against (LT-14, delivery-verification-api
+    /// 2.1.0): of the trip's destination and the order's own point, the one nearer to
+    /// <paramref name="gps"/>, since a fix within 5 km of either passed; null when neither is known. A
+    /// trip that cannot be read leaves the order's point.
     /// </summary>
     private async Task<LatLngDto?> PlannedDropoffAsync(
-        Dictionary<string, object> row, Dictionary<string, object>? orderRow, ILambdaContext context)
+        Dictionary<string, object> row, Dictionary<string, object>? orderRow, LatLngDto gps, ILambdaContext context)
     {
-        if (OrderDeliveryLocation.Of(orderRow) is { } orderPoint)
-        {
-            return LatLngOf(orderPoint);
-        }
-
+        TrackPoint? tripPoint = null;
         var tripId = AdminTrail.TripIdOf(row);
-        if (string.IsNullOrEmpty(_tripsTable) || tripId == null)
+        if (!string.IsNullOrEmpty(_tripsTable) && tripId != null)
         {
-            return null;
+            try
+            {
+                var trip = await new TripRepository(_dynamoDb, _tripsTable).GetByIdAsync(tripId);
+                tripPoint = TripTrack.PlannedDropoff(trip, order: null);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning($"evidence: planned drop-off unavailable: [{ex.GetType().Name}]");
+            }
         }
 
-        try
+        var orderPoint = OrderDeliveryLocation.Of(orderRow);
+        if (tripPoint == null || orderPoint == null)
         {
-            var trip = await new TripRepository(_dynamoDb, _tripsTable).GetByIdAsync(tripId);
-            return LatLngOf(TripTrack.PlannedDropoff(trip, order: null));
+            return LatLngOf(orderPoint ?? tripPoint);
         }
-        catch (Exception ex)
-        {
-            context.Logger.LogWarning($"evidence: planned drop-off unavailable: [{ex.GetType().Name}]");
-            return null;
-        }
+
+        var toOrder = GpsValidator.HaversineDistance(gps.Latitude, gps.Longitude, orderPoint.Latitude, orderPoint.Longitude);
+        var toTrip = GpsValidator.HaversineDistance(gps.Latitude, gps.Longitude, tripPoint.Latitude, tripPoint.Longitude);
+        return LatLngOf(toOrder <= toTrip ? orderPoint : tripPoint);
     }
 
     private static LatLngDto? LatLngOf(TrackPoint? point)

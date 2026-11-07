@@ -58,9 +58,9 @@ public partial class AdminFunction
     /// <summary>
     /// The trip's stop list: every non-cancelled order's planned pickup (its listing's location) and
     /// planned drop-off (LT-14: its order's own point, else the trip's destination point), the points
-    /// the track's other stops use. Without an orders table every drop-off is the trip's point. Null
-    /// when the trips or crops table is not configured or a read fails: the trail then judges pauses by
-    /// the QR scans alone. Never fails the trail.
+    /// the track's other stops use. Without an orders table, or for an order that cannot be read, the
+    /// drop-off is the trip's point. Null when the trips or crops table is not configured or another
+    /// read fails: the trail then judges pauses by the QR scans alone. Never fails the trail.
     /// </summary>
     private async Task<List<TrackPoint>?> PlannedStopsAsync(string tripId, ILambdaContext context)
     {
@@ -96,7 +96,7 @@ public partial class AdminFunction
                         points.Add(pickup);
                     }
 
-                    if (TripTrack.PlannedDropoff(trip, await OrderRowAsync(other)) is { } dropoff && !points.Contains(dropoff))
+                    if (TripTrack.PlannedDropoff(trip, await OrderRowAsync(other, context)) is { } dropoff && !points.Contains(dropoff))
                     {
                         points.Add(dropoff);
                     }
@@ -118,9 +118,10 @@ public partial class AdminFunction
 
     /// <summary>
     /// LT-14: the order row of a delivery (its own drop-off point), or null without an order id or an
-    /// orders table. A failed read throws to the caller's catch.
+    /// orders table. Best effort: a failed read gives null, so that one stop falls back to the trip's
+    /// destination point and the rest of the stop list stands.
     /// </summary>
-    private async Task<Dictionary<string, object>?> OrderRowAsync(Dictionary<string, object> delivery)
+    private async Task<Dictionary<string, object>?> OrderRowAsync(Dictionary<string, object> delivery, ILambdaContext context)
     {
         if (string.IsNullOrEmpty(_ordersTable)
             || !delivery.TryGetValue("orderId", out var id) || id?.ToString() is not { Length: > 0 } orderId)
@@ -128,7 +129,16 @@ public partial class AdminFunction
             return null;
         }
 
-        var item = await QuerySingleItemAsync(_ordersTable, "orderId", orderId);
-        return item == null ? null : DynamoDbHelper.FromItem(item);
+        try
+        {
+            var item = await QuerySingleItemAsync(_ordersTable, "orderId", orderId);
+            return item == null ? null : DynamoDbHelper.FromItem(item);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"trail: order {MoneyAlarmLog.LogId(orderId)} of a planned stop unavailable: [{ex.GetType().Name}]");
+            return null;
+        }
     }
 }

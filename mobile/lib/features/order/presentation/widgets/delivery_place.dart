@@ -180,8 +180,9 @@ class _DeliveryPlaceSheetState extends State<_DeliveryPlaceSheet> {
 
 /// The drop-off place on the order detail of a trucked order: the place the
 /// order's point names for every party the server sent it to (the buyer,
-/// the farmer, the committed trucker), "The truck's destination" when the
-/// order has none, and for the buyer before pickup Change ([onEdit]).
+/// the farmer, the trucker while the money is held), "The truck's
+/// destination" when the order has none, and for the buyer before pickup
+/// Change ([onEdit]).
 /// Nothing when there is no point and the viewer cannot set one.
 class DeliveryPlaceCard extends StatefulWidget {
   const DeliveryPlaceCard({

@@ -806,11 +806,10 @@ String? _cargo(TripStop stop, AppLocalizations l10n) {
       '${l10n.quantityKg(kg)}';
 }
 
-/// Who and where a stop is: the farmer at a pickup, the buyer (and the
-/// trip's destination) at a drop-off.
 /// LT-14: the town a drop-off stop names: its order's own drop-off place
-/// when the server sent the point (to the committed trucker) and the place
-/// list is loaded, else the trip's destination ([tripPlace]).
+/// when the server sent the point (to the order's trucker while the money is
+/// held) and the place list is loaded, else the trip's destination
+/// ([tripPlace]).
 String? _stopPlace(TripStop stop, String? tripPlace, BuildContext context) {
   final point = stop.dropoffPoint;
   final places = PlaceRepository.instance;
@@ -823,6 +822,8 @@ String? _stopPlace(TripStop stop, String? tripPlace, BuildContext context) {
   return tripPlace;
 }
 
+/// Who and where a stop is: the farmer at a pickup, the buyer (and the
+/// drop-off town, [_stopPlace]) at a drop-off.
 String _stopName(TripStop stop, String? place, AppLocalizations l10n) =>
     switch (stop.kind) {
       TripStopKind.pickup => partyDisplayName(stop.delivery.farmerName, l10n),

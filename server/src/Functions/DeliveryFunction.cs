@@ -384,11 +384,13 @@ public class DeliveryFunction
                 ? await _tripLocationRepo.ListByTripAsync(tripId!)
                 : new List<TripLocationRow>();
 
-            // LT-12, LT-14: the delivery's order, for its note and its own drop-off point, each only
-            // to a caller who may read it (the trucker once committed); best effort.
+            // LT-12, LT-14: the delivery's order, for its note (the trucker once committed) and its
+            // own drop-off point (the trucker while the money is held), each only to a caller who may
+            // read it; best effort.
             var orders = new Dictionary<string, Dictionary<string, object>?>(StringComparer.Ordinal);
             var order = await OrderOfAsync(delivery, orders, context);
-            var readableOrder = order != null && OrderDropoffNote.VisibleTo(order, callerId) ? order : null;
+            var noteOrder = order != null && OrderDropoffNote.VisibleTo(order, callerId) ? order : null;
+            var pointOrder = order != null && OrderDeliveryLocation.VisibleTo(order, callerId) ? order : null;
 
             TrackPoint? pickup = null;
             TrackPoint? dropoff = null;
@@ -398,7 +400,7 @@ public class DeliveryFunction
                 var listings = new Dictionary<string, TrackPoint?>(StringComparer.Ordinal);
                 pickup = await PickupPointAsync(delivery, listings);
                 var trip = hasTrip ? await _tripRepo.GetByIdAsync(tripId!) : null;
-                dropoff = TripTrack.PlannedDropoff(trip, readableOrder);
+                dropoff = TripTrack.PlannedDropoff(trip, pointOrder);
 
                 if (phase == TrackPhase.OnRoad && hasTrip)
                 {
@@ -424,7 +426,7 @@ public class DeliveryFunction
                 }
             }
 
-            var dropoffNote = readableOrder == null ? null : OrderDropoffNote.Of(readableOrder);
+            var dropoffNote = noteOrder == null ? null : OrderDropoffNote.Of(noteOrder);
             var response = TripTrack.Build(delivery, rows, pickup, dropoff, otherStops, now, dropoffNote);
             return LambdaResponse.Ok(response, AppJsonContext.Default.DeliveryTrackResponse);
         }

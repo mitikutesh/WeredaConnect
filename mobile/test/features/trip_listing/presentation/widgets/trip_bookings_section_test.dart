@@ -147,8 +147,10 @@ void main() {
     expect(find.text('Chaltu, Adama → Buyer, Bishoftu'), findsOneWidget);
   });
 
-  // LT-14: the drop-off place the buyer picked (sent to the committed
-  // trucker) names the drop-off before the registered place.
+  // LT-14: the drop-off place the buyer picked names the drop-off before the
+  // registered place, also on a request the trucker has not answered yet
+  // (the server sends the point to the asked trucker), so the answer reads
+  // the real town.
   testWidgets("a booking's own drop-off place comes before the registered one",
       (tester) async {
     PlaceRepository.instance.loadFromStringForTest(
@@ -163,7 +165,7 @@ void main() {
     when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
     when(() => repo.getOrdersByUser('trucker-1', role: 'trucker')).thenAnswer(
       (_) async => [
-        _order('placed', OrderStatus.accepted, farmerName: 'Almaz')
+        _order('placed', OrderStatus.funded, farmerName: 'Almaz')
           ..pickupPlace = 'Meki'
           ..dropoffPlace = 'Merkato'
           ..deliveryLatitude = 8.587
