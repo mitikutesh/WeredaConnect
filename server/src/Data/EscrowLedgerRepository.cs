@@ -283,8 +283,7 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
             [":updated"] = S(DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)),
             [":one"] = N(1),
             [":v"] = N(before.Version),
-            [":status"] = S(before.Status),
-            [":held"] = S(LedgerEscrowFields.Held)
+            [":status"] = S(before.Status)
         };
         var sets = new List<string> { "#legs = :legs", "#refunded = :refunded", "#released = :released", "#updated = :updated" };
         AddAmount("farmerPayout", before.FarmerPayout, after.FarmerPayout, "fp");
@@ -311,6 +310,7 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
         {
             names[$"#leg{legIndex}"] = leg;
             conditions.Add($"#legs.#leg{legIndex} = :held");
+            values[":held"] = S(LedgerEscrowFields.Held);
             legIndex++;
         }
 

@@ -757,6 +757,8 @@
     "ESCROW_042": "This payment is not waiting for a refund on this order. Reload the page.",
     "ESCROW_043": "The amount differs from what Telebirr captured for this payment.",
     "ESCROW_044": "This payment funded its order, or may still fund it. Do not refund it.",
+    "ESCROW_045": "This payment is refunded through the escrow ledger. Record its portal refund in Manual Payouts, not here.",
+    "ADMIN_021": "The split does not fit what the escrow still holds. Check the amounts: the farmer at most the crop held, the trucker at most the transport held, and the three adding up to what is held.",
     "ADMIN_013": "A payout for this escrow is waiting in the manual payout queue. Settle it there first.",
     "ADMIN_010": "This dispute can no longer be resolved: it is not open, or a settlement is in progress. Reload the page.",
     "ADMIN_014": "Choose Farmer Wins or Buyer Wins.",
