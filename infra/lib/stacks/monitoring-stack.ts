@@ -47,7 +47,8 @@ interface DynamoTableDef {
  * $0.30, 5 risk alarms $0.50, the anomaly alarm $0.30 as 3 alarm metrics, its floor $0.10, the
  * composite $0.50) plus the per-type signal metrics, $0.30 a month for a type written every hour,
  * prorated by the hours it is written ($6.30 at most for the 21 types of today; fraud spec
- * section 23.1). Metric filters are free.
+ * section 23.1). Metric filters are free. FRD-19 adds the fraud-advisory errors alarm over two Lambda
+ * metrics ($0.20) and the FRD-16 filters on the fraud-advisory log group (free).
  *
  * References Lambda functions and DynamoDB tables by name (no cross-stack refs needed).
  */
@@ -1636,6 +1637,8 @@ export class MonitoringStack extends cdk.Stack {
       ['OrderCron', orderCronLogGroup],
       ['AuthRefresh', fraudLogGroupOf('auth-refresh')],
       ['Admin', fraudLogGroupOf('admin')],
+      // FRD-19: the AI advisory cron scores users and writes AI_ADVISORY rows (one signal line each).
+      ['FraudAdvisory', fraudLogGroupOf('fraud-advisory')],
       // The webhook log group exists only with the live gateway.
       ...(telebirrLive ? [['TelebirrWebhook', fraudLogGroupOf('telebirr-webhook')] as [string, logs.ILogGroup]] : []),
     ];
@@ -1884,6 +1887,44 @@ export class MonitoringStack extends cdk.Stack {
       }),
     );
 
+    // ─── FRD-19: AI advisory reviewer errors ─────────────────────────
+    // The hourly cron (fraud-advisory) and the Bedrock caller (fraud-ai-reviewer) in one alarm: a crashed or
+    // timed-out run, or a review Bedrock refused at the API level (throttling, no model access, a wrong model id).
+    // Model refusals and answers outside the schema are not errors (FRAUD_AI_REVIEW_FAILED in the cron's log).
+    // Both are idle while the kill switch is off, so the alarm only speaks once aiReviewEnabled is on.
+    const lambdaErrorsOf = (name: string, label: string) =>
+      new cloudwatch.Metric({
+        namespace: 'AWS/Lambda',
+        metricName: 'Errors',
+        dimensionsMap: { FunctionName: `${prefix}-${name}` },
+        statistic: 'Sum',
+        period: cdk.Duration.hours(1),
+        label,
+      });
+    const fraudAdvisoryErrorsAlarm = new cloudwatch.Alarm(this, 'FraudAdvisoryErrors', {
+      alarmName: `${prefix}-fraud-advisory-errors`,
+      alarmDescription:
+        'The AI advisory reviewer failed (fraud-advisory cron or fraud-ai-reviewer, FRD-19). Advice only: no money ' +
+        'or gate depends on it. Read FRAUD_AI_REVIEW_FAILED in /aws/lambda/' + prefix + '-fraud-advisory; an ' +
+        'AccessDeniedException means model access is not granted in the Bedrock console. To stop it at once, set ' +
+        'the reviewer\'s reserved concurrency to 0 or turn aiReviewEnabled off (specs/decisions/frd-19-ai-advisory-reviewer.md).',
+      metric: new cloudwatch.MathExpression({
+        expression: 'cron + reviewer',
+        usingMetrics: {
+          cron: lambdaErrorsOf('fraud-advisory', 'Fraud advisory cron errors'),
+          reviewer: lambdaErrorsOf('fraud-ai-reviewer', 'Fraud AI reviewer errors'),
+        },
+        period: cdk.Duration.hours(1),
+        label: 'Fraud advisory errors',
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    fraudAdvisoryErrorsAlarm.addAlarmAction(snsAction);
+    fraudAdvisoryErrorsAlarm.addOkAction(snsAction);
+
     // ─── Alarm Status Widget (summary at bottom of dashboard) ────────
     dashboard.addWidgets(
       new cloudwatch.AlarmStatusWidget({
@@ -1921,6 +1962,8 @@ export class MonitoringStack extends cdk.Stack {
           riskScoreUnknownRecordAlarm,
           riskHoldOrderMismatchAlarm,
           riskTableUnconfiguredAlarm,
+          // FRD-19 AI advisory reviewer
+          fraudAdvisoryErrorsAlarm,
           ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
           ...(webhook5xxAlarm ? [webhook5xxAlarm] : []),
           ...(webhookErrorsAlarm ? [webhookErrorsAlarm] : []),

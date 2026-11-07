@@ -44,6 +44,10 @@ const NEIGHBOUR_LINES = [
   'ESCROW_HELD_REFUND_VERDICT_WRITE_FAILED escrowId=escrow-order-ord-1 error=TimeoutException',
   '{"timestamp":"2026-11-07T10:00:00Z","category":"SECURITY","action":"REFRESH_BLOCKED","userId":"3f2a-user","outcome":"failure"}',
   'ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=release_failed outcome=failed code=TELEBIRR_TIMEOUT',
+  // FRD-19: the advisory cron's own lines (its advisory row logs the signal line itself).
+  'FRAUD_AI_REVIEW_RUN outcome=ok candidates=2 scored=2 belowHigh=1 unscored=0 alreadyReviewed=0 reviewed=1 written=1 failed=0 capped=false stopReason=-',
+  'FRAUD_AI_REVIEW_WRITTEN userId=3f2a-user concern=high weight=10 model=eu.anthropic.claude-opus-5-5 inputTokens=2100 outputTokens=300',
+  'FRAUD_AI_REVIEW_FAILED userId=3f2a-user reason=unparsable',
 ];
 
 type MetricFilterResource = {
@@ -189,7 +193,8 @@ describe('FRD-16: fraud signal metrics', () => {
   test('the total is a plain term with a zero default, so it counts the line bare or behind the runtime prefix', () => {
     const template = monitoringTemplate(true);
     const filters = filtersPublishing(template, 'FraudSignalsRecorded');
-    expect(filters.length).toBe(7);
+    // Seven since FRD-16 and FRD-15, eight with FRD-19's fraud-advisory cron.
+    expect(filters.length).toBe(8);
     for (const filter of filters) {
       const pattern = filter.Properties.FilterPattern;
       expect(pattern).toBe('"FRAUD_SIGNAL_RECORDED"');
@@ -209,7 +214,7 @@ describe('FRD-16: fraud signal metrics', () => {
   test('the per-type metric takes the signal type as its one dimension, with no default (CloudWatch forbids both)', () => {
     const template = monitoringTemplate(true);
     const filters = filtersPublishing(template, 'FraudSignalsByType');
-    expect(filters.length).toBe(7);
+    expect(filters.length).toBe(8);
     for (const filter of filters) {
       const pattern = filter.Properties.FilterPattern;
       expect(pattern).toBe('{ $.event = "FRAUD_SIGNAL_RECORDED" }');

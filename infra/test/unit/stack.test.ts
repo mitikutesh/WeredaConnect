@@ -275,8 +275,9 @@ describe('ApiStack', () => {
     // + account deletion and its sweep (ACC-02) = 26,
     // + order-notify-stream and the notifications inbox read (ESC-21) = 28,
     // + the crop photo processor and the two CDK helpers its buckets bring
-    // (bucket notifications, dev auto-delete) (crop-listing-api 1.6.0) = 31.
-    template.resourceCountIs('AWS::Lambda::Function', 31);
+    // (bucket notifications, dev auto-delete) (crop-listing-api 1.6.0) = 31,
+    // + the AI advisory cron and its Bedrock reviewer (FRD-19) = 33.
+    template.resourceCountIs('AWS::Lambda::Function', 33);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],

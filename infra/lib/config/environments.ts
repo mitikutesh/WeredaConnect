@@ -94,6 +94,26 @@ export interface EnvironmentConfig {
    * farmer and trucker commands (app build 3, the ESC-15 client PR); dev is on, staging and prod off.
    */
   readonly commitmentsEnabled?: boolean;
+  /**
+   * FRD-19 kill switch: FRAUD_AI_REVIEW_ENABLED on the fraud-advisory cron and AI_REVIEW_ENABLED on the
+   * fraud-ai-reviewer Lambda (fraud-detection-architecture.md section 21). On, an hourly run sends the redacted
+   * audit timeline of each user the rules have just put at HIGH or CRITICAL to a Claude model on Amazon Bedrock
+   * and writes its advice as one capped AI_ADVISORY signal row. Default false in every environment: turning it on
+   * is the owner's decision (specs/decisions/frd-19-ai-advisory-reviewer.md), after model access is granted in
+   * the Bedrock console.
+   */
+  readonly aiReviewEnabled?: boolean;
+  /**
+   * FRD-19: the Bedrock model or inference profile id the reviewer invokes, e.g. `eu.anthropic.claude-opus-5-5`.
+   * The reviewer's IAM grant is scoped to it. Default `eu.anthropic.claude-opus-5-5`.
+   */
+  readonly aiReviewModelId?: string;
+  /**
+   * FRD-19: the Region of the Bedrock endpoint the reviewer calls. Default: the stack's Region. me-south-1 has
+   * only the Global profile for current Claude models, so staging and prod name eu-central-1 to keep the
+   * timeline in EU Regions (the decision record's option 3; still off until the owner decides).
+   */
+  readonly aiReviewBedrockRegion?: string;
 }
 
 export const environments: Record<string, EnvironmentConfig> = {
@@ -113,6 +133,10 @@ export const environments: Record<string, EnvironmentConfig> = {
     // ESC-15: the farmer, then the trucker, must accept a paid order; staging and prod stay off
     // until their clients ship app build 3.
     commitmentsEnabled: true,
+    // FRD-19: the AI advisory reviewer stays off until the owner turns it on; the EU profile keeps the
+    // redacted timelines in EU Regions.
+    aiReviewEnabled: false,
+    aiReviewModelId: 'eu.anthropic.claude-opus-5-5',
     tags: {
       Environment: 'development',
       Project: 'WeredaConnect',
@@ -132,6 +156,11 @@ export const environments: Record<string, EnvironmentConfig> = {
     name: 'staging',
     region: 'me-south-1',
     isProd: false,
+    // FRD-19: off. me-south-1 has no EU or ME geo profile for current Claude models; if turned on, the reviewer
+    // calls the EU profile from eu-central-1 (decision record, option 3).
+    aiReviewEnabled: false,
+    aiReviewModelId: 'eu.anthropic.claude-opus-5-5',
+    aiReviewBedrockRegion: 'eu-central-1',
     tags: {
       Environment: 'staging',
       Project: 'WeredaConnect',
@@ -148,6 +177,11 @@ export const environments: Record<string, EnvironmentConfig> = {
     name: 'prod',
     region: 'me-south-1',
     isProd: true,
+    // FRD-19: off. me-south-1 has no EU or ME geo profile for current Claude models; if turned on, the reviewer
+    // calls the EU profile from eu-central-1 (decision record, option 3).
+    aiReviewEnabled: false,
+    aiReviewModelId: 'eu.anthropic.claude-opus-5-5',
+    aiReviewBedrockRegion: 'eu-central-1',
     tags: {
       Environment: 'production',
       Project: 'WeredaConnect',

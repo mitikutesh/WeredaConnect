@@ -18,6 +18,7 @@ import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as path from "path";
 import { WeredaLambda } from "../constructs/lambda-construct";
 import { FaydaMockConstruct } from "../constructs/fayda-mock-construct";
 import { EnvironmentConfig } from "../config/environments";
@@ -1778,6 +1779,145 @@ export class ApiStack extends cdk.Stack {
           // Wrapped as `body` so it lands in APIGatewayProxyRequest.Body (Review C3).
           event: events.RuleTargetInput.fromObject({
             body: JSON.stringify({ action: "relationship_patterns" }),
+          }),
+        }),
+      ],
+    });
+
+    // ─── FRD-19: AI advisory reviewer (fraud-detection-architecture.md section 21) ─────
+    // Two Lambdas, split so the code that talks to the model holds no data access and the code that holds data
+    // access cannot move money (specs/decisions/frd-19-ai-advisory-reviewer.md):
+    // - fraud-ai-reviewer (Node.js 24, non-AOT): the only caller of Bedrock. Its role may only invoke the one
+    //   configured model (bedrock:InvokeModel); no table, no queue, no other Lambda.
+    // - fraud-advisory (the AOT bootstrap, hourly): picks the users the rules have just put at HIGH or CRITICAL,
+    //   sends each redacted timeline to the reviewer and writes one capped AI_ADVISORY signal row. Its role reads
+    //   fraud signals (table and status index), users rows and the transaction audit, puts fraud-signal rows and
+    //   invokes the reviewer: no grant on orders, escrows or any money table.
+    // Kill switch: aiReviewEnabled (environments.ts), off everywhere by default, on both Lambdas.
+    const aiReviewEnabled = envConfig.aiReviewEnabled ? "true" : "false";
+    const aiReviewModelId = envConfig.aiReviewModelId ?? "eu.anthropic.claude-opus-5-5";
+    const aiReviewBedrockRegion = envConfig.aiReviewBedrockRegion ?? this.region;
+    const aiReviewerName = `${prefix}-fraud-ai-reviewer`;
+
+    const aiReviewerLogGroup = new logs.LogGroup(this, "FraudAiReviewerLogGroup", {
+      logGroupName: `/aws/lambda/${aiReviewerName}`,
+      // One line per review (outcome, model, token counts; never the timeline or the advice).
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    const aiReviewerFn = new lambda.Function(this, "FraudAiReviewerFunction", {
+      functionName: aiReviewerName,
+      description: "FRD-19: asks a Claude model on Bedrock for advice on one redacted fraud timeline",
+      runtime: lambda.Runtime.NODEJS_24_X,
+      architecture: lambda.Architecture.ARM_64,
+      handler: "index.handler",
+      // No dependencies: the AWS SDK v3 ships with the runtime, so the folder is the bundle.
+      code: lambda.Code.fromAsset(path.join(__dirname, "..", "..", "..", "server", "fraud-ai-reviewer"), {
+        exclude: ["test", "README.md", "package.json", "node_modules"],
+      }),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(30),
+      // The cron invokes it one user at a time. Skipped in dev like WeredaLambda (account limit 10).
+      ...(envConfig.name === "dev" ? {} : { reservedConcurrentExecutions: 2 }),
+      logGroup: aiReviewerLogGroup,
+      environment: {
+        AI_REVIEW_ENABLED: aiReviewEnabled,
+        BEDROCK_MODEL_ID: aiReviewModelId,
+        BEDROCK_REGION: aiReviewBedrockRegion,
+      },
+    });
+    // bedrock:InvokeModel on the configured model only. A geographic or global inference profile (eu., us.,
+    // global. ...) needs the profile in the calling Region and the foundation model in every destination
+    // Region, the latter only through that profile; a bare model id needs the foundation model in the Region.
+    const aiProfile = /^(global|eu|us|apac|jp|au|ca)\.(.+)$/.exec(aiReviewModelId);
+    const foundationModelArn = (region: string, modelId: string) =>
+      `arn:${this.partition}:bedrock:${region}::foundation-model/${modelId}`;
+    if (aiProfile) {
+      const profileArn = `arn:${this.partition}:bedrock:${aiReviewBedrockRegion}:${this.account}:inference-profile/${aiReviewModelId}`;
+      aiReviewerFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          // GetInferenceProfile: required to run inference through a profile (Bedrock inference prerequisites).
+          actions: ["bedrock:InvokeModel", "bedrock:GetInferenceProfile"],
+          resources: [profileArn],
+        }),
+      );
+      aiReviewerFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["bedrock:InvokeModel"],
+          // A global profile's destinations are named without a Region.
+          resources: [foundationModelArn("*", aiProfile[2]), foundationModelArn("", aiProfile[2])],
+          conditions: { StringEquals: { "bedrock:InferenceProfileArn": profileArn } },
+        }),
+      );
+    } else {
+      aiReviewerFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["bedrock:InvokeModel"],
+          resources: [foundationModelArn(aiReviewBedrockRegion, aiReviewModelId)],
+        }),
+      );
+    }
+
+    const fraudAdvisoryFn = new WeredaLambda(this, "FraudAdvisoryCronFunction", {
+      functionName: `${prefix}-fraud-advisory`,
+      description:
+        "FRD-19: hourly AI advisory review of the users the fraud rules put at HIGH or CRITICAL (advice only, never money)",
+      handlerName: "FraudAdvisoryCronFunction",
+      environment: {
+        FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
+        USERS_TABLE: props.usersTable.tableName,
+        TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
+        FRAUD_AI_REVIEW_ENABLED: aiReviewEnabled,
+        FRAUD_AI_REVIEWER_FUNCTION: aiReviewerFn.functionName,
+      },
+      // Reviews start in the first two minutes; one more reviewer call (40 s at most) and the summary fit after.
+      timeout: cdk.Duration.minutes(3),
+      memorySize: 256,
+      // One run at a time: a second concurrent run would only meet the first one's day keys.
+      reservedConcurrentExecutions: 1,
+      logRetention: logs.RetentionDays.ONE_MONTH,
+    });
+    fraudAdvisoryFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        // The score and the timeline Query the user's partition, the candidates the status index; the day key is
+        // checked with GetItem and the advisory row put once (conditional). No update, no delete.
+        actions: ["dynamodb:Query", "dynamodb:GetItem", "dynamodb:PutItem"],
+        resources: [props.fraudSignalsTable.tableArn],
+      }),
+    );
+    fraudAdvisoryFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${props.fraudSignalsTable.tableArn}/index/StatusCreatedAtIndex`],
+      }),
+    );
+    fraudAdvisoryFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        // Projected to role, createdAt and faydaVerified: never the phone, name or Fayda id.
+        actions: ["dynamodb:GetItem"],
+        resources: [props.usersTable.tableArn],
+      }),
+    );
+    fraudAdvisoryFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [
+          props.transactionAuditTable.tableArn,
+          `${props.transactionAuditTable.tableArn}/index/EntityIndex`,
+        ],
+      }),
+    );
+    aiReviewerFn.grantInvoke(fraudAdvisoryFn.function);
+
+    new events.Rule(this, "FraudAdvisoryHourly", {
+      ruleName: `${prefix}-fraud-advisory-hourly`,
+      description: "FRD-19: AI advisory review of new HIGH and CRITICAL fraud users every hour (a no-op while off)",
+      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
+      targets: [
+        new targets.LambdaFunction(fraudAdvisoryFn.function, {
+          // Wrapped as `body` so it lands in APIGatewayProxyRequest.Body (Review C3); the handler does not read it.
+          event: events.RuleTargetInput.fromObject({
+            body: JSON.stringify({ action: "ai_review" }),
           }),
         }),
       ],
