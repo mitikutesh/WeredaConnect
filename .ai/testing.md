@@ -52,3 +52,16 @@ python3 scripts/e2e_fraud_personas.py --dry-run     # plan only
 python3 scripts/e2e_fraud_personas.py --state-file /tmp/frd17-state.json   # run against dev (9 registrations)
 python3 scripts/e2e_fraud_personas.py --recheck /tmp/frd17-state.json      # later: tiers and held escrows, exit 1 on a missing hold
 ```
+
+## Outcome Label Export (FRD-18)
+
+`scripts/export_outcome_labels.py` exports the labelled outcomes of resolved fraud and dispute cases
+(Fraud Review decisions, dispute verdicts, held escrow exits) as JSONL or CSV, ids only, with one
+paged Query of the transaction-audit `EntityIndex`. Row format, run rules and limits: section 20.1 of
+`specs/architecture/fraud-detection-architecture.md`.
+
+```bash
+python3 -I scripts/test_export_outcome_labels.py                  # offline tests, run after editing the script
+python3 -I scripts/export_outcome_labels.py --env dev --dry-run   # print the AWS call only
+python3 -I scripts/export_outcome_labels.py --env dev --out /tmp/labels.jsonl   # needs AWS credentials
+```
