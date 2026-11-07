@@ -113,6 +113,12 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new NotificationFunction().FunctionHandler, serializer),
 
+            // FRD-19: the hourly AI advisory run (fraud spec section 21). It invokes the separate non-AOT
+            // reviewer Lambda; this bootstrap never calls Bedrock.
+            var h when h.Contains("FraudAdvisoryCronFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new FraudAdvisoryCronFunction().FunctionHandler, serializer),
+
             var h when h.Contains("OrderCronFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new OrderCronFunction().FunctionHandler, serializer),

@@ -376,6 +376,49 @@ public class AdminFraudReviewQueueTests
     }
 
     [Fact]
+    public async Task List_AnAiAdvisoryRow_CarriesItsConcernModelAndExplanation_AndTheScoreKeepsItsWeightApart()
+    {
+        // FRD-19 (section 21): the advisory cron's row, keyed on the start of the UTC day, as Fraud Review lists it.
+        var now = DateTime.UtcNow;
+        var dayKey = FraudAdvisory.DayKey(now);
+        var advisory = new Dictionary<string, AttributeValue>
+        {
+            { "userId", new AttributeValue { S = "buyer-1" } },
+            { "signalKey", new AttributeValue { S = dayKey } },
+            { "signalId", new AttributeValue { S = FraudDetectionService.BuildSignalId("buyer-1", dayKey) } },
+            { "signalType", new AttributeValue { S = FraudDetectionService.AdvisorySignalType } },
+            { "recordType", new AttributeValue { S = "signal" } },
+            { "severity", new AttributeValue { S = "medium" } },
+            { "weight", new AttributeValue { N = "10" } },
+            { "description", new AttributeValue { S = "Three create conflicts in one hour, then a structured payment." } },
+            { "status", new AttributeValue { S = "pending" } },
+            { "entityType", new AttributeValue { S = "user" } },
+            { "aiConcern", new AttributeValue { S = "high" } },
+            { "aiModel", new AttributeValue { S = "eu.anthropic.claude-opus-5-5" } },
+            { "createdAt", new AttributeValue { S = Iso(now.AddMinutes(-1)) } }
+        };
+        var conflict = SignalRow("buyer-1", "IDOR_CREATE_CONFLICT", now.AddHours(-1));
+        var structuring = SignalRow("buyer-1", "KYC_THRESHOLD_STRUCTURING", now.AddHours(-2), entityType: "order", entityId: "ord-1");
+        IndexPages(FraudIndex, Page(null, advisory, conflict, structuring));
+        _scoreRows["buyer-1"] = new List<Dictionary<string, AttributeValue>> { advisory, conflict, structuring };
+
+        var response = await GetAsync("/admin/fraud-signals");
+
+        var signal = Json(response).GetProperty("signals")[0];
+        signal.GetProperty("signalType").GetString().Should().Be("AI_ADVISORY");
+        signal.GetProperty("aiConcern").GetString().Should().Be("high");
+        signal.GetProperty("aiModel").GetString().Should().Be("eu.anthropic.claude-opus-5-5");
+        signal.GetProperty("description").GetString().Should().Be("Three create conflicts in one hour, then a structured payment.");
+        Json(response).GetProperty("signals")[1].TryGetProperty("aiConcern", out _).Should().BeFalse();
+
+        // 40 + 20 from the rules, 10 of advice: the full score shows it, the enforcement score leaves it out.
+        var user = Json(response).GetProperty("users")[0];
+        user.GetProperty("riskScore").GetInt32().Should().Be(70);
+        user.GetProperty("enforcementScore").GetInt32().Should().Be(60);
+        user.GetProperty("riskTier").GetString().Should().Be("high");
+    }
+
+    [Fact]
     public async Task List_WithoutTheTable_AnswersAnEmptyList()
     {
         var response = await new AdminFunction(_ddb, UsersTable).FunctionHandler(Get("/admin/fraud-signals"), _context);

@@ -132,19 +132,22 @@ internal sealed class PayoutDelayPolicy
     private readonly IUserRepository? _users;
     private readonly IEscrowRepository? _escrows;
     private readonly PayoutDelaySettings? _settings;
+    private readonly RiskScoreSettings? _riskSettings;
 
     /// <param name="fraudService">Reads the risk score; without it every payee is unscored.</param>
     /// <param name="users">Reads the account age; without it every payee is unscored.</param>
     /// <param name="escrows">Counts the payee's completed escrows; without it no payee is trusted.</param>
     /// <param name="settings">Fixed settings for tests; null reads the environment on every decision.</param>
+    /// <param name="riskSettings">Fixed tier bounds for tests; null reads the environment on every decision.</param>
     public PayoutDelayPolicy(
         IFraudDetectionService? fraudService, IUserRepository? users, IEscrowRepository? escrows,
-        PayoutDelaySettings? settings = null)
+        PayoutDelaySettings? settings = null, RiskScoreSettings? riskSettings = null)
     {
         _fraudService = fraudService;
         _users = users;
         _escrows = escrows;
         _settings = settings;
+        _riskSettings = riskSettings;
     }
 
     /// <summary>
@@ -209,12 +212,16 @@ internal sealed class PayoutDelayPolicy
                 return PayoutDelayClass.Unscored;
             }
 
-            if (score.Tier is RiskTier.High or RiskTier.Critical)
+            // FRD-19: the rules alone class the payee. AI advisory weight (section 21) is advice, never a reason
+            // to pay later: the enforcement score and its tier, which equal the score and the tier when the user
+            // has no advisory row.
+            var rulesTier = RiskScoreCalculator.RulesTier(score, _riskSettings ?? RiskScoreSettings.FromEnvironment());
+            if (rulesTier is RiskTier.High or RiskTier.Critical)
             {
                 return PayoutDelayClass.Flagged;
             }
 
-            if (score.Score > 0 || score.Tier != RiskTier.Low)
+            if (score.EnforcementScore > 0 || rulesTier != RiskTier.Low)
             {
                 return PayoutDelayClass.New;
             }

@@ -54,6 +54,10 @@ const SOFT_SIGNAL_TYPES = new Set([
   "REPEATED_PAIR",
 ]);
 
+/* FRD-19: the AI reviewer's row (fraud-detection-architecture.md section 21). Its description is the model's
+ * explanation; its weight counts toward MEDIUM and HIGH only, never CRITICAL. */
+const AI_ADVISORY = "AI_ADVISORY";
+
 /* FRD-05: what a reviewed signal was decided as. */
 const resolutionVariant: Record<string, "success" | "danger" | "info"> = {
   approve: "success",
@@ -240,7 +244,16 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
   }
 
   const columns = [
-    { key: "signalType", header: t("fraud.signalType") },
+    {
+      key: "signalType",
+      header: t("fraud.signalType"),
+      render: (row: SignalRow) =>
+        row.signalType === AI_ADVISORY ? (
+          <Badge variant="info">{t("fraud.aiAdvice")}</Badge>
+        ) : (
+          String(row.signalType ?? "")
+        ),
+    },
     {
       key: "severity",
       header: t("fraud.severity"),
@@ -405,6 +418,46 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
     );
   }
 
+  /* FRD-19: the rules' points and the AI's apart, since only the rules decide CRITICAL. */
+  function scoreBreakdown(user: SignalUser | undefined) {
+    if (!user?.scoreAvailable || user.riskScore <= user.enforcementScore) return null;
+    return (
+      <p className="mb-2 text-xs text-text-muted">
+        {fill(t("fraud.scoreBreakdown"), {
+          rules: String(user.enforcementScore),
+          ai: String(user.riskScore - user.enforcementScore),
+        })}
+      </p>
+    );
+  }
+
+  /* FRD-19: the newest AI advice on the user's group, labelled as advice. */
+  function aiAdvice(group: UserGroup) {
+    const row = group.signals.find((s) => s.signalType === AI_ADVISORY && s.description);
+    if (!row) return null;
+    const level = String(row.aiConcern ?? "");
+    return (
+      <aside
+        aria-label={t("fraud.aiAdvice")}
+        className="mb-3 rounded border border-info/30 bg-info/10 px-3 py-2 text-sm"
+      >
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          <Badge variant="info">{t("fraud.aiAdvice")}</Badge>
+          {level && (
+            <span className="text-xs">
+              {fill(t("fraud.aiConcern"), { level: labelOf(t, `fraud.aiConcern_${level}`) ?? level })}
+            </span>
+          )}
+        </div>
+        <p>{String(row.description)}</p>
+        <p className="mt-1 text-xs text-text-muted">
+          {t("fraud.aiAdviceNote")}
+          {row.aiModel ? ` ${fill(t("fraud.aiModel"), { model: String(row.aiModel) })}` : ""}
+        </p>
+      </aside>
+    );
+  }
+
   let body;
   if (isLoading) {
     body = (
@@ -434,6 +487,8 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
             {riskBadge(group.user)}
           </div>
           {group.user?.truncated && <p className="mb-2 text-xs text-danger">{t("fraud.scoreTruncated")}</p>}
+          {scoreBreakdown(group.user)}
+          {aiAdvice(group)}
           <DataTable columns={columns} data={group.signals} />
         </Card>
       </section>

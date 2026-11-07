@@ -372,6 +372,55 @@ describe("FraudReviewPage signals", () => {
     ).toBeTruthy();
   });
 
+  /* FRD-19 */
+
+  it("shows the AI advice on the user's group, labelled as advice, and keeps its points apart from the rules'", () => {
+    setSignals(
+      [
+        signal({
+          signalId: "ai",
+          userId: "buyer-1",
+          signalType: "AI_ADVISORY",
+          severity: "medium",
+          entityType: "user",
+          description: "Probes order-1, then splits order-2 under the identity check.",
+          aiConcern: "high",
+          aiModel: "eu.anthropic.claude-opus-5-5",
+        }),
+        signal({ signalId: "s", userId: "buyer-1", signalType: "IDOR_CREATE_CONFLICT" }),
+      ],
+      [scored({ userId: "buyer-1", riskScore: 70, enforcementScore: 60, riskTier: "high" })],
+    );
+    renderPage();
+
+    const group = screen.getByRole("region");
+    expect(within(group).getByText("Risk score 70 (High)")).toBeTruthy();
+    expect(within(group).getByText("Rules 60 + AI advice 10. Critical is decided by the rules alone.")).toBeTruthy();
+
+    const advice = within(group).getByRole("complementary", { name: "AI advice" });
+    expect(within(advice).getByText("Probes order-1, then splits order-2 under the identity check.")).toBeTruthy();
+    expect(within(advice).getByText("Concern: High")).toBeTruthy();
+    expect(advice.textContent).toContain("It is advice, not a decision");
+    expect(advice.textContent).toContain("Model: eu.anthropic.claude-opus-5-5");
+
+    // The advice row itself is in the table, labelled, with approve and reject (it is not a soft signal).
+    const rows = within(within(group).getAllByRole("table")[0]).getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("AI advice")).toBeTruthy();
+    expect(within(rows[0]).queryByText("AI_ADVISORY")).toBeNull();
+    expect(within(rows[0]).getByRole("button", { name: "Approve" })).toBeTruthy();
+    expect(within(rows[0]).queryByRole("button", { name: "Whitelist" })).toBeNull();
+    expect(within(rows[1]).getByText("IDOR_CREATE_CONFLICT")).toBeTruthy();
+  });
+
+  it("shows no advice panel and no breakdown for a user without AI advice", () => {
+    setSignals([signal()], [scored({ riskScore: 60, enforcementScore: 60, riskTier: "high" })]);
+    renderPage();
+
+    const group = screen.getByRole("region");
+    expect(within(group).queryByRole("complementary")).toBeNull();
+    expect(within(group).queryByText(/AI advice/)).toBeNull();
+  });
+
   it("links a signal on an order to its transaction timeline", () => {
     setSignals([
       signal({ signalId: "o", entityType: "order", entityId: "ord-1", orderId: "ord-1" }),
