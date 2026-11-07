@@ -6295,12 +6295,13 @@ public partial class SyncFunction
         }
         catch (Exception ex)
         {
-            // A confirmed delivery must not be rolled back. Log loudly: until the
-            // escrow is stamped, the 7-day auto-refund is NOT blocked, so this needs
-            // an ops alert / reconciliation follow-up.
+            // A confirmed delivery must not be rolled back. Until the escrow is stamped the
+            // auto-release never pays it: alarmed (ESC-16, escrow-delivery-stamp-failures), and the
+            // escrow cron's hourly order-money sweep stamps it for a delivered order.
             context.Logger.LogError(
-                $"Delivery {MoneyAlarmLog.LogId(deliveryId)} confirmed but escrow stamp FAILED: [{ex.GetType().Name}]. "
-                + "Escrow not yet marked delivery-confirmed — requires reconciliation.");
+                $"{MoneyAlarmLog.EscrowDeliveryStampFailedToken} deliveryId={MoneyAlarmLog.LogId(deliveryId)} source=sync "
+                + $"reason=[{ex.GetType().Name}]: delivery confirmed but its escrow is not marked delivery-confirmed; "
+                + "the hourly order-money sweep retries the stamp.");
         }
     }
 

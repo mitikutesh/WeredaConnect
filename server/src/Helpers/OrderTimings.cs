@@ -10,8 +10,11 @@ namespace WeredaConnect.Server.Helpers;
 /// <see cref="PathEnv"/> (<c>/{prefix}/orders/</c>). The values are read once per container, on first
 /// use, in one <c>GetParameters</c> call, so a changed parameter takes effect as containers recycle.
 /// A parameter that is missing, unreadable or outside 1 to 720 hours keeps its default and logs
-/// <c>ORDER_TIMINGS_DEFAULTED</c>; an SSM failure keeps every default. Without the env var (tests, and
-/// Lambdas that compute no deadline) nothing is read and the defaults apply.
+/// <c>ORDER_TIMINGS_DEFAULTED</c>; an SSM failure keeps every default. T2 never goes below the close of
+/// the last order checkout (<see cref="PaymentVerificationFloor"/>, 22h10m): a lower value is raised to
+/// it and logs <c>ORDER_TIMINGS_CLAMPED</c>. Without the env var (tests, and Lambdas that compute no
+/// deadline) nothing is read and the defaults apply. The read is bounded (2 seconds, one retry), so a
+/// degraded SSM costs a cold request at most a few seconds, never the Lambda timeout.
 /// </summary>
 public sealed record OrderTimings
 {
@@ -21,13 +24,23 @@ public sealed record OrderTimings
     /// <summary>The token of a value that kept its default, so a wrong parameter is found in the logs.</summary>
     public const string DefaultedToken = "ORDER_TIMINGS_DEFAULTED";
 
+    /// <summary>The token of a value raised to its floor (<see cref="PaymentVerificationFloor"/>).</summary>
+    public const string ClampedToken = "ORDER_TIMINGS_CLAMPED";
+
+    /// <summary>
+    /// T2's floor: an order checkout opens new attempts until 20 hours after <c>paymentSubmittedAt</c> and
+    /// the last one stays payable 2 hours and 10 minutes more (<c>EscrowService.LastCheckoutClosesAfter</c>).
+    /// The payment-failed step must not fail an order whose checkout can still take the buyer's money.
+    /// </summary>
+    public static TimeSpan PaymentVerificationFloor => Services.EscrowService.LastCheckoutClosesAfter;
+
     /// <summary>Parameter names under the path (hours each).</summary>
     public static class Names
     {
         /// <summary>T1: an order not paid this long after it was created (or entered <c>pending_payment</c>) is cancelled.</summary>
         public const string UnpaidExpiry = "unpaid-expiry-hours";
 
-        /// <summary>T2: a submitted payment not verified this long after <c>paymentSubmittedAt</c> fails.</summary>
+        /// <summary>T2: a submitted payment not verified this long after <c>paymentSubmittedAt</c> fails (never below <see cref="PaymentVerificationFloor"/>).</summary>
         public const string PaymentVerification = "payment-verification-hours";
 
         /// <summary>T3 and T4: the farmer's and the trucker's window to answer; also the order-create lead before departure.</summary>
@@ -110,7 +123,8 @@ public sealed record OrderTimings
         var timings = new OrderTimings
         {
             UnpaidExpiry = Read(Names.UnpaidExpiry, Defaults.UnpaidExpiry),
-            PaymentVerification = Read(Names.PaymentVerification, Defaults.PaymentVerification),
+            PaymentVerification = AtLeast(
+                Names.PaymentVerification, Read(Names.PaymentVerification, Defaults.PaymentVerification), PaymentVerificationFloor),
             ResponseWindow = Read(Names.ResponseWindow, Defaults.ResponseWindow),
             DepartureMargin = Read(Names.DepartureMargin, Defaults.DepartureMargin),
             BuyerChoiceWindow = Read(Names.BuyerChoiceWindow, Defaults.BuyerChoiceWindow),
@@ -138,6 +152,17 @@ public sealed record OrderTimings
             log($"{DefaultedToken} name={prefix}{name} reason=invalid default={HoursText(fallback)}h");
             return fallback;
         }
+
+        TimeSpan AtLeast(string name, TimeSpan value, TimeSpan floor)
+        {
+            if (value >= floor)
+            {
+                return value;
+            }
+
+            log($"{ClampedToken} name={prefix}{name} value={HoursText(value)}h floor={HoursText(floor)}h");
+            return floor;
+        }
     }
 
     /// <summary>The values in hours, one line, for the load log.</summary>
@@ -154,8 +179,10 @@ public sealed record OrderTimings
     private static IReadOnlyDictionary<string, string> FetchFromSsm(IReadOnlyList<string> names)
     {
         // GetParameters takes at most 10 names; Names.All has 8. String parameters: no decryption.
+        // Bounded: 2 seconds a try, one retry, so the first order write of a container waits at most a
+        // few seconds for a degraded SSM (the API Lambdas time out at 10) and then keeps the defaults.
         using var client = new AmazonSimpleSystemsManagementClient(
-            new AmazonSimpleSystemsManagementConfig { Timeout = TimeSpan.FromSeconds(5) });
+            new AmazonSimpleSystemsManagementConfig { Timeout = TimeSpan.FromSeconds(2), MaxErrorRetry = 1 });
         var response = client.GetParametersAsync(new GetParametersRequest { Names = names.ToList() })
             .GetAwaiter().GetResult();
         return (response.Parameters ?? new List<Parameter>())

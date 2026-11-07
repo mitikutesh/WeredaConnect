@@ -2793,6 +2793,39 @@ describe('MonitoringStack', () => {
     });
   });
 
+  test('ESC-16: a delivery stamp that failed is counted on sync and escrow-cron and alarms', () => {
+    const template = monitoringTemplate(false);
+    const lines = [
+      'ESCROW_DELIVERY_STAMP_FAILED deliveryId=del-1 source=sync reason=[ProvisionedThroughputExceededException]: '
+        + 'delivery confirmed but its escrow is not marked delivery-confirmed; the hourly order-money sweep retries the stamp.',
+      'ESCROW_DELIVERY_STAMP_FAILED escrowId=escrow-order-ord-1 deliveryId=del-1 source=escrow-cron '
+        + 'reason=[InvalidOperationException]: failed to stamp a delivered-but-unstamped escrow; no refund (the order was '
+        + 'delivered), the next run retries.',
+    ];
+    for (const lg of [SYNC_LG, ESCROW_CRON_LG]) {
+      const filter = metricFilter(template, lg, 'EscrowDeliveryStampFailures');
+      expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
+      for (const line of lines) {
+        const prefixed = `2026-11-07T10:00:00.000Z\t4f1c7a2e-req\terror\t${line}`;
+        expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, true]);
+        expect([prefixed, cloudWatchTermsMatch(filter.Properties.FilterPattern, prefixed)]).toEqual([prefixed, true]);
+      }
+      for (const line of [SETTLEMENT_LINE, REFUND_SCHEDULE_LINE, LINK_LINE]) {
+        expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+      }
+    }
+    expect(() => metricFilter(template, ESCROW_LG, 'EscrowDeliveryStampFailures')).toThrow();
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-escrow-delivery-stamp-failures',
+      Metrics: [customMetric('EscrowDeliveryStampFailures', 900)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 5,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
   test('FRD-03: a settlement the fraud risk gate skipped alarms on its first line (escrow-cron only)', () => {
     const template = monitoringTemplate(false);
     const filter = metricFilter(template, ESCROW_CRON_LG, 'RiskSettlementSkipped');

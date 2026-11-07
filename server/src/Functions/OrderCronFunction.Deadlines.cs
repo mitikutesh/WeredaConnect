@@ -204,38 +204,65 @@ public partial class OrderCronFunction
 
     /// <summary>
     /// ESC-16: <c>deadline_repair</c>, daily, and the backfill of the orders already in flight when the
-    /// index was added (they carry no deadline until a write touches them). It reads the
-    /// <c>funded</c>, <c>awaiting_transport</c> and <c>accepted</c> partitions of
-    /// <c>StatusCreatedAtIndex</c> (Query, the walk the sweep replaced) within <see cref="RepairWalkTime"/>
-    /// and stamps the next deadline on every order whose stored one is missing or not the one its
-    /// state gives, conditioned on the version read. It decides nothing: the next sweep acts on what
-    /// it stamped. Gated on <c>COMMITMENTS_ENABLED</c> like the sweep. Run it by hand once right after
-    /// the deploy that adds the index, so the orders in flight are stamped at once.
+    /// index was added (they carry no deadline until a write touches them): one repair pass
+    /// (<see cref="RunRepairPassAsync"/>) within <see cref="RepairWalkTime"/>. Gated on
+    /// <c>COMMITMENTS_ENABLED</c> like the sweep. <c>commitment_deadlines</c> also runs a shorter pass
+    /// itself when this container has not finished one in <see cref="AutoRepairEvery"/>
+    /// (<see cref="AutoRepair"/>), so the orders in flight at a deploy are stamped by the first run of
+    /// the new code without anyone invoking this action.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleDeadlineRepairAsync(ILambdaContext context)
     {
         var now = DateTime.UtcNow;
-        int read = 0, stamped = 0, conflicts = 0;
-        string? stopReason = null;
-
-        Dictionary<string, string> Summary(string outcome) => new()
-        {
-            { "action", RepairAction },
-            { "outcome", outcome },
-            { "read", read.ToString() },
-            { "stamped", stamped.ToString() },
-            { "conflicts", conflicts.ToString() },
-            { "stopReason", stopReason ?? "" },
-            { "completedAt", OrderCommitment.Iso(now) }
-        };
-
         if (!CommitmentsEnabled)
         {
             context.Logger.LogInformation("Deadline repair skipped: COMMITMENTS_ENABLED is off.");
-            return JsonResponse(Summary("disabled"));
+            return JsonResponse(RepairSummary(new RepairPass(), "disabled", now));
         }
 
-        var slice = BudgetFactory().SliceUntil(RepairWalkTime);
+        var pass = await RunRepairPassAsync(context, RepairWalkTime);
+        if (pass.StopReason == null)
+        {
+            AutoRepair?.Completed(now);
+        }
+
+        return JsonResponse(RepairSummary(pass, pass.StopReason == null ? "ok" : "partial", now));
+    }
+
+    private static Dictionary<string, string> RepairSummary(RepairPass pass, string outcome, DateTime now) => new()
+    {
+        { "action", RepairAction },
+        { "outcome", outcome },
+        { "read", pass.Read.ToString() },
+        { "stamped", pass.Stamped.ToString() },
+        { "conflicts", pass.Conflicts.ToString() },
+        { "stopReason", pass.StopReason ?? "" },
+        { "completedAt", OrderCommitment.Iso(now) }
+    };
+
+    /// <summary>ESC-16: what one repair pass did.</summary>
+    private sealed class RepairPass
+    {
+        public int Read;
+        public int Stamped;
+        public int Conflicts;
+
+        /// <summary>Why the pass stopped before the partitions ran out (<c>time</c>, <c>lambda</c>), or null.</summary>
+        public string? StopReason;
+    }
+
+    /// <summary>
+    /// ESC-16: one repair pass. It reads the <c>funded</c>, <c>awaiting_transport</c> and
+    /// <c>accepted</c> partitions of <c>StatusCreatedAtIndex</c> (Query, the walk the sweep replaced)
+    /// within <paramref name="share"/> of its own start and stamps the next deadline on every order
+    /// whose stored one is missing or not the one its state gives, conditioned on the version read.
+    /// It decides nothing: the next sweep acts on what it stamped. A row already right costs no write,
+    /// so a pass that starts over after a partial one only re-reads.
+    /// </summary>
+    private async Task<RepairPass> RunRepairPassAsync(ILambdaContext context, TimeSpan share)
+    {
+        var pass = new RepairPass();
+        var slice = BudgetFactory().SliceUntil(share);
         foreach (var status in DeadlineStatuses)
         {
             var rows = await _orderRepo.QueryByStatusForCronAsync(status) ?? new List<Dictionary<string, object>>();
@@ -243,11 +270,11 @@ public partial class OrderCronFunction
             {
                 if (!slice.MayStartRow(context))
                 {
-                    stopReason = slice.StopReason;
+                    pass.StopReason = slice.StopReason;
                     break;
                 }
 
-                read++;
+                pass.Read++;
                 var next = OrderDeadlines.Next(row);
                 if (OrderDeadlines.IsStored(row, next))
                 {
@@ -257,24 +284,91 @@ public partial class OrderCronFunction
                 if (await _orderRepo.TrySetDeadlineAsync(
                         GetString(row, "orderId"), GetString(row, "createdAt"), GetInt(row, "version"), next))
                 {
-                    stamped++;
+                    pass.Stamped++;
                 }
                 else
                 {
                     // The index copy was behind: the newer write stamped its own deadline.
-                    conflicts++;
+                    pass.Conflicts++;
                 }
             }
 
-            if (stopReason != null)
+            if (pass.StopReason != null)
             {
                 break;
             }
         }
 
         context.Logger.LogInformation(
-            $"Deadline repair complete: {read} orders read, {stamped} deadlines stamped, {conflicts} changed since read"
-            + (stopReason != null ? $", stopped early ({stopReason})." : "."));
-        return JsonResponse(Summary(stopReason == null ? "ok" : "partial"));
+            $"Deadline repair complete: {pass.Read} orders read, {pass.Stamped} deadlines stamped, {pass.Conflicts} changed since read"
+            + (pass.StopReason != null ? $", stopped early ({pass.StopReason})." : "."));
+        return pass;
     }
+
+    /// <summary>ESC-16: how often <c>commitment_deadlines</c> runs a repair pass itself (per container).</summary>
+    internal static readonly TimeSpan AutoRepairEvery = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// ESC-16: the share of that pass, after the sweep (3 minutes) and the departed-trip close: the
+    /// Lambda's own reserve check stops it before the 5 minute timeout whatever is left.
+    /// </summary>
+    internal static readonly TimeSpan AutoRepairTime = TimeSpan.FromMinutes(1);
+
+    /// <summary>The log token of an automatic repair pass that threw; the next run tries again.</summary>
+    internal const string AutoRepairFailedToken = "ORDER_DEADLINE_REPAIR_FAILED";
+
+    /// <summary>
+    /// ESC-16: when this container last finished a repair pass. The Lambda wires
+    /// <see cref="DeadlineRepairMarker.Process"/>; the test constructor leaves it null (no automatic
+    /// pass) unless a test sets its own.
+    /// </summary>
+    internal DeadlineRepairMarker? AutoRepair { get; init; }
+
+    /// <summary>
+    /// ESC-16: the repair pass of <c>commitment_deadlines</c>, when <see cref="AutoRepair"/> says this
+    /// container has not finished one in <see cref="AutoRepairEvery"/>: a new deploy starts new
+    /// containers, so its first run stamps the orders in flight. A partial or failed pass is not
+    /// recorded, so the next run (15 minutes later) goes on. Never throws.
+    /// </summary>
+    private async Task RunAutoRepairAsync(CommitmentRun run)
+    {
+        if (AutoRepair is not { } marker || !marker.IsDue(run.Now, AutoRepairEvery))
+        {
+            return;
+        }
+
+        try
+        {
+            var pass = await RunRepairPassAsync(run.Context, AutoRepairTime);
+            run.RepairRead = pass.Read;
+            run.RepairStamped = pass.Stamped;
+            if (pass.StopReason == null)
+            {
+                marker.Completed(run.Now);
+            }
+        }
+        catch (Exception ex)
+        {
+            run.Context.Logger.LogWarning(
+                $"{AutoRepairFailedToken} reason=[{ex.GetType().Name}]; the next run tries again.");
+        }
+    }
+}
+
+/// <summary>
+/// ESC-16: when a container last finished a deadline repair pass (UTC). One per process in the Lambda
+/// (<see cref="Process"/>); a Lambda container runs one invocation at a time.
+/// </summary>
+internal sealed class DeadlineRepairMarker
+{
+    /// <summary>The marker of this process (the order-cron Lambda's container).</summary>
+    public static DeadlineRepairMarker Process { get; } = new();
+
+    /// <summary>When the last pass finished, or null before the first.</summary>
+    public DateTime? LastCompletedAt { get; private set; }
+
+    /// <summary>Whether a pass is due at <paramref name="now"/>: none yet, or the last one is <paramref name="every"/> old.</summary>
+    public bool IsDue(DateTime now, TimeSpan every) => LastCompletedAt is not { } last || now - last >= every;
+
+    public void Completed(DateTime at) => LastCompletedAt = at;
 }

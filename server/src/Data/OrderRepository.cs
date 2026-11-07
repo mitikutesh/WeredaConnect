@@ -358,8 +358,10 @@ public sealed class OrderRepository : IOrderRepository
             i++;
         }
 
-        // ESC-16: the read above is consistent and the write checks the version, so the deadline of
-        // the row as written is exact (no check after the write).
+        // ESC-16: the read above is consistent and the write checks the version, so the deadline is
+        // derived from the row as written, except for a marker stamp (no version bump) that lands
+        // between the read and the write. No check after the write: such a row is due early at worst,
+        // and the sweep re-reads it and sets its correct deadline when it comes due.
         var removeParts = new List<string>();
         var deadline = AppendDeadline(DynamoDbHelper.FromItem(written), updateParts, removeParts, attrNames, attrValues);
         if (deadline.Added)

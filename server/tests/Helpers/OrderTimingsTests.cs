@@ -59,7 +59,8 @@ public class OrderTimingsTests
 
         _asked.Should().ContainSingle().Which.Should().BeEquivalentTo(OrderTimings.Names.All.Select(n => Path + n));
         timings.UnpaidExpiry.Should().Be(TimeSpan.FromHours(10));
-        timings.PaymentVerification.Should().Be(TimeSpan.FromHours(10));
+        // Below the checkout floor: raised to it (see Load_PaymentVerification_NeverBelowTheLastCheckout).
+        timings.PaymentVerification.Should().Be(OrderTimings.PaymentVerificationFloor);
         timings.ResponseWindow.Should().Be(TimeSpan.FromHours(10));
         timings.DepartureMargin.Should().Be(TimeSpan.FromHours(10));
         timings.BuyerChoiceWindow.Should().Be(TimeSpan.FromHours(10));
@@ -69,6 +70,38 @@ public class OrderTimingsTests
         _log.Should().NotContain(l => l.Contains(OrderTimings.DefaultedToken));
         _log.Should().Contain(l => l.Contains("reminder-lead-hours=2.5"));
     }
+
+    [Theory]
+    [InlineData("6")]
+    [InlineData("20")]
+    [InlineData("22")]
+    public void Load_PaymentVerification_NeverBelowTheLastCheckout(string raw)
+    {
+        // T2 (spec 4.5 says 6 hours) may not fail an order whose checkout can still take the money:
+        // checkouts open until 20 hours after paymentSubmittedAt and the last stays payable 2h10m more.
+        var timings = Load(new Dictionary<string, string> { { Path + OrderTimings.Names.PaymentVerification, raw } });
+
+        OrderTimings.PaymentVerificationFloor.Should().Be(TimeSpan.FromHours(22) + TimeSpan.FromMinutes(10));
+        timings.PaymentVerification.Should().Be(OrderTimings.PaymentVerificationFloor);
+        _log.Should().ContainSingle(l => l.Contains(OrderTimings.ClampedToken))
+            .Which.Should().Contain($"payment-verification-hours value={raw}h floor=22.17h");
+    }
+
+    [Theory]
+    [InlineData("23", 23)]
+    [InlineData("24", 24)]
+    [InlineData("48", 48)]
+    public void Load_PaymentVerification_AtOrAboveTheFloor_IsTaken(string raw, double hours)
+    {
+        var timings = Load(new Dictionary<string, string> { { Path + OrderTimings.Names.PaymentVerification, raw } });
+
+        timings.PaymentVerification.Should().Be(TimeSpan.FromHours(hours));
+        _log.Should().NotContain(l => l.Contains(OrderTimings.ClampedToken));
+    }
+
+    [Fact]
+    public void Defaults_PaymentVerification_IsAboveTheFloor()
+        => OrderTimings.Defaults.PaymentVerification.Should().BeGreaterThan(OrderTimings.PaymentVerificationFloor);
 
     [Fact]
     public void Load_PathWithoutTrailingSlash_IsTheSamePath()

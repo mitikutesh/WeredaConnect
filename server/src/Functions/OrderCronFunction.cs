@@ -19,7 +19,8 @@ namespace WeredaConnect.Server.Functions;
 ///     stamp the reminder and pickup-overdue markers the notification layer reads. ESC-16: the due
 ///     orders come from the sparse DeadlineIndex (<see cref="OrderDeadlines"/>), not from walking
 ///     the status partitions. Then close the open trips that left with no booking and no live
-///     order (ESC-17: cancelled, cancelReason expired)
+///     order (ESC-17: cancelled, cancelReason expired); once a day per container, a repair pass
+///     (below) too
 ///   - deadline_repair (daily, ESC-16): stamp the next deadline on paid orders that lack it or
 ///     carry a wrong one (orders from before ESC-16, or a stamp that failed); decides nothing
 ///   - relationship_patterns (hourly, FRD-15): flag self-trading, shared devices and repeated
@@ -139,6 +140,9 @@ public partial class OrderCronFunction
                 new UserRepository(dynamoDb, usersTable),
                 new FraudDetectionService(dynamoDb, cropsTable ?? "", fraudSignalsTable, new RateLimitRepository(dynamoDb, "")));
         }
+
+        // ESC-16: commitment_deadlines repairs the order deadlines itself once a day per container.
+        AutoRepair = DeadlineRepairMarker.Process;
     }
 
     /// <summary>
@@ -492,6 +496,10 @@ public partial class OrderCronFunction
         /// <summary>ESC-16: why the sweep stopped before the index ran out (<c>time</c>, <c>lambda</c>, <c>pages</c>), or null.</summary>
         public string? StopReason;
 
+        /// <summary>ESC-16: rows read and deadlines stamped by this run's repair pass (<see cref="RunAutoRepairAsync"/>); 0 when none ran.</summary>
+        public int RepairRead;
+        public int RepairStamped;
+
         public Dictionary<string, string> Summary(string outcome) => new()
         {
             { "action", CommitmentsAction },
@@ -513,6 +521,8 @@ public partial class OrderCronFunction
             { "retried", Retried.ToString() },
             { "rowErrors", RowErrors.ToString() },
             { "stopReason", StopReason ?? "" },
+            { "repairRead", RepairRead.ToString() },
+            { "repairStamped", RepairStamped.ToString() },
             { "completedAt", NowIso }
         };
     }
@@ -587,6 +597,7 @@ public partial class OrderCronFunction
 
         await SweepDueDeadlinesAsync(run, _escrowService, _cropRepo, _tripRepo);
         await CloseDepartedTripsAsync(run, _tripRepo);
+        await RunAutoRepairAsync(run);
 
         context.Logger.LogInformation(
             $"Commitment deadlines complete: {run.Due} due orders read, "
@@ -595,7 +606,8 @@ public partial class OrderCronFunction
             + $"{run.FarmerReminders}/{run.TruckerReminders}/{run.BuyerReminders} reminders stamped, "
             + $"{run.PickupOverdue} pickups overdue, {run.Conflicts} conflicts, {run.TripReads} trip reads, "
             + $"{run.Restamped} deadlines corrected, {run.Retried} retried later, {run.RowErrors} row errors, "
-            + $"{run.DepartedTripsClosed} departed trips closed, {run.DepartedTripsKept} departed trips kept"
+            + $"{run.DepartedTripsClosed} departed trips closed, {run.DepartedTripsKept} departed trips kept, "
+            + $"{run.RepairStamped} deadlines repaired"
             + (run.StopReason != null ? $", the deadline sweep stopped early ({run.StopReason})." : "."));
 
         return JsonResponse(run.Summary(run.StopReason == null ? "ok" : "partial"));

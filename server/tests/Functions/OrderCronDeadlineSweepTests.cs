@@ -75,18 +75,20 @@ public class OrderCronDeadlineSweepTests
 
     // ===== fixture =====
 
-    private OrderCronFunction Sut(bool enabled = true)
+    private OrderCronFunction Sut(bool enabled = true, DeadlineRepairMarker? marker = null)
         => new(_orders, _txAudit, inboxRepo: null,
             escrowService: new EscrowService(_escrows, _escrowAudit, idempotencyRepo: null, telebirrGateway: null,
                 orderRepo: _orders, deliveryRepo: _deliveries),
             cropRepo: _crops, tripRepo: _trips, deliveryRepo: _deliveries)
         {
             CommitmentsEnabled = enabled,
-            BudgetFactory = () => new CronRunBudget(() => _elapsed)
+            BudgetFactory = () => new CronRunBudget(() => _elapsed),
+            AutoRepair = marker
         };
 
-    private Task<APIGatewayProxyResponse> RunAsync(string action = "commitment_deadlines", bool enabled = true)
-        => Sut(enabled).FunctionHandler(
+    private Task<APIGatewayProxyResponse> RunAsync(
+        string action = "commitment_deadlines", bool enabled = true, DeadlineRepairMarker? marker = null)
+        => Sut(enabled, marker).FunctionHandler(
             new APIGatewayProxyRequest { HttpMethod = "POST", Body = $"{{\"action\":\"{action}\"}}" }, _context);
 
     private string Logs => ((TestLambdaLogger)_context.Logger).Buffer.ToString();
@@ -514,6 +516,99 @@ public class OrderCronDeadlineSweepTests
         Assert.Contains("\"stopReason\":\"time\"", actual.Body);
         Assert.Contains("\"read\":\"0\"", actual.Body);
         Assert.Empty(_deadlineWrites);
+    }
+
+    // ===== the automatic repair pass of commitment_deadlines =====
+
+    [Fact]
+    public async Task AutoRepair_TheFirstRunOfAContainer_StampsTheOrdersInFlight_ThenNotAgainForADay()
+    {
+        // A deploy starts new containers: the first run stamps an order in flight that has no deadline.
+        var marker = new DeadlineRepairMarker();
+        var legacy = FarmerExpired("ord-legacy");
+        _orders.QueryByStatusForCronAsync("funded", null).Returns(new List<Dictionary<string, object>> { legacy });
+
+        var first = await RunAsync(marker: marker);
+
+        Assert.Contains("\"outcome\":\"ok\"", first.Body);
+        Assert.Contains("\"repairStamped\":\"1\"", first.Body);
+        var write = Assert.Single(_deadlineWrites);
+        Assert.Equal(("ord-legacy", OrderDeadlines.Next(legacy)), (write.OrderId, write.Deadline));
+        Assert.NotNull(marker.LastCompletedAt);
+        // It only stamps: the expired window is the next sweep's.
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+
+        _orders.ClearReceivedCalls();
+        var second = await RunAsync(marker: marker);
+
+        Assert.Contains("\"repairRead\":\"0\"", second.Body);
+        await _orders.DidNotReceive().QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task AutoRepair_ADayAfterTheLastPass_RunsAgain()
+    {
+        var marker = new DeadlineRepairMarker();
+        marker.Completed(DateTime.UtcNow - OrderCronFunction.AutoRepairEvery - TimeSpan.FromMinutes(1));
+
+        await RunAsync(marker: marker);
+
+        await _orders.Received(1).QueryByStatusForCronAsync("funded", null);
+        Assert.True(marker.LastCompletedAt > DateTime.UtcNow.AddMinutes(-1));
+    }
+
+    [Fact]
+    public async Task AutoRepair_StoppedByItsShare_IsNotRecorded_SoTheNextRunGoesOn()
+    {
+        var marker = new DeadlineRepairMarker();
+        _orders.QueryByStatusForCronAsync("funded", null).Returns(new List<Dictionary<string, object>> { FarmerExpired("ord-legacy") });
+        // Inside the sweep's share, at the end of the repair's.
+        _elapsed = OrderCronFunction.AutoRepairTime;
+
+        var actual = await RunAsync(marker: marker);
+
+        Assert.Contains("\"outcome\":\"ok\"", actual.Body);
+        Assert.Contains("\"repairRead\":\"0\"", actual.Body);
+        Assert.Empty(_deadlineWrites);
+        Assert.Null(marker.LastCompletedAt);
+    }
+
+    [Fact]
+    public async Task AutoRepair_AFailedRead_IsLogged_AndTheRunStillAnswers()
+    {
+        var marker = new DeadlineRepairMarker();
+        _orders.QueryByStatusForCronAsync("funded", null).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var actual = await RunAsync(marker: marker);
+
+        Assert.Equal(200, actual.StatusCode);
+        Assert.Contains("\"outcome\":\"ok\"", actual.Body);
+        Assert.Contains($"{OrderCronFunction.AutoRepairFailedToken} reason=[AmazonDynamoDBException]", Logs);
+        Assert.Null(marker.LastCompletedAt);
+    }
+
+    [Fact]
+    public async Task AutoRepair_FlagOff_NothingIsRead()
+    {
+        var marker = new DeadlineRepairMarker();
+
+        await RunAsync(enabled: false, marker: marker);
+
+        await _orders.DidNotReceive().QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>());
+        Assert.Null(marker.LastCompletedAt);
+    }
+
+    [Fact]
+    public async Task Repair_ACompleteDailyPass_CountsForTheAutomaticOne()
+    {
+        var marker = new DeadlineRepairMarker();
+
+        await RunAsync("deadline_repair", marker: marker);
+        _orders.ClearReceivedCalls();
+        await RunAsync(marker: marker);
+
+        Assert.NotNull(marker.LastCompletedAt);
+        await _orders.DidNotReceive().QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>());
     }
 
     [Fact]

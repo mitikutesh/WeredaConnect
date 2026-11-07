@@ -536,6 +536,7 @@ public class EscrowCronFunction
             { "orderMoneyMismatches", orders.Mismatches.ToString() },
             { "orderMoneyFailed", orders.Failed.ToString() },
             { "ordersWithoutEscrow", orders.WithoutEscrow.ToString() },
+            { "deliveryStampsRepaired", orders.DeliveryStamps.ToString() },
             { "completedAt", DateTime.UtcNow.ToString("o") }
         };
 
@@ -1860,6 +1861,9 @@ public class EscrowCronFunction
         public int Mismatches { get; set; }
         public int Failed { get; set; }
         public int WithoutEscrow { get; set; }
+
+        /// <summary>ESC-16: delivered orders whose escrow got its missing delivery stamp this run.</summary>
+        public int DeliveryStamps { get; set; }
     }
 
     /// <summary>
@@ -1956,6 +1960,14 @@ public class EscrowCronFunction
                             case OrderMoneySweepOutcome.NoEscrow:
                                 counts.WithoutEscrow++;
                                 break;
+                            case OrderMoneySweepOutcome.Waiting when status == "delivered":
+                                // ESC-16: the money has not moved; make sure the auto-release can see the delivery.
+                                if (await StampDeliveredOrderEscrowAsync(order, context))
+                                {
+                                    counts.DeliveryStamps++;
+                                }
+
+                                break;
                         }
                     }
                     catch (Exception ex)
@@ -1991,6 +2003,57 @@ public class EscrowCronFunction
         }
 
         return counts;
+    }
+
+    /// <summary>
+    /// ESC-16: a <c>delivered</c> order whose escrow still waits (<c>escrowed</c>) without
+    /// <c>deliveryConfirmedAt</c>: the sync's inline stamp at the buyer's confirmation failed
+    /// (<c>ESCROW_DELIVERY_STAMP_FAILED</c>). The auto-release only pays a stamped escrow, and with the
+    /// commitments on the refund sweep holds a live order escrow to its 21 day cap, so nothing else
+    /// would look at it before then. When its delivery is <c>delivered</c>, stamp it now, as the refund
+    /// sweep's safety net does (<see cref="StampIfDeliveredAsync"/>): the farmer is paid after the dispute
+    /// window and any payout delay. The order-money sweep reads every <c>delivered</c> order each run
+    /// until its money moves, so a failed stamp is retried. True when the escrow was stamped.
+    /// </summary>
+    private async Task<bool> StampDeliveredOrderEscrowAsync(Dictionary<string, object> order, ILambdaContext context)
+    {
+        var orderId = GetString(order, "orderId");
+        if (_deliveryRepo == null || orderId.Length == 0)
+        {
+            return false;
+        }
+
+        var escrow = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true);
+        if (escrow == null
+            || GetString(escrow, "status") != "escrowed"
+            || !string.IsNullOrEmpty(GetStringOrNull(escrow, "deliveryConfirmedAt")))
+        {
+            return false;
+        }
+
+        var deliveryId = GetStringOrNull(escrow, "deliveryId") is { Length: > 0 } linked
+            ? linked
+            : GetStringOrNull(order, "activeDeliveryId");
+        if (string.IsNullOrEmpty(deliveryId))
+        {
+            return false;
+        }
+
+        var delivery = await _deliveryRepo.GetByIdAsync(deliveryId);
+        if (delivery == null || GetStringOrNull(delivery, "status") != "delivered")
+        {
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(GetStringOrNull(escrow, "deliveryId")))
+        {
+            // StampIfDeliveredAsync names the escrow's own delivery in its log line.
+            escrow["deliveryId"] = deliveryId;
+        }
+
+        await StampIfDeliveredAsync(escrow, delivery, context);
+        var stamped = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true);
+        return stamped != null && !string.IsNullOrEmpty(GetStringOrNull(stamped, "deliveryConfirmedAt"));
     }
 
     /// <summary>The saved cursor: the cycle's start, the partition and the key of the last order decided.</summary>
@@ -3068,8 +3131,9 @@ public class EscrowCronFunction
         catch (Exception ex)
         {
             context.Logger.LogError(
-                $"Escrow {MoneyAlarmLog.LogId(escrowId)}: failed to stamp a delivered-but-unstamped escrow: [{ex.GetType().Name}]. "
-                + "Skipping refund anyway to avoid refunding a delivered order.");
+                $"{MoneyAlarmLog.EscrowDeliveryStampFailedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} "
+                + $"deliveryId={MoneyAlarmLog.LogId(deliveryId)} source=escrow-cron reason=[{ex.GetType().Name}]: "
+                + "failed to stamp a delivered-but-unstamped escrow; no refund (the order was delivered), the next run retries.");
         }
         return true; // delivery was confirmed → never refund
     }
