@@ -450,14 +450,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .count();
       final total = deliveries + payments;
       // ETB currently locked in escrow on this user's orders, scoped to the
-      // role's own id field (mirrors the web path's idParam scoping).
-      final base = isar.orders.filter();
+      // role's own id field (mirrors the web path's idParam scoping). Each id
+      // field is indexed (truckerId since ESC-22), so this reads only the
+      // user's own orders.
+      final base = isar.orders.where();
       final scoped = switch (role) {
         UserRole.farmer => base.farmerIdEqualTo(userId),
         UserRole.buyer => base.buyerIdEqualTo(userId),
         UserRole.trucker => base.truckerIdEqualTo(userId),
       };
       final escrowOrders = await scoped
+          .filter()
           .anyOf<OrderStatus, QAfterFilterCondition>(
             escrowHeldOrderStatuses,
             (q, s) => q.statusEqualTo(s),

@@ -1465,9 +1465,11 @@ class _OverviewStatsState extends State<_OverviewStats> {
               .truckerIdEqualTo(userId)
               .statusEqualTo(TripStatus.matched)
               .count();
+          // ESC-22: through the truckerId index, not a scan of every order.
           final held = await isar.orders
-              .filter()
+              .where()
               .truckerIdEqualTo(userId)
+              .filter()
               .anyOf<OrderStatus, QAfterFilterCondition>(
                 escrowHeldOrderStatuses,
                 (q, s) => q.statusEqualTo(s),

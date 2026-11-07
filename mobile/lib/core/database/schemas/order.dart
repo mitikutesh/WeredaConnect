@@ -69,7 +69,10 @@ class Order {
   @Index()
   String? tripId;
 
-  /// Trucker assigned for delivery
+  /// Trucker assigned for delivery. Indexed (ESC-22) so the trucker's order
+  /// reads (`where().truckerIdEqualTo`) skip everyone else's orders. Isar
+  /// builds a new index over the stored rows when the app next opens the db.
+  @Index()
   String? truckerId;
 
   /// Trucker's display name
