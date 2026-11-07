@@ -155,6 +155,8 @@ class WebTripListingRepository extends BaseTripListingRepository {
     required String tripId,
     required String truckerId,
   }) async {
+    // ESC-17 (trip-listing-api.md 2.4.0): the one cancel path, an update to
+    // `cancelled`; mobile queues the same operation.
     // The server applies a status transition only when the payload's `version`
     // matches the version it currently holds (optimistic concurrency,
     // sync-protocol.md). Web keeps no local copy, so read the current version

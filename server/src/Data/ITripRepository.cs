@@ -97,6 +97,36 @@ public interface ITripRepository
     /// <param name="tripCreatedAt">The trip's sort key, from <see cref="GetRawItemAsync"/>.</param>
     /// <param name="nowIso">The <c>updatedAt</c> the write stamps (ISO-8601 UTC).</param>
     TransactWriteItem BuildConfirmBookingItem(string tripId, string tripCreatedAt, string orderId, string nowIso);
+
+    /// <summary>
+    /// ESC-17: <c>open</c> trips whose <c>departureDate</c> is before <paramref name="departedBeforeIso"/>
+    /// (the start of today in Ethiopia, <see cref="Helpers.TripDeparture.CutoffIso"/>), newest first
+    /// (the trips that just crossed the cutoff; the ones kept open after they left collect at the old
+    /// end), from the StatusDepartureDateIndex with the cutoff in the key condition (no Scan). Deleted
+    /// rows are filtered out. Raw rows, so the caller sees the booking sets, the sort key and the version.
+    /// </summary>
+    Task<(List<Dictionary<string, AttributeValue>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDepartedOpenAsync(
+        string departedBeforeIso,
+        int limit,
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null);
+
+    /// <summary>
+    /// ESC-17: close a trip that left unbooked: <c>cancelled</c> with <c>cancelReason: expired</c> and
+    /// <c>cancelledAt</c>, <c>version</c> + 1. One write conditioned on the version read, on the trip
+    /// still being <c>open</c>, not deleted, departing before <paramref name="departedBeforeIso"/>, and
+    /// holding no booking (no <c>bookedOrderIds</c>, <c>bookedQuintals</c> absent or 0): a reservation
+    /// landing after the read (booking writes never bump the version) refuses it. False when the
+    /// condition failed.
+    /// </summary>
+    Task<bool> TryExpireUnbookedAsync(
+        string tripId, string createdAt, int expectedVersion, string departedBeforeIso, string nowIso);
+
+    /// <summary>
+    /// ESC-17: <c>inTransit</c> to <c>delivered</c> once all the trip's deliveries are done or
+    /// cancelled, <c>version</c> + 1. Conditioned on the version read, on <c>inTransit</c> and on the
+    /// trip not being deleted. False when the condition failed (the trucker marked it, or it changed).
+    /// </summary>
+    Task<bool> TryMarkDeliveredAsync(string tripId, string createdAt, int expectedVersion, string nowIso);
 }
 
 /// <summary>

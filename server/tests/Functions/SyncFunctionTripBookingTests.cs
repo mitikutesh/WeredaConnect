@@ -357,6 +357,35 @@ public class SyncFunctionTripBookingTests
         _advanced.Should().ContainSingle(a => a.OrderId == "order-trucker-asked" && a.To == OrderCommitment.AwaitingTransportStatus);
     }
 
+    [Fact]
+    public async Task TripCancel_TheUpdateTheAppsSend_AndTheLegacyDelete_BothCancelAtTheVersionRead()
+    {
+        // ESC-17: mobile and web send an update to cancelled (trip-listing-api 2.4.0); builds before it
+        // queued a delete, which stays a cancel (with deletedAt) for the operations still in the field.
+        _ordersOnTrip.Add(Order("order-trucker-asked", "funded", farmer: "accepted", trucker: "pending"));
+
+        var update = await UpdateTripAsync(new Dictionary<string, object> { { "status", "cancelled" }, { "version", 3 } });
+        var updateWrite = _tripWrite!;
+        _tripWrite = null;
+        var delete = await DeleteTripAsync();
+        var deleteWrite = _tripWrite!;
+
+        update.GetProperty("status").GetString().Should().Be("success");
+        update.GetProperty("serverVersion").GetInt32().Should().Be(4);
+        updateWrite.ConditionExpression.Should().Be("#v = :expectedVersion");
+        updateWrite.ExpressionAttributeValues[":expectedVersion"].N.Should().Be("3");
+        updateWrite.ExpressionAttributeValues.Values.Should().Contain(v => v.S == "cancelled");
+        updateWrite.ExpressionAttributeNames.Values.Should().NotContain("deletedAt");
+
+        delete.GetProperty("status").GetString().Should().Be("success");
+        deleteWrite.ExpressionAttributeValues[":status"].S.Should().Be("cancelled");
+        deleteWrite.ExpressionAttributeNames.Values.Should().Contain("deletedAt");
+        deleteWrite.ExpressionAttributeValues[":expectedVersion"].N.Should().Be("3");
+
+        // Both cascade the same way.
+        _advanced.Where(a => a.OrderId == "order-trucker-asked").Should().HaveCount(2);
+    }
+
     // ===== an order create respects the trip =====
 
     [Fact]

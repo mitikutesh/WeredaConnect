@@ -3269,28 +3269,34 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "trip", authenticatedUserId, context);
                     }
 
-                    // H3: Block updates to terminal-state or deleted trips
+                    // H3: Block updates to terminal-state or deleted trips. ESC-17: a client that
+                    // asks for what already holds, or is behind the stored version (the server
+                    // closed or completed the trip meanwhile), gets the stored row as a conflict.
                     var currentStatus = existing.TryGetValue("status", out var existingStatusAttr)
                         ? existingStatusAttr.S : "open";
+                    var requestedTripStatus = operation.Data.TryGetValue("status", out var requestedStatusObj)
+                        ? requestedStatusObj?.ToString() : null;
                     if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
                         && !string.IsNullOrEmpty(deletedAtAttr.S))
                     {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "TRIP_ALREADY_CANCELLED: Cannot update a deleted trip."
-                        };
+                        return TerminalTripConflict(operation, existing, requestedTripStatus)
+                            ?? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "TRIP_ALREADY_CANCELLED: Cannot update a deleted trip."
+                            };
                     }
                     // F-SEC-06: Block updates to both cancelled and delivered (terminal states)
                     if (currentStatus is "cancelled" or "delivered")
                     {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "TRIP_TERMINAL_STATE: Cannot update a terminal-state trip."
-                        };
+                        return TerminalTripConflict(operation, existing, requestedTripStatus)
+                            ?? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "TRIP_TERMINAL_STATE: Cannot update a terminal-state trip."
+                            };
                     }
 
                     // C3: Field whitelist — reject unknown fields
@@ -3553,26 +3559,30 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "trip", authenticatedUserId, context);
                     }
 
-                    // H3: Block deletion of terminal-state or deleted trips
+                    // H3: Block deletion of terminal-state or deleted trips. ESC-17: the delete of
+                    // builds before the single cancel path is a cancel, so a trip already cancelled
+                    // (or a stale version) answers the stored row as a conflict, like the update.
                     if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
                         && !string.IsNullOrEmpty(deletedAtAttr.S))
                     {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "TRIP_ALREADY_CANCELLED: Trip is already deleted."
-                        };
+                        return TerminalTripConflict(operation, existing, "cancelled")
+                            ?? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "TRIP_ALREADY_CANCELLED: Trip is already deleted."
+                            };
                     }
                     if (existing.TryGetValue("status", out var existingStatusAttr)
                         && existingStatusAttr.S is "cancelled" or "delivered")
                     {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "TRIP_TERMINAL_STATE: Cannot delete a terminal-state trip."
-                        };
+                        return TerminalTripConflict(operation, existing, "cancelled")
+                            ?? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "TRIP_TERMINAL_STATE: Cannot delete a terminal-state trip."
+                            };
                     }
 
                     // ESC-17: a delete is a cancel; crops already on the road block it, and the
@@ -5826,6 +5836,14 @@ public partial class SyncFunction
                         await TryRecordDeliveryPatternSignalsAsync(
                             operation, existing, response.Attributes, freeze, authenticatedUserId, context);
 
+                        // ESC-17: the last delivery done (delivered or disputed) finishes its trip.
+                        if (operation.Data != null
+                            && operation.Data.TryGetValue("status", out var tripFollowStatusObj)
+                            && tripFollowStatusObj?.ToString() is string tripFollowStatus)
+                        {
+                            await TryCompleteTripAsync(existing, operation.EntityId, tripFollowStatus, context);
+                        }
+
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -6017,6 +6035,9 @@ public partial class SyncFunction
                     + $"deliveryId={MoneyAlarmLog.LogId(operation.EntityId)}: [{ex.GetType().Name}]");
             }
         }
+
+        // ESC-17: the cancel may close the last open delivery of a trip already on the road.
+        await TryCompleteTripAsync(existing, operation.EntityId, "cancelled", context);
 
         return new SyncOperationResult
         {

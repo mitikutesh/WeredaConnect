@@ -2165,8 +2165,10 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
-    public async Task TripDelete_AlreadyCancelled_ReturnsError()
+    public async Task TripDelete_AlreadyCancelled_AnswersTheStoredRowAsAConflict()
     {
+        // ESC-17: a delete is a cancel and the trip is already cancelled, so the client takes the
+        // server's row instead of retrying an error.
         SetupExistingTrip("trip-001", "trucker-001", "cancelled", 2);
 
         var deleteOp = new SyncOperationRequest
@@ -2182,8 +2184,9 @@ public partial class SyncFunctionTests
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        Assert.Contains("error", response.Body);
-        Assert.Contains("TRIP_TERMINAL_STATE", response.Body);
+        Assert.Contains("\"status\":\"conflict\"", response.Body);
+        Assert.Contains("TRIP_ALREADY_CANCELLED", response.Body);
+        await _mockDynamoDb.DidNotReceiveWithAnyArgs().UpdateItemAsync(default(UpdateItemRequest)!);
     }
 
     // ===== Per-User Rate Limiting Tests (F-11 Finding 3) =====

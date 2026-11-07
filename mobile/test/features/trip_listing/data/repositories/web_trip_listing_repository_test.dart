@@ -386,6 +386,69 @@ void main() {
       expect(trip.status, TripStatus.matched);
       expect(tripReads, 2);
     });
+
+    // ESC-17 (trip-listing-api.md 2.4.0): the one cancel path. Mobile queues
+    // the same operation: an update to cancelled at the version the server
+    // holds, never a delete.
+    test('cancel sends an update to cancelled at the version read', () async {
+      answerSync({'status': 'success', 'serverVersion': 3});
+
+      await repository.cancelTrip(tripId: 'trip-1', truckerId: 'trucker-1');
+
+      final body = verify(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: captureAny<dynamic>(named: 'data'),
+        ),
+      ).captured.single as Map<String, dynamic>;
+      final op = (body['operations'] as List).single as Map<String, dynamic>;
+      expect(op['entityType'], 'trip');
+      expect(op['entityId'], 'trip-1');
+      expect(op['action'], 'update');
+      final data = op['data'] as Map<String, dynamic>;
+      expect(data['status'], 'cancelled');
+      expect(data['version'], 2);
+    });
+
+    // ESC-15: like mobile, web starts a partly booked open trip; it has no
+    // local status gate and leaves `open -> inTransit` to the server, which
+    // allows it when the trip has bookings.
+    test('start of an open trip with bookings sends inTransit', () async {
+      when(() => api.get<Map<String, dynamic>>('/trips/trip-1')).thenAnswer(
+        (_) async => {
+          'trip': {
+            'tripId': 'trip-1',
+            'truckerId': 'trucker-1',
+            'fromWoreda': 'Adama',
+            'toWoreda': 'Bishoftu',
+            'departureDate': '2026-07-13T00:00:00.000Z',
+            'capacity': 50,
+            'pricePerQuintal': 200,
+            'status': 'open',
+            'bookedQuintals': 20,
+            'remainingQuintals': 30,
+            'createdAt': '2026-07-11T00:00:00.000Z',
+            'updatedAt': '2026-07-11T00:00:00.000Z',
+            'version': 2,
+          },
+        },
+      );
+      answerSync({'status': 'success', 'serverVersion': 3});
+
+      await repository.startTrip(tripId: 'trip-1', truckerId: 'trucker-1');
+
+      final body = verify(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: captureAny<dynamic>(named: 'data'),
+        ),
+      ).captured.single as Map<String, dynamic>;
+      final op = (body['operations'] as List).single as Map<String, dynamic>;
+      expect(op['action'], 'update');
+      final data = op['data'] as Map<String, dynamic>;
+      expect(data['status'], 'inTransit');
+      expect(data['version'], 2);
+    });
   });
 
   // ESC-12 part B (sync-protocol.md 1.17.0): web has no queue, so a refusal

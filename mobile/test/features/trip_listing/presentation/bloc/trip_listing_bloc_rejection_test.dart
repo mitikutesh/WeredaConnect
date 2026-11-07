@@ -236,7 +236,8 @@ void main() {
           },
         );
 
-        await serverRefuses('delete', message);
+        // ESC-17: the cancel is queued as an update to cancelled.
+        await serverRefuses('update', message);
 
         final trips = await reload();
         expect(trips.single.status, TripStatus.open);
