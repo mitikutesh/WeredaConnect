@@ -914,13 +914,24 @@ is nothing for the user to do (an exception to invariant 1's "tells the user why
 **Client handling (1.39.0).**
 
 - Mobile queues the photo right behind its handoff (the pickup or delivery confirm) with the
-  file's path in `data.localPath`. When a batch is built, a preflight uploads the file and replaces
-  the payload with `{"photoRef": key}`, in the batch and in the stored operation, so a later run
-  sends the key without uploading again. Offline, a failed `PUT`, or a presign answered `401`,
-  `404` or `5xx` holds only the photo until the next run, without using a retry; a presign
-  answered `400`, `403` or `409`, or a file that is gone, sends the operation without a key so the
-  server refuses it for good (`DELIVERY_PHOTO_INVALID`). A delivery pull keeps the phone's own
-  photo path while the server has no photo of that type.
+  file's path in `data._localPath` (a `_` key: never sent). When a batch is built, a preflight
+  uploads the file and stores `{"photoRef": key, "_localPath": path}` in the batch and in the
+  queued operation, so a later run sends the key without uploading again.
+- Every wait is bounded. Offline, a `PUT` that did not reach S3 or got a `5xx`, or a presign
+  answered `401` or `5xx` holds only the photo until the next run, without using a retry. A
+  presign answered `404` (the delivery is unknown) holds it while an operation of the delivery
+  itself (its create) still waits on the phone, and for 10 minutes after the photo was queued;
+  after that the photo is given up. A presign answered `400`, `403` or `409` (over the cap, not
+  this user's photo, the handoff has its photo, or since this version a cancelled delivery,
+  `409 DELIVERY_PHOTO_REFUSED`), a file that is gone, and the third `PUT` refused with a `4xx`
+  also give it up. A photo given up is sent without a key, so the server refuses it for good
+  (`DELIVERY_PHOTO_INVALID`) and the queue settles it.
+- A `delivery` operation rejected for good rejects the photos waiting behind it: a create both,
+  a `pickedUp` the pickup photo, a `delivered` the drop-off photo (they could only wait for a
+  delivery or a handoff the server never took).
+- After a `success` (or `duplicate`) the phone's photo files of that handoff are deleted and the
+  delivery row takes the server's key. Until then a delivery pull or a delivery conflict keeps
+  the phone's own photo path while the server has no photo of that type.
 - Web has no queue: the browser uploads the photo when it is taken and sends the
   `delivery_photo` operation on its own `/sync` call after the handoff succeeded; any refusal is
   logged and the handoff stands.
@@ -931,7 +942,7 @@ is nothing for the user to do (an exception to invariant 1's "tells the user why
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.39.0 | 2026-11-07 | Handoff photos (FRD-12, `delivery-verification-api.md` 1.25.0): new create-only entity `delivery_photo` (`{deliveryId}#{pickup\|dropoff}`, `{photoRef}`), sent by the photo's taker only, attaching an uploaded photo without moving the delivery's version; `DELIVERY_PHOTO_INVALID`, `_FORBIDDEN`, `_REFUSED`, `_EXISTS`, `_MISSING` and `_TOO_LARGE` are permanent, not reverted, not announced and not counted as failures; `DELIVERY_PHOTO_PENDING` answers `deferred`; a photo ref in a `delivery` op is shape-checked but no longer written. Mobile uploads the photo in a batch preflight and stores the key in the operation; web uploads at capture and attaches after the confirm |
+| 1.39.0 | 2026-11-07 | Handoff photos (FRD-12, `delivery-verification-api.md` 1.25.0): new create-only entity `delivery_photo` (`{deliveryId}#{pickup\|dropoff}`, `{photoRef}`), sent by the photo's taker only, attaching an uploaded photo without moving the delivery's version; `DELIVERY_PHOTO_INVALID`, `_FORBIDDEN`, `_REFUSED`, `_EXISTS`, `_MISSING` and `_TOO_LARGE` are permanent, not reverted, not announced and not counted as failures; `DELIVERY_PHOTO_PENDING` answers `deferred`; a photo ref in a `delivery` op is shape-checked but no longer written. Mobile uploads the photo in a batch preflight and stores the key in the operation; every wait is bounded (a presign `404` only while the delivery's own create waits on the phone and 10 minutes, the third refused `PUT`), a refused delivery create, pickup or delivery confirm rejects its waiting photo, and an attached photo's files are deleted; web uploads at capture and attaches after the confirm |
 | 1.38.0 | 2026-11-06 | Idempotency and races (SIM-28): the server stores a payload fingerprint with each idempotency key (SHA-256 of a canonical JSON of `entityType`, `entityId`, `action`, `clientVersion` and `data`; keys sorted, numbers by value; `operationId` and `timestamp` left out) in the new `payloadFingerprint` attribute; a key sent again with a different payload answers `error` `SYNC_VALIDATION: idempotency key already used for a different operation payload; ...` instead of `duplicate`, nothing processed or stored; records from before keep answering `duplicate`. A status change that is not a valid transition from the stored status and carries a version behind the stored one answers `conflict` with the row (to a caller who may ask for that status, `order-lifecycle.md` 2.6.0) instead of `ORDER_VALIDATION: Invalid status transition`, `DELIVERY_INVALID_TRANSITION`, `TRIP_INVALID_TRANSITION` or `CROP_INVALID_TRANSITION`; at the current version the error stands. No client change: `SYNC_VALIDATION` is already permanent and `conflict` already resolved server-wins (mobile) or a failure (web) |
 | 1.37.0 | 2026-11-06 | Typed `serverData` (SIM-25): `success` and `conflict` rows carry numbers as JSON numbers (`version`, quantities, prices, money fields, coordinates, `stars`) and a trip's `matchedListings` as an array, the types GET returns for the same row; before, every number was a string and `matchedListings` the text `"[]"`. Other values keep their type. The mobile conflict resolver already read these as numbers and a list, so its crop, trip and order conflicts failed on the string shape and are now applied server-wins; it also no longer requires `totalPrice` on an order row (the server never stores it): the local total is kept, a new row starts at 0 as the order pull does. Web reads only `status` from a row. No new code |
 | 1.36.0 | 2026-11-06 | Drop-off landmark (LT-12, `order-lifecycle.md` 2.5.0): `dropoffNote` is a new order field on create and on the buyer's update until pickup; new permanent `ORDER_CONTACT_IN_TEXT` (a phone number in it) and `ORDER_DROPOFF_NOTE_LOCKED` (a change after pickup), both under the `ORDER_*` rule clients already apply (1.10.0), now with their own text in en, am and om (`errorContactInText`, `errorDropoffNoteLocked`); an order row in `serverData` leaves the note out for a caller who may not read it. Older clients revert and show the generic order refusal |
