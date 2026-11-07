@@ -315,7 +315,7 @@
     "result_approve": "Mallattoon fudhatameera. Kana booda qabxii balaa fayyadamaa kanaa keessatti hin lakkaa'amu.",
     "result_reject": "Mallattoon didameera. Fayyadamaan {userId} dhaabbateera (gowwoomsaan mirkanaa'eera).",
     "result_sessionsNotEnded": "Tajaajilli seensaa hin haaromne, kanaaf fayyadamaan hanga yeroon seensa isaa dhumutti seenee turuu danda'a.",
-    "result_whitelist": "Mallattoon galmee adii keessa galeera. Mallattoon kun kana booda hin lakkaa'amu, mallattooleen salphaa (GPS fi gatii) fayyadamaa kanaas hanga {date} tti hin lakkaa'aman.",
+    "result_whitelist": "Mallattoon galmee adii keessa galeera. Mallattoon kun kana booda hin lakkaa'amu, mallattooleen salphaa fayyadamaa kanaas hanga {date} tti hin lakkaa'aman.",
     "openEscrows": "Eeskiroo banaa (ilaaluuf qofa)",
     "openEscrowsHint": "Amma homtuu hin qabamne. Adeemsi xumura kaffaltii itti aanu eeskiroo kana tokkoon tokkoon yeroo isaa ga'utti ni qabata.",
     "noOpenEscrows": "Fayyadamaan kun eeskiroo banaa hin qabu.",

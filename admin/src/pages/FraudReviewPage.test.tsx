@@ -248,9 +248,33 @@ describe("FraudReviewPage signals", () => {
     const until = "2026-11-22T10:00:00.0000000Z";
     succeedWith({ resolution: "whitelist", userId: "farmer-1", whitelistUntil: until });
     expect(screen.getByRole("status").textContent).toBe(
-      "Signal whitelisted. This signal no longer counts, and this user's soft signals (GPS and price) " +
+      "Signal whitelisted. This signal no longer counts, and this user's soft signals " +
         `do not count until ${formatDateTime(until)}.`,
     );
+  });
+
+  it("whitelist: offered on every soft type of the catalogue, never on a hard one (spec section 15)", () => {
+    const soft = [
+      "GPS_ANOMALY", "PRICE_ANOMALY", "QR_HANDOFF_FAILURE", "TELEBIRR_PAYER_MISMATCH", "TELEBIRR_PAYER_REFUSED",
+      "STALE_VERSION_BURST", "SUSPENDED_TOKEN_USE", "GPS_JUMP", "GPS_MOCKED", "AMOUNT_ANOMALY",
+      "NEW_ACCOUNT_LARGE_AMOUNT", "CANCEL_AFTER_FUND_RATE", "DISPUTE_RATE", "IMPOSSIBLE_DELIVERY_TIME",
+      "SHARED_DEVICE_TRADE", "REPEATED_PAIR",
+    ];
+    const hard = [
+      "FRAUD_DUPLICATE_LISTING", "FRAUD_VELOCITY_EXCEEDED", "IDOR_CREATE_CONFLICT", "ROLE_FORBIDDEN",
+      "IMMUTABLE_FIELD_CHANGE", "KYC_THRESHOLD_STRUCTURING", "SELF_TRADE", "CONTACT_THEN_TRANSPORT_CANCEL",
+    ];
+    setSignals([...soft, ...hard].map((type) => signal({ signalId: type, signalType: type })));
+    renderPage();
+
+    const rows = within(table()).getAllByRole("row").slice(1);
+    const offered = (type: string) => {
+      const row = rows.find((r) => within(r).queryByText(type) !== null);
+      expect(row).toBeTruthy();
+      return within(row!).queryByRole("button", { name: "Whitelist" }) !== null;
+    };
+    for (const type of soft) expect([type, offered(type)]).toEqual([type, true]);
+    for (const type of hard) expect([type, offered(type)]).toEqual([type, false]);
   });
 
   it("reviewed rows show the decision and offer no actions", async () => {
