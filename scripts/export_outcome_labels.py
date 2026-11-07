@@ -43,14 +43,17 @@ Options:
   --profile               AWS CLI profile
   --format jsonl|csv      default jsonl (one JSON object per line)
   --out PATH              default stdout
-  --since, --until        ISO 8601 bounds on the case key time (inclusive)
+  --since, --until        bounds on the case key time, inclusive: a UTC date (YYYY-MM-DD; --until
+                          then runs to the end of that day) or a UTC time (YYYY-MM-DDTHH:MM[:SS[.f]]Z)
   --latest-only           one row per case: the latest decision (by labelledAt)
   --page-size N           items per Query page (default 100, at most 1000)
   --max-pages N           pages read at most (default 50); more pages exit 3 with what was read
 
 Every row has `final`: true for the latest decision of its case (a Fraud Review
 signal can be decided again, for example reject then approve; the other cases
-have one label each).
+have one label each). It is computed over the rows this run read only: with
+--since, --until or a stop at --max-pages, a later decision outside what was read
+is not seen, and an earlier one can be marked final.
 
 Exit codes: 0 done, 1 the AWS call failed or a value looked like a phone number,
 2 usage error (bad arguments, an output path inside a git checkout), 3 stopped
@@ -60,6 +63,7 @@ Tests: python3 -I scripts/test_export_outcome_labels.py
 """
 import argparse
 import csv
+import datetime
 import io
 import json
 import os
@@ -266,6 +270,32 @@ def inside_git_checkout(path):
         folder = parent
 
 
+BOUND = re.compile(r"(\d{4}-\d{2}-\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,7}))?)?Z)?")
+
+
+def normalize_bound(name, value, end_of_day):
+    """A --since or --until value in the key's own form (UTC, seven fraction digits), so the string compare
+    DynamoDB makes on the sort key is a time compare. A date alone is the start of that day, or for --until
+    its last tick, so the day is included."""
+    if value is None:
+        return None
+    m = BOUND.fullmatch(value)
+    error = UsageError(f"--{name} must be a UTC date (2026-11-01) or time (2026-11-01T10:00:00Z), not {value!r}")
+    if not m:
+        raise error
+    day, hour, minute, second, fraction = m.groups()
+    try:
+        datetime.date.fromisoformat(day)
+    except ValueError:
+        raise error
+    if hour is None:
+        return f"{day}T23:59:59.9999999Z" if end_of_day else f"{day}T00:00:00.0000000Z"
+    second = second or "00"
+    if int(hour) > 23 or int(minute) > 59 or int(second) > 59:
+        raise error
+    return f"{day}T{hour}:{minute}:{second}.{(fraction or '').ljust(7, '0')}Z"
+
+
 def parse_args(argv):
     p = argparse.ArgumentParser(description="Export FRD-18 outcome labels (ids only).")
     p.add_argument("--env", choices=sorted(ENVIRONMENTS))
@@ -291,10 +321,10 @@ def parse_args(argv):
         raise UsageError("--page-size must be 1 to 1000")
     if args.max_pages < 1:
         raise UsageError("--max-pages must be at least 1")
-    for name in ("since", "until"):
-        value = getattr(args, name)
-        if value is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}(T[0-9:.]+Z?)?", value):
-            raise UsageError(f"--{name} must be ISO 8601 UTC, for example 2026-11-01T00:00:00Z")
+    args.since = normalize_bound("since", args.since, end_of_day=False)
+    args.until = normalize_bound("until", args.until, end_of_day=True)
+    if args.since and args.until and args.since > args.until:
+        raise UsageError("--since is after --until")
     if args.out and inside_git_checkout(args.out):
         raise UsageError(f"{args.out} is inside a git checkout; write the export outside the repository")
     return args

@@ -93,6 +93,24 @@ class QueryTest(unittest.TestCase):
         only_since = eol.build_query("tbl", "r", None, 50, "2026-11-01", None, None)
         self.assertEqual(arg(only_since, "--key-condition-expression"), "entityId = :stream AND #ts >= :since")
 
+    def test_a_date_alone_bounds_whole_days_and_times_take_the_keys_form(self):
+        since, until = eol.normalize_bound("since", "2026-11-01", False), eol.normalize_bound("until", "2026-11-30", True)
+        self.assertEqual((since, until), ("2026-11-01T00:00:00.0000000Z", "2026-11-30T23:59:59.9999999Z"))
+        # A label keyed late on the --until day is inside the range DynamoDB compares as strings.
+        key = "2026-11-30T22:15:00.0000004Z"
+        self.assertTrue(since <= key <= until)
+        # A time takes the server's seven fraction digits, so a key a few ticks after it is not dropped.
+        self.assertEqual(eol.normalize_bound("since", "2026-11-01T10:00:00Z", False), "2026-11-01T10:00:00.0000000Z")
+        self.assertEqual(eol.normalize_bound("until", "2026-11-01T10:00Z", True), "2026-11-01T10:00:00.0000000Z")
+        self.assertEqual(eol.normalize_bound("since", "2026-11-01T10:00:00.5Z", False), "2026-11-01T10:00:00.5000000Z")
+        self.assertLess(eol.normalize_bound("since", "2026-11-01T10:00:00Z", False), "2026-11-01T10:00:00.0000004Z")
+
+    def test_a_bound_that_is_not_a_utc_date_or_time_is_refused(self):
+        for bad in ("yesterday", "2026-13-01", "2026-02-30", "2026-11-01T10:00:00", "2026-11-01T25:00:00Z",
+                    "2026-11-01T10:00:00+03:00", "2026-11-01 10:00"):
+            with self.assertRaises(eol.UsageError, msg=bad):
+                eol.normalize_bound("until", bad, True)
+
     def test_pages_until_the_last_and_stops_at_the_bound(self):
         more = {"entityId": S("outcome-labels"), "timestamp": S("t"), "transactionId": S("x")}
         fake = FakeAws({"Items": [label_row()], "LastEvaluatedKey": more}, {"Items": [label_row(case_id="e2")]})
@@ -192,7 +210,8 @@ class MainTest(unittest.TestCase):
 
     def test_bad_arguments_are_refused(self):
         for argv in ([], ["--env", "dev", "--page-size", "0"], ["--env", "dev", "--since", "yesterday"],
-                     ["--env", "dev", "--max-pages", "0"]):
+                     ["--env", "dev", "--max-pages", "0"],
+                     ["--env", "dev", "--since", "2026-11-02", "--until", "2026-11-01"]):
             code, _, _ = self.run_main(argv)
             self.assertEqual(code, 2, argv)
 
@@ -203,6 +222,14 @@ class MainTest(unittest.TestCase):
         self.assertEqual(fake.calls, [])
         self.assertIn("aws dynamodb query --table-name wereda-connect-staging-transaction-audit", out)
         self.assertIn("--index-name EntityIndex", out)
+        self.assertIn('":since":{"S":"2026-11-01T00:00:00.0000000Z"}', out)
+
+    def test_a_date_only_until_reads_through_the_end_of_that_day(self):
+        fake = FakeAws({"Items": [label_row()]})
+        code, _, err = self.run_main(["--env", "dev", "--until", "2026-11-30"], fake)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(arg(fake.calls[0], "--expression-attribute-values"))[":until"],
+                         {"S": "2026-11-30T23:59:59.9999999Z"})
 
     def test_a_truncated_read_exits_3_with_what_it_read(self):
         more = {"entityId": S("outcome-labels")}
