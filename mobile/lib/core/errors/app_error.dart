@@ -165,6 +165,10 @@ enum AppErrorCode {
   /// (`SYNC_VALIDATION: report limit reached`); the report was not sent.
   reportLimitReached,
 
+  /// LT-14: the drop-off place changes only before pickup
+  /// (`ORDER_DELIVERY_LOCATION_LOCKED`); the local change was undone.
+  deliveryLocationLocked,
+
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
@@ -268,6 +272,9 @@ AppErrorCode mapErrorToCode(Object error) {
     SyncRejectedException(:final message)
         when isDropoffNoteLockedMessage(message) =>
       AppErrorCode.dropoffNoteLocked,
+    SyncRejectedException(:final message)
+        when isDeliveryLocationLockedMessage(message) =>
+      AppErrorCode.deliveryLocationLocked,
     SyncRejectedException(:final message)
         when isContactInTextMessage(message) =>
       AppErrorCode.contactInText,
@@ -374,6 +381,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.reportLimitReached => l10n.errorReportLimitReached(
         listingReportDailyLimit,
       ),
+    AppErrorCode.deliveryLocationLocked => l10n.errorDeliveryLocationLocked,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -448,6 +456,9 @@ AppErrorCode syncRejectionErrorCode({
     // order was not placed above).
     if (isDropoffNoteLockedMessage(message)) {
       return AppErrorCode.dropoffNoteLocked;
+    }
+    if (isDeliveryLocationLockedMessage(message)) {
+      return AppErrorCode.deliveryLocationLocked;
     }
     if (isContactInTextMessage(message)) return AppErrorCode.contactInText;
     return isPaymentTotalOutOfRangeMessage(message)

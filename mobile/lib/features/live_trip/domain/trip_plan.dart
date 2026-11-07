@@ -1,5 +1,6 @@
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 
@@ -38,6 +39,16 @@ class TripStop {
   String? get dropoffNote => kind == TripStopKind.dropoff && !isDone
       ? normalizeDropoffNote(order?.dropoffNote)
       : null;
+
+  /// LT-14: the order's own drop-off point at a drop-off, as the server sent
+  /// it to this trucker (only once committed); null at a pickup or when the
+  /// order has none (the trip's destination is the drop-off).
+  DeliveryPoint? get dropoffPoint {
+    final order = this.order;
+    return kind == TripStopKind.dropoff && order != null
+        ? orderDeliveryPoint(order)
+        : null;
+  }
 }
 
 /// The trucker's own trip as trip mode shows it: the trip, its stops in

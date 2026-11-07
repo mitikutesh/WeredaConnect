@@ -5167,4 +5167,27 @@ class AppLocalizationsAm extends AppLocalizations {
   String errorReportLimitReached(int count) {
     return 'በቀን እስከ $count ሪፖርቶች መላክ ይችላሉ። ነገ እንደገና ይሞክሩ።';
   }
+
+  @override
+  String get deliveryPlaceLabel => 'የማውረጃ ቦታ';
+
+  @override
+  String get deliveryPlaceHelper =>
+      'መኪናው ዕቃውን የሚያመጣበት ቦታ። ገበሬውና ሹፌሩ ያዩታል። እስኪነሳ ድረስ መቀየር ይችላሉ።';
+
+  @override
+  String get deliveryPlaceNone => 'የመኪናው መድረሻ';
+
+  @override
+  String get deliveryPlaceChange => 'ቀይር';
+
+  @override
+  String get deliveryPlacePickFromList => 'ከዝርዝሩ ቦታ ይምረጡ።';
+
+  @override
+  String get deliveryPlaceSaved => 'የማውረጃ ቦታው ተቀምጧል።';
+
+  @override
+  String get errorDeliveryLocationLocked =>
+      'ዕቃው ስለተነሳ የማውረጃ ቦታውን ከእንግዲህ መቀየር አይቻልም።';
 }

@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
@@ -26,6 +27,7 @@ import 'package:wereda_connect/features/live_trip/presentation/widgets/pause_she
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
@@ -202,6 +204,8 @@ class _TripModeScreenState extends State<TripModeScreen> {
     try {
       if (userId == null) throw StateError('no trucker signed in');
       final plan = await _loader.load(tripId, userId: userId);
+      // LT-14: the bundled place list names each order's own drop-off.
+      await loadPlacesToName(plan.stops.map((s) => s.order));
       if (!mounted || _planTripId != tripId) return;
       setState(() {
         _plan = plan;
@@ -399,7 +403,11 @@ class _TripModeScreenState extends State<TripModeScreen> {
                               if (plan.next != null) ...[
                                 _NextStopCard(
                                   stop: plan.next!,
-                                  place: plan.trip?.toWoreda,
+                                  place: _stopPlace(
+                                    plan.next!,
+                                    plan.trip?.toWoreda,
+                                    context,
+                                  ),
                                   viewerId: _engine?.userId ?? '',
                                   canCheckIn: status.mode == SharingMode.live ||
                                       status.mode == SharingMode.paused,
@@ -798,8 +806,24 @@ String? _cargo(TripStop stop, AppLocalizations l10n) {
       '${l10n.quantityKg(kg)}';
 }
 
+/// LT-14: the town a drop-off stop names: its order's own drop-off place
+/// when the server sent the point (to the order's trucker while the money is
+/// held) and the place list is loaded, else the trip's destination
+/// ([tripPlace]).
+String? _stopPlace(TripStop stop, String? tripPlace, BuildContext context) {
+  final point = stop.dropoffPoint;
+  final places = PlaceRepository.instance;
+  if (point != null && places.isLoaded) {
+    final place = places.nearestTo(point.latitude, point.longitude);
+    if (place != null) {
+      return place.displayName(Localizations.localeOf(context).languageCode);
+    }
+  }
+  return tripPlace;
+}
+
 /// Who and where a stop is: the farmer at a pickup, the buyer (and the
-/// trip's destination) at a drop-off.
+/// drop-off town, [_stopPlace]) at a drop-off.
 String _stopName(TripStop stop, String? place, AppLocalizations l10n) =>
     switch (stop.kind) {
       TripStopKind.pickup => partyDisplayName(stop.delivery.farmerName, l10n),
@@ -1026,7 +1050,7 @@ class _StopList extends StatelessWidget {
         for (final (i, stop) in stops.indexed)
           _StopRow(
             stop: stop,
-            place: plan.trip?.toWoreda,
+            place: _stopPlace(stop, plan.trip?.toWoreda, context),
             isNext: identical(stop, next),
             lineBelow: i == stops.length - 1
                 ? null

@@ -1,4 +1,5 @@
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
 
 /// Abstract base for order repositories.
 ///
@@ -24,7 +25,9 @@ abstract class BaseOrderRepository {
   Future<Order?> getOrderById(String orderId);
 
   /// [dropoffNote] is the buyer's optional drop-off landmark (LT-12): sent
-  /// trimmed, left out when empty.
+  /// trimmed, left out when empty. [deliveryPoint] is the order's own
+  /// drop-off point (LT-14), the place the buyer picked: sent when inside
+  /// Ethiopia's box, else left out (the trip's destination is the drop-off).
   Future<Order> createOrder({
     required String listingId,
     required String buyerId,
@@ -40,7 +43,18 @@ abstract class BaseOrderRepository {
     double? transportCost,
     double? commissionRate,
     String? dropoffNote,
+    DeliveryPoint? deliveryPoint,
   });
+
+  /// LT-14: the buyer changes the drop-off point of a trucked order before
+  /// pickup (`canEditDeliveryLocation`) to [point], a picked place's point.
+  /// Throws `OrderActionNotAllowedException` for anyone else, after pickup,
+  /// or for a point outside Ethiopia's box; the same point again is a no-op.
+  Future<void> updateDeliveryLocation(
+    String orderId,
+    String buyerId,
+    DeliveryPoint point,
+  );
 
   /// LT-12: the buyer adds, changes or (with null or blank) clears the
   /// drop-off landmark of a trucked order before pickup

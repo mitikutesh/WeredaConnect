@@ -37,7 +37,7 @@ public static class SyncServerData
         // Trip (TripDto) and its destination point (trip-listing-api 2.1.0).
         "capacity", "pricePerQuintal", "bookedQuintals", "remainingQuintals",
         "destinationLatitude", "destinationLongitude",
-        // Order (OrderDto).
+        // Order (OrderDto); its own drop-off point (LT-14) shares the buyer intent's names below.
         "pricePerUnit", "cropCost", "transportCost", "commissionRate", "commissionAmount",
         "orderTotal",
         // Rating (RatingDto).

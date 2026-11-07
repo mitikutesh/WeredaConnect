@@ -5,8 +5,10 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
+import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/trip_departure.dart';
@@ -23,11 +25,13 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/delivery_place.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/dropoff_note.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_normalizer.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
@@ -42,6 +46,10 @@ import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 ///
 /// LT-12: with a [selectedTrip] the buyer may add a drop-off landmark for
 /// the driver (a self-pickup order has no drop-off).
+///
+/// LT-14: with a [selectedTrip] the buyer picks the drop-off place, starting
+/// from the [intent]'s place or the registered place; the order carries its
+/// point (none when no place is picked: the trip's destination stands in).
 ///
 /// B-2: with a [selectedTrip] the order is checked against the truck when
 /// placed. A truck that left or no longer takes orders closes the screen
@@ -58,11 +66,16 @@ class PlaceOrderScreen extends StatefulWidget {
   /// fulfilled so it stops generating "new match" badges and push alerts.
   final BuyerIntent? intent;
 
+  /// The place list for the drop-off place (LT-14); the shared one when
+  /// null. Tests pass a loaded one.
+  final PlaceRepository? placeRepository;
+
   const PlaceOrderScreen({
     required this.listing,
     required this.farmerName,
     this.selectedTrip,
     this.intent,
+    this.placeRepository,
     super.key,
   });
 
@@ -75,6 +88,12 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 
   /// LT-12: the optional drop-off landmark (trip orders only).
   final TextEditingController _dropoffNoteController = TextEditingController();
+
+  /// LT-14: the drop-off place (trip orders only): the field's text and the
+  /// place picked from the list (null for typed text: no point is sent).
+  final TextEditingController _deliveryPlaceController =
+      TextEditingController();
+  Place? _deliveryPlace;
   static const _commissionRate = defaultOrderCommissionRate;
   static final _kgFormat = NumberFormat('#,##0.##', 'en_US');
 
@@ -104,12 +123,50 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
     _quantityController =
         TextEditingController(text: formatGroupedNumber(kgQuantity));
     _loadTruckerRating();
+    if (trip != null) _startFromDefaultPlace();
+  }
+
+  /// LT-14: the drop-off place starts at the intent's place, else the
+  /// registered place, once the bundled list is loaded, unless the buyer
+  /// typed first. Best effort: without the list the field starts empty.
+  Future<void> _startFromDefaultPlace() async {
+    final places = widget.placeRepository ?? PlaceRepository.instance;
+    final authState = context.read<AuthBloc>().state;
+    final registered = authState is AuthAuthenticated ? authState.woreda : null;
+    try {
+      await places.ensureLoaded();
+    } on Object catch (e) {
+      debugPrint('[PlaceOrder] place list unreadable: $e');
+      return;
+    }
+    if (!mounted || _deliveryPlaceController.text.isNotEmpty) return;
+    final place = defaultDeliveryPlace(
+      places,
+      intentPlaceId: widget.intent?.placeId,
+      intentWoreda: widget.intent?.deliveryWoreda,
+      registeredWoreda: registered,
+    );
+    if (place == null) return;
+    setState(() {
+      _deliveryPlace = place;
+      _deliveryPlaceController.text = place.en;
+    });
+  }
+
+  /// The buyer typed in the place field: a name that is no longer the
+  /// picked place's drops the pick.
+  void _deliveryPlaceTyped(String text) {
+    final picked = _deliveryPlace;
+    setState(() {
+      if (picked != null && text.trim() != picked.en) _deliveryPlace = null;
+    });
   }
 
   @override
   void dispose() {
     _quantityController.dispose();
     _dropoffNoteController.dispose();
+    _deliveryPlaceController.dispose();
     super.dispose();
   }
 
@@ -252,6 +309,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
             transportCost: _transportCost > 0 ? _transportCost : null,
             commissionRate: _commissionRate,
             dropoffNote: trip == null ? null : _dropoffNoteController.text,
+            deliveryPoint:
+                trip == null ? null : deliveryPointOfPlace(_deliveryPlace),
           ),
         );
   }
@@ -398,6 +457,18 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                               ),
                               child: Text(l10n.detailChange),
                             ),
+                          ),
+                          const SizedBox(height: 14),
+
+                          // LT-14: where the goods go.
+                          DeliveryPlaceField(
+                            controller: _deliveryPlaceController,
+                            repository: widget.placeRepository,
+                            showPickHint: _deliveryPlace == null &&
+                                _deliveryPlaceController.text.trim().isNotEmpty,
+                            onPlaceSelected: (place) =>
+                                setState(() => _deliveryPlace = place),
+                            onChanged: _deliveryPlaceTyped,
                           ),
                           const SizedBox(height: 14),
 

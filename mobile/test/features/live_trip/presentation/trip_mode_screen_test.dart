@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -7,6 +9,7 @@ import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_rules.dart';
 import 'package:wereda_connect/features/live_trip/domain/sharing_state.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/trip_mode_screen.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 
 import 'live_trip_ui_fixtures.dart';
 
@@ -308,6 +311,41 @@ void main() {
       expect(find.byKey(const Key('trip_mode_dropoff_note')), findsOneWidget);
       // d-2 has none; pickups never show one.
       expect(find.text('Merkato, near Anwar Mosque'), findsNWidgets(2));
+    });
+
+    // LT-14: each drop-off is named by its order's own place.
+    testWidgets(
+        "each drop-off names its order's own place, else the trip's "
+        'destination', (tester) async {
+      PlaceRepository.instance.loadFromStringForTest(
+        jsonEncode([
+          {'id': 'gn-a', 'en': 'Addis Ababa', 'lat': 9.025, 'lng': 38.747},
+          {'id': 'gn-b', 'en': 'Adama', 'lat': 8.54, 'lng': 39.27},
+        ]),
+      );
+      rig = await EngineRig.signedIn();
+      await rig.engine.start(tripId);
+      final deliveries = oneOnBoard();
+      deliveries[1]
+        ..status = DeliveryStatus.inTransit
+        ..pickedUpAt = pickedUpAt.add(const Duration(minutes: 40));
+      await pump(
+        tester,
+        deliveries: deliveries,
+        orderList: [
+          orderFixture('d-1', crop: 'wheat', kg: 2000, transportCost: 3000)
+            ..deliveryLatitude = 8.54
+            ..deliveryLongitude = 39.27,
+          orderFixture('d-2', crop: 'maize', kg: 1000, transportCost: 1500),
+        ],
+      );
+
+      expect(find.textContaining('Hawi Flour Mill, Adama'), findsWidgets);
+      expect(find.textContaining('Hawi Flour Mill, Addis Ababa'), findsNothing);
+      expect(
+        find.textContaining('Selam Traders, Addis Ababa'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Amharic: times on the Ethiopian clock', (tester) async {

@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
@@ -37,11 +38,13 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/delivery_place.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/dropoff_note.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
 import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparties_section.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
@@ -195,6 +198,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           } else if (state is DropoffNoteSaved) {
             // LT-12: sent, or saved on the phone to send later.
             showSavedOrSent(context, sent: l10n.dropoffNoteSaved).ignore();
+            context
+                .read<OrderBloc>()
+                .add(LoadOrderById(orderId: widget.orderId));
+          } else if (state is DeliveryLocationSaved) {
+            // LT-14: sent, or saved on the phone to send later.
+            showSavedOrSent(context, sent: l10n.deliveryPlaceSaved).ignore();
             context
                 .read<OrderBloc>()
                 .add(LoadOrderById(orderId: widget.orderId));
@@ -437,6 +446,22 @@ class _OrderDetailBody extends StatelessWidget {
                       // ── Contact (ESC-48) ─────────────────────────────
                       _OrderContactSection(order: order, userId: userId),
 
+                      // ── Drop-off place (LT-14) ───────────────────────
+                      if (orderHasTrip(order) &&
+                          (orderDeliveryPoint(order) != null ||
+                              canEditDeliveryLocation(order, userId))) ...[
+                        AbsorbPointer(
+                          absorbing: busy,
+                          child: DeliveryPlaceCard(
+                            order: order,
+                            userId: userId,
+                            onEdit: () =>
+                                _editDeliveryPlace(context, order, userId),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
                       // ── Drop-off landmark (LT-12) ────────────────────
                       if (normalizeDropoffNote(order.dropoffNote) != null ||
                           canEditDropoffNote(order, userId)) ...[
@@ -645,6 +670,29 @@ class _OrderDetailBody extends StatelessWidget {
         orderId: order.orderId,
         buyerId: userId,
         dropoffNote: text,
+      ),
+    );
+  }
+
+  /// LT-14: the buyer picks another drop-off place in a sheet, starting from
+  /// the order's; the screen says when it was saved and reloads the order.
+  Future<void> _editDeliveryPlace(
+    BuildContext context,
+    Order order,
+    String userId,
+  ) async {
+    final bloc = context.read<OrderBloc>();
+    final place = await showDeliveryPlaceSheet(
+      context,
+      initial: deliveryPlaceOf(order, PlaceRepository.instance),
+    );
+    final point = deliveryPointOfPlace(place);
+    if (point == null || bloc.isClosed) return;
+    bloc.add(
+      UpdateDeliveryLocation(
+        orderId: order.orderId,
+        buyerId: userId,
+        point: point,
       ),
     );
   }

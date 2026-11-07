@@ -5357,4 +5357,27 @@ class AppLocalizationsOm extends AppLocalizations {
   String errorReportLimitReached(int count) {
     return 'Guyyaatti hanga gabaasa $count erguu dandeessa. Boru irra deebi\'ii yaali.';
   }
+
+  @override
+  String get deliveryPlaceLabel => 'Bakka buusii';
+
+  @override
+  String get deliveryPlaceHelper =>
+      'Bakka konkolaataan meeshaa itti fidu. Qonnaan bulaa fi konkolaachisaan ni argu. Hanga fe\'amutti jijjiiruu dandeessu.';
+
+  @override
+  String get deliveryPlaceNone => 'Bakka konkolaataan gahu';
+
+  @override
+  String get deliveryPlaceChange => 'Jijjiiri';
+
+  @override
+  String get deliveryPlacePickFromList => 'Tarree keessaa bakka filadhu.';
+
+  @override
+  String get deliveryPlaceSaved => 'Bakki buusii olkaa\'ameera.';
+
+  @override
+  String get errorDeliveryLocationLocked =>
+      'Meeshaan waan fe\'ameef bakka buusii jijjiiruun hin danda\'amu.';
 }

@@ -3228,5 +3228,12 @@
   "reportListingSent": "እናመሰግናለን። ቡድናችን ይህን ዝርዝር ይመረምራል።",
   "reportListingAlreadySent": "ይህን ዝርዝር ቀደም ብለው ሪፖርት አድርገዋል።",
   "errorReportNotSent": "ሪፖርትዎ ሊላክ አልቻለም።",
-  "errorReportLimitReached": "በቀን እስከ {count} ሪፖርቶች መላክ ይችላሉ። ነገ እንደገና ይሞክሩ።"
+  "errorReportLimitReached": "በቀን እስከ {count} ሪፖርቶች መላክ ይችላሉ። ነገ እንደገና ይሞክሩ።",
+  "deliveryPlaceLabel": "የማውረጃ ቦታ",
+  "deliveryPlaceHelper": "መኪናው ዕቃውን የሚያመጣበት ቦታ። ገበሬውና ሹፌሩ ያዩታል። እስኪነሳ ድረስ መቀየር ይችላሉ።",
+  "deliveryPlaceNone": "የመኪናው መድረሻ",
+  "deliveryPlaceChange": "ቀይር",
+  "deliveryPlacePickFromList": "ከዝርዝሩ ቦታ ይምረጡ።",
+  "deliveryPlaceSaved": "የማውረጃ ቦታው ተቀምጧል።",
+  "errorDeliveryLocationLocked": "ዕቃው ስለተነሳ የማውረጃ ቦታውን ከእንግዲህ መቀየር አይቻልም።"
 }

@@ -3221,5 +3221,12 @@
   "reportListingSent": "Galatoomaa. Gareen keenya tarree kana ni ilaala.",
   "reportListingAlreadySent": "Tarree kana duraan gabaaftee jirta.",
   "errorReportNotSent": "Gabaasni kee ergamuu hin dandeenye.",
-  "errorReportLimitReached": "Guyyaatti hanga gabaasa {count} erguu dandeessa. Boru irra deebi'ii yaali."
+  "errorReportLimitReached": "Guyyaatti hanga gabaasa {count} erguu dandeessa. Boru irra deebi'ii yaali.",
+  "deliveryPlaceLabel": "Bakka buusii",
+  "deliveryPlaceHelper": "Bakka konkolaataan meeshaa itti fidu. Qonnaan bulaa fi konkolaachisaan ni argu. Hanga fe'amutti jijjiiruu dandeessu.",
+  "deliveryPlaceNone": "Bakka konkolaataan gahu",
+  "deliveryPlaceChange": "Jijjiiri",
+  "deliveryPlacePickFromList": "Tarree keessaa bakka filadhu.",
+  "deliveryPlaceSaved": "Bakki buusii olkaa'ameera.",
+  "errorDeliveryLocationLocked": "Meeshaan waan fe'ameef bakka buusii jijjiiruun hin danda'amu."
 }

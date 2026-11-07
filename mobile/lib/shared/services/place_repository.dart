@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show AssetBundle, rootBundle;
@@ -88,6 +89,31 @@ class PlaceRepository {
 
   /// Returns the place with [id], or null.
   Place? byId(String id) => _byId[id];
+
+  /// The place with coordinates nearest to ([latitude], [longitude]), or null
+  /// when none is within [maxKm] (or the list is not loaded). Names a point
+  /// that was taken from a place, such as an order's drop-off point (LT-14).
+  /// Ranked on a flat approximation, exact enough at town distances.
+  Place? nearestTo(double latitude, double longitude, {double maxKm = 30}) {
+    final cosLatitude = math.cos(latitude * math.pi / 180);
+    Place? best;
+    var bestScore = double.infinity;
+    for (final place in _places) {
+      final lat = place.lat;
+      final lng = place.lng;
+      if (lat == null || lng == null) continue;
+      final dx = (lng - longitude) * cosLatitude;
+      final dy = lat - latitude;
+      final score = dx * dx + dy * dy;
+      if (score < bestScore) {
+        bestScore = score;
+        best = place;
+      }
+    }
+    // One degree is about 111 km.
+    if (best == null || math.sqrt(bestScore) * 111.2 > maxKm) return null;
+    return best;
+  }
 
   /// Resolves an existing free-text value (a legacy stored woreda, or
   /// `authState.woreda`) to a [Place] by exact normalized name match across

@@ -9112,6 +9112,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You can send up to {count} reports a day. Try again tomorrow.'**
   String errorReportLimitReached(int count);
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Place order and order detail: label of the place picker where the goods go (the order's own drop-off point)
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off place'**
+  String get deliveryPlaceLabel;
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Place order and change sheet: what the place is for, who sees it and until when it can change
+  ///
+  /// In en, this message translates to:
+  /// **'Where the truck brings the goods. The farmer and the driver see it. You can change it until pickup.'**
+  String get deliveryPlaceHelper;
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Order detail card when the order has no drop-off place of its own: the trip's destination is used
+  ///
+  /// In en, this message translates to:
+  /// **'The truck\'s destination'**
+  String get deliveryPlaceNone;
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Order detail card button that opens the sheet to pick another drop-off place
+  ///
+  /// In en, this message translates to:
+  /// **'Change'**
+  String get deliveryPlaceChange;
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Change sheet: shown when the buyer typed a name without picking a place from the list (Save waits)
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a place from the list.'**
+  String get deliveryPlacePickFromList;
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Snackbar after the buyer saved the drop-off place and it reached the server
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off place saved.'**
+  String get deliveryPlaceSaved;
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Error when the server refuses a drop-off place change after pickup (ORDER_DELIVERY_LOCATION_LOCKED)
+  ///
+  /// In en, this message translates to:
+  /// **'The goods were picked up, so the drop-off place can no longer be changed.'**
+  String get errorDeliveryLocationLocked;
 }
 
 class _AppLocalizationsDelegate

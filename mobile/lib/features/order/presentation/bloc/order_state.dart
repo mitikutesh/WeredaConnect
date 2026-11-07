@@ -91,6 +91,12 @@ class DropoffNoteSaved extends OrderState {
   const DropoffNoteSaved();
 }
 
+/// LT-14: state after the order's drop-off point was saved (sent, or queued
+/// on the phone).
+class DeliveryLocationSaved extends OrderState {
+  const DeliveryLocationSaved();
+}
+
 /// State when a single order has been loaded.
 class SingleOrderLoaded extends OrderState {
   final Order order;

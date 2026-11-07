@@ -212,6 +212,17 @@ const String orderDropoffNoteLockedCode = 'ORDER_DROPOFF_NOTE_LOCKED';
 bool isDropoffNoteLockedMessage(String? message) =>
     message != null && message.startsWith(orderDropoffNoteLockedCode);
 
+/// Sync rejection prefix when the order's drop-off point changes after
+/// pickup (LT-14, sync-protocol.md 1.42.0). Permanent like every `ORDER_*`
+/// refusal: the order is put back to the server's view.
+const String orderDeliveryLocationLockedCode = 'ORDER_DELIVERY_LOCATION_LOCKED';
+
+/// Whether a /sync per-operation error message refuses a drop-off point
+/// change because the goods were picked up
+/// (`ORDER_DELIVERY_LOCATION_LOCKED: ...`).
+bool isDeliveryLocationLockedMessage(String? message) =>
+    message != null && message.startsWith(orderDeliveryLocationLockedCode);
+
 /// Sync rejection prefixes for a pickup or drop-off confirmed with a typed
 /// handoff code (T-1, sync-protocol.md 1.33.0): the code is not the
 /// delivery's, typed codes are locked for that step after five wrong ones
