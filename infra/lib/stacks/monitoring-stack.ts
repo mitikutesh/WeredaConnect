@@ -1411,15 +1411,17 @@ export class MonitoringStack extends cdk.Stack {
     // Alarm 7: Order Cron Errors — the scheduled unpaid-order auto-cancel must never
     // fail silently (escrow-cron has the same dedicated alarm right below, ESC-13).
     // It gets a dedicated alarm rather than joining the aggregate LambdaErrors alarm,
-    // which is capped at 10 metrics.
+    // which is capped at 10 metrics. FRD-15: the same Lambda runs the hourly fraud
+    // relationship scan, so a crashed or timed-out scan lands here too.
     const orderCronErrorsAlarm = new cloudwatch.Alarm(
       this,
       'OrderCronErrors',
       {
         alarmName: `${prefix}-order-cron-errors`,
         alarmDescription:
-          'The scheduled order auto-cancel (order-cron) reported errors. Unpaid ' +
-          'orders may not be expiring; investigate the Lambda logs.',
+          'The scheduled order jobs (order-cron: auto-cancel, commitment deadlines, ' +
+          'relationship patterns) reported errors. Unpaid orders may not be expiring and ' +
+          'fraud relationship signals may be missing; investigate the Lambda logs.',
         metric: new cloudwatch.Metric({
           namespace: 'AWS/Lambda',
           metricName: 'Errors',

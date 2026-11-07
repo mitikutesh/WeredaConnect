@@ -1508,6 +1508,38 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     });
   });
 
+  test('a third hourly rule invokes the order cron with the relationship_patterns body (FRD-15)', () => {
+    const t = buildTemplate(false);
+    t.hasResourceProperties('AWS::Events::Rule', {
+      Name: 'wereda-connect-dev-order-cron-relationship-patterns',
+      ScheduleExpression: 'rate(1 hour)',
+      Targets: [
+        Match.objectLike({
+          Arn: { 'Fn::GetAtt': [Match.stringLikeRegexp('^OrderCronFunction'), 'Arn'] },
+          Input: JSON.stringify({ body: JSON.stringify({ action: 'relationship_patterns' }) }),
+        }),
+      ],
+    });
+  });
+
+  test.each([false, true])(
+    'order cron writes fraud signals with a base-table Query and PutItem only (live=%s, FRD-15)',
+    (live) => {
+      const t = buildTemplate(live);
+      t.hasResourceProperties('AWS::Lambda::Function', {
+        FunctionName: 'wereda-connect-dev-order-cron',
+        Environment: {
+          Variables: Match.objectLike({ FRAUD_SIGNALS_TABLE: Match.anyValue(), USERS_TABLE: Match.anyValue() }),
+        },
+      });
+      const onSignals = orderCronStatements(t).filter((s) => JSON.stringify(s.Resource).includes('FraudSignalsTable'));
+      expect(onSignals).toHaveLength(1);
+      expect([...([] as unknown[]).concat(onSignals[0].Action)].sort()).toEqual(['dynamodb:PutItem', 'dynamodb:Query']);
+      // The table itself: neither the Fraud Review status index nor any update or delete.
+      expect(JSON.stringify(onSignals[0].Resource)).not.toContain('/index/');
+    },
+  );
+
   test.each([false, true])('sync carries COMMITMENTS_ENABLED, on in dev (live=%s, ESC-15)', (live) => {
     buildTemplate(live).hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-sync',

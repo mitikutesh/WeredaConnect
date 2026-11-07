@@ -1667,12 +1667,12 @@ export class ApiStack extends cdk.Stack {
     props.notificationsTable.grantReadData(notificationFn.function);
     paginationSecret.grantRead(notificationFn.function);
 
-    // ─── Order Cron Function (auto-cancel expired unpaid orders, commitment deadlines) ────
+    // ─── Order Cron Function (auto-cancel expired unpaid orders, commitment deadlines, relationship patterns) ────
 
     const orderCronFn = new WeredaLambda(this, "OrderCronFunction", {
       functionName: `${prefix}-order-cron`,
       description:
-        "Scheduled order jobs: auto-cancel expired unpaid orders, settle commitment deadlines",
+        "Scheduled order jobs: auto-cancel expired unpaid orders, settle commitment deadlines, flag relationship patterns",
       handlerName: "OrderCronFunction",
       environment: {
         ORDERS_TABLE: props.ordersTable.tableName,
@@ -1693,10 +1693,15 @@ export class ApiStack extends cdk.Stack {
         DELIVERIES_TABLE: props.deliveriesTable.tableName,
         USERS_TABLE: props.usersTable.tableName,
         COMMITMENTS_ENABLED: commitmentsEnabled,
+        // FRD-15: the relationship_patterns scan writes SELF_TRADE, SHARED_DEVICE_TRADE and
+        // REPEATED_PAIR signals (fraud-detection-architecture.md 15.2). Without it, or without
+        // USERS_TABLE, the action logs FRAUD_RELATIONSHIP_UNCONFIGURED and writes nothing.
+        FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
       },
       timeout: cdk.Duration.minutes(5),
       memorySize: 256,
-      reservedConcurrentExecutions: 2,
+      // Three hourly rules invoke it (FRD-15 added the third), so a run of each fits at once.
+      reservedConcurrentExecutions: 3,
     });
     props.ordersTable.grantReadWriteData(orderCronFn.function);
     // Auto-cancel writes an order lifecycle event to the audit trail.
@@ -1718,6 +1723,15 @@ export class ApiStack extends cdk.Stack {
         resources: [
           `${props.escrowIdempotencyTable.tableArn}/index/InboxReplayIndex`,
         ],
+      }),
+    );
+    // FRD-15: the relationship scan reads orders on StatusCreatedAtIndex and BuyerIdCreatedAtIndex
+    // and users rows by key (both covered above). On fraud-signals it needs only the base-table
+    // Query of its existence check and the signal writer's conditional PutItem: no index, no update.
+    orderCronFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:PutItem"],
+        resources: [props.fraudSignalsTable.tableArn],
       }),
     );
 
@@ -1748,6 +1762,22 @@ export class ApiStack extends cdk.Stack {
           // Wrapped as `body` so it lands in APIGatewayProxyRequest.Body (Review C3).
           event: events.RuleTargetInput.fromObject({
             body: JSON.stringify({ action: "commitment_deadlines" }),
+          }),
+        }),
+      ],
+    });
+
+    // EventBridge: FRD-15, flag self-trading, shared devices and repeated buyer and farmer pairs
+    // on the orders funded in the last 48 hours (fraud-detection-architecture.md 15.2).
+    new events.Rule(this, "OrderCronRelationshipPatterns", {
+      ruleName: `${prefix}-order-cron-relationship-patterns`,
+      description: "Flag fraud relationship patterns on recently funded orders every hour (FRD-15)",
+      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
+      targets: [
+        new targets.LambdaFunction(orderCronFn.function, {
+          // Wrapped as `body` so it lands in APIGatewayProxyRequest.Body (Review C3).
+          event: events.RuleTargetInput.fromObject({
+            body: JSON.stringify({ action: "relationship_patterns" }),
           }),
         }),
       ],
