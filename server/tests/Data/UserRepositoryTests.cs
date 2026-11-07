@@ -52,6 +52,22 @@ public class UserRepositoryTests
     }
 
     [Fact]
+    public async Task CreateUserAsync_StartsAnExactEmptyRatingAggregate()
+    {
+        // ESC-28 (rating-api.md 1.2.0): a new account needs no backfill.
+        PutItemRequest? sent = null;
+        _mockDynamoDb.PutItemAsync(Arg.Do<PutItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new PutItemResponse());
+
+        await _repository.CreateUserAsync(CreateTestUser());
+
+        Assert.Equal("0", sent!.Item["ratingSum"].N);
+        Assert.Equal("0", sent.Item["ratingCount"].N);
+        Assert.Equal("2026-01-01T00:00:00Z", sent.Item["ratingsAggregatedAt"].S);
+        Assert.False(sent.Item.ContainsKey("reputation"));
+    }
+
+    [Fact]
     public async Task CreateUserAsync_DuplicateId_ReturnsFailure()
     {
         _mockDynamoDb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())

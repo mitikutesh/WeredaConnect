@@ -724,10 +724,14 @@ public partial class SyncFunction
 
         // Ratings are optional in the same way: the rating sync handler is only
         // reachable once the ratings table is provisioned.
+        // ESC-28: with the users table the create also keeps the ratee's stored rating sum and count
+        // (rating-api.md 1.2.0); with the reputation-events table it upserts their heal marker.
         var ratingsTable = Environment.GetEnvironmentVariable("RATINGS_TABLE");
+        var reputationEventsTable = Environment.GetEnvironmentVariable("REPUTATION_EVENTS_TABLE");
         _ratingRepo = ratingsTable != null
-            ? new RatingRepository(_dynamoDb, ratingsTable)
+            ? new RatingRepository(_dynamoDb, ratingsTable, usersTable, reputationEventsTable)
             : null;
+        Reputation = BuildReputationService(_dynamoDb, reputationEventsTable, usersTable, _fraudService);
 
         // Messages are optional in the same way: the message sync handler is only
         // reachable once the messages table is provisioned.
@@ -1711,6 +1715,11 @@ public partial class SyncFunction
         }
 
         var createResult = await _ratingRepo.CreateAsync(operation.EntityId, operation.Data);
+        if (createResult.IsSuccess)
+        {
+            await RefreshRateeReputationAsync(rateeId, context);
+        }
+
         return createResult.IsSuccess
             ? new SyncOperationResult
             {

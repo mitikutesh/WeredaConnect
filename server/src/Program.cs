@@ -108,6 +108,12 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper(
                     (Func<Stream, ILambdaContext, Task<Stream>>)new OrderNotifyStreamFunction().ProcessStreamAsync),
 
+            // ESC-28: the second orders stream consumer (raw Stream in/out like the other stream
+            // consumers); records reputation events. Its name holds no other handler's name.
+            var h when h.Contains("ReputationStreamFunction") =>
+                HandlerWrapper.GetHandlerWrapper(
+                    (Func<Stream, ILambdaContext, Task<Stream>>)new ReputationStreamFunction().ProcessStreamAsync),
+
             // ESC-21: GET /notifications (the inbox the stream consumer fills).
             var h when h.Contains("NotificationFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(

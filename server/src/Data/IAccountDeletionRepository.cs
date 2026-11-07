@@ -164,4 +164,12 @@ public interface IAccountDeletionRepository
     /// existing row, so a row the TTL removed meanwhile is not recreated. True when it wrote.
     /// </summary>
     Task<bool> AnonymizeNotificationAsync(string recipientId, string sortKey, IReadOnlyCollection<string> nameParams);
+
+    // ── step 10: the reputation-events partition (ESC-28) ──
+
+    /// <summary>The event ids of the user's reputation-events partition (penalties, appeals, system rows).</summary>
+    Task<List<string>> QueryReputationEventIdsAsync(string userId);
+
+    /// <summary>Delete one reputation-events row (idempotent).</summary>
+    Task DeleteReputationEventAsync(string userId, string eventId);
 }

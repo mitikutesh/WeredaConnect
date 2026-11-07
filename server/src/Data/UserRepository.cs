@@ -25,6 +25,13 @@ public sealed class UserRepository : IUserRepository
     {
         var item = ToItem(user);
 
+        // ESC-28 (rating-api.md 1.2.0, user-entity.md 2.0.0 section 2): a new account starts with an
+        // exact, empty rating aggregate, so the one-time backfill skips it. Only the rating create
+        // transaction, the backfill and the role-change rebuild write these afterwards.
+        item["ratingSum"] = new AttributeValue { N = "0" };
+        item["ratingCount"] = new AttributeValue { N = "0" };
+        item["ratingsAggregatedAt"] = new AttributeValue { S = string.IsNullOrEmpty(user.CreatedAt) ? DateTime.UtcNow.ToString("o") : user.CreatedAt };
+
         var request = new PutItemRequest
         {
             TableName = _tableName,

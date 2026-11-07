@@ -471,6 +471,26 @@ internal sealed class FakeAccountDeletionRepository : IAccountDeletionRepository
         return Task.CompletedTask;
     }
 
+    /// <summary>ESC-28: the reputation-events partition per user.</summary>
+    public Dictionary<string, HashSet<string>> ReputationEvents { get; } = new();
+
+    public Task<List<string>> QueryReputationEventIdsAsync(string userId)
+    {
+        Hit(nameof(QueryReputationEventIdsAsync));
+        return Task.FromResult(ReputationEvents.TryGetValue(userId, out var ids) ? ids.ToList() : new List<string>());
+    }
+
+    public Task DeleteReputationEventAsync(string userId, string eventId)
+    {
+        Hit(nameof(DeleteReputationEventAsync));
+        if (ReputationEvents.TryGetValue(userId, out var ids))
+        {
+            ids.Remove(eventId);
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task<List<InboxEntry>> QueryNotificationsAsync(string recipientId)
     {
         Hit(nameof(QueryNotificationsAsync));

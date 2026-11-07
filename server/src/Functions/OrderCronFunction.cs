@@ -1,5 +1,6 @@
 using System.Globalization;
 using Amazon.DynamoDBv2;
+using Amazon.SQS;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
@@ -25,6 +26,14 @@ namespace WeredaConnect.Server.Functions;
 ///     carry a wrong one (orders from before ESC-16, or a stamp that failed); decides nothing
 ///   - relationship_patterns (hourly, FRD-15): flag self-trading, shared devices and repeated
 ///     buyer and farmer pairs on recently funded orders as fraud signals
+///   - reputation_daily (daily, ESC-28): expire reputation points, end restrictions and admin
+///     overrides, consume heal markers (reputation-architecture.md 8.2); <c>{"catchUpDays": n}</c>
+///     reads up to 100 days back after an outage
+///   - reputation_unpark (hourly, ESC-28): replay reputation stream records parked in SQS (7.5)
+///   - reputation_recompute_all (by hand, ESC-28): recompute every user with an active row after a
+///     policy change (8.3)
+///   - reputation_backfill_ratings (by hand, once per environment, ESC-28): the rating aggregate
+///     backfill (12.2); not flagged
 ///
 /// Error codes:
 /// - 400: ORDER_CRON_VALIDATION - Invalid or missing action
@@ -75,6 +84,33 @@ public partial class OrderCronFunction
     private const string CommitmentsAction = "commitment_deadlines";
 
     private const string RelationshipAction = "relationship_patterns";
+
+    private const string ReputationDailyAction = "reputation_daily";
+    private const string ReputationUnparkAction = "reputation_unpark";
+    private const string ReputationRecomputeAction = "reputation_recompute_all";
+    private const string RatingBackfillAction = "reputation_backfill_ratings";
+
+    private const string ExpectedActions =
+        "auto_cancel_expired, commitment_deadlines, deadline_repair, relationship_patterns, reputation_daily, "
+        + "reputation_unpark, reputation_recompute_all or reputation_backfill_ratings";
+
+    /// <summary>ESC-28: each reputation action's share of the 5 minute Lambda (8.2: 4 minutes, the rest for the summary).</summary>
+    internal static readonly TimeSpan ReputationRunTime = TimeSpan.FromMinutes(4);
+
+    /// <summary>
+    /// ESC-28: the <c>reputationPenalties</c> flag. Off, the daily, unpark and recompute actions log and
+    /// return (the backfill is not flagged). Defaults to the env flag; tests set it in the initializer.
+    /// </summary>
+    public bool ReputationPenaltiesEnabled { get; init; } = ReputationFlags.PenaltiesEnabled;
+
+    /// <summary>ESC-28: the daily job; wired when <c>REPUTATION_EVENTS_TABLE</c> and <c>USERS_TABLE</c> are set.</summary>
+    internal ReputationDailyJob? ReputationDaily { get; init; }
+
+    /// <summary>ESC-28: the parked record replay; wired when the parked queue URL is set too.</summary>
+    internal ReputationUnparkJob? ReputationUnpark { get; init; }
+
+    /// <summary>ESC-28: the rating aggregate backfill; wired when <c>USERS_TABLE</c> and <c>RATINGS_TABLE</c> are set.</summary>
+    internal RatingAggregateBackfill? RatingBackfill { get; init; }
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -143,6 +179,37 @@ public partial class OrderCronFunction
 
         // ESC-16: commitment_deadlines repairs the order deadlines itself once a day per container.
         AutoRepair = DeadlineRepairMarker.Process;
+
+        // ESC-28: the rating backfill runs with every flag off (rollout step 2).
+        var ratingsTable = Environment.GetEnvironmentVariable("RATINGS_TABLE");
+        if (!string.IsNullOrEmpty(usersTable) && !string.IsNullOrEmpty(ratingsTable))
+        {
+            RatingBackfill = new RatingAggregateBackfill(dynamoDb, usersTable, ratingsTable);
+        }
+
+        // ESC-28: the reputation jobs; nothing is built (no policy read) while the flag is off.
+        var reputationTable = Environment.GetEnvironmentVariable("REPUTATION_EVENTS_TABLE");
+        if (ReputationPenaltiesEnabled && !string.IsNullOrEmpty(reputationTable) && !string.IsNullOrEmpty(usersTable))
+        {
+            var settings = ReputationPolicySettings.LoadForContainer(line => LambdaLogger.Log(line));
+            var repo = new ReputationEventRepository(dynamoDb, reputationTable, usersTable);
+            var fraud = string.IsNullOrEmpty(fraudSignalsTable)
+                ? null
+                : new FraudDetectionService(dynamoDb, cropsTable ?? "", fraudSignalsTable, new RateLimitRepository(dynamoDb, ""));
+            var service = new ReputationService(repo, settings, fraud);
+            ReputationDaily = new ReputationDailyJob(service, repo);
+
+            var parkedQueueUrl = Environment.GetEnvironmentVariable("REPUTATION_PARKED_QUEUE_URL");
+            var deviceTokensTable = Environment.GetEnvironmentVariable("DEVICE_TOKENS_TABLE");
+            if (!string.IsNullOrEmpty(parkedQueueUrl) && !string.IsNullOrEmpty(deviceTokensTable))
+            {
+                ReputationUnpark = new ReputationUnparkJob(
+                    new ReputationRecordProcessor(
+                        service, new DeviceReachability(dynamoDb, deviceTokensTable).HasDeviceAsync, ReputationFlags.TimeoutPenaltiesEnabled),
+                    new AmazonSQSClient(),
+                    parkedQueueUrl);
+            }
+        }
     }
 
     /// <summary>
@@ -173,14 +240,39 @@ public partial class OrderCronFunction
     {
         context.Logger.LogInformation("OrderCronFunction invoked.");
 
-        // Parse action from request body
+        // Parse action (and ESC-28's optional catchUpDays, a number or a numeric string) from the body.
         string? action = null;
+        int? catchUpDays = null;
         if (!string.IsNullOrEmpty(request.Body))
         {
             try
             {
-                var payload = JsonSerializer.Deserialize(request.Body, AppJsonContext.Default.DictionaryStringString);
-                payload?.TryGetValue("action", out action);
+                using var payload = JsonDocument.Parse(request.Body);
+                if (payload.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    return LambdaResponse.Error(400, "ORDER_CRON_VALIDATION", "Invalid JSON in request body.");
+                }
+
+                if (payload.RootElement.TryGetProperty("action", out var actionValue))
+                {
+                    if (actionValue.ValueKind != JsonValueKind.String)
+                    {
+                        return LambdaResponse.Error(400, "ORDER_CRON_VALIDATION", "Invalid JSON in request body.");
+                    }
+
+                    action = actionValue.GetString();
+                }
+
+                if (payload.RootElement.TryGetProperty("catchUpDays", out var days))
+                {
+                    if (!TryReadDays(days, out var parsed))
+                    {
+                        return LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
+                            $"catchUpDays must be a whole number from 1 to {ReputationDailyJob.MaxCatchUpDays}.");
+                    }
+
+                    catchUpDays = parsed;
+                }
             }
             catch (JsonException)
             {
@@ -198,7 +290,7 @@ public partial class OrderCronFunction
         if (string.IsNullOrEmpty(action))
         {
             return LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
-                $"Missing 'action' field. Expected: auto_cancel_expired, {CommitmentsAction}, {RepairAction} or {RelationshipAction}.");
+                $"Missing 'action' field. Expected: {ExpectedActions}.");
         }
 
         var safeAction = action.Length > 50 ? action[..50] : action;
@@ -212,8 +304,12 @@ public partial class OrderCronFunction
                 CommitmentsAction => await HandleCommitmentDeadlinesAsync(context),
                 RepairAction => await HandleDeadlineRepairAsync(context),
                 RelationshipAction => await HandleRelationshipPatternsAsync(context),
+                ReputationDailyAction => await HandleReputationDailyAsync(catchUpDays, context),
+                ReputationUnparkAction => await HandleReputationUnparkAsync(context),
+                ReputationRecomputeAction => await HandleReputationRecomputeAsync(context),
+                RatingBackfillAction => await HandleRatingBackfillAsync(context),
                 _ => LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
-                    $"Unknown action '{safeAction}'. Expected: auto_cancel_expired, {CommitmentsAction}, {RepairAction} or {RelationshipAction}.")
+                    $"Unknown action '{safeAction}'. Expected: {ExpectedActions}.")
             };
         }
         catch (Exception ex)
@@ -561,6 +657,95 @@ public partial class OrderCronFunction
         var slice = CronRunBudget.StartNew().Slice(RelationshipScanTime);
         var summary = await RelationshipPatterns.RunAsync(DateTime.UtcNow, slice, context);
         return JsonResponse(summary.ToDictionary(summary.StopReason == null ? "ok" : "partial"));
+    }
+
+    // ===== ESC-28: reputation (reputation-architecture.md sections 7.5, 8 and 12.2) =====
+
+    private static bool TryReadDays(JsonElement value, out int days)
+    {
+        days = 0;
+        var ok = value.ValueKind switch
+        {
+            JsonValueKind.Number => value.TryGetInt32(out days),
+            JsonValueKind.String => int.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out days),
+            _ => false
+        };
+        return ok && days >= 1 && days <= ReputationDailyJob.MaxCatchUpDays;
+    }
+
+    private APIGatewayProxyResponse ReputationOff(string action, ILambdaContext context)
+    {
+        context.Logger.LogInformation($"{ReputationDailyJob.SummaryToken} skipped action={action}: reputationPenalties is off.");
+        return JsonResponse(new Dictionary<string, string> { ["action"] = action, ["outcome"] = "disabled" });
+    }
+
+    private static APIGatewayProxyResponse ReputationUnconfigured(string action, ILambdaContext context)
+    {
+        context.Logger.LogError($"REPUTATION_UNCONFIGURED action={action}: nothing was done this run.");
+        return JsonResponse(new Dictionary<string, string> { ["action"] = action, ["outcome"] = "unconfigured" });
+    }
+
+    /// <summary>ESC-28: the daily reputation job (8.2), with an optional catch-up of up to 100 days (8.3).</summary>
+    private async Task<APIGatewayProxyResponse> HandleReputationDailyAsync(int? catchUpDays, ILambdaContext context)
+    {
+        if (!ReputationPenaltiesEnabled)
+        {
+            return ReputationOff(ReputationDailyAction, context);
+        }
+
+        if (ReputationDaily == null)
+        {
+            return ReputationUnconfigured(ReputationDailyAction, context);
+        }
+
+        var slice = CronRunBudget.StartNew().Slice(ReputationRunTime);
+        return JsonResponse(await ReputationDaily.RunDailyAsync(
+            DateTime.UtcNow, catchUpDays ?? ReputationDailyJob.DefaultLookbackDays, slice, context));
+    }
+
+    /// <summary>ESC-28: replay the parked reputation records (7.5).</summary>
+    private async Task<APIGatewayProxyResponse> HandleReputationUnparkAsync(ILambdaContext context)
+    {
+        if (!ReputationPenaltiesEnabled)
+        {
+            return ReputationOff(ReputationUnparkAction, context);
+        }
+
+        if (ReputationUnpark == null)
+        {
+            return ReputationUnconfigured(ReputationUnparkAction, context);
+        }
+
+        return JsonResponse(await ReputationUnpark.RunAsync(CronRunBudget.StartNew().Slice(ReputationRunTime), context));
+    }
+
+    /// <summary>ESC-28: recompute every user with an active row after a policy change (8.3).</summary>
+    private async Task<APIGatewayProxyResponse> HandleReputationRecomputeAsync(ILambdaContext context)
+    {
+        if (!ReputationPenaltiesEnabled)
+        {
+            return ReputationOff(ReputationRecomputeAction, context);
+        }
+
+        if (ReputationDaily == null)
+        {
+            return ReputationUnconfigured(ReputationRecomputeAction, context);
+        }
+
+        return JsonResponse(await ReputationDaily.RecomputeAllAsync(
+            DateTime.UtcNow, CronRunBudget.StartNew().Slice(ReputationRunTime), context));
+    }
+
+    /// <summary>ESC-28: the one-time rating aggregate backfill (12.2). Not flagged; a rerun adds nothing twice.</summary>
+    private async Task<APIGatewayProxyResponse> HandleRatingBackfillAsync(ILambdaContext context)
+    {
+        if (RatingBackfill == null)
+        {
+            return ReputationUnconfigured(RatingBackfillAction, context);
+        }
+
+        return JsonResponse(await RatingBackfill.RunAsync(
+            DateTime.UtcNow, CronRunBudget.StartNew().Slice(ReputationRunTime), context));
     }
 
     /// <summary>

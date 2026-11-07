@@ -10,7 +10,8 @@ using WeredaConnect.Server.Services;
 namespace WeredaConnect.Server.Functions;
 
 /// <summary>
-/// ESC-21: DynamoDB Streams consumer for the orders, deliveries and escrows tables. Each record's
+/// ESC-21: DynamoDB Streams consumer for the orders, deliveries and escrows tables (and, since ESC-28,
+/// the reputation-events table: <c>penalty_recorded</c> and <c>tier_changed</c>). Each record's
 /// old and new images go through <see cref="NotificationRules"/>, and every derived
 /// <see cref="NotificationEvent"/> becomes an inbox row (<c>{prefix}-notifications</c>, always) and
 /// an FCM push through SNS (when the event asks for one), in the recipient's preferred language.
@@ -413,7 +414,8 @@ public class OrderNotifyStreamFunction
     /// <summary>
     /// Which rules table a record comes from, by the table name in its <c>eventSourceARN</c>
     /// (<c>arn:aws:dynamodb:...:table/{prefix}-orders/stream/...</c>): <c>orders</c>,
-    /// <c>deliveries</c>, <c>escrows</c>, or null for any other source (skipped).
+    /// <c>deliveries</c>, <c>escrows</c>, <c>reputation</c> (ESC-28), or null for any other source
+    /// (skipped).
     /// </summary>
     internal static string? TableOf(string eventSourceArn)
     {
@@ -442,6 +444,12 @@ public class OrderNotifyStreamFunction
         if (name.EndsWith("-escrows", StringComparison.Ordinal))
         {
             return "escrows";
+        }
+
+        // ESC-28: penalty and tier rows (reputation-architecture.md section 9).
+        if (name.EndsWith("-reputation-events", StringComparison.Ordinal))
+        {
+            return NotificationRules.ReputationTable;
         }
 
         return null;
