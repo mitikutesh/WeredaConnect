@@ -5,6 +5,7 @@ using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
+using DynamoValue = Amazon.DynamoDBv2.Model.AttributeValue;
 
 namespace WeredaConnect.Server.Functions;
 
@@ -14,7 +15,8 @@ namespace WeredaConnect.Server.Functions;
 ///   - auto_cancel_expired (hourly): cancel unpaid orders older than 24h
 ///   - commitment_deadlines (hourly, ESC-15): settle the response windows of paid orders (the
 ///     farmer's, the trucker's and the buyer's), notice cancelled trips, and stamp the reminder
-///     and pickup-overdue markers the notification layer reads
+///     and pickup-overdue markers the notification layer reads; then close the open trips that
+///     left with no booking and no live order (ESC-17: cancelled, cancelReason expired)
 ///   - relationship_patterns (hourly, FRD-15): flag self-trading, shared devices and repeated
 ///     buyer and farmer pairs on recently funded orders as fraud signals
 ///
@@ -464,6 +466,8 @@ public class OrderCronFunction
         public int PickupOverdue;
         public int Conflicts;
         public int TripReads;
+        public int DepartedTripsClosed;
+        public int DepartedTripsKept;
 
         public Dictionary<string, string> Summary(string outcome) => new()
         {
@@ -479,6 +483,8 @@ public class OrderCronFunction
             { "pickupOverdue", PickupOverdue.ToString() },
             { "conflicts", Conflicts.ToString() },
             { "tripReads", TripReads.ToString() },
+            { "departedTripsClosed", DepartedTripsClosed.ToString() },
+            { "departedTripsKept", DepartedTripsKept.ToString() },
             { "completedAt", NowIso }
         };
     }
@@ -536,12 +542,14 @@ public class OrderCronFunction
         await WalkFundedAsync(run, _escrowService, _cropRepo, _tripRepo);
         await WalkAcceptedAsync(run, _tripRepo);
         await WalkAwaitingTransportAsync(run, _escrowService, _cropRepo);
+        await CloseDepartedTripsAsync(run, _tripRepo);
 
         context.Logger.LogInformation(
             $"Commitment deadlines complete: {run.FarmerExpired} farmer windows expired, {run.TruckerExpired} trucker windows expired, "
             + $"{run.TripCancelled} trip cancellations applied, {run.BuyerChoiceExpired} buyer choices expired, "
             + $"{run.FarmerReminders}/{run.TruckerReminders}/{run.BuyerReminders} reminders stamped, "
-            + $"{run.PickupOverdue} pickups overdue, {run.Conflicts} conflicts, {run.TripReads} trip reads.");
+            + $"{run.PickupOverdue} pickups overdue, {run.Conflicts} conflicts, {run.TripReads} trip reads, "
+            + $"{run.DepartedTripsClosed} departed trips closed, {run.DepartedTripsKept} departed trips kept.");
 
         return JsonResponse(run.Summary("ok"));
     }
@@ -944,6 +952,141 @@ public class OrderCronFunction
             new Dictionary<string, string> { { "status", "accepted" } },
             "pickup overdue marker", run, () => run.PickupOverdue++);
     }
+
+    // ── (g) ESC-17: trips that left unbooked ──
+
+    /// <summary>Departed open trips read per page of the StatusDepartureDateIndex.</summary>
+    internal const int DepartedTripPageSize = 100;
+
+    /// <summary>Pages read per run, oldest departures first; what is left waits for the next run.</summary>
+    internal const int MaxDepartedTripPages = 10;
+
+    /// <summary>Trips closed per run at most.</summary>
+    internal const int MaxDepartedTripCloses = 200;
+
+    /// <summary>
+    /// ESC-17 (design 4.10, edge case G4): close the <c>open</c> trips whose Ethiopia day is over
+    /// (the browse stopped listing them, L-7), that hold no booking and that no live order still
+    /// names: <c>cancelled</c> with <c>cancelReason: expired</c>. Read through the
+    /// StatusDepartureDateIndex below the browse cutoff (no Scan), bounded per run by
+    /// <see cref="MaxDepartedTripPages"/> and <see cref="MaxDepartedTripCloses"/>. Each close is one
+    /// write conditioned on the version read, the status and no booking
+    /// (<see cref="ITripRepository.TryExpireUnbookedAsync"/>), so a re-run, a trucker's edit or a
+    /// funding that lands in between changes nothing more. A trip that left with bookings stays for
+    /// its trucker to start or cancel.
+    /// </summary>
+    private async Task CloseDepartedTripsAsync(CommitmentRun run, ITripRepository trips)
+    {
+        var cutoff = TripDeparture.CutoffIso(run.Now);
+        Dictionary<string, DynamoValue>? startKey = null;
+        for (var page = 0; page < MaxDepartedTripPages; page++)
+        {
+            List<Dictionary<string, DynamoValue>>? rows;
+            Dictionary<string, DynamoValue>? next;
+            try
+            {
+                (rows, next) = await trips.QueryDepartedOpenAsync(cutoff, DepartedTripPageSize, startKey);
+            }
+            catch (Exception ex)
+            {
+                run.Context.Logger.LogWarning(
+                    $"Commitment deadlines: departed trips could not be read [{ex.GetType().Name}]; they wait a run.");
+                return;
+            }
+
+            foreach (var row in rows ?? new List<Dictionary<string, DynamoValue>>())
+            {
+                if (run.DepartedTripsClosed >= MaxDepartedTripCloses)
+                {
+                    run.Context.Logger.LogInformation(
+                        $"Commitment deadlines: {MaxDepartedTripCloses} departed trips closed; the rest wait a run.");
+                    return;
+                }
+
+                await TryCloseDepartedTripAsync(row, cutoff, run, trips);
+            }
+
+            if (next == null)
+            {
+                return;
+            }
+
+            startKey = next;
+        }
+
+        run.Context.Logger.LogInformation(
+            $"Commitment deadlines: {MaxDepartedTripPages} pages of departed trips read; the rest wait a run.");
+    }
+
+    private async Task TryCloseDepartedTripAsync(
+        Dictionary<string, DynamoValue> trip, string cutoff, CommitmentRun run, ITripRepository trips)
+    {
+        var tripId = RawString(trip, "tripId");
+        var createdAt = RawString(trip, "createdAt");
+        if (tripId.Length == 0 || createdAt.Length == 0)
+        {
+            return;
+        }
+
+        if (HasBookings(trip))
+        {
+            run.DepartedTripsKept++;
+            return;
+        }
+
+        // The index compares strings; a row stored in another form before 1.3.0 is checked as a date.
+        if (!DateTime.TryParse(RawString(trip, "departureDate"), CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var departure)
+            || !TripDeparture.HasDeparted(departure, run.Now))
+        {
+            return;
+        }
+
+        // Bookings exist only since ESC-15 and only while the flag is on: an order from before
+        // (accepted on a trip that never stored a booking) or one still being paid must keep its truck.
+        List<Dictionary<string, object>> orders;
+        try
+        {
+            orders = await _orderRepo.QueryByTripAsync(tripId) ?? new List<Dictionary<string, object>>();
+        }
+        catch (Exception ex)
+        {
+            run.Context.Logger.LogWarning(
+                $"Commitment deadlines: orders of departed trip {MoneyAlarmLog.LogId(tripId)} could not be read [{ex.GetType().Name}]; it waits a run.");
+            return;
+        }
+
+        if (orders.Any(o => TripLifecycle.OrderStillOnTrip(GetString(o, "status"))))
+        {
+            run.DepartedTripsKept++;
+            return;
+        }
+
+        var version = trip.TryGetValue("version", out var versionAttr)
+            && int.TryParse(versionAttr.N, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 0;
+        if (!await trips.TryExpireUnbookedAsync(tripId, createdAt, version, cutoff, run.NowIso))
+        {
+            run.Conflicts++;
+            run.Context.Logger.LogInformation(
+                $"Commitment deadlines: departed trip {MoneyAlarmLog.LogId(tripId)} changed since it was read; not closed this run.");
+            return;
+        }
+
+        run.DepartedTripsClosed++;
+        run.Context.Logger.LogInformation(
+            $"Commitment deadlines: trip {MoneyAlarmLog.LogId(tripId)} open -> cancelled ({TripLifecycle.ExpiredCancelReason}: left unbooked).");
+    }
+
+    /// <summary>Whether the trip row holds a booking (ESC-15 attributes; absent on older rows).</summary>
+    private static bool HasBookings(Dictionary<string, DynamoValue> trip)
+        => (trip.TryGetValue("bookedOrderIds", out var ids) && ids.SS is { Count: > 0 })
+           || (trip.TryGetValue("acceptedOrderIds", out var accepted) && accepted.SS is { Count: > 0 })
+           || (trip.TryGetValue("bookedQuintals", out var booked)
+               && double.TryParse(booked.N, NumberStyles.Float, CultureInfo.InvariantCulture, out var quintals)
+               && quintals > 0);
+
+    private static string RawString(Dictionary<string, DynamoValue> item, string key)
+        => item.TryGetValue(key, out var value) ? value.S ?? "" : "";
 
     // ── shared writes and side effects ──
 

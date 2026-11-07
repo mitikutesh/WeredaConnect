@@ -16,6 +16,7 @@ namespace WeredaConnect.Server.Data;
 ///   GSI TruckerIdCreatedAtIndex: truckerId (PK) + createdAt (SK)
 ///   Booking attributes (ESC-15, absent on rows written before it): bookedQuintals (N),
 ///   remainingQuintals (N), bookedOrderIds (SS), acceptedOrderIds (SS).
+///   ESC-17: cancelReason (S, <c>expired</c>) and cancelledAt (S) on a trip the order cron closed.
 /// </summary>
 public sealed class TripRepository : ITripRepository
 {
@@ -440,6 +441,131 @@ public sealed class TripRepository : ITripRepository
             }
         };
 
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, AttributeValue>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDepartedOpenAsync(
+        string departedBeforeIso,
+        int limit,
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null)
+    {
+        // The browse reads the same partition from the cutoff up (L-7); this reads what lies below
+        // it. departureDate is stored UTC with milliseconds (SIM-60), so it compares as a string.
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "StatusDepartureDateIndex",
+            KeyConditionExpression = "#status = :open AND #departureDate < :cutoff",
+            FilterExpression = "attribute_not_exists(#deletedAt)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#departureDate", "departureDate" },
+                { "#deletedAt", "deletedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":open", new AttributeValue { S = OpenStatus } },
+                { ":cutoff", new AttributeValue { S = departedBeforeIso } }
+            },
+            Limit = limit,
+            ScanIndexForward = true
+        };
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        return (response.Items ?? new List<Dictionary<string, AttributeValue>>(),
+            response.LastEvaluatedKey is { Count: > 0 } next ? next : null);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryExpireUnbookedAsync(
+        string tripId, string createdAt, int expectedVersion, string departedBeforeIso, string nowIso)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = TripKey(tripId, createdAt),
+            UpdateExpression =
+                "SET #status = :cancelled, #cancelReason = :expired, #cancelledAt = :now, #updated = :now, #v = :next",
+            ConditionExpression =
+                "#v = :expected AND #status = :open AND attribute_not_exists(#deletedAt)"
+                + " AND #departureDate < :cutoff AND attribute_not_exists(#bookedIds)"
+                + " AND (attribute_not_exists(#booked) OR #booked <= :zero)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#cancelReason", "cancelReason" },
+                { "#cancelledAt", "cancelledAt" },
+                { "#updated", "updatedAt" },
+                { "#v", "version" },
+                { "#deletedAt", "deletedAt" },
+                { "#departureDate", "departureDate" },
+                { "#bookedIds", BookedIdsField },
+                { "#booked", BookedField }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":cancelled", new AttributeValue { S = CancelledStatus } },
+                { ":expired", new AttributeValue { S = TripLifecycle.ExpiredCancelReason } },
+                { ":now", new AttributeValue { S = nowIso } },
+                { ":next", new AttributeValue { N = (expectedVersion + 1).ToString(CultureInfo.InvariantCulture) } },
+                { ":expected", new AttributeValue { N = expectedVersion.ToString(CultureInfo.InvariantCulture) } },
+                { ":open", new AttributeValue { S = OpenStatus } },
+                { ":cutoff", new AttributeValue { S = departedBeforeIso } },
+                { ":zero", new AttributeValue { N = "0" } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryMarkDeliveredAsync(string tripId, string createdAt, int expectedVersion, string nowIso)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = TripKey(tripId, createdAt),
+            UpdateExpression = "SET #status = :delivered, #updated = :now, #v = :next",
+            ConditionExpression = "#v = :expected AND #status = :inTransit AND attribute_not_exists(#deletedAt)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#updated", "updatedAt" },
+                { "#v", "version" },
+                { "#deletedAt", "deletedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":delivered", new AttributeValue { S = DeliveredStatus } },
+                { ":inTransit", new AttributeValue { S = InTransitStatus } },
+                { ":now", new AttributeValue { S = nowIso } },
+                { ":next", new AttributeValue { N = (expectedVersion + 1).ToString(CultureInfo.InvariantCulture) } },
+                { ":expected", new AttributeValue { N = expectedVersion.ToString(CultureInfo.InvariantCulture) } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Trip row attributes of the ESC-15 bookings.</summary>
     private const string BookedField = "bookedQuintals";
     private const string RemainingField = "remainingQuintals";
@@ -449,6 +575,11 @@ public sealed class TripRepository : ITripRepository
     /// <summary>A trip with room left; <see cref="MatchedStatus"/> is one that is fully booked.</summary>
     private const string OpenStatus = "open";
     private const string MatchedStatus = "matched";
+
+    /// <summary>The statuses of the ESC-17 system moves (an unbooked trip that left, a finished trip).</summary>
+    private const string CancelledStatus = "cancelled";
+    private const string InTransitStatus = "inTransit";
+    private const string DeliveredStatus = "delivered";
 
     private static Dictionary<string, AttributeValue> TripKey(string tripId, string createdAt) => new()
     {
