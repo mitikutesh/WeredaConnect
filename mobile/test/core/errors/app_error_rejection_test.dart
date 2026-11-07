@@ -674,6 +674,95 @@ void main() {
         isRevertableTripRejectionMessage('CROP_HAS_ACTIVE_ORDERS: x'),
         isFalse,
       );
+      // A code meant for the other entity does not undo the change.
+      expect(
+        isRevertableListingRejectionMessage('TRIP_CONTACT_IN_TEXT: x'),
+        isFalse,
+      );
+      expect(
+        isRevertableTripRejectionMessage('CROP_CONTACT_IN_TEXT: x'),
+        isFalse,
+      );
+    });
+
+    // FUP-110 and FUP-138: refusals no retry can pass.
+    test('the FRD-08 refusals no retry can pass are matched exactly', () {
+      for (final message in [
+        'CROP_UNAUTHORIZED: farmerId must match authenticated user.',
+        'TRIP_UNAUTHORIZED: You can only update your own trips.',
+        'DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery.',
+        'INTENT_UNAUTHORIZED: buyerId must match authenticated user.',
+        'RATING_UNAUTHORIZED: raterId must match authenticated user.',
+        'MESSAGE_UNAUTHORIZED: senderId must match authenticated user.',
+        'MATCH_EVENT_UNAUTHORIZED: buyerId must match authenticated user.',
+        'USER_PROFILE_UNAUTHORIZED: A user can only update their own profile.',
+        'ORDER_UNAUTHORIZED: buyerId must match authenticated user.',
+        'DELIVERY_UNAUTHORIZED',
+        'RATING_FORBIDDEN: You can only rate your own orders.',
+        'CROP_VALIDATION: farmerPhone is immutable and cannot be changed on '
+            'update.',
+        'TRIP_VALIDATION: truckerId is immutable and cannot be changed on '
+            'update.',
+        'DELIVERY_VALIDATION: buyerId is immutable and cannot be changed on '
+            'update.',
+      ]) {
+        expect(
+          isUnretryableFraudSignalMessage(message),
+          isTrue,
+          reason: message,
+        );
+      }
+      for (final message in [
+        null,
+        '',
+        'RATING_FORBIDDEN: You can only rate a delivered order (delivered, '
+            'disbursing or settled).',
+        'CROP_VALIDATION: The farmer profile could not be read.',
+        'TRIP_VALIDATION: capacity is required.',
+        'DELIVERY_VALIDATION: Invalid gpsPickup.',
+        'MESSAGE_VALIDATION: farmerId is immutable and cannot be changed on '
+            'update.',
+        'DELIVERY_NONCE_MISMATCH: no match',
+        'DELIVERY_NONCE_REPLAY: used',
+        'Not UNAUTHORIZED: plain text',
+        // Role gates: a token without the role claim gets them too.
+        'CROP_UNAUTHORIZED: Only farmers can create crop listings.',
+        'TRIP_UNAUTHORIZED: Only truckers can create trip listings.',
+        'INTENT_UNAUTHORIZED: Only buyers can create purchase intents.',
+        'RATING_UNAUTHORIZED: Only buyers can rate counterparties.',
+        'MATCH_EVENT_UNAUTHORIZED: Only buyers can log match events.',
+        // (permanent anyway under the ORDER_* rule)
+        'ORDER_UNAUTHORIZED: Only buyers can create orders.',
+        'unauthorized',
+        'AUTH_040: Confirm it is you',
+      ]) {
+        expect(
+          isUnretryableFraudSignalMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+      }
+    });
+
+    test('DELIVERY_NONCE_MISSING undoes the delivery, the others do not', () {
+      for (final message in [
+        'DELIVERY_NONCE_MISSING: QR nonce verification required for this '
+            'transition.',
+        "DELIVERY_NONCE_MISSING: The farmer's QR code never reached the "
+            'server for this pickup. Contact support.',
+      ]) {
+        expect(isDeliveryNonceMissingMessage(message), isTrue);
+        expect(isRevertableDeliveryRejectionMessage(message), isTrue);
+      }
+      for (final message in [
+        'DELIVERY_NONCE_PENDING: Waiting for the farmer',
+        'DELIVERY_NONCE_MISMATCH: no match',
+        'DELIVERY_NONCE_EXPIRED: old',
+        null,
+      ]) {
+        expect(isDeliveryNonceMissingMessage(message), isFalse);
+        expect(isRevertableDeliveryRejectionMessage(message), isFalse);
+      }
     });
 
     test('each code reads its own text in en, am and om', () async {

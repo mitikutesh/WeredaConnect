@@ -249,13 +249,15 @@ bool isDeliveryCodeRejectionMessage(String? message) =>
 
 /// Whether a /sync per-operation error message refuses a delivery change for
 /// good and the client must put the delivery back from the server: a cancel
-/// after pickup (ESC-08), a dispute that was refused or too late (ESC-07), or
-/// a typed handoff code that was refused (T-1).
+/// after pickup (ESC-08), a dispute that was refused or too late (ESC-07), a
+/// typed handoff code that was refused (T-1), or a handoff without the
+/// farmer's QR nonce (FUP-138).
 bool isRevertableDeliveryRejectionMessage(String? message) =>
     isDeliveryCancelRefusalMessage(message) ||
     isDeliveryDisputeRefusalMessage(message) ||
     isDeliveryDisputeExpiredMessage(message) ||
-    isDeliveryCodeRejectionMessage(message);
+    isDeliveryCodeRejectionMessage(message) ||
+    isDeliveryNonceMissingMessage(message);
 
 /// Sync rejection prefix when a farmer's or trucker's response to an order
 /// comes after its deadline (three-party commitments, spec section 8).
@@ -429,6 +431,55 @@ bool isLocationRejectionMessage(String? message) =>
 /// trip (`LOCATION_SHARING_ENDED: ...`).
 bool isLocationSharingEndedMessage(String? message) =>
     message != null && message.startsWith(locationSharingEndedCode);
+
+/// Sync rejection prefix when a pickup or drop-off goes without the farmer's
+/// QR nonce (FRD-11, `delivery-verification-api.md` 1.24.0): the operation
+/// carries no scanned nonce or typed code while the server holds one, or the
+/// farmer's nonce never reached the server within 14 days. Permanent and
+/// reverted (FUP-138): the same operation always gets the same answer, so the
+/// delivery goes back to the server's view. `DELIVERY_NONCE_PENDING` (the
+/// nonce may still sync) comes as `deferred`, not as this error.
+const String deliveryNonceMissingCode = 'DELIVERY_NONCE_MISSING';
+
+/// Whether a /sync per-operation error message refuses a handoff without the
+/// farmer's QR nonce (`DELIVERY_NONCE_MISSING: ...`).
+bool isDeliveryNonceMissingMessage(String? message) =>
+    message != null && message.startsWith(deliveryNonceMissingCode);
+
+/// FRD-08 refusals no retry can pass (FUP-110, sync-protocol.md 1.27.0):
+/// every `*_UNAUTHORIZED` code but a role gate (a row or field that is not
+/// the caller's), a rating of another user's order, and a changed identity
+/// or money field. Permanent, not reverted: the honest apps never send these.
+final RegExp _unauthorizedCodePattern = RegExp(
+  r'^[A-Z][A-Z_]*_UNAUTHORIZED(:|$)',
+);
+
+/// A role gate (`CROP_UNAUTHORIZED: Only farmers can create crop listings.`
+/// and the like) also answers a token without the role claim, a client
+/// set-up problem the server does not score: the same operation passes once
+/// the app sends a token with the role, so it keeps retrying.
+final RegExp _roleGatePattern = RegExp(
+  r'^[A-Z_]+_UNAUTHORIZED: Only (farmers|truckers|buyers) can ',
+);
+const String _ratingOfOthersOrderText =
+    'RATING_FORBIDDEN: You can only rate your own orders.';
+const String _immutableFieldText =
+    'is immutable and cannot be changed on update.';
+
+/// Whether a /sync per-operation error message is an FRD-08 refusal no retry
+/// can pass. Not a role gate (see [_roleGatePattern]), not
+/// `RATING_FORBIDDEN` for an order that is not delivered yet (it can pass
+/// later), and not the QR nonce codes other than [deliveryNonceMissingCode]
+/// (a nonce regenerated offline passes once it syncs).
+bool isUnretryableFraudSignalMessage(String? message) =>
+    message != null &&
+    ((_unauthorizedCodePattern.hasMatch(message) &&
+            !_roleGatePattern.hasMatch(message)) ||
+        message.startsWith(_ratingOfOthersOrderText) ||
+        ((message.startsWith('CROP_VALIDATION:') ||
+                message.startsWith('TRIP_VALIDATION:') ||
+                message.startsWith('DELIVERY_VALIDATION:')) &&
+            message.contains(_immutableFieldText)));
 
 /// Request validation error (400)
 final class ValidationException extends ApiException {

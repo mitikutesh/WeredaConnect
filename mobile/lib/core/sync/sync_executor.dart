@@ -320,11 +320,13 @@ class SyncBatchResult {
 ///   `DELIVERY_ORDER_REQUIRED`, `DELIVERY_CANCEL_NOT_ALLOWED`,
 ///   `DELIVERY_DISPUTE_REFUSED`, `DELIVERY_DISPUTE_EXPIRED`,
 ///   `MESSAGE_CONTACT_LOCKED`, `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`,
-///   `TRIP_CAPACITY_EXCEEDED`, `CROP_HAS_ACTIVE_ORDERS`, or
-///   `APP_UPDATE_REQUIRED` on an order → reject (never retried) and explain
-///   through a [SyncOperationRejected] event; a refused order change, delivery
-///   cancel or delivery dispute, and a crop listing or trip change refused by
-///   one of the ESC-12 part B codes, is first undone via
+///   `TRIP_CAPACITY_EXCEEDED`, `CROP_HAS_ACTIVE_ORDERS`,
+///   `DELIVERY_NONCE_MISSING`, any `*_UNAUTHORIZED`, a rating of another
+///   user's order, a changed immutable field, or `APP_UPDATE_REQUIRED` on an
+///   order → reject (never retried) and explain through a
+///   [SyncOperationRejected] event; a refused order change, delivery cancel,
+///   dispute or handoff, and a crop listing or trip change refused by one of
+///   the codes that say what the server holds, is first undone via
 ///   [PermanentRejectionHandler]
 /// - `error` with `APP_UPDATE_REQUIRED` on anything but an order → keep it
 ///   pending without burning a retry and never undo it (the updated build
@@ -1211,8 +1213,11 @@ class SyncExecutor {
   /// app below the minimum version (any other operation refused for the app
   /// version was held back earlier), and a crop listing or trip whose text
   /// holds a phone number (1.23.0, FUP-49), every `LOCATION_*` refusal
-  /// of a check-in (1.31.0, LT-08), and every `DELIVERY_PHOTO_*` refusal of a
-  /// handoff photo (1.39.0, FRD-12).
+  /// of a check-in (1.31.0, LT-08), every `DELIVERY_PHOTO_*` refusal of a
+  /// handoff photo (1.39.0, FRD-12), a handoff without the farmer's QR nonce
+  /// (`DELIVERY_NONCE_MISSING`, FUP-138), and the FRD-08 refusals no retry
+  /// can pass: every `*_UNAUTHORIZED` code, a rating of another user's order
+  /// and a changed immutable field (1.27.0, FUP-110).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
@@ -1228,7 +1233,8 @@ class SyncExecutor {
         isAppUpdateRequiredMessage(message) ||
         isContactInTextMessage(message) ||
         isLocationRejectionMessage(message) ||
-        isDeliveryPhotoRejectionMessage(message);
+        isDeliveryPhotoRejectionMessage(message) ||
+        isUnretryableFraudSignalMessage(message);
   }
 
   /// Whether a crop listing or trip refusal undoes the local change

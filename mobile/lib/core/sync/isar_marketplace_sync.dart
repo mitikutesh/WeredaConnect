@@ -204,8 +204,9 @@ class IsarMarketplaceSync implements MarketplaceSync {
   ///   the row.
   ///
   /// Every path clears the order pull stamp so that pull is not throttled.
-  /// A delivery cancel refused after pickup (ESC-08) and a refused or late
-  /// delivery dispute (ESC-07) are undone the same way from
+  /// A delivery cancel refused after pickup (ESC-08), a refused or late
+  /// delivery dispute (ESC-07) and a handoff refused for good (a typed code,
+  /// T-1, or a missing QR nonce, FUP-138) are undone the same way from
   /// `GET /deliveries/{id}`, never removing the delivery; only a refused
   /// delivery `create`, never stored, is removed (1.17.0). A message refused
   /// because its thread's contact is not open (ESC-48) was never stored, so

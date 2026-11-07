@@ -289,7 +289,10 @@ void main() {
       });
     }
 
-    test('DELIVERY_UNAUTHORIZED keeps retrying and is not reverted', () async {
+    // FUP-110: a non-participant's cancel can never pass, so it is not
+    // resent; the honest app never sends it, so there is nothing to undo.
+    test('DELIVERY_UNAUTHORIZED is permanent, not reverted, still counted',
+        () async {
       await enqueue(
         'op-1',
         entityType: 'delivery',
@@ -301,11 +304,13 @@ void main() {
       ]);
 
       await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
 
-      final op = await syncQueue.getOperation('op-1');
-      expect(op!.status, SyncStatus.pending);
-      expect(op.retryCount, 1);
+      expect(await isRejected('op-1'), isTrue);
+      expect(await syncQueue.retryFailed(), 0);
       expect(reverts, isEmpty);
+      expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+      expect(await syncQueue.getFailedCount(), 1);
     });
   });
 
@@ -342,6 +347,77 @@ void main() {
         expect(rejections().single.message, message);
       });
     }
+  });
+
+  // FUP-138: a handoff without the farmer's QR nonce gets the same answer
+  // every time (the op carries none, or the farmer's never reached the
+  // server in 14 days), so it is never resent; the local pickup or delivery
+  // goes back to the server's view and leaves the failed count.
+  group('a handoff refused without the QR nonce is permanent and reverted', () {
+    for (final (status, message) in [
+      (
+        'pickedUp',
+        'DELIVERY_NONCE_MISSING: QR nonce verification required for this '
+            'transition.',
+      ),
+      (
+        'pickedUp',
+        "DELIVERY_NONCE_MISSING: The farmer's QR code never reached the "
+            'server for this pickup. Contact support.',
+      ),
+      (
+        'delivered',
+        'DELIVERY_NONCE_MISSING: QR verification could not be completed for '
+            'this payment. Contact support.',
+      ),
+    ]) {
+      test('$status: ${message.substring(24, 60)}', () async {
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          data: '{"status":"$status","version":1}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.operationId, 'op-1');
+        expect(reverts.single.$2, message);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        // A reconnect sends nothing.
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+
+    test('DELIVERY_NONCE_MISMATCH still retries (a new QR may sync)', () async {
+      await enqueue(
+        'op-1',
+        entityType: 'delivery',
+        entityId: 'del-1',
+        data: '{"status":"pickedUp","scannedQrNonce":"n","version":1}',
+      );
+      replyWith([
+        error(
+          'op-1',
+          'DELIVERY_NONCE_MISMATCH: Scanned QR nonce does not match '
+              "generator's nonce.",
+        ),
+      ]);
+
+      await executor.executeBatch();
+
+      final op = await syncQueue.getOperation('op-1');
+      expect(op!.status, SyncStatus.pending);
+      expect(op.retryCount, 1);
+      expect(reverts, isEmpty);
+    });
   });
 
   // ESC-07: a dispute the server could not freeze the payment for, or one
@@ -897,14 +973,12 @@ void main() {
   group('part B: CROP_* and TRIP_* codes the client cannot trust keep retrying',
       () {
     for (final (entityType, entityId, message) in [
-      ('crop_listing', 'crop-1', 'CROP_UNAUTHORIZED: Only farmers can list.'),
       (
         'crop_listing',
         'crop-1',
         'CROP_VALIDATION: The farmer profile could not be read. Please try '
             'again later.',
       ),
-      ('trip', 'trip-1', 'TRIP_UNAUTHORIZED: Only truckers can add trips.'),
       ('trip', 'trip-1', 'TRIP_VALIDATION: bad'),
     ]) {
       test(message.split(':').first, () async {
@@ -1311,5 +1385,204 @@ void main() {
     expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
     expect(await syncQueue.getFailedCount(), 1);
     expect(rejections(), hasLength(1));
+  });
+
+  // FUP-110 (sync-protocol.md 1.27.0, FRD-08): refusals no retry can pass
+  // are never resent, so a reconnect does not score the caller again. The
+  // honest apps never send them: not reverted, still counted, explained.
+  group('FRD-08 refusals no retry can pass are permanent', () {
+    for (final (entityType, entityId, action, message) in [
+      (
+        'crop_listing',
+        'crop-1',
+        'create',
+        'CROP_UNAUTHORIZED: farmerId must match authenticated user.',
+      ),
+      (
+        'crop_listing',
+        'crop-1',
+        'update',
+        'CROP_UNAUTHORIZED: You can only update your own crop listings.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'create',
+        'TRIP_UNAUTHORIZED: truckerId must match authenticated user.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'delete',
+        'TRIP_UNAUTHORIZED: You can only delete your own trips.',
+      ),
+      (
+        'delivery',
+        'del-1',
+        'update',
+        'DELIVERY_UNAUTHORIZED: Only the buyer can confirm delivery.',
+      ),
+      (
+        'buyer_intent',
+        'intent-1',
+        'create',
+        'INTENT_UNAUTHORIZED: buyerId must match authenticated user.',
+      ),
+      (
+        'rating',
+        'rating-1',
+        'create',
+        'RATING_UNAUTHORIZED: raterId must match authenticated user.',
+      ),
+      (
+        'rating',
+        'rating-1',
+        'create',
+        'RATING_FORBIDDEN: You can only rate your own orders.',
+      ),
+      (
+        'message',
+        'msg-1',
+        'create',
+        'MESSAGE_UNAUTHORIZED: senderId must match authenticated user.',
+      ),
+      (
+        'user',
+        'farmer-1',
+        'update',
+        'USER_PROFILE_UNAUTHORIZED: A user can only update their own '
+            'profile.',
+      ),
+      (
+        'crop_listing',
+        'crop-1',
+        'update',
+        'CROP_VALIDATION: farmerId is immutable and cannot be changed on '
+            'update.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'update',
+        'TRIP_VALIDATION: truckerPhone is immutable and cannot be changed on '
+            'update.',
+      ),
+      (
+        'delivery',
+        'del-1',
+        'update',
+        'DELIVERY_VALIDATION: orderId is immutable and cannot be changed on '
+            'update.',
+      ),
+    ]) {
+      test('$entityType $action: ${message.split(':').first}', () async {
+        await enqueue(
+          'op-1',
+          entityType: entityType,
+          entityId: entityId,
+          action: action,
+          data: '{"version":2}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        await executor.syncNow();
+        expect(syncPosts, 1, reason: 'never resent');
+        expect(reverts, isEmpty);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+        expect(await syncQueue.getFailedCount(), 1);
+        expect(rejections().single.message, message);
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: action,
+            message: message,
+          ),
+          AppErrorCode.changeNotSaved,
+        );
+      });
+    }
+
+    test('a refused background match event is permanent and not announced',
+        () async {
+      await enqueue(
+        'op-1',
+        entityType: 'match_event',
+        entityId: 'match-1',
+        action: 'create',
+        data: '{"buyerId":"buyer-2"}',
+      );
+      replyWith([
+        error(
+          'op-1',
+          'MATCH_EVENT_UNAUTHORIZED: buyerId must match authenticated user.',
+        ),
+      ]);
+
+      await executor.executeBatch();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(await isRejected('op-1'), isTrue);
+      expect(rejections(), isEmpty);
+    });
+
+    for (final (entityType, entityId, message) in [
+      // The order may still be delivered: the same rating can pass later.
+      (
+        'rating',
+        'rating-1',
+        'RATING_FORBIDDEN: You can only rate a delivered order (delivered, '
+            'disbursing or settled).',
+      ),
+      ('crop_listing', 'crop-1', 'CROP_VALIDATION: Invalid cropType.'),
+      ('trip', 'trip-1', 'TRIP_VALIDATION: capacity is required.'),
+      ('delivery', 'del-1', 'DELIVERY_VALIDATION: Invalid gpsPickup.'),
+      // Not an _UNAUTHORIZED code, only text that contains the word.
+      ('delivery', 'del-1', 'Delivery update was UNAUTHORIZED somehow.'),
+      // A role gate also answers a token without the role claim (a client
+      // set-up problem): the same operation passes with the right token.
+      (
+        'crop_listing',
+        'crop-1',
+        'CROP_UNAUTHORIZED: Only farmers can create crop listings.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'TRIP_UNAUTHORIZED: Only truckers can create trip listings.',
+      ),
+      (
+        'buyer_intent',
+        'intent-1',
+        'INTENT_UNAUTHORIZED: Only buyers can create purchase intents.',
+      ),
+      (
+        'rating',
+        'rating-1',
+        'RATING_UNAUTHORIZED: Only buyers can rate counterparties.',
+      ),
+    ]) {
+      test('$entityType "${message.split(':').first}" keeps retrying',
+          () async {
+        await enqueue(
+          'op-1',
+          entityType: entityType,
+          entityId: entityId,
+          action: 'create',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+
+        final op = await syncQueue.getOperation('op-1');
+        expect(op!.status, SyncStatus.pending);
+        expect(op.retryCount, 1);
+        expect(reverts, isEmpty);
+      });
+    }
   });
 }
