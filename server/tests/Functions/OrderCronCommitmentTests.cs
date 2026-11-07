@@ -1,4 +1,5 @@
 using Amazon.DynamoDBv2;
+using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using NSubstitute;
@@ -12,9 +13,12 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Functions;
 
 /// <summary>
-/// ESC-15: the order cron's <c>commitment_deadlines</c> walk. Each walk applies its transition as
+/// ESC-15: the order cron's <c>commitment_deadlines</c> decisions. Each applies its transition as
 /// a version CAS and audits it; markers are stamped once; nothing is written with the flag off,
-/// with a dependency missing, or for a row whose window is still open.
+/// with a dependency missing, or for a row whose window is still open. ESC-16: the rows come from
+/// the deadline index (<see cref="IOrderRepository.QueryDueDeadlinesAsync"/>) and are read again
+/// before they are decided (<see cref="Serve"/> serves both); the sweep itself is tested in
+/// <c>OrderCronDeadlineSweepTests</c>.
 /// </summary>
 public class OrderCronCommitmentTests
 {
@@ -41,6 +45,10 @@ public class OrderCronCommitmentTests
     {
         _orders.QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>())
             .Returns(new List<Dictionary<string, object>>());
+        _orders.QueryDueDeadlinesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
+        _orders.TrySetDeadlineAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<OrderDeadline?>())
+            .Returns(true);
         _orders.UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
             .Returns(ci => AuthResult<Dictionary<string, object>>.Success(
                 new Dictionary<string, object> { { "orderId", ci.Arg<string>() } }));
@@ -146,8 +154,20 @@ public class OrderCronCommitmentTests
             (OrderCommitment.TransportFailureField, OrderCommitment.TransportFailure.TruckerDeclined),
             (OrderCommitment.BuyerChoiceDeadlineAtField, deadlineInHours is { } d ? Iso(HoursFromNow(d)) : null));
 
+    /// <summary>
+    /// ESC-16: the rows (all of <paramref name="status"/>) are due in the deadline index, and each one
+    /// read again is the same row object, so a test that changes it between runs sees the change.
+    /// </summary>
     private void Serve(string status, params Dictionary<string, object>[] rows)
-        => _orders.QueryByStatusForCronAsync(status, Arg.Any<string?>()).Returns(rows.ToList());
+    {
+        Assert.All(rows, row => Assert.Equal(status, row["status"]));
+        _orders.QueryDueDeadlinesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((rows.ToList(), (Dictionary<string, AttributeValue>?)null));
+        foreach (var row in rows)
+        {
+            _orders.GetByIdAsync((string)row["orderId"], true).Returns(row);
+        }
+    }
 
     private static Dictionary<string, object> OpenTrip()
         => new() { { "tripId", TripId }, { "status", "open" }, { "departureDate", "2026-11-01" } };
@@ -680,7 +700,7 @@ public class OrderCronCommitmentTests
 
         Assert.Equal(200, actual.StatusCode);
         Assert.Contains("\"outcome\":\"disabled\"", actual.Body);
-        await _orders.DidNotReceive().QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>());
+        await _orders.DidNotReceive().QueryDueDeadlinesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
         await AssertNoOrderWrite();
         await AssertNoStamp();
         Assert.DoesNotContain("ORDER_CRON_COMMITMENTS_UNCONFIGURED", Logs);
@@ -700,7 +720,7 @@ public class OrderCronCommitmentTests
         Assert.Contains("\"outcome\":\"unconfigured\"", actual.Body);
         Assert.Contains($"ORDER_CRON_COMMITMENTS_UNCONFIGURED missing={missing}", Logs);
         Assert.Equal(1, CountOf(Logs, "ORDER_CRON_COMMITMENTS_UNCONFIGURED"));
-        await _orders.DidNotReceive().QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>());
+        await _orders.DidNotReceive().QueryDueDeadlinesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
         await AssertNoOrderWrite();
         await AssertNoStamp();
     }

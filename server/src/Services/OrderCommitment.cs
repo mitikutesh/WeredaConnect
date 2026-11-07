@@ -136,12 +136,24 @@ public static class OrderCommitment
     public const string FarmerAuditAction = "farmer_responded";
     public const string TruckerAuditAction = "trucker_responded";
 
-    public static readonly TimeSpan ResponseWindow = TimeSpan.FromHours(24);
-    public static readonly TimeSpan DepartureMargin = TimeSpan.FromHours(12);
+    // ESC-16: the windows are read from SSM (Helpers.OrderTimings, spec 4.5); the defaults are the
+    // values below them in the comments. The two minimums are guards, not settings.
+
+    /// <summary>T3 and T4 (24h), and the order-create lead before departure.</summary>
+    public static TimeSpan ResponseWindow => Helpers.OrderTimings.Current.ResponseWindow;
+
+    /// <summary>T3 and T4 end at least this long before the trip departs (12h).</summary>
+    public static TimeSpan DepartureMargin => Helpers.OrderTimings.Current.DepartureMargin;
+
     public static readonly TimeSpan MinWindow = TimeSpan.FromHours(1);
-    public static readonly TimeSpan ReminderLead = TimeSpan.FromHours(6);
+
+    /// <summary>The reminder of T3, T4 and T5 is due this long before the deadline (6h).</summary>
+    public static TimeSpan ReminderLead => Helpers.OrderTimings.Current.ReminderLead;
+
     public static readonly TimeSpan MinReminderWindow = TimeSpan.FromHours(12);
-    public static readonly TimeSpan BuyerChoiceWindow = TimeSpan.FromHours(48);
+
+    /// <summary>T5: the buyer's window once the transport failed (48h).</summary>
+    public static TimeSpan BuyerChoiceWindow => Helpers.OrderTimings.Current.BuyerChoiceWindow;
 
     /// <summary>
     /// Env flag <c>COMMITMENTS_ENABLED</c>. Off, the farmer's accept moves the order straight to

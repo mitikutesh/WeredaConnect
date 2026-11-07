@@ -223,7 +223,8 @@ public class OrderRepositoryTripQueryTests
         update.ExpressionAttributeValues[":c1"].S.Should().Be("pending");
         update.ExpressionAttributeNames.Values.Should().NotContain("version").And.NotContain("updatedAt");
         update.UpdateExpression.Should().NotContain("ADD");
-        update.ReturnValues.Should().BeNull();
+        // ESC-16: the row written comes back so its next deadline can be checked against it.
+        update.ReturnValues.Should().Be(ReturnValue.ALL_NEW);
     }
 
     [Fact]

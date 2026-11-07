@@ -365,7 +365,9 @@ public partial class SyncFunction
         "pendingPaymentAt",
         // Fieldway trip bookings (order-lifecycle 2.2.0): the farm and the drop-off place of the
         // order, stamped at create from the listing and the buyer's profile.
-        "pickupPlace", "dropoffPlace"
+        "pickupPlace", "dropoffPlace",
+        // ESC-16: the order's next deadline (DeadlineIndex); every order write derives it itself.
+        OrderDeadlines.AtField, OrderDeadlines.KindField, OrderDeadlines.ShardField
     };
 
     /// <summary>
@@ -6293,12 +6295,13 @@ public partial class SyncFunction
         }
         catch (Exception ex)
         {
-            // A confirmed delivery must not be rolled back. Log loudly: until the
-            // escrow is stamped, the 7-day auto-refund is NOT blocked, so this needs
-            // an ops alert / reconciliation follow-up.
+            // A confirmed delivery must not be rolled back. Until the escrow is stamped the
+            // auto-release never pays it: alarmed (ESC-16, escrow-delivery-stamp-failures), and the
+            // escrow cron's hourly order-money sweep stamps it for a delivered order.
             context.Logger.LogError(
-                $"Delivery {MoneyAlarmLog.LogId(deliveryId)} confirmed but escrow stamp FAILED: [{ex.GetType().Name}]. "
-                + "Escrow not yet marked delivery-confirmed — requires reconciliation.");
+                $"{MoneyAlarmLog.EscrowDeliveryStampFailedToken} deliveryId={MoneyAlarmLog.LogId(deliveryId)} source=sync "
+                + $"reason=[{ex.GetType().Name}]: delivery confirmed but its escrow is not marked delivery-confirmed; "
+                + "the hourly order-money sweep retries the stamp.");
         }
     }
 
@@ -8911,7 +8914,8 @@ public partial class SyncFunction
             if (TryParseDepartureDateUtc(AttrString(trip, "departureDate"), requireIsoShape: false, out var departureUtc)
                 && departureUtc < nowUtc + OrderCommitment.ResponseWindow)
             {
-                return "This trip leaves within 24 hours; choose a later trip.";
+                // ESC-16: the lead is the response window read from SSM (24 hours by default).
+                return $"This trip leaves within {OrderTimings.HoursText(OrderCommitment.ResponseWindow)} hours; choose a later trip.";
             }
 
             var remaining = RemainingQuintalsOf(trip);

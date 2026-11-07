@@ -91,6 +91,15 @@ public sealed class EscrowService
     /// </summary>
     private static readonly TimeSpan OrderPaymentAcceptWindow = TimeSpan.FromHours(20);
 
+    /// <summary>
+    /// ESC-16: when the last checkout of a payment attempt closes, counted from
+    /// <c>paymentSubmittedAt</c>: a new checkout is refused after <see cref="OrderPaymentAcceptWindow"/>,
+    /// and one opened just before stays payable for <see cref="OrderCheckoutWindow"/> plus the margin
+    /// (22h10m). The order cron's payment-failed timing (T2, <c>OrderTimings.PaymentVerification</c>)
+    /// never goes below it, so no order is failed while a checkout can still take its money.
+    /// </summary>
+    internal static TimeSpan LastCheckoutClosesAfter => OrderPaymentAcceptWindow + OrderCheckoutWindow + OrderCheckoutSafetyMargin;
+
     /// <summary>ESC-01: order statuses in which the buyer's money is already held.</summary>
     private static readonly HashSet<string> FundedOrderStatuses = new()
     {

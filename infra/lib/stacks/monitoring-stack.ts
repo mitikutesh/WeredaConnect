@@ -339,6 +339,22 @@ export class MonitoringStack extends cdk.Stack {
     countPropagationFailures('SyncDisputePropagationFilter', syncLogGroup);
     countPropagationFailures('EscrowCronDisputePropagationFilter', escrowCronLogGroup);
 
+    // ESC-16: a confirmed delivery whose escrow could not be stamped deliveryConfirmedAt. The sync
+    // logs ESCROW_DELIVERY_STAMP_FAILED when its inline stamp at the buyer's confirmation fails; the
+    // escrow cron logs it when its own repair of that stamp fails (the refund sweep's safety net or the
+    // order-money sweep). Two filters publish one metric.
+    const countDeliveryStampFailures = (id: string, logGroup: logs.ILogGroup) =>
+      new logs.MetricFilter(this, id, {
+        logGroup,
+        filterPattern: logs.FilterPattern.literal('"ESCROW_DELIVERY_STAMP_FAILED"'),
+        metricNamespace,
+        metricName: 'EscrowDeliveryStampFailures',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+    countDeliveryStampFailures('SyncDeliveryStampFailuresFilter', syncLogGroup);
+    countDeliveryStampFailures('EscrowCronDeliveryStampFailuresFilter', escrowCronLogGroup);
+
     // ESC-03: a dispute verdict whose settlement fails closed (the order or delivery could not
     // be read, or a buyer_wins order could not be cancelled or restocked first). The hourly
     // sweep retries; only a cause that persists matters, so the alarm (below) needs the line in
@@ -1116,6 +1132,24 @@ export class MonitoringStack extends cdk.Stack {
         're-runs the mirror, and not while a manual payout or a settlement lock is open. Your lever ' +
         'is the admin verdict (POST /admin/disputes/{id}/resolve): it moves the order and delivery, ' +
         'again before it settles (ESC-03). Never edit the rows by hand (FUP-27).',
+    );
+
+    // ESC-16: with the commitments on, a live order escrow is held to its 21 day cap, so a missing
+    // delivery stamp is no longer caught by the refund sweep within days. Event-driven: one line per
+    // failed stamp (sync) or per failed repair (escrow-cron, each hourly run until it lands).
+    const escrowDeliveryStampFailuresAlarm = moneyLogAlarm(
+      'EscrowDeliveryStampFailures',
+      'escrow-delivery-stamp-failures',
+      'EscrowDeliveryStampFailures',
+      'Escrow Delivery Stamp Failures',
+      'A delivery was confirmed but its escrow was not marked delivery-confirmed ' +
+        '(ESCROW_DELIVERY_STAMP_FAILED in the sync or escrow-cron log group, with deliveryId, escrowId when ' +
+        'known, source and reason). Until the stamp lands the auto-release never pays the farmer and the ' +
+        'trucker. source=sync: the inline stamp at the buyer\'s confirmation failed; the hourly order-money ' +
+        'sweep of escrow-cron retries it for the delivered order (summary deliveryStampsRepaired). ' +
+        'source=escrow-cron: that retry failed too, usually throttling or IAM on the escrows table; it ' +
+        'keeps retrying every hour. Fix the cause and check the trade in /transactions/<orderId>. Never ' +
+        'release by hand while the delivery stamp is missing, and never edit the escrow row by hand (ESC-16).',
     );
 
     const orderMoneyMismatchAlarm = moneyLogAlarm(
@@ -1987,6 +2021,7 @@ export class MonitoringStack extends cdk.Stack {
           disputeVerdictMismatchAlarm,
           disputeSettlementBlockedAlarm,
           disputePropagationFailedAlarm,
+          escrowDeliveryStampFailuresAlarm,
           orderMoneyMismatchAlarm,
           riskSettlementSkippedAlarm,
           accountDeletionStuckAlarm,
