@@ -394,14 +394,23 @@ server moves are behind `COMMITMENTS_ENABLED` like the bookings; the cancel path
 **One cancel path.** Mobile and web cancel a trip with the same operation: `entityType: trip`,
 `action: update`, `data: {status: cancelled, version: <the version the server holds>}` (web also echoes
 `truckerId`). It goes through the status transitions (only `open` or `matched` may be cancelled), the
-SIM-28 stale-version conflict and the 2.0.0 cascade. The `delete` action that mobile builds before 2.4.0
-queued stays accepted for the operations still in the field: it cancels the same way, cascades the same
-way and also stamps `deletedAt`. Only the trip's trucker can cancel it (`TRIP_UNAUTHORIZED` otherwise).
+SIM-28 stale-version conflict and the 2.0.0 cascade. Mobile refuses locally what the server would refuse
+(a trip not `open` or `matched`), so such a cancel is never queued. The `delete` action that mobile
+builds before 2.4.0 queued stays accepted for the operations still in the field, with its old rules: it
+does not go through the status transitions, so it still cancels any trip not yet cancelled or delivered,
+`inTransit` included (as before 2.4.0); the 2.0.0 `TRIP_HAS_BOOKINGS` check for crops on the road and the
+cascade run as for the update; and it stamps `deletedAt`. Only the trip's trucker can cancel it
+(`TRIP_UNAUTHORIZED` otherwise), by either form.
 
 **Trips that left unbooked close themselves.** The hourly order cron action `commitment_deadlines`
 ends with a step that reads the `open` partition of the StatusDepartureDateIndex below the browse
-cutoff (`departureDate` before the start of today in Ethiopia, 2.2.0; no Scan, oldest first, 10 pages of
-100 rows and 200 closes a run at most, the rest the next hour). A trip is closed when it holds no
+cutoff (`departureDate` before the start of today in Ethiopia, 2.2.0; no Scan). It reads newest
+departures first, 10 pages of 100 rows and 200 closes a run at most: a trip is at the head of the read
+from the first run after its Ethiopia day ends, and the trips kept open after they left (booked, or
+named by a live order, below) pile up at the old end, where they never hide a newer one. A closable trip
+beyond the bounds waits for the next run; a kept trip that becomes closable once it is deeper than 1,000
+departed open trips is left open (it is not listed either way). A failure on one trip's write is logged
+and the walk goes on. A trip is closed when it holds no
 booking (no `bookedOrderIds`, `bookedQuintals` absent or 0) and no order on it (orders `TripIdIndex`) is
 still live: every order is `cancelled`, `rejected`, `payment_failed` or `awaiting_transport`. Any other
 order, an unpaid one or one from before bookings existed, keeps the trip open until it resolves. The
@@ -419,10 +428,13 @@ answer of its next change.
 before pickup, by update or legacy delete), the server reads the trip (strongly consistent) and, when it
 is `inTransit`, every delivery on it through the deliveries `TripIdIndex` (soft-deleted rows left out;
 the delivery just written counts with its new status, since the index can lag). When every delivery is
-`delivered`, `disputed` or `cancelled` and at least one is `delivered` or `disputed`, the trip moves to
-`delivered` in one write conditioned on the version read and `inTransit` (`version` + 1). A trip whose
-deliveries were all cancelled, or that has none, is left as it is; so is any trip not `inTransit`, and
-one with more than 500 deliveries. Best effort: the delivery write has landed whatever happens; a
+`delivered`, `disputed` or `cancelled` and at least one is `delivered` or `disputed`, the server also reads
+the trip's orders (orders `TripIdIndex`): an order `funded`, `accepted`, `pickup_confirmed` or
+`in_transit` with no `delivered` or `disputed` delivery on the trip still waits for the truck (an agreed
+order may have no delivery yet), and the trip is left as it is. An order row that lags its done delivery
+does not hold the trip. Otherwise the trip moves to `delivered` in one write conditioned on the version
+read and `inTransit` (`version` + 1). A trip whose deliveries were all cancelled, or that has none, is left
+as it is; so is any trip not `inTransit`, and one with more than 500 deliveries. Best effort: the delivery write has landed whatever happens; a
 failure is logged as `TRIP_COMPLETE_FAILED` and the trucker can still mark the trip delivered. A
 delivery closed outside `/sync` (an admin's dispute disposition, an order cancel that cancels its
 pending delivery) does not move the trip yet.
@@ -563,7 +575,7 @@ Common route patterns:
 | 2.2.0 | 2026-11-04 | Trips that left (L-7): seen live, `GET /trips?status=open` listed departures from 2026-07-14 to 2026-11-01 as open. The browse of `open` now returns only trips with `departureDate` at or after the start of today in Ethiopia (Africa/Addis_Ababa), so a trip stays listed all of its day; the cutoff is in the key condition, not a filter; a `nextToken` from before Ethiopia midnight still works. The trucker's own list, `GET /trips/{id}` and other statuses are unchanged. An order create naming a trip that has left is refused with `ORDER_TRIP_NOT_ELIGIBLE` whatever `COMMITMENTS_ENABLED` (`order-lifecycle.md` 2.3.0, `sync-protocol.md` 1.34.0). Mobile and web apply the same cutoff to their open trips (cache and web reads), mark a trucker's open trip with a passed day as "Date passed" with the trips still ahead listed first, and check a chosen truck (open, not left, room for the quantity) before an order is placed. The buyer's cache no longer keeps open trips that left, so by-id reads from it (conversation trip context, live trip vehicle line) come back empty for them. The cutoff uses the device clock; the apps keep no server time offset |
 | 2.2.1 | 2026-11-06 | Release on the escrow cancels (FUP-123): the auto-refund sweep's cancel of a stale `funded` or `awaiting_transport` order, and the refund settlement's cancel before pickup (a `buyer_wins` verdict, an admin refund), now release the order's booking like the sync cancels; before, the trip kept a phantom booking, read too little room, and a full trip could stay `matched`. Behind `COMMITMENTS_ENABLED` like every booking write. Server only, no wire change, no client change |
 | 2.3.0 | 2026-11-06 | The order lead on the browse (FUP-122): with `COMMITMENTS_ENABLED` on, an order create refuses a trip departing in under 24 hours (2.0.0), but the buyer's match suggestions still offered such trips (FUP-85 keeps a trip leaving today all day), so a buyer could pick a truck the server then refused. `GET /trips` now returns `orderLeadHours` on every page: 24 with the flag on, 0 off (`OrderCommitment.OrderLeadHours`, the same `ResponseWindow` the order create checks). The trips Lambda now gets `COMMITMENTS_ENABLED` too. Additive: older apps ignore it, and the list is unchanged. Mobile caches the last value from its trip pull (SharedPreferences, for offline matching) and web reads it with the trips it matches; both drop from the suggestions a trip with `departureDate < now + orderLeadHours`. Lead 0 or unknown (an older server) keeps FUP-85. The buyer's trip browse is not filtered |
-| 2.4.0 | 2026-11-07 | Trip lifecycle (ESC-17, design 4.10 and G4): one cancel path, mobile now sends an `update` to `cancelled` like web (the legacy `delete` stays accepted and cascades the same way); the hourly `commitment_deadlines` run closes `open` trips whose Ethiopia day is over, that hold no booking and that no live order names (`cancelled`, new server-written `cancelReason: expired` and `cancelledAt`, version CAS, bounded per run, through the StatusDepartureDateIndex); an `inTransit` trip becomes `delivered` once every delivery on it is `delivered`, `disputed` or `cancelled` and one is done (hooked on the `/sync` delivery writes, version CAS); a change to a trip already cancelled, delivered or deleted answers `conflict` with the stored row when it asks for what holds or its version is behind (before: `TRIP_TERMINAL_STATE` / `TRIP_ALREADY_CANCELLED` errors the apps retried). Both server moves behind `COMMITMENTS_ENABLED`. No new index, no wire change for clients beyond the conflict |
+| 2.4.0 | 2026-11-07 | Trip lifecycle (ESC-17, design 4.10 and G4): one cancel path, mobile now sends an `update` to `cancelled` like web and refuses locally a trip not `open` or `matched` (the legacy `delete` stays accepted with its old rules: no transition check, same `TRIP_HAS_BOOKINGS` check and cascade, `deletedAt`); the hourly `commitment_deadlines` run closes `open` trips whose Ethiopia day is over, that hold no booking and that no live order names (`cancelled`, new server-written `cancelReason: expired` and `cancelledAt`, version CAS, read newest departures first through the StatusDepartureDateIndex, bounded per run); an `inTransit` trip becomes `delivered` once every delivery on it is `delivered`, `disputed` or `cancelled`, one is done and no `funded`, `accepted`, `pickup_confirmed` or `in_transit` order on it lacks a done delivery (hooked on the `/sync` delivery writes, version CAS); a change to a trip already cancelled, delivered or deleted answers `conflict` with the stored row when it asks for what holds or its version is behind (before: `TRIP_TERMINAL_STATE` / `TRIP_ALREADY_CANCELLED` errors the apps retried). Both server moves behind `COMMITMENTS_ENABLED`. No new index, no wire change for clients beyond the conflict |
 | 2.3.1 | 2026-11-07 | Doc only (ESC-14, survey 9.2): Security Considerations said `GET /trips` and `GET /trips/{id}` are public; both sit behind the JWT authorizer and the F-36 role rules (buyers and admins any trip, a trucker their own, everyone else `403 TRIP_FORBIDDEN`). Browse and Get Single Trip now say that a caller without a valid token gets `401` from API Gateway (not `403`), list the `401` and `403` answers, show the `{"trip": {...}}` wrapper the server has always sent for `GET /trips/{id}`, and give that endpoint's error order (`404` before the role check). The status transition note that a matched cancel "re-opens matched listings" is left for ESC-17, which owns trip cancel. No wire change |
 
 ---
