@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.3.0
+2.3.1
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -112,7 +112,7 @@ The Trip Listing API enables transport providers (truckers) to post available tr
 
 ### 2. Browse Trips
 **Method**: GET /trips
-**Authentication**: Required — browse-all is restricted to Buyer and Admin (F-36). Truckers see only their own trips; farmers, other roles, and unauthenticated callers receive 403.
+**Authentication**: Required. Browse-all is restricted to Buyer and Admin (F-36). Truckers see only their own trips (a `truckerId` other than their own is `403`); farmers and other roles receive `403 TRIP_FORBIDDEN`. The route sits behind the API's JWT authorizer, so a call without a valid token is answered `401` by API Gateway before the Lambda runs (2.3.1; the text before said such callers got 403).
 
 Cancelled trips are never listed, for any role: a trip with `status: cancelled` (status update) or with `deletedAt` (soft delete) is omitted, the same trips `GET /trips/{id}` answers with `404`. `status=cancelled` returns an empty page (`trips: []`, `hasMore: false`). These trips are dropped after DynamoDB applies `limit`, so a page can hold fewer than `limit` trips while `hasMore` is `true`.
 
@@ -172,46 +172,53 @@ GET /trips?fromWoreda=Bishoftu&toWoreda=Addis%20Ababa&status=open&limit=20
 - `orderLeadHours` (2.3.0, FUP-122): integer, on every page and for every caller. An order create refuses a trip whose `departureDate` is less than this many hours after the server's now (`departureDate < now + orderLeadHours`, so a trip exactly that far ahead is taken). `24` while the server runs the commitments (`COMMITMENTS_ENABLED` on the trips Lambda, the same value as on sync), `0` when it does not (no lead; the left-trip rule of 2.2.0 still applies). The list itself does not change: browse still returns every open trip that has not left. The apps leave trips inside the lead out of the buyer's match suggestions (mobile `MatchingService`, web `WebMatchingService`) with the same comparison on the device clock. The phone keeps the last value a trip pull returned for its offline matching (app-wide, kept over logout) and forgets it when a page comes without the field; a missing or unreadable value reads as unknown, which keeps the FUP-85 rule (a trip leaving today is suggested all day)
 
 **Error Codes**:
-- `400 Bad Request` — Invalid query parameter (e.g., negative minCapacity, invalid date format)
-- `500 Internal Server Error` — Server-side failure
+- `400 Bad Request`: Invalid query parameter (e.g., negative minCapacity, invalid date format)
+- `401 Unauthorized`: No valid token (API Gateway, 2.3.1)
+- `403 TRIP_FORBIDDEN`: A farmer or another role, or a trucker asking for another trucker's trips (2.3.1)
+- `500 Internal Server Error`: Server-side failure
 
 ---
 
 ### 3. Get Single Trip
 **Method**: GET /trips/{id}
-**Authentication**: Optional
-**Path Parameters**: `id` (string, UUID) — Trip ID
+**Authentication**: Required, with the browse rules (2.3.1; the text before said "Optional"). The route sits behind the JWT authorizer. A buyer or an admin may read any trip; a trucker only their own; farmers and other roles get `403 TRIP_FORBIDDEN`.
+**Path Parameters**: `id` (string, UUID): Trip ID
 
 **Example Request**:
 ```
 GET /trips/trip-101
 ```
 
-**Response**:
+**Response** (2.3.1: the trip is wrapped in `trip`, as the server has always answered; the example before showed it bare):
 ```json
 {
-  "tripId": "trip-101",
-  "truckerId": "trucker-789",
-  "truckerName": "Tadesse Worku",
-  "truckerPhone": "+251912345678",
-  "fromWoreda": "Bishoftu",
-  "toWoreda": "Addis Ababa",
-  "departureDate": "2026-02-18T06:00:00Z",
-  "capacity": 150.0,
-  "pricePerQuintal": 120.0,
-  "status": "open",
-  "matchedListings": [],
-  "createdAt": "2026-02-16T10:30:00Z",
-  "updatedAt": "2026-02-16T10:30:00Z",
-  "version": 1
+  "trip": {
+    "tripId": "trip-101",
+    "truckerId": "trucker-789",
+    "truckerName": "Tadesse Worku",
+    "truckerPhone": "+251912345678",
+    "fromWoreda": "Bishoftu",
+    "toWoreda": "Addis Ababa",
+    "departureDate": "2026-02-18T06:00:00Z",
+    "capacity": 150.0,
+    "pricePerQuintal": 120.0,
+    "status": "open",
+    "matchedListings": [],
+    "createdAt": "2026-02-16T10:30:00Z",
+    "updatedAt": "2026-02-16T10:30:00Z",
+    "version": 1
+  }
 }
 ```
 
 **Note**: `truckerPhone` is only included for the trip's own trucker and for admins (1.4.0, ESC-48). A buyer never gets it: contact opens on the order once the farmer accepted the paid order (`order-lifecycle.md` 1.18.0).
 
-**Error Codes**:
-- `404 Not Found` — Trip not found or cancelled
-- `500 Internal Server Error` — Server-side failure
+**Error Codes** (checked in this order, 2.3.1):
+- `400 TRIP_VALIDATION`: No trip id in the path
+- `401 Unauthorized`: No valid token (API Gateway)
+- `404 TRIP_NOT_FOUND`: Trip not found or cancelled; answered before the role check, so any signed-in caller learns only that the id does not exist
+- `403 TRIP_FORBIDDEN`: A farmer or another role, or a trucker reading another trucker's trip
+- `500 TRIP_SERVER_ERROR`: Server-side failure
 
 ---
 
@@ -456,8 +463,8 @@ Common route patterns:
 
 ### Authentication
 - **POST /sync**: Requires JWT token (Cognito)
-- **GET /trips**: Public (no auth required for browsing)
-- **GET /trips/{id}**: Public, but `truckerPhone` only shown to the owning trucker and admins (1.4.0)
+- **GET /trips**: Requires JWT token (Cognito); buyers and admins browse every trip, a trucker sees only their own, anyone else gets `403` (F-36). Before 2.3.1 this line said the browse was public, which it has not been since F-36
+- **GET /trips/{id}**: Requires JWT token, with the same role rules; `truckerPhone` only shown to the owning trucker and admins (1.4.0)
 
 ### Authorization
 - Truckers can only create/update/delete their own trips
@@ -510,9 +517,10 @@ Common route patterns:
 | 2.2.0 | 2026-11-04 | Trips that left (L-7): seen live, `GET /trips?status=open` listed departures from 2026-07-14 to 2026-11-01 as open. The browse of `open` now returns only trips with `departureDate` at or after the start of today in Ethiopia (Africa/Addis_Ababa), so a trip stays listed all of its day; the cutoff is in the key condition, not a filter; a `nextToken` from before Ethiopia midnight still works. The trucker's own list, `GET /trips/{id}` and other statuses are unchanged. An order create naming a trip that has left is refused with `ORDER_TRIP_NOT_ELIGIBLE` whatever `COMMITMENTS_ENABLED` (`order-lifecycle.md` 2.3.0, `sync-protocol.md` 1.34.0). Mobile and web apply the same cutoff to their open trips (cache and web reads), mark a trucker's open trip with a passed day as "Date passed" with the trips still ahead listed first, and check a chosen truck (open, not left, room for the quantity) before an order is placed. The buyer's cache no longer keeps open trips that left, so by-id reads from it (conversation trip context, live trip vehicle line) come back empty for them. The cutoff uses the device clock; the apps keep no server time offset |
 | 2.2.1 | 2026-11-06 | Release on the escrow cancels (FUP-123): the auto-refund sweep's cancel of a stale `funded` or `awaiting_transport` order, and the refund settlement's cancel before pickup (a `buyer_wins` verdict, an admin refund), now release the order's booking like the sync cancels; before, the trip kept a phantom booking, read too little room, and a full trip could stay `matched`. Behind `COMMITMENTS_ENABLED` like every booking write. Server only, no wire change, no client change |
 | 2.3.0 | 2026-11-06 | The order lead on the browse (FUP-122): with `COMMITMENTS_ENABLED` on, an order create refuses a trip departing in under 24 hours (2.0.0), but the buyer's match suggestions still offered such trips (FUP-85 keeps a trip leaving today all day), so a buyer could pick a truck the server then refused. `GET /trips` now returns `orderLeadHours` on every page: 24 with the flag on, 0 off (`OrderCommitment.OrderLeadHours`, the same `ResponseWindow` the order create checks). The trips Lambda now gets `COMMITMENTS_ENABLED` too. Additive: older apps ignore it, and the list is unchanged. Mobile caches the last value from its trip pull (SharedPreferences, for offline matching) and web reads it with the trips it matches; both drop from the suggestions a trip with `departureDate < now + orderLeadHours`. Lead 0 or unknown (an older server) keeps FUP-85. The buyer's trip browse is not filtered |
+| 2.3.1 | 2026-11-07 | Doc only (ESC-14, survey 9.2): Security Considerations said `GET /trips` and `GET /trips/{id}` are public; both sit behind the JWT authorizer and the F-36 role rules (buyers and admins any trip, a trucker their own, everyone else `403 TRIP_FORBIDDEN`). Browse and Get Single Trip now say that a caller without a valid token gets `401` from API Gateway (not `403`), list the `401` and `403` answers, show the `{"trip": {...}}` wrapper the server has always sent for `GET /trips/{id}`, and give that endpoint's error order (`404` before the role check). The status transition note that a matched cancel "re-opens matched listings" is left for ESC-17, which owns trip cancel. No wire change |
 
 ---
 
-**Last Updated**: 2026-11-06
-**Version**: 2.3.0
+**Last Updated**: 2026-11-07
+**Version**: 2.3.1
 **Status**: Draft (Phase R4.1)
