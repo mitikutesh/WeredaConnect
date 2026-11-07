@@ -283,9 +283,10 @@ public static class MoneyAlarmLog
     /// Keep <c>[A-Za-z0-9-_.:]</c>, cut at 64 characters, empty becomes <c>-</c>. A field can
     /// never hold a space or a newline, so it cannot add a second field or break the line.
     /// Only for server values (actions, codes, references); client-influenced ids use <see cref="LogId"/>.
-    /// <paramref name="maxLength"/> is longer only for <see cref="LogLegs"/>.
+    /// <paramref name="maxLength"/> is longer only for <see cref="LogLegs"/>. Internal for the FRD-16
+    /// signal line (<c>FraudDetectionService.SignalRecordedLine</c>), whose fields are server values too.
     /// </summary>
-    private static string Safe(string? value, int maxLength = MaxFieldLength)
+    internal static string Safe(string? value, int maxLength = MaxFieldLength)
     {
         if (string.IsNullOrEmpty(value))
         {

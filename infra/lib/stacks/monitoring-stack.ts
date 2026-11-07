@@ -43,7 +43,11 @@ interface DynamoTableDef {
  * filters @ $0.30). The live gateway adds 5 alarms and 2 metrics on the API alarm ($0.70),
  * 2 log metrics ($0.60) and the webhook route's 6 detailed API Gateway metrics (at most
  * $1.80, billed only for hours with webhook traffic; FUP-39). The order notification
- * stream adds 3 alarms ($0.30; ESC-21). Metric filters are free.
+ * stream adds 3 alarms ($0.30; ESC-21). FRD-16 adds $1.70 fixed (the total signal metric
+ * $0.30, 5 risk alarms $0.50, the anomaly alarm $0.30 as 3 alarm metrics, its floor $0.10, the
+ * composite $0.50) plus the per-type signal metrics, $0.30 a month for a type written every hour,
+ * prorated by the hours it is written ($6.30 at most for the 21 types of today; fraud spec
+ * section 23.1). Metric filters are free.
  *
  * References Lambda functions and DynamoDB tables by name (no cross-stack refs needed).
  */
@@ -1612,6 +1616,274 @@ export class MonitoringStack extends cdk.Stack {
     notifyStreamErrorsAlarm.addAlarmAction(snsAction);
     notifyStreamErrorsAlarm.addOkAction(snsAction);
 
+    // ─── FRD-16: fraud signal metrics and the risk alarms ────────────
+    // Fraud spec section 23.1. Synthetic test: scripts/fraud_alarms_synthetic.sh.
+    //
+    // Every Lambda whose handler builds a FraudDetectionService, the one writer of signal rows and
+    // reader of risk scores (an infra test checks this list against server/src/Functions).
+    // RecordFraudSignalAsync logs one line per row it writes:
+    //   {"event":"FRAUD_SIGNAL_RECORDED","signalType":"<type>","entityType":"<kind>"}
+    // A refusal the hourly per-user, per-type write limit absorbs logs nothing, so the metrics count
+    // the rows Fraud Review shows. Today sync, escrow, auth-refresh and the webhook write signals;
+    // sync, escrow, escrow-cron and admin read scores; order-cron gets FRD-15's relationship scan.
+    // Filters are free and a log group without the line publishes nothing new.
+    const fraudLogGroupOf = (nameSuffix: string): logs.ILogGroup =>
+      logs.LogGroup.fromLogGroupName(this, `FraudLogGroup-${nameSuffix}`, `/aws/lambda/${prefix}-${nameSuffix}`);
+    const fraudLogGroups: Array<[string, logs.ILogGroup]> = [
+      ['Sync', syncLogGroup],
+      ['Escrow', escrowLogGroup],
+      ['EscrowCron', escrowCronLogGroup],
+      ['OrderCron', orderCronLogGroup],
+      ['AuthRefresh', fraudLogGroupOf('auth-refresh')],
+      ['Admin', fraudLogGroupOf('admin')],
+      // The webhook log group exists only with the live gateway.
+      ...(telebirrLive ? [['TelebirrWebhook', fraudLogGroupOf('telebirr-webhook')] as [string, logs.ILogGroup]] : []),
+    ];
+    for (const [key, logGroup] of fraudLogGroups) {
+      // Total volume: a plain term, so it matches with or without the Lambda runtime's line prefix
+      // (the alarm below depends only on this one). defaultValue 0 gives the anomaly model its quiet
+      // baseline; one metric, however many log groups publish it.
+      new logs.MetricFilter(this, `FraudSignals${key}Filter`, {
+        logGroup,
+        filterPattern: logs.FilterPattern.literal('"FRAUD_SIGNAL_RECORDED"'),
+        metricNamespace,
+        metricName: 'FraudSignalsRecorded',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+      // Per type: a JSON filter with the type as a dimension, one filter per log group whatever the
+      // number of types, and new types (FRD-15, ESC-33) need no infra change. Each type is its own
+      // custom metric, billed only in the hours it is written (CloudWatch does not allow a
+      // defaultValue with dimensions, and one metric filter per type would need a filter per type
+      // and log group, about 150, with the same cost).
+      new logs.MetricFilter(this, `FraudSignalsByType${key}Filter`, {
+        logGroup,
+        filterPattern: logs.FilterPattern.stringValue('$.event', '=', 'FRAUD_SIGNAL_RECORDED'),
+        metricNamespace,
+        metricName: 'FraudSignalsByType',
+        metricValue: '1',
+        dimensions: { SignalType: '$.signalType' },
+      });
+    }
+
+    // The risk lines (fraud spec sections 14.4 and 18; MoneyAlarmLog and FraudDetectionService). No
+    // defaultValue: these lines are rare, a metric published only when one appears is billed only
+    // for those hours, and the alarms treat missing data as not breaching, so they behave the same.
+    // The score lines come from FraudDetectionService.GetUserRiskScoreAsync, so they are counted on
+    // every log group above.
+    const riskLogFilter = (id: string, logGroup: logs.ILogGroup, token: string, metricName: string) =>
+      new logs.MetricFilter(this, id, {
+        logGroup,
+        filterPattern: logs.FilterPattern.literal(`"${token}"`),
+        metricNamespace,
+        metricName,
+        metricValue: '1',
+      });
+    const riskScoreTokens: Array<[string, string]> = [
+      ['RISK_SCORE_UNAVAILABLE', 'RiskScoreUnavailable'],
+      ['RISK_SCORE_TRUNCATED', 'RiskScoreTruncated'],
+      ['RISK_SCORE_UNKNOWN_RECORD', 'RiskScoreUnknownRecord'],
+    ];
+    for (const [token, metricName] of riskScoreTokens) {
+      for (const [key, logGroup] of fraudLogGroups) {
+        riskLogFilter(`${metricName}${key}Filter`, logGroup, token, metricName);
+      }
+    }
+    // An admin refund of a held escrow is refused in the escrow Lambda only (EscrowService
+    // RefuseHeldRefundAsync; the sweeps never select a held escrow).
+    riskLogFilter('RiskHoldOrderMismatchFilter', escrowLogGroup, 'RISK_HOLD_ORDER_MISMATCH', 'RiskHoldOrderMismatch');
+    // escrow-cron logs it once per hourly settlement run while its gate reads no risk tier.
+    riskLogFilter('RiskTableUnconfiguredFilter', escrowCronLogGroup, 'RISK_TABLE_UNCONFIGURED', 'RiskTableUnconfigured');
+    // FRD-10: a clean-delivery credit that could not be written. Not alarmed by design (a lost
+    // credit only leaves a score higher); a metric for the dashboard.
+    riskLogFilter('CleanDeliveryCreditFailedFilter', escrowCronLogGroup, 'CLEAN_DELIVERY_CREDIT_FAILED', 'CleanDeliveryCreditFailed');
+
+    const riskScoreUnavailableAlarm = moneyLogAlarm(
+      'RiskScoreUnavailable',
+      'risk-score-unavailable',
+      'RiskScoreUnavailable',
+      'Risk Score Unavailable',
+      'A risk score read failed (RISK_SCORE_UNAVAILABLE userId=.. error=<exception type> in the sync, ' +
+        'escrow, escrow-cron or admin log group; fraud spec section 14.4). At a user gate (sync, escrow) ' +
+        'the user was scored LOW and only the baseline step-up applied, so a risky user may have passed. ' +
+        'In a settlement sweep the escrow was skipped and retried next hour (risk-settlement-skipped ' +
+        'fires too). On the admin Fraud Review page the score shows as unavailable. error=EmptyUserId is ' +
+        'a caller bug. Otherwise the fraud-signals Query failed: check throttling on the fraud-signals ' +
+        'table, the Lambda role (dynamodb:Query on it) and its FRAUD_SIGNALS_TABLE variable. One line per ' +
+        'failed read; it clears 75 to 90 minutes after the last line (FRD-16).',
+    );
+
+    const riskScoreTruncatedAlarm = moneyLogAlarm(
+      'RiskScoreTruncated',
+      'risk-score-truncated',
+      'RiskScoreTruncated',
+      'Risk Score Truncated',
+      'A user\'s signal rows did not fit in RISK_MAX_PAGES pages, so the user was scored CRITICAL ' +
+        '(RISK_SCORE_TRUNCATED userId=.. pages=.. in the sync, escrow, escrow-cron or admin log group; ' +
+        'fraud spec section 14.3): payments and creates are refused (FRAUD_ACCOUNT_HELD) and their ' +
+        'escrows held or skipped. It fails closed on purpose. With the hourly write limit an honest user ' +
+        'cannot reach about 3,000 rows in 30 days, so this is abuse across many types and hours, or the ' +
+        'known edge of a last page that ends exactly at the cap. Open the user in Fraud Review: reject ' +
+        'the signals if it is abuse. If the rows are honest (a client bug), RISK_MAX_PAGES (at most 10) ' +
+        'on the sync, escrow, escrow-cron and admin Lambdas reads further; otherwise the tier stays ' +
+        'CRITICAL until rows leave the 30 day window. Logged on every read of that user. Never delete ' +
+        'signal rows by hand (FRD-16).',
+    );
+
+    const riskScoreUnknownRecordAlarm = moneyLogAlarm(
+      'RiskScoreUnknownRecord',
+      'risk-score-unknown-record',
+      'RiskScoreUnknownRecord',
+      'Risk Score Unknown Record',
+      'A risk score read met fraud-signals rows whose recordType it does not know and counted them as ' +
+        'signals, which can raise the user\'s tier (RISK_SCORE_UNKNOWN_RECORD userId=.. rows=.. ' +
+        'recordType=<first value> in the sync, escrow, escrow-cron or admin log group; fraud spec ' +
+        'sections 14.3 and 20). Usually a newer server wrote a new row kind that a Lambda still on the ' +
+        'older build reads (a deploy in progress or a partial rollback), or a row was edited by hand. ' +
+        'Deploy one server build to every Lambda. If the recordType is not in section 20 of the fraud ' +
+        'spec, find who wrote it. Never delete the rows by hand (FRD-16).',
+    );
+
+    const riskHoldOrderMismatchAlarm = moneyLogAlarm(
+      'RiskHoldOrderMismatch',
+      'risk-hold-order-mismatch',
+      'RiskHoldOrderMismatch',
+      'Risk Hold Order Mismatch',
+      'An admin refund of an escrow held for fraud review was refused because its order cannot follow ' +
+        'the refund (RISK_HOLD_ORDER_MISMATCH escrowId=.. heldFor=<release|refund> legs=order:<status> in ' +
+        'the escrow log group, answered 422; escrow-audit row admin_settlement_order_refused; FRD-03, ' +
+        'fraud spec section 18.3). No money moved and the escrow stays held. legs names the order status ' +
+        'that blocks it: a progressing, missing or unexpected order. Open /transactions/<orderId> in the ' +
+        'admin app and reconcile the order with the parties: release instead if the goods were delivered, ' +
+        'or refund again once the order can be cancelled. Never edit the escrow or order row by hand ' +
+        '(FRD-16).',
+    );
+
+    const riskTableUnconfiguredAlarm = moneyLogAlarm(
+      'RiskTableUnconfigured',
+      'risk-table-unconfigured',
+      'RiskTableUnconfigured',
+      'Risk Table Unconfigured',
+      'escrow-cron\'s settlement risk gate reads no risk tier because FRAUD_SIGNALS_TABLE is empty ' +
+        '(RISK_TABLE_UNCONFIGURED action=auto_release_and_refund, once per hourly run, FRAUD_HOLD_ENABLED ' +
+        'on or off; fraud spec section 14.4). Suspended parties are still stopped, but a party at risk ' +
+        'tier CRITICAL is paid or refunded as if LOW, without a trace. A deploy or a stack without the ' +
+        'variable: check the escrow-cron Lambda configuration and deploy the api stack (escrow-cron needs ' +
+        'FRAUD_SIGNALS_TABLE with read and PutItem on the fraud-signals table, FRD-04 and FRD-10). Stays ' +
+        'in ALARM while the hourly runs log it and clears 75 to 90 minutes after the last one (FRD-16).',
+    );
+
+    // Total signal volume: an anomaly band AND a floor, both on one 15 minute period, joined by a
+    // composite alarm that alone notifies. The band learns the daily and weekly pattern of the
+    // metric; the floor keeps a quiet environment (dev, or prod at night) from paging on a few
+    // signals that sit above a band learned from almost only zeros. Missing data (no log events in
+    // any signal log group) is not breaching. The two children have no actions.
+    const signalVolume = new cloudwatch.Metric({
+      namespace: metricNamespace,
+      metricName: 'FraudSignalsRecorded',
+      statistic: 'Sum',
+      period: cdk.Duration.minutes(15),
+      label: 'Fraud Signals Recorded',
+    });
+    const signalVolumeStdDevs = 3;
+    const signalVolumeFloor = 10;
+    const signalVolumeAnomalyAlarm = new cloudwatch.AnomalyDetectionAlarm(this, 'FraudSignalVolumeAnomaly', {
+      alarmName: `${prefix}-fraud-signal-volume-anomaly`,
+      alarmDescription:
+        'Part of fraud-signal-volume-spike, which notifies; this one has no actions. The fraud signal ' +
+        `rows written in 15 minutes (FraudSignalsRecorded) are above the anomaly band (${signalVolumeStdDevs} ` +
+        'standard deviations) the model learned from the metric\'s history (FRD-16).',
+      metric: signalVolume,
+      stdDevs: signalVolumeStdDevs,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_UPPER_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    const signalVolumeFloorAlarm = new cloudwatch.Alarm(this, 'FraudSignalVolumeFloor', {
+      alarmName: `${prefix}-fraud-signal-volume-floor`,
+      alarmDescription:
+        'Part of fraud-signal-volume-spike, which notifies; this one has no actions. At least ' +
+        `${signalVolumeFloor} fraud signal rows were written in 15 minutes (FraudSignalsRecorded), so a ` +
+        'spike above the anomaly band is more than a few signals on a quiet day (FRD-16).',
+      metric: signalVolume,
+      threshold: signalVolumeFloor,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    const signalVolumeSpikeAlarm = new cloudwatch.CompositeAlarm(this, 'FraudSignalVolumeSpike', {
+      compositeAlarmName: `${prefix}-fraud-signal-volume-spike`,
+      alarmDescription:
+        'Fraud signal volume spiked: the rows written to the fraud-signals table in one 15 minute period ' +
+        `(FRAUD_SIGNAL_RECORDED lines) were above the anomaly band and at least ${signalVolumeFloor}. Each ` +
+        'row is one user, one type, one hour. Find the type in the dashboard graph Fraud Signals by Type ' +
+        '(metric FraudSignalsByType, dimension SignalType). One type from many users after a release ' +
+        '(ROLE_FORBIDDEN, IMMUTABLE_FIELD_CHANGE, STALE_VERSION_BURST, QR_HANDOFF_FAILURE): suspect a client ' +
+        'bug and roll it back. New accounts, one relationship type, or IDOR_CREATE_CONFLICT probes: open ' +
+        'Fraud Review and look for a ring. This alarm only tells: the per-user risk tiers act on their ' +
+        'own. A run of scripts/e2e_fraud_personas.py or scripts/fraud_alarms_synthetic.sh fires it ' +
+        'too. Fraud spec section 23.1 (FRD-16).',
+      alarmRule: cloudwatch.AlarmRule.allOf(
+        cloudwatch.AlarmRule.fromAlarm(signalVolumeAnomalyAlarm, cloudwatch.AlarmState.ALARM),
+        cloudwatch.AlarmRule.fromAlarm(signalVolumeFloorAlarm, cloudwatch.AlarmState.ALARM),
+      ),
+    });
+    signalVolumeSpikeAlarm.addAlarmAction(snsAction);
+    signalVolumeSpikeAlarm.addOkAction(snsAction);
+
+    const hourlySum = (metricName: string, label: string) =>
+      new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName,
+        statistic: 'Sum',
+        period: cdk.Duration.hours(1),
+        label,
+      });
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Fraud Signals Recorded (15 min, anomaly band)',
+        left: [
+          signalVolume,
+          cloudwatch.Metric.anomalyDetectionFor({
+            metric: signalVolume,
+            stdDevs: signalVolumeStdDevs,
+            label: 'Expected band',
+            period: cdk.Duration.minutes(15),
+          }),
+        ],
+        width: 8,
+        height: 6,
+        leftYAxis: { label: 'Rows', showUnits: false },
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Fraud Signals by Type (hourly)',
+        left: [
+          new cloudwatch.MathExpression({
+            expression: `SEARCH('{${metricNamespace},SignalType} MetricName="FraudSignalsByType"', 'Sum', 3600)`,
+            label: '',
+            period: cdk.Duration.hours(1),
+          }),
+        ],
+        width: 8,
+        height: 6,
+        leftYAxis: { label: 'Rows', showUnits: false },
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Risk Score and Credit Problems (hourly)',
+        left: [
+          hourlySum('RiskScoreUnavailable', 'Score unavailable'),
+          hourlySum('RiskScoreTruncated', 'Score truncated'),
+          hourlySum('RiskScoreUnknownRecord', 'Unknown record'),
+          hourlySum('RiskHoldOrderMismatch', 'Hold order mismatch'),
+          hourlySum('RiskTableUnconfigured', 'Table unconfigured'),
+          hourlySum('CleanDeliveryCreditFailed', 'Clean delivery credit failed'),
+        ],
+        width: 8,
+        height: 6,
+        leftYAxis: { label: 'Lines', showUnits: false },
+      }),
+    );
+
     // ─── Alarm Status Widget (summary at bottom of dashboard) ────────
     dashboard.addWidgets(
       new cloudwatch.AlarmStatusWidget({
@@ -1642,6 +1914,13 @@ export class MonitoringStack extends cdk.Stack {
           notifyDlqAlarm,
           notifyIteratorAgeAlarm,
           notifyStreamErrorsAlarm,
+          // FRD-16 fraud signal volume and risk alarms
+          signalVolumeSpikeAlarm,
+          riskScoreUnavailableAlarm,
+          riskScoreTruncatedAlarm,
+          riskScoreUnknownRecordAlarm,
+          riskHoldOrderMismatchAlarm,
+          riskTableUnconfiguredAlarm,
           ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
           ...(webhook5xxAlarm ? [webhook5xxAlarm] : []),
           ...(webhookErrorsAlarm ? [webhookErrorsAlarm] : []),
