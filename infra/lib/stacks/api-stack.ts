@@ -2704,6 +2704,8 @@ export class ApiStack extends cdk.Stack {
         TRIP_LOCATIONS_TABLE: props.tripLocationsTable.tableName,
         // FRD-12: the transaction view signs GETs of the delivery's handoff photos.
         UPLOADS_BUCKET: props.uploadsBucket.bucketName,
+        // FRD-14: the dispute evidence reads the disputed order's message threads, audited.
+        MESSAGES_TABLE: props.messagesTable.tableName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(30),
@@ -2728,6 +2730,16 @@ export class ApiStack extends cdk.Stack {
     props.tripLocationsTable.grant(adminFn.function, "dynamodb:Query");
     // FRD-12: a presigned GET carries its signer's rights, so the admin may read the photo keys.
     props.uploadsBucket.grantRead(adminFn.function, "uploads/photos/*");
+    // FRD-14: a dispute's message threads, one Query by conversation id each. Query on that index
+    // only: no GetItem, no other index (no listing of a user's messages), no write.
+    adminFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [
+          `${props.messagesTable.tableArn}/index/ConversationIdCreatedAtIndex`,
+        ],
+      }),
+    );
 
     // Write access on tables the admin mutates
     props.escrowsTable.grantWriteData(adminFn.function);
@@ -2793,6 +2805,9 @@ export class ApiStack extends cdk.Stack {
       "/admin/escrows/{id}",
       "/admin/escrows/{id}/audit",
       "/admin/disputes",
+      // FRD-14: a dispute's evidence package (admin group checked in the Lambda; messages only
+      // with include=messages, each read audited).
+      "/admin/disputes/{id}/evidence",
       "/admin/fraud-signals",
       "/admin/users",
       "/admin/users/{id}",

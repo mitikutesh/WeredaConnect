@@ -328,8 +328,9 @@ describe('ApiStack', () => {
     // plus GET /deliveries/{id}/track (LT-06, live trip) → 63,
     // plus GET /admin/deliveries/{id}/trail (LT-13, dispute evidence) → 64,
     // plus POST /crops/{id}/photos (crop-listing-api 1.6.0) → 65,
-    // plus GET /admin/escrows/held (FRD-07, the held queue) → 66 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 66);
+    // plus GET /admin/escrows/held (FRD-07, the held queue) → 66,
+    // plus GET /admin/disputes/{id}/evidence (FRD-14, the dispute evidence package) → 67 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 67);
   });
 
   // ─── Crop photos (crop-listing-api 1.6.0) ───
@@ -762,6 +763,44 @@ describe('ApiStack', () => {
     expect([...new Set(roleActions(role, (r) => r.includes('TripLocationsTable')))]).toEqual(['dynamodb:Query']);
     const deliveries = roleActions(role, (r) => r.includes('DeliveriesTable'));
     expect(deliveries).toEqual(expect.arrayContaining(['dynamodb:Query', 'dynamodb:GetItem']));
+  });
+
+  test('FRD-14: GET /admin/disputes/{id}/evidence reaches the admin Lambda on the admin authorizer, which may only Query message threads by conversation', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    const routes = template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'GET /admin/disputes/{id}/evidence' },
+    });
+    expect(Object.keys(routes)).toHaveLength(1);
+    const route = Object.values(routes)[0].Properties;
+    expect(route.AuthorizationType).toBe('JWT');
+    expect(route.AuthorizerId).toEqual({ Ref: adminAuthorizerId });
+    const integrationId = JSON.stringify(route.Target).match(/"Ref":"([^"]+)"/)?.[1];
+    expect(integrationId).toBeDefined();
+    const integration = template.findResources('AWS::ApiGatewayV2::Integration')[integrationId!];
+    expect(JSON.stringify(integration.Properties.IntegrationUri)).toContain(lambdaId('wereda-connect-dev-admin'));
+    expect(integration.Properties.PayloadFormatVersion).toBe('1.0');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-admin',
+      Environment: { Variables: Match.objectLike({ MESSAGES_TABLE: Match.anyValue() }) },
+    });
+    // Query on the conversation index only: no item read, no other index, no write.
+    const role = 'AdminFunctionServiceRole';
+    const statements = [
+      ...Object.entries(template.findResources('AWS::IAM::Policy')),
+      ...Object.entries(template.findResources('AWS::IAM::ManagedPolicy')),
+    ]
+      .filter(([id]) => id.startsWith(role))
+      .flatMap(([, p]) => p.Properties.PolicyDocument.Statement as Array<{ Action: string | string[]; Resource: unknown }>)
+      .filter((s) => JSON.stringify(s.Resource).includes('MessagesTable'));
+    expect(statements).toHaveLength(1);
+    expect(statements[0].Action).toBe('dynamodb:Query');
+    const resources = JSON.stringify(statements[0].Resource);
+    expect(resources).toContain('/index/ConversationIdCreatedAtIndex');
+    expect(resources).not.toContain('index/*');
   });
 
   test('manual payout queue routes sit on the admin authorizer (ESC-02)', () => {
