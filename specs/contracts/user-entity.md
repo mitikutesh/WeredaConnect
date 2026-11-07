@@ -1,7 +1,7 @@
 # User Entity Contract
 
 ## Version
-1.3.1
+1.3.2
 
 ## Parties
 - **Mobile** (client) -- stores user profile in Isar for offline access, displays user info
@@ -24,7 +24,7 @@ The User entity represents a registered user of WeredaConnect. It is shared betw
 | `phoneNumber` | string | Yes | No | Yes | Ethiopian phone number in E.164 format: `+251XXXXXXXXX` |
 | `passwordHash` | string | Yes | Yes | **Never** | Server-side only. Cognito-managed. Never leaves the server. |
 | `displayName` | string | No | Yes | Yes | User-visible name. Supports Amharic/Oromo Unicode. Max 100 chars. |
-| `role` | enum | Yes | No | Yes | One of: `farmer`, `trucker`, `buyer`. Set at registration, immutable. |
+| `role` | enum | Yes | Admin only | Yes | One of: `farmer`, `trucker`, `buyer`. Set at registration. Only an admin's `change_role` changes it (see role below, 1.3.2). |
 | `woreda` | string | Yes | Yes | Yes | Administrative district (e.g., "Adama", "Jimma"). Max 100 chars. |
 | `faydaId` | string | No | Yes | Yes | Ethiopian national Fayda ID. Optional at registration, required for financial transactions (escrow). |
 | `preferredLanguage` | string | No | Yes | Yes | Enum: `en`, `am`, `om`. Default: `am`. Changing the language in Settings syncs it via the `user` sync entity (sync-protocol.md, SIM-37). After a sign-in the app shows it unless the user picked a language on that device (auth-api.md 2.12.3). |
@@ -36,6 +36,21 @@ The User entity represents a registered user of WeredaConnect. It is shared betw
 | `createdAt` | string (ISO 8601) | Yes | No | Yes | UTC timestamp of account creation. |
 | `updatedAt` | string (ISO 8601) | Yes | Yes | Yes | UTC timestamp of last profile update. |
 | `version` | integer | Yes | Yes | Yes | Monotonically increasing version number for sync conflict detection. Starts at 1. |
+
+### Server-written fields (1.3.2)
+
+The server keeps these on the users row (`UserRepository`). No client may write them. "Returned" means they are in the `user` object of the register and login responses (`auth-api.md`).
+
+| Field | Type | Returned | Description |
+|-------|------|----------|-------------|
+| `fullName` | string | Yes | The Fayda legal name, written only from Fayda (the registration verification token or `/user/fayda-link`); never screened for phone numbers (1.2.0) |
+| `faydaVerified` | boolean | Yes | The account's Fayda identity is verified (registration, `/user/fayda-link`, or an admin's `verify` action) |
+| `faydaVerifiedAt` | string (ISO 8601) | Yes | When it was verified |
+| `faydaAuthenticatedAt` | string (ISO 8601) | Never | The last Fayda sign-in through `/user/fayda-link`; payments above 10,000 ETB need it to be recent (`AUTH_041`) |
+| `suspended` | boolean | Yes | Set and cleared by an admin (`suspend`, `unsuspend`); blocks login, OTP verification and refresh (`AUTH_025`, `auth-api.md`) |
+| `suspendReason` | string | Never | Why an admin suspended the account; `fraud_confirmed` is the Fraud Review reject (FRD-05) |
+| `knownDevices` | string set | Yes | Install ids (`X-Device-Id`) that have signed in, newest last, at most 10; a new one triggers a sign-in notice |
+| `deletionState`, `deletionRequestedAt`, `deletedAt` | | Never | Account deletion (Deletion fields below, 1.1.0) |
 
 ### Field Constraints
 
@@ -49,7 +64,7 @@ The User entity represents a registered user of WeredaConnect. It is shared betw
 #### role
 - Enum values: `farmer`, `trucker`, `buyer`
 - Case-sensitive, lowercase
-- Immutable after registration
+- The user cannot change it (a sync or profile write that tries is refused). As built (1.3.2): an admin's `POST /admin/users/{id}/action` with `change_role` and `newRole` rewrites it, only to one of the three marketplace roles (`ADMIN_011` otherwise, never `admin`), together with the Cognito `custom:role` claim, and signs the user out (`auth-api.md`). The text before 1.3.2 said the role is immutable after registration
 - Stored as string in DynamoDB, as enum in Isar
 
 #### woreda
@@ -153,10 +168,20 @@ This GSI enables O(1) lookup by phone number during login. Since phone numbers a
 | Index name | `RoleWaredaIndex` |
 | Partition Key | `role` (String) |
 | Sort Key | `woreda` (String) |
-| Projection | `KEYS_ONLY` (userId, role, woreda) |
+| Projection | `ALL` (1.3.2: as built in `database-stack.ts`; this line said `KEYS_ONLY`) |
 | Purpose | Query users by role and woreda for matching (e.g., find truckers in a woreda) |
 
 **Query pattern**: `GET users WHERE role = "trucker" AND woreda = "Adama"`
+
+#### FaydaIdIndex (1.3.2: built, missing from this contract before)
+
+| Property | Value |
+|----------|-------|
+| Index name | `FaydaIdIndex` |
+| Partition Key | `faydaId` (String) |
+| Sort Key | None |
+| Projection | `ALL` |
+| Purpose | Look up an account by Fayda ID: the duplicate check at registration and the Fayda verify path |
 
 ### DynamoDB Item Structure
 
@@ -397,7 +422,7 @@ These rules must always hold:
 
 1. **Phone number is globally unique.** No two users can have the same phone number. Enforced by DynamoDB conditional write and Isar unique index.
 2. **userId is immutable.** Once assigned, a user's ID never changes.
-3. **role is immutable.** A user's role is set at registration and cannot be changed. (Role change requires new account in v1.)
+3. **role changes only by an admin.** A user's role is set at registration; the user cannot change it, and only an admin's `change_role` can (1.3.2; see role).
 4. **phoneNumber is immutable.** Phone number changes are not supported in v1.
 5. **version only increases.** The version number is monotonically increasing. It is never decremented or reset.
 6. **passwordHash never leaves the server.** It is managed by Cognito and is never included in any API response, sync payload, or Isar record.
@@ -427,8 +452,9 @@ Given Ethiopian mobile data costs:
 | 1.2.0 | 2026-10-23 | No phone number in `displayName`, `woreda` or `companyName` (FUP-52): refused at registration with `AUTH_027` (`auth-api.md` 2.12.0); any later profile update path must run the same check; stored values are not re-validated; the Fayda `fullName` is not screened; `companyName` added to the server validation table |
 | 1.3.0 | 2026-10-24 | `preferredLanguage` is written from the app's Settings through the `/sync` `user` entity (`sync-protocol.md` 1.28.0, SIM-37, #220) |
 | 1.3.1 | 2026-11-06 | `preferredLanguage` is read back: after a sign-in the app shows it unless the user picked a language on that device (`auth-api.md` 2.12.3, SIM-37). Shape unchanged |
+| 1.3.2 | 2026-11-07 | Doc only (ESC-14, survey 9.5): the row as built. `role` is changed by an admin's `change_role` (marketplace roles only, Cognito claim rewritten, user signed out), not immutable; new table of server-written fields (`fullName`, `faydaVerified`, `faydaVerifiedAt`, `faydaAuthenticatedAt`, `suspended`, `suspendReason`, `knownDevices`) saying which the register and login `user` object returns; `RoleWaredaIndex` projects `ALL` (was documented `KEYS_ONLY`); `FaydaIdIndex` documented. The full rewrite with `reputation` stays ESC-27 (user-entity 2.0.0). No wire change |
 
 ---
 
-**Last Updated**: 2026-11-06
-**Version**: 1.3.1
+**Last Updated**: 2026-11-07
+**Version**: 1.3.2
