@@ -30,12 +30,25 @@ import {
   partyLabel,
   deriveStage,
 } from "@/lib/transaction";
+import { fill } from "@/lib/trail";
 import { partyName } from "@/lib/user";
 
 type Row = Record<string, unknown>;
 
 function s(v: unknown): string {
   return v == null ? "" : String(v);
+}
+
+/**
+ * FRD-12: a handoff photo as a thumbnail that opens full size. The URL is a 15-minute presigned
+ * GET the server signs for the admin view; dispute evidence (FRD-14 builds the full package).
+ */
+function HandoffPhoto({ url, label, openLabel }: { url: string; label: string; openLabel: string }) {
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" aria-label={openLabel} className="inline-block">
+      <img src={url} alt={label} loading="lazy" className="h-24 w-24 rounded-lg border border-gray-200 object-cover" />
+    </a>
+  );
 }
 
 /** A label/value row inside a detail card; hidden entirely when value is empty. */
@@ -244,6 +257,19 @@ export function TransactionDetailPage() {
               <Field label={t("transactions.confirmedAt")}>
                 {delivery.confirmedAt ? formatDateTime(s(delivery.confirmedAt)) : ""}
               </Field>
+              {(["pickup", "dropoff"] as const).map((leg) => {
+                const url = s(delivery[`${leg}PhotoUrl`]);
+                const label = t(`transactions.${leg}Photo`);
+                return (
+                  <Field key={leg} label={label}>
+                    {url ? (
+                      <HandoffPhoto url={url} label={label} openLabel={fill(t("transactions.openPhoto"), { label })} />
+                    ) : (
+                      ""
+                    )}
+                  </Field>
+                );
+              })}
             </dl>
           ) : (
             <p className="text-sm text-text-muted">{t("transactions.noDelivery")}</p>
