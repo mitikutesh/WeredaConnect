@@ -325,6 +325,26 @@ void main() {
         ),
       );
     });
+
+    test(
+        'ESC-25: the minimum-build refusal throws and reads as '
+        '"update the app"', () async {
+      // The exact text the server sends (sync-protocol.md 1.41.0).
+      const message = 'APP_UPDATE_REQUIRED: This version of the app is too '
+          'old for orders. Update WeredaConnect to continue.';
+      answerSync({'status': 'error', 'message': message});
+
+      final error = await repo
+          .acceptOrder('ord-1', 'farmer-1')
+          .then<Object?>((_) => null, onError: (Object e) => e);
+
+      expect(
+        error,
+        isA<SyncRejectedException>()
+            .having((e) => e.message, 'message', message),
+      );
+      expect(mapErrorToCode(error!), AppErrorCode.appUpdateRequired);
+    });
   });
 
   group('WebOrderRepository commitments (ESC-15)', () {

@@ -1652,6 +1652,13 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     });
   });
 
+  test.each([false, true])('sync carries MIN_ORDER_APP_BUILD 3 in dev (live=%s, ESC-25)', (live) => {
+    buildTemplate(live).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-sync',
+      Environment: { Variables: Match.objectLike({ MIN_ORDER_APP_BUILD: '3' }) },
+    });
+  });
+
   test('FUP-122: the trips browse carries COMMITMENTS_ENABLED (its orderLeadHours), on in dev', () => {
     buildTemplate(false).hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-trips',
@@ -1917,6 +1924,7 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
   });
 
   test('ESC-15: staging and prod keep the commitments off on sync, order-cron, escrow, escrow-cron and trips', () => {
+    // The owner turns them on after the ESC-25 gate is deployed there; the test below then holds.
     for (const envName of ['staging', 'prod']) {
       const template = liveTemplate(environments[envName]);
       for (const fn of ['sync', 'order-cron', 'escrow', 'escrow-cron', 'trips']) {
@@ -1925,6 +1933,37 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
           Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'false' }) },
         });
       }
+    }
+  });
+
+  test.each(['staging', 'prod'])('ESC-25: %s sync refuses order operations from apps before build 3', (envName) => {
+    liveTemplate(environments[envName]).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: `wereda-connect-${envName}-sync`,
+      Environment: { Variables: Match.objectLike({ MIN_ORDER_APP_BUILD: '3' }) },
+    });
+  });
+
+  test('ESC-25: MIN_ORDER_APP_BUILD is only on sync, the one Lambda that takes order commands', () => {
+    const functions = liveTemplate(environments['staging']).findResources('AWS::Lambda::Function');
+    const carriers = Object.values(functions)
+      .filter((fn) => (fn as { Properties?: { Environment?: { Variables?: Record<string, unknown> } } })
+        .Properties?.Environment?.Variables?.MIN_ORDER_APP_BUILD !== undefined)
+      .map((fn) => (fn as { Properties: { FunctionName: string } }).Properties.FunctionName);
+    expect(carriers).toEqual(['wereda-connect-staging-sync']);
+  });
+
+  test('ESC-25: without minOrderAppBuild in the config the gate is off (0)', () => {
+    liveTemplate({ ...environments['staging'], minOrderAppBuild: undefined }).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-staging-sync',
+      Environment: { Variables: Match.objectLike({ MIN_ORDER_APP_BUILD: '0' }) },
+    });
+  });
+
+  test('ESC-25: every environment with the commitments on gates order operations at build 3 or later', () => {
+    const on = Object.values(environments).filter((env) => env.commitmentsEnabled);
+    expect(on.map((env) => env.name)).toContain('dev');
+    for (const env of on) {
+      expect(env.minOrderAppBuild ?? 0).toBeGreaterThanOrEqual(3);
     }
   });
 

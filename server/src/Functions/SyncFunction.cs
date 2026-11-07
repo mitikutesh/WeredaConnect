@@ -119,6 +119,16 @@ public partial class SyncFunction
     /// Off, the farmer's accept moves a funded order straight to accepted as before.
     /// </summary>
     public bool CommitmentsEnabled { get; init; } = OrderCommitment.IsEnabled;
+
+    /// <summary>
+    /// ESC-25: the minimum app build for order operations (<c>MIN_ORDER_APP_BUILD</c>, 0 = off), read
+    /// on its own: the gate does not depend on <see cref="CommitmentsEnabled"/>. Tests set it.
+    /// </summary>
+    public int MinOrderAppBuild { get; init; } = OrderAppBuildGate.FromEnvironment();
+
+    // ESC-25: the caller's X-App-Build (null: none readable), read once per batch at the top of
+    // FunctionHandler, like _batchAudit below.
+    private int? _batchAppBuild;
     // Optional: when the ratings table is provisioned, buyers can rate
     // counterparties after a delivered order. Absent env → null (rating sync
     // simply returns RATING_UNAVAILABLE).
@@ -831,6 +841,7 @@ public partial class SyncFunction
         _batchTripRows.Clear();
         _batchListingPoints.Clear();
         _batchPayoutDelays = new PayoutDelayBatch(_batchRiskScores);
+        _batchAppBuild = ClientAppBuild.Read(request);
 
         // Per-user rate limiting (F-11 Finding 3)
         // Record unconditionally to prevent request flooding via invalid operations
@@ -943,6 +954,21 @@ public partial class SyncFunction
                 OperationId = operation.OperationId,
                 Status = "error",
                 Message = $"Invalid action: '{operation.Action}'. Must be create, update, or delete."
+            };
+        }
+
+        // ESC-25 (sync-protocol.md 1.41.0): an order operation from a build below the minimum is
+        // refused before any read, field check or write, so every payload from that build gets the
+        // same answer. No idempotency key is read or stored and no fraud signal is written; the rest
+        // of the batch goes on. Other entities are never gated (a client would only hold them).
+        if (operation.EntityType == "order"
+            && OrderAppBuildGate.Refusal(MinOrderAppBuild, _batchAppBuild) is { } tooOld)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = tooOld
             };
         }
 

@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.40.0
+1.41.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -532,7 +532,8 @@ exception is `APP_UPDATE_REQUIRED` on anything but an order: the build is the pr
 payload, so the client keeps that operation for the updated build (below). Since 1.29.0 the server sends
 `TRIP_HAS_BOOKINGS` and `TRIP_CAPACITY_EXCEEDED` behind `COMMITMENTS_ENABLED` (ESC-15, Order
 commitments below), and since 1.35.0 `CROP_HAS_ACTIVE_ORDERS` behind the same flag (ESC-18);
-ESC-25 and ESC-29 add the others, each with its own server rules. The three `ORDER_*` codes of section 8 that had the generic order text get
+since 1.41.0 `APP_UPDATE_REQUIRED` on order operations from an app below the minimum build (ESC-25,
+Minimum app version for order operations below); ESC-29 adds the others, each with its own server rules. The three `ORDER_*` codes of section 8 that had the generic order text get
 their own text too.
 
 | Code | Sent on | What it means to the client |
@@ -541,7 +542,7 @@ their own text too.
 | `TRIP_HAS_BOOKINGS:` | `trip` update or delete | Orders are booked on the trip, so this change is not allowed. |
 | `TRIP_CAPACITY_EXCEEDED:` | `order` create or update naming a trip | The trip has no room left for this order: an order refusal. |
 | `CROP_HAS_ACTIVE_ORDERS:` | `crop_listing` delete, or update to `status: deleted` (sent since 1.35.0 behind `COMMITMENTS_ENABLED`, ESC-18, `crop-listing-api.md` 1.7.0 rule 10). A quantity edit never gets it: `quantity` is the free stock, so it cannot reach what orders hold | Orders still depend on the listing: one is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`. |
-| `APP_UPDATE_REQUIRED:` | `order` commands from an app below the server's minimum (the minimum-version gate, spec K1, ESC-25). Clients also handle it defensively on `crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent` and `match_event` operations: kept pending, never reverted. | This build must be updated. |
+| `APP_UPDATE_REQUIRED:` | `order` operations from an app below the server's minimum (the minimum-version gate, spec K1, ESC-25; sent since 1.41.0). Clients also handle it defensively on `crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent` and `match_event` operations: kept pending, never reverted. | This build must be updated. |
 | `ORDER_DEADLINE_PASSED:`, `ORDER_TRIP_NOT_ELIGIBLE:`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | `order` operations (permanent since 1.10.0; `ORDER_DEADLINE_PASSED` sent since 1.29.0; `ORDER_TRIP_NOT_ELIGIBLE` sent since 1.34.0 on an `order` create naming a trip that has left, `trip-listing-api.md` 2.2.0) | The deadline passed; the named truck cannot take the order; no more trucks may be tried. |
 
 Mobile client (sync queue):
@@ -555,7 +556,7 @@ Mobile client (sync queue):
 | Refused delivery `create` that reaches the delivery revert (any code that undoes a delivery change) | The server never stored it: the local delivery is removed without a read. Every other refused delivery change is still re-read and never removed (1.11.0). |
 | Order operation refused with one of the five codes | Reverted like any permanent order rejection (1.10.0), not counted. |
 | `APP_UPDATE_REQUIRED` on anything but an `order` (`crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent`, `match_event`) | Kept pending without burning a retry and never reverted or removed (a create included): the same payload goes through once the app is updated. Not counted as failed. This build does not send it, or any operation queued behind it for the same entity, again while it runs (an in-memory hold, cleared by a restart or an update); every other entity keeps syncing. Explained once per entity, except background match events. |
-| `APP_UPDATE_REQUIRED`, refused order or held operation | The app also raises an in-memory "update required" flag the shell can read (the banner is ESC-25's). The client does no version gating of its own. |
+| `APP_UPDATE_REQUIRED`, refused order or held operation | The app also raises an in-memory "update required" flag the shell can read (the banner is FUP-75's). The client does no version gating of its own. |
 | Reason | Each code has its own text in en, am and om (below), shown in the rejection snackbar. On an `order` create, `REPUTATION_RESTRICTED` says the farmer or trucker cannot take orders; on every other operation it says the user's account cannot do this for now. On a refused order create, `REPUTATION_RESTRICTED`, `TRIP_CAPACITY_EXCEEDED`, `ORDER_TRIP_NOT_ELIGIBLE` and `APP_UPDATE_REQUIRED` keep their own text (they already say what to do next); any other code on a refused create still reads "This order could not be placed". |
 
 Texts (keys in `app_en.arb`, `app_am.arb`, `app_om.arb`):
@@ -939,48 +940,56 @@ is nothing for the user to do (an exception to invariant 1's "tells the user why
 
 ---
 
-## Minimum app version for order operations (1.40.0, PLANNED: ESC-25)
+## Minimum app version for order operations (1.41.0, ESC-25)
 
-> **PLANNED. Not built at 1.40.0.** ESC-25 builds it, then turns `COMMITMENTS_ENABLED` on in
-> staging and prod (spec `three-party-escrow-commitments-reputation.md` K1: client support first,
-> then the server, and `/sync` refuses order commands from apps below the minimum). Built today: every
-> app from build 2 on sends `X-App-Build` (FUP-61) and the server reads it with `ClientAppBuild`
-> (`escrow-protocol.md` 1.31.0); the clients already handle `APP_UPDATE_REQUIRED` (1.17.0); no server
-> sends it yet.
+Spec `three-party-escrow-commitments-reputation.md` K1: client support first, then the server, and
+`/sync` refuses order commands from apps below the minimum. The clients have handled
+`APP_UPDATE_REQUIRED` since 1.17.0, and every app from build 2 on sends `X-App-Build` (FUP-61,
+`escrow-protocol.md` 1.31.0). `COMMITMENTS_ENABLED` stays off in staging and prod until the owner
+turns it on there, after this gate is deployed (an infra test requires the gate at build 3 or more
+in every environment with the flag on).
 
 **The build.** `X-App-Build: <n>` on the `/sync` request, `n` being the `+N` of `version:` in
-`mobile/pubspec.yaml` (mobile and web send the same number). Read case-insensitively; only a positive
-whole number counts. A missing, empty or unreadable header is an old app (FUP-61 decision 3, waiting for confirmation in FUP-91).
+`mobile/pubspec.yaml` (mobile and web send the same number). Read case-insensitively with
+`ClientAppBuild`, once per batch; only a positive whole number counts. A missing, empty or unreadable
+header is an old app (FUP-61 decision 3, waiting for confirmation in FUP-91).
 
-**The minimum.** A server setting on the sync Lambda (proposed name `MIN_ORDER_APP_BUILD`, set per
-environment in the infra config; 0 or absent turns the gate off). ESC-25 picks the value: build 3 is
-the first app that renders `awaiting_transport` and sends the farmer and trucker commands (#237).
+**The minimum.** `MIN_ORDER_APP_BUILD` on the sync Lambda, set per environment in the infra config
+(`minOrderAppBuild` in `infra/lib/config/environments.ts`). Only a positive whole number turns the
+gate on; 0, absent or unreadable turns it off. The value is 3 in dev, staging and prod: build 3 is the
+first app that renders `awaiting_transport` and sends the farmer and trucker commands (#237). It does
+not depend on `COMMITMENTS_ENABLED`, so it is live before the flag. Only the sync Lambda carries it:
+no other Lambda takes order commands.
 
-**What it covers.** Every `order` operation, `create` and `update` alike: the commitment commands
-(`farmerResponse`, `truckerResponse`, the planned `transportChoice`), the legacy status changes
-(payment, cancel, accept, reject), the drop-off note. An app below the minimum cannot show the
-commitment statuses, so it may not act on orders at all (spec K1). Not covered: every other entity
-(`crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent`, `match_event`,
+**What it covers.** Every `order` operation, `create`, `update` and `delete` alike: the commitment
+commands (`farmerResponse`, `truckerResponse`, the planned `transportChoice`), the legacy status
+changes (payment, cancel, accept, reject), the drop-off note. An app below the minimum cannot show
+the commitment statuses, so it may not act on orders at all (spec K1). Not covered: every other
+entity (`crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent`, `match_event`,
 `location_ping`, `delivery_photo`, `user`), which the clients would only hold (1.17.0), and the
 `/escrow/*` routes, which map the statuses an old app cannot parse instead (`escrow-protocol.md`
 1.31.0).
 
-**When.** Per order operation, before any read, field check or write, so the answer is the same
-for every payload from the same build. Nothing is written, no idempotency key is stored, no fraud
-signal is written (1.27.0), and the rest of the batch goes on.
+**When.** Per order operation, right after the shape check (the required fields and the action) and
+before any read, other field check or write, so the answer is the same for every payload from the
+same build. Nothing is written, no idempotency key is read or stored, no fraud signal is written
+(1.27.0), and the rest of the batch goes on. A retry of an order operation the server applied before
+the gate went live gets the refusal too; the client's next order pull brings the order back.
 
 **The answer.**
 
 | Caller | Operation result |
 |---|---|
 | sends `X-App-Build` (build 2 or later, so it has the 1.17.0 client) below the minimum | `{"operationId": "...", "status": "error", "message": "APP_UPDATE_REQUIRED: This version of the app is too old for orders. Update WeredaConnect to continue."}` |
-| sends no readable `X-App-Build` (build 1 or older; such an app may predate the 1.17.0 client, which retries an unknown code forever, FUP-75) | `{"operationId": "...", "status": "error", "message": "ORDER_VALIDATION: This version of the app is too old for orders. Update WeredaConnect to continue."}`, permanent on every client since 1.10.0 (proposed; ESC-25 confirms) |
+| sends no readable `X-App-Build` (build 1 or older; such an app may predate the 1.17.0 client, which retries an unknown code forever, FUP-75) | `{"operationId": "...", "status": "error", "message": "ORDER_VALIDATION: This version of the app is too old for orders. Update WeredaConnect to continue."}`, permanent on every client since 1.10.0 |
 | at or above the minimum, or the gate off | unchanged |
 
-Clients (built, 1.17.0): mobile marks the order operation rejected, reverts the local order (a
-refused create removes it) and raises the in-memory "update required" flag; web shows
-`errorAppUpdateRequired`. The persistent "update the app" banner that reads the flag is FUP-75 (with
-ESC-25). Server rule unchanged: send `APP_UPDATE_REQUIRED` on order operations only.
+Clients (1.17.0, no change): mobile marks the order operation rejected (never sent again), reverts
+the local order (a refused create removes it), leaves it out of the "Sync failed" count, raises the
+in-memory "update required" flag and shows `errorAppUpdateRequired` ("Please update the app to
+continue. This change was not saved."); web shows the same text. The persistent "update the app"
+banner that reads the flag is FUP-75. Server rule unchanged: send `APP_UPDATE_REQUIRED` on order
+operations only.
 
 ---
 
@@ -1084,6 +1093,7 @@ funding.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.41.0 | 2026-11-07 | Minimum app version for order operations built (ESC-25): `/sync` refuses every `order` operation (create, update, delete) from a build below `MIN_ORDER_APP_BUILD` on the sync Lambda (infra `minOrderAppBuild`, 3 in dev, staging and prod; 0 or absent = off; independent of `COMMITMENTS_ENABLED`) before any read or write: `APP_UPDATE_REQUIRED: This version of the app is too old for orders. Update WeredaConnect to continue.` to an app that sends `X-App-Build`, `ORDER_VALIDATION:` with the same text to one that sends none (confirmed). Nothing stored, no idempotency key, no fraud signal; the rest of the batch goes on; other entities and `/escrow/*` are not gated. `COMMITMENTS_ENABLED` stays off in staging and prod until the owner turns it on after the gate is deployed. No client change: mobile and web already treat it as permanent on an order and show `errorAppUpdateRequired` (1.17.0) |
 | 1.40.0 | 2026-11-07 | Two PLANNED sections (ESC-14), nothing built changes. Minimum app version for order operations (ESC-25): the server refuses every `order` operation, create and update, from a build below a per-environment minimum (proposed `MIN_ORDER_APP_BUILD`, 0 or absent = off; build 3 is the first that renders the commitments) before any read or write, with `APP_UPDATE_REQUIRED:` to an app that sends `X-App-Build` and, proposed, `ORDER_VALIDATION:` with the same text to one that sends none (it may predate the 1.17.0 client, FUP-75); other entities and the `/escrow/*` routes are not gated. Transport choice (ESC-19): the buyer's `transportChoice` command (`trip` with `tripId`, `self_pickup` with `pickupDate`, `cancel`) in `awaiting_transport`; a choice on an order the farmer has not accepted (the D14 park) goes back to `funded` with the farmer asked and `farmerDeadlineAt` restamped, the trucker asked after the farmer (D10); the eligible trip rules (`open` or `matched`), the order fields `transportAttempts` (with its `outcome` values and the backfill) and `refundedTotal`, the `replacement_request` push, and its refusals (`ORDER_UNAUTHORIZED`, `ORDER_ACTION_NOT_ALLOWED`, `ORDER_DEADLINE_PASSED`, `ORDER_TRIP_NOT_ELIGIBLE`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED`, `TRIP_CAPACITY_EXCEEDED` at read time and in a race, `ORDER_VALIDATION`), all already handled by the clients. D4 is marked as awaiting the user's confirmation, with the open question of a cheaper truck after a shift. Doc fix: Permanent order rejections listed `ORDER_TRIP_NOT_ELIGIBLE` as planned; it is sent since 1.34.0 |
 | 1.39.0 | 2026-11-07 | Handoff photos (FRD-12, `delivery-verification-api.md` 1.25.0): new create-only entity `delivery_photo` (`{deliveryId}#{pickup\|dropoff}`, `{photoRef}`), sent by the photo's taker only, attaching an uploaded photo without moving the delivery's version; `DELIVERY_PHOTO_INVALID`, `_FORBIDDEN`, `_REFUSED`, `_EXISTS`, `_MISSING` and `_TOO_LARGE` are permanent, not reverted, not announced and not counted as failures; `DELIVERY_PHOTO_PENDING` answers `deferred`; a photo ref in a `delivery` op is shape-checked but no longer written. Mobile uploads the photo in a batch preflight and stores the key in the operation; every wait is bounded (a presign `404` only while the delivery's own create waits on the phone and 10 minutes, the third refused `PUT`), a refused delivery create, pickup or delivery confirm rejects its waiting photo, and an attached photo's files are deleted; web uploads at capture and attaches after the confirm |
 | 1.38.0 | 2026-11-06 | Idempotency and races (SIM-28): the server stores a payload fingerprint with each idempotency key (SHA-256 of a canonical JSON of `entityType`, `entityId`, `action`, `clientVersion` and `data`; keys sorted, numbers by value; `operationId` and `timestamp` left out) in the new `payloadFingerprint` attribute; a key sent again with a different payload answers `error` `SYNC_VALIDATION: idempotency key already used for a different operation payload; ...` instead of `duplicate`, nothing processed or stored; records from before keep answering `duplicate`. A status change that is not a valid transition from the stored status and carries a version behind the stored one answers `conflict` with the row (to a caller who may ask for that status, `order-lifecycle.md` 2.6.0) instead of `ORDER_VALIDATION: Invalid status transition`, `DELIVERY_INVALID_TRANSITION`, `TRIP_INVALID_TRANSITION` or `CROP_INVALID_TRANSITION`; at the current version the error stands. No client change: `SYNC_VALIDATION` is already permanent and `conflict` already resolved server-wins (mobile) or a failure (web) |

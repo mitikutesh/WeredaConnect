@@ -459,6 +459,9 @@ export class ApiStack extends cdk.Stack {
     // too, so the order cancels they make release trip bookings only while bookings exist.
     const commitmentsEnabled = envConfig.commitmentsEnabled ? "true" : "false";
 
+    // ESC-25: the minimum app build for order operations; only /sync takes order commands.
+    const minOrderAppBuild = String(envConfig.minOrderAppBuild ?? 0);
+
     const syncFn = new WeredaLambda(this, "SyncFunction", {
       functionName: `${prefix}-sync`,
       description: "POST /sync — offline-first sync engine batch processor",
@@ -498,6 +501,8 @@ export class ApiStack extends cdk.Stack {
         // ESC-15: on, the farmer's accept asks the trucker next and a failed transport parks the
         // order in awaiting_transport; off, the accept lands the order as before.
         COMMITMENTS_ENABLED: commitmentsEnabled,
+        // ESC-25: order operations from an app below this build are refused (0: off).
+        MIN_ORDER_APP_BUILD: minOrderAppBuild,
         ...(syncTelebirrMock ? { TELEBIRR_MOCK: "true" } : {}),
       },
       timeout: cdk.Duration.seconds(30),
