@@ -1254,6 +1254,14 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "adminQueuedAt",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "deadlineShard",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "nextDeadlineAt",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
         "GlobalSecondaryIndexes": [
@@ -1367,6 +1375,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             ],
             "Projection": {
               "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "DeadlineIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "deadlineShard",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "nextDeadlineAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "KEYS_ONLY",
             },
           },
         ],

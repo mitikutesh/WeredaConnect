@@ -954,6 +954,45 @@ export class ApiStack extends cdk.Stack {
       description: "Escrow auto-refund timeout in days",
     });
 
+    // ESC-16 (spec 4.5, F9): the order deadline timings, in hours, actually read by the code
+    // (server/src/Helpers/OrderTimings.cs). Each Lambda that writes orders reads them once per
+    // container, in one GetParameters call, so a change takes effect as containers recycle. A
+    // missing or invalid value (outside 1 to 720) keeps the default below and logs
+    // ORDER_TIMINGS_DEFAULTED. The defaults are the values the code used before.
+    const orderTimingsPath = `/${prefix}/orders/`;
+    const orderTimings: Array<[string, string, string]> = [
+      ["unpaid-expiry-hours", "24", "T1: an unpaid order is cancelled this long after it was created or entered pending_payment"],
+      ["payment-verification-hours", "24", "T2: a submitted payment not verified in this time fails"],
+      ["response-window-hours", "24", "T3 and T4: the farmer's and the trucker's time to answer; also the order-create lead before departure"],
+      ["departure-margin-hours", "12", "T3 and T4 end at least this long before the trip departs"],
+      ["buyer-choice-window-hours", "48", "T5: the buyer's time to decide after the transport failed"],
+      ["reminder-lead-hours", "6", "The reminder before T3, T4 and T5 is due this long before the deadline"],
+      ["pickup-grace-hours", "48", "T7, trip order: the pickup is overdue this long after the trip departs"],
+      ["self-pickup-window-hours", "168", "T7, self-pickup: the pickup is overdue this long after the farmer accepted"],
+    ];
+    for (const [name, value, description] of orderTimings) {
+      new ssm.StringParameter(this, `OrderTiming-${name}`, {
+        parameterName: `${orderTimingsPath}${name}`,
+        stringValue: value,
+        description,
+      });
+    }
+    // GetParameters on the path only: no decryption (String parameters), no other path.
+    const orderTimingsRead = new iam.PolicyStatement({
+      actions: ["ssm:GetParameters"],
+      resources: [
+        this.formatArn({
+          service: "ssm",
+          resource: "parameter",
+          resourceName: `${prefix}/orders/*`,
+        }),
+      ],
+    });
+    const readsOrderTimings = (fn: lambda.Function) => {
+      fn.addEnvironment("ORDER_TIMINGS_PARAM_PATH", orderTimingsPath);
+      fn.addToRolePolicy(orderTimingsRead);
+    };
+
     // ─── Fayda identity provider: mock (dev), sandbox (dev) or live, by config ─
     // The server code is identical in every mode; only the issuer, client id and
     // client private key it reads from SSM differ, plus two dev-only env flags on
@@ -1692,6 +1731,9 @@ export class ApiStack extends cdk.Stack {
         TRIPS_TABLE: props.tripsTable.tableName,
         DELIVERIES_TABLE: props.deliveriesTable.tableName,
         USERS_TABLE: props.usersTable.tableName,
+        // ESC-16: since the deadline index, commitment_deadlines reads only the orders that are
+        // due (DeadlineIndex, Query) every 15 minutes; deadline_repair walks the funded,
+        // awaiting_transport and accepted partitions daily to stamp rows without a deadline.
         COMMITMENTS_ENABLED: commitmentsEnabled,
         // FRD-15: the relationship_patterns scan writes SELF_TRADE, SHARED_DEVICE_TRADE and
         // REPEATED_PAIR signals (fraud-detection-architecture.md 15.2). Without it, or without
@@ -1700,9 +1742,11 @@ export class ApiStack extends cdk.Stack {
       },
       timeout: cdk.Duration.minutes(5),
       memorySize: 256,
-      // Three hourly rules invoke it (FRD-15 added the third), so a run of each fits at once.
-      reservedConcurrentExecutions: 3,
+      // Four rules invoke it (two hourly, commitment_deadlines every 15 minutes since ESC-16,
+      // deadline_repair daily), so a run of each fits at once.
+      reservedConcurrentExecutions: 4,
     });
+    // ESC-16: the read grant covers the table's indexes, so the sweep's Query on DeadlineIndex too.
     props.ordersTable.grantReadWriteData(orderCronFn.function);
     // Auto-cancel writes an order lifecycle event to the audit trail.
     props.transactionAuditTable.grantWriteData(orderCronFn.function);
@@ -1751,17 +1795,37 @@ export class ApiStack extends cdk.Stack {
       ],
     });
 
-    // EventBridge: ESC-15, settle the farmer, trucker and buyer response windows every hour.
-    // A no-op while COMMITMENTS_ENABLED is false (the handler logs and returns).
+    // EventBridge: ESC-15, settle the farmer, trucker and buyer response windows. ESC-16 (spec
+    // 4.5): every 15 minutes, over the orders the DeadlineIndex says are due (a Query, so a quiet
+    // run reads almost nothing). A no-op while COMMITMENTS_ENABLED is false (the handler logs and
+    // returns).
     new events.Rule(this, "OrderCronCommitments", {
       ruleName: `${prefix}-order-cron-commitments`,
-      description: "Settle order commitment deadlines every hour (ESC-15)",
-      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
+      description: "Settle due order commitment deadlines every 15 minutes (ESC-15, ESC-16)",
+      schedule: events.Schedule.rate(cdk.Duration.minutes(15)),
       targets: [
         new targets.LambdaFunction(orderCronFn.function, {
           // Wrapped as `body` so it lands in APIGatewayProxyRequest.Body (Review C3).
           event: events.RuleTargetInput.fromObject({
             body: JSON.stringify({ action: "commitment_deadlines" }),
+          }),
+        }),
+      ],
+    });
+
+    // EventBridge: ESC-16, stamp the next deadline on paid orders that lack it or carry a wrong
+    // one (orders in flight before the index, or a deadline write that failed). It walks the
+    // funded, awaiting_transport and accepted partitions of StatusCreatedAtIndex (Query, no Scan)
+    // and decides nothing. Run it by hand once right after the deploy that adds the index.
+    new events.Rule(this, "OrderCronDeadlineRepair", {
+      ruleName: `${prefix}-order-cron-deadline-repair`,
+      description: "Stamp missing or wrong order deadlines once a day (ESC-16)",
+      schedule: events.Schedule.rate(cdk.Duration.days(1)),
+      targets: [
+        new targets.LambdaFunction(orderCronFn.function, {
+          // Wrapped as `body` so it lands in APIGatewayProxyRequest.Body (Review C3).
+          event: events.RuleTargetInput.fromObject({
+            body: JSON.stringify({ action: "deadline_repair" }),
           }),
         }),
       ],
@@ -2765,6 +2829,17 @@ export class ApiStack extends cdk.Stack {
     // Transaction audit: admin actions are logged here, and the monitor +
     // audit-log read it (read for the timeline/feed, write for admin actions).
     props.transactionAuditTable.grantReadWriteData(adminFn.function);
+
+    // ESC-16: every Lambda that writes orders derives the order's next deadline with the same
+    // timings, so each reads the order timing parameters (one GetParameters per container). The
+    // trips Lambda too: its orderLeadHours (FUP-122) is the response window the order create checks.
+    for (const fn of [
+      syncFn, deliveryFn, escrowFn, escrowCronFn, telebirrWebhookFn, orderFn, messageFn, orderCronFn, adminFn, tripFn,
+    ]) {
+      if (fn) {
+        readsOrderTimings(fn.function);
+      }
+    }
 
     // Admin pool permissions (admin auth)
     adminFn.function.addToRolePolicy(
