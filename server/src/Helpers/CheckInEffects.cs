@@ -78,10 +78,7 @@ public static class CheckInEffects
     public static double? NearbyKmOf(
         Dictionary<string, object> delivery, TrackPoint? dropoff, TrackPoint fix, DateTime capturedAtUtc)
     {
-        if (Text(delivery, "status") is not ("pickedUp" or "inTransit")
-            || !string.IsNullOrEmpty(Text(delivery, NearbyNotifiedAtField))
-            || dropoff == null
-            || !CapturedOnRoad(delivery, capturedAtUtc))
+        if (dropoff == null || !AwaitsNearby(delivery, capturedAtUtc))
         {
             return null;
         }
@@ -89,6 +86,17 @@ public static class CheckInEffects
         var km = DistanceKm(dropoff, fix);
         return km <= NearbyKm ? km : null;
     }
+
+    /// <summary>
+    /// Whether a check-in captured at <paramref name="capturedAtUtc"/> may still tell the buyer
+    /// <c>truck_nearby</c>, whatever the distance: the delivery is <c>pickedUp</c> or <c>inTransit</c>,
+    /// has no <c>nearbyNotifiedAt</c>, and the check-in is on its road. Lets the effect skip the
+    /// drop-off point's read (LT-14: the order) for every other delivery.
+    /// </summary>
+    public static bool AwaitsNearby(Dictionary<string, object> delivery, DateTime capturedAtUtc)
+        => Text(delivery, "status") is "pickedUp" or "inTransit"
+           && string.IsNullOrEmpty(Text(delivery, NearbyNotifiedAtField))
+           && CapturedOnRoad(delivery, capturedAtUtc);
 
     /// <summary>
     /// The <c>minutes</c> of <c>truck_nearby</c>: from <paramref name="nowUtc"/> to the start of the

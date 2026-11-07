@@ -37,8 +37,8 @@ public class DeliveryFunction
     private readonly ITripRepository? _tripRepo;
     private readonly ICropRepository? _cropRepo;
 
-    // LT-12: the order's drop-off note on the track. Null when ORDERS_TABLE is not configured; the
-    // track then answers without a note.
+    // LT-12: the order's drop-off note on the track; LT-14: the orders' own drop-off points. Null when
+    // ORDERS_TABLE is not configured; the track then answers without a note, at the trip's point.
     private readonly IOrderRepository? _orderRepo;
 
     /// <summary>Pages of the trip's deliveries the track reads for the other stops (a trip carries a handful).</summary>
@@ -337,10 +337,11 @@ public class DeliveryFunction
     /// <summary>
     /// LT-06: GET /deliveries/{id}/track (live-trip-api.md section 2). The delivery's buyer, farmer and
     /// trucker only; anyone else and an unknown delivery get the same 404, so the answer says nothing
-    /// about which deliveries exist. Reads only: the trip's check-ins, the trip (drop-off point), the
-    /// listings (pickup points), the trip's other deliveries (unnamed stops) and, LT-12, the
-    /// delivery's order (its drop-off note, for a caller who may read it). <see cref="TripTrack"/>
-    /// cuts the delivery's window and rounds every coordinate.
+    /// about which deliveries exist. Reads only: the trip's check-ins, the trip (its destination point),
+    /// the listings (pickup points), the trip's other deliveries (unnamed stops) and, LT-12, the
+    /// delivery's order (its drop-off note, and since LT-14 its own drop-off point, for a caller who
+    /// may read them) and, LT-14, the other deliveries' orders (their drop-off points).
+    /// <see cref="TripTrack"/> cuts the delivery's window and rounds every coordinate.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleTrackAsync(
         APIGatewayProxyRequest request,
@@ -383,6 +384,14 @@ public class DeliveryFunction
                 ? await _tripLocationRepo.ListByTripAsync(tripId!)
                 : new List<TripLocationRow>();
 
+            // LT-12, LT-14: the delivery's order, for its note (the trucker once committed) and its
+            // own drop-off point (the trucker still on a held order), each only to a caller who may
+            // read it; best effort.
+            var orders = new Dictionary<string, Dictionary<string, object>?>(StringComparer.Ordinal);
+            var order = await OrderOfAsync(delivery, orders, context);
+            var noteOrder = order != null && OrderDropoffNote.VisibleTo(order, callerId) ? order : null;
+            var pointOrder = order != null && OrderDeliveryLocation.VisibleTo(order, callerId) ? order : null;
+
             TrackPoint? pickup = null;
             TrackPoint? dropoff = null;
             var otherStops = new List<TrackStop>();
@@ -391,7 +400,7 @@ public class DeliveryFunction
                 var listings = new Dictionary<string, TrackPoint?>(StringComparer.Ordinal);
                 pickup = await PickupPointAsync(delivery, listings);
                 var trip = hasTrip ? await _tripRepo.GetByIdAsync(tripId!) : null;
-                dropoff = TripTrack.PlannedDropoff(trip, delivery);
+                dropoff = TripTrack.PlannedDropoff(trip, pointOrder);
 
                 if (phase == TrackPhase.OnRoad && hasTrip)
                 {
@@ -406,17 +415,18 @@ public class DeliveryFunction
                         }
 
                         // Planned points only: another order's real gpsPickup or gpsDropoff would tell
-                        // where the truck stood, and a stop done before this pickup is left out.
+                        // where the truck stood, and a stop done before this pickup is left out. Its
+                        // drop-off is its own order's point (LT-14), unnamed and at 2 decimals.
                         otherStops.AddRange(TripTrack.StopsOf(
                             other,
                             await ListingPointAsync(other, listings),
-                            TripTrack.PlannedDropoff(trip, other),
+                            TripTrack.PlannedDropoff(trip, await OrderOfAsync(other, orders, context)),
                             windowStart));
                     }
                 }
             }
 
-            var dropoffNote = await DropoffNoteAsync(delivery, callerId, context);
+            var dropoffNote = noteOrder == null ? null : OrderDropoffNote.Of(noteOrder);
             var response = TripTrack.Build(delivery, rows, pickup, dropoff, otherStops, now, dropoffNote);
             return LambdaResponse.Ok(response, AppJsonContext.Default.DeliveryTrackResponse);
         }
@@ -431,12 +441,13 @@ public class DeliveryFunction
         => LambdaResponse.Error(500, "TRACK_UNAVAILABLE", "The live trip is unavailable right now. Try again later.");
 
     /// <summary>
-    /// LT-12: the buyer's drop-off note of the delivery's order, when <paramref name="callerId"/> may
-    /// read it (<see cref="OrderDropoffNote.VisibleTo"/>: the trucker once committed). Best effort: a
-    /// delivery without an order, a missing orders table or a failed read give no note and never
-    /// fail the track.
+    /// LT-12, LT-14: a delivery's order (its drop-off note and its own drop-off point), read once per
+    /// track and kept in <paramref name="orders"/>. Best effort: a delivery without an order, a missing
+    /// orders table or a failed read give null, so the track has no note and falls back to the trip's
+    /// destination point, and never fails.
     /// </summary>
-    private async Task<string?> DropoffNoteAsync(Dictionary<string, object> delivery, string? callerId, ILambdaContext context)
+    private async Task<Dictionary<string, object>?> OrderOfAsync(
+        Dictionary<string, object> delivery, Dictionary<string, Dictionary<string, object>?> orders, ILambdaContext context)
     {
         var orderId = GetStringOrNull(delivery, "orderId");
         if (_orderRepo == null || string.IsNullOrEmpty(orderId))
@@ -444,17 +455,24 @@ public class DeliveryFunction
             return null;
         }
 
+        if (orders.TryGetValue(orderId, out var known))
+        {
+            return known;
+        }
+
+        Dictionary<string, object>? order = null;
         try
         {
-            var order = await _orderRepo.GetByIdAsync(orderId);
-            return order == null ? null : OrderDropoffNote.For(order, callerId);
+            order = await _orderRepo.GetByIdAsync(orderId);
         }
         catch (Exception ex)
         {
             context.Logger.LogWarning(
-                $"Track: the drop-off note of order {MoneyAlarmLog.LogId(orderId)} could not be read: [{ex.GetType().Name}]");
-            return null;
+                $"Track: order {MoneyAlarmLog.LogId(orderId)} could not be read: [{ex.GetType().Name}]");
         }
+
+        orders[orderId] = order;
+        return order;
     }
 
     /// <summary>

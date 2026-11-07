@@ -122,7 +122,8 @@ public static class OrderDropoffNote
     /// <summary>
     /// A sync result whose order row (<c>serverData</c>) goes to <paramref name="userId"/>: the note
     /// left out when that caller may not read it (an uncommitted trucker's command answered with
-    /// the row). Any other result is returned unchanged.
+    /// the row). Any other result is returned unchanged. The drop-off point has its own rule
+    /// (<see cref="OrderDeliveryLocation.ForCaller"/>, LT-14).
     /// </summary>
     public static SyncOperationResult ForCaller(SyncOperationResult result, string? userId)
     {

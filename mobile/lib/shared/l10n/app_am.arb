@@ -3215,5 +3215,12 @@
   "dropoffNoteEmpty": "ሹፌሩ እንዲያገኝዎ ምልክት ያክሉ።",
   "dropoffNoteAdd": "አክል",
   "dropoffNoteSaved": "የማውረጃ ምልክቱ ተቀምጧል።",
-  "errorDropoffNoteLocked": "ዕቃው ስለተነሳ የማውረጃ ምልክቱን ከእንግዲህ መቀየር አይቻልም።"
+  "errorDropoffNoteLocked": "ዕቃው ስለተነሳ የማውረጃ ምልክቱን ከእንግዲህ መቀየር አይቻልም።",
+  "deliveryPlaceLabel": "የማውረጃ ቦታ",
+  "deliveryPlaceHelper": "መኪናው ዕቃውን የሚያመጣበት ቦታ። ገበሬውና ሹፌሩ ያዩታል። እስኪነሳ ድረስ መቀየር ይችላሉ።",
+  "deliveryPlaceNone": "የመኪናው መድረሻ",
+  "deliveryPlaceChange": "ቀይር",
+  "deliveryPlacePickFromList": "ከዝርዝሩ ቦታ ይምረጡ።",
+  "deliveryPlaceSaved": "የማውረጃ ቦታው ተቀምጧል።",
+  "errorDeliveryLocationLocked": "ዕቃው ስለተነሳ የማውረጃ ቦታውን ከእንግዲህ መቀየር አይቻልም።"
 }

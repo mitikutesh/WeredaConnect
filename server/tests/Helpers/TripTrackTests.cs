@@ -240,16 +240,35 @@ public class TripTrackTests
     }
 
     [Fact]
-    public void PlannedDropoff_IsTheTripsDestination_NeverTheDeliverysRealDropoff()
+    public void PlannedDropoff_WithoutAPointOnTheOrder_IsTheTripsDestination()
     {
         var trip = new Dictionary<string, object> { ["destinationLatitude"] = "9.03", ["destinationLongitude"] = "38.74" };
-        var delivery = new Dictionary<string, object>
-        {
-            ["gpsDropoff"] = new Dictionary<string, object> { ["latitude"] = "8.6012", ["longitude"] = "38.9149" }
-        };
+        var order = new Dictionary<string, object> { ["orderId"] = "order-1", ["dropoffNote"] = "Merkato" };
 
-        TripTrack.PlannedDropoff(trip, delivery).Should().Be(new TrackPoint(9.03, 38.74));
-        TripTrack.PlannedDropoff(null, delivery).Should().BeNull();
+        TripTrack.PlannedDropoff(trip, order).Should().Be(new TrackPoint(9.03, 38.74));
+        TripTrack.PlannedDropoff(trip, order: null).Should().Be(new TrackPoint(9.03, 38.74));
+        TripTrack.PlannedDropoff(null, order).Should().BeNull();
+        TripTrack.PlannedDropoff(null, null).Should().BeNull();
+    }
+
+    [Fact]
+    public void PlannedDropoff_IsTheOrdersOwnPoint_BeforeTheTrips()
+    {
+        // LT-14: the order's own point wins; stored numbers come back as invariant text.
+        var trip = new Dictionary<string, object> { ["destinationLatitude"] = "9.03", ["destinationLongitude"] = "38.74" };
+        var order = new Dictionary<string, object> { ["deliveryLatitude"] = "8.5423", ["deliveryLongitude"] = "39.2687" };
+
+        TripTrack.PlannedDropoff(trip, order).Should().Be(new TrackPoint(8.5423, 39.2687));
+        TripTrack.PlannedDropoff(null, order).Should().Be(new TrackPoint(8.5423, 39.2687));
+    }
+
+    [Fact]
+    public void PlannedDropoff_AnOrderWithHalfAPoint_FallsBackToTheTrip()
+    {
+        var trip = new Dictionary<string, object> { ["destinationLatitude"] = "9.03", ["destinationLongitude"] = "38.74" };
+        var order = new Dictionary<string, object> { ["deliveryLatitude"] = "8.5423" };
+
+        TripTrack.PlannedDropoff(trip, order).Should().Be(new TrackPoint(9.03, 38.74));
     }
 
     [Fact]

@@ -334,11 +334,7 @@ Goal: after pickup the buyer and the farmer see where the truck is, from hourly 
 
 Product rules set by the user (ask before changing them): the map is drawn from shipped data, no tiles (D1); location sharing is optional for drivers (D2); Amharic and Oromo use the Ethiopian clock with the part of the day always shown, English keeps the 24-hour clock (D3).
 
-LT-01 to LT-13 are merged (#248, #250 to #253 and the LT-09, LT-11, LT-12 and LT-13 merges). LT-14 is the only open ticket.
-
-| ID | Scope | Task | Done when |
-|---|---|---|---|
-| LT-14 | @Server @Mobile @l10n | The order's own drop-off point (the plan from the LT-06 review): orders get their own drop-off point next to `dropoffNote` (place picker, default the buyer's registered place), trip create sends destination coordinates, and the track reads the order's drop-off point before the trip destination. LT-06 review checklist: add `destinationLatitude`/`destinationLongitude` to `AllowedTripFields` in `SyncFunction.cs` (or sync strips them); give the deliveries Lambda `ORDERS_TABLE` and a read grant; take each other stop's drop-off from its own order; switch the delivered GPS check to the order's point; buyer intents already carry `deliveryLatitude`/`deliveryLongitude` as a source. Already done: `destinationLatitude`/`destinationLongitude` are in `AllowedTripFields` and trip create sends them from the picked place (`trip-listing-api.md` 2.1.0, `trip_destination.dart`); the deliveries Lambda has `ORDERS_TABLE` with Query since LT-12 (the track's `dropoff.note`). `TripTrack.PlannedDropoff` is the one place the track and the other stops switch. | xUnit tests for the order's point on create and on the buyer's update until pickup (bounds, buyer only), the track and the other stops reading it (the trip's point as the fallback), and the delivered GPS check; mobile and web tests for the picker; 3 languages; `order-lifecycle.md`, `live-trip-api.md`, `delivery-verification-api.md` and `data-models.md` bumped. |
+LT-01 to LT-14 are done (#248, #250 to #253 and the LT-09, LT-11, LT-12, LT-13 and LT-14 merges). No EPIC LT ticket is open.
 
 ---
 

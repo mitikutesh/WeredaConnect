@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
+
 /// Base class for order events.
 abstract class OrderEvent extends Equatable {
   const OrderEvent();
@@ -114,6 +116,9 @@ class CreateOrder extends OrderEvent {
   /// LT-12: the buyer's optional drop-off landmark.
   final String? dropoffNote;
 
+  /// LT-14: the order's own drop-off point (the picked place's point).
+  final DeliveryPoint? deliveryPoint;
+
   const CreateOrder({
     required this.listingId,
     required this.buyerId,
@@ -129,6 +134,7 @@ class CreateOrder extends OrderEvent {
     this.transportCost,
     this.commissionRate,
     this.dropoffNote,
+    this.deliveryPoint,
   });
 
   @override
@@ -147,6 +153,7 @@ class CreateOrder extends OrderEvent {
         transportCost,
         commissionRate,
         dropoffNote,
+        deliveryPoint,
       ];
 }
 
@@ -202,6 +209,22 @@ class UpdateDropoffNote extends OrderEvent {
 
   @override
   List<Object?> get props => [orderId, buyerId, dropoffNote];
+}
+
+/// LT-14: the buyer changes the order's drop-off point before pickup.
+class UpdateDeliveryLocation extends OrderEvent {
+  final String orderId;
+  final String buyerId;
+  final DeliveryPoint point;
+
+  const UpdateDeliveryLocation({
+    required this.orderId,
+    required this.buyerId,
+    required this.point,
+  });
+
+  @override
+  List<Object?> get props => [orderId, buyerId, point];
 }
 
 /// Load a single order by its ID.

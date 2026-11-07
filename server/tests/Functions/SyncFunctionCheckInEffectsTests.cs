@@ -331,6 +331,86 @@ public class SyncFunctionCheckInEffectsTests
         await NoStamp();
     }
 
+    // ===== LT-14: the order's own drop-off point =====
+
+    [Fact]
+    public async Task TheOrdersOwnPoint_IsTheDropoff_NotTheTripsDestination()
+    {
+        // The buyer drops off at Bishoftu (9.0, 38.98), about 26 km from the trip's destination.
+        OnTrip(Delivery("inTransit"));
+        OrderWithPoint(9.0000, 38.9800);
+
+        await SendAsync(Fix(9.0200, 38.9800));
+
+        await _deliveries.Received(1).TryStampNearbyAsync(DeliveryId, TripId, "2026-10-27T09:00:00.000Z", 2.2, Arg.Any<int?>());
+    }
+
+    [Fact]
+    public async Task AtTheTripsDestination_ButFarFromTheOrdersPoint_NoStamp()
+    {
+        OnTrip(Delivery("inTransit"));
+        OrderWithPoint(9.0000, 38.9800);
+
+        await SendAsync(Fix(DestLat + 0.01, DestLng));
+
+        await NoStamp();
+    }
+
+    [Fact]
+    public async Task AnOrderThatCannotBeRead_IsSkippedForThisCheckIn_NeverJudgedByTheTrip()
+    {
+        OnTrip(Delivery("inTransit"));
+        _orders.GetByIdAsync(OrderId).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var result = await SendAsync(Fix(DestLat + 0.01, DestLng));
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        await NoStamp();
+        Log().Should().Contain("CHECKIN_EFFECT_FAILED effect=truck_nearby");
+    }
+
+    [Fact]
+    public async Task TheOtherStops_OfTheArrivalWindow_AreTheirOwnOrdersPoints()
+    {
+        // Another order on the truck drops off 1.1 km from the truck, nearer than this drop-off
+        // (2.2 km, the trip's destination): its stop adds 20 minutes to the window the push quotes.
+        var other = Delivery("inTransit", deliveryId: "del-2");
+        other["orderId"] = "order-2";
+        other["nearbyNotifiedAt"] = "2026-10-27T08:30:00.000Z";
+        OnTrip(Delivery("inTransit"), other);
+        _orders.GetByIdAsync("order-2").Returns(new Dictionary<string, object>
+        {
+            ["orderId"] = "order-2", ["deliveryLatitude"] = "9.0400", ["deliveryLongitude"] = "38.7400"
+        });
+
+        await SendAsync(Fix(DestLat + 0.02, DestLng, capturedAt: Now));
+
+        // One fix at 40 km/h: 2.86 km of road is about 4 minutes, plus 20 for the other stop; the
+        // window of 10 minutes each side opens at 09:15. Without the other stop it would open now (0).
+        await _deliveries.Received(1).TryStampNearbyAsync(DeliveryId, TripId, Arg.Any<string>(), 2.2, 15);
+        await _orders.Received(1).GetByIdAsync("order-2");
+    }
+
+    [Fact]
+    public async Task ADeliveryNotOnTheRoad_NeverCausesAnOrderRead()
+    {
+        OnTrip(Delivery("pending"));
+
+        await SendAsync(Fix(DestLat, DestLng));
+
+        await _orders.DidNotReceiveWithAnyArgs().GetByIdAsync(default!);
+    }
+
+    private void OrderWithPoint(double lat, double lng)
+        => _orders.GetByIdAsync(OrderId).Returns(new Dictionary<string, object>
+        {
+            ["orderId"] = OrderId,
+            ["status"] = "in_transit",
+            ["version"] = "3",
+            ["deliveryLatitude"] = lat.ToString(CultureInfo.InvariantCulture),
+            ["deliveryLongitude"] = lng.ToString(CultureInfo.InvariantCulture)
+        });
+
     // ===== fraud signals =====
 
     [Fact]

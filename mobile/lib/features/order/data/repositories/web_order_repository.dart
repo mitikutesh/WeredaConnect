@@ -2,6 +2,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
@@ -143,12 +144,20 @@ class WebOrderRepository extends BaseOrderRepository {
     double? transportCost,
     double? commissionRate,
     String? dropoffNote,
+    DeliveryPoint? deliveryPoint,
   }) async {
     // UUID like the mobile repositories: the server rejects other id
     // shapes (for example a delivery's tripId must be a UUID).
     final orderId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
     final note = normalizeDropoffNote(dropoffNote);
+    final point = deliveryPoint != null &&
+            isInDeliveryLocationBox(
+              deliveryPoint.latitude,
+              deliveryPoint.longitude,
+            )
+        ? deliveryPoint
+        : null;
 
     final payload = <String, dynamic>{
       'listingId': listingId,
@@ -165,6 +174,10 @@ class WebOrderRepository extends BaseOrderRepository {
       if (truckerName != null) 'truckerName': truckerName,
       if (transportCost != null) 'transportCost': transportCost,
       if (note != null) 'dropoffNote': note,
+      if (point != null) ...{
+        'deliveryLatitude': point.latitude,
+        'deliveryLongitude': point.longitude,
+      },
     };
 
     final response = await _api.post<Map<String, dynamic>>(
@@ -219,7 +232,9 @@ class WebOrderRepository extends BaseOrderRepository {
       ..commissionRate = rate
       ..commissionAmount = pricing.commissionAmount
       ..orderTotal = pricing.orderTotal
-      ..dropoffNote = note;
+      ..dropoffNote = note
+      ..deliveryLatitude = point?.latitude
+      ..deliveryLongitude = point?.longitude;
   }
 
   /// The server applies an order update only when the payload's `version`
@@ -434,6 +449,35 @@ class WebOrderRepository extends BaseOrderRepository {
     await _sendOrderUpdate(orderId, 'dropoff_note', {
       // An empty note clears it on the server.
       'dropoffNote': note ?? '',
+      'version': order.version,
+    });
+  }
+
+  /// LT-14: the order's own drop-off point, with the mobile guards, sent at
+  /// once with the order's current version (web keeps no local copy). A
+  /// refusal (`ORDER_DELIVERY_LOCATION_LOCKED`) surfaces as a sync rejection.
+  @override
+  Future<void> updateDeliveryLocation(
+    String orderId,
+    String buyerId,
+    DeliveryPoint point,
+  ) async {
+    final order = await _currentOrder(orderId);
+    if (!canEditDeliveryLocation(order, buyerId)) {
+      throw const OrderActionNotAllowedException(
+        'Only the buyer of a trucked order can change its drop-off place, '
+        'and only before pickup.',
+      );
+    }
+    if (!isInDeliveryLocationBox(point.latitude, point.longitude)) {
+      throw const OrderActionNotAllowedException(
+        'The drop-off place must be in Ethiopia.',
+      );
+    }
+    if (point == orderDeliveryPoint(order)) return;
+    await _sendOrderUpdate(orderId, 'delivery_location', {
+      'deliveryLatitude': point.latitude,
+      'deliveryLongitude': point.longitude,
       'version': order.version,
     });
   }

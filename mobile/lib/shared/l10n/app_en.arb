@@ -5097,5 +5097,19 @@
   "dropoffNoteSaved": "Drop-off landmark saved.",
   "@dropoffNoteSaved": {"description": "LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Snackbar after the buyer saved the landmark and it reached the server"},
   "errorDropoffNoteLocked": "The goods were picked up, so the drop-off landmark can no longer be changed.",
-  "@errorDropoffNoteLocked": {"description": "LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Error when the server refuses a landmark change after pickup (ORDER_DROPOFF_NOTE_LOCKED)"}
+  "@errorDropoffNoteLocked": {"description": "LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Error when the server refuses a landmark change after pickup (ORDER_DROPOFF_NOTE_LOCKED)"},
+  "deliveryPlaceLabel": "Drop-off place",
+  "@deliveryPlaceLabel": {"description": "LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Place order and order detail: label of the place picker where the goods go (the order's own drop-off point)"},
+  "deliveryPlaceHelper": "Where the truck brings the goods. The farmer and the driver see it. You can change it until pickup.",
+  "@deliveryPlaceHelper": {"description": "LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Place order and change sheet: what the place is for, who sees it and until when it can change"},
+  "deliveryPlaceNone": "The truck's destination",
+  "@deliveryPlaceNone": {"description": "LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Order detail card when the order has no drop-off place of its own: the trip's destination is used"},
+  "deliveryPlaceChange": "Change",
+  "@deliveryPlaceChange": {"description": "LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Order detail card button that opens the sheet to pick another drop-off place"},
+  "deliveryPlacePickFromList": "Pick a place from the list.",
+  "@deliveryPlacePickFromList": {"description": "LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Change sheet: shown when the buyer typed a name without picking a place from the list (Save waits)"},
+  "deliveryPlaceSaved": "Drop-off place saved.",
+  "@deliveryPlaceSaved": {"description": "LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Snackbar after the buyer saved the drop-off place and it reached the server"},
+  "errorDeliveryLocationLocked": "The goods were picked up, so the drop-off place can no longer be changed.",
+  "@errorDeliveryLocationLocked": {"description": "LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Error when the server refuses a drop-off place change after pickup (ORDER_DELIVERY_LOCATION_LOCKED)"}
 }
