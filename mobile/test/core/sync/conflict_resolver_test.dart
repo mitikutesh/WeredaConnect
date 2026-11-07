@@ -1073,6 +1073,86 @@ void main() {
       });
     });
 
+    // FRD-12: the handoff photo this phone took waits in the queue; a
+    // conflict on the delivery keeps its path until the server holds a key.
+    group('Delivery conflict keeps the phone\'s photo', () {
+      const local =
+          '/data/user/0/app/files/photos/del-photo/pickup-1700000000000.webp';
+      const key = 'uploads/photos/del-photo/dropoff-1700000000000.jpg';
+
+      Future<Delivery?> resolveWith(Map<String, dynamic> extra) async {
+        await isar.writeTxn(() async {
+          await isar.deliverys.put(
+            Delivery()
+              ..deliveryId = 'del-photo'
+              ..tripId = 'trip-1'
+              ..listingId = 'crop-1'
+              ..farmerId = 'farmer-1'
+              ..farmerName = 'Kedir'
+              ..truckerId = 'trucker-1'
+              ..truckerName = 'Geleta'
+              ..buyerId = 'buyer-1'
+              ..buyerName = 'Dawit'
+              ..qrToken = ''
+              ..status = DeliveryStatus.pickedUp
+              ..pickupPhotoRef = local
+              ..dropoffPhotoRef =
+                  '/data/user/0/app/files/photos/del-photo/dropoff-1.webp'
+              ..createdAt = DateTime.utc(2026, 11, 7)
+              ..updatedAt = DateTime.utc(2026, 11, 7)
+              ..version = 2,
+          );
+        });
+        final operation = SyncOperation()
+          ..operationId = 'op-del-photo'
+          ..idempotencyKey = 'key-del-photo'
+          ..entityType = 'delivery'
+          ..entityId = 'del-photo'
+          ..action = 'update'
+          ..data = '{}'
+          ..status = SyncStatus.syncing
+          ..retryCount = 0
+          ..createdAt = DateTime.now().toUtc();
+        await resolver.resolve(
+          operation: operation,
+          serverData: {
+            'deliveryId': 'del-photo',
+            'tripId': 'trip-1',
+            'listingId': 'crop-1',
+            'farmerId': 'farmer-1',
+            'farmerName': 'Kedir',
+            'truckerId': 'trucker-1',
+            'truckerName': 'Geleta',
+            'buyerId': 'buyer-1',
+            'buyerName': 'Dawit',
+            'status': 'pickedUp',
+            'createdAt': '2026-11-07T08:00:00Z',
+            'updatedAt': '2026-11-07T09:00:00Z',
+            ...extra,
+          },
+          serverVersion: 3,
+        );
+        return isar.deliverys
+            .filter()
+            .deliveryIdEqualTo('del-photo')
+            .findFirst();
+      }
+
+      test('a server row without photos keeps the local paths', () async {
+        final stored = await resolveWith({});
+
+        expect(stored!.pickupPhotoRef, local);
+        expect(stored.dropoffPhotoRef, isNotNull);
+      });
+
+      test('a server key wins over the local path', () async {
+        final stored = await resolveWith({'dropoffPhotoRef': key});
+
+        expect(stored!.pickupPhotoRef, local);
+        expect(stored.dropoffPhotoRef, key);
+      });
+    });
+
     group('Unsupported entity types', () {
       test('throws exception for payment entity', () async {
         final operation = SyncOperation()

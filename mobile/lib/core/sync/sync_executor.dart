@@ -12,6 +12,7 @@ import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/location_ping_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/models/conflict_event.dart';
@@ -78,6 +79,13 @@ typedef PickupRejectedHandler = Future<void> Function(String deliveryId);
 /// upload a crop listing's photos before its create (crop-listing-api.md
 /// 1.6.0, `CropPhotoSyncPreflight`).
 typedef OperationPreflight = Future<bool> Function(SyncOperation operation);
+
+/// Called after the server applied an operation (`success` or `duplicate`).
+/// Used to delete a handoff photo's file once it is attached (FRD-12,
+/// `DeliveryPhotoSyncPreflight.onSynced`).
+typedef OperationSyncedHandler = Future<void> Function(
+  SyncOperation operation,
+);
 
 /// The operation data the server gets. Keys the client keeps for itself
 /// (prefixed `_`, such as the order status a refused payment goes back to)
@@ -352,6 +360,7 @@ class SyncExecutor {
   final LocationSharingEndedHandler? _onLocationSharingEnded;
   final PickupRejectedHandler? _onPickupRejected;
   final OperationPreflight? _preflight;
+  final OperationSyncedHandler? _onOperationSynced;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   StreamSubscription<void>? _stepUpSubscription;
@@ -453,6 +462,7 @@ class SyncExecutor {
     LocationSharingEndedHandler? onLocationSharingEnded,
     PickupRejectedHandler? onPickupRejected,
     OperationPreflight? preflight,
+    OperationSyncedHandler? onOperationSynced,
   })  : _syncQueue = syncQueue,
         _connectivityMonitor = connectivityMonitor,
         _dio = dio,
@@ -468,7 +478,8 @@ class SyncExecutor {
         _onPermanentRejection = onPermanentRejection,
         _onLocationSharingEnded = onLocationSharingEnded,
         _onPickupRejected = onPickupRejected,
-        _preflight = preflight;
+        _preflight = preflight,
+        _onOperationSynced = onOperationSynced;
 
   /// Stream of sync batch results for UI indicators.
   ///
@@ -863,6 +874,7 @@ class SyncExecutor {
       switch (status) {
         case 'success':
           await _syncQueue.markAsSynced(operationId);
+          await _notifySynced(operation);
           succeeded++;
 
         case 'conflict':
@@ -906,6 +918,7 @@ class SyncExecutor {
         case 'duplicate':
           // Already processed by server — safe to remove from queue
           await _syncQueue.markAsSynced(operationId);
+          await _notifySynced(operation);
           succeeded++;
 
         case 'deferred':
@@ -1174,8 +1187,9 @@ class SyncExecutor {
   /// full trip, a listing with active orders, and an order command from an
   /// app below the minimum version (any other operation refused for the app
   /// version was held back earlier), and a crop listing or trip whose text
-  /// holds a phone number (1.23.0, FUP-49), and every `LOCATION_*` refusal
-  /// of a check-in (1.31.0, LT-08).
+  /// holds a phone number (1.23.0, FUP-49), every `LOCATION_*` refusal
+  /// of a check-in (1.31.0, LT-08), and every `DELIVERY_PHOTO_*` refusal of a
+  /// handoff photo (1.39.0, FRD-12).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
@@ -1190,7 +1204,8 @@ class SyncExecutor {
         isCropHasActiveOrdersMessage(message) ||
         isAppUpdateRequiredMessage(message) ||
         isContactInTextMessage(message) ||
-        isLocationRejectionMessage(message);
+        isLocationRejectionMessage(message) ||
+        isDeliveryPhotoRejectionMessage(message);
   }
 
   /// Whether a crop listing or trip refusal undoes the local change
@@ -1220,10 +1235,12 @@ class SyncExecutor {
   /// Background operations the user never made (matching analytics,
   /// check-ins): a refusal is not announced. A refused check-in has no local
   /// row to put back and only leaves a gap in the trail (sync-protocol.md
-  /// Location pings).
+  /// Location pings). A refused handoff photo (FRD-12) is optional evidence
+  /// the handoff did not need: nothing to undo, nothing to retry.
   static const _unannouncedEntityTypes = {
     'match_event',
     locationPingEntityType,
+    deliveryPhotoEntityType,
   };
 
   /// The UI event for a refused (or, for `APP_UPDATE_REQUIRED`, held)
@@ -1283,6 +1300,21 @@ class SyncExecutor {
           operation.entityType,
           operation.entityId,
         );
+      }
+      // FRD-12: a handoff photo goes with its handoff. A refused delivery
+      // create, pickup or delivery confirm rejects the photo waiting behind
+      // it, which could otherwise only wait for a delivery or a handoff the
+      // server never took.
+      if (operation.entityType == 'delivery') {
+        for (final type in handoffPhotoTypesOf(
+          operation.action,
+          _statusOf(operation),
+        )) {
+          await _syncQueue.rejectOpenOperationsFor(
+            deliveryPhotoEntityType,
+            deliveryPhotoEntityId(operation.entityId, type),
+          );
+        }
       }
     }
 
@@ -1362,6 +1394,26 @@ class SyncExecutor {
       } on Object catch (e) {
         debugPrint('[SYNC] pickup-rejected handler failed: $e');
       }
+    }
+  }
+
+  /// Tell [OperationSyncedHandler] an operation was applied. A failing
+  /// handler never fails the batch.
+  Future<void> _notifySynced(SyncOperation operation) async {
+    try {
+      await _onOperationSynced?.call(operation);
+    } on Object catch (e) {
+      debugPrint('[SYNC] synced handler failed: $e');
+    }
+  }
+
+  /// The `status` an operation's payload sets, if any.
+  static Object? _statusOf(SyncOperation operation) {
+    try {
+      final data = jsonDecode(operation.data);
+      return data is Map ? data['status'] : null;
+    } on FormatException {
+      return null;
     }
   }
 

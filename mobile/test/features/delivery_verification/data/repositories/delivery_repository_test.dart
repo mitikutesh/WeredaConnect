@@ -10,6 +10,7 @@ import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
@@ -1049,10 +1050,12 @@ void main() {
     // Validation Tests (_validateDeliveryOperation)
     // =======================================================
 
-    // SIM-60: the camera screen hands over a LOCAL file path as the photo ref.
-    // The server accepts only its own upload key and refuses the whole op for
-    // anything else, so a local path stays in Isar and never enters the sync op.
-    group('photo refs in the sync op', () {
+    // SIM-60, FRD-12: the camera screen hands over a LOCAL file path as the
+    // photo ref. Isar keeps it so the photo shows on this phone; the handoff
+    // op never carries a photo ref, and the photo gets its own
+    // `delivery_photo` op, queued behind the handoff, that the sync
+    // preflight uploads when online.
+    group('handoff photos', () {
       const deliveryId = '550e8400-e29b-41d4-a716-446655440000';
       const pickupKey = 'uploads/photos/$deliveryId/pickup-1700000000000.webp';
       const dropoffKey =
@@ -1062,14 +1065,14 @@ void main() {
       const localDropoffPath =
           '/data/user/0/app/files/photos/$deliveryId/dropoff-1700000000000.webp';
 
-      Future<Map<String, dynamic>> lastSyncData() async {
-        final pending = await syncQueue.getPendingOperations();
-        return jsonDecode(pending.last.data) as Map<String, dynamic>;
-      }
+      Future<List<SyncOperation>> pending() => syncQueue.getPendingOperations();
+
+      Map<String, dynamic> dataOf(SyncOperation op) =>
+          jsonDecode(op.data) as Map<String, dynamic>;
 
       test(
-          'confirmPickup keeps a local photo path in Isar and leaves it out of '
-          'the sync op', () async {
+          'confirmPickup keeps a local photo path in Isar and queues the '
+          'photo behind the pickup', () async {
         await _insertTestDelivery(isar);
 
         await repository.confirmPickup(
@@ -1083,12 +1086,32 @@ void main() {
             .deliveryIdEqualTo(deliveryId)
             .findFirst();
         expect(fromDb!.pickupPhotoRef, localPickupPath);
-        final data = await lastSyncData();
-        expect(data['status'], 'pickedUp');
-        expect(data.containsKey('pickupPhotoRef'), isFalse);
+        final ops = await pending();
+        expect(ops, hasLength(2));
+        expect(ops[0].entityType, 'delivery');
+        expect(dataOf(ops[0])['status'], 'pickedUp');
+        expect(dataOf(ops[0]).containsKey('pickupPhotoRef'), isFalse);
+        expect(ops[1].entityType, deliveryPhotoEntityType);
+        expect(ops[1].entityId, '$deliveryId#pickup');
+        expect(ops[1].action, 'create');
+        expect(dataOf(ops[1]), {deliveryPhotoLocalPathKey: localPickupPath});
+        expect(ops[1].idempotencyKey, startsWith('trucker-001:'));
       });
 
-      test('confirmPickup sends a server photo key', () async {
+      test('confirmPickup without a photo queues the pickup only', () async {
+        await _insertTestDelivery(isar);
+
+        await repository.confirmPickup(
+          deliveryId: deliveryId,
+          truckerId: 'trucker-001',
+        );
+
+        expect(await pending(), hasLength(1));
+      });
+
+      test(
+          'a server key or a file of another delivery is never sent or '
+          'queued', () async {
         await _insertTestDelivery(isar);
 
         await repository.confirmPickup(
@@ -1097,25 +1120,30 @@ void main() {
           photoRef: pickupKey,
         );
 
-        expect((await lastSyncData())['pickupPhotoRef'], pickupKey);
-      });
+        final ops = await pending();
+        expect(ops, hasLength(1));
+        expect(dataOf(ops.single).containsKey('pickupPhotoRef'), isFalse);
 
-      test('confirmPickup drops a server key of another delivery', () async {
-        await _insertTestDelivery(isar);
-
-        await repository.confirmPickup(
-          deliveryId: deliveryId,
-          truckerId: 'trucker-001',
-          photoRef:
-              'uploads/photos/660e8400-e29b-41d4-a716-446655440099/pickup-1.webp',
+        await _insertTestDelivery(
+          isar,
+          deliveryId: '660e8400-e29b-41d4-a716-446655440099',
         );
-
-        expect((await lastSyncData()).containsKey('pickupPhotoRef'), isFalse);
+        await repository.confirmPickup(
+          deliveryId: '660e8400-e29b-41d4-a716-446655440099',
+          truckerId: 'trucker-001',
+          photoRef: localPickupPath,
+        );
+        expect(
+          (await pending()).where(
+            (op) => op.entityType == deliveryPhotoEntityType,
+          ),
+          isEmpty,
+        );
       });
 
       test(
-          'confirmDelivery keeps a local photo path in Isar and leaves it out '
-          'of the sync op', () async {
+          'confirmDelivery keeps a local photo path in Isar and queues the '
+          'drop-off photo as the buyer', () async {
         await _insertTestDelivery(isar, status: DeliveryStatus.pickedUp);
 
         await repository.confirmDelivery(
@@ -1129,12 +1157,17 @@ void main() {
             .deliveryIdEqualTo(deliveryId)
             .findFirst();
         expect(fromDb!.dropoffPhotoRef, localDropoffPath);
-        final data = await lastSyncData();
-        expect(data['status'], 'delivered');
-        expect(data.containsKey('dropoffPhotoRef'), isFalse);
+        final ops = await pending();
+        expect(ops, hasLength(2));
+        expect(dataOf(ops[0])['status'], 'delivered');
+        expect(dataOf(ops[0]).containsKey('dropoffPhotoRef'), isFalse);
+        expect(ops[1].entityId, '$deliveryId#dropoff');
+        expect(dataOf(ops[1]), {deliveryPhotoLocalPathKey: localDropoffPath});
+        expect(ops[1].idempotencyKey, startsWith('buyer-001:'));
       });
 
-      test('confirmDelivery sends a server photo key', () async {
+      test('confirmDelivery never sends a server key in the handoff op',
+          () async {
         await _insertTestDelivery(isar, status: DeliveryStatus.pickedUp);
 
         await repository.confirmDelivery(
@@ -1143,7 +1176,9 @@ void main() {
           photoRef: dropoffKey,
         );
 
-        expect((await lastSyncData())['dropoffPhotoRef'], dropoffKey);
+        final ops = await pending();
+        expect(ops, hasLength(1));
+        expect(dataOf(ops.single).containsKey('dropoffPhotoRef'), isFalse);
       });
     });
 

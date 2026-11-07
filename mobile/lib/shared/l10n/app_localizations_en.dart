@@ -907,6 +907,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get restNoPhoto => 'No photo';
 
   @override
+  String get deliveryPhotoOnlineOnly => 'Shows when online';
+
+  @override
+  String get deliveryPhotoFailed => 'The photo could not be saved. Try again.';
+
+  @override
   String get deliveryMarkInTransit => 'Mark In Transit';
 
   @override

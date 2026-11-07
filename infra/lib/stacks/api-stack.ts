@@ -22,6 +22,7 @@ import * as path from "path";
 import { WeredaLambda } from "../constructs/lambda-construct";
 import { FaydaMockConstruct } from "../constructs/fayda-mock-construct";
 import { EnvironmentConfig } from "../config/environments";
+import { webCorsOrigins } from "../config/cors-origins";
 
 /**
  * Public route of the Telebirr payment notification (live gateway only). Exported for the
@@ -134,21 +135,9 @@ export class ApiStack extends cdk.Stack {
 
     // CORS origins: prod uses exact subdomains, dev allows localhost + wildcard.
     // Shared by the HTTP API and the crop photo buckets (the web app PUTs
-    // originals and fetches renditions straight from S3).
-    const corsOrigins = envConfig.isProd
-      ? [
-          "https://app.weredaconnect.com",
-          "https://admin.weredaconnect.com",
-        ]
-      : [
-          "http://localhost:3000",
-          "http://localhost:4321",
-          "http://localhost:5173",
-          "http://localhost:8080",
-          `https://${envConfig.domain.webappSubdomain}.${envConfig.domain.zoneName}`,
-          `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}`,
-          ...(envConfig.extraCorsOrigins ?? []),
-        ];
+    // originals and fetches renditions straight from S3), and with the
+    // database stack's uploads bucket (delivery photos, FRD-12).
+    const corsOrigins = webCorsOrigins(envConfig);
 
 
     // ─── T-SEC-01/02: Hard guard — block dev-only bypasses in production ───
@@ -491,6 +480,8 @@ export class ApiStack extends cdk.Stack {
         DELIVERY_QR_SECRETS_TABLE: props.deliveryQrSecretsTable.tableName,
         // LT-05: location_ping check-ins land here, never on the trip row.
         TRIP_LOCATIONS_TABLE: props.tripLocationsTable.tableName,
+        // FRD-12: a delivery_photo attach checks the uploaded photo (HEAD) in this bucket.
+        UPLOADS_BUCKET: props.uploadsBucket.bucketName,
         // Confirming a delivery stamps the linked escrow so the auto-release cron
         // can pay the farmer. Without this env var (+ grant below) _escrowRepo is
         // null and the delivery-confirmation -> escrow payout bridge is disabled.
@@ -547,6 +538,9 @@ export class ApiStack extends cdk.Stack {
     // the trip's partition (Query) for the rate limit and the repeat check. No GetItem, Scan,
     // update or delete: rows are written once and expire by TTL.
     props.tripLocationsTable.grant(syncFn.function, "dynamodb:PutItem", "dynamodb:Query");
+    // FRD-12: the delivery_photo attach HEADs the photo (s3:GetObject on the photo keys; the
+    // bucket-level List lets a missing photo answer 404, not 403). Read only, photos only.
+    props.uploadsBucket.grantRead(syncFn.function, "uploads/photos/*");
 
     // ─── Pagination Secret (Secrets Manager prod / SSM dev+staging) ───
     // SECURITY: Generated at deploy time (prod) or by the seed script
@@ -2708,6 +2702,8 @@ export class ApiStack extends cdk.Stack {
         ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
         // LT-13: the trip's check-ins for the dispute evidence trail.
         TRIP_LOCATIONS_TABLE: props.tripLocationsTable.tableName,
+        // FRD-12: the transaction view signs GETs of the delivery's handoff photos.
+        UPLOADS_BUCKET: props.uploadsBucket.bucketName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(30),
@@ -2730,6 +2726,8 @@ export class ApiStack extends cdk.Stack {
     // LT-13: the delivery trail reads the trip's check-ins (Query by tripId) and nothing else.
     // The delivery itself comes from the deliveries read above.
     props.tripLocationsTable.grant(adminFn.function, "dynamodb:Query");
+    // FRD-12: a presigned GET carries its signer's rights, so the admin may read the photo keys.
+    props.uploadsBucket.grantRead(adminFn.function, "uploads/photos/*");
 
     // Write access on tables the admin mutates
     props.escrowsTable.grantWriteData(adminFn.function);

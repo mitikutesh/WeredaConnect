@@ -911,6 +911,14 @@ class AppLocalizationsOm extends AppLocalizations {
   String get restNoPhoto => 'Suuraan hin jiru';
 
   @override
+  String get deliveryPhotoOnlineOnly =>
+      'Yeroo interneetiin walqabattan mul\'ata';
+
+  @override
+  String get deliveryPhotoFailed =>
+      'Suuraan hin kuufamne. Irra deebi\'aa yaalaa.';
+
+  @override
   String get deliveryMarkInTransit => 'Daandii Irra Mallatteessi';
 
   @override

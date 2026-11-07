@@ -585,10 +585,11 @@ public class FraudAdvisoryServiceTests
     [Fact]
     public void LambdaReviewer_TheClientNeverRetries()
     {
-        using var client = (AmazonLambdaClient)LambdaAdvisoryReviewer.CreateClient();
+        // The settings, not a client: building a client needs a region, which CI does not set.
+        var config = LambdaAdvisoryReviewer.ClientConfig();
 
-        client.Config.MaxErrorRetry.Should().Be(0);
-        client.Config.Timeout.Should().Be(TimeSpan.FromSeconds(40));
+        config.MaxErrorRetry.Should().Be(0);
+        config.Timeout.Should().Be(TimeSpan.FromSeconds(40));
     }
 
     private static AdvisoryReviewRequest Request() => new()

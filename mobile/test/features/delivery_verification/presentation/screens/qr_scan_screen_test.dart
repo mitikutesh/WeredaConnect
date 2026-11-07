@@ -121,13 +121,14 @@ void main() {
     WidgetTester tester,
     VerificationType type, {
     bool pushed = false,
+    PhotoManager? photoManager,
   }) async {
     final screen = QrScanScreen(
       delivery: delivery,
       verificationType: type,
       qrService: qr,
       gpsService: gps,
-      photoManager: MockPhotoManager(),
+      photoManager: photoManager ?? MockPhotoManager(),
       localAuthGate: gate,
       handoffStore: handoffs,
     );
@@ -162,9 +163,10 @@ void main() {
 
   Future<void> scanValidCode(
     WidgetTester tester,
-    VerificationType type,
-  ) async {
-    await pumpScreen(tester, type);
+    VerificationType type, {
+    PhotoManager? photoManager,
+  }) async {
+    await pumpScreen(tester, type, photoManager: photoManager);
     tester.widget<MobileScanner>(find.byType(MobileScanner)).onDetect!(
       const BarcodeCapture(barcodes: [Barcode(rawValue: 'qr-token')]),
     );
@@ -215,6 +217,74 @@ void main() {
 
     expect(gate.prompts, 0);
     verify(() => bloc.add(any(that: isA<ConfirmPickup>()))).called(1);
+  });
+
+  // FRD-12: the photo taken at the handoff rides on the confirm (the phone's
+  // file, which the sync queue uploads; on web the key of the photo that
+  // went up already).
+  testWidgets('the handoff photo goes with the pickup confirm', (tester) async {
+    const path =
+        '/data/user/0/app/files/photos/delivery-001-abcd-efgh/pickup-1.webp';
+    final photos = MockPhotoManager();
+    when(
+      () => photos.captureAndCompress(
+        deliveryId: any(named: 'deliveryId'),
+        type: PhotoType.pickup,
+      ),
+    ).thenAnswer(
+      (_) async =>
+          const PhotoResult.success(localPath: path, fileSizeBytes: 90000),
+    );
+    await scanValidCode(tester, VerificationType.pickup, photoManager: photos);
+
+    final addPhoto = find.text('Add Photo');
+    await tester.ensureVisible(addPhoto);
+    await tester.tap(addPhoto);
+    await tester.pumpAndSettle();
+    await tapConfirm(tester, 'Confirm Pickup');
+
+    final event = verify(() => bloc.add(captureAny())).captured.single;
+    expect((event as ConfirmPickup).photoRef, path);
+  });
+
+  testWidgets('a photo that failed says so and the confirm goes without it',
+      (tester) async {
+    final photos = MockPhotoManager();
+    when(
+      () => photos.captureAndCompress(
+        deliveryId: any(named: 'deliveryId'),
+        type: PhotoType.pickup,
+      ),
+    ).thenAnswer((_) async => const PhotoResult.error('Photo too large'));
+    await scanValidCode(tester, VerificationType.pickup, photoManager: photos);
+
+    final addPhoto = find.text('Add Photo');
+    await tester.ensureVisible(addPhoto);
+    await tester.tap(addPhoto);
+    await tester.pump();
+
+    expect(find.text(l10n.deliveryPhotoFailed), findsOneWidget);
+    await tapConfirm(tester, 'Confirm Pickup');
+    final event = verify(() => bloc.add(captureAny())).captured.single;
+    expect((event as ConfirmPickup).photoRef, isNull);
+  });
+
+  testWidgets('a closed camera says nothing', (tester) async {
+    final photos = MockPhotoManager();
+    when(
+      () => photos.captureAndCompress(
+        deliveryId: any(named: 'deliveryId'),
+        type: PhotoType.pickup,
+      ),
+    ).thenAnswer((_) async => const PhotoResult.cancelled());
+    await scanValidCode(tester, VerificationType.pickup, photoManager: photos);
+
+    final addPhoto = find.text('Add Photo');
+    await tester.ensureVisible(addPhoto);
+    await tester.tap(addPhoto);
+    await tester.pump();
+
+    expect(find.byType(SnackBar), findsNothing);
   });
 
   testWidgets('a scan says the QR was read and is checked online, not passed',

@@ -17,7 +17,7 @@ namespace WeredaConnect.Server.Functions;
 /// - GET /deliveries - Query deliveries with optional filters (status, tripId, listingId, etc.)
 /// - GET /deliveries/{id} - Get a single delivery by ID (participants only)
 /// - GET /deliveries/{id}/track - Where the truck is, from pickup to delivery (participants only, LT-06)
-/// - POST /deliveries/{id}/photos - Generate pre-signed S3 upload URL for photo evidence
+/// - POST /deliveries/{id}/photos - Pre-signed S3 PUT for a handoff photo (its taker only, 200 KiB cap, FRD-12)
 ///
 /// Error codes:
 /// - 400: DELIVERY_VALIDATION - Invalid query parameters or request body
@@ -49,9 +49,6 @@ public class DeliveryFunction
 
     /// Pre-signed URL expiry: 15 minutes (sufficient for 3G upload of 200KB WebP)
     internal const int PresignedUrlExpirySeconds = 900;
-
-    /// Allowed photo types
-    private static readonly HashSet<string> AllowedPhotoTypes = new(StringComparer.OrdinalIgnoreCase) { "pickup", "dropoff" };
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -314,6 +311,18 @@ public class DeliveryFunction
             // ESC-48: no phone numbers for clients. The parties reach each other from the order,
             // only while its contact is open (ContactReveal); admins see them in the transaction view.
             var deliveryDto = MapToDeliveryDto(delivery, includePhone: false, includeQrToken: true);
+
+            // FRD-12: the handoff photos, for the parties only (checked above). A signing failure
+            // leaves them off; the delivery itself is still answered.
+            try
+            {
+                deliveryDto = DeliveryPhotoUrls.Sign(deliveryDto, delivery, _s3Client, _uploadsBucket, Clock());
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning($"Delivery photo URLs not signed for {deliveryId}: [{ex.GetType().Name}]");
+            }
+
             var response = new GetDeliveryResponse { Delivery = deliveryDto };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetDeliveryResponse);
@@ -504,9 +513,15 @@ public class DeliveryFunction
     }
 
     /// <summary>
-    /// POST /deliveries/{id}/photos - Generate a pre-signed S3 URL for photo upload.
-    /// Only delivery participants can upload photos.
-    /// Returns a pre-signed PUT URL (15-min expiry) and the S3 key (photoRef).
+    /// POST /deliveries/{id}/photos - a pre-signed S3 PUT for one handoff photo
+    /// (delivery-verification-api.md section 4, 1.25.0, FRD-12).
+    ///
+    /// Only the party who takes that photo may ask: the trucker for the pickup, the buyer for the
+    /// drop-off (<see cref="DeliveryPhotoKeys.AuthorId"/>); the farmer and anyone else are refused.
+    /// The size (at most 200 KiB) and the type are both signed, so S3 refuses any other upload.
+    /// The delivery may still be pending (a phone uploads before its pickup syncs) but not
+    /// cancelled, and a type whose photo is attached already gets no new URL. The photo is attached
+    /// afterwards by a <c>delivery_photo</c> sync operation, which checks the object again.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleUploadPhotoAsync(
         APIGatewayProxyRequest request,
@@ -539,9 +554,22 @@ public class DeliveryFunction
         }
 
         var photoType = photoRequest.Type.ToLowerInvariant();
-        if (!AllowedPhotoTypes.Contains(photoType))
+        if (!DeliveryPhotoKeys.IsType(photoType))
         {
             return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Invalid photo type. Must be 'pickup' or 'dropoff'.", "type");
+        }
+
+        if (photoRequest.SizeBytes is not long sizeBytes || sizeBytes < 1 || sizeBytes > DeliveryPhotoKeys.MaxBytes)
+        {
+            return LambdaResponse.Error(400, "DELIVERY_PHOTO_TOO_LARGE",
+                $"sizeBytes must be between 1 and {DeliveryPhotoKeys.MaxBytes}.", "sizeBytes");
+        }
+
+        var contentType = photoRequest.ContentType ?? "image/webp";
+        if (!DeliveryPhotoKeys.ExtensionByContentType.ContainsKey(contentType))
+        {
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION",
+                "contentType must be image/webp or image/jpeg.", "contentType");
         }
 
         try
@@ -553,18 +581,37 @@ public class DeliveryFunction
                 return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery not found.");
             }
 
-            // ESC-08: a party's cancel writes no deletedAt, so the status decides as well.
-            if ((delivery.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
-                || (delivery.TryGetValue("status", out var status) && status?.ToString() == "cancelled"))
-            {
-                return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery has been cancelled.");
-            }
-
             // Verify requester is a participant
             var userId = GetAuthenticatedUserId(request);
             if (!IsParticipant(delivery, userId))
             {
                 return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED", "You are not a participant in this delivery.");
+            }
+
+            // ESC-08: a party's cancel writes no deletedAt, so the status decides as well. FRD-12: a
+            // 409, not a 404, so a phone stops waiting for a delivery that will never take a photo
+            // (it waits on a 404: the delivery's own create may still be on its way).
+            if ((delivery.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
+                || (delivery.TryGetValue("status", out var status) && status?.ToString() == "cancelled"))
+            {
+                return LambdaResponse.Error(409, "DELIVERY_PHOTO_REFUSED", "The delivery was cancelled.");
+            }
+
+            // FRD-12: only the party who confirms this handoff takes its photo.
+            var authorId = DeliveryPhotoKeys.AuthorId(
+                photoType, GetStringOrNull(delivery, "truckerId"), GetStringOrNull(delivery, "buyerId"));
+            if (authorId == null || authorId != userId)
+            {
+                return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED",
+                    photoType == DeliveryPhotoKeys.Pickup
+                        ? "Only the trucker takes the pickup photo."
+                        : "Only the buyer takes the drop-off photo.");
+            }
+
+            // A handoff keeps its first photo: evidence is not replaced.
+            if (!string.IsNullOrEmpty(GetStringOrNull(delivery, DeliveryPhotoKeys.FieldOf(photoType))))
+            {
+                return LambdaResponse.Error(409, "DELIVERY_PHOTO_EXISTS", "This handoff already has its photo.");
             }
 
             // Check S3 configuration
@@ -574,25 +621,26 @@ public class DeliveryFunction
                 return LambdaResponse.Error(500, "DELIVERY_SERVER_ERROR", "Photo upload not configured.");
             }
 
-            // Generate S3 key: uploads/photos/{deliveryId}/{type}-{timestamp}.webp
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var s3Key = $"uploads/photos/{deliveryId}/{photoType}-{timestamp}.webp";
+            var now = Clock();
+            var s3Key = DeliveryPhotoKeys.Key(
+                deliveryId, photoType, (long)(now - DateTime.UnixEpoch).TotalMilliseconds, contentType);
 
-            // Generate pre-signed PUT URL
-            var presignedUrl = _s3Client.GetPreSignedURL(new GetPreSignedUrlRequest
+            var presign = new GetPreSignedUrlRequest
             {
                 BucketName = _uploadsBucket,
                 Key = s3Key,
                 Verb = HttpVerb.PUT,
-                Expires = DateTime.UtcNow.AddSeconds(PresignedUrlExpirySeconds),
-                ContentType = "image/webp",
-            });
+                Expires = now.AddSeconds(PresignedUrlExpirySeconds),
+                ContentType = contentType,
+            };
+            // Signed with the type, so S3 refuses a PUT of any other length (SignatureDoesNotMatch).
+            presign.Headers.ContentLength = sizeBytes;
 
             var response = new UploadPhotoResponse
             {
-                UploadUrl = presignedUrl,
+                UploadUrl = _s3Client.GetPreSignedURL(presign),
                 PhotoRef = s3Key,
-                IssuedAt = DateTime.UtcNow.ToString("o"),
+                IssuedAt = now.ToString("o"),
                 ExpiresInSeconds = PresignedUrlExpirySeconds,
             };
 

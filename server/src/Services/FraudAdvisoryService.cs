@@ -36,11 +36,14 @@ internal sealed class LambdaAdvisoryReviewer : IAdvisoryReviewer
     }
 
     /// <summary>The client the cron builds: 40 seconds per call (the reviewer's own timeout is 30), no retry.</summary>
-    public static IAmazonLambda CreateClient() => new AmazonLambdaClient(new AmazonLambdaConfig
+    public static IAmazonLambda CreateClient() => new AmazonLambdaClient(ClientConfig());
+
+    /// <summary>The cron client's settings (the region comes from the Lambda environment).</summary>
+    internal static AmazonLambdaConfig ClientConfig() => new()
     {
         Timeout = TimeSpan.FromSeconds(40),
         MaxErrorRetry = 0
-    });
+    };
 
     public async Task<AdvisoryReviewReply?> ReviewAsync(AdvisoryReviewRequest request)
     {

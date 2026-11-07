@@ -188,3 +188,53 @@ describe("TransactionDetailPage deleted buyer (ACC-05)", () => {
     expect(screen.getByText("የተሰረዘ ተጠቃሚ")).toBeTruthy();
   });
 });
+
+/* FRD-12: the delivery card shows the handoff photos (presigned GETs the server signs for the
+ * admin view) as thumbnails that open full size; a leg without a photo shows no row. */
+describe("TransactionDetailPage handoff photos (FRD-12)", () => {
+  beforeEach(() => {
+    mocks.locale = "en";
+  });
+
+  function detailWithPhotos(delivery: Record<string, unknown>) {
+    return {
+      order: { orderId: "ord-1", status: "disputed", buyerId: "buyer-1", farmerId: "farmer-1" },
+      escrow: null,
+      delivery: { deliveryId: "del-1", status: "disputed", ...delivery },
+      timeline: [],
+    };
+  }
+
+  it("shows each photo as a thumbnail that opens it full size", () => {
+    mocks.detail.data = detailWithPhotos({
+      pickupPhotoUrl: "https://uploads.s3.test/pickup?sig=1",
+      dropoffPhotoUrl: "https://uploads.s3.test/dropoff?sig=2",
+    });
+
+    renderPage();
+
+    const pickup = screen.getByRole("img", { name: "Pickup photo" });
+    expect(pickup.getAttribute("src")).toBe("https://uploads.s3.test/pickup?sig=1");
+    const open = screen.getByRole("link", { name: "Open the Drop-off photo full size" });
+    expect(open.getAttribute("href")).toBe("https://uploads.s3.test/dropoff?sig=2");
+    expect(open.getAttribute("rel")).toContain("noopener");
+  });
+
+  it("shows no photo row for a leg without one", () => {
+    mocks.detail.data = detailWithPhotos({ pickupPhotoUrl: "https://uploads.s3.test/pickup?sig=1" });
+
+    renderPage();
+
+    expect(screen.getByRole("img", { name: "Pickup photo" })).toBeTruthy();
+    expect(screen.queryByText("Drop-off photo")).toBeNull();
+  });
+
+  it("names the photos in the admin's language", () => {
+    mocks.locale = "om";
+    mocks.detail.data = detailWithPhotos({ dropoffPhotoUrl: "https://uploads.s3.test/dropoff?sig=2" });
+
+    renderPage();
+
+    expect(screen.getByRole("img", { name: "Suuraa geejjibaa" })).toBeTruthy();
+  });
+});

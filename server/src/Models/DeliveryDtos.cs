@@ -47,6 +47,17 @@ public sealed record UploadPhotoRequest
     /// Photo type: "pickup" or "dropoff".
     /// </summary>
     public required string Type { get; init; }
+
+    /// <summary>
+    /// Exact size of the photo in bytes, 1 to 204800 (200 KiB). Signed into the PUT as its
+    /// Content-Length, so S3 refuses any other size (delivery-verification-api 1.25.0, FRD-12).
+    /// </summary>
+    public long? SizeBytes { get; init; }
+
+    /// <summary>
+    /// "image/webp" (the default, the phone's compressed photo) or "image/jpeg" (the browser's).
+    /// </summary>
+    public string? ContentType { get; init; }
 }
 
 /// <summary>
@@ -225,6 +236,15 @@ public sealed record DeliveryDto
     /// S3 reference for dropoff photo evidence.
     /// </summary>
     public string? DropoffPhotoRef { get; init; }
+
+    /// <summary>
+    /// Presigned GET of the pickup photo (15 minutes), on GET /deliveries/{id} for the delivery's
+    /// parties and on the admin transaction view only; never on a list (1.25.0, FRD-12).
+    /// </summary>
+    public string? PickupPhotoUrl { get; init; }
+
+    /// <summary>Presigned GET of the drop-off photo, as <see cref="PickupPhotoUrl"/>.</summary>
+    public string? DropoffPhotoUrl { get; init; }
 
     /// <summary>
     /// ISO 8601 UTC timestamp of when cargo was picked up.

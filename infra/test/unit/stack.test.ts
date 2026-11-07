@@ -210,6 +210,26 @@ describe('DatabaseStack', () => {
       },
     });
   });
+
+  test('FRD-12: the web app may PUT and read delivery photos in the uploads bucket', () => {
+    const uploads = Object.values(
+      template.findResources('AWS::S3::Bucket', {
+        Properties: { VersioningConfiguration: { Status: 'Enabled' } },
+      }),
+    ) as Array<Record<string, any>>;
+    expect(uploads).toHaveLength(1);
+    const rules = uploads[0].Properties.CorsConfiguration.CorsRules;
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toMatchObject({
+      AllowedMethods: ['PUT', 'GET', 'HEAD'],
+      AllowedHeaders: ['Content-Type'],
+    });
+    // The web app and the admin only, never a wildcard.
+    expect(rules[0].AllowedOrigins).toEqual(
+      expect.arrayContaining(['https://dev-app.weredaconnect.com', 'https://dev-admin.weredaconnect.com']),
+    );
+    expect(rules[0].AllowedOrigins).not.toContain('*');
+  });
 });
 
 describe('ApiStack', () => {
@@ -409,6 +429,47 @@ describe('ApiStack', () => {
     expect(actions).toContain('s3:PutObject');
     expect(actions.some((a: string) => a.startsWith('s3:GetObject'))).toBe(true);
     expect(actions.filter((a: string) => a.startsWith('s3:DeleteObject'))).toEqual([]);
+  });
+
+  // ─── FRD-12: delivery handoff photos ───
+
+  /** Every S3 statement of the role of the Lambda with this function name. */
+  function s3Statements(functionName: string): Array<{ Action: string | string[]; Resource: unknown }> {
+    const role = (
+      template.findResources('AWS::Lambda::Function', {
+        Properties: { FunctionName: functionName },
+      }) as Record<string, any>
+    )[lambdaId(functionName)].Properties.Role['Fn::GetAtt'][0];
+    // A role with many grants spills into overflow managed policies, so read both kinds.
+    return [
+      ...Object.values(template.findResources('AWS::IAM::Policy')),
+      ...Object.values(template.findResources('AWS::IAM::ManagedPolicy')),
+    ]
+      .filter((p: any) => (p.Properties.Roles ?? []).some((r: any) => r.Ref === role))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement)
+      .filter((st: any) => (Array.isArray(st.Action) ? st.Action : [st.Action]).some((a: string) => a.startsWith('s3:')));
+  }
+
+  test.each([
+    ['wereda-connect-dev-sync', 'the delivery_photo attach HEADs the photo'],
+    ['wereda-connect-dev-admin', 'the transaction view signs photo GETs'],
+  ])('FRD-12: %s reads the uploaded photos only (%s)', (functionName) => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: functionName,
+      Environment: { Variables: Match.objectLike({ UPLOADS_BUCKET: Match.anyValue() }) },
+    });
+    const statements = s3Statements(functionName);
+    const actions = statements.flatMap((st) => (Array.isArray(st.Action) ? st.Action : [st.Action]));
+    expect(actions.some((a) => a.startsWith('s3:GetObject'))).toBe(true);
+    // Read only: never a write or a delete on the uploads bucket.
+    expect(actions.filter((a) => a.startsWith('s3:Put') || a.startsWith('s3:Delete'))).toEqual([]);
+    // Object reads are scoped to the photo keys.
+    const objectStatements = statements.filter((st) =>
+      (Array.isArray(st.Action) ? st.Action : [st.Action]).some((a) => a.startsWith('s3:GetObject')),
+    );
+    for (const st of objectStatements) {
+      expect(JSON.stringify(st.Resource)).toContain('/uploads/photos/*');
+    }
   });
 
   // ─── ESC-21: order notifications (stream consumer + inbox read) ───
@@ -718,7 +779,11 @@ describe('ApiStack', () => {
   });
 
   test('admin Lambda can put the refund claim row and nothing else on escrow-idempotency (FUP-02)', () => {
-    const policies = template.findResources('AWS::IAM::Policy');
+    // The role's statements overflow into a managed policy, so read both kinds.
+    const policies = {
+      ...template.findResources('AWS::IAM::Policy'),
+      ...template.findResources('AWS::IAM::ManagedPolicy'),
+    };
     const actions = Object.keys(policies)
       .filter((key) => key.startsWith('AdminFunctionServiceRole'))
       .flatMap(
