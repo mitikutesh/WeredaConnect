@@ -409,7 +409,8 @@ export class MonitoringStack extends cdk.Stack {
       defaultValue: 0,
     });
     // ESC-20: a ledger write that would break I1 to I4 was not sent (escrow: a release or refund; escrow-cron:
-    // the sweeps, a split verdict, the ledger sweep's re-check). Any line alarms. Two filters, one metric.
+    // the sweeps, a split verdict, the ledger sweep's re-check), or a row an admin recorded by hand left the
+    // escrow failing a check (admin: the manual payout queue). Any line alarms. Three filters, one metric.
     const countLedgerInvariant = (id: string, logGroup: logs.ILogGroup) =>
       new logs.MetricFilter(this, id, {
         logGroup,
@@ -421,6 +422,11 @@ export class MonitoringStack extends cdk.Stack {
       });
     countLedgerInvariant('EscrowLedgerInvariantFilter', escrowLogGroup);
     countLedgerInvariant('EscrowCronLedgerInvariantFilter', escrowCronLogGroup);
+    // The admin Lambda's group, created by the api-stack Lambda construct like the others.
+    countLedgerInvariant(
+      'AdminLedgerInvariantFilter',
+      logs.LogGroup.fromLogGroupName(this, 'AdminLogGroup', `/aws/lambda/${prefix}-admin`),
+    );
 
     // ESC-09: the hourly order-money sweep logs one line when an order does not show what its
     // escrow's money says and it cannot fix it: write_failed (every run once the money moved
@@ -1143,7 +1149,7 @@ export class MonitoringStack extends cdk.Stack {
       'escrow-ledger-invariant',
       'EscrowLedgerInvariant',
       'Escrow Ledger Invariant',
-      'A ledger money check failed (ESCROW_LEDGER_INVARIANT in the escrow or escrow-cron log group, with ' +
+      'A ledger money check failed (ESCROW_LEDGER_INVARIANT in the escrow, escrow-cron or admin log group, with ' +
         'escrowId, ref and check). I1: the legs plus the refunded total no longer add up to the amount paid; ' +
         'I2: the released total differs from the released legs; I3: the ledger rows differ from the totals; ' +
         'I4: a leg would leave held twice. A decision that fails a check is not written and no money moves ' +

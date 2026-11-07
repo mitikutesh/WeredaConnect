@@ -235,8 +235,12 @@ describe('ESC-20: ledger alarms', () => {
     });
   });
 
-  test('ESCROW_LEDGER_INVARIANT in the escrow and escrow-cron log groups alarms as escrow-ledger-invariant', () => {
-    for (const logGroup of ['/aws/lambda/wereda-connect-dev-escrow', '/aws/lambda/wereda-connect-dev-escrow-cron']) {
+  test('ESCROW_LEDGER_INVARIANT in the escrow, escrow-cron and admin log groups alarms as escrow-ledger-invariant', () => {
+    for (const logGroup of [
+      '/aws/lambda/wereda-connect-dev-escrow',
+      '/aws/lambda/wereda-connect-dev-escrow-cron',
+      '/aws/lambda/wereda-connect-dev-admin',
+    ]) {
       monitoring.hasResourceProperties('AWS::Logs::MetricFilter', {
         LogGroupName: logGroup,
         FilterPattern: '"ESCROW_LEDGER_INVARIANT"',
