@@ -16,8 +16,8 @@ one rating per (order, ratee)**.
   operations (mirrors `buyer_intent`).
 - **Reads** are served by a dedicated `RatingFunction` at `GET /ratings`.
 - **Reputation** (1.2.0, PLANNED): the ratee's star sum and count are stored on
-  their users row when a rating is created (ESC-28), reads are limited to buyers,
-  the ratee and admins and filtered by `rateeRole` (ESC-29), and the summary
+  their users row when a rating is created (ESC-28), reads are limited to buyers
+  and the ratee and filtered by `rateeRole` (ESC-29), and the summary
   carries the effective rating of `reputation-api.md` 1.0.0. See "Stored
   aggregate" and "Read rules" below. Until those tickets ship, 1.1.0 behaviour
   holds.
@@ -59,9 +59,9 @@ One operation inside the standard sync batch (see `sync-protocol.md`):
   is new in 1.2.0 and optional (default: the ratee's current role).
 - `GET /ratings/{id}`: a single rating by its `ratingId`.
 
-Both require a valid JWT. Up to 1.1.0 any authenticated user could read any
-ratee; since 1.2.0 (PLANNED, ESC-29) only buyers, the ratee and admins can (see
-"Read rules").
+Both require a valid app user pool JWT (the route's authorizer refuses an admin
+pool token with `401`). Up to 1.1.0 any authenticated user could read any ratee;
+since 1.2.0 (PLANNED, ESC-29) only buyers and the ratee can (see "Read rules").
 
 ## Response Format
 
@@ -86,7 +86,7 @@ ratee; since 1.2.0 (PLANNED, ESC-29) only buyers, the ratee and admins can (see
   "reputation": {
     "userId": "farmer456",
     "role": "farmer",
-    "tier": "low",
+    "tier": "good",
     "ratingAverage": 4.6,
     "ratingCount": 12,
     "effectiveRating": 4.2,
@@ -165,8 +165,11 @@ nothing for it.
 |---|---|---|
 | buyer | any farmer or trucker ratee | a rating whose ratee is a farmer or trucker |
 | farmer or trucker | only `rateeId` = themselves | only a rating they received |
-| admin group | any | any |
 | anyone else, or a farmer or trucker asking about someone else | `403 RATING_FORBIDDEN` | `403 RATING_FORBIDDEN` |
+
+Admins never reach these routes: they sit behind the app user pool's authorizer,
+so an admin pool token gets `401`. Admins see a user's rating sum and count in
+`GET /admin/users/{userId}/reputation` (`reputation-api.md` 9.1, ESC-32).
 
 - A ratee with no users row, or a buyer ratee, answers a buyer with an empty
   list and `{ "average": 0, "count": 0 }` (no account oracle), as 1.1.0 did for
@@ -223,7 +226,7 @@ nothing for it.
   returned to clients.
 
 ## Changelog
-- **1.2.0** (2026-11-07): PLANNED (ESC-27 for ESC-28 and ESC-29). Stored aggregate: the create puts the rating and `ADD`s the stars to the ratee's users row (`ratingSum`, `ratingCount`) in one transaction, conditioned on the ratee's role, plus a `HEAL` row for the daily job; a one-time backfill without Scan; a role change rebuilds it; ratings gain the server-only `inAggregate`. Read rules: `GET /ratings` and `GET /ratings/{id}` only for buyers (farmer and trucker ratees), the ratee and admins, else `403 RATING_FORBIDDEN`; new optional `rateeRole` filter; the summary comes from the users row when aggregated and gains `rateeRole` and `effectiveRating`; new optional `reputation` block (`reputation-api.md` 1.0.0) behind `reputationPublicTags`. Create wire shape unchanged.
+- **1.2.0** (2026-11-07): PLANNED (ESC-27 for ESC-28 and ESC-29). Stored aggregate: the create puts the rating and `ADD`s the stars to the ratee's users row (`ratingSum`, `ratingCount`) in one transaction, conditioned on the ratee's role, plus a `HEAL` row for the daily job; a one-time backfill without Scan; a role change rebuilds it; ratings gain the server-only `inAggregate`. Read rules: `GET /ratings` and `GET /ratings/{id}` only for buyers (farmer and trucker ratees) and the ratee, else `403 RATING_FORBIDDEN` (admins use the admin reputation panel); new optional `rateeRole` filter; the summary comes from the users row when aggregated and gains `rateeRole` and `effectiveRating`; new optional `reputation` block (`reputation-api.md` 1.0.0) behind `reputationPublicTags`. Create wire shape unchanged.
 - **1.1.0** (2026-10-10): ratings also open on `disbursing` (ESC-09); `RATING_FORBIDDEN` reads "You can only rate a delivered order (delivered, disbursing or settled)."
 - **1.0.0** (2026-07-09) — Initial contract: buyer rates farmer/trucker after a
   delivered order; sync-create + `GET /ratings` reads; ratings immutable.

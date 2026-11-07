@@ -53,7 +53,7 @@ value is left out (the serializer omits nulls).
 | `isPhoneVerified` | BOOL | yes (`false` included) | registration, `POST /auth/verify-otp`, `/user/fayda-link` (when the Fayda record proves the phone) | SMS OTP or Fayda proved the phone |
 | `suspended` | BOOL | yes (`false` included) | admin `suspend`, `unsuspend` | Blocks login, OTP and refresh (`AUTH_025`); ESC-29 extends it to the write endpoints (`reputation-api.md` 8.4). A row without it reads as `false` |
 | `suspendReason` | S | never (admin detail shows it beside the user) | admin `suspend` (removed by `unsuspend`) | `fraud_confirmed` is the Fraud Review reject (FRD-05) |
-| `knownDevices` | SS | yes (`[]` when none) | registration, login on a new install | Install ids (`X-Device-Id`), newest last, at most 10; a new one triggers a sign-in notice; FRD-15 compares them |
+| `knownDevices` | SS | yes (`[]` when none) | registration, login on a new install | Install ids (`X-Device-Id`), at most 10; a string set, so DynamoDB keeps no order; a new one triggers a sign-in notice; FRD-15 compares them |
 | `profilePhotoRef` | S | yes | nothing today | Read and written back by `UpdateUserAsync`; no upload path exists, so it is never set |
 | `buyerType` | S | yes | registration | Buyer only: `private` or `company` (F-32) |
 | `companyName` | S | yes | registration | Buyer only, required for a company buyer, max 100 characters, no phone number |
@@ -71,8 +71,16 @@ file paths on the phone only, section 8).
 An absent optional attribute may be stored either as a missing attribute (registration omits
 it) or as a DynamoDB `NULL` (`UpdateUserAsync` writes `NULL` for an empty `displayName`,
 `fullName`, `profilePhotoRef`, `faydaId`, `faydaVerifiedAt`, `faydaAuthenticatedAt` and
-`knownDevices`). Readers treat both the same. A `NULL` `faydaId` keeps the row out of
-`FaydaIdIndex`.
+`knownDevices`). Readers treat both the same.
+
+**Open question (found in 2.0.0).** `faydaId` is the partition key of `FaydaIdIndex`, and
+DynamoDB refuses a write that gives an index key attribute a type other than the index's (`S`
+here), `NULL` included. Registration allows a null `faydaId` (`RegisterFunction` simply omits
+it), but `UpdateUserAsync` always sets `faydaId`, as `NULL` when the user has none. On a row
+without a Fayda ID every `UpdateUserAsync` (verify-otp, the login device write, the language
+change) may therefore be refused with a validation error. Follow-up: test `UpdateUserAsync` on
+a row without `faydaId` against DynamoDB Local and, if refused, `REMOVE` the attribute instead
+of setting `NULL` (the same for any other index key).
 
 ---
 
@@ -91,7 +99,7 @@ Server-only. Never returned in the `user` object: the party reads them through
 
 `ratingSum` and `ratingCount` sit at the top level, not inside `reputation` (the spec put them in
 the map): `ADD` creates a missing top-level number, and a rating write then never races the
-map's own version (proposed, architecture doc 3.3).
+map's own version (proposed, architecture doc 3.4).
 
 The `reputation` map:
 
@@ -466,7 +474,7 @@ screened.
 
 | Version | Date | Change |
 |---------|------|--------|
-| 2.0.0 | 2026-11-07 | Rewritten from the code (ESC-27): every attribute with its type, writer and whether the `user` object returns it; `passwordHash`, `drivingLicensePath` and the ID scan paths are not on the row; `profilePhotoRef` has no writer; the NULL-or-missing rule; table settings as built (default encryption, no stream, no TTL); access patterns; the writers table with version semantics (admin actions do not bump `version`) and the known `UpdateUserAsync` revert gap; the Isar schema and web model as built (field-level PII encryption; `preferredLanguage` not in Isar); sync is the `user` entity only; `UserJsonContext` and the embedded `MinimalUserDto` were never used. PLANNED (ESC-28): `reputation` map, top-level `ratingSum`, `ratingCount`, `ratingsAggregatedAt`, their write rules and invariants 11 to 13 (`reputation-api.md` 1.0.0, `rating-api.md` 1.2.0). No wire change for built clients |
+| 2.0.0 | 2026-11-07 | Rewritten from the code (ESC-27): every attribute with its type, writer and whether the `user` object returns it; `passwordHash`, `drivingLicensePath` and the ID scan paths are not on the row; `profilePhotoRef` has no writer; the NULL-or-missing rule, with an open question on `UpdateUserAsync` writing `NULL` to the `FaydaIdIndex` key on rows without a Fayda ID; `knownDevices` is an unordered string set; table settings as built (default encryption, no stream, no TTL); access patterns; the writers table with version semantics (admin actions do not bump `version`) and the known `UpdateUserAsync` revert gap; the Isar schema and web model as built (field-level PII encryption; `preferredLanguage` not in Isar); sync is the `user` entity only; `UserJsonContext` and the embedded `MinimalUserDto` were never used. PLANNED (ESC-28): `reputation` map, top-level `ratingSum`, `ratingCount`, `ratingsAggregatedAt`, their write rules and invariants 11 to 13 (`reputation-api.md` 1.0.0, `rating-api.md` 1.2.0). No wire change for built clients |
 | 1.3.2 | 2026-11-07 | Doc only (ESC-14, survey 9.5): the row as built. `role` is changed by an admin's `change_role` (marketplace roles only, Cognito claim rewritten, user signed out), not immutable; new table of server-written fields (`fullName`, `faydaVerified`, `faydaVerifiedAt`, `faydaAuthenticatedAt`, `suspended`, `suspendReason`, `knownDevices`) saying which the register and login `user` object returns; `RoleWaredaIndex` projects `ALL` (was documented `KEYS_ONLY`); `FaydaIdIndex` documented. The full rewrite with `reputation` stays ESC-27 (user-entity 2.0.0). No wire change |
 | 1.3.1 | 2026-11-06 | `preferredLanguage` is read back: after a sign-in the app shows it unless the user picked a language on that device (`auth-api.md` 2.12.3, SIM-37). Shape unchanged |
 | 1.3.0 | 2026-10-24 | `preferredLanguage` is written from the app's Settings through the `/sync` `user` entity (`sync-protocol.md` 1.28.0, SIM-37, #220) |

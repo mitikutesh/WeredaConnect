@@ -42,7 +42,7 @@ can file a penalty against another, and no client sends a penalty, a point or a 
 | Farmer | full detail: points, events, tier, restriction, appeal | never (`403`) | never |
 | Trucker | full detail | never (`403`) | never |
 | Buyer | none (buyers have no reputation) | the public summary only: tag, effective rating, rating count, reliability | never |
-| Admin (admin pool `admin` group) | | everything, including buyer ids on events | |
+| Admin (admin pool `admin` group), only through the `/admin` routes of section 9 | | everything, including buyer ids on events | |
 
 The public summary never shows points, events, reasons, appeals or restriction dates.
 
@@ -65,6 +65,8 @@ Every response body is JSON with camelCase keys. The server omits a field that h
 (it never sends `null`); clients treat a missing field as "not set". Timestamps are ISO 8601 UTC
 with milliseconds (`2026-11-07T09:00:00.000Z`). Every endpoint needs a valid Cognito ID token
 (`Authorization: Bearer`); the HTTP API answers `401` without one before the Lambda runs.
+Sections 2 to 6 sit behind the app user pool's authorizer, so an admin pool token gets `401`
+there; section 9 sits behind the admin pool's.
 
 ---
 
@@ -80,13 +82,13 @@ the defaults (proposed values are marked); the live values come from the SSM pol
 | Code | Party | When (server-observed) | Points |
 |---|---|---|---|
 | `DECLINED_REQUEST` | farmer, trucker | declined a paid order (`farmerResponse` or `truckerResponse` became `declined`); for a trucker also a pending request closed by cancelling its trip (spec B9) | 1, with the griefing caps (1.3) |
-| `RESPONSE_EXPIRED` | farmer, trucker | let a paid request expire (`farmerResponse` or `truckerResponse` became `expired`) | 1 when the party had a registered push device (D8) and `timeoutPenalties` is on; else 0, with the caps |
+| `RESPONSE_EXPIRED` | farmer, trucker | let a paid request expire (`farmerResponse` or `truckerResponse` became `expired`) | 1 when the party had a registered push device (D8), the request gave at least 12 hours to answer and `timeoutPenalties` is on; else 0; with the caps (1.3) |
 | `CANCELLED_AFTER_ACCEPT` | farmer, trucker | farmer: cancelled an `accepted` order (`farmer_cancelled`, `faultParty: farmer`); trucker: dropped out of an accepted order (`truckerResponse: cancelled`, `transportFailure: trucker_cancelled`); more than 24 hours before `pickupDate` | 3 |
 | `LATE_CANCEL` | farmer, trucker | the same, 24 hours or less before `pickupDate` | 4 |
 | `TRIP_CANCELLED_WITH_BOOKINGS` | trucker | cancelled a trip that held at least one accepted order (`transportFailure: trip_cancelled` on an order whose `truckerResponse` was `accepted`); one event per trip | 3, or 4 when late |
 | `NO_SHOW` (P3) | farmer, trucker | judged a no-show at pickup (`transportFailure: trucker_no_show`, or `cancelReason: farmer_no_show`; `delivery-verification-api.md` 2.0.0 P.3) | 5 |
 | `DELIVERY_OVERDUE` (P3) | trucker | no delivery by T8 (the order moved to `disputed` with reason `delivery_overdue`) | 5, plus a restriction pending admin review |
-| `CANCELLED_TRANSPORT_FAILED` | farmer | cancelled during `awaiting_transport` (`faultParty: none`, spec C9) | 0 (recorded, never penalized) |
+| `CANCELLED_TRANSPORT_FAILED` | farmer | cancelled during `awaiting_transport` (`farmer_cancelled` from that status; the fault recorded when the transport failed stays on the order, spec C9) | 0 (recorded, never penalized) |
 | `ORDER_COMPLETED` | farmer, trucker | the order reached `settled` | 0; counts for reliability and earn-back |
 
 System rows that are not penalties live in the same table and never appear in a party's event
@@ -96,7 +98,9 @@ list: `RESTRICTION`, `ADMIN_TAG`, `ADMIN_UNTAG`, `TIER_CHANGED`, `HEAL` (archite
 `trip_full`, `listing_out_of_stock`), a farmer cancelling during `awaiting_transport`, a request
 from a buyer later found fraudulent (admin excuse), anything the stream delivered while
 `reputationPenalties` was off, and (proposed) a decline or expiry while the party was already
-restricted, since the restriction blocked the accept (`zeroReason: restricted`).
+restricted, since the restriction blocked the accept (`zeroReason: restricted`), or suspended
+(spec H1, `zeroReason: suspended`), and an expiry of a request that gave less than 12 hours to
+answer (`zeroReason: short_window`; a trip close to departure can leave as little as 1 hour).
 
 ### 1.2 Tiers
 
@@ -116,13 +120,20 @@ restriction; "Low reputation" is accurate and reveals no dates.
 
 ### 1.3 Griefing caps (spec 4.11)
 
-Applied when a `DECLINED_REQUEST` or `RESPONSE_EXPIRED` event is recorded, from the party's own
-earlier events:
-- at most 1 point per party and buyer pair in 30 days (`zeroReason: pair_cap`);
-- at most 6 points per party in any 24 hours from these two codes (`zeroReason: daily_cap`; a
-  partial point is never given, so an event gets its full point or 0).
+Applied when a `DECLINED_REQUEST` or `RESPONSE_EXPIRED` event is recorded, against the party's
+events already recorded on **both sides** of its `occurredAt` (the stream delivers one party's
+orders in any order, and the hourly cron expires many at once):
+- at most 1 point per party and buyer pair in any 30 days: 0 when a counted event of the same
+  pair lies within 30 days before or after (`zeroReason: pair_cap`);
+- at most 6 points per party from these two codes in any 24 hours: 0 when some 24 hour window
+  containing this event would pass 6 (`zeroReason: daily_cap`);
+- (proposed) at most 9 active points from these two codes, one below the restriction line, so
+  declines and expiries alone can bring the Low reputation tag but never a restriction
+  (`zeroReason: request_cap`).
 
-The event is still recorded with `points: 0`, so the party sees it and can tell why.
+A partial point is never given: an event gets its full point or 0. The event is still recorded
+with `points: 0`, so the party sees it and can tell why. The caps hold in any arrival order
+(architecture doc 5.2).
 
 ### 1.4 Effective rating and reliability
 
@@ -143,7 +154,8 @@ The event is still recorded with `points: 0`, so the party sees it and can tell 
 - **By points**: when a new penalty takes `activePoints` to 10 or more and no restriction is
   active, the party is restricted for 14 days (D9). Proposed: points added during an active
   restriction do not extend it; when it ends with points still at 10 or more, the tier is `low`
-  until the next penalty, which restricts again.
+  until the next penalty, which restricts again. Only recording a penalty starts a restriction;
+  a read or the daily job never does.
 - **By `DELIVERY_OVERDUE`** (P3): restricted with no end date until an admin decides the review
   (section 9.3).
 - **By an admin**: `restrict` with a reason and an end date (section 9.4).
@@ -235,9 +247,9 @@ it; they read the copied owner fields (section 7).
 | buyer | a buyer, a missing row, or a deleting or deleted account | `404 REPUTATION_NOT_FOUND` |
 | farmer or trucker | themselves | `200`, public summary (how buyers see me) |
 | farmer or trucker | anyone else | `403 REPUTATION_FORBIDDEN` |
-| admin group | a farmer or trucker | `200`, public summary (the full view is section 9.1) |
 
-`userId` `me` is section 2 (the static route wins).
+Admins do not use this route (an admin pool token gets `401` from the app pool's authorizer);
+they read section 9.1. `userId` `me` is section 2 (the static route wins).
 
 **Response (200)**:
 ```json
@@ -321,7 +333,7 @@ The caller's penalty history, newest `occurredAt` first.
 |---|---|
 | `code` | the penalty codes of 1.1, `CANCELLED_TRANSPORT_FAILED`, and `ORDER_COMPLETED` only when it earned a point back (proposed: keeps the list short on 3G) |
 | `points` | after the caps; `basePoints` is admin-only |
-| `zeroReason` | present when `points` is 0 on a penalty code: `pair_cap`, `daily_cap`, `not_reachable`, `timeout_penalties_off`, `restricted`, `no_fault` |
+| `zeroReason` | present when `points` is 0 on a penalty code: `suspended`, `restricted`, `short_window`, `pair_cap`, `daily_cap`, `request_cap`, `not_reachable`, `timeout_penalties_off`, `no_fault` |
 | `status` | `active`, `expired`, `excused` |
 | `tripId` | on `TRIP_CANCELLED_WITH_BOOKINGS` instead of `orderId` |
 | `earnBackEventId` | on an `ORDER_COMPLETED` row: the penalty it took a point from |
@@ -494,10 +506,17 @@ try again later.` and writes nothing.
 ### 8.3 Hidden restricted parties
 
 Behind `reputationPenalties`. A buyer's browse (`GET /crops`, `GET /trips`), the match
-candidates and the trip suggestions leave out rows with stored `ownerTier: restricted` (a
-FilterExpression on the existing queries; the crop browse already refills short pages). The
-owner's own list, `GET /crops/{id}` and `GET /trips/{id}` still return them, so existing orders
-keep working. Admin browse is not filtered (proposed).
+candidates and the trip suggestions leave out rows with stored `ownerTier: restricted`. On the
+reads that use an `ALL`-projection index or the scan fallback this is a FilterExpression; on the
+crop read through `CropTypeCreatedAtIndex`, whose `INCLUDE` projection has no `ownerTier`, it is a
+check in code after the existing `BatchGetItem` (architecture doc 10). The crop browse already
+refills short pages. The owner's own list, `GET /crops/{id}` and `GET /trips/{id}` still return
+them, so existing orders keep working. Admin browse is not filtered (proposed).
+
+This is a moderation filter, like the one that already drops deleted listings and departed
+trips. The rule that a buyer sees all crops and all trips from every farmer and trucker stands:
+only listings the platform has taken off the market are left out, and they come back when the
+restriction ends.
 
 ### 8.4 Suspension blocks marketplace actions
 

@@ -47,9 +47,14 @@ matching signal, the app, the admin panel and the fraud hooks sit on top (ESC-29
    admin action). Clients never send points, tiers or penalties (spec 4.1 rule 8).
 2. **One slot per (user, cause).** Event ids are deterministic (`CANCEL#{orderId}`), so a replayed
    or duplicated stream record writes nothing (conditional put).
-3. **Order-independent.** An event is derived from one record's old and new image alone, and the
-   aggregate is recomputed from all of the user's events on every write. Records may arrive late,
-   twice or out of order without changing the totals (section 7.5 names the one edge).
+3. **Arrival order cannot break a limit.** An event is derived from one record's old and new
+   image alone, and the aggregate is recomputed from all of the user's events on every write.
+   Orders are keyed by `orderId`, so one party's orders sit on different stream shards and arrive
+   in any order (the hourly cron also expires many orders of one party in one run). Every window
+   rule (the caps of 5.2, the earn-back limits of 5.8) therefore looks both ways in time from the
+   candidate's `occurredAt`, over the events already recorded, so each cap holds whatever the
+   arrival order. What arrival order can still decide is which of two capped events carries the
+   point, and the one edge of 7.5.
 4. **Atomic aggregate.** The event row and the aggregate change in one `TransactWriteItems`,
    conditioned on the aggregate's own version. They cannot drift apart.
 5. **Reads are exact without the job.** A read past the aggregate's `nextChangeAt` recomputes from
@@ -92,7 +97,7 @@ only needed inside the 90 day windows, and purging them bounds the partition a b
 | `party` | S | `farmer` or `trucker`, the role in the order |
 | `basePoints` | N | policy points before caps |
 | `points` | N | points after caps |
-| `zeroReason` | S | why a penalty got 0: `pair_cap`, `daily_cap`, `not_reachable`, `timeout_penalties_off`, `restricted`, `no_fault` |
+| `zeroReason` | S | why a penalty got 0: `suspended`, `restricted`, `short_window`, `pair_cap`, `daily_cap`, `request_cap`, `not_reachable`, `timeout_penalties_off`, `no_fault` |
 | `earnedBack` | N | points taken back by completed orders (starts at 0) |
 | `status` | S | `active`, `expired`, `excused` |
 | `orderId`, `tripId`, `buyerId` | S | the subject; `buyerId` for the pair cap and earn-back, admin-only |
@@ -174,7 +179,7 @@ change.
 
 | Lambda | New or changed | Trigger | Notes |
 |---|---|---|---|
-| `{prefix}-reputation-stream` (`ReputationStreamFunction`) | new (ESC-28) | orders stream | 256 MB, ARM64, 30 s, reserved concurrency 2, parallelization factor 1 |
+| `{prefix}-reputation-stream` (`ReputationStreamFunction`) | new (ESC-28) | orders stream | 256 MB, ARM64, 30 s, parallelization factor 1 (one invocation per shard); reserved concurrency 10, kept at or above the stream's shard count, because a shard with no free concurrency waits and its iterator age grows towards the 24 hour `maxRecordAge` (alarm at 1 hour, section 14) |
 | `{prefix}-reputation` (`ReputationFunction`) | new (ESC-29) | HTTP API: `GET /reputation/me`, `GET /reputation/{userId}`, `GET /reputation/me/events`, `POST /reputation/appeals/photo-url`, `POST /reputation/events/{eventId}/appeal` | 256 MB, 10 s, reserved concurrency 5 |
 | `{prefix}-order-cron` | changed (ESC-28) | new daily rule `reputation_daily`, hourly `reputation_unpark`; manual `reputation_backfill_ratings` | reserved concurrency 3 to 5 |
 | `{prefix}-sync` | changed (ESC-28, ESC-29) | | rating transaction, gates, owner stamps, suspension |
@@ -207,11 +212,38 @@ Proposed: no `pickupDate` on the order (a self-pickup before ESC-20) means not l
 
 ### 5.2 Caps (declines and expiries only)
 
-1. Restricted at `occurredAt`: 0 (`restricted`), since the restriction blocked the accept.
-2. Pair cap: an earlier `DECLINED_REQUEST` or `RESPONSE_EXPIRED` of the same user with the same
-   `buyerId`, `points` above 0, not excused, `occurredAt` within 30 days: 0 (`pair_cap`).
-3. Daily cap: the points of the user's declines and expiries with `occurredAt` in the 24 hours
-   before this one, plus this one, may not exceed 6; otherwise 0 (`daily_cap`).
+"Counted" below means a `DECLINED_REQUEST` or `RESPONSE_EXPIRED` row of the same user with
+`points` above 0 and `status` not `excused`, among the rows already recorded (read strongly
+consistent, 6.1). Applied in this order; the first that fires gives 0 points and its
+`zeroReason`. A candidate gets its full point or 0, never part of one.
+
+1. **Suspended** (`suspended: true` on the users row read for the write): 0 (`suspended`). Spec
+   H1: a suspended party's pending requests expire with no extra points.
+2. **Restricted** at `occurredAt`: 0 (`restricted`), since the restriction blocked the accept.
+3. **Short window** (expiries only): the request gave the party less than `expiryMinWindowHours`
+   (12) to answer: 0 (`short_window`). The window is `farmerDeadlineAt - paymentVerifiedAt` for
+   the farmer and `truckerDeadlineAt - truckerAskedAt` for the trucker. `ResponseDeadline`
+   (`OrderCommitment.cs`) can give as little as 1 hour before departure, and a buyer could
+   choose such a trip to force a timeout. A missing timestamp counts as a short window.
+4. **Pair cap**: a counted event with the same `buyerId` and `occurredAt` within 30 days before
+   **or after** the candidate's: 0 (`pair_cap`).
+5. **Daily cap**: for every 24 hour window that contains the candidate's `occurredAt` (windows
+   starting anywhere from 24 hours before it to the candidate itself), the counted points inside
+   the window plus the candidate's point must stay at or below 6; otherwise 0 (`daily_cap`).
+6. **Request cap**: the active points from counted declines and expiries (`points - earnedBack`,
+   not expired) plus the candidate's must stay at or below `requestPointsMax` (proposed 9, one
+   below `restrictAt`); otherwise 0 (`request_cap`). Declines and expiries alone can bring a
+   party to Low reputation (the user's product rule) but never to a restriction, which only a
+   broken commitment (a cancel, a trip cancel, a no-show, an overdue delivery) can add.
+
+Invariants, whatever the arrival order: no two counted events of one user and buyer are within 30
+days of each other; no 24 hour window holds more than 6 counted points of one user; the active
+points from declines and expiries never exceed `requestPointsMax`. Each insert checks every
+window that contains it, and a window that does not contain it is unchanged. Because every
+write is serialized per user by the aggregate's version check (6.2), two candidates can never
+both pass the same window. Example: the hourly cron expires 10 orders of one farmer in one run
+and the stream delivers them newest first; at most 6 of them carry a point, and at most 1 per
+buyer.
 
 ### 5.3 Tier
 
@@ -229,6 +261,10 @@ A suspended account (`suspended: true`) is stored and copied as `restricted` for
 - Starts when a new penalty with points above 0 leaves `activePoints` at 10 or more and none is
   active: `RESTRICTION` row, `cause: points`, 14 days. (A party whose restriction ended with
   points still at 10 or more is restricted again by the next penalty.)
+- Only the transaction that records a penalty starts a `points` restriction. Reads and the daily
+  recompute never start one (proposed): a restriction cannot be missed, because the start is in
+  the same transaction as the penalty that crosses the line, and a policy change that lowers
+  `restrictAt` does not restrict anyone until their next penalty.
 - `DELIVERY_OVERDUE` starts `cause: delivery_overdue` with no `until` and opens a `review`.
 - Points added during an active restriction do not extend it (proposed).
 - Ends at `until`, by admin `lift`, or (proposed) when an excuse takes a `points` restriction's
@@ -257,8 +293,10 @@ Over events with `occurredAt` in the last 90 days, not excused: `completed` = `O
 
 An `ORDER_COMPLETED` row earns a point back when all hold (proposed values):
 1. `orderTotal` >= 500 ETB;
-2. fewer than 2 completion rows with `earnBackEventId` set in the 30 days before;
-3. no completion row with the same `buyerId` and `earnBackEventId` set in the 90 days before;
+2. every 30 day window that contains its `occurredAt` holds fewer than 2 completion rows with
+   `earnBackEventId` set (both ways in time, as 5.2);
+3. no completion row with the same `buyerId` and `earnBackEventId` set within 90 days before or
+   after it;
 4. no `SELF_TRADE` or `SHARED_DEVICE_TRADE` fraud signal on the order for either party
    (`FraudDetectionService.HasSignalAsync`, FRD-15);
 5. some active penalty has `points - earnedBack > 0`.
@@ -286,6 +324,8 @@ key that is missing, not a number or out of range keeps its default and logs
 | `pointsLifeDays` | 90 | 7 to 365 |
 | `pairCapDays` | 30 | 1 to 365 |
 | `dailyCapPoints` | 6 | 1 to 50 |
+| `expiryMinWindowHours` | 12 | 0 to 24 (0 turns the rule off) |
+| `requestPointsMax` | 9 | 1 to 100, below `restrictAt` |
 | `warningAt` | 3 | 1 to 50 |
 | `lowAt` | 6 | 2 to 50, above `warningAt` |
 | `restrictAt` | 10 | 3 to 100, above `lowAt` |
@@ -317,10 +357,16 @@ change is the manual `reputation_recompute_all` action (section 8.3).
 `RecordAsync(candidate)`, where the candidate carries user, slot, code, party, subject ids,
 `occurredAt`, `pickupDate`, `orderTotal`, `buyerId` and the reachability bit:
 
-1. Read the users row (`GetItem`, strongly consistent, projection `role`, `deletionState`,
-   `suspended`, `reputation`, `ratingSum`, `ratingCount`) and the user's event rows (`Query` on
-   `userId`, all pages up to `eventsReadCap`; past the cap log `REPUTATION_EVENTS_TRUNCATED` and
-   go on with what was read).
+1. Read the users row first (`GetItem`, `ConsistentRead: true`, projection `role`,
+   `deletionState`, `suspended`, `reputation`, `ratingSum`, `ratingCount`), then the user's event
+   rows (`Query` on the base table by `userId`, `ConsistentRead: true`, all pages up to
+   `eventsReadCap`; past the cap log `REPUTATION_EVENTS_TRUNCATED` and go on with what was read).
+   Both reads are strongly consistent so that the version check of 6.2 covers the events read:
+   every write that changes a counted attribute of an event row (a new event, a status, points,
+   `earnedBack`) commits in the same transaction as a `reputation.version` bump. An event
+   committed before the users read is in the Query; one committed after it moved the version, so
+   the transaction fails and the record is read again. (A GSI could not give this: index reads
+   are always eventually consistent.)
 2. No row, or `deletionState` present: drop the candidate, log `REPUTATION_SKIPPED reason=...`.
 3. The slot already exists: replay, done.
 4. Policy: points with caps (5.2), the aggregate with the candidate, a restriction start, the
@@ -332,8 +378,9 @@ change is the manual `reputation_recompute_all` action (section 8.3).
    the reliability changed: refresh the copies (6.3), best effort.
 
 A busy party's partition is bounded by the TTLs (3.1): about 100 days of completions plus 400
-days of penalties. A trucker with 5 completed orders a day reads about 500 rows (about 16 read
-units eventually consistent) per event.
+days of penalties. A trucker with 5 completed orders a day reads about 500 rows, about 125 KB, so
+about 32 read units per event with strongly consistent reads (twice the eventually consistent
+cost); a typical party reads a few rows for 1 unit.
 
 ### 6.2 The transaction (at most 6 items)
 
@@ -351,12 +398,18 @@ The map is written whole, with `version` + 1, `updatedAt` = now and `nextChangeA
 
 ### 6.3 Copy refresh
 
-1. By the user's role: `Query` crops on `FarmerIdCreatedAtIndex` or trips on
-   `TruckerIdCreatedAtIndex`, newest first, up to 200 rows.
+1. By the user's role, newest first, up to 200 rows:
+   - trips: `Query TruckerIdCreatedAtIndex` (projection `ALL`, so `status` is on the index);
+   - crops: `Query FarmerIdCreatedAtIndex`, whose projection is `INCLUDE` (`cropType`,
+     `pricePerKg`, `deletedAt`) without `status`, so the keys go to one `BatchGetItem` per 100
+     with `ProjectionExpression` `cropId, createdAt, #status` (the pattern
+     `CropRepository.QueryByFarmerIdAsync` already uses); rows with `deletedAt` are skipped
+     before the BatchGet.
 2. For each row with an active status (crops `available`, `reserved`; trips `open`, `matched`):
    `UpdateItem SET ownerTier, ownerEffectiveRating, ownerRatingCount, ownerReliabilityPct,
    ownerReputationAt` (REMOVE the ones with no value), condition `attribute_exists` of the key and
-   the status still active.
+   the status still active. Inactive rows are never written, so no conditional write is spent
+   (and billed) on a row that would fail.
 3. A failure is logged `REPUTATION_COPY_FAILED` and left to the daily job (the transaction wrote
    the `HEAL` marker).
 
@@ -422,12 +475,17 @@ O is the old image, N the new one. A response field missing from O (an order fro
 | R5 | N.`truckerResponse` = `cancelled`, O = `pending`, N.`transportFailure` = `trip_cancelled` | `DECLINED_REQUEST` (spec B9) | O.`truckerId` | `REQUEST#{orderId}` |
 | R6 | N.`truckerResponse` = `cancelled`, O = `accepted`, N.`transportFailure` = `trucker_cancelled` | `CANCELLED_AFTER_ACCEPT` or `LATE_CANCEL` | O.`truckerId` | `CANCEL#{orderId}` |
 | R7 | N.`truckerResponse` = `cancelled`, O = `accepted`, N.`transportFailure` = `trip_cancelled` | `TRIP_CANCELLED_WITH_BOOKINGS` | O.`truckerId` | `TRIP_CANCEL#{O.tripId}` |
-| R8 | N.`cancelReason` = `farmer_cancelled`, N.`faultParty` = `farmer`, O.`status` not `cancelled` | `CANCELLED_AFTER_ACCEPT` or `LATE_CANCEL` | N.`farmerId` | `CANCEL#{orderId}` |
-| R9 | N.`cancelReason` = `farmer_cancelled`, N.`faultParty` = `none`, O.`status` = `awaiting_transport` | `CANCELLED_TRANSPORT_FAILED` | N.`farmerId` | `CANCEL#{orderId}` |
+| R8 | N.`status` = `cancelled`, N.`cancelReason` = `farmer_cancelled`, O.`status` = `accepted` | `CANCELLED_AFTER_ACCEPT` or `LATE_CANCEL` | N.`farmerId` | `CANCEL#{orderId}` |
+| R9 | N.`status` = `cancelled`, N.`cancelReason` = `farmer_cancelled`, O.`status` = `awaiting_transport` | `CANCELLED_TRANSPORT_FAILED` | N.`farmerId` | `CANCEL#{orderId}` |
 | R10 (P3) | N.`transportFailure` = `trucker_no_show`, O differs | `NO_SHOW` | O.`truckerId` | `NOSHOW#{orderId}` |
 | R11 (P3) | N.`cancelReason` = `farmer_no_show`, O.`status` not `cancelled` | `NO_SHOW` | N.`farmerId` | `NOSHOW#{orderId}` |
 | R12 (P3) | N.`status` = `disputed`, O differs, the dispute reason is `delivery_overdue` (as ESC-36 names the order field) | `DELIVERY_OVERDUE` | N.`truckerId` | `OVERDUE#{orderId}` |
 | R13 | N.`status` = `settled`, O differs | `ORDER_COMPLETED` | N.`farmerId`; and N.`truckerId` when `fulfillment` is `trucker` and `truckerResponse` is `accepted` | `COMPLETED#{orderId}` |
+
+R8 and R9 tell the two farmer cancels apart by the old status, never by `faultParty`: the farmer's
+cancel in `awaiting_transport` keeps the fault recorded when the transport failed (usually
+`trucker`; `CommittedCancelSpec.FarmerAwaitingTransport` writes no `faultParty`), while the
+cancel of an `accepted` order writes `faultParty: farmer`.
 
 One record can yield more than one candidate (R13 for both parties); each is recorded on its own.
 Not events: `trip_full` and `failed_capacity` (a race the system caused, spec A3), the cancels
@@ -445,6 +503,9 @@ trucker and order is enough because a failed trucker cannot be asked again, spec
   record of the trip records it; the other orders of the same cancel hit the existing slot.
 - Reachability (R2, R4): one `Query` of the device tokens table for the user, `Limit 1`, keys
   only. A failed read throws (the record is parked and retried); it never silently zeroes.
+- Request window (R2, R4, the short-window rule of 5.2): N.`paymentVerifiedAt` and
+  N.`farmerDeadlineAt` for the farmer, N.`truckerAskedAt` and N.`truckerDeadlineAt` for the trucker.
+- Suspension (5.2 rule 1): `suspended` on the users row 6.1 reads anyway.
 - `buyerId` from N, `orderTotal` from N (R13).
 
 ### 7.4 Flags
@@ -455,8 +516,14 @@ points (`timeout_penalties_off`). P3 rules also need `pickupClassification`.
 
 ### 7.5 Parking failed records
 
-A record whose handling throws is sent whole (keys, both images, sequence number) to SQS
-`{prefix}-reputation-parked` (14 days, SSE) and reported as processed, so the shard moves on.
+A record whose handling throws is sent to SQS `{prefix}-reputation-parked` (14 days, SSE) and
+reported as processed, so the shard moves on. The message holds the keys, the sequence number,
+`ApproximateCreationDateTime` and, from each image, only the attributes section 7 reads
+(`status`, the response fields, `transportFailure`, `cancelReason`, `cancelledBy`, `faultParty`,
+the party and buyer ids, `tripId`, `fulfillment`, `pickupDate`, `orderTotal`, the request window
+timestamps, `updatedAt` and the P3 dispute reason): well under 2 KB. Two whole order images can
+pass SQS's 256 KB message limit (an item may be 400 KB), so the images are never parked whole; a
+projected message that still does not fit (not expected) is reported as a batch item failure.
 Only when that send fails is the record reported as a batch item failure (stream retries, then
 the metadata DLQ and its alarm). The order-cron action `reputation_unpark` (hourly) receives up
 to 100 messages per run, re-runs the derivation and deletes each that succeeds; after 5 receives
@@ -504,9 +571,13 @@ fourth rule on the order-cron Lambda. `reputationPenalties` off: log and return.
 
 ## 9. Notifications (ESC-28 server, ESC-31 app)
 
-The reputation-events stream (`NEW_IMAGE`, filter `INSERT`) becomes a fourth source of
+The reputation-events stream (`NEW_IMAGE`) becomes a fourth source of
 `OrderNotifyStreamFunction`, with the same settings as its order sources (partial batch, bisect,
-DLQ `{prefix}-notify-dlq`). `NotificationRules` gains:
+DLQ `{prefix}-notify-dlq`). Its filter keeps `INSERT` events whose `code` is one of the penalty
+codes (`DECLINED_REQUEST`, `RESPONSE_EXPIRED`, `CANCELLED_AFTER_ACCEPT`, `LATE_CANCEL`,
+`TRIP_CANCELLED_WITH_BOOKINGS`, `NO_SHOW`, `DELIVERY_OVERDUE`) or `TIER_CHANGED`, so `HEAL`,
+`ORDER_COMPLETED`, restriction, override and zero-point rows that are not penalties cost no
+invocation; the rules skip a penalty row with 0 points. `NotificationRules` gains:
 
 | Row inserted | Type | Recipient |
 |---|---|---|
@@ -531,16 +602,29 @@ gets the two types in ESC-28.
 - **Counterparty gate**: order create (and ESC-19's transport choice) reads the listing farmer's
   or trip trucker's row (one `GetItem`). A failed read refuses with the retryable text and writes
   nothing.
-- **Browse and match**: a FilterExpression `attribute_not_exists(ownerTier) OR ownerTier <>
-  :restricted` on the buyer's browse queries, the match candidates and the trip suggestions.
-  Admin browse and the owner's own list are not filtered (proposed). The crop browse already
-  refills short pages (crop-listing-api 1.9.0); the trip browse can return short pages (it
-  already does for cancelled trips).
+- **Browse and match**: buyers' browse, the match candidates and the trip suggestions leave out
+  rows whose stored `ownerTier` is `restricted`. How, per read path:
+  - `StatusCreatedAtIndex` (crops, projection `ALL`), `StatusDepartureDateIndex` (trips, `ALL`)
+    and the crop scan fallback: a FilterExpression `attribute_not_exists(ownerTier) OR ownerTier
+    <> :restricted`;
+  - `CropTypeCreatedAtIndex` (projection `INCLUDE`: `pricePerKg`, `deletedAt`, no `ownerTier`):
+    a FilterExpression there would silently pass every row, so the check runs in code on the
+    full items after the existing `BatchGetItem` (`CropRepository.QueryByCropTypeAsync`), like
+    its woreda filter.
+
+  The crop browse already refills short pages (crop-listing-api 1.9.0); the trip browse can
+  return short pages (it already does for cancelled trips). Admin browse and the owner's own list
+  are not filtered (proposed). This is a moderation filter, like the one that drops deleted
+  listings and departed trips: the rule that a buyer sees all farmers' crops and all truckers'
+  trips stands, and only listings the platform has taken off the market are left out.
 - **Suspension**: section 8.4 of the contract. The `/sync` refusal reuses the ACC-02 read; the
   escrow, Fayda and device-token POSTs reuse theirs.
-- **Reads**: `ReputationFunction` decides visibility from the caller's `custom:role` claim (or the
-  admin group) and the target row's `role`; section 3 of the contract is the table. The rating
-  read rules of `rating-api.md` 1.2.0 sit in `RatingFunction`.
+- **Reads**: `ReputationFunction` decides visibility from the caller's `custom:role` claim and the
+  target row's `role`; section 3 of the contract is the table. `/reputation/*` and `/ratings` sit
+  behind the app user pool's JWT authorizer (`jwtAuthorizer` in `api-stack.ts`), so an admin pool
+  token gets `401` there: admins read reputation and ratings only through the `/admin` routes
+  (`reputation-api.md` section 9, behind `adminJwtAuthorizer`). The rating read rules of
+  `rating-api.md` 1.2.0 sit in `RatingFunction`.
 
 ## 11. Matching (ESC-30)
 
@@ -628,9 +712,11 @@ score is private and about fraud (spec 4.11).
 | Ratee's role changed since the order | the rating is stored, not in the aggregate | by design (rating-api 1.2.0) |
 | A flag turned off mid-flight | | the stream acks without writing; existing points keep expiring; the gates pass |
 | A third orders stream consumer is wanted | throttling | needs a fan-out first (7.1) |
+| More stream shards than the Lambda's reserved concurrency | the extra shards wait; their iterator age climbs and records older than 24 hours go to the metadata DLQ | reserved concurrency (10) kept at or above the shard count; iterator age alarm at 1 hour |
+| Two order images too big for one SQS message | | only the attributes the derivation reads are parked (7.5) |
 
 Monitoring (ESC-28, `monitoring-stack.ts`): DLQ and parked-DLQ depth, the reputation stream's
-iterator age, Lambda errors, and metric filters on `REPUTATION_POLICY_INVALID`,
+iterator age (alarm above 1 hour), Lambda errors, and metric filters on `REPUTATION_POLICY_INVALID`,
 `REPUTATION_EVENTS_TRUNCATED`, `REPUTATION_REVIEW_OVERDUE`, `REPUTATION_APPEAL_OVERDUE` and
 `REPUTATION_COPY_FAILED` (rate).
 
@@ -640,13 +726,17 @@ iterator age, Lambda errors, and metric filters on `REPUTATION_POLICY_INVALID`,
 
 All on-demand; no Scan in steady state; no new always-on resource.
 
-- **Per recorded event**: one users `GetItem`, one events `Query` (usually a few rows, about 16
-  read units for a very busy trucker), one transaction of 2 to 6 items (transactions bill double).
-  The users row sits in three `ALL`-projection indexes, so each users write also writes up to
-  three index entries. Roughly 10 to 15 write units per event. At 1,000 orders a day and about 3
-  events per order that is about 1.4 million write units a month: a dollar or two.
-- **Copies**: one `Query` and a few updates per public change (crops have three `ALL` indexes,
-  trips two). Only on change.
+- **Per recorded event**: one users `GetItem` and one events `Query`, both strongly consistent
+  (1 read unit for a typical party, about 32 for a very busy trucker, 6.1), one transaction of 2
+  to 6 items (transactions bill double). The users row sits in three `ALL`-projection indexes, so
+  each users write also writes up to three index entries. Roughly 10 to 15 write units per event.
+  At 1,000 orders a day and about 3 events per order that is about 1.4 million write units a
+  month: a dollar or two.
+- **Copies**, only on a public change: trips, one `Query` on an `ALL` index and one update per
+  active trip (base table plus the two `ALL` trip indexes); crops, one `Query` on the `INCLUDE`
+  owner index, one `BatchGetItem` for the status and one update per active crop. Of the three
+  crop indexes only `StatusCreatedAtIndex` projects `ALL`; the two `INCLUDE` indexes do not hold
+  the owner fields, so a copy writes the base table and one index entry.
 - **Rating create**: the transaction adds the users write and a heal upsert to what a rating cost
   before; the read side saves up to 50 index pages per `GET /ratings` and one call per card.
 - **Daily job**: 8 small Queries plus one recompute per user with due rows.
@@ -680,7 +770,7 @@ All on-demand; no Scan in steady state; no new always-on resource.
 
 | Ticket | Tests |
 |---|---|
-| ESC-28 | `ReputationPolicyTests`: points per code, both caps, restricted zero, tier boundaries 2/3, 5/6, 9/10, overrides, restriction start and non-extension, effective rating bounds (0, 1.0 cap, 1.0 floor, no ratings), reliability below and at 3, expiry at the boundary, every earn-back condition. `ReputationStreamFunctionTests`: each rule R1 to R13 from recorded stream images, plus non-events (`trip_full`, `listing_out_of_stock`, missing O fields), the same record twice and two orders of one trip cancel (one event), flags off, parking on a throw. `ReputationServiceTests`: the transaction items and conditions (asserted on the real expressions), a CAS retry, a deleted account, copy refresh selection. Daily job: expiry, restriction end, override end, heal rows, the time budget leftover, catch-up. Rating create transaction and the backfill (rerun adds nothing). Infra: synth assertions for the table, indexes, TTL, stream, mapping and filters, queues, rules, grants, alarms |
+| ESC-28 | `ReputationPolicyTests`: points per code, every cap of 5.2 (suspended, restricted, short window at 11h59 and 12h, pair cap before and after, daily cap with windows on both sides, request cap at 9), tier boundaries 2/3, 5/6, 9/10, overrides, restriction start and non-extension, effective rating bounds (0, 1.0 cap, 1.0 floor, no ratings), reliability below and at 3, expiry at the boundary, every earn-back condition. `ReputationStreamFunctionTests`: each rule R1 to R13 from recorded stream images (R9 with `faultParty: trucker` kept from the transport failure), plus non-events (`trip_full`, `listing_out_of_stock`, missing O fields), the same record twice and two orders of one trip cancel (one event), flags off, parking on a throw and a parked message under 256 KB for 400 KB images. **Arrival order**: the same set of decline and expiry records (one farmer, mixed buyers, `occurredAt` spread over a day and over 40 days) fed in order, in reverse order and in 20 shuffled orders; every run must satisfy the three invariants of 5.2, and 10 expiries from one cron minute fed newest first give at most 6 points and at most 1 per buyer. The same for earn-back limits. `ReputationServiceTests`: the transaction items and conditions (asserted on the real expressions), a CAS retry, a deleted account, copy refresh selection. Daily job: expiry, restriction end, override end, heal rows, the time budget leftover, catch-up. Rating create transaction and the backfill (rerun adds nothing). Infra: synth assertions for the table, indexes, TTL, stream, mapping and filters, queues, rules, grants, alarms |
 | ESC-29 | gate tests for all 3 roles (farmer and trucker refused on create and accept, decline allowed, buyer refused on a restricted counterparty); browse hides restricted owners for buyers and shows them to the owner; endpoint tests for every row of the visibility table; appeal window, idempotency and closed cases; rating read rules; suspension refusal on `/sync` |
 | ESC-30 | parity golden vectors on both sides with the new reliability source |
 | ESC-31 | widget tests: badge, effective rating, low-reputation confirm, My reputation with events and expiry, appeal dialog, Profile rating; cache with "As of"; web build; 3 roles checked |
@@ -717,15 +807,15 @@ reversible before ESC-28 ships.
 | R2 | Where the rating sum and count live | top level on the users row, not in the `reputation` map; one-time backfill without Scan |
 | R3 | How the daily job finds work | a second sparse index, `DueIndex` (keys only) |
 | R4 | Flags | environment config and env vars like `commitmentsEnabled` (spec K3 said SSM); policy numbers in one SSM JSON parameter (D9) |
-| R5 | Restriction | starts on crossing 10; 14 days; not extended while active; after it, `low` until the next penalty restricts again; earn-back never lifts it; an excuse below 10 lifts a points restriction |
+| R5 | Restriction | starts on crossing 10; 14 days; not extended while active; after it, `low` until the next penalty restricts again; earn-back never lifts it; an excuse below 10 lifts a points restriction; only the transaction recording a penalty starts one (reads and the daily recompute never do, so a lowered `restrictAt` waits for the next penalty) |
 | R6 | `DELIVERY_OVERDUE` restriction | no end date until an admin decides the review; uphold sets 14 days |
 | R7 | Reliability counting | fault cancels and trip cancels (one per trip) and no-shows and overdue deliveries; declines and expiries not counted; whole percent; none below 3 orders |
 | R8 | Completed orders | only `settled`; a disputed order (won or lost) counts neither way |
-| R9 | Earn-back | order total at least 500 ETB, at most 2 per 30 days, at most one per buyer in 90 days, none on an order with a `SELF_TRADE` or `SHARED_DEVICE_TRADE` signal, nothing banked |
+| R9 | Earn-back | order total at least 500 ETB, at most 2 in any 30 day window, at most one per buyer within 90 days either way, none on an order with a `SELF_TRADE` or `SHARED_DEVICE_TRADE` signal, nothing banked |
 | R10 | Late cancel with no `pickupDate` | not late (3 points) |
 | R11 | Trip cancel | accepted orders: one trip event (3 or 4); pending requests: a decline each (caps apply), per B9; not yet asked: nothing |
 | R12 | Reachable by push | at least one device token when the expiry is processed; otherwise 0 points, shown to the party |
-| R13 | Decline or expiry while restricted | 0 points (the restriction blocked the accept) |
+| R13 | Decline or expiry while restricted or suspended | 0 points: `restricted` (the restriction blocked the accept), `suspended` (spec H1: pending requests of a suspended party expire with no extra points) |
 | R14 | Public tier | `warning` shows as `good`, `restricted` as `low`; with public tags off buyers see only the raw rating |
 | R15 | Appeals | 7 days from when the event was recorded; one per event; 1 to 500 characters; optional photo; online request with a local draft; admins may excuse any event without an appeal |
 | R16 | Admin decision path | `POST /admin/users/{userId}/reputation/events/{eventId}/decision` (the spec's path had no user id) |
@@ -733,12 +823,18 @@ reversible before ESC-28 ships.
 | R18 | Repeat restriction | a weight 0 fraud signal into the Fraud Review queue (reject = suspend) |
 | R19 | Admin role change | points follow the person; the rating aggregate is rebuilt for the new role |
 | R20 | Suspension | write endpoints refuse a suspended caller with `403 AUTH_025` (not flagged); a suspended owner counts as restricted for buyers |
-| R21 | Event retention | 400 days (TTL `purgeAt`), completions 100 days |
+| R21 | Event retention | 400 days (TTL `purgeAt`), completions 100 days, `HEAL` markers 7 days (the daily job deletes them after use; the TTL only cleans up markers a stopped job left behind) |
 | R22 | Reputation pushes | from the reputation-events stream through `OrderNotifyStreamFunction`, via `TIER_CHANGED` rows |
 | R23 | Durability | park failing records in SQS and replay hourly |
 | R24 | Copies | no `version` or `updatedAt` change on the listing |
 | R25 | Orders from before the flag | a response field missing from the old image never yields a penalty |
 | R26 | FRD weights and names | `NO_SHOW` 15 hard, `DELIVERY_OVERDUE` 25 hard, `BUYER_DECLINE_PATTERN` 10 soft; payout delay `low` as `New`, `restricted` as `Flagged` |
+| R27 | Windows and arrival order | every cap and earn-back limit looks both ways in time from the candidate (5.2), so it holds in any arrival order; which of two capped events carries the point may depend on arrival order |
+| R28 | Short request windows | an expiry whose window was under 12 hours (`expiryMinWindowHours`) gives 0 points (`short_window`): `ResponseDeadline` allows windows down to 1 hour, which a buyer could use to force a timeout |
+| R29 | Can declines and expiries alone restrict a party | no: their active points are capped at `requestPointsMax` = 9, one below `restrictAt` (`request_cap`). They can still reach Low reputation (the product rule says decliners can be tagged); only broken commitments push a party into a restriction. Alternative for you: cap at `lowAt` - 1 = 5, so declines alone never reach the tag |
+| R30 | Completions in the party's event list | `ORDER_COMPLETED` is listed only when it earned a point back (`reputation-api.md` section 4), to keep the list short on 3G |
+| R31 | Admin browse | not filtered: admins see restricted parties' listings and trips (`reputation-api.md` 8.3, section 10 here) |
+| R32 | Admin reads on the app routes | none: `/reputation/*` and `/ratings` use the app pool's authorizer, so admins read only through the `/admin` routes |
 
 ---
 
@@ -746,4 +842,4 @@ reversible before ESC-28 ships.
 
 | Version | Date | Change |
 |---|---|---|
-| 1.0.0 | 2026-11-07 | First design (ESC-27): data model, stream derivation, policy and defaults, service and transaction, daily job, notifications, gates, matching, rollout and backfill, FRD hooks, failure modes, cost, ticket split ESC-28 to ESC-33, decisions R1 to R26 |
+| 1.0.0 | 2026-11-07 | First design (ESC-27): data model, stream derivation, policy and defaults, service and transaction, daily job, notifications, gates, matching, rollout and backfill, FRD hooks, failure modes, cost, ticket split ESC-28 to ESC-33, decisions R1 to R32. Review fixes before merge: caps and earn-back limits look both ways in time; strongly consistent events read under the version check; R8 and R9 keyed on the old status; suspended, short-window and request caps; crop owner index is `INCLUDE` (BatchGet for status, browse filter in code on the `INCLUDE` path); admins only on `/admin` routes; parked messages hold projected images; stream concurrency at or above the shard count; notify source filtered on `code` |
