@@ -13,7 +13,7 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Functions;
 
 /// <summary>
-/// ESC-20 (escrow-protocol.md 2.1.0, P.8): <c>POST /admin/disputes/{id}/resolve</c> with
+/// ESC-20 (escrow-protocol.md 2.2.0, P.8): <c>POST /admin/disputes/{id}/resolve</c> with
 /// <c>partial_refund</c> and <c>action: split</c>. The split is checked against the legs still held (each
 /// amount 0 or more with 2 decimals, the farmer at most the crop leg, the trucker at most the transport
 /// leg, the three adding up to the legs held with the commission kept when the farmer is paid), refused

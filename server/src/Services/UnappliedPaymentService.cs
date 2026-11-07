@@ -58,7 +58,7 @@ public sealed class UnappliedPaymentService
     /// <param name="scanPageSize">Rows per Scan page; only tests pass a smaller one, to cross page boundaries.</param>
     /// <param name="maxTrailQueries">Trail reads per list call; only tests pass a smaller one.</param>
     /// <summary>
-    /// ESC-20 (escrow-protocol.md 2.1.0, P.9): the duplicate payment's row in the escrow ledger, if any (order id,
+    /// ESC-20 (escrow-protocol.md 2.2.0, P.9): the duplicate payment's row in the escrow ledger, if any (order id,
     /// payment order id). A payment refunded through the ledger is recorded in the manual payout queue, never here,
     /// so it can never be refunded twice. Null when the ledger is not wired.
     /// </summary>

@@ -533,7 +533,7 @@ public sealed record EscrowDto
     public required int Version { get; init; }
 
     /// <summary>
-    /// ESC-20 (escrow-protocol.md 2.1.0, P.11): a ledger escrow's legs, <c>crop</c>, <c>transport</c> and
+    /// ESC-20 (escrow-protocol.md 2.2.0, P.11): a ledger escrow's legs, <c>crop</c>, <c>transport</c> and
     /// <c>commission</c>, each <c>held</c>, <c>released</c>, <c>refunded</c> or <c>kept</c>. Null on a 1.x escrow.
     /// </summary>
     public Dictionary<string, string>? LegStatus { get; init; }

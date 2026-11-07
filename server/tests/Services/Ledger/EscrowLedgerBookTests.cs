@@ -6,7 +6,7 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Services.Ledger;
 
 /// <summary>
-/// ESC-20: the pure rules of the escrow ledger (escrow-protocol.md 2.1.0): every plan keeps I1 to I4, the
+/// ESC-20: the pure rules of the escrow ledger (escrow-protocol.md 2.2.0): every plan keeps I1 to I4, the
 /// split rules of P.8, and the escrow status the rows call for (P.5).
 /// </summary>
 public class EscrowLedgerBookTests

@@ -1,6 +1,6 @@
 # Data Models Contract
 
-**Version**: 1.7.0
+**Version**: 1.8.0
 **Last Updated**: 2026-11-07
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
@@ -213,7 +213,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 
 5. **No trucker payment in MVP**: Trucker payment is handled separately (future feature). This payment focuses on farmer ↔ buyer transaction.
 
-**Server escrow fields (1.6.0, ESC-20, `escrow-protocol.md` 2.1.0).** The server's escrow row (not this
+**Server escrow fields (1.8.0, ESC-20, `escrow-protocol.md` 2.2.0).** The server's escrow row (not this
 Isar schema) gains, on an order escrow born on the escrow ledger: `settlementModel` (`ledger`),
 `legStatus` (a map of `crop`, `transport`, `commission`, each `held`, `released`, `refunded` or `kept`),
 `refundedTotal` and `releasedTotal` (ETB, 2 decimals), `verdictAmounts` (a split verdict's `farmerAmount`,
@@ -221,7 +221,7 @@ Isar schema) gains, on an order escrow born on the escrow ledger: `settlementMod
 `refundedTotal` and `releasedTotal` (null on a 1.x escrow); apps ignore them until ESC-23 shows a partial
 refund.
 
-### 5a. EscrowLedger (server only, 1.6.0, ESC-20)
+### 5a. EscrowLedger (server only, 1.8.0, ESC-20)
 
 One row per money movement of an order escrow, in `{prefix}-escrow-ledger`. Never synced and never on a
 device; the admin reads the rows in the manual payout queue.
@@ -463,7 +463,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.5.1 | 2026-11-06 | Order money fields are stored to the santim, `orderTotal` their exact sum (order-lifecycle 2.7.0, SIM-30); no field change | @Server |
 | 1.6.0 | 2026-11-07 | Order gains the server-only `nextDeadlineAt`, `nextDeadlineKind` and `deadlineShard` (dropped from client payloads, not in the `OrderDto` answers, echoed only in a sync result's raw `serverData`), kept by every order write and read by the order cron through the sparse `DeadlineIndex` (order-lifecycle 2.8.0, ESC-16); no client change | @Server |
 | 1.7.0 | 2026-11-07 | Order gains `deliveryLatitude` and `deliveryLongitude`, the order's own drop-off point (order-lifecycle 2.9.0, LT-14): server DTO, Isar schema and web mirror; returned per caller | @Server @Mobile |
-| 1.6.0 | 2026-11-07 | Server escrow ledger (escrow-protocol 2.1.0, ESC-20): the escrow row's ledger fields (`settlementModel`, `legStatus`, `refundedTotal`, `releasedTotal`, `verdictAmounts`, `releaseTrigger`, `refundTrigger`) and the new server-only EscrowLedger row (5a). No Isar or web model change | @Server |
+| 1.8.0 | 2026-11-07 | Server escrow ledger (escrow-protocol 2.2.0, ESC-20): the escrow row's ledger fields (`settlementModel`, `legStatus`, `refundedTotal`, `releasedTotal`, `verdictAmounts`, `releaseTrigger`, `refundTrigger`) and the new server-only EscrowLedger row (5a). No Isar or web model change | @Server |
 
 ---
 

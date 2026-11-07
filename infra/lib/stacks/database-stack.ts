@@ -383,7 +383,7 @@ export class DatabaseStack extends cdk.Stack {
     });
     this.escrowAuditTable = escrowAudit.table;
 
-    // ESC-20: escrow ledger (escrow-protocol.md 2.1.0, P.3). One row per money movement of an order
+    // ESC-20: escrow ledger (escrow-protocol.md 2.2.0, P.3). One row per money movement of an order
     // escrow (PK escrowId, SK ref such as release#farmer or refund#all), written before the gateway is
     // called and never deleted or re-keyed: no TTL, money records are kept. Point-in-time recovery and
     // (prod) RETAIN come from the construct.

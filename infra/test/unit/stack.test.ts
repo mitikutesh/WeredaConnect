@@ -2389,6 +2389,9 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-dispute-propagation-failed',
     // ESC-16: a confirmed delivery whose escrow stamp failed.
     'wereda-connect-dev-escrow-delivery-stamp-failures',
+    // ESC-20: escrow ledger rows open for a day, and a ledger money check that failed.
+    'wereda-connect-dev-ledger-rows-overdue',
+    'wereda-connect-dev-escrow-ledger-invariant',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -3017,6 +3020,8 @@ describe('MonitoringStack', () => {
     'OrderMoneyMismatch', 'DisputePropagationFailed',
     // ESC-16: a confirmed delivery whose escrow stamp failed.
     'EscrowDeliveryStampFailures',
+    // ESC-20: the escrow ledger.
+    'LedgerRowsOverdue', 'EscrowLedgerInvariant',
   ];
   // FUP-81: the other filters of those log groups, each named, so a new filter there must be
   // sorted into one list or the other. The JSON audit filters match a field exactly (client text
@@ -3080,8 +3085,9 @@ describe('MonitoringStack', () => {
     const patterns = moneyFilterPatterns(monitoringTemplate(true));
     // ESC-18 added the webhook's refund-schedule filter; FUP-81 added OrderMoneyMismatch (1),
     // DisputePropagationFailed (3) and the sync dispute filter (1); ESC-16 added
-    // EscrowDeliveryStampFailures (2: sync and escrow-cron).
-    expect(patterns.length).toBe(22);
+    // EscrowDeliveryStampFailures (2: sync and escrow-cron); ESC-20 added LedgerRowsOverdue (1: escrow-cron) and
+    // EscrowLedgerInvariant (2 here: escrow and escrow-cron; its admin filter is outside these log groups).
+    expect(patterns.length).toBe(25);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the

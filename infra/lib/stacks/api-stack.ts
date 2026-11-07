@@ -41,7 +41,7 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly paymentsTable: dynamodb.Table;
   readonly escrowsTable: dynamodb.Table;
   readonly escrowAuditTable: dynamodb.Table;
-  /** ESC-20: the escrow ledger (escrow-protocol.md 2.1.0, P.3) with its LedgerOpenIndex. */
+  /** ESC-20: the escrow ledger (escrow-protocol.md 2.2.0, P.3) with its LedgerOpenIndex. */
   readonly escrowLedgerTable: dynamodb.Table;
   readonly transactionAuditTable: dynamodb.Table;
   readonly escrowIdempotencyTable: dynamodb.Table;
@@ -1555,7 +1555,7 @@ export class ApiStack extends cdk.Stack {
       ],
     });
 
-    // ESC-20: the ledger sweep every 15 minutes (escrow-protocol.md 2.1.0, P.6): calls pending rows,
+    // ESC-20: the ledger sweep every 15 minutes (escrow-protocol.md 2.2.0, P.6): calls pending rows,
     // checks sent rows with the gateway before anything else, retries failed rows, reports overdue rows.
     new events.Rule(this, "EscrowCronLedger", {
       ruleName: `${prefix}-escrow-cron-ledger`,

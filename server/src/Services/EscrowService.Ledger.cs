@@ -7,7 +7,7 @@ using WeredaConnect.Server.Models;
 namespace WeredaConnect.Server.Services;
 
 /// <summary>
-/// ESC-20: the escrow ledger runner (escrow-protocol.md 2.1.0). A ledger escrow
+/// ESC-20: the escrow ledger runner (escrow-protocol.md 2.2.0). A ledger escrow
 /// (<c>settlementModel: ledger</c>) settles leg by leg through write-ahead rows instead of the
 /// whole-escrow settlement lock:
 /// <list type="number">

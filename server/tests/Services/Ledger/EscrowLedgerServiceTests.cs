@@ -8,7 +8,7 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Services.Ledger;
 
 /// <summary>
-/// ESC-20: every path of a ledger escrow (escrow-protocol.md 2.1.0) against the in-memory ledger, with the
+/// ESC-20: every path of a ledger escrow (escrow-protocol.md 2.2.0) against the in-memory ledger, with the
 /// money invariants checked after each one: released plus refunded never exceeds what was funded, a leg
 /// moves at most once, an unknown gateway outcome is never retried blindly (the sweep asks for the status
 /// first), every movement writes an audit row, and every write is a compare-and-set.

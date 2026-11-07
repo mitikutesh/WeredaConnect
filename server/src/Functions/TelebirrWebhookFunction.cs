@@ -110,7 +110,7 @@ public class TelebirrWebhookFunction
     private readonly IFraudDetectionService? _fraudService;
 
     /// <summary>
-    /// ESC-20 (escrow-protocol.md 2.1.0, P.9): writes the ledger refund of a duplicate payment the webhook decided
+    /// ESC-20 (escrow-protocol.md 2.2.0, P.9): writes the ledger refund of a duplicate payment the webhook decided
     /// for good. Null while the ledger is off (the 1.20.0 manual refund stays the only path).
     /// </summary>
     internal EscrowService? DuplicateRefunds { get; init; }

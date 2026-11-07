@@ -634,7 +634,7 @@ public sealed partial class EscrowService
     }
 }
 
-/// <summary>ESC-20: the dispute verdicts the admin records (escrow-protocol.md 1.9.0 and 2.1.0, P.8).</summary>
+/// <summary>ESC-20: the dispute verdicts the admin records (escrow-protocol.md 1.9.0 and 2.2.0, P.8).</summary>
 internal static class DisputeVerdicts
 {
     public const string FarmerWins = "farmer_wins";

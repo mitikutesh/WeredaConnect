@@ -104,7 +104,7 @@ export interface EnvironmentConfig {
    */
   readonly minOrderAppBuild?: number;
   /**
-   * ESC-20: ESCROW_LEDGER_ENABLED on the sync and telebirr-webhook Lambdas (escrow-protocol.md 2.1.0, P.12).
+   * ESC-20: ESCROW_LEDGER_ENABLED on the sync and telebirr-webhook Lambdas (escrow-protocol.md 2.2.0, P.12).
    * On, a new order escrow is born on the escrow ledger (settlementModel ledger: per-leg write-ahead rows
    * instead of the whole-escrow settlement lock) and a duplicate payment gets its ledger refund row. Off, new
    * escrows take the 1.x path again; escrows already on the ledger keep settling there (the table stays wired

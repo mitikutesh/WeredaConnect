@@ -5,7 +5,7 @@ import { ApiStack } from '../../lib/stacks/api-stack';
 import { MonitoringStack } from '../../lib/stacks/monitoring-stack';
 import { environments } from '../../lib/config/environments';
 
-// ESC-20: the escrow ledger (escrow-protocol.md 2.1.0, P.3, P.6 and P.12): its table and LedgerOpenIndex, the
+// ESC-20: the escrow ledger (escrow-protocol.md 2.2.0, P.3, P.6 and P.12): its table and LedgerOpenIndex, the
 // Lambdas that read and write it with the least actions each needs, the 15 minute ledger sweep, the flag and
 // the two money alarms. Kept out of stack.test.ts on purpose (sibling branches edit that file).
 

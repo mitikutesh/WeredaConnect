@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.1.1
+2.2.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -13,7 +13,7 @@
 
 ---
 
-## Reading this contract (2.0.0, updated in 2.1.0)
+## Reading this contract (2.0.0, updated in 2.2.0)
 
 2.0.0 is a major version because the money model changes: the buyer still pays once per order,
 but the money is settled in three legs (crop, transport, commission) through an append-only
@@ -25,14 +25,14 @@ ledger, so part of it can go back to the buyer while the rest stays held (design
 | Part | Status | Where |
 |---|---|---|
 | Everything from "Escrow Lifecycle" to "Additions in 2.1.0": the whole-escrow settlement lock (1.10.0), the row-level manual payout queue (1.8.0), the hourly trucker retry (1.11.0), refunds of the whole `amount` armed with `expiresAt` and `refundReason` (1.1.0, 1.34.0), the 21-day cap (1.13.0; with the commitments on, a live order escrow is held to it in one write since 2.1.0), dispute verdicts `farmer_wins` and `buyer_wins` (1.9.0, 1.21.0) | **Built** | the 1.x sections |
-| The `escrow-ledger` table and `LedgerOpenIndex`, the write-ahead protocol, per-leg releases and refunds, the invariants, the ledger sweep, the admin per-leg verdict (`partial_refund`), the automatic refund of a duplicate payment, behind `ESCROW_LEDGER_ENABLED` | **Built in 2.1.0, ESC-20** | "Additions in 2.1.0" (it says where the build differs from P.1 to P.9 and P.11 to P.13) |
-| A cancel or rejection writing `refund#all` in the order's own transaction, the per-row `refund_sent` notice, moving an escrow funded before the flag onto the ledger | **Still PLANNED** (ESC-20 follow-ups) | "Additions in 2.1.0", "Not built in 2.1.0" |
+| The `escrow-ledger` table and `LedgerOpenIndex`, the write-ahead protocol, per-leg releases and refunds, the invariants, the ledger sweep, the admin per-leg verdict (`partial_refund`), the automatic refund of a duplicate payment, behind `ESCROW_LEDGER_ENABLED` | **Built in 2.2.0, ESC-20** | "Additions in 2.2.0" (it says where the build differs from P.1 to P.9 and P.11 to P.13) |
+| A cancel or rejection writing `refund#all` in the order's own transaction, the per-row `refund_sent` notice, moving an escrow funded before the flag onto the ledger | **Still PLANNED** (ESC-20 follow-ups) | "Additions in 2.2.0", "Not built in 2.2.0" |
 | The transport rebind after a transport failure: `refund#transport-delta#{n}`, `refund#transport`, `shift#commission-to-transport#{n}` | **PLANNED, ESC-19** (needs ESC-20) | "Planned in 2.0.0", P.10 |
 | A buyer top-up for a replacement truck that costs more than the commission left (`topup#{n}`) | **Later, ESC-37 (P4)** | P.10 |
 
 No request, response, status or field changes at 2.0.0, so no client or server change ships with
 it. The ticket that builds a PLANNED rule moves it into a dated "Additions in" section with its own
-minor version, names the 1.x rule it retires, and keeps the rest of the plan here. 2.1.0 (ESC-20) did
+minor version, names the 1.x rule it retires, and keeps the rest of the plan here. 2.2.0 (ESC-20) did
 that for the ledger: an order escrow born while `ESCROW_LEDGER_ENABLED` is on settles through the
 ledger; every other escrow keeps the 1.x sections.
 
@@ -816,7 +816,7 @@ Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowe
 | `reason` | enum | Yes | See Dispute Reasons | Dispute category |
 | `description` | string | No | 0-1000 chars | Free-text explanation |
 | `evidenceRefs` | string[] | No | Max 5 items | S3 references to photos/documents |
-| `resolution` | string | No | Enum: `farmer_wins`, `buyer_wins`, `partial_refund` (a split, 2.1.0: only on a ledger escrow; on a 1.x escrow only on rows recorded before 1.9.0) | How dispute was resolved |
+| `resolution` | string | No | Enum: `farmer_wins`, `buyer_wins`, `partial_refund` (a split, 2.2.0: only on a ledger escrow; on a 1.x escrow only on rows recorded before 1.9.0) | How dispute was resolved |
 | `resolvedBy` | string | No | Admin user ID | Who resolved it |
 | `resolvedAt` | string (ISO 8601) | No | Set on resolution | When dispute was resolved |
 | `disposition` | string | No | Admin responses only (1.21.0); `return_to_farmer`, `delivered_anyway`, `settle_now`, `wait_for_delivery` | The admin's disposition recorded on the verdict |
@@ -2239,7 +2239,7 @@ sweep settles a verdict within the hour.
 
 | Field | Rule |
 |-------|------|
-| `resolution` | `farmer_wins` or `buyer_wins`, exact; since 2.1.0 also `partial_refund` on a ledger escrow (Additions in 2.1.0, the per-leg verdict) |
+| `resolution` | `farmer_wins` or `buyer_wins`, exact; since 2.2.0 also `partial_refund` on a ledger escrow (Additions in 2.2.0, the per-leg verdict) |
 | `action` | `release` for `farmer_wins`, `refund` for `buyer_wins`, `split` for `partial_refund` |
 
 The write is conditional on `status = disputed`, no open manual payout and no settlement lock.
@@ -3429,7 +3429,7 @@ The call reads the order's escrow-audit trail and the order strongly consistent,
 | `409` | `ESCROW_036` | this payment's refund was already recorded with another `telebirrRef`, this `telebirrRef` was recorded for another payment of the order, or another admin is recording this payment at this moment (the 1.8.0 code for a reference conflict) |
 | `409` | `ESCROW_043` | `amount` differs from the captured amount (the message names it, field `amount`) |
 | `409` | `ESCROW_044` | the payment funded the order (its money is in the order's escrow), or it is not decided for good (only `unprocessed` rows, or nameless) while the order is still `payment_submitted` |
-| `409` | `ESCROW_045` | (2.1.0, ESC-20) the payment is refunded through the escrow ledger (`refund#duplicate#{paymentOrderId}`): record its portal refund in the manual payout queue instead |
+| `409` | `ESCROW_045` | (2.2.0, ESC-20) the payment is refunded through the escrow ledger (`refund#duplicate#{paymentOrderId}`): record its portal refund in the manual payout queue instead |
 | `503` | `ADMIN_004` | escrow-audit, orders or (for this call) escrow-idempotency table not configured |
 
 `ESCROW_041` is not used here (reserved by FUP-16). When the captured amount is unknown, the admin's
@@ -4274,7 +4274,7 @@ No endpoint, status, field or client change. `/escrow/initiate` escrows keep the
 
 ---
 
-## Additions in 2.1.0 (the escrow ledger, ESC-20)
+## Additions in 2.2.0 (the escrow ledger, ESC-20)
 
 Built from the plan below (P.1 to P.9 and P.11 to P.13). The plan stays the reference for the rules;
 this section says what is built, the names it uses, and where the build differs.
@@ -4365,7 +4365,7 @@ crash recovery) filters on the crop leg being held, and a dispute, a fraud hold 
 (`refundReason`) is refused by its condition once the crop leg is decided:
 `attribute_not_exists(legStatus) OR legStatus.crop = held`. A 1.x escrow has no `legStatus` and always
 passes. The order follows a decided release while its rows are open: an `escrowed` ledger escrow whose
-crop leg is `released` moves its order to `disbursing` (1.17.0 table, `order-lifecycle.md` 2.8.0).
+crop leg is `released` moves its order to `disbursing` (1.17.0 table, `order-lifecycle.md` 2.10.0).
 
 **The per-leg verdict** (P.8). `POST /admin/disputes/{id}/resolve` takes `resolution: partial_refund`,
 `action: split` and `farmerAmount`, `truckerAmount`, `buyerRefund` (each required). Only on a ledger
@@ -4411,7 +4411,7 @@ escrow not linked yet, passes. This holds for 1.x escrows too. The admin held ex
 `deliveryId` (else its order or escrow id, for an escrow with no delivery), so it passes. The `trigger` is stored with the release: `releaseTrigger` on the escrow (1.x
 and ledger) and the rows' `reason`.
 
-**Not built in 2.1.0** (follow-ups): a cancel or rejection still arms the 1.x refund (`expiresAt`,
+**Not built in 2.2.0** (follow-ups): a cancel or rejection still arms the 1.x refund (`expiresAt`,
 `refundReason`) and the hourly refund sweep writes `refund#all` within the hour, instead of the order's own
 transaction writing it (P.6); the sync Lambda reads and writes no ledger row; the per-row `refund_sent`
 notice of P.11 (the escrows stream still announces `refunded`); moving an escrow funded before the flag
@@ -4428,7 +4428,7 @@ the `partial_refund` refusal of 1.9.0. 1.x escrows keep all of them.
 
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
 
-> **P.1 to P.9 and P.11 to P.13 are built in 2.1.0** (ESC-20, "Additions in 2.1.0", which says where the
+> **P.1 to P.9 and P.11 to P.13 are built in 2.2.0** (ESC-20, "Additions in 2.2.0", which says where the
 > build differs). P.10 is still PLANNED: ESC-19 builds it on top of the ledger.
 >
 > As written at 2.0.0: ESC-20 builds P.1 to P.9 and P.11 to
@@ -4770,7 +4770,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
-| 2.1.0 | 2026-11-07 | The escrow ledger is built (ESC-20, "Additions in 2.1.0"): the `escrow-ledger` table and `LedgerOpenIndex`, `settlementModel: ledger` on new order escrows behind `ESCROW_LEDGER_ENABLED` (dev on), the write-ahead decision (rows, escrow CAS on `version`, audit rows in one transaction), the `callingSince` stamp, `gatewayRef` = `WCL` + 27 hex of SHA-256(`{escrowId}:{ref}`), `done`/`failed` (3 attempts)/`sent` (status check first)/`manual` rows, the 15 minute `ledger_sweep` (`LEDGER_ROW_OVERDUE`, `ESCROW_LEDGER_INVARIANT` and their alarms), the per-leg release order (F1, F2) and the hourly transport retry, `partial_refund` with `action: split` and `ADMIN_021` (settled by the hourly verdict sweep, not in the verdict's write), duplicate payments refunded through the ledger (`ESCROW_045` on the manual unapplied record), the manual queue on ledger refs, `EscrowDto.legStatus`/`refundedTotal`/`releasedTotal`, and FUP-147 (`deliveryId` compared, `422 ESCROW_VALIDATION`; `releaseTrigger` stored). A decided ledger escrow is skipped by the 1.x sweeps and refuses a dispute, a hold and a scheduled refund. A held split leaves through the admin release exit; a transport leg blocked more than 24 hours after the farmer was paid logs `TRUCKER_PAYOUT_OVERDUE`; the crop leg names a fully decided escrow `completed` or `refunded`. Not built: the refund row in the cancel's own transaction, the per-row `refund_sent`, migrating 1.x escrows. P.10 stays PLANNED (ESC-19) |
+| 2.2.0 | 2026-11-07 | The escrow ledger is built (ESC-20, "Additions in 2.2.0"): the `escrow-ledger` table and `LedgerOpenIndex`, `settlementModel: ledger` on new order escrows behind `ESCROW_LEDGER_ENABLED` (dev on), the write-ahead decision (rows, escrow CAS on `version`, audit rows in one transaction), the `callingSince` stamp, `gatewayRef` = `WCL` + 27 hex of SHA-256(`{escrowId}:{ref}`), `done`/`failed` (3 attempts)/`sent` (status check first)/`manual` rows, the 15 minute `ledger_sweep` (`LEDGER_ROW_OVERDUE`, `ESCROW_LEDGER_INVARIANT` and their alarms), the per-leg release order (F1, F2) and the hourly transport retry, `partial_refund` with `action: split` and `ADMIN_021` (settled by the hourly verdict sweep, not in the verdict's write), duplicate payments refunded through the ledger (`ESCROW_045` on the manual unapplied record), the manual queue on ledger refs, `EscrowDto.legStatus`/`refundedTotal`/`releasedTotal`, and FUP-147 (`deliveryId` compared, `422 ESCROW_VALIDATION`; `releaseTrigger` stored). A decided ledger escrow is skipped by the 1.x sweeps and refuses a dispute, a hold and a scheduled refund. A held split leaves through the admin release exit; a transport leg blocked more than 24 hours after the farmer was paid logs `TRUCKER_PAYOUT_OVERDUE`; the crop leg names a fully decided escrow `completed` or `refunded`. Not built: the refund row in the cancel's own transaction, the per-row `refund_sent`, migrating 1.x escrows. P.10 stays PLANNED (ESC-19) |
 | 2.1.1 | 2026-11-07 | Dispute evidence (LT-14): a drop-off handoff's `planned` point is, of the trip's destination and the order's own drop-off point (`deliveryLatitude`, `deliveryLongitude`, `order-lifecycle.md` 2.9.0), the one nearer to the buyer's fix, since the delivered GPS check passes within 5 km of either; the admin's `order` carries the point. No new field or read. |
 | 2.1.0 | 2026-11-07 | Order escrows held to the cap (ESC-16, spec 4.5, `order-lifecycle.md` 2.8.0): with `COMMITMENTS_ENABLED` on, the auto-refund sweep no longer extends a live order escrow 48 hours at a time; it sets `expiresAt` to the 21 day cap in one conditional write (`ORDER_ESCROW_HELD_TO_CAP`), and at the cap the order enters the admin queue as before. Off, the 1.13.0 rule stays. A failed delivery stamp is alarmed (`ESCROW_DELIVERY_STAMP_FAILED`, sync and escrow-cron, alarm `escrow-delivery-stamp-failures`) and the hourly order-money sweep stamps a delivered order's unstamped escrow (`deliveryStampsRepaired`). No endpoint, status, field or client change |
 | 2.0.1 | 2026-11-07 | Dispute-rate alarm (FUP-81): the escrow Lambda's `ESCROW`/`DISPUTE` audit filter counts only outcome `success` (a dispute that froze the escrow), as the sync filter counts only fresh freezes; refused requests no longer count. Monitoring only, no client or server change. |

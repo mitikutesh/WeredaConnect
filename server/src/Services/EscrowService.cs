@@ -909,7 +909,7 @@ public sealed partial class EscrowService
         }
 
         // ESC-20: behind ESCROW_LEDGER_ENABLED (and only with the table wired) a new order escrow is born on
-        // the ledger: every leg with money held, nothing refunded or released yet (escrow-protocol.md 2.1.0, P.2).
+        // the ledger: every leg with money held, nothing refunded or released yet (escrow-protocol.md 2.2.0, P.2).
         if (LedgerBirthEnabled && LedgerRepo != null)
         {
             record[LedgerEscrowFields.SettlementModel] = LedgerEscrowFields.ModelLedger;

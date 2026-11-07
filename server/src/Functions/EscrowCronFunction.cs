@@ -1776,7 +1776,7 @@ public class EscrowCronFunction
     }
 
     /// <summary>
-    /// ESC-20: the ledger sweep (escrow-protocol.md 2.1.0, P.6), every 15 minutes: open rows due now, oldest
+    /// ESC-20: the ledger sweep (escrow-protocol.md 2.2.0, P.6), every 15 minutes: open rows due now, oldest
     /// first, within a 4 minute slice of the run. A <c>pending</c> row is called, a <c>sent</c> row (or one
     /// whose caller died after stamping it) is checked with the gateway first, a <c>failed</c> row is retried
     /// with the same reference; then the overdue lines.

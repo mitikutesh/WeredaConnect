@@ -97,7 +97,7 @@ public sealed record ResolveDisputeRequest
     public string? Reason { get; init; }
 
     /// <summary>
-    /// ESC-20 (escrow-protocol.md 2.1.0, P.8): the split of a <c>partial_refund</c> verdict (<c>action: split</c>),
+    /// ESC-20 (escrow-protocol.md 2.2.0, P.8): the split of a <c>partial_refund</c> verdict (<c>action: split</c>),
     /// in ETB with at most 2 decimals: what the farmer is paid out of the crop leg held.
     /// </summary>
     public decimal? FarmerAmount { get; init; }

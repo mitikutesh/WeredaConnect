@@ -5,7 +5,7 @@ using System.Text;
 namespace WeredaConnect.Server.Data;
 
 /// <summary>
-/// ESC-20: names of the escrow ledger (escrow-protocol.md 2.1.0, "Additions in 2.1.0"). The table
+/// ESC-20: names of the escrow ledger (escrow-protocol.md 2.2.0, "Additions in 2.2.0"). The table
 /// <c>{prefix}-escrow-ledger</c> holds one row per money movement of an order escrow (partition key
 /// <c>escrowId</c>, sort key <c>ref</c>); the sparse <c>LedgerOpenIndex</c> (<c>openStatus</c>,
 /// <c>dueAt</c>) holds the rows that are not <c>done</c>. Shared by the repository, the service and the
@@ -85,7 +85,7 @@ internal static class LedgerFields
     public static bool IsOpen(string? status) => status is StatusPending or StatusSent or StatusFailed or StatusManual;
 }
 
-/// <summary>ESC-20: the escrow row attributes the ledger adds (escrow-protocol.md 2.1.0, P.2).</summary>
+/// <summary>ESC-20: the escrow row attributes the ledger adds (escrow-protocol.md 2.2.0, P.2).</summary>
 internal static class LedgerEscrowFields
 {
     public const string SettlementModel = "settlementModel";
@@ -114,7 +114,7 @@ internal static class LedgerEscrowFields
            && string.Equals(model?.ToString(), ModelLedger, StringComparison.Ordinal);
 }
 
-/// <summary>ESC-20: the ledger refs (escrow-protocol.md 2.1.0, P.4) and the reference sent to the gateway (P.5).</summary>
+/// <summary>ESC-20: the ledger refs (escrow-protocol.md 2.2.0, P.4) and the reference sent to the gateway (P.5).</summary>
 internal static class LedgerRefs
 {
     public const string ReleaseFarmer = "release#farmer";

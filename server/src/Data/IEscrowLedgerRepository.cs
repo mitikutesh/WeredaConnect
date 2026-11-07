@@ -4,7 +4,7 @@ using WeredaConnect.Server.Services;
 namespace WeredaConnect.Server.Data;
 
 /// <summary>
-/// ESC-20: the escrow ledger table and the writes that move a ledger escrow (escrow-protocol.md 2.1.0,
+/// ESC-20: the escrow ledger table and the writes that move a ledger escrow (escrow-protocol.md 2.2.0,
 /// P.3 and P.5). Every write is conditional: a row on its own <c>version</c>, the escrow on its
 /// <c>version</c>. Reads are a Query on the escrow's partition or on <c>LedgerOpenIndex</c>, never a Scan.
 /// Every row status write puts its escrow-audit row in the same transaction (P.7), so no movement goes

@@ -3,7 +3,7 @@ using WeredaConnect.Server.Data;
 
 namespace WeredaConnect.Server.Services;
 
-/// <summary>ESC-20: one row of the escrow ledger (escrow-protocol.md 2.1.0, P.3).</summary>
+/// <summary>ESC-20: one row of the escrow ledger (escrow-protocol.md 2.2.0, P.3).</summary>
 internal sealed record LedgerRow
 {
     public required string EscrowId { get; init; }
@@ -146,7 +146,7 @@ internal sealed record LedgerPlan(LedgerEscrow Before, LedgerEscrow After, IRead
 internal sealed record LedgerSplitRefusal(string Field, string Message);
 
 /// <summary>
-/// ESC-20: the pure rules of the escrow ledger (escrow-protocol.md 2.1.0): the plans of every movement,
+/// ESC-20: the pure rules of the escrow ledger (escrow-protocol.md 2.2.0): the plans of every movement,
 /// the invariants I1 to I4 and the escrow status the rows call for. No I/O, so every path is tested
 /// directly.
 /// </summary>
