@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.39.0
+1.40.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -370,8 +370,9 @@ the same payload again gets the same answer. Today the server sends
 `ORDER_VALIDATION:`, `ORDER_UNAUTHORIZED:`, `ORDER_CANCEL_NOT_ALLOWED:` (1.13.0) and
 `ORDER_PAYMENT_METHOD_UNAVAILABLE:` (1.16.0), `ORDER_RESPONSE_NOT_PENDING:` and
 `ORDER_DEADLINE_PASSED:` (1.29.0, Order commitments), `ORDER_CONTACT_IN_TEXT:` and
-`ORDER_DROPOFF_NOTE_LOCKED:` (1.36.0, Drop-off landmark); the planned `ORDER_ACTION_NOT_ALLOWED`,
-`ORDER_TRIP_NOT_ELIGIBLE` and `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED` fall under the same rule. `ORDER_KYC_REQUIRED`
+`ORDER_DROPOFF_NOTE_LOCKED:` (1.36.0, Drop-off landmark), `ORDER_TRIP_NOT_ELIGIBLE:` (1.34.0, on an
+order create naming a trip that has left); the planned `ORDER_ACTION_NOT_ALLOWED` and
+`ORDER_TRANSPORT_ATTEMPTS_EXCEEDED` (Transport choice, PLANNED) fall under the same rule. `ORDER_KYC_REQUIRED`
 keeps its own revert and Fayda prompt (1.4.0, 1.5.0).
 
 Mobile client (sync queue):
@@ -938,10 +939,98 @@ is nothing for the user to do (an exception to invariant 1's "tells the user why
 
 ---
 
+## Minimum app version for order operations (1.40.0, PLANNED: ESC-25)
+
+> **PLANNED. Not built at 1.40.0.** ESC-25 builds it, then turns `COMMITMENTS_ENABLED` on in
+> staging and prod (spec `three-party-escrow-commitments-reputation.md` K1: client support first,
+> then the server, and `/sync` refuses order commands from apps below the minimum). Built today: every
+> app from build 2 on sends `X-App-Build` (FUP-61) and the server reads it with `ClientAppBuild`
+> (`escrow-protocol.md` 1.31.0); the clients already handle `APP_UPDATE_REQUIRED` (1.17.0); no server
+> sends it yet.
+
+**The build.** `X-App-Build: <n>` on the `/sync` request, `n` being the `+N` of `version:` in
+`mobile/pubspec.yaml` (mobile and web send the same number). Read case-insensitively; only a positive
+whole number counts. A missing, empty or unreadable header is an old app (FUP-61 decision 3, waiting for confirmation in FUP-91).
+
+**The minimum.** A server setting on the sync Lambda (proposed name `MIN_ORDER_APP_BUILD`, set per
+environment in the infra config; 0 or absent turns the gate off). ESC-25 picks the value: build 3 is
+the first app that renders `awaiting_transport` and sends the farmer and trucker commands (#237).
+
+**What it covers.** Every `order` operation, `create` and `update` alike: the commitment commands
+(`farmerResponse`, `truckerResponse`, the planned `transportChoice`), the legacy status changes
+(payment, cancel, accept, reject), the drop-off note. An app below the minimum cannot show the
+commitment statuses, so it may not act on orders at all (spec K1). Not covered: every other entity
+(`crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent`, `match_event`,
+`location_ping`, `delivery_photo`, `user`), which the clients would only hold (1.17.0), and the
+`/escrow/*` routes, which map the statuses an old app cannot parse instead (`escrow-protocol.md`
+1.31.0).
+
+**When.** Per order operation, before any read, field check or write, so the answer is the same
+for every payload from the same build. Nothing is written, no idempotency key is stored, no fraud
+signal is written (1.27.0), and the rest of the batch goes on.
+
+**The answer.**
+
+| Caller | Operation result |
+|---|---|
+| sends `X-App-Build` (build 2 or later, so it has the 1.17.0 client) below the minimum | `{"operationId": "...", "status": "error", "message": "APP_UPDATE_REQUIRED: This version of the app is too old for orders. Update WeredaConnect to continue."}` |
+| sends no readable `X-App-Build` (build 1 or older; such an app may predate the 1.17.0 client, which retries an unknown code forever, FUP-75) | `{"operationId": "...", "status": "error", "message": "ORDER_VALIDATION: This version of the app is too old for orders. Update WeredaConnect to continue."}`, permanent on every client since 1.10.0 (proposed; ESC-25 confirms) |
+| at or above the minimum, or the gate off | unchanged |
+
+Clients (built, 1.17.0): mobile marks the order operation rejected, reverts the local order (a
+refused create removes it) and raises the in-memory "update required" flag; web shows
+`errorAppUpdateRequired`. The persistent "update the app" banner that reads the flag is FUP-75 (with
+ESC-25). Server rule unchanged: send `APP_UPDATE_REQUIRED` on order operations only.
+
+---
+
+## Transport choice (1.40.0, PLANNED: ESC-19)
+
+> **PLANNED. Not built at 1.40.0.** ESC-19 builds it, on the escrow ledger of ESC-20
+> (`escrow-protocol.md` 2.0.0, P.10). Source: spec 4.7, 8 and 10.1, decision D4. Built today in
+> `awaiting_transport` (Order commitments, 1.29.0): the buyer's cancel (`status: cancelled`), the
+> farmer's cancel without penalty, and the 48 hour `buyerChoiceDeadlineAt`.
+
+One more order `update` command, sent by the order's buyer with the pre-increment `version`, alone
+in `data` (any other key with it is `ORDER_VALIDATION`):
+
+| `data` | Effect |
+|---|---|
+| `{"transportChoice": {"kind": "trip", "tripId": "trip-202"}, "version": n}` | Another truck. The server rebinds the order (`tripId`, `truckerId`, `truckerName`, `transportCost` computed from the new trip, a new `transportAttempts` entry), reserves the trip's capacity and rebinds the escrow (cheaper: the difference is refunded; pricier: covered from the commission, D4). If the farmer already accepted, the new trucker is asked at once (`truckerResponse: pending`, `truckerDeadlineAt` = T6 = min(now + 24h, new departure - 12h)); otherwise the farmer is asked first (D10). The order stays `awaiting_transport` until the new trucker accepts (`accepted`) or the attempt fails (decline or T6: the trucker's fault is recorded and the buyer gets a fresh 48 hours) |
+| `{"transportChoice": {"kind": "self_pickup", "pickupDate": "2026-11-20"}, "version": n}` | Collect it myself. `pickupDate` is an ISO date 1 to 7 days ahead, counted in Ethiopia time (Africa/Addis_Ababa). `fulfillment: self_pickup`, `truckerResponse: none`, the transport leg refunded, the trip's capacity released; `accepted` (with `pickupDeadlineAt`) when the farmer already accepted, else `funded` with the farmer asked |
+| `{"transportChoice": {"kind": "cancel"}, "version": n}` | Cancel: the same as the built buyer cancel (`transport_failed_buyer_cancelled`, full refund with commission, stock and capacity returned). The legacy `status: cancelled` stays accepted |
+
+**Eligible trip** (spec 4.7): `open` with `remainingQuintals` at least the order's quintals; departing
+at least `orderLeadHours` (24) from now and no more than 7 days after the original `pickupDate`; its
+trucker not restricted (`REPUTATION_RESTRICTED`, P2) and not already tried on this order; its extra
+transport cost at most the commission still held. At most 3 trucks per order, the original included.
+
+**New order fields** (server-written, returned by `GET /orders`, dropped when a client sends them):
+`transportAttempts` (at most 3 entries `{tripId, truckerId, transportCost, outcome, requestedAt,
+closedAt}`, the first being the original trip) and `refundedTotal` (ETB returned so far; `orderTotal`
+stays what the buyer paid).
+
+| Refusal | When |
+|---|---|
+| `ORDER_ACTION_NOT_ALLOWED:` | not the order's buyer, the order not `awaiting_transport`, or a replacement request still open |
+| `ORDER_DEADLINE_PASSED:` | `buyerChoiceDeadlineAt` has passed |
+| `ORDER_TRIP_NOT_ELIGIBLE:` | the trip fails a rule above (the text names which), or the `pickupDate` is outside 1 to 7 days |
+| `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | the order already used 3 trucks |
+| `TRIP_CAPACITY_EXCEEDED:` | the trip lost its room between the buyer's read and the write |
+| `ORDER_VALIDATION:` | a malformed choice, an unknown `kind`, or other keys with it |
+
+All are permanent and already handled by the clients (1.10.0, 1.17.0): mobile reverts the local order
+and shows the code's text; web shows the failure. An unprefixed error (a trip or escrow that could not
+be read) stays retryable. The buyer may browse cached trips offline; the server checks the choice when
+it arrives (spec section 7). The choice sheet is ESC-23's.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.40.0 | 2026-11-07 | Two PLANNED sections (ESC-14), nothing built changes. Minimum app version for order operations (ESC-25): the server refuses every `order` operation, create and update, from a build below a per-environment minimum (proposed `MIN_ORDER_APP_BUILD`, 0 or absent = off; build 3 is the first that renders the commitments) before any read or write, with `APP_UPDATE_REQUIRED:` to an app that sends `X-App-Build` and, proposed, `ORDER_VALIDATION:` with the same text to one that sends none (it may predate the 1.17.0 client, FUP-75); other entities and the `/escrow/*` routes are not gated. Transport choice (ESC-19): the buyer's `transportChoice` command (`trip` with `tripId`, `self_pickup` with `pickupDate`, `cancel`) in `awaiting_transport`, the eligible trip rules, the order fields `transportAttempts` and `refundedTotal`, and its refusals (`ORDER_ACTION_NOT_ALLOWED`, `ORDER_DEADLINE_PASSED`, `ORDER_TRIP_NOT_ELIGIBLE`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED`, `TRIP_CAPACITY_EXCEEDED`, `ORDER_VALIDATION`), all already handled by the clients. Doc fix: Permanent order rejections listed `ORDER_TRIP_NOT_ELIGIBLE` as planned; it is sent since 1.34.0 |
 | 1.39.0 | 2026-11-07 | Handoff photos (FRD-12, `delivery-verification-api.md` 1.25.0): new create-only entity `delivery_photo` (`{deliveryId}#{pickup\|dropoff}`, `{photoRef}`), sent by the photo's taker only, attaching an uploaded photo without moving the delivery's version; `DELIVERY_PHOTO_INVALID`, `_FORBIDDEN`, `_REFUSED`, `_EXISTS`, `_MISSING` and `_TOO_LARGE` are permanent, not reverted, not announced and not counted as failures; `DELIVERY_PHOTO_PENDING` answers `deferred`; a photo ref in a `delivery` op is shape-checked but no longer written. Mobile uploads the photo in a batch preflight and stores the key in the operation; every wait is bounded (a presign `404` only while the delivery's own create waits on the phone and 10 minutes, the third refused `PUT`), a refused delivery create, pickup or delivery confirm rejects its waiting photo, and an attached photo's files are deleted; web uploads at capture and attaches after the confirm |
 | 1.38.0 | 2026-11-06 | Idempotency and races (SIM-28): the server stores a payload fingerprint with each idempotency key (SHA-256 of a canonical JSON of `entityType`, `entityId`, `action`, `clientVersion` and `data`; keys sorted, numbers by value; `operationId` and `timestamp` left out) in the new `payloadFingerprint` attribute; a key sent again with a different payload answers `error` `SYNC_VALIDATION: idempotency key already used for a different operation payload; ...` instead of `duplicate`, nothing processed or stored; records from before keep answering `duplicate`. A status change that is not a valid transition from the stored status and carries a version behind the stored one answers `conflict` with the row (to a caller who may ask for that status, `order-lifecycle.md` 2.6.0) instead of `ORDER_VALIDATION: Invalid status transition`, `DELIVERY_INVALID_TRANSITION`, `TRIP_INVALID_TRANSITION` or `CROP_INVALID_TRANSITION`; at the current version the error stands. No client change: `SYNC_VALIDATION` is already permanent and `conflict` already resolved server-wins (mobile) or a failure (web) |
 | 1.37.0 | 2026-11-06 | Typed `serverData` (SIM-25): `success` and `conflict` rows carry numbers as JSON numbers (`version`, quantities, prices, money fields, coordinates, `stars`) and a trip's `matchedListings` as an array, the types GET returns for the same row; before, every number was a string and `matchedListings` the text `"[]"`. Other values keep their type. The mobile conflict resolver already read these as numbers and a list, so its crop, trip and order conflicts failed on the string shape and are now applied server-wins; it also no longer requires `totalPrice` on an order row (the server never stores it): the local total is kept, a new row starts at 0 as the order pull does. Web reads only `status` from a row. No new code |
@@ -983,4 +1072,4 @@ is nothing for the user to do (an exception to invariant 1's "tells the user why
 ---
 
 **Last Updated**: 2026-11-07
-**Version**: 1.39.0
+**Version**: 1.40.0
