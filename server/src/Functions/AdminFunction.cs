@@ -23,6 +23,8 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/disputes/{id}/evidence → the dispute's evidence package (admin group only, FRD-14)
 /// - GET  /admin/fraud-signals          → fraud signals list
 /// - POST /admin/fraud-signals/{id}/action → review fraud signal
+/// - GET  /admin/listing-reports        → buyers' reports of listings (FUP-67)
+/// - POST /admin/listing-reports/{listingId}/review → decide a listing's open reports
 /// - GET  /admin/users                  → user list with search
 /// - GET  /admin/users/{id}             → user detail
 /// - POST /admin/users/{id}/action      → suspend/verify/change role
@@ -184,6 +186,8 @@ public partial class AdminFunction
                 ("GET", ["admin", "disputes", _, "evidence"]) => await HandleDisputeEvidenceAsync(segments[2], request, context),
                 ("GET", ["admin", "fraud-signals"]) => await HandleListFraudSignalsAsync(request, context),
                 ("POST", ["admin", "fraud-signals", _, "action"]) => await HandleFraudActionAsync(segments[2], request, context),
+                ("GET", ["admin", "listing-reports"]) => await HandleListListingReportsAsync(request, context),
+                ("POST", ["admin", "listing-reports", _, "review"]) => await HandleReviewListingReportsAsync(segments[2], request, context),
                 ("GET", ["admin", "users"]) => await HandleListUsersAsync(request, context),
                 ("GET", ["admin", "users", _]) => await HandleGetUserAsync(segments[2], context),
                 ("POST", ["admin", "users", _, "action"]) => await HandleUserActionAsync(segments[2], request, context),

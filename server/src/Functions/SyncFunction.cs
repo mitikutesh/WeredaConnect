@@ -1049,6 +1049,7 @@ public partial class SyncFunction
                 "user" => await ProcessUserAsync(operation, authenticatedUserId, context),
                 LocationPingRules.EntityType => await ProcessLocationPingAsync(operation, authenticatedUserId, context),
                 DeliveryPhotoKeys.EntityType => await ProcessDeliveryPhotoAsync(operation, authenticatedUserId, context),
+                ListingReportRules.EntityType => await ProcessListingReportAsync(operation, authenticatedUserId, authenticatedRole, context),
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
