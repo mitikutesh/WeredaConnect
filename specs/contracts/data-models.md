@@ -1,6 +1,6 @@
 # Data Models Contract
 
-**Version**: 1.6.0
+**Version**: 1.7.0
 **Last Updated**: 2026-11-07
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
@@ -299,6 +299,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `pickupPlace` | String? | No | The listing's place name (order-lifecycle 2.2.0) | server, at create |
 | `dropoffPlace` | String? | No | The buyer's registered woreda (order-lifecycle 2.2.0) | server, at create |
 | `dropoffNote` | String? | No | The buyer's drop-off landmark ("Merkato, near Anwar Mosque"): one line of at most 80 user-visible characters (extended grapheme clusters), no phone number; returned to the buyer, the farmer and the committed trucker of a held order only (order-lifecycle 2.5.0, LT-12) | buyer, at create and until pickup |
+| `deliveryLatitude`, `deliveryLongitude` | Double? | No | The order's own drop-off point, the centroid of the place the buyer picked: both or neither, latitude 3 to 15, longitude 32.5 to 48.5; returned to the readers of `dropoffNote` only. Without it the trip's destination point is the drop-off (order-lifecycle 2.8.0, LT-14) | buyer, at create and until pickup |
 | `farmerResponse` | String? | No | `pending`, `accepted`, `declined`, `expired` (2.0.0) | server |
 | `farmerRespondedAt`, `farmerDeadlineAt` | String? | No | The farmer's answer and its deadline (2.0.0) | server |
 | `truckerResponse` | String? | No | `none`, `not_asked`, `pending`, `accepted`, `declined`, `expired`, `cancelled`, `failed_capacity` (2.0.0) | server |
@@ -311,7 +312,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt` | String? | No | Reminder markers 6 hours before a deadline (2.0.0) | order cron |
 | `pickupOverdueNotifiedAt` | String? | No | Stamped when `pickupDeadlineAt` passed on an accepted order (2.0.0) | order cron |
 
-Stored on the row but never returned: `paymentSubmittedAt`, `pendingPaymentAt`, `paymentHoldUntil`, the Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`), `cancelNote`, `adminQueue`, `adminQueueEscrowId`, `moneySweepSkip`, `moneySweepSkipAt`, the admin override flags (`refundOverride*`, `disputeOverride*`). Since 1.6.0 the order's next deadline (`nextDeadlineAt`, `nextDeadlineKind`, `deadlineShard`: the sparse `DeadlineIndex` the order cron reads; order-lifecycle 2.8.0) is server-only too: not in the `OrderDto` answers, but the `serverData` of a sync create or update result echoes the stored row and may carry it; clients ignore it. Clients may send only `status` and its companions (`rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId`) and, since order-lifecycle 2.0.0, the commands `farmerResponse` / `truckerResponse` (`accept` or `decline`) with `declineReason`, and since 2.5.0 the buyer's `dropoffNote` (on create, and on update until pickup); everything else above is dropped or refused (`order-lifecycle.md`, Order Update Rules).
+Stored on the row but never returned: `paymentSubmittedAt`, `pendingPaymentAt`, `paymentHoldUntil`, the Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`), `cancelNote`, `adminQueue`, `adminQueueEscrowId`, `moneySweepSkip`, `moneySweepSkipAt`, the admin override flags (`refundOverride*`, `disputeOverride*`). Since 1.6.0 the order's next deadline (`nextDeadlineAt`, `nextDeadlineKind`, `deadlineShard`: the sparse `DeadlineIndex` the order cron reads; order-lifecycle 2.8.0) is server-only too: not in the `OrderDto` answers, but the `serverData` of a sync create or update result echoes the stored row and may carry it; clients ignore it. Clients may send only `status` and its companions (`rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId`) and, since order-lifecycle 2.0.0, the commands `farmerResponse` / `truckerResponse` (`accept` or `decline`) with `declineReason`, and since 2.5.0 the buyer's `dropoffNote` and since 2.9.0 `deliveryLatitude` with `deliveryLongitude` (on create, and on update until pickup); everything else above is dropped or refused (`order-lifecycle.md`, Order Update Rules).
 
 **Indexes (DynamoDB)**: `orderId` (PK); `StatusCreatedAtIndex` (the crons page it by status); the party indexes behind `GET /orders` (`buyerId`, `farmerId`, `truckerId`); the sparse `AdminQueueIndex`.
 
@@ -430,6 +431,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.5.0 | 2026-11-06 | Order gains `dropoffNote`, the buyer's drop-off landmark (order-lifecycle 2.5.0, LT-12): server DTO, Isar schema and web mirror; returned per caller | @Server @Mobile |
 | 1.5.1 | 2026-11-06 | Order money fields are stored to the santim, `orderTotal` their exact sum (order-lifecycle 2.7.0, SIM-30); no field change | @Server |
 | 1.6.0 | 2026-11-07 | Order gains the server-only `nextDeadlineAt`, `nextDeadlineKind` and `deadlineShard` (dropped from client payloads, not in the `OrderDto` answers, echoed only in a sync result's raw `serverData`), kept by every order write and read by the order cron through the sparse `DeadlineIndex` (order-lifecycle 2.8.0, ESC-16); no client change | @Server |
+| 1.7.0 | 2026-11-07 | Order gains `deliveryLatitude` and `deliveryLongitude`, the order's own drop-off point (order-lifecycle 2.9.0, LT-14): server DTO, Isar schema and web mirror; returned per caller | @Server @Mobile |
 
 ---
 

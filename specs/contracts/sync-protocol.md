@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.41.0
+1.42.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -684,6 +684,32 @@ dropoffNote`, permanent), so the server ships before clients that send it.
 
 ---
 
+## Drop-off place (1.42.0, LT-14)
+
+An `order` create may carry `deliveryLatitude` and `deliveryLongitude` (JSON numbers, both or
+neither, inside Ethiopia's box), and the order's buyer may send them alone on an `update`
+(`{"deliveryLatitude": 8.5872, "deliveryLongitude": 39.1213, "version": n}`, the pre-change version)
+until pickup (`order-lifecycle.md` 2.8.0). The server refuses, nothing written:
+
+`ORDER_DELIVERY_LOCATION_LOCKED: The drop-off place can only be changed before pickup.`
+
+and `ORDER_UNAUTHORIZED: Only the buyer can change the drop-off place.` for a change from anyone but
+the buyer and for either field at all from a party who may not read the point (a trucker not
+committed), `ORDER_VALIDATION` for half a point, a value that is not a number or one outside the
+box. An unchanged echo from a party who reads it is dropped. The clients send only the centroid of a
+place picked from the bundled list, checked against the box first, so an offline order never meets
+the validation refusal.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `ORDER_DELIVERY_LOCATION_LOCKED:` | Permanent under the `ORDER_*` rule: the order is put back to the server's view, explained with `errorDeliveryLocationLocked` ("The goods were picked up, so the drop-off place can no longer be changed."). | Failure with the same text. |
+
+An order row in `serverData` leaves the point out for a caller who may not read it, as the note.
+Deploy order: a server before 1.42.0 refuses the fields (`ORDER_VALIDATION: Unknown fields`,
+permanent), so the server ships before clients that send them.
+
+---
+
 ## Payment total refusal (1.24.0, FUP-22)
 
 With the live gateway (`TELEBIRR_MOCK` off) one Telebirr payment takes 100 to 500,000 ETB
@@ -1093,6 +1119,7 @@ funding.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.42.0 | 2026-11-07 | Drop-off place (LT-14, `order-lifecycle.md` 2.8.0): `deliveryLatitude` and `deliveryLongitude` are new order fields on create and on the buyer's update until pickup; new permanent `ORDER_DELIVERY_LOCATION_LOCKED` (a change after pickup) under the `ORDER_*` rule, with its own text in en, am and om (`errorDeliveryLocationLocked`); an order row in `serverData` leaves the point out for a caller who may not read it, and carries it as numbers. Older clients revert and show the generic order refusal |
 | 1.41.0 | 2026-11-07 | Minimum app version for order operations built (ESC-25): `/sync` refuses every `order` operation (create, update, delete) from a build below `MIN_ORDER_APP_BUILD` on the sync Lambda (infra `minOrderAppBuild`, 3 in dev, staging and prod; 0 or absent = off; independent of `COMMITMENTS_ENABLED`) before any read or write: `APP_UPDATE_REQUIRED: This version of the app is too old for orders. Update WeredaConnect to continue.` to an app that sends `X-App-Build`, `ORDER_VALIDATION:` with the same text to one that sends none (confirmed). Nothing stored, no idempotency key, no fraud signal; the rest of the batch goes on; other entities and `/escrow/*` are not gated. `COMMITMENTS_ENABLED` stays off in staging and prod until the owner turns it on after the gate is deployed. No client change: mobile and web already treat it as permanent on an order and show `errorAppUpdateRequired` (1.17.0) |
 | 1.40.0 | 2026-11-07 | Two PLANNED sections (ESC-14), nothing built changes. Minimum app version for order operations (ESC-25): the server refuses every `order` operation, create and update, from a build below a per-environment minimum (proposed `MIN_ORDER_APP_BUILD`, 0 or absent = off; build 3 is the first that renders the commitments) before any read or write, with `APP_UPDATE_REQUIRED:` to an app that sends `X-App-Build` and, proposed, `ORDER_VALIDATION:` with the same text to one that sends none (it may predate the 1.17.0 client, FUP-75); other entities and the `/escrow/*` routes are not gated. Transport choice (ESC-19): the buyer's `transportChoice` command (`trip` with `tripId`, `self_pickup` with `pickupDate`, `cancel`) in `awaiting_transport`; a choice on an order the farmer has not accepted (the D14 park) goes back to `funded` with the farmer asked and `farmerDeadlineAt` restamped, the trucker asked after the farmer (D10); the eligible trip rules (`open` or `matched`), the order fields `transportAttempts` (with its `outcome` values and the backfill) and `refundedTotal`, the `replacement_request` push, and its refusals (`ORDER_UNAUTHORIZED`, `ORDER_ACTION_NOT_ALLOWED`, `ORDER_DEADLINE_PASSED`, `ORDER_TRIP_NOT_ELIGIBLE`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED`, `TRIP_CAPACITY_EXCEEDED` at read time and in a race, `ORDER_VALIDATION`), all already handled by the clients. D4 is marked as awaiting the user's confirmation, with the open question of a cheaper truck after a shift. Doc fix: Permanent order rejections listed `ORDER_TRIP_NOT_ELIGIBLE` as planned; it is sent since 1.34.0 |
 | 1.39.0 | 2026-11-07 | Handoff photos (FRD-12, `delivery-verification-api.md` 1.25.0): new create-only entity `delivery_photo` (`{deliveryId}#{pickup\|dropoff}`, `{photoRef}`), sent by the photo's taker only, attaching an uploaded photo without moving the delivery's version; `DELIVERY_PHOTO_INVALID`, `_FORBIDDEN`, `_REFUSED`, `_EXISTS`, `_MISSING` and `_TOO_LARGE` are permanent, not reverted, not announced and not counted as failures; `DELIVERY_PHOTO_PENDING` answers `deferred`; a photo ref in a `delivery` op is shape-checked but no longer written. Mobile uploads the photo in a batch preflight and stores the key in the operation; every wait is bounded (a presign `404` only while the delivery's own create waits on the phone and 10 minutes, the third refused `PUT`), a refused delivery create, pickup or delivery confirm rejects its waiting photo, and an attached photo's files are deleted; web uploads at capture and attaches after the confirm |

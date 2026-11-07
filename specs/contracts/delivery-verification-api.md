@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.0.0
+2.1.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -825,14 +825,18 @@ GPS coordinates are captured at pickup and delivery to provide physical proof of
 **Delivery Validation**:
 - As built (2.0.0 doc fix; the text before said "the buyer's registered location or the trip's
   destination woreda center", which no code reads):
-  - **Trucker delivery:** `gpsDropoff`, when sent, must be within **5km** of the trip's destination
-    point (`destinationLatitude`, `destinationLongitude`, `trip-listing-api.md` 2.1.0). A trip
-    without that point, or a confirm without a fix, is not checked. Too far:
-    `DELIVERY_GPS_PROXIMITY: Dropoff GPS is <d>km from trip destination (max 5km).`
+  - **Trucker delivery:** `gpsDropoff`, when sent, must be within **5km** of the order's own
+    drop-off point (`deliveryLatitude`, `deliveryLongitude`, `order-lifecycle.md` 2.8.0, LT-14; the
+    order read strongly consistent, the point locked since pickup), else of the trip's destination
+    point (`destinationLatitude`, `destinationLongitude`, `trip-listing-api.md` 2.1.0). Neither
+    point, or a confirm without a fix, is not checked. An order that cannot be read answers the
+    unprefixed, retryable `Internal server error.`, never a check against the trip's point. Too far
+    (2.1.0 text): `DELIVERY_GPS_PROXIMITY: Dropoff GPS is <d>km from the drop-off point (max 5km).`
+    (`<d>` with a dot, one decimal).
   - **Self-pickup:** `gpsDropoff` is mandatory and must be within **5km** of the listing (Buyer
     Self-Pickup).
-  - The order's own delivery location and a drop-off check-in with GPS and a photo are PLANNED
-    (P.4, ESC-36).
+  - The order's own delivery location is built (2.1.0, LT-14, P.4's first bullet); a drop-off
+    check-in with GPS and a photo is PLANNED (P.4, ESC-36).
 - Uses Haversine formula for distance calculation
 
 ### Why 5km Threshold
@@ -1400,11 +1404,14 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 
 ### P.4 Delivery location, drop-off check-in, silent buyer and overdue delivery (ESC-36)
 
-- **Delivery location.** Order fields `deliveryLatitude` and `deliveryLongitude` (spec 4.4), set by
-  the buyer at order time and defaulting to the buyer intent's point or the woreda centroid
-  (`WoredaCentroids`); both or neither, inside the `location_ping` box (latitude 3 to 15, longitude
-  32.5 to 48.5). The drop-off GPS rule (GPS Validation) reads it first, then the trip's destination
-  point.
+- **Delivery location.** BUILT in 2.1.0 by LT-14 (`order-lifecycle.md` 2.8.0, Drop-off place): order
+  fields `deliveryLatitude` and `deliveryLongitude` (spec 4.4), set by the buyer at order time and
+  changed by the buyer until pickup; both or neither, inside the `location_ping` box (latitude 3 to
+  15, longitude 32.5 to 48.5). The clients start from the intent's place, else the registered place,
+  from the bundled place list (not `WoredaCentroids`); the server has no centroids, so an order
+  without a point falls back to the trip's destination point rather than always having one. The
+  drop-off GPS rule (GPS Validation) reads it first, then the trip's destination point.
+  `arrived_dropoff` (below) reads the same order point first when it is built.
 - **Arrival photo.** `POST /deliveries/{id}/photos` gains type `arrival`, taken by the trucker (key
   `uploads/photos/{deliveryId}/arrival-{ms}.{webp|jpg}`, the section 4 and 4b rules), attached with a
   `delivery_photo` `{deliveryId}#arrival`; the delivery gains `arrivalPhotoRef` and, on
@@ -1469,6 +1476,7 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 1.24.0 | 2026-11-07 | Pickup proof (FRD-11, see QR Secret Storage): a pickup at the farm (the trucker's `pickedUp`, the self-pickup buyer's `delivered`) with no farmer's nonce on record is `deferred` until the nonce syncs and refused with `DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server for this pickup. Contact support.` once 14 days have passed since the later of the delivery's creation and the scan (the operation's `timestamp` when plausible), whatever the money and with no escrow read; before, a delivery without an escrow passed with no QR. The drop-off keeps the money rule; its 14 days now count the same way (before, from creation only). The scan screen's Confirm waits for the fix taken at the scan (at most 30 seconds; a phone with no fix still confirms a scanned QR). No new code or field; shipped clients already send the farmer's nonce on every pickup and handle `deferred`. GPS Failure Handling says what is built. |
 | 1.25.0 | 2026-11-07 | Handoff photos (FRD-12): `POST /deliveries/{id}/photos` takes `sizeBytes` (1 to 204800, required) and `contentType` (`image/webp` default or `image/jpeg`, `.jpg` keys), signs both into the `PUT`, answers only the photo's taker (the trucker for `pickup`, the buyer for `dropoff`; anyone else `403`) `409 DELIVERY_PHOTO_EXISTS` once the handoff has its photo and `409 DELIVERY_PHOTO_REFUSED` for a cancelled delivery (was `404`); new create-only sync entity `delivery_photo` (`{deliveryId}#{type}`, `{photoRef}`) attaches the key after a `HEAD` (present, at most 200 KiB, its key's type), first photo kept, its S3 version id recorded and signed by every read (a later `PUT` to the key cannot swap it), no version or `updatedAt` move, `DELIVERY_PHOTO_INVALID` / `_FORBIDDEN` / `_REFUSED` / `_EXISTS` / `_MISSING` / `_TOO_LARGE` final and `DELIVERY_PHOTO_PENDING` deferred; a photo ref in a delivery create or update is still shape-checked but no longer written; `GET /deliveries/{id}` and the admin transaction view carry `pickupPhotoUrl` / `dropoffPhotoUrl` (15-minute presigned GETs), lists never; the uploads bucket gets CORS for the web app and admin. Clients: the phone queues the photo behind the handoff and uploads it when online, the browser uploads at capture and attaches after the confirm; the three parties see the photos on the delivery detail, admins on the transaction detail |
 | 2.0.0 | 2026-11-07 | P3 evidence, PLANNED (ESC-14 for ESC-34, ESC-35, ESC-36): a new section "Planned in 2.0.0" (P.1 to P.5) puts what is built next to what is planned: the check-in operation (`handoff_check_in`, kinds `arrived_pickup`, `crops_ready`, `arrived_dropoff`, judged by server receipt, proposed `CHECKIN_*` refusals, a listing without coordinates accepted unchecked with an unchecked farmer no-show sent to the admin queue) and the T7 pickup judgement table with no-show outcomes and late evidence (ESC-34, flag `pickupClassification`); a trucker-issued drop-off nonce (`dropoffQrNonce`) with the 1.22.0 code derivation (ESC-35; spec 4.8's 6-digit code is superseded by the built 9-digit code); the order's `deliveryLatitude` and `deliveryLongitude`, the trucker's `arrival` photo, the T9 silent-buyer auto-confirm and the T8 `delivery_overdue` dispute (ESC-36). Major because the evidence model changes; nothing built changes. Doc fixes against the code (survey 9.1, 9.3, 4.7): the QR payload carries the nonce `n`, the HMAC secret includes the farmer's device key and nobody recomputes it (the scanner checks structure, the server checks the nonce and only the length of `qrToken`); the drop-off QR is the farmer's token kept on the trucker's phone (1.22.0); QR Expiration states the built 14 day nonce freshness and 14 day deferral limit instead of the never built 7 and 14 day windows; GPS Validation states the built rules (pickup and trucker drop-off checked only when sent, against the listing and the trip's destination point; self-pickup mandatory); the changelog is in version order (1.5.1, 1.8.0, 1.19.0 and 1.24.0 were out of place; 1.11.0 and 1.18.0 were never used). Already fixed before 2.0.0: the cancel rules (1.9.0) and the header drift (1.22.0) |
+| 2.1.0 | 2026-11-07 | The order's delivery location (LT-14, `order-lifecycle.md` 2.8.0; the first bullet of P.4 built): a trucker delivery's `gpsDropoff` is checked within 5 km of the order's own `deliveryLatitude` and `deliveryLongitude` (read strongly consistent), else of the trip's destination point; an unreadable order answers the retryable internal error. The too-far text now reads `Dropoff GPS is <d>km from the drop-off point (max 5km).` (the `DELIVERY_GPS_PROXIMITY` prefix the clients key on is unchanged). The admin dispute evidence's planned drop-off follows the same rule (`escrow-protocol.md` 2.0.1). |
 
 ---
 
