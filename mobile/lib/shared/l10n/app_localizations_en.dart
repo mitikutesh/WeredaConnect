@@ -5261,4 +5261,48 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get errorDropoffNoteLocked =>
       'The goods were picked up, so the drop-off landmark can no longer be changed.';
+
+  @override
+  String get reportListing => 'Report this listing';
+
+  @override
+  String get reportListingTitle => 'What is wrong with this listing?';
+
+  @override
+  String get reportListingPrivacyNote =>
+      'The owner will not see who reported it. Our team reviews every report.';
+
+  @override
+  String get reportReasonContactInfo =>
+      'Shares a phone number or other contact';
+
+  @override
+  String get reportReasonMisleading => 'Wrong or misleading details';
+
+  @override
+  String get reportReasonScam => 'Looks like a scam';
+
+  @override
+  String get reportReasonOffensive => 'Offensive or inappropriate';
+
+  @override
+  String get reportReasonOther => 'Something else';
+
+  @override
+  String get reportListingSend => 'Send report';
+
+  @override
+  String get reportListingSent =>
+      'Thank you. Our team will review this listing.';
+
+  @override
+  String get reportListingAlreadySent => 'You already reported this listing.';
+
+  @override
+  String get errorReportNotSent => 'Your report could not be sent.';
+
+  @override
+  String errorReportLimitReached(int count) {
+    return 'You can send up to $count reports a day. Try again tomorrow.';
+  }
 }

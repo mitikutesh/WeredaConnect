@@ -1,5 +1,6 @@
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
+import 'package:wereda_connect/core/sync/listing_report_rules.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Stable, localizable error categories surfaced by BLoCs to the UI.
@@ -156,6 +157,14 @@ enum AppErrorCode {
   /// (`ORDER_DROPOFF_NOTE_LOCKED`); the local change was undone.
   dropoffNoteLocked,
 
+  /// FUP-67: the server refused a buyer's listing report for good (for
+  /// example the listing is gone); it was not sent.
+  reportNotSent,
+
+  /// FUP-67: the buyer reached the daily report limit
+  /// (`SYNC_VALIDATION: report limit reached`); the report was not sent.
+  reportLimitReached,
+
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
@@ -211,6 +220,9 @@ AppErrorCode mapErrorToCode(Object error) {
       AppErrorCode.accountHeld,
     // REST answers it as a 403 with the code (escrow routes).
     ApiException(code: fraudAccountHeldCode) => AppErrorCode.accountHeld,
+    SyncRejectedException(:final message)
+        when isListingReportLimitMessage(message) =>
+      AppErrorCode.reportLimitReached,
     SyncRejectedException(:final message)
         when isPaymentTotalOutOfRangeMessage(message) =>
       AppErrorCode.paymentTotalOutOfRange,
@@ -358,6 +370,10 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.appUpdateRequiredKept => l10n.errorAppUpdateRequiredKept,
     AppErrorCode.contactInText => l10n.errorContactInText,
     AppErrorCode.dropoffNoteLocked => l10n.errorDropoffNoteLocked,
+    AppErrorCode.reportNotSent => l10n.errorReportNotSent,
+    AppErrorCode.reportLimitReached => l10n.errorReportLimitReached(
+        listingReportDailyLimit,
+      ),
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -392,6 +408,12 @@ AppErrorCode syncRejectionErrorCode({
   }
   // The real reason for any entity and action: the account is under review.
   if (isFraudAccountHeldMessage(message)) return AppErrorCode.accountHeld;
+  // FUP-67: a refused report says so; nothing local was changed.
+  if (entityType == listingReportEntityType) {
+    return isListingReportLimitMessage(message)
+        ? AppErrorCode.reportLimitReached
+        : AppErrorCode.reportNotSent;
+  }
   if (entityType == 'order') {
     if (isReputationRestrictedMessage(message)) {
       // On a create the restricted party is the listing's or trip's owner

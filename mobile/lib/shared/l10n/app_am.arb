@@ -3215,5 +3215,18 @@
   "dropoffNoteEmpty": "ሹፌሩ እንዲያገኝዎ ምልክት ያክሉ።",
   "dropoffNoteAdd": "አክል",
   "dropoffNoteSaved": "የማውረጃ ምልክቱ ተቀምጧል።",
-  "errorDropoffNoteLocked": "ዕቃው ስለተነሳ የማውረጃ ምልክቱን ከእንግዲህ መቀየር አይቻልም።"
+  "errorDropoffNoteLocked": "ዕቃው ስለተነሳ የማውረጃ ምልክቱን ከእንግዲህ መቀየር አይቻልም።",
+  "reportListing": "ይህን ዝርዝር ሪፖርት አድርግ",
+  "reportListingTitle": "በዚህ ዝርዝር ላይ ምን ችግር አለ?",
+  "reportListingPrivacyNote": "ባለቤቱ ማን ሪፖርት እንዳደረገ አያይም። ቡድናችን እያንዳንዱን ሪፖርት ይመረምራል።",
+  "reportReasonContactInfo": "ስልክ ቁጥር ወይም ሌላ አድራሻ ያጋራል",
+  "reportReasonMisleading": "የተሳሳተ ወይም አሳሳች መረጃ",
+  "reportReasonScam": "ማጭበርበር ይመስላል",
+  "reportReasonOffensive": "አጸያፊ ወይም ተገቢ ያልሆነ",
+  "reportReasonOther": "ሌላ ነገር",
+  "reportListingSend": "ሪፖርቱን ላክ",
+  "reportListingSent": "እናመሰግናለን። ቡድናችን ይህን ዝርዝር ይመረምራል።",
+  "reportListingAlreadySent": "ይህን ዝርዝር ቀደም ብለው ሪፖርት አድርገዋል።",
+  "errorReportNotSent": "ሪፖርትዎ ሊላክ አልቻለም።",
+  "errorReportLimitReached": "በቀን እስከ {count} ሪፖርቶች መላክ ይችላሉ። ነገ እንደገና ይሞክሩ።"
 }

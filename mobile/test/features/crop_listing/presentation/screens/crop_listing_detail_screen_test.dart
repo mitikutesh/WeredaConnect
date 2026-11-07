@@ -302,5 +302,54 @@ void main() {
       expect(find.text('105'), findsNothing);
       expect(find.byIcon(Icons.location_on_outlined), findsNothing);
     });
+
+    // FUP-67: buyers see every listing and may report one; a farmer sees only
+    // their own and a trucker only uses a listing, so neither gets the button.
+    group('report this listing', () {
+      testWidgets('a buyer sees the report button', (tester) async {
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: _makeListing(),
+            currentUserId: 'buyer-001',
+            currentUserRole: UserRole.buyer,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('report_listing_button')),
+          200,
+        );
+
+        expect(find.text('Report this listing'), findsOneWidget);
+      });
+
+      for (final role in [UserRole.farmer, UserRole.trucker]) {
+        testWidgets('a ${role.name} sees no report button', (tester) async {
+          await tester.pumpWidget(
+            _buildScreen(
+              listing: _makeListing(),
+              currentUserId: '${role.name}-002',
+              currentUserRole: role,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(const Key('report_listing_button')), findsNothing);
+        });
+      }
+
+      testWidgets('the owner never gets a report button', (tester) async {
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: _makeListing(),
+            // The listing's farmer (the default role is farmer).
+            currentUserId: 'farmer-001',
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('report_listing_button')), findsNothing);
+      });
+    });
   });
 }

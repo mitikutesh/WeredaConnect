@@ -9034,6 +9034,84 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The goods were picked up, so the drop-off landmark can no longer be changed.'**
   String get errorDropoffNoteLocked;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Low-key button on a crop or trip detail screen, buyers only
+  ///
+  /// In en, this message translates to:
+  /// **'Report this listing'**
+  String get reportListing;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Title of the report sheet
+  ///
+  /// In en, this message translates to:
+  /// **'What is wrong with this listing?'**
+  String get reportListingTitle;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Note under the title: the reporter stays hidden from the listing's owner
+  ///
+  /// In en, this message translates to:
+  /// **'The owner will not see who reported it. Our team reviews every report.'**
+  String get reportListingPrivacyNote;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Reason: a phone number or contact in the listing, its photos or its voice note
+  ///
+  /// In en, this message translates to:
+  /// **'Shares a phone number or other contact'**
+  String get reportReasonContactInfo;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Reason: price, quantity, crop, route or photos are wrong
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong or misleading details'**
+  String get reportReasonMisleading;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Reason: fraud, for example asks for payment outside the app
+  ///
+  /// In en, this message translates to:
+  /// **'Looks like a scam'**
+  String get reportReasonScam;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Reason: offensive or inappropriate content
+  ///
+  /// In en, this message translates to:
+  /// **'Offensive or inappropriate'**
+  String get reportReasonOffensive;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Reason: anything else
+  ///
+  /// In en, this message translates to:
+  /// **'Something else'**
+  String get reportReasonOther;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Send button of the report sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Send report'**
+  String get reportListingSend;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Snackbar after the report was sent or queued to send when online
+  ///
+  /// In en, this message translates to:
+  /// **'Thank you. Our team will review this listing.'**
+  String get reportListingSent;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Snackbar when the server already holds this buyer's report of the listing
+  ///
+  /// In en, this message translates to:
+  /// **'You already reported this listing.'**
+  String get reportListingAlreadySent;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). The server refused the report for good (for example the listing no longer exists)
+  ///
+  /// In en, this message translates to:
+  /// **'Your report could not be sent.'**
+  String get errorReportNotSent;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). The buyer reached the daily report limit
+  ///
+  /// In en, this message translates to:
+  /// **'You can send up to {count} reports a day. Try again tomorrow.'**
+  String errorReportLimitReached(int count);
 }
 
 class _AppLocalizationsDelegate

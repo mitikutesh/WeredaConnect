@@ -10,6 +10,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
+import 'package:wereda_connect/core/sync/listing_report_rules.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/user.dart';
@@ -23,6 +24,7 @@ import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_tri
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_photo_views.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/create_delivery_screen.dart';
+import 'package:wereda_connect/features/listing_report/presentation/report_listing_sheet.dart';
 import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
@@ -399,6 +401,16 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                         color: AppTheme.mutedSteel,
                       ),
                     ),
+                    // FUP-67: a buyer reports what no check can catch (a
+                    // number in a voice note or a photo, a scam).
+                    if (widget.listing.farmerId != widget.currentUserId) ...[
+                      const SizedBox(height: 8),
+                      ReportListingButton(
+                        listingType: ReportedListingType.crop,
+                        listingId: widget.listing.listingId,
+                        reporterId: widget.currentUserId,
+                      ),
+                    ],
                   ],
                 ],
               ),

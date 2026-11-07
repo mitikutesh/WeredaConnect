@@ -30,6 +30,8 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
+import 'package:wereda_connect/features/listing_report/data/web_listing_report_repository.dart';
+import 'package:wereda_connect/features/listing_report/domain/base_listing_report_repository.dart';
 import 'package:wereda_connect/features/live_trip/sign_out_forgetter.dart';
 import 'package:wereda_connect/features/live_trip/web_check_in_engine.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
@@ -207,6 +209,10 @@ Future<void> main() async {
         // the last answer per delivery is kept in localStorage.
         Provider<BaseTrackRepository>.value(
           value: WebTrackRepository(api: api),
+        ),
+        // FUP-67: a buyer's listing report goes straight to /sync on web.
+        Provider<BaseListingReportRepository>.value(
+          value: WebListingReportRepository(api: api),
         ),
       ],
       child: MultiBlocProvider(
