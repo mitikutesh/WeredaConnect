@@ -4,6 +4,8 @@ FRD-17. Script `scripts/e2e_fraud_personas.py`, API `https://vhhm8gh9c1.execute-
 
 Observed signals are the rows `GET /admin/fraud-signals` returned for each persona account; the tier is computed from them with the scoring rules of section 14.2 (the score itself is never returned by the API) and cross-checked by the gates the persona met: a payment with a fresh password passes at LOW and MEDIUM, meets `AUTH_041` at HIGH and `FRAUD_ACCOUNT_HELD` at CRITICAL; a create meets `FRAUD_ACCOUNT_HELD` only at CRITICAL.
 
+> Note added after the run: FRD-07 (#295) merged after this run. The admin API now lists one Fraud Review status at a time and returns each user's server-side score and tier (`users[]`), and the script now asserts that tier, with the replica as a cross-check. This run predates it: its scores and tiers came from the replica of section 14.2 and the gates. Every persona row was still `pending` (no admin had reviewed one), so reading only that status missed nothing here.
+
 ## Summary
 
 | Persona | Accounts | Expected signals | Observed signals | Tier exp / obs | Challenge | Hold | Verdict |

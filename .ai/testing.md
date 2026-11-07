@@ -50,5 +50,5 @@ persona the expected and observed fraud signals, risk tier, step-up (`AUTH_040`/
 python3 scripts/e2e_fraud_personas.py --self-test   # offline checks, run after editing the script
 python3 scripts/e2e_fraud_personas.py --dry-run     # plan only
 python3 scripts/e2e_fraud_personas.py --state-file /tmp/frd17-state.json   # run against dev (9 registrations)
-python3 scripts/e2e_fraud_personas.py --recheck /tmp/frd17-state.json      # later: signals and held escrows
+python3 scripts/e2e_fraud_personas.py --recheck /tmp/frd17-state.json      # later: tiers and held escrows, exit 1 on a missing hold
 ```

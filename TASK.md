@@ -128,6 +128,18 @@ Order: FRD-12 and FRD-14, then S4, S6 last.
 
 ---
 
+## Follow-ups from the FRD run (2026-11-07) - @Scope tasks
+
+Open items from the FRD-17 adversarial personas run on dev (`specs/reports/fraud-personas-2026-11-06.md`).
+
+| ID | Sev | Scope | Task | Done when |
+|---|---|---|---|---|
+| FUP-134 | P2 | @Tests | Run `python3 scripts/e2e_fraud_personas.py --recheck <state file>` after 2026-11-07T23:44Z for the hold target `escrow-order-1543810b-f448-41d7-83e7-68f725fc806c` (run `frd17-11062342`) (deadline 2026-11-07T23:43Z) and the run-1 target `escrow-order-4de391ef-b6fb-4c69-b383-1f370f0c3cce` (deadline 2026-11-07T22:41Z). Both runs' state files predate the stored deadline, so pass each as `--hold-target ESCROW_ID=DEADLINE`; a state file listing the report's user ids is enough (no passwords needed). | Both escrows are `held` with `holdReason` `risk_critical` (recheck exits 0), result appended to the report. |
+| FUP-135 | P3 | @Server | Rule 2 (price anomaly) needs a robust statistic, median and MAD or a per-type bound: the dev teff sample (test listings up to 1,000 ETB/kg, mean 216.6, deviation 322.0) let a 999 ETB/kg listing through unflagged. | An absurd price is flagged despite outliers in the sample; unit tests. |
+| FUP-136 | P3 | @Server @PO | The flagged payout delay equals the new-payee delay (72 h, `PayoutDelayPolicy` defaults), so a flagged payee (HIGH, or CRITICAL before the settlement gate holds it) waits no longer than any new account. Decide whether flagged should be longer. | Decision recorded; defaults and spec section 17.5 updated if changed. |
+
+---
+
 ## EPIC ESC: Three-Party Escrow, Commitments and Reputation (2026-09-29) - @Scope tasks
 
 Goal: one buyer payment is held before anyone commits; the farmer and the trucker each accept before a deadline; a failed trucker gives the buyer a choice; money is never stuck; broken commitments cost reputation. Design (APPROVED 2026-09-30, decisions in §14): `specs/features/three-party-escrow-commitments-reputation.md`; code survey `specs/reports/escrow-flow-survey-2026-09-29.md`. P0 is done except the ESC-13 and ESC-44 runs.
@@ -372,4 +384,4 @@ Starting point (light scan 2026-10-11, not verified): `mobile/lib/features/deliv
 
 ---
 
-**Last Updated:** 2026-11-07 (SIM-25 to SIM-30 and SIM-33 done in one P3 PR with SIM-37, their follow-ups added as FUP-126 to FUP-133); 2026-11-06 (removed rows already done in git: ACC-04 #218, ACC-05 #217, FUP-15 #190, FUP-58 #219, FUP-85 #191, FUP-99 #209, FUP-100 #212, FUP-105 #215, FUP-107 #211, FUP-109 #210, FUP-112 #189, FUP-115 #192, FUP-116 #216 (FUP-87 and SIM-37 cut down to what is left; and the emptied In-App Account Deletion section: ACC-01 to ACC-05 are all done), LT-01 to LT-11 and LT-13 (#248, #250 to #253 and the LT-09, LT-11 and LT-13 merges); the 2026-11-06 run removed its own rows with #278 to #288); 2026-10-31 (FUP-86 widened with the Fieldway structure pass keys; 2026-10-29: FUP-86 widened with the Fieldway design pass keys of #255 and #256; 2026-10-27: ESC-15 removed as done; ESC-14, ESC-16, ESC-17 and ESC-21 to ESC-26 cut down to what #231, #234, #237 and #238 left; FUP-86 widened; FUP-123 to FUP-125 added; 2026-10-26: FUP-120 added: notifications inbox purge on account deletion; FUP-119 added: VeriFayda sandbox mode built, needs the dev run; 2026-10-23: only open tasks kept, FRD-04, FRD-05, FRD-08, FRD-13, ACC-02, ACC-03, FUP-12, FUP-61 and FUP-63 removed as done, FUP-91 to FUP-117 added from the second run)
+**Last Updated:** 2026-11-07 (FUP-134 to FUP-136 added from the FRD-17 run; SIM-25 to SIM-30 and SIM-33 done in one P3 PR with SIM-37, their follow-ups added as FUP-126 to FUP-133); 2026-11-06 (removed rows already done in git: ACC-04 #218, ACC-05 #217, FUP-15 #190, FUP-58 #219, FUP-85 #191, FUP-99 #209, FUP-100 #212, FUP-105 #215, FUP-107 #211, FUP-109 #210, FUP-112 #189, FUP-115 #192, FUP-116 #216 (FUP-87 and SIM-37 cut down to what is left; and the emptied In-App Account Deletion section: ACC-01 to ACC-05 are all done), LT-01 to LT-11 and LT-13 (#248, #250 to #253 and the LT-09, LT-11 and LT-13 merges); the 2026-11-06 run removed its own rows with #278 to #288); 2026-10-31 (FUP-86 widened with the Fieldway structure pass keys; 2026-10-29: FUP-86 widened with the Fieldway design pass keys of #255 and #256; 2026-10-27: ESC-15 removed as done; ESC-14, ESC-16, ESC-17 and ESC-21 to ESC-26 cut down to what #231, #234, #237 and #238 left; FUP-86 widened; FUP-123 to FUP-125 added; 2026-10-26: FUP-120 added: notifications inbox purge on account deletion; FUP-119 added: VeriFayda sandbox mode built, needs the dev run; 2026-10-23: only open tasks kept, FRD-04, FRD-05, FRD-08, FRD-13, ACC-02, ACC-03, FUP-12, FUP-61 and FUP-63 removed as done, FUP-91 to FUP-117 added from the second run)
