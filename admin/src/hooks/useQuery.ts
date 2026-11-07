@@ -154,8 +154,9 @@ export interface HeldExitResult {
 /**
  * FRD-07: release or refund a held escrow through the escrow routes (fraud-detection-architecture.md
  * section 18.3): admin group only, with a reason of 10 to 500 characters that the server audits.
- * The release route asks for a delivery reference it does not check against the row; an escrow
- * without a delivery (a self-pickup order) sends its order or escrow id there.
+ * The release route asks for a delivery reference. Since FUP-147 (ESC-20) it must be the escrow's own
+ * linked delivery when the escrow has one (else 422 ESCROW_VALIDATION); an escrow without a delivery
+ * (a self-pickup order) sends its order or escrow id there, which the server does not check.
  */
 export function useSettleHeldEscrow() {
   const queryClient = useQueryClient();
