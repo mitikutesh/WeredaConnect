@@ -3939,7 +3939,7 @@ sections 18.1 and 19.
 
 ### Not in 1.29.0
 - A later free-text suspend of a user who is still suspended as `fraud_confirmed` replaces the reason; that
-  user's escrows are then held as `account_suspended` (same hold, same money). Fixed by FUP-103 (user-entity 1.3.3):
+  user's escrows are then held as `account_suspended` (same hold, same money). Fixed by FUP-103 (user-entity 2.0.1):
   the stored `fraud_confirmed` is kept.
 - The held queue in the admin app (FRD-07).
 
