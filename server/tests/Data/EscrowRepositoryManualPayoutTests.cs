@@ -272,10 +272,14 @@ public class EscrowRepositoryManualPayoutTests
 
         _update!.ConditionExpression.Should().Be(
             "#status = :expectedStatus AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock) "
-            + "AND attribute_not_exists(#refundReason)");
+            + "AND attribute_not_exists(#refundReason) AND " + EscrowRepository.LedgerCropHeldCondition);
         Name(_update, "#manualPayout").Should().Be("manualPayout");
         Name(_update, "#lock").Should().Be("settlementLock");
         Name(_update, "#refundReason").Should().Be("refundReason");
+        // ESC-20: nor on a ledger escrow whose crop leg is already decided.
+        Name(_update, "#ledgerLegs").Should().Be("legStatus");
+        Name(_update, "#ledgerCrop").Should().Be("crop");
+        _update.ExpressionAttributeValues[":ledgerHeld"].S.Should().Be("held");
     }
 
     [Fact]
@@ -384,7 +388,9 @@ public class EscrowRepositoryManualPayoutTests
         {
             r.IndexName.Should().Be("StatusExpiresIndex");
             // ESC-04: a released escrow with an owed trucker leg belongs to the trucker retry.
-            r.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND " + HoldCapFilter);
+            // ESC-20: a ledger escrow whose crop leg is decided belongs to the ledger sweep.
+            r.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND "
+                                           + EscrowRepository.LedgerCropHeldCondition + " AND " + HoldCapFilter);
             r.ExpressionAttributeNames["#manualPayout"].Should().Be("manualPayout");
             r.ExpressionAttributeNames["#truckerPending"].Should().Be("truckerPayoutPending");
         });
@@ -447,7 +453,8 @@ public class EscrowRepositoryManualPayoutTests
         // A capped escrow that moved on (a verdict, a release) must stay visible to its sweep.
         await _repo.QueryByStatusForCronAsync(status);
 
-        _query!.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending)");
+        _query!.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND "
+                                             + EscrowRepository.LedgerCropHeldCondition);
         _query.ExpressionAttributeNames.Should().NotContainKey("#holdCap");
     }
 
@@ -457,8 +464,8 @@ public class EscrowRepositoryManualPayoutTests
         await _repo.QueryByStatusForCronAsync("escrowed", deliveryConfirmedBefore: "2026-10-01T00:00:00Z");
 
         _query!.FilterExpression.Should().Be(
-            "attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND " + HoldCapFilter
-            + " AND #confirmedAt <= :confirmedBefore");
+            "attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND "
+            + EscrowRepository.LedgerCropHeldCondition + " AND " + HoldCapFilter + " AND #confirmedAt <= :confirmedBefore");
     }
 
     /// <summary>

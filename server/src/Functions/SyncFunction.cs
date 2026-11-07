@@ -719,6 +719,11 @@ public partial class SyncFunction
                 orderRepo: _orderRepo,
                 deliveryRepo: _deliveryRepo,
                 transactionAuditRepo: _transactionAuditRepo)
+            {
+                // ESC-20: a mock-funded order's escrow is born on the ledger behind ESCROW_LEDGER_ENABLED.
+                LedgerRepo = EscrowLedgerConfig.FromEnvironment(_dynamoDb, escrowsTable, escrowAuditTable),
+                LedgerBirthEnabled = EscrowLedgerConfig.BirthEnabled
+            }
             : null;
         _tripRepo = new TripRepository(_dynamoDb, _tripsTable);
 

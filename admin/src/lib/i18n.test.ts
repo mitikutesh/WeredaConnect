@@ -57,6 +57,10 @@ describe("unapplied payment strings exist in every locale", () => {
     "errors.ESCROW_042",
     "errors.ESCROW_043",
     "errors.ESCROW_044",
+    // ESC-20: a duplicate payment the escrow ledger refunds is recorded in Manual Payouts, not here.
+    "errors.ESCROW_045",
+    // ESC-20: a split verdict that does not fit what the escrow holds.
+    "errors.ADMIN_021",
     "transactions.action_order_payment_refunded_manual",
     "transactions.action_admin_payment_refunded_manual",
   ];

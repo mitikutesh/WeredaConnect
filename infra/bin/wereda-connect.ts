@@ -48,6 +48,7 @@ const apiStack = new ApiStack(app, `${stackPrefix}-API`, {
   paymentsTable: databaseStack.paymentsTable,
   escrowsTable: databaseStack.escrowsTable,
   escrowAuditTable: databaseStack.escrowAuditTable,
+  escrowLedgerTable: databaseStack.escrowLedgerTable,
   transactionAuditTable: databaseStack.transactionAuditTable,
   escrowIdempotencyTable: databaseStack.escrowIdempotencyTable,
   deliveryQrSecretsTable: databaseStack.deliveryQrSecretsTable,

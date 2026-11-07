@@ -63,6 +63,17 @@ public partial class AdminFunction
     /// <summary>The server clock of the delivery trail (its open window); tests set it.</summary>
     internal Func<DateTime> Clock { get; init; } = () => DateTime.UtcNow;
 
+    /// <summary>
+    /// ESC-20: the escrow ledger table (<c>ESCROW_LEDGER_TABLE</c>): the manual payout queue lists and records its
+    /// rows, and the unapplied payment record refuses a duplicate payment the ledger refunds. Empty: no ledger.
+    /// </summary>
+    internal string LedgerTable { get; init; } = Environment.GetEnvironmentVariable(EscrowLedgerConfig.TableVariable) ?? "";
+
+    private IEscrowLedgerRepository? LedgerRepository()
+        => string.IsNullOrEmpty(LedgerTable) || string.IsNullOrEmpty(_escrowsTable) || string.IsNullOrEmpty(_escrowAuditTable)
+            ? null
+            : new EscrowLedgerRepository(_dynamoDb, LedgerTable, _escrowsTable, _escrowAuditTable);
+
     // Account controls that must reach Cognito (disable, global sign-out, role
     // attribute); null in tests that only exercise DynamoDB behaviour.
     private readonly ICognitoAuthService? _cognitoAuth;
@@ -455,22 +466,24 @@ public partial class AdminFunction
             return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
         }
 
-        // ESC-03: the verdict decides which way the money goes, so only the two verdicts with
-        // a settlement are accepted, and the action must say the same thing.
+        // ESC-03: the verdict decides which way the money goes, so only the verdicts with a settlement
+        // are accepted, and the action must say the same thing. ESC-20: partial_refund splits the legs
+        // (action split) on an escrow that settles through the ledger.
         var verdictAction = body.Resolution switch
         {
             "farmer_wins" => "release",
             "buyer_wins" => "refund",
+            DisputeVerdicts.PartialRefund => "split",
             _ => null
         };
         if (verdictAction == null)
         {
             return LambdaResponse.Error(400, "ADMIN_014",
-                body.Resolution == "partial_refund"
-                    ? "partial_refund is not supported until per-leg settlement. Choose farmer_wins or buyer_wins."
-                    : "resolution must be farmer_wins or buyer_wins.",
-                "resolution");
+                "resolution must be farmer_wins, buyer_wins or partial_refund.", "resolution");
         }
+
+        // ESC-20: the order and delivery follow a split as they follow farmer_wins (the goods were delivered).
+        var direction = DisputeVerdicts.MirrorDirection(body.Resolution);
 
         if (!string.Equals(body.Action, verdictAction, StringComparison.Ordinal))
         {
@@ -490,7 +503,7 @@ public partial class AdminFunction
                     "disposition must be return_to_farmer, delivered_anyway, settle_now or wait_for_delivery.", "disposition");
             }
 
-            if (dispositionVerdict != body.Resolution)
+            if (dispositionVerdict != direction)
             {
                 return LambdaResponse.Error(400, "ADMIN_014",
                     $"disposition '{disposition}' goes with {dispositionVerdict}, not {body.Resolution}.", "disposition");
@@ -515,6 +528,35 @@ public partial class AdminFunction
 
         var createdAt = item.TryGetValue("createdAt", out var ca) ? ca.S : "";
 
+        // ESC-20 (P.8): a split is checked against the legs still held before anything is recorded.
+        VerdictAmounts? split = null;
+        if (body.Resolution == DisputeVerdicts.PartialRefund)
+        {
+            var escrow = DynamoDbHelper.FromItem(item);
+            if (!LedgerEscrowFields.IsLedger(escrow))
+            {
+                return LambdaResponse.Error(400, "ADMIN_014",
+                    "partial_refund needs an escrow that settles through the ledger; this one settles on the 1.x path. "
+                    + "Choose farmer_wins or buyer_wins.", "resolution");
+            }
+
+            if (body.FarmerAmount is not { } farmerAmount || body.TruckerAmount is not { } truckerAmount
+                || body.BuyerRefund is not { } buyerRefund)
+            {
+                var missing = body.FarmerAmount == null ? "farmerAmount" : body.TruckerAmount == null ? "truckerAmount" : "buyerRefund";
+                return LambdaResponse.Error(400, "ADMIN_021",
+                    "A split needs farmerAmount, truckerAmount and buyerRefund.", missing);
+            }
+
+            var (_, splitRefusal) = EscrowLedgerBook.PlanSplit(LedgerEscrow.From(escrow), farmerAmount, truckerAmount, buyerRefund, "verdict");
+            if (splitRefusal != null)
+            {
+                return LambdaResponse.Error(400, "ADMIN_021", splitRefusal.Message, splitRefusal.Field);
+            }
+
+            split = new VerdictAmounts(farmerAmount, truckerAmount, buyerRefund);
+        }
+
         // FUP-16: decide the order and the delivery before the verdict is written. A verdict they
         // cannot follow as they are is recorded only with a disposition that resolves it, so no new
         // verdict waits on a mismatch. An escrow already decided goes to the replay below, and one with a
@@ -526,7 +568,7 @@ public partial class AdminFunction
         if (item.TryGetValue("status", out var currentStatusAttr) && currentStatusAttr.S == "disputed"
             && !item.ContainsKey(ManualPayoutFields.Marker) && !item.ContainsKey("settlementLock"))
         {
-            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(item), body.Resolution);
+            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(item), direction);
             if (plan.Case == DispositionCase.Unknown)
             {
                 return LambdaResponse.Error(503, "ESCROW_012",
@@ -535,7 +577,7 @@ public partial class AdminFunction
 
             if (plan.Case != DispositionCase.NotNeeded)
             {
-                if (DispositionRefusal(plan, disposition, body.Resolution, replay: false) is { } refusal)
+                if (DispositionRefusal(plan, disposition, direction, replay: false) is { } refusal)
                 {
                     return refusal;
                 }
@@ -597,6 +639,16 @@ public partial class AdminFunction
             updateRequest.ExpressionAttributeValues[":dispositionReason"] = new AttributeValue { S = dispositionReason };
         }
 
+        if (split != null)
+        {
+            // ESC-20: the split is recorded with the verdict, and only while the crop leg is still held.
+            updateRequest.UpdateExpression += ", #verdictAmounts = :verdictAmounts";
+            updateRequest.ExpressionAttributeNames["#verdictAmounts"] = LedgerEscrowFields.VerdictAmounts;
+            updateRequest.ExpressionAttributeValues[":verdictAmounts"] = DynamoDbHelper.ToAttributeValue(split.ToMap());
+            updateRequest.ConditionExpression += " AND " + EscrowRepository.LedgerCropHeldCondition;
+            EscrowRepository.AddLedgerCropHeldNames(updateRequest.ExpressionAttributeNames, updateRequest.ExpressionAttributeValues);
+        }
+
         // SIM-29: the verdict changes the status, so it adds to the version like every escrow status write.
         updateRequest.UpdateExpression += " ADD #version :one";
         updateRequest.ExpressionAttributeNames["#version"] = "version";
@@ -618,6 +670,12 @@ public partial class AdminFunction
             // FUP-16: a replay also records or repairs a disposition.
             if (latest != null && latestStatus != "disputed" && recorded == body.Resolution)
             {
+                // ESC-20: a split is the same verdict only with the same amounts.
+                if (split != null && VerdictAmounts.From(DynamoDbHelper.FromItem(latest)) != split)
+                {
+                    return LambdaResponse.Error(409, "ADMIN_010", "A different split is already recorded for this escrow.");
+                }
+
                 return await ReplayVerdictAsync(
                     latest, body.Resolution, disposition, dispositionReason, adminUserId, now, request, context);
             }
@@ -657,7 +715,10 @@ public partial class AdminFunction
                     { "toState", "dispute_resolved" },
                     { "actor", adminUserId },
                     { "timestamp", now },
-                    { "metadata", body.Resolution }
+                    { "metadata", split == null
+                        ? body.Resolution
+                        : $"{body.Resolution};farmerAmount={UnappliedPayments.FormatAmount(split.FarmerAmount)};"
+                          + $"truckerAmount={UnappliedPayments.FormatAmount(split.TruckerAmount)};buyerRefund={UnappliedPayments.FormatAmount(split.BuyerRefund)}" }
                 });
             }
             catch (Exception ex)
@@ -680,13 +741,13 @@ public partial class AdminFunction
 
         if (applyDisposition != null)
         {
-            return await ApplyDispositionAsync(mirror, item, body.Resolution, applyDisposition, dispositionReason!, mismatchedLegs,
+            return await ApplyDispositionAsync(mirror, item, direction, applyDisposition, dispositionReason!, mismatchedLegs,
                 dispositionAt: now, resolvedAt: now, "dispute_resolved", adminUserId, request, context);
         }
 
         // ESC-03: the order and delivery follow the verdict now; the settlement repairs a leg
         // that fails here.
-        await MirrorVerdictAsync(item, body.Resolution, now, adminUserId, context);
+        await MirrorVerdictAsync(item, direction, now, adminUserId, context);
 
         var response = new ResolveDisputeResponse
         {
@@ -694,10 +755,16 @@ public partial class AdminFunction
             Status = "dispute_resolved",
             Resolution = body.Resolution,
             ResolvedAt = now,
-            Message = (body.Resolution == "farmer_wins"
-                    ? "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour."
-                    : "Verdict recorded. The settlement sweep refunds the buyer within the hour.")
-                + (dispositionIgnored ? " No disposition was needed: the order can follow the verdict." : "")
+            Message = (body.Resolution switch
+                {
+                    "farmer_wins" => "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour.",
+                    "buyer_wins" => "Verdict recorded. The settlement sweep refunds the buyer within the hour.",
+                    _ => "Verdict recorded. The settlement sweep pays the split to each party within the hour."
+                })
+                + (dispositionIgnored ? " No disposition was needed: the order can follow the verdict." : ""),
+            VerdictAmounts = split == null
+                ? null
+                : new VerdictAmountsDto { FarmerAmount = split.FarmerAmount, TruckerAmount = split.TruckerAmount, BuyerRefund = split.BuyerRefund }
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.ResolveDisputeResponse);
@@ -783,10 +850,11 @@ public partial class AdminFunction
         var latestStatus = latest.TryGetValue("status", out var ls) ? ls.S : null;
         var recordedAt = latest.TryGetValue("disputeResolvedAt", out var lra) && lra.S != null ? lra.S : now;
         var recordedDisposition = latest.TryGetValue(DisputeDispositionFields.Disposition, out var rd) ? rd.S : null;
+        var direction = DisputeVerdicts.MirrorDirection(resolution);
         if (latestStatus == "dispute_resolved")
         {
             var mirror = VerdictMirror();
-            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(latest), resolution);
+            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(latest), direction);
             if (plan.Case == DispositionCase.Unknown)
             {
                 return LambdaResponse.Error(503, "ESCROW_012",
@@ -796,7 +864,7 @@ public partial class AdminFunction
             if (plan.Case != DispositionCase.NotNeeded)
             {
                 var chosen = disposition ?? recordedDisposition;
-                if (DispositionRefusal(plan, chosen, resolution, replay: true) is { } refusal)
+                if (DispositionRefusal(plan, chosen, direction, replay: true) is { } refusal)
                 {
                     return refusal;
                 }
@@ -819,14 +887,15 @@ public partial class AdminFunction
 
                 // FRD-18: past the refusals, which change nothing, the label a lost write left out heals.
                 await RepairDisputeLabelAsync(latest, resolution, chosen, reason, request, context);
-                return await ApplyDispositionAsync(mirror, latest, resolution, chosen!, reason, plan.Legs, dispositionAt,
+                return await ApplyDispositionAsync(mirror, latest, direction, chosen!, reason, plan.Legs, dispositionAt,
                     recordedAt, latestStatus, adminUserId, request, context);
             }
         }
 
         await RepairDisputeLabelAsync(latest, resolution, recordedDisposition,
             latest.TryGetValue(DisputeDispositionFields.Reason, out var storedReason) ? storedReason.S : null, request, context);
-        await MirrorVerdictAsync(latest, resolution, recordedAt, adminUserId, context);
+        await MirrorVerdictAsync(latest, direction, recordedAt, adminUserId, context);
+        var recordedSplit = VerdictAmounts.From(DynamoDbHelper.FromItem(latest));
         return LambdaResponse.Ok(new ResolveDisputeResponse
         {
             EscrowId = escrowId,
@@ -834,7 +903,13 @@ public partial class AdminFunction
             Resolution = resolution,
             ResolvedAt = recordedAt,
             Disposition = recordedDisposition,
-            Message = "Verdict already recorded."
+            Message = "Verdict already recorded.",
+            VerdictAmounts = recordedSplit == null
+                ? null
+                : new VerdictAmountsDto
+                {
+                    FarmerAmount = recordedSplit.FarmerAmount, TruckerAmount = recordedSplit.TruckerAmount, BuyerRefund = recordedSplit.BuyerRefund
+                }
         }, AppJsonContext.Default.ResolveDisputeResponse);
     }
 
@@ -1124,7 +1199,11 @@ public partial class AdminFunction
             deliveryRepo: string.IsNullOrEmpty(_deliveriesTable) ? null : new DeliveryRepository(_dynamoDb, _deliveriesTable),
             transactionAuditRepo: string.IsNullOrEmpty(_transactionAuditTable)
                 ? null
-                : new TransactionAuditRepository(_dynamoDb, _transactionAuditTable));
+                : new TransactionAuditRepository(_dynamoDb, _transactionAuditTable))
+        {
+            // ESC-20: the queue lists and records ledger rows too (P.8).
+            LedgerRepo = LedgerRepository()
+        };
     }
 
     /// <summary>GET /admin/payouts/manual?limit=&nextToken= (oldest first).</summary>
@@ -1236,11 +1315,18 @@ public partial class AdminFunction
             return null;
         }
 
+        var ledger = LedgerRepository();
         return new UnappliedPaymentService(
             new EscrowAuditRepository(_dynamoDb, _escrowAuditTable),
             new OrderRepository(_dynamoDb, _ordersTable),
             TxAuditRepo(),
-            _escrowIdempotencyTable);
+            _escrowIdempotencyTable)
+        {
+            // ESC-20 (P.9): a duplicate payment the ledger refunds is never recorded here as well.
+            LedgerDuplicateRow = ledger == null
+                ? null
+                : (orderId, paymentOrderId) => ledger.GetRowAsync(UnappliedPayments.EscrowKey(orderId), LedgerRefs.RefundDuplicate(paymentOrderId))
+        };
     }
 
     /// <summary>GET /admin/payments/unapplied?limit=&amp;nextToken= (a bounded Scan; see the service).</summary>

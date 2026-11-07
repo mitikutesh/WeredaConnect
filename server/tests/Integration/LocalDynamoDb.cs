@@ -82,6 +82,7 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
     public IAmazonDynamoDB Client { get; private set; } = null!;
     public string Escrows => $"escrows-{_suffix}";
     public string EscrowAudit => $"escrow-audit-{_suffix}";
+    public string EscrowLedger => $"escrow-ledger-{_suffix}";
     public string Idempotency => $"escrow-idempotency-{_suffix}";
     public string Orders => $"orders-{_suffix}";
     public string Deliveries => $"deliveries-{_suffix}";
@@ -116,6 +117,8 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
             ("OrderIndex", "orderId", "createdAt"),
             ("ManualPayoutIndex", "manualPayout", "manualPayoutQueuedAt"));
         await CreateAsync(EscrowAudit, ("escrowId", "timestamp"));
+        // ESC-20: the escrow ledger and its sparse open-row index.
+        await CreateAsync(EscrowLedger, ("escrowId", "ref"), ("LedgerOpenIndex", "openStatus", "dueAt"));
         // ESC-45: the webhook inbox's sparse replay queue.
         await CreateAsync(Idempotency, ("idempotencyKey", null), ("InboxReplayIndex", "inboxReplay", "inboxReplayAt"));
         await CreateAsync(Orders, ("orderId", "createdAt"), ("AdminQueueIndex", "adminQueue", "adminQueuedAt"),

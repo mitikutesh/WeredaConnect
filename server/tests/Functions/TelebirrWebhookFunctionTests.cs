@@ -347,7 +347,7 @@ public class TelebirrWebhookFunctionTests
 
     private TelebirrWebhookFunction NewOrderFunction(
         bool wireOrders = true, IUserRepository? userRepo = null, bool requirePayerMatch = false,
-        IFraudDetectionService? fraudService = null)
+        IFraudDetectionService? fraudService = null, EscrowService? duplicateRefunds = null)
     {
         _checkoutRepo.GetMappingAsync(OrderMerchOrderId)
             .Returns(new OrderCheckoutMapping(OrderMerchOrderId, OrderId, "buyer-1", 15000m));
@@ -366,7 +366,10 @@ public class TelebirrWebhookFunctionTests
             txAuditRepo: _txAuditRepo,
             inboxRepo: _inboxRepo,
             clock: _clock,
-            fraudService: fraudService);
+            fraudService: fraudService)
+        {
+            DuplicateRefunds = duplicateRefunds
+        };
     }
 
     private readonly TestClock _clock = new(DateTimeOffset.UtcNow);
@@ -559,6 +562,38 @@ public class TelebirrWebhookFunctionTests
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
         await AuditRecorded("order_payment_duplicate");
         await _inboxRepo.Received(1).FinalizeAsync($"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "duplicate");
+    }
+
+    [Fact]
+    public async Task Order_payment_duplicate_gets_its_ledger_refund_row_for_the_sweep()
+    {
+        // ESC-20 (P.9): a duplicate decided for good is refunded by itself: one pending row, payee the buyer,
+        // the captured amount, the payment's own id as the hold reference; the escrow row is not written.
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("funded", "TB-EARLIER"));
+        var ledger = new WeredaConnect.Server.Tests.Services.Ledger.InMemoryLedger();
+        var audit = Substitute.For<IEscrowAuditRepository>();
+        audit.GetAuditTrailAsync(Arg.Any<string>(), Arg.Any<bool>()).Returns(new List<Dictionary<string, object>>());
+        var refunds = new EscrowService(ledger.EscrowRepo, audit, null, null) { LedgerRepo = ledger };
+
+        await NewOrderFunction(duplicateRefunds: refunds).FunctionHandler(Req(OrderBody()), _ctx);
+
+        await AuditRecorded("order_payment_duplicate");
+        var row = ledger.Row(OrderEscrowId, $"refund#duplicate#{OrderPaymentId}");
+        (row.Status, row.Amount, row.PayeeId, row.HoldRef, row.Reason).Should()
+            .Be(("pending", 15000m, "buyer-1", OrderPaymentId, "duplicate_payment"));
+        ledger.Escrows.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Order_payment_unmatched_gets_no_ledger_refund_row()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("cancelled"));
+        var ledger = new WeredaConnect.Server.Tests.Services.Ledger.InMemoryLedger();
+        var refunds = new EscrowService(ledger.EscrowRepo, Substitute.For<IEscrowAuditRepository>(), null, null) { LedgerRepo = ledger };
+
+        await NewOrderFunction(duplicateRefunds: refunds).FunctionHandler(Req(OrderBody()), _ctx);
+
+        ledger.Rows.Should().BeEmpty();
     }
 
     [Fact]

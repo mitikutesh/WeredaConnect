@@ -94,7 +94,8 @@ public class EscrowRepositoryFraudHoldTests
         update.UpdateExpression.Should().Be("SET #status = :held, #reason = :reason, #heldAt = :heldAt, #heldBy = :system, "
                                            + "#heldFrom = :from, #heldFor = :for, #updated = :heldAt ADD #version :one");
         update.ConditionExpression.Should().Be(
-            "#status = :from AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout)");
+            "#status = :from AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout) AND "
+            + EscrowRepository.LedgerCropHeldCondition);
         update.ExpressionAttributeNames["#reason"].Should().Be("holdReason");
         update.ExpressionAttributeNames["#heldFrom"].Should().Be("heldFromStatus");
         update.ExpressionAttributeNames["#heldFor"].Should().Be("heldFor");
@@ -122,7 +123,8 @@ public class EscrowRepositoryFraudHoldTests
         items.Should().HaveCount(2);
         items[0].Update.TableName.Should().Be(Table);
         items[0].Update.ConditionExpression.Should().Be(
-            "#status = :from AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout)");
+            "#status = :from AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout) AND "
+            + EscrowRepository.LedgerCropHeldCondition);
         var check = items[1].ConditionCheck;
         check.TableName.Should().Be("orders-test");
         check.Key["orderId"].S.Should().Be("ord-7");

@@ -229,11 +229,13 @@ public sealed class OrderFollowsMoneyDynamoDbTests
             .Select(r => $"{Str(r, "fromState")}>{Str(r, "toState")}")
             .ToList();
 
-    private static ReleaseEscrowRequest Release(string escrowId, string trigger = "delivery_confirmed") => new()
+    // FUP-147 (ESC-20): a release naming a delivery that is not the escrow's linked one is refused,
+    // so a test whose escrow is linked passes its delivery id.
+    private static ReleaseEscrowRequest Release(string escrowId, string trigger = "delivery_confirmed", string deliveryId = "-") => new()
     {
         EscrowId = escrowId,
         Trigger = trigger,
-        DeliveryId = "-",
+        DeliveryId = deliveryId,
         IdempotencyKey = $"system:{escrowId}:release:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}"
     };
 
@@ -657,7 +659,7 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         refund.IsSuccess.Should().BeFalse();
         Str(await OrderAsync(orderId), OrderMoneyFields.RefundOverrideBy).Should().Be(AdminId);
 
-        (await Service().ReleaseAsync(Release(escrowId), "system")).IsSuccess.Should().BeTrue();
+        (await Service().ReleaseAsync(Release(escrowId, deliveryId: deliveryId), "system")).IsSuccess.Should().BeTrue();
 
         (await OrderStatusAsync(orderId)).Should().Be("settled");
     }

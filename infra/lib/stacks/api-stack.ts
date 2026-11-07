@@ -41,6 +41,8 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly paymentsTable: dynamodb.Table;
   readonly escrowsTable: dynamodb.Table;
   readonly escrowAuditTable: dynamodb.Table;
+  /** ESC-20: the escrow ledger (escrow-protocol.md 2.2.0, P.3) with its LedgerOpenIndex. */
+  readonly escrowLedgerTable: dynamodb.Table;
   readonly transactionAuditTable: dynamodb.Table;
   readonly escrowIdempotencyTable: dynamodb.Table;
   readonly deliveryQrSecretsTable: dynamodb.Table;
@@ -462,6 +464,21 @@ export class ApiStack extends cdk.Stack {
 
     // ESC-25: the minimum app build for order operations; only /sync takes order commands.
     const minOrderAppBuild = String(envConfig.minOrderAppBuild ?? 0);
+    // ESC-20: one value for sync and the Telebirr webhook, the two Lambdas that create order escrows
+    // (dev on). The ledger table itself is wired into every escrow Lambda regardless, so an escrow
+    // born on the ledger keeps settling there after the flag goes off.
+    const escrowLedgerEnabled = envConfig.escrowLedgerEnabled ? "true" : "false";
+
+    // ESC-20: the ledger's own grants. Rows are put (conditional, in a transaction with the escrow and
+    // its audit row), updated (status, stamp) and read (GetItem, Query on the table and LedgerOpenIndex);
+    // never deleted, batch-written or scanned. TransactWriteItems is authorised per item action.
+    const grantEscrowLedger = (fn: lambda.IFunction, actions: string[]) =>
+      fn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions,
+          resources: [props.escrowLedgerTable.tableArn, `${props.escrowLedgerTable.tableArn}/index/*`],
+        }),
+      );
 
     const syncFn = new WeredaLambda(this, "SyncFunction", {
       functionName: `${prefix}-sync`,
@@ -497,6 +514,10 @@ export class ApiStack extends cdk.Stack {
         // lands in the immutable escrow-audit ledger. Without this env the leg is
         // disabled (orders still fund; escrow records aren't created here).
         ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+        // ESC-20: a mock-funded order's escrow is born on the escrow ledger while the flag is on. The sync
+        // Lambda only marks the escrow row; it reads and writes no ledger row, so it has no ledger grant.
+        ESCROW_LEDGER_TABLE: props.escrowLedgerTable.tableName,
+        ESCROW_LEDGER_ENABLED: escrowLedgerEnabled,
         // FRD-03: on, the farmer's accept is one transaction with a check that the order's escrow
         // is not held (a sweep may hold it between the read and the write). Same value as on
         // escrow-cron; both are turned on together after FRD-06.
@@ -1374,6 +1395,8 @@ export class ApiStack extends cdk.Stack {
       environment: {
         ESCROWS_TABLE: props.escrowsTable.tableName,
         ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+        // ESC-20: release and refund settle a ledger escrow through its rows (and call the gateway at once).
+        ESCROW_LEDGER_TABLE: props.escrowLedgerTable.tableName,
         ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
         DELIVERIES_TABLE: props.deliveriesTable.tableName,
         ORDERS_TABLE: props.ordersTable.tableName,
@@ -1403,6 +1426,7 @@ export class ApiStack extends cdk.Stack {
     });
     props.escrowsTable.grantReadWriteData(escrowFn.function);
     props.escrowAuditTable.grantWriteData(escrowFn.function);
+    grantEscrowLedger(escrowFn.function, ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"]);
     props.escrowIdempotencyTable.grantReadWriteData(escrowFn.function);
     props.deliveriesTable.grantReadData(escrowFn.function);
     props.ordersTable.grantReadData(escrowFn.function);
@@ -1443,6 +1467,8 @@ export class ApiStack extends cdk.Stack {
       environment: {
         ESCROWS_TABLE: props.escrowsTable.tableName,
         ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+        // ESC-20: the ledger sweep, the split verdicts and the transport leg retry.
+        ESCROW_LEDGER_TABLE: props.escrowLedgerTable.tableName,
         ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
         DELIVERIES_TABLE: props.deliveriesTable.tableName,
         // Order-aware auto-refund: an ORDER-funded escrow is only refunded when
@@ -1483,6 +1509,7 @@ export class ApiStack extends cdk.Stack {
       ...escrowVpcProps,
     });
     props.escrowsTable.grantReadWriteData(escrowCronFn.function);
+    grantEscrowLedger(escrowCronFn.function, ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"]);
     // Payout destinations and the release-time identity gate read profiles.
     props.usersTable.grantReadData(escrowCronFn.function);
     // FRD-04: the risk score is one Query of a party's fraud-signals partition. The cron writes no signal.
@@ -1534,6 +1561,22 @@ export class ApiStack extends cdk.Stack {
       ],
     });
 
+    // ESC-20: the ledger sweep every 15 minutes (escrow-protocol.md 2.2.0, P.6): calls pending rows,
+    // checks sent rows with the gateway before anything else, retries failed rows, reports overdue rows.
+    new events.Rule(this, "EscrowCronLedger", {
+      ruleName: `${prefix}-escrow-cron-ledger`,
+      description: "Trigger the escrow ledger sweep every 15 minutes (ESC-20)",
+      schedule: events.Schedule.rate(cdk.Duration.minutes(15)),
+      targets: [
+        new targets.LambdaFunction(escrowCronFn.function, {
+          // Payload wrapped as `body` so it deserializes into APIGatewayProxyRequest.Body (Review C3).
+          event: events.RuleTargetInput.fromObject({
+            body: JSON.stringify({ action: "ledger_sweep" }),
+          }),
+        }),
+      ],
+    });
+
     // EventBridge: reconciliation every 6 hours
     new events.Rule(this, "EscrowCronReconciliation", {
       ruleName: `${prefix}-escrow-cron-reconciliation`,
@@ -1563,6 +1606,10 @@ export class ApiStack extends cdk.Stack {
         environment: {
           ESCROWS_TABLE: props.escrowsTable.tableName,
           ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+          // ESC-20: a live-funded order's escrow is born on the ledger while the flag is on, and a duplicate
+          // payment gets its ledger refund row.
+          ESCROW_LEDGER_TABLE: props.escrowLedgerTable.tableName,
+          ESCROW_LEDGER_ENABLED: escrowLedgerEnabled,
           ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
           // Payer binding: the paying wallet must be the buyer's registered phone.
           // Recorded as an audit signal by default; enforced only once Telebirr's
@@ -1592,6 +1639,10 @@ export class ApiStack extends cdk.Stack {
       });
       props.escrowsTable.grantReadWriteData(telebirrWebhookFn.function);
       props.escrowAuditTable.grantWriteData(telebirrWebhookFn.function);
+      // ESC-20 (P.9): a duplicate payment decided for good gets one conditional ledger row (PutItem in a
+      // transaction with its audit row), after a Query of the order's escrow-audit trail for a manual refund.
+      grantEscrowLedger(telebirrWebhookFn.function, ["dynamodb:PutItem"]);
+      props.escrowAuditTable.grant(telebirrWebhookFn.function, "dynamodb:Query");
       props.escrowIdempotencyTable.grantReadWriteData(telebirrWebhookFn.function);
       props.usersTable.grantReadData(telebirrWebhookFn.function);
       props.ordersTable.grantReadWriteData(telebirrWebhookFn.function);
@@ -2763,6 +2814,8 @@ export class ApiStack extends cdk.Stack {
       environment: {
         ESCROWS_TABLE: props.escrowsTable.tableName,
         ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+        // ESC-20 (P.8): the manual payout queue lists and records ledger rows.
+        ESCROW_LEDGER_TABLE: props.escrowLedgerTable.tableName,
         TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
         FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
         USERS_TABLE: props.usersTable.tableName,
@@ -2829,6 +2882,10 @@ export class ApiStack extends cdk.Stack {
     props.ordersTable.grant(adminFn.function, "dynamodb:UpdateItem");
     props.deliveriesTable.grant(adminFn.function, "dynamodb:UpdateItem");
     props.escrowAuditTable.grantWriteData(adminFn.function);
+    // ESC-20 (P.8): the manual payout queue reads ledger rows (GetItem, Query on the table and
+    // LedgerOpenIndex) and records a paid row (UpdateItem in a transaction with the escrow and its audit
+    // row). The admin Lambda never puts or calls a ledger row.
+    grantEscrowLedger(adminFn.function, ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem"]);
     // FUP-02: a manual refund record writes its escrow-audit row and a claim row here in one
     // TransactWriteItems. IAM has no separate transaction action: each Put needs PutItem on its
     // table (a conditional Put needs nothing more; ConditionCheckItem is only for ConditionCheck

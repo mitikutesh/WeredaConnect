@@ -28,8 +28,9 @@ describe('DatabaseStack', () => {
     // + delivery-qr-secrets + messages (in-app chat) = 19,
     // + notifications (order notification inbox, ESC-21) = 20,
     // + trip-locations (live trip check-ins, LT-05) = 21,
-    // + listing-reports (buyers' reports, FUP-67) = 22.
-    template.resourceCountIs('AWS::DynamoDB::Table', 22);
+    // + escrow-ledger (per-leg money movements, ESC-20) = 22,
+    // + listing-reports (buyers' reports, FUP-67) = 23.
+    template.resourceCountIs('AWS::DynamoDB::Table', 23);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -301,6 +302,7 @@ describe('ApiStack', () => {
       paymentsTable: dbStack.paymentsTable,
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
@@ -1410,6 +1412,7 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       paymentsTable: dbStack.paymentsTable,
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
@@ -1912,6 +1915,7 @@ describe('ApiStack (prod security)', () => {
       paymentsTable: dbStack.paymentsTable,
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
@@ -2039,6 +2043,7 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
       paymentsTable: dbStack.paymentsTable,
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
@@ -2454,6 +2459,9 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-dispute-propagation-failed',
     // ESC-16: a confirmed delivery whose escrow stamp failed.
     'wereda-connect-dev-escrow-delivery-stamp-failures',
+    // ESC-20: escrow ledger rows open for a day, and a ledger money check that failed.
+    'wereda-connect-dev-ledger-rows-overdue',
+    'wereda-connect-dev-escrow-ledger-invariant',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -3082,6 +3090,8 @@ describe('MonitoringStack', () => {
     'OrderMoneyMismatch', 'DisputePropagationFailed',
     // ESC-16: a confirmed delivery whose escrow stamp failed.
     'EscrowDeliveryStampFailures',
+    // ESC-20: the escrow ledger.
+    'LedgerRowsOverdue', 'EscrowLedgerInvariant',
   ];
   // FUP-81: the other filters of those log groups, each named, so a new filter there must be
   // sorted into one list or the other. The JSON audit filters match a field exactly (client text
@@ -3145,8 +3155,9 @@ describe('MonitoringStack', () => {
     const patterns = moneyFilterPatterns(monitoringTemplate(true));
     // ESC-18 added the webhook's refund-schedule filter; FUP-81 added OrderMoneyMismatch (1),
     // DisputePropagationFailed (3) and the sync dispute filter (1); ESC-16 added
-    // EscrowDeliveryStampFailures (2: sync and escrow-cron).
-    expect(patterns.length).toBe(22);
+    // EscrowDeliveryStampFailures (2: sync and escrow-cron); ESC-20 added LedgerRowsOverdue (1: escrow-cron) and
+    // EscrowLedgerInvariant (2 here: escrow and escrow-cron; its admin filter is outside these log groups).
+    expect(patterns.length).toBe(25);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the
