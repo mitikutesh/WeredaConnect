@@ -1,16 +1,23 @@
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
+using Amazon.Lambda.APIGatewayEvents;
+using Amazon.Lambda.TestUtilities;
 using FluentAssertions;
+using NSubstitute;
 using WeredaConnect.Server.Data;
+using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Helpers;
+using WeredaConnect.Server.RateLimiting;
+using WeredaConnect.Server.Services;
 using Xunit;
 
 namespace WeredaConnect.Server.Tests.Integration;
 
 /// <summary>
 /// FRD-18 against real DynamoDB (LocalStack in CI): a retried decision writes one label row (the conditional
-/// put at the case's key), the label shows in its transaction's partition (the admin timeline), and every
-/// label is on the one <c>EntityIndex</c> partition <c>scripts/export_outcome_labels.py</c> Queries.
+/// put at the case's key), the label shows in its transaction's partition (the admin timeline), every label
+/// is on the one <c>EntityIndex</c> partition <c>scripts/export_outcome_labels.py</c> Queries, and the Fraud
+/// Review route labels each change of decision once.
 /// </summary>
 [Collection(LocalDynamoDbCollection.Name)]
 [Trait("Category", "Integration")]
@@ -112,5 +119,48 @@ public sealed class OutcomeLabelDynamoDbTests
         var verdict = mine.Single(l => l["labelCase"].S == "dispute");
         verdict["amount"].N.Should().Be("8000");
         verdict["buyerId"].S.Should().Be($"buyer-{_run}");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task FraudReview_LabelsEachChangeOfDecisionOnce()
+    {
+        var user = $"farmer-frd18-{_run}";
+        var signals = new FraudDetectionService(Ddb, _db.Crops, _db.FraudSignals, Substitute.For<IRateLimitRepository>());
+        await signals.RecordFraudSignalAsync(user, "GPS_ANOMALY", $"del-{_run}", "delivery", "gps");
+        var signalKey = (await Ddb.QueryAsync(new QueryRequest
+        {
+            TableName = _db.FraudSignals,
+            KeyConditionExpression = "userId = :u",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":u"] = new() { S = user } }
+        })).Items.Single()["signalKey"].S;
+        var signalId = FraudDetectionService.BuildSignalId(user, signalKey);
+        var admin = new AdminFunction(Ddb, _db.Users, _db.FraudSignals, cognitoAuth: null, escrowsTable: _db.Escrows,
+            transactionAuditTable: _db.TransactionAudit);
+
+        async Task ActAsync(string action)
+        {
+            var response = await admin.FunctionHandler(new APIGatewayProxyRequest
+            {
+                HttpMethod = "POST",
+                Path = $"/admin/fraud-signals/{signalId}/action",
+                Body = $"{{\"action\":\"{action}\"}}",
+                RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+                {
+                    Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" }, { "role", "admin" } }
+                }
+            }, new TestLambdaContext());
+            response.StatusCode.Should().Be(200, response.Body);
+        }
+
+        await ActAsync("approve");
+        await ActAsync("approve"); // the same decision again
+        await ActAsync("whitelist"); // a change of mind
+
+        var labels = (await Repo.GetByTransactionAsync(signalId))
+            .Where(r => (string)r["action"] == "outcome_label")
+            .ToList();
+        labels.Select(r => r["labelOutcome"]).Should().Equal("false_positive", "whitelisted");
+        labels.Should().OnlyContain(r => (string)r["subjectUserId"] == user && (string)r["deliveryId"] == $"del-{_run}"
+                                         && (string)r["signalType"] == "GPS_ANOMALY");
     }
 }
