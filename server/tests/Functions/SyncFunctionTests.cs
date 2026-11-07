@@ -2864,6 +2864,8 @@ public partial class SyncFunctionTests
             { "buyerPhone", new AttributeValue { S = "+251933333333" } },
             { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
             { "qrNonce", new AttributeValue { S = qrNonce } },
+            { "pickupPhotoVersionId", new AttributeValue { S = "photo-version-pickup-1" } },
+            { "dropoffPhotoVersionId", new AttributeValue { S = "photo-version-dropoff-1" } },
             { "status", new AttributeValue { S = status } },
             { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
             { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
@@ -4968,6 +4970,40 @@ public partial class SyncFunctionTests
             && item["truckerPhone"].S == "+251900100002");
     }
 
+    // FRD-12: a valid photo key on a delivery create is accepted but not written: photos reach the
+    // delivery only through the checked delivery_photo attach.
+    [Fact]
+    public async Task DeliveryCreate_AValidPhotoKey_IsDroppedNotWritten()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["pickupPhotoRef"] = "uploads/photos/del-001/pickup-1700000000000.webp";
+        op.Data["dropoffPhotoRef"] = "uploads/photos/del-001/dropoff-1700000000000.jpg";
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await ReceivedDeliveryWrite(item =>
+            !item.ContainsKey("pickupPhotoRef") && !item.ContainsKey("dropoffPhotoRef")
+            && item["deliveryId"].S == "del-001");
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_AnInvalidPhotoKey_FailsTheCreate()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["pickupPhotoRef"] = "uploads/photos/del-999/pickup-1700000000000.webp";
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("DELIVERY_INVALID_FIELD: pickupPhotoRef has invalid format.", response.Body);
+    }
+
     // SIM-46: a client that sends no phones at all (the shipped mobile and web
     // clients) still gets every phone stamped.
     [Fact]
@@ -5558,23 +5594,29 @@ public partial class SyncFunctionTests
     }
 
     // --- SIM-60: a photo ref on a delivery update is a server upload key of this delivery ---
+    // --- FRD-12: such a key is accepted but never written; delivery_photo attaches photos ---
 
-    [Fact]
-    public async Task DeliveryUpdate_PhotoRefInUploadKeyShape_IsAccepted()
+    [Theory]
+    [InlineData("uploads/photos/del-001/pickup-1700000000000.webp")]
+    [InlineData("uploads/photos/del-001/dropoff-1700000000000.jpg")]
+    public async Task DeliveryUpdate_PhotoRefInUploadKeyShape_IsAcceptedButNotWritten(string key)
     {
         SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pending", 1, "nonce-abc-123");
-        const string key = "uploads/photos/del-001/pickup-1700000000000.webp";
+        var field = key.Contains("/pickup-") ? "pickupPhotoRef" : "dropoffPhotoRef";
 
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
             {
                 { "status", "pickedUp" }, { "scannedQrNonce", "nonce-abc-123" },
-                { "pickupPhotoRef", key }, { "version", 1 }
+                { field, key }, { "version", 1 }
             })), "trucker-001"), _context);
 
         Assert.Contains("success", response.Body);
+        // The pickup itself is written; the photo key is not (it skipped the attach's checks).
         await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
-            r.ExpressionAttributeValues.Values.Any(v => v.S == key)));
+            r.ExpressionAttributeValues.Values.Any(v => v.S == "pickedUp")
+            && !r.ExpressionAttributeValues.Values.Any(v => v.S == key)
+            && !r.ExpressionAttributeNames.Values.Contains(field)));
     }
 
     [Theory]
@@ -6558,6 +6600,9 @@ public partial class SyncFunctionTests
         Assert.DoesNotContain("qrNonce", response.Body);
         // ESC-48: nor any party's phone number.
         AssertNoDeliveryPhones(response.Body);
+        // FRD-12: nor the server-only photo version ids.
+        Assert.DoesNotContain("PhotoVersionId", response.Body);
+        Assert.DoesNotContain("photo-version-", response.Body);
     }
 
     private static void AssertNoDeliveryPhones(string body)

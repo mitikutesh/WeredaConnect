@@ -1786,6 +1786,18 @@ abstract class AppLocalizations {
   /// **'No photo'**
   String get restNoPhoto;
 
+  /// FRD-12. Delivery detail: the photo tile of a handoff photo held on the server while the phone is offline or the photo could not be loaded (short, fits a 120 px tile)
+  ///
+  /// In en, this message translates to:
+  /// **'Shows when online'**
+  String get deliveryPhotoOnlineOnly;
+
+  /// FRD-12. Handoff scan screen: snackbar when the photo could not be taken, compressed under 200 KB or (web) uploaded; the handoff itself can still be confirmed
+  ///
+  /// In en, this message translates to:
+  /// **'The photo could not be saved. Try again.'**
+  String get deliveryPhotoFailed;
+
   /// Button to mark delivery as in transit
   ///
   /// In en, this message translates to:

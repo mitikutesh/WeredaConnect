@@ -1120,6 +1120,14 @@
   "@restNoPhoto": {
     "description": "Fieldway design alignment (specs/design-canvas). Delivery detail: the read-only photo tile of a leg that has no photo"
   },
+  "deliveryPhotoOnlineOnly": "በኢንተርኔት ሲገናኙ ይታያል",
+  "@deliveryPhotoOnlineOnly": {
+    "description": "FRD-12. Delivery detail: the photo tile of a handoff photo held on the server while the phone is offline or the photo could not be loaded (short, fits a 120 px tile)"
+  },
+  "deliveryPhotoFailed": "ፎቶው አልተቀመጠም። እንደገና ይሞክሩ።",
+  "@deliveryPhotoFailed": {
+    "description": "FRD-12. Handoff scan screen: snackbar when the photo could not be taken, compressed under 200 KB or (web) uploaded; the handoff itself can still be confirmed"
+  },
   "deliveryMarkInTransit": "በመጓጓዝ ላይ ምልክት",
   "@deliveryMarkInTransit": {
     "description": "Button to mark delivery as in transit"

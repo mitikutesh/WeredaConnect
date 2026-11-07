@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/models/sync_operation.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/idempotency_key_generator.dart';
 import 'package:wereda_connect/core/sync/location_ping_rules.dart';
 
@@ -423,12 +424,13 @@ class SyncQueue {
 
   /// Get the count of failed operations: those that ran out of retries and
   /// those the server rejected for good, except rejected order operations,
-  /// match events, check-ins and operations flagged reverted
+  /// match events, check-ins, handoff photos and operations flagged reverted
   /// ([markRevertedFor]). A rejected order change was undone (the order went
   /// back to the server's view) and explained, a reverted crop or trip change
   /// likewise, a match event is background analytics the user never made,
-  /// and a refused check-in only leaves a gap in the trail (sync-protocol.md
-  /// Location pings), so nothing is left for the user to act on. Any other
+  /// a refused check-in only leaves a gap in the trail (sync-protocol.md
+  /// Location pings), and a refused handoff photo leaves the handoff as it
+  /// was (FRD-12), so nothing is left for the user to act on. Any other
   /// rejected change still sits in local data that never reached the server,
   /// so it keeps counting.
   Future<int> getFailedCount() async {
@@ -449,7 +451,10 @@ class SyncQueue {
                     .entityTypeEqualTo('match_event')
                     .and()
                     .not()
-                    .entityTypeEqualTo(locationPingEntityType),
+                    .entityTypeEqualTo(locationPingEntityType)
+                    .and()
+                    .not()
+                    .entityTypeEqualTo(deliveryPhotoEntityType),
               ),
         )
         .count();
@@ -481,6 +486,38 @@ class SyncQueue {
   /// Get an operation by its operationId.
   Future<SyncOperation?> getOperation(String operationId) async {
     return _findByOperationId(operationId);
+  }
+
+  /// Whether an operation of the entity still waits to reach the server
+  /// (pending or on its way). A handoff photo waits for its delivery's own
+  /// create this way (FRD-12).
+  Future<bool> hasOpenOperationsFor(String entityType, String entityId) async {
+    final open = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(entityType)
+        .entityIdEqualTo(entityId)
+        .group(
+          (q) => q
+              .statusEqualTo(SyncStatus.pending)
+              .or()
+              .statusEqualTo(SyncStatus.syncing),
+        )
+        .count();
+    return open > 0;
+  }
+
+  /// Replace the payload of a waiting operation, keeping its place in the
+  /// queue, its idempotency key and its retries. Used by a preflight that
+  /// readied the operation (a handoff photo's upload key, FRD-12), so a
+  /// later run sends what this one prepared instead of doing it again.
+  Future<void> replaceData(String operationId, String data) async {
+    final operation = await _findByOperationId(operationId);
+    if (operation == null) return;
+
+    await _isar.writeTxn(() async {
+      operation.data = data;
+      await _isar.syncOperations.put(operation);
+    });
   }
 
   /// The check-ins that still wait to reach the server (pending or on their

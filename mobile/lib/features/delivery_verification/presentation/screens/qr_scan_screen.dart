@@ -91,6 +91,10 @@ class _QrScanScreenState extends State<QrScanScreen> {
   // Verified phase data
   GpsCaptureResult? _gpsResult;
   String? _photoRef;
+
+  /// The photo's bytes for the preview on web (FRD-12), where it has no
+  /// file and went up already.
+  Uint8List? _photoPreview;
   String? _scannedNonce;
   String? _scannedToken;
   bool _isCapturingGps = false;
@@ -267,10 +271,21 @@ class _QrScanScreenState extends State<QrScanScreen> {
       type: photoType,
     );
 
-    if (mounted && result.success) {
+    if (!mounted) return;
+    if (result.success) {
       setState(() {
-        _photoRef = result.localPath;
+        // FRD-12: the phone's file (the sync queue uploads it after the
+        // handoff), or on web the key of the photo that went up already.
+        _photoRef = result.photoRef;
+        _photoPreview = result.previewBytes;
       });
+    } else if (!result.cancelled) {
+      // The photo is optional: the handoff can still be confirmed.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.deliveryPhotoFailed),
+        ),
+      );
     }
   }
 
@@ -340,6 +355,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
       _gpsResult = null;
       _isCapturingGps = false;
       _photoRef = null;
+      _photoPreview = null;
       _scannedNonce = null;
       _scannedToken = null;
       _typedCode = null;
@@ -715,6 +731,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
                   FwCard(
                     child: PhotoEvidenceWidget(
                       photoRef: _photoRef,
+                      previewBytes: _photoPreview,
                       photoType: photoType,
                       deliveryId: widget.delivery.deliveryId,
                       onCapture: _capturePhoto,
