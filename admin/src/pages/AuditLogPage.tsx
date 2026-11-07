@@ -6,7 +6,7 @@ import { SearchInput } from "@/components/ui/SearchInput";
 import { useLocale } from "@/hooks/useLocale";
 import { useAuditLog, useEscrowAudit } from "@/hooks/useQuery";
 import { formatDateTime } from "@/lib/i18n";
-import { timelineEntityVariant, timelineActionLabel } from "@/lib/transaction";
+import { timelineEntityVariant, timelineEntityLabel, timelineActionLabel } from "@/lib/transaction";
 
 /** Normalised audit row merged from the unified feed + the escrow audit feed. */
 interface AuditRow {
@@ -73,7 +73,7 @@ export function AuditLogPage() {
       header: t("audit.type"),
       render: (row: Record<string, unknown>) => (
         <Badge variant={timelineEntityVariant[String(row.entityType)] || "default"}>
-          {String(row.entityType)}
+          {timelineEntityLabel(String(row.entityType), t)}
         </Badge>
       ),
     },
