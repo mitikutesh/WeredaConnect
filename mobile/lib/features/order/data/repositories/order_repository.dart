@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
@@ -149,10 +150,12 @@ class OrderRepository extends BaseOrderRepository {
     double? transportCost,
     double? commissionRate,
     String? dropoffNote,
+    DeliveryPoint? deliveryPoint,
   }) async {
     final orderId = _uuid.v4();
     final now = DateTime.now().toUtc();
     final note = normalizeDropoffNote(dropoffNote);
+    final point = _boxed(deliveryPoint);
     final totalPrice = quantity * pricePerUnit;
     final effectiveCommissionRate = commissionRate ?? 0.05;
     // SIM-30: the server's money, each leg to the santim, so the local copy
@@ -190,6 +193,8 @@ class OrderRepository extends BaseOrderRepository {
       ..orderTotal = orderTotal
       ..paymentMethod = 'cbe_transfer'
       ..dropoffNote = note
+      ..deliveryLatitude = point?.latitude
+      ..deliveryLongitude = point?.longitude
       ..updatedAt = now;
 
     await _isar.writeTxn(() async {
@@ -226,6 +231,10 @@ class OrderRepository extends BaseOrderRepository {
           if (truckerId != null) 'truckerId': truckerId,
           if (truckerName != null) 'truckerName': truckerName,
           if (note != null) 'dropoffNote': note,
+          if (point != null) ...{
+            'deliveryLatitude': point.latitude,
+            'deliveryLongitude': point.longitude,
+          },
           'status': orderStatusToWire(OrderStatus.created.name),
           'createdAt': now.toIso8601String(),
           'updatedAt': now.toIso8601String(),
@@ -611,6 +620,67 @@ class OrderRepository extends BaseOrderRepository {
     );
   }
 
+  /// LT-14: the order's own drop-off point, saved on the phone and queued
+  /// (offline-first), by the drop-off note's rules. The server checks them
+  /// again and refuses a change that lost the race with the pickup
+  /// (`ORDER_DELIVERY_LOCATION_LOCKED`); the queue then puts the order back
+  /// to the server's view.
+  @override
+  Future<void> updateDeliveryLocation(
+    String orderId,
+    String buyerId,
+    DeliveryPoint point,
+  ) async {
+    final order = await _findOrder(orderId);
+    if (!canEditDeliveryLocation(order, buyerId)) {
+      throw const OrderActionNotAllowedException(
+        'Only the buyer of a trucked order can change its drop-off place, '
+        'and only before pickup.',
+      );
+    }
+    final boxed = _boxed(point);
+    if (boxed == null) {
+      throw const OrderActionNotAllowedException(
+        'The drop-off place must be in Ethiopia.',
+      );
+    }
+    if (boxed == orderDeliveryPoint(order)) return;
+
+    final now = DateTime.now().toUtc();
+    final baseVersion = order.version;
+
+    await _writeThenEnqueue(
+      order,
+      (o) {
+        o
+          ..deliveryLatitude = boxed.latitude
+          ..deliveryLongitude = boxed.longitude
+          ..updatedAt = now
+          ..version = baseVersion + 1;
+      },
+      () => _syncQueue.enqueue(
+        userId: buyerId,
+        entityType: 'order',
+        entityId: orderId,
+        action: 'update',
+        data: jsonEncode({
+          'orderId': orderId,
+          'deliveryLatitude': boxed.latitude,
+          'deliveryLongitude': boxed.longitude,
+          'updatedAt': now.toIso8601String(),
+          'version': baseVersion,
+        }),
+        operationId: _uuid.v4(),
+      ),
+    );
+  }
+
+  /// [point] when the server takes it (inside Ethiopia's box), else null.
+  static DeliveryPoint? _boxed(DeliveryPoint? point) =>
+      point != null && isInDeliveryLocationBox(point.latitude, point.longitude)
+          ? point
+          : null;
+
   /// ESC-48: a cancelled or rejected order closes contact at once, offline
   /// too: the parties' phones leave the device with the change.
   static void _closeContact(Order order) {
@@ -676,6 +746,8 @@ class OrderRepository extends BaseOrderRepository {
       farmerPhone: order.farmerPhone,
       truckerPhone: order.truckerPhone,
       dropoffNote: order.dropoffNote,
+      deliveryLatitude: order.deliveryLatitude,
+      deliveryLongitude: order.deliveryLongitude,
     );
     await _isar.writeTxn(() async {
       change(order);
@@ -704,7 +776,9 @@ class OrderRepository extends BaseOrderRepository {
           ..buyerPhone = before.buyerPhone
           ..farmerPhone = before.farmerPhone
           ..truckerPhone = before.truckerPhone
-          ..dropoffNote = before.dropoffNote;
+          ..dropoffNote = before.dropoffNote
+          ..deliveryLatitude = before.deliveryLatitude
+          ..deliveryLongitude = before.deliveryLongitude;
         await _isar.orders.put(order);
       });
       rethrow;

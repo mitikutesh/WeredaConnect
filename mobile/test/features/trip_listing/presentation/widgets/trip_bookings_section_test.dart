@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -12,6 +13,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_bookings_section.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_summary_tile.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
 
@@ -143,6 +145,38 @@ void main() {
 
     expect(find.text('Almaz, Meki → Buyer, Merkato'), findsOneWidget);
     expect(find.text('Chaltu, Adama → Buyer, Bishoftu'), findsOneWidget);
+  });
+
+  // LT-14: the drop-off place the buyer picked (sent to the committed
+  // trucker) names the drop-off before the registered place.
+  testWidgets("a booking's own drop-off place comes before the registered one",
+      (tester) async {
+    PlaceRepository.instance.loadFromStringForTest(
+      jsonEncode([
+        {'id': 'gn-m', 'en': 'Mojo', 'lat': 8.587, 'lng': 39.121},
+        {'id': 'gn-b', 'en': 'Bishoftu', 'lat': 8.752, 'lng': 38.978},
+      ]),
+    );
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => repo.getOrdersByUser('trucker-1', role: 'trucker')).thenAnswer(
+      (_) async => [
+        _order('placed', OrderStatus.accepted, farmerName: 'Almaz')
+          ..pickupPlace = 'Meki'
+          ..dropoffPlace = 'Merkato'
+          ..deliveryLatitude = 8.587
+          ..deliveryLongitude = 39.121,
+      ],
+    );
+
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Almaz, Meki → Buyer, Mojo'), findsOneWidget);
   });
 
   // A failed read is not "no bookings": a request may wait among them.

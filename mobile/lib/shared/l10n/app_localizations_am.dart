@@ -5125,4 +5125,27 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get errorDropoffNoteLocked =>
       'ዕቃው ስለተነሳ የማውረጃ ምልክቱን ከእንግዲህ መቀየር አይቻልም።';
+
+  @override
+  String get deliveryPlaceLabel => 'የማውረጃ ቦታ';
+
+  @override
+  String get deliveryPlaceHelper =>
+      'መኪናው ዕቃውን የሚያመጣበት ቦታ። ገበሬውና ሹፌሩ ያዩታል። እስኪነሳ ድረስ መቀየር ይችላሉ።';
+
+  @override
+  String get deliveryPlaceNone => 'የመኪናው መድረሻ';
+
+  @override
+  String get deliveryPlaceChange => 'ቀይር';
+
+  @override
+  String get deliveryPlacePickFromList => 'ከዝርዝሩ ቦታ ይምረጡ።';
+
+  @override
+  String get deliveryPlaceSaved => 'የማውረጃ ቦታው ተቀምጧል።';
+
+  @override
+  String get errorDeliveryLocationLocked =>
+      'ዕቃው ስለተነሳ የማውረጃ ቦታውን ከእንግዲህ መቀየር አይቻልም።';
 }

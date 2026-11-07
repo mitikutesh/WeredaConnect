@@ -5261,4 +5261,27 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get errorDropoffNoteLocked =>
       'The goods were picked up, so the drop-off landmark can no longer be changed.';
+
+  @override
+  String get deliveryPlaceLabel => 'Drop-off place';
+
+  @override
+  String get deliveryPlaceHelper =>
+      'Where the truck brings the goods. The farmer and the driver see it. You can change it until pickup.';
+
+  @override
+  String get deliveryPlaceNone => 'The truck\'s destination';
+
+  @override
+  String get deliveryPlaceChange => 'Change';
+
+  @override
+  String get deliveryPlacePickFromList => 'Pick a place from the list.';
+
+  @override
+  String get deliveryPlaceSaved => 'Drop-off place saved.';
+
+  @override
+  String get errorDeliveryLocationLocked =>
+      'The goods were picked up, so the drop-off place can no longer be changed.';
 }

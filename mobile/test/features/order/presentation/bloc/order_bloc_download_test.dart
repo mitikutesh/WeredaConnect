@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -154,7 +155,16 @@ class _FakeOrderRepository extends BaseOrderRepository {
     double? transportCost,
     double? commissionRate,
     String? dropoffNote,
+    DeliveryPoint? deliveryPoint,
   }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> updateDeliveryLocation(
+    String orderId,
+    String buyerId,
+    DeliveryPoint point,
+  ) =>
       throw UnimplementedError();
 
   @override

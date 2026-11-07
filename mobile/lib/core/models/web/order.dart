@@ -63,6 +63,11 @@ class Order {
   /// LT-12: the buyer's drop-off landmark (order-lifecycle 2.5.0; see the
   /// Isar schema).
   String? dropoffNote;
+
+  /// LT-14: the order's own drop-off point (order-lifecycle 2.8.0; see the
+  /// Isar schema).
+  double? deliveryLatitude;
+  double? deliveryLongitude;
 }
 
 /// Status of an order in its lifecycle.

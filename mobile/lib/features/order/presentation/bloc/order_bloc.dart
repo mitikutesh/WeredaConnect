@@ -45,6 +45,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     on<SubmitPayment>(_onSubmitPayment);
     on<CancelOrder>(_onCancelOrder);
     on<UpdateDropoffNote>(_onUpdateDropoffNote);
+    on<UpdateDeliveryLocation>(_onUpdateDeliveryLocation);
     on<LoadOrderById>(_onLoadOrderById);
   }
 
@@ -184,6 +185,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
         transportCost: event.transportCost,
         commissionRate: event.commissionRate,
         dropoffNote: event.dropoffNote,
+        deliveryPoint: event.deliveryPoint,
       );
       emit(OrderCreated(order: order));
     } on Object catch (e) {
@@ -248,6 +250,23 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
         event.dropoffNote,
       );
       emit(const DropoffNoteSaved());
+    } on Object catch (e) {
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  Future<void> _onUpdateDeliveryLocation(
+    UpdateDeliveryLocation event,
+    Emitter<OrderState> emit,
+  ) async {
+    emit(const OrderLoading());
+    try {
+      await _repository.updateDeliveryLocation(
+        event.orderId,
+        event.buyerId,
+        event.point,
+      );
+      emit(const DeliveryLocationSaved());
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }

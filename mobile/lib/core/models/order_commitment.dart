@@ -182,10 +182,11 @@ void checkOrderCancelAllowed(Order order, String userId, DateTime nowUtc) {
 }
 
 /// Reads the commitment fields, the order's own places (order-lifecycle
-/// 2.2.0) and the buyer's drop-off note (2.5.0, LT-12) of a server order map
-/// (`GET /orders`, `/sync` rows) into [order]. Every field is optional: an
-/// older server sends none, and the server leaves the note out for a trucker
-/// who has not committed, so a row without it clears the device's copy.
+/// 2.2.0), the buyer's drop-off note (2.5.0, LT-12) and the order's own
+/// drop-off point (2.8.0, LT-14) of a server order map (`GET /orders`,
+/// `/sync` rows) into [order]. Every field is optional: an older server sends
+/// none, and the server leaves the note and the point out for a trucker who
+/// has not committed, so a row without them clears the device's copy.
 void applyOrderCommitmentFields(Order order, Map<String, dynamic> m) {
   order
     ..fulfillment = _string(m['fulfillment'])
@@ -200,8 +201,18 @@ void applyOrderCommitmentFields(Order order, Map<String, dynamic> m) {
     ..cancelledBy = _string(m['cancelledBy'])
     ..pickupPlace = _string(m['pickupPlace'])
     ..dropoffPlace = _string(m['dropoffPlace'])
-    ..dropoffNote = _string(m['dropoffNote']);
+    ..dropoffNote = _string(m['dropoffNote'])
+    ..deliveryLatitude = _double(m['deliveryLatitude'])
+    ..deliveryLongitude = _double(m['deliveryLongitude']);
 }
+
+/// A number from a server map (a JSON number, or the text of one from an
+/// older server); null otherwise.
+double? _double(Object? value) => switch (value) {
+      final num n => n.toDouble(),
+      final String s => double.tryParse(s),
+      _ => null,
+    };
 
 String? _string(Object? value) =>
     value is String && value.isNotEmpty ? value : null;

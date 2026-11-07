@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
@@ -17,6 +18,7 @@ import 'package:wereda_connect/features/order/presentation/open_order_detail.dar
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
@@ -87,7 +89,7 @@ class _TripBookingsSectionState extends State<TripBookingsSection> {
           .read<OrderBloc>()
           .repository
           .getOrdersByUser(widget.trip.truckerId, role: 'trucker');
-      return orders
+      final booked = orders
           .where(
             (o) =>
                 o.tripId == widget.trip.tripId &&
@@ -95,6 +97,9 @@ class _TripBookingsSectionState extends State<TripBookingsSection> {
           )
           .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      // LT-14: the bundled place list names each order's own drop-off.
+      await loadPlacesToName(booked);
+      return booked;
     } on Object catch (e) {
       // Not "no bookings": a request waiting for an answer may be among
       // them, so the section says it could not read them and offers Retry.
@@ -272,9 +277,13 @@ class _BookingCard extends StatelessWidget {
     final farmer = partyDisplayName(order.farmerName, l10n);
     final buyer = partyDisplayName(order.buyerName, l10n);
     // The order's own places (order-lifecycle 2.2.0), else the trip's route
-    // on an order from before them.
+    // on an order from before them. LT-14: the drop-off place the buyer
+    // picked (sent once the trucker committed) before the registered one.
     final from = _place(order.pickupPlace) ?? trip.fromWoreda;
-    final to = _place(order.dropoffPlace) ?? trip.toWoreda;
+    final to = deliveryPlaceOf(order, PlaceRepository.instance)
+            ?.displayName(Localizations.localeOf(context).languageCode) ??
+        _place(order.dropoffPlace) ??
+        trip.toWoreda;
     final pay = order.transportCost ?? 0;
 
     return Material(

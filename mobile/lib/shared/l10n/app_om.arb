@@ -3208,5 +3208,12 @@
   "dropoffNoteEmpty": "Akka konkolaachisaan isin argatuuf mallattoo dabalaa.",
   "dropoffNoteAdd": "Dabali",
   "dropoffNoteSaved": "Mallattoon bakka buusii olkaa'ameera.",
-  "errorDropoffNoteLocked": "Meeshaan waan fe'ameef mallattoo bakka buusii jijjiiruun hin danda'amu."
+  "errorDropoffNoteLocked": "Meeshaan waan fe'ameef mallattoo bakka buusii jijjiiruun hin danda'amu.",
+  "deliveryPlaceLabel": "Bakka buusii",
+  "deliveryPlaceHelper": "Bakka konkolaataan meeshaa itti fidu. Qonnaan bulaa fi konkolaachisaan ni argu. Hanga fe'amutti jijjiiruu dandeessu.",
+  "deliveryPlaceNone": "Bakka konkolaataan gahu",
+  "deliveryPlaceChange": "Jijjiiri",
+  "deliveryPlacePickFromList": "Tarree keessaa bakka filadhu.",
+  "deliveryPlaceSaved": "Bakki buusii olkaa'ameera.",
+  "errorDeliveryLocationLocked": "Meeshaan waan fe'ameef bakka buusii jijjiiruun hin danda'amu."
 }
