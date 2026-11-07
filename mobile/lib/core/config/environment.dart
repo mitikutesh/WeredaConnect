@@ -15,7 +15,6 @@ class Environment {
   const Environment._({
     required this.apiBaseUrl,
     required this.environment,
-    required this.enableLogging,
     required this.connectTimeout,
     required this.receiveTimeout,
     required this.cognitoUserPoolId,
@@ -96,7 +95,6 @@ class Environment {
   static const development = Environment._(
     apiBaseUrl: String.fromEnvironment('API_BASE_URL'),
     environment: AppEnvironment.development,
-    enableLogging: true,
     connectTimeout: Duration(seconds: 30),
     receiveTimeout: Duration(seconds: 30),
     cognitoUserPoolId: String.fromEnvironment('COGNITO_USER_POOL_ID'),
@@ -108,7 +106,6 @@ class Environment {
   static const staging = Environment._(
     apiBaseUrl: String.fromEnvironment('API_BASE_URL'),
     environment: AppEnvironment.staging,
-    enableLogging: true,
     connectTimeout: Duration(seconds: 20),
     receiveTimeout: Duration(seconds: 20),
     cognitoUserPoolId: String.fromEnvironment('COGNITO_USER_POOL_ID'),
@@ -120,7 +117,6 @@ class Environment {
   static const production = Environment._(
     apiBaseUrl: String.fromEnvironment('API_BASE_URL'),
     environment: AppEnvironment.production,
-    enableLogging: false,
     connectTimeout: Duration(seconds: 15),
     receiveTimeout: Duration(seconds: 15),
     cognitoUserPoolId: String.fromEnvironment('COGNITO_USER_POOL_ID'),
@@ -133,9 +129,6 @@ class Environment {
 
   /// Current environment
   final AppEnvironment environment;
-
-  /// Enable debug logging
-  final bool enableLogging;
 
   /// Connection timeout
   final Duration connectTimeout;

@@ -375,16 +375,12 @@ const String orderPaymentTotalOutOfRangeCode =
     'ORDER_PAYMENT_TOTAL_OUT_OF_RANGE';
 
 /// Whether a /sync per-operation error message is the live gateway's refusal
-/// of a payment whose order total one Telebirr payment cannot take:
-/// `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: ...` since sync-protocol.md 1.24.0, or,
-/// from servers before it, `ORDER_VALIDATION: This order total (X ETB) is
-/// outside what one Telebirr payment can take (100 to 500000 ETB).`
-/// (order-lifecycle.md 1.7.0). The old text is matched for one more release.
+/// of a payment whose order total one Telebirr payment cannot take
+/// (`ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: ...`, sync-protocol.md 1.24.0). The
+/// `ORDER_VALIDATION` text servers sent before 1.24.0 is no longer matched
+/// (FUP-84): it reads as a generic order refusal.
 bool isPaymentTotalOutOfRangeMessage(String? message) =>
-    message != null &&
-    (message.startsWith(orderPaymentTotalOutOfRangeCode) ||
-        (message.startsWith('ORDER_VALIDATION:') &&
-            message.contains('outside what one Telebirr payment can take')));
+    message != null && message.startsWith(orderPaymentTotalOutOfRangeCode);
 
 /// Sync rejection prefix when the live gateway refuses a payment method it
 /// cannot fund (FUP-20, sync-protocol.md 1.16.0): a bank transfer

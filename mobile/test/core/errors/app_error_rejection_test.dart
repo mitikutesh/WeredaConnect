@@ -304,8 +304,11 @@ void main() {
   });
 
   group('live Telebirr total refusal (ESC-44)', () {
-    const message = 'ORDER_VALIDATION: This order total (50.00 ETB) is '
-        'outside what one Telebirr payment can take (100 to 500000 ETB).';
+    // The code since sync-protocol.md 1.24.0 (FUP-22); the old
+    // ORDER_VALIDATION text is no longer matched (FUP-84).
+    const message = 'ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: This order total '
+        '(50.00 ETB) is outside what one Telebirr payment can take (100 to '
+        '500000 ETB).';
 
     test('web: the inline error has its own code', () {
       expect(
