@@ -315,6 +315,43 @@ export function useRecordManualRefund() {
   });
 }
 
+// Listing reports (FUP-67, listing-report-api.md): buyers' reports, one status at a time.
+export type ListingReportStatus = "open" | "dismissed" | "actioned";
+
+export function useListingReports(status: ListingReportStatus) {
+  return useInfiniteQuery({
+    queryKey: ["admin", "listing-reports", status],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ reports?: unknown[]; listings?: unknown[]; nextToken?: string | null }>(
+        `/admin/listing-reports?status=${status}&limit=50${pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""}`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+export function useReviewListingReports() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      listingId,
+      decision,
+      note,
+    }: {
+      listingId: string;
+      decision: "dismissed" | "actioned";
+      note?: string;
+    }) =>
+      api.post<{ listingId: string; decision: string; reviewed: number; reviewedAt: string }>(
+        `/admin/listing-reports/${encodeURIComponent(listingId)}/review`,
+        note ? { decision, note } : { decision },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "listing-reports"] });
+    },
+  });
+}
+
 // Transaction Monitor (unified order + delivery + escrow lifecycle view)
 export function useTransactions(params?: string) {
   return useQuery({

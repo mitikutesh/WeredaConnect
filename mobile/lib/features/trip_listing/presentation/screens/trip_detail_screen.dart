@@ -6,9 +6,11 @@ import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/sync/listing_report_rules.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/listing_report/presentation/report_listing_sheet.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
@@ -84,7 +86,12 @@ class TripDetailScreen extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
                     child: isOwner
                         ? _OwnerBody(trip: trip)
-                        : _VisitorBody(trip: trip),
+                        : _VisitorBody(
+                            trip: trip,
+                            // FUP-67: only a buyer reports: a farmer or
+                            // another trucker sees only their own listings.
+                            reporterId: isBuyer ? authState.userId : null,
+                          ),
                   ),
                 ),
               ),
@@ -132,7 +139,11 @@ class _OwnerBody extends StatelessWidget {
 class _VisitorBody extends StatelessWidget {
   final Trip trip;
 
-  const _VisitorBody({required this.trip});
+  /// The signed-in buyer, who may report the trip (FUP-67); null for anyone
+  /// else.
+  final String? reporterId;
+
+  const _VisitorBody({required this.trip, this.reporterId});
 
   @override
   Widget build(BuildContext context) {
@@ -185,6 +196,14 @@ class _VisitorBody extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         ContactLockedNote(text: l10n.contactAfterEscrowNote),
+        if (reporterId case final reporter?) ...[
+          const SizedBox(height: 8),
+          ReportListingButton(
+            listingType: ReportedListingType.trip,
+            listingId: trip.tripId,
+            reporterId: reporter,
+          ),
+        ],
       ],
     );
   }

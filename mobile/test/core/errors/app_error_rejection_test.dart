@@ -227,6 +227,64 @@ void main() {
     });
   });
 
+  // FUP-67: a refused listing report says it was not sent, or names the
+  // daily limit; a held account still reads as held.
+  group('listing reports', () {
+    String? limitText;
+
+    test('a refused report was not sent', () {
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'listing_report',
+          action: 'create',
+          message: 'SYNC_VALIDATION: The reported listing does not exist.',
+        ),
+        AppErrorCode.reportNotSent,
+      );
+    });
+
+    test('the daily limit has its own code, on the queue and on web', () {
+      const message = 'SYNC_VALIDATION: report limit reached. A buyer can '
+          'send at most 10 reports a day.';
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'listing_report',
+          action: 'create',
+          message: message,
+        ),
+        AppErrorCode.reportLimitReached,
+      );
+      expect(
+        mapErrorToCode(const SyncRejectedException(message)),
+        AppErrorCode.reportLimitReached,
+      );
+    });
+
+    test('a held account reads as held', () {
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'listing_report',
+          action: 'create',
+          message: 'FRAUD_ACCOUNT_HELD: held',
+        ),
+        AppErrorCode.accountHeld,
+      );
+    });
+
+    test('both texts read in en, am and om with the limit in them', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        expect(
+          localizeErrorCode(AppErrorCode.reportNotSent, l10n),
+          l10n.errorReportNotSent,
+        );
+        limitText = localizeErrorCode(AppErrorCode.reportLimitReached, l10n);
+        expect(limitText, contains('10'), reason: locale);
+        expect(limitText, isNot(l10n.errorOccurred), reason: locale);
+      }
+    });
+  });
+
   test('the new codes read in en, am and om, never as the generic error',
       () async {
     for (final locale in ['en', 'am', 'om']) {

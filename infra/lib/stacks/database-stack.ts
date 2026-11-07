@@ -37,6 +37,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly messagesTable: dynamodb.Table;
   public readonly notificationsTable: dynamodb.Table;
   public readonly tripLocationsTable: dynamodb.Table;
+  public readonly listingReportsTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
   public readonly accessLogsBucket: s3.Bucket;
 
@@ -762,6 +763,31 @@ export class DatabaseStack extends cdk.Stack {
     });
     this.tripLocationsTable = tripLocations.table;
 
+    // ─── Listing Reports Table (FUP-67) ────────────────────────────
+    // A buyer's report of a crop listing or a trip (`listing_report` sync
+    // entity, listing-report-api.md). PK listingId, SK reporterId: one report
+    // per buyer and listing (conditional put). Rows hold ids and a reason code
+    // only, and expire on `expiresAt` (epoch seconds, 180 days after the
+    // report). Read by admins only: the owner never learns who reported.
+    const listingReports = new WeredaDynamoTable(this, "ListingReportsTable", {
+      tableName: `${prefix}-listing-reports`,
+      partitionKey: { name: "listingId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "reporterId", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+      timeToLiveAttribute: "expiresAt",
+    });
+    this.listingReportsTable = listingReports.table;
+
+    // GSI: the admin queue (GET /admin/listing-reports), one status partition
+    // (`open`, `dismissed`, `actioned`) read by report time. Created with the
+    // table, so the one-GSI-per-update rule does not apply.
+    this.listingReportsTable.addGlobalSecondaryIndex({
+      indexName: "StatusCreatedAtIndex",
+      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // S3 access logs bucket (F-18: audit logging for compliance)
     this.accessLogsBucket = new s3.Bucket(this, "AccessLogsBucket", {
       bucketName: `${bucketPrefix}-access-logs-${this.account}`,
@@ -919,6 +945,11 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, "TripLocationsTableName", {
       value: this.tripLocationsTable.tableName,
       description: "DynamoDB Trip Locations Table (live trip check-ins)",
+    });
+
+    new cdk.CfnOutput(this, "ListingReportsTableName", {
+      value: this.listingReportsTable.tableName,
+      description: "DynamoDB Listing Reports Table (buyers' reports, admin queue)",
     });
   }
 }

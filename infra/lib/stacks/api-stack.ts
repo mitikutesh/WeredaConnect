@@ -55,6 +55,7 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly messagesTable: dynamodb.Table;
   readonly notificationsTable: dynamodb.Table;
   readonly tripLocationsTable: dynamodb.Table;
+  readonly listingReportsTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
 
@@ -500,6 +501,8 @@ export class ApiStack extends cdk.Stack {
         DELIVERY_QR_SECRETS_TABLE: props.deliveryQrSecretsTable.tableName,
         // LT-05: location_ping check-ins land here, never on the trip row.
         TRIP_LOCATIONS_TABLE: props.tripLocationsTable.tableName,
+        // FUP-67: a buyer's listing_report lands here (admin queue).
+        LISTING_REPORTS_TABLE: props.listingReportsTable.tableName,
         // FRD-12: a delivery_photo attach checks the uploaded photo (HEAD) in this bucket.
         UPLOADS_BUCKET: props.uploadsBucket.bucketName,
         // Confirming a delivery stamps the linked escrow so the auto-release cron
@@ -564,6 +567,9 @@ export class ApiStack extends cdk.Stack {
     // the trip's partition (Query) for the rate limit and the repeat check. No GetItem, Scan,
     // update or delete: rows are written once and expire by TTL.
     props.tripLocationsTable.grant(syncFn.function, "dynamodb:PutItem", "dynamodb:Query");
+    // FUP-67: a listing_report reads its own key (GetItem, the repeat check) and is one
+    // conditional PutItem. No Query, Scan, update or delete: only admins read the queue.
+    props.listingReportsTable.grant(syncFn.function, "dynamodb:GetItem", "dynamodb:PutItem");
     // FRD-12: the delivery_photo attach HEADs the photo (s3:GetObject on the photo keys; the
     // bucket-level List lets a missing photo answer 404, not 403). Read only, photos only.
     props.uploadsBucket.grantRead(syncFn.function, "uploads/photos/*");
@@ -2828,6 +2834,8 @@ export class ApiStack extends cdk.Stack {
         UPLOADS_BUCKET: props.uploadsBucket.bucketName,
         // FRD-14: the dispute evidence reads the disputed order's message threads, audited.
         MESSAGES_TABLE: props.messagesTable.tableName,
+        // FUP-67: the queue of buyers' listing reports.
+        LISTING_REPORTS_TABLE: props.listingReportsTable.tableName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(30),
@@ -2862,6 +2870,10 @@ export class ApiStack extends cdk.Stack {
         ],
       }),
     );
+
+    // FUP-67: the report queue reads the status index and a listing's reports (Query), and a
+    // review moves each open report (conditional UpdateItem). No PutItem, Scan or delete.
+    props.listingReportsTable.grant(adminFn.function, "dynamodb:Query", "dynamodb:UpdateItem");
 
     // Write access on tables the admin mutates
     props.escrowsTable.grantWriteData(adminFn.function);
@@ -2946,6 +2958,8 @@ export class ApiStack extends cdk.Stack {
       // with include=messages, each read audited).
       "/admin/disputes/{id}/evidence",
       "/admin/fraud-signals",
+      // FUP-67: buyers' reports of listings, one status at a time.
+      "/admin/listing-reports",
       "/admin/users",
       "/admin/users/{id}",
       "/admin/health/overview",
@@ -2984,6 +2998,8 @@ export class ApiStack extends cdk.Stack {
     const adminPostPaths = [
       "/admin/disputes/{id}/resolve",
       "/admin/fraud-signals/{id}/action",
+      // FUP-67: decide a listing's open reports (dismissed or actioned).
+      "/admin/listing-reports/{listingId}/review",
       "/admin/users/{id}/action",
       // ESC-02: record an admin-paid manual payout leg (admin group checked in the Lambda).
       "/admin/payouts/{escrowId}/{ref}/complete",
