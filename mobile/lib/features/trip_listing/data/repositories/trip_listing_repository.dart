@@ -348,8 +348,9 @@ class TripListingRepository extends BaseTripListingRepository {
 
   /// Cancel a trip.
   ///
-  /// Validates ownership, that the trip exists and is in a cancellable state
-  /// (not already delivered or cancelled). Sets status=cancelled.
+  /// Validates ownership, that the trip exists and is in a cancellable state:
+  /// `open` or `matched`, the server's transitions (a trip in transit has
+  /// crops on the road and is refused there). Sets status=cancelled.
   ///
   /// ESC-17 (trip-listing-api.md 2.4.0): queued as an `update` to
   /// `cancelled`, the same operation web sends, so the server checks it
@@ -366,7 +367,7 @@ class TripListingRepository extends BaseTripListingRepository {
       tripId: tripId,
       truckerId: truckerId,
       isValidFrom: (t) =>
-          t.status != TripStatus.delivered && t.status != TripStatus.cancelled,
+          t.status == TripStatus.open || t.status == TripStatus.matched,
       statusErrorMessage: 'Trip cannot be cancelled in its current state.',
       newStatus: TripStatus.cancelled,
     );

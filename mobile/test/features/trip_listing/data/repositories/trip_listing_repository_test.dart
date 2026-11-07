@@ -1104,6 +1104,64 @@ void main() {
     // --- F-SEC-04: cancelTrip Terminal State Validation ---
 
     group('cancelTrip terminal state validation', () {
+      // ESC-17: the cancel is an update, so it follows the server's
+      // transitions: only open or matched. A trip in transit is refused
+      // locally, never queued.
+      test('cancel an inTransit trip throws and queues nothing', () async {
+        final trip = await repository.createTrip(
+          truckerId: 'trucker-001',
+          truckerName: 'Test Trucker',
+          truckerPhone: '+251911000000',
+          fromWoreda: 'Bishoftu',
+          toWoreda: 'Addis Ababa',
+          departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+          capacity: 150.0,
+          pricePerQuintal: 120.0,
+        );
+        await isar.writeTxn(() async {
+          trip.status = TripStatus.inTransit;
+          await isar.trips.put(trip);
+        });
+
+        await expectLater(
+          repository.cancelTrip(tripId: trip.tripId, truckerId: 'trucker-001'),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'status'),
+          ),
+        );
+        final row =
+            await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+        expect(row!.status, TripStatus.inTransit);
+        expect(await syncQueue.getPendingOperations(), hasLength(1));
+      });
+
+      test('cancel a matched trip is allowed', () async {
+        final trip = await repository.createTrip(
+          truckerId: 'trucker-001',
+          truckerName: 'Test Trucker',
+          truckerPhone: '+251911000000',
+          fromWoreda: 'Bishoftu',
+          toWoreda: 'Addis Ababa',
+          departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+          capacity: 150.0,
+          pricePerQuintal: 120.0,
+        );
+        await isar.writeTxn(() async {
+          trip.status = TripStatus.matched;
+          await isar.trips.put(trip);
+        });
+
+        await repository.cancelTrip(
+          tripId: trip.tripId,
+          truckerId: 'trucker-001',
+        );
+
+        final row =
+            await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+        expect(row!.status, TripStatus.cancelled);
+      });
+
       test('cancel a delivered trip throws TripValidationException', () async {
         final trip = await repository.createTrip(
           truckerId: 'trucker-001',
