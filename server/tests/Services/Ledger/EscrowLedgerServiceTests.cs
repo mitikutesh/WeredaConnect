@@ -226,9 +226,10 @@ public class EscrowLedgerServiceTests
         _ledger.State(EscrowId).Legs["transport"].Should().Be("held");
         AssertMoneyInvariants();
 
-        (await Service().RetryLedgerTransportLegAsync(_ledger.Copy(EscrowId)!)).Should().Be(EscrowService.LedgerCallOutcome.Blocked);
+        var blocked = await Service().RetryLedgerTransportLegAsync(_ledger.Copy(EscrowId)!);
+        (blocked.Outcome, blocked.BlockReason).Should().Be((EscrowService.LedgerCallOutcome.Blocked, "phone_unverified"));
         Verified(TruckerId, "+251911000002");
-        (await Service().RetryLedgerTransportLegAsync(_ledger.Copy(EscrowId)!)).Should().Be(EscrowService.LedgerCallOutcome.Done);
+        (await Service().RetryLedgerTransportLegAsync(_ledger.Copy(EscrowId)!)).Outcome.Should().Be(EscrowService.LedgerCallOutcome.Done);
 
         Status.Should().Be("completed");
         CallsFor("release#trucker#trucker-1").Should().Be(1);
@@ -585,6 +586,56 @@ public class EscrowLedgerServiceTests
         _ledger.RowsOf(EscrowId).Should().BeEmpty();
         _ledger.State(EscrowId).Legs.Values.Should().AllBeEquivalentTo("held");
         _gateway.Calls.Should().BeEmpty();
+    }
+
+    /// <summary>A split verdict the risk gate held (fraud hold on): status held, held from dispute_resolved.</summary>
+    private void SeedHeldSplit()
+    {
+        SeedSplit(9_000m, 1_500m, 6_000m);
+        var item = _ledger.Escrow(EscrowId);
+        item["status"] = EscrowHoldFields.Status;
+        item[EscrowHoldFields.HeldFromStatus] = "dispute_resolved";
+        item[EscrowHoldFields.HeldFor] = EscrowHoldFields.ForRelease;
+        item[EscrowHoldFields.HoldReason] = "account_suspended";
+        item[EscrowHoldFields.HeldAt] = "2026-11-06T11:00:00.0000000Z";
+    }
+
+    private const string HeldExitReason = "Reviewed the parties: the suspension was lifted, pay the split.";
+
+    [Fact]
+    public async Task AHeldSplit_TheAdminsReleaseExit_SettlesTheSplit()
+    {
+        SeedHeldSplit();
+
+        var result = await Service().ReleaseAsync(Release("admin_override") with { Reason = HeldExitReason },
+            "admin-1", "admin", adminGroupVerified: true);
+
+        result.IsSuccess.Should().BeTrue(result.Error?.Code + " " + result.Error?.Message);
+        result.Value!.Status.Should().Be("completed");
+        _gateway.Calls.Select(c => (c.Kind, c.Amount)).Should().BeEquivalentTo(new[]
+        {
+            ("release", 9_000m), ("release", 1_500m), ("refund", 6_000m)
+        });
+        await _auditRepo.Received().AppendAsync(Arg.Is<Dictionary<string, object>>(a => (string)a["action"] == "fraud_hold_release"));
+        AssertMoneyInvariants();
+    }
+
+    [Fact]
+    public async Task AHeldSplit_NeedsTheAdminGroupAndAReason_AndCannotBeRefundedWhole()
+    {
+        SeedHeldSplit();
+
+        (await Service().ReleaseAsync(Release("admin_override"), "system")).IsSuccess.Should().BeFalse();
+        (await Service().ReleaseAsync(Release("admin_override") with { Reason = HeldExitReason }, "admin-1", "admin"))
+            .Error!.HttpStatus.Should().Be(403);
+        var refund = await Service().RefundAsync(Refund() with { Trigger = "admin_override", Reason = HeldExitReason },
+            "admin-1", "admin", adminGroupVerified: true);
+
+        refund.Error!.Code.Should().Be("ESCROW_INVALID_TRANSITION");
+        refund.Error.Message.Should().Contain("release this held escrow");
+        _ledger.RowsOf(EscrowId).Should().BeEmpty();
+        _gateway.Calls.Should().BeEmpty();
+        Status.Should().Be("held");
     }
 
     [Fact]

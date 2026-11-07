@@ -69,7 +69,7 @@ public sealed partial class EscrowService
             }
         }
 
-        var truckerOk = await TruckerLegPayableAsync(escrowItem, state, currentStatus, noteBlock: farmerOk);
+        var (truckerOk, _) = await TruckerLegPayableAsync(escrowItem, state, currentStatus, noteBlock: farmerOk);
         var trigger = string.IsNullOrEmpty(request.Trigger) ? "delivered" : request.Trigger;
         var reason = currentStatus == "dispute_resolved" ? $"verdict:{GetStringOrNull(escrowItem, "disputeResolution") ?? "farmer_wins"}" : trigger;
         var decided = await DecideLedgerAsync(escrowItem, currentStatus,
@@ -94,7 +94,9 @@ public sealed partial class EscrowService
         }
 
         // The decision is on record (write-ahead): from here every outcome is in the ledger, and the sweep
-        // finishes whatever this call does not.
+        // finishes whatever this call does not. Locked marks the money as committed (a held exit's outcome
+        // label, FRD-18); Recorded keeps an exception from reading as an unrecorded settlement.
+        progress.Locked = true;
         progress.Recorded = true;
         await StoreIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId);
         if (decided.Rows.Any(r => r.Legs.Contains(LedgerEscrowFields.LegCrop)))
@@ -137,18 +139,18 @@ public sealed partial class EscrowService
     /// the trucker passes the identity gate. A block is recorded once per reason when
     /// <paramref name="noteBlock"/> is true (the farmer's own block takes the escrow's one reason slot).
     /// </summary>
-    private async Task<bool> TruckerLegPayableAsync(
+    private async Task<(bool Payable, string? BlockReason)> TruckerLegPayableAsync(
         Dictionary<string, object> escrowItem, LedgerEscrow state, string status, bool noteBlock)
     {
         if (!state.IsHeld(LedgerEscrowFields.LegTransport) || state.TruckerPayout <= 0)
         {
-            return false;
+            return (false, null);
         }
 
         var (dest, reason) = await ResolveTruckerPayeeAsync(state.TruckerId ?? "", state.TruckerPayout);
         if (dest.IsSuccess)
         {
-            return true;
+            return (true, null);
         }
 
         if (noteBlock)
@@ -158,7 +160,7 @@ public sealed partial class EscrowService
                 TruckerBlockedAuditAction, PayoutBlockedMetadata(reason ?? "unknown"));
         }
 
-        return false;
+        return (false, reason ?? "unknown");
     }
 
     /// <summary>
@@ -196,6 +198,7 @@ public sealed partial class EscrowService
                 }
         }
 
+        progress.Locked = true;
         progress.Recorded = true;
         await StoreIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId);
         var outcomes = new List<LedgerCallResult>();
@@ -268,7 +271,12 @@ public sealed partial class EscrowService
     /// (<c>verdict#farmer</c>, <c>verdict#trucker</c>, <c>verdict#buyer</c>) and each row is called. A payee
     /// who fails the gate blocks the whole split until the next run, so the verdict is never applied in part.
     /// </summary>
-    internal async Task<EscrowResult<ReleaseEscrowResponse>> SettleSplitVerdictAsync(string escrowId, string actor = SystemActor)
+    /// <param name="heldExit">
+    /// The admin's release exit of a split the risk gate held (<c>held</c>, held from <c>dispute_resolved</c>):
+    /// the split is settled from <c>held</c>. The caller has checked the admin group and recorded the reason.
+    /// </param>
+    internal async Task<EscrowResult<ReleaseEscrowResponse>> SettleSplitVerdictAsync(
+        string escrowId, string actor = SystemActor, bool heldExit = false)
     {
         var escrowItem = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
         if (escrowItem == null)
@@ -276,7 +284,11 @@ public sealed partial class EscrowService
             return EscrowResult<ReleaseEscrowResponse>.Failure(404, "ESCROW_016", "Escrow not found.");
         }
 
-        if (!IsLedgerEscrow(escrowItem) || GetString(escrowItem, "status") != "dispute_resolved"
+        var status = GetString(escrowItem, "status");
+        var settleable = status == "dispute_resolved"
+                         || (heldExit && status == EscrowHoldFields.Status
+                             && GetStringOrNull(escrowItem, EscrowHoldFields.HeldFromStatus) == "dispute_resolved");
+        if (!IsLedgerEscrow(escrowItem) || !settleable
             || GetStringOrNull(escrowItem, "disputeResolution") != DisputeVerdicts.PartialRefund)
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(422, "ESCROW_INVALID_TRANSITION",
@@ -306,7 +318,7 @@ public sealed partial class EscrowService
             var (payout, reason) = await ResolvePayoutAsync(state.FarmerId, amounts.FarmerAmount, "farmer");
             if (!payout.IsSuccess)
             {
-                await NoteSettlementBlockedAsync(escrowItem, "dispute_resolved",
+                await NoteSettlementBlockedAsync(escrowItem, status,
                     SettlementBlockFields.Value("release", SettlementBlockFields.GatePayout, reason ?? "unknown"),
                     "release_blocked_kyc", PayoutBlockedMetadata(reason ?? "unknown"));
                 return EscrowResult<ReleaseEscrowResponse>.Failure(payout.Error!);
@@ -318,14 +330,14 @@ public sealed partial class EscrowService
             var (dest, reason) = await ResolveTruckerPayeeAsync(state.TruckerId ?? "", amounts.TruckerAmount);
             if (!dest.IsSuccess)
             {
-                await NoteSettlementBlockedAsync(escrowItem, "dispute_resolved",
+                await NoteSettlementBlockedAsync(escrowItem, status,
                     SettlementBlockFields.Value("release", "trucker", reason ?? "unknown"),
                     TruckerBlockedAuditAction, PayoutBlockedMetadata(reason ?? "unknown"));
                 return EscrowResult<ReleaseEscrowResponse>.Failure(dest.Error!);
             }
         }
 
-        var decided = await DecideLedgerAsync(escrowItem, "dispute_resolved",
+        var decided = await DecideLedgerAsync(escrowItem, status,
             s => EscrowLedgerBook.PlanSplit(s, amounts.FarmerAmount, amounts.TruckerAmount, amounts.BuyerRefund,
                 $"verdict:{DisputeVerdicts.PartialRefund}").Plan,
             actor, callNow: true);
@@ -375,37 +387,41 @@ public sealed partial class EscrowService
     // The transport leg owed after the farmer was paid (F2)
     // ──────────────────────────────────────────────
 
+    /// <summary>What the hourly transport retry did with one escrow, and why the trucker is blocked when it is.</summary>
+    internal readonly record struct LedgerTransportRetry(LedgerCallOutcome? Outcome, string? BlockReason);
+
     /// <summary>
     /// ESC-20: an hourly retry of a ledger escrow whose crop leg is decided and whose transport leg is still
     /// held because the trucker failed the identity gate. Decides and calls <c>release#trucker#{id}</c> once
     /// the gate passes. Replaces the 1.x trucker retry for ledger escrows.
     /// </summary>
-    internal async Task<LedgerCallOutcome?> RetryLedgerTransportLegAsync(Dictionary<string, object> escrowItem)
+    internal async Task<LedgerTransportRetry> RetryLedgerTransportLegAsync(Dictionary<string, object> escrowItem)
     {
         if (LedgerRepo == null || !IsLedgerEscrow(escrowItem))
         {
-            return null;
+            return default;
         }
 
         var state = LedgerEscrow.From(escrowItem);
         if (state.IsHeld(LedgerEscrowFields.LegCrop) || !state.IsHeld(LedgerEscrowFields.LegTransport))
         {
-            return null;
+            return default;
         }
 
-        if (!await TruckerLegPayableAsync(escrowItem, state, state.Status, noteBlock: true))
+        var (payable, blockReason) = await TruckerLegPayableAsync(escrowItem, state, state.Status, noteBlock: true);
+        if (!payable)
         {
-            return LedgerCallOutcome.Blocked;
+            return new LedgerTransportRetry(LedgerCallOutcome.Blocked, blockReason);
         }
 
         var decided = await DecideLedgerAsync(escrowItem, state.Status,
             s => EscrowLedgerBook.PlanRelease(s, payFarmer: false, payTrucker: true, "delivered"), SystemActor, callNow: true);
         if (decided.Outcome != LedgerDecideOutcome.Written || decided.Rows.Count == 0)
         {
-            return null;
+            return default;
         }
 
-        return (await CallLedgerRowAsync(decided.Rows[0], SystemActor)).Outcome;
+        return new LedgerTransportRetry((await CallLedgerRowAsync(decided.Rows[0], SystemActor)).Outcome, null);
     }
 
     // ──────────────────────────────────────────────

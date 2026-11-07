@@ -1741,6 +1741,18 @@ public sealed partial class EscrowService
                 _auditContext ?? new AuditContext { Actor = authenticatedUserId, ActorRole = "admin" });
         }
 
+        // 4a1b. ESC-20: the admin's release exit of a held split verdict settles the split (mirror, identity
+        //       gates, the three verdict rows), never a whole release.
+        if (heldExit && settleFrom == "dispute_resolved" && IsLedgerEscrow(escrowItem)
+            && GetStringOrNull(escrowItem, "disputeResolution") == DisputeVerdicts.PartialRefund)
+        {
+            var split = await SettleSplitVerdictAsync(request.EscrowId, authenticatedUserId, heldExit: true);
+            // The split is committed once its rows are decided (paid, queued or retried by the sweep): the held
+            // exit then gets its outcome label (FRD-18), and an exception is never an unrecorded settlement.
+            progress.Locked = progress.Recorded = split.IsSuccess || split.Error?.Code is "ESCROW_034" or "ESCROW_013";
+            return split;
+        }
+
         // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
         //      verdict they cannot follow is not settled.
         if (settleFrom == "dispute_resolved"
@@ -2721,7 +2733,12 @@ public sealed partial class EscrowService
         var resolution = GetStringOrNull(escrow, "disputeResolution");
         if (status == "dispute_resolved" && resolution == DisputeVerdicts.PartialRefund && IsLedgerEscrow(escrow))
         {
-            return "The dispute verdict is a split (partial_refund): the settlement sweep pays it leg by leg.";
+            // ESC-20: a held split leaves through the admin's release exit, which settles the split itself.
+            return heldExit && op == "release"
+                ? null
+                : heldExit
+                    ? "The dispute verdict is a split (partial_refund): release this held escrow to pay the split; it cannot be refunded whole."
+                    : "The dispute verdict is a split (partial_refund): the settlement sweep pays it leg by leg.";
         }
 
         var contrary = op == "release" ? "buyer_wins" : "farmer_wins";
