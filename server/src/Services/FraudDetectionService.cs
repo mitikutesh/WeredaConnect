@@ -24,7 +24,22 @@ public sealed class FraudDetectionService : IFraudDetectionService
     internal const double PriceTolerancePercent = 0.05;        // ±5%
     internal const int PriceAnomalyMinSamples = 5;
     internal const int PriceAnomalySampleSize = 50;
-    internal const double PriceAnomalyStdDevMultiplier = 3.0;
+
+    // Rule 2 (FUP-135): robust bounds, so a few test or absurd listings in the sample cannot widen them.
+    // A price is unusual when it lies more than PriceAnomalySpreadMultiplier spreads from the sample median.
+
+    /// <summary>Spreads from the median that flag a price (the old rule's 3 standard deviations).</summary>
+    internal const decimal PriceAnomalySpreadMultiplier = 3.0m;
+
+    /// <summary>1.4826 times the median absolute deviation estimates the standard deviation of normal prices.</summary>
+    internal const decimal MadToStdDev = 1.4826m;
+
+    /// <summary>
+    /// The spread is at least this share of the median, so a sample where most farmers ask the same price (a
+    /// median absolute deviation of 0) flags only prices more than 30% away from it, not every other price.
+    /// </summary>
+    internal const decimal PriceAnomalyMinSpreadOfMedian = 0.10m;
+
     internal const double GpsSpoofingThresholdKm = 1.0;
     internal const int SignalTtlDays = 30;
 
@@ -140,21 +155,48 @@ public sealed class FraudDetectionService : IFraudDetectionService
         // 3. Price anomaly (GSI query + computation — most expensive)
         var recentPrices = await QueryRecentPricesByCropTypeAsync(cropType, PriceAnomalySampleSize);
 
-        if (recentPrices.Count >= PriceAnomalyMinSamples)
+        if (PriceBand.Of(recentPrices) is { } band && band.IsUnusual(pricePerKg))
         {
-            var mean = recentPrices.Average();
-            var variance = recentPrices.Sum(p => (p - mean) * (p - mean)) / (recentPrices.Count - 1);
-            var stdDev = (decimal)Math.Sqrt((double)variance);
-
-            if (stdDev > 0 && Math.Abs(pricePerKg - mean) > (decimal)PriceAnomalyStdDevMultiplier * stdDev)
-            {
-                return FraudCheckResult.Flagged(
-                    "PRICE_ANOMALY",
-                    $"Price {pricePerKg} ETB/kg is unusual for {cropType} (avg: {mean:F2}, stddev: {stdDev:F2}).");
-            }
+            return FraudCheckResult.Flagged(
+                "PRICE_ANOMALY",
+                string.Create(CultureInfo.InvariantCulture,
+                    $"Price {pricePerKg} ETB/kg is unusual for {cropType} (median: {band.Median:F2}, MAD: {band.Mad:F2})."));
         }
 
         return FraudCheckResult.Allowed();
+    }
+
+    /// <summary>
+    /// Rule 2 (FUP-135): the robust band of a crop type's recent prices. The centre is the median and the spread
+    /// <see cref="MadToStdDev"/> times the median absolute deviation (MAD), at least
+    /// <see cref="PriceAnomalyMinSpreadOfMedian"/> of the median. Unlike the mean and the standard deviation it
+    /// replaced, neither moves much when up to half the sample is extreme: the dev teff sample (listings up to
+    /// 1,000 ETB/kg, mean 216.6, deviation 322.0) gave a band so wide that 999 ETB/kg passed.
+    /// </summary>
+    internal sealed record PriceBand(decimal Median, decimal Mad, decimal Spread)
+    {
+        /// <summary>The band of a sample, or null when it has fewer than <see cref="PriceAnomalyMinSamples"/> prices or no spread.</summary>
+        public static PriceBand? Of(IReadOnlyList<decimal> prices)
+        {
+            if (prices.Count < PriceAnomalyMinSamples)
+            {
+                return null;
+            }
+
+            var median = MedianOf(prices);
+            var mad = MedianOf(prices.Select(p => Math.Abs(p - median)).ToList());
+            var spread = Math.Max(MadToStdDev * mad, PriceAnomalyMinSpreadOfMedian * Math.Abs(median));
+            return spread > 0 ? new PriceBand(median, mad, spread) : null;
+        }
+
+        public bool IsUnusual(decimal price) => Math.Abs(price - Median) > PriceAnomalySpreadMultiplier * Spread;
+
+        private static decimal MedianOf(IReadOnlyList<decimal> values)
+        {
+            var sorted = values.OrderBy(v => v).ToList();
+            var middle = sorted.Count / 2;
+            return sorted.Count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+        }
     }
 
     // ── CheckPaymentVelocityAsync ──────────────────────────
