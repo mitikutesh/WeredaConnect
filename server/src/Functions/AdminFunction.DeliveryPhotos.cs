@@ -27,11 +27,12 @@ public partial class AdminFunction
     /// <paramref name="delivery"/> with its photo URLs. A signing failure leaves them off: the
     /// transaction is answered without them.
     /// </summary>
-    private DeliveryDto WithDeliveryPhotoUrls(DeliveryDto delivery, ILambdaContext context)
+    private DeliveryDto WithDeliveryPhotoUrls(
+        DeliveryDto delivery, IReadOnlyDictionary<string, object> row, ILambdaContext context)
     {
         try
         {
-            return DeliveryPhotoUrls.Sign(delivery, DeliveryPhotoS3, UploadsBucket, Clock());
+            return DeliveryPhotoUrls.Sign(delivery, row, DeliveryPhotoS3, UploadsBucket, Clock());
         }
         catch (Exception ex)
         {

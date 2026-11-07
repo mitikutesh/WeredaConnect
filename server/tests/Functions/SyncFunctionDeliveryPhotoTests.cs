@@ -71,13 +71,31 @@ public sealed class SyncFunctionDeliveryPhotoTests
             r.TableName == DeliveriesTable
             && r.Key["deliveryId"].S == DeliveryId
             && r.Key["tripId"].S == "trip-photo"
-            && r.UpdateExpression == "SET #photo = :ref"
+            && r.UpdateExpression == "SET #photo = :ref, #photoVersion = :version"
             && r.ExpressionAttributeNames["#photo"] == field
             && r.ExpressionAttributeValues[":ref"].S == key
-            && r.ConditionExpression.Contains("attribute_not_exists(#photo) OR #photo = :ref")
+            && r.ExpressionAttributeNames["#photoVersion"] == field.Replace("Ref", "VersionId")
+            && r.ExpressionAttributeValues[":version"].S == "v-attached"
+            && r.ConditionExpression.Contains("attribute_not_exists(#photo)")
             && !r.ExpressionAttributeNames.Values.Contains("version")
             && !r.ExpressionAttributeNames.Values.Contains("updatedAt")), Arg.Any<CancellationToken>());
         await NoSignalAsync();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("null")]
+    public async Task WithoutAnS3Version_OnlyTheKeyIsWritten(string? versionId)
+    {
+        SetupDelivery(Delivery("pickedUp"));
+        SetupObject(PickupKey, 1024, versionId: versionId);
+
+        var result = await SendAsync(TruckerId, "pickup", PickupKey);
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        await _dynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.UpdateExpression == "SET #photo = :ref"
+            && !r.ExpressionAttributeValues.ContainsKey(":version")), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -346,9 +364,9 @@ public sealed class SyncFunctionDeliveryPhotoTests
         => _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable), Arg.Any<CancellationToken>())
             .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { item } });
 
-    private void SetupObject(string key, long size, string? contentType = null)
+    private void SetupObject(string key, long size, string? contentType = null, string? versionId = "v-attached")
     {
-        var head = new GetObjectMetadataResponse { ContentLength = size };
+        var head = new GetObjectMetadataResponse { ContentLength = size, VersionId = versionId };
         head.Headers.ContentType = contentType ?? DeliveryPhotoKeys.ContentTypeOf(key);
         _s3.GetObjectMetadataAsync(Bucket, key, Arg.Any<CancellationToken>()).Returns(head);
     }

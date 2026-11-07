@@ -731,9 +731,9 @@ public partial class SyncFunction
             ? new TripLocationRepository(_dynamoDb, tripLocationsTable)
             : null;
 
-        // FRD-12: the uploads bucket a delivery_photo attach checks. Absent env → attaches are deferred.
+        // FRD-12: the uploads bucket a delivery_photo attach checks (its S3 client is made on first
+        // use). Absent env → attaches are deferred.
         UploadsBucket = Environment.GetEnvironmentVariable("UPLOADS_BUCKET");
-        DeliveryPhotoS3 = string.IsNullOrEmpty(UploadsBucket) ? null : new Amazon.S3.AmazonS3Client();
     }
 
     /// <summary>

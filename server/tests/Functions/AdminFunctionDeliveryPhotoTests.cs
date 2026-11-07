@@ -60,6 +60,7 @@ public sealed class AdminFunctionDeliveryPhotoTests
             ["status"] = S("disputed"),
             ["pickupPhotoRef"] = S(PickupKey),
             ["dropoffPhotoRef"] = S(DropoffKey),
+            ["dropoffPhotoVersionId"] = S("v-dropoff"),
             ["createdAt"] = S("2026-07-01T09:10:00Z"),
             ["updatedAt"] = S("2026-07-03T14:00:00Z"),
             ["version"] = new AttributeValue { N = "4" },
@@ -96,6 +97,9 @@ public sealed class AdminFunctionDeliveryPhotoTests
         delivery.GetProperty("dropoffPhotoUrl").GetString().Should().Be("https://signed/" + DropoffKey);
         _s3.Received(2).GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r =>
             r.Verb == HttpVerb.GET && r.BucketName == Bucket && r.Expires > DateTime.UtcNow));
+        // The attached version: a later PUT to the key cannot swap the evidence.
+        _s3.Received(1).GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r =>
+            r.Key == DropoffKey && r.VersionId == "v-dropoff"));
     }
 
     [Fact]

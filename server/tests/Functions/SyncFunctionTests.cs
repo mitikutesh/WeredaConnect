@@ -4968,6 +4968,40 @@ public partial class SyncFunctionTests
             && item["truckerPhone"].S == "+251900100002");
     }
 
+    // FRD-12: a valid photo key on a delivery create is accepted but not written: photos reach the
+    // delivery only through the checked delivery_photo attach.
+    [Fact]
+    public async Task DeliveryCreate_AValidPhotoKey_IsDroppedNotWritten()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["pickupPhotoRef"] = "uploads/photos/del-001/pickup-1700000000000.webp";
+        op.Data["dropoffPhotoRef"] = "uploads/photos/del-001/dropoff-1700000000000.jpg";
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await ReceivedDeliveryWrite(item =>
+            !item.ContainsKey("pickupPhotoRef") && !item.ContainsKey("dropoffPhotoRef")
+            && item["deliveryId"].S == "del-001");
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_AnInvalidPhotoKey_FailsTheCreate()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["pickupPhotoRef"] = "uploads/photos/del-999/pickup-1700000000000.webp";
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("DELIVERY_INVALID_FIELD: pickupPhotoRef has invalid format.", response.Body);
+    }
+
     // SIM-46: a client that sends no phones at all (the shipped mobile and web
     // clients) still gets every phone stamped.
     [Fact]

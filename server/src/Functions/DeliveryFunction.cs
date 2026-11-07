@@ -316,7 +316,7 @@ public class DeliveryFunction
             // leaves them off; the delivery itself is still answered.
             try
             {
-                deliveryDto = DeliveryPhotoUrls.Sign(deliveryDto, _s3Client, _uploadsBucket, Clock());
+                deliveryDto = DeliveryPhotoUrls.Sign(deliveryDto, delivery, _s3Client, _uploadsBucket, Clock());
             }
             catch (Exception ex)
             {
@@ -581,18 +581,20 @@ public class DeliveryFunction
                 return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery not found.");
             }
 
-            // ESC-08: a party's cancel writes no deletedAt, so the status decides as well.
-            if ((delivery.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
-                || (delivery.TryGetValue("status", out var status) && status?.ToString() == "cancelled"))
-            {
-                return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery has been cancelled.");
-            }
-
             // Verify requester is a participant
             var userId = GetAuthenticatedUserId(request);
             if (!IsParticipant(delivery, userId))
             {
                 return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED", "You are not a participant in this delivery.");
+            }
+
+            // ESC-08: a party's cancel writes no deletedAt, so the status decides as well. FRD-12: a
+            // 409, not a 404, so a phone stops waiting for a delivery that will never take a photo
+            // (it waits on a 404: the delivery's own create may still be on its way).
+            if ((delivery.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
+                || (delivery.TryGetValue("status", out var status) && status?.ToString() == "cancelled"))
+            {
+                return LambdaResponse.Error(409, "DELIVERY_PHOTO_REFUSED", "The delivery was cancelled.");
             }
 
             // FRD-12: only the party who confirms this handoff takes its photo.

@@ -1478,10 +1478,12 @@ public class DeliveryFunctionTests
     }
 
     // ESC-08: a party's cancel writes no deletedAt; a legacy soft-deleted row still has it.
+    // FRD-12: a 409 the phone treats as final (it keeps waiting on a 404, the delivery's own
+    // create may still be on its way).
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task HandleUploadPhoto_CancelledDelivery_Returns404(bool legacySoftDelete)
+    public async Task HandleUploadPhoto_CancelledDelivery_Returns409Refused(bool legacySoftDelete)
     {
         var delivery = CreateDeliveryItem("del-001", "cancelled");
         if (legacySoftDelete)
@@ -1494,8 +1496,20 @@ public class DeliveryFunctionTests
         var request = MakePhotoUploadRequest("trucker-789", "del-001", PhotoBody);
         var response = await _functionWithS3.FunctionHandler(request, _context);
 
-        Assert.Equal(404, response.StatusCode);
-        Assert.Contains("DELIVERY_NOT_FOUND", response.Body);
+        Assert.Equal(409, response.StatusCode);
+        Assert.Contains("DELIVERY_PHOTO_REFUSED", response.Body);
+        _mockS3.DidNotReceive().GetPreSignedURL(Arg.Any<GetPreSignedUrlRequest>());
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_CancelledDelivery_AnOutsiderStillGets403()
+    {
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(CreateDeliveryItem("del-001", "cancelled"));
+
+        var response = await _functionWithS3.FunctionHandler(
+            MakePhotoUploadRequest("random-user-999", "del-001", PhotoBody), _context);
+
+        Assert.Equal(403, response.StatusCode);
     }
 
     [Fact]
@@ -1616,6 +1630,28 @@ public class DeliveryFunctionTests
         Assert.Equal("https://signed/" + StoredDropoffKey, dto.GetProperty("dropoffPhotoUrl").GetString());
         _mockS3.Received(2).GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r =>
             r.Verb == HttpVerb.GET && r.BucketName == TestBucket));
+    }
+
+    [Fact]
+    public async Task GetDeliveryById_SignsTheAttachedVersion()
+    {
+        // A second PUT to the key within its presign window adds a version; the read keeps
+        // serving the one the attach recorded.
+        var delivery = DeliveryWithPhotos();
+        delivery["pickupPhotoVersionId"] = "v-attached";
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
+        _mockS3.GetPreSignedURL(Arg.Any<GetPreSignedUrlRequest>()).Returns("https://signed");
+
+        var response = await _functionWithS3.FunctionHandler(MakeAuthenticatedRequest("buyer-456",
+            "/deliveries/del-001", pathParams: new Dictionary<string, string> { { "id", "del-001" } }), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        _mockS3.Received(1).GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r =>
+            r.Key == StoredPickupKey && r.VersionId == "v-attached"));
+        // No version recorded: the key's latest.
+        _mockS3.Received(1).GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r =>
+            r.Key == StoredDropoffKey && string.IsNullOrEmpty(r.VersionId)));
+        Assert.DoesNotContain("VersionId", response.Body);
     }
 
     [Fact]

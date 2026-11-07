@@ -52,6 +52,13 @@ public static partial class DeliveryPhotoKeys
     /// <summary>The delivery attribute that holds the key of a photo type.</summary>
     public static string FieldOf(string type) => type == Pickup ? "pickupPhotoRef" : "dropoffPhotoRef";
 
+    /// <summary>
+    /// The server-only delivery attribute that holds the S3 version id of the attached photo. The
+    /// uploads bucket is versioned, so the reads sign that version: a second PUT to the same key
+    /// within its presign window adds a version and never replaces the attached evidence.
+    /// </summary>
+    public static string VersionFieldOf(string type) => type == Pickup ? "pickupPhotoVersionId" : "dropoffPhotoVersionId";
+
     /// <summary>True for <c>pickup</c> or <c>dropoff</c>.</summary>
     public static bool IsType(string? type) => type is Pickup or Dropoff;
 

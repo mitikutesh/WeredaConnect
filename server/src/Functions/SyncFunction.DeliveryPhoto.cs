@@ -16,7 +16,9 @@ namespace WeredaConnect.Server.Functions;
 /// - the object must be in the uploads bucket, at most 200 KiB, of its key's type (checked with a
 ///   HEAD, so a photo that never went up, or went up some other way, is refused);
 /// - a handoff keeps its first photo (the same key again is a success, another key is refused);
-/// - the write sets only <c>pickupPhotoRef</c> or <c>dropoffPhotoRef</c>: the version and
+/// - the write sets only <c>pickupPhotoRef</c> or <c>dropoffPhotoRef</c>, with the S3 version id
+///   the HEAD saw (<c>pickupPhotoVersionId</c>, <c>dropoffPhotoVersionId</c>; the reads sign that
+///   version, so a second PUT within the presign window cannot swap the evidence): the version and
 ///   <c>updatedAt</c> do not move, so a handoff queued on another phone never conflicts with it.
 ///
 /// Every refusal starts with <c>DELIVERY_PHOTO_</c> and is final; a storage or table read that
@@ -24,11 +26,20 @@ namespace WeredaConnect.Server.Functions;
 /// </summary>
 public partial class SyncFunction
 {
+    private IAmazonS3? _deliveryPhotoS3;
+
     /// <summary>FRD-12: the uploads bucket the photos are in (<c>UPLOADS_BUCKET</c>); null leaves attaches deferred.</summary>
     internal string? UploadsBucket { get; init; }
 
-    /// <summary>FRD-12: the S3 client of the attach's HEAD; null leaves attaches deferred.</summary>
-    internal IAmazonS3? DeliveryPhotoS3 { get; init; }
+    /// <summary>
+    /// FRD-12: the S3 client of the attach's HEAD, made on first use when the bucket is configured
+    /// (a batch without a photo never builds one); tests set it. Null leaves attaches deferred.
+    /// </summary>
+    internal IAmazonS3? DeliveryPhotoS3
+    {
+        get => _deliveryPhotoS3 ??= string.IsNullOrEmpty(UploadsBucket) ? null : new AmazonS3Client();
+        init => _deliveryPhotoS3 = value;
+    }
 
     private async Task<SyncOperationResult> ProcessDeliveryPhotoAsync(
         SyncOperationRequest operation,
@@ -103,11 +114,14 @@ public partial class SyncFunction
         // this only refuses a photo that never went up or reached the bucket some other way.
         long size;
         string? storedType;
+        string? versionId;
         try
         {
             var head = await DeliveryPhotoS3.GetObjectMetadataAsync(UploadsBucket, photoRef);
             size = head.ContentLength;
             storedType = head.Headers.ContentType;
+            // The uploads bucket is versioned; "null" is S3's id on an unversioned bucket.
+            versionId = string.IsNullOrEmpty(head.VersionId) || head.VersionId == "null" ? null : head.VersionId;
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -131,8 +145,28 @@ public partial class SyncFunction
         }
 
         var field = DeliveryPhotoKeys.FieldOf(type);
+        var names = new Dictionary<string, string>
+        {
+            { "#photo", field },
+            { "#status", "status" },
+        };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":ref", new AttributeValue { S = photoRef } },
+            { ":cancelled", new AttributeValue { S = "cancelled" } },
+        };
+        var update = "SET #photo = :ref";
+        if (versionId != null)
+        {
+            names["#photoVersion"] = DeliveryPhotoKeys.VersionFieldOf(type);
+            values[":version"] = new AttributeValue { S = versionId };
+            update += ", #photoVersion = :version";
+        }
+
         try
         {
+            // The condition keeps the first photo: a retry of the same key may only find it (or
+            // nothing) there, so its version is never moved by a later attach of another key.
             await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
             {
                 TableName = _deliveriesTable,
@@ -141,19 +175,11 @@ public partial class SyncFunction
                     { "deliveryId", new AttributeValue { S = deliveryId } },
                     { "tripId", existing["tripId"] },
                 },
-                UpdateExpression = "SET #photo = :ref",
-                ConditionExpression = "attribute_exists(deliveryId) AND (attribute_not_exists(#photo) OR #photo = :ref) "
+                UpdateExpression = update,
+                ConditionExpression = "attribute_exists(deliveryId) AND attribute_not_exists(#photo) "
                     + "AND #status <> :cancelled AND attribute_not_exists(deletedAt)",
-                ExpressionAttributeNames = new Dictionary<string, string>
-                {
-                    { "#photo", field },
-                    { "#status", "status" },
-                },
-                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-                {
-                    { ":ref", new AttributeValue { S = photoRef } },
-                    { ":cancelled", new AttributeValue { S = "cancelled" } },
-                },
+                ExpressionAttributeNames = names,
+                ExpressionAttributeValues = values,
             });
         }
         catch (ConditionalCheckFailedException)
