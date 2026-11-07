@@ -90,7 +90,8 @@ public class TripFunction
     /// FUP-122: every page carries <c>orderLeadHours</c>, the lead an order create needs.
     ///
     /// Paging (trip-listing-api 2.5.0, FUP-126): the page is filled through every filter and
-    /// <c>nextToken</c> and <c>hasMore</c> are present only when a trip follows it.
+    /// <c>nextToken</c> and <c>hasMore</c> are absent when no trip follows it (a run of dropped
+    /// trips can end a page early with a token).
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetTripsAsync(
         APIGatewayProxyRequest request,

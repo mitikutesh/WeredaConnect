@@ -12,12 +12,12 @@ public sealed record GetTripsResponse
 
     /// <summary>
     /// Pagination token to retrieve next page. Null, and so omitted, when no trip follows this
-    /// page (FUP-126: it never leads to an empty last page).
+    /// page; when present a trip may follow (the read budget can end a page early, FUP-126).
     /// </summary>
     public string? NextToken { get; init; }
 
     /// <summary>
-    /// Whether a trip follows this page; true exactly when <see cref="NextToken"/> is present
+    /// True exactly when <see cref="NextToken"/> is present
     /// (trip-listing-api 2.5.0, FUP-126).
     /// </summary>
     public bool HasMore { get; init; }

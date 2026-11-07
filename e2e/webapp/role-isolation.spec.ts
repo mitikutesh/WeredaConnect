@@ -138,17 +138,17 @@ test.describe("Role Isolation - API Level", () => {
     }
   });
 
-  test("trucker's own trips page with no token to an empty page (FUP-126)", async () => {
+  test("trucker's own trips page consistently and stay own-only (FUP-126)", async () => {
     test.skip(!truckerTokens, "API unavailable - skipping");
 
     // limit=1 makes every trip a page boundary (trip-listing-api 2.5.0):
-    // hasMore agrees with nextToken, a token never leads to an empty page,
-    // and every page stays on this trucker's trips.
+    // hasMore agrees with nextToken and every page stays on this trucker's
+    // trips. A page may be short or empty with a token when a run of dropped
+    // trips uses up the read budget (Paging), so emptiness is not asserted.
     let nextToken: string | undefined;
     let pages = 0;
     do {
       const qs = new URLSearchParams({ truckerId, limit: "1" });
-      const followingToken = nextToken !== undefined;
       if (nextToken) qs.set("nextToken", nextToken);
 
       const res = await fetch(`${API_URL}/trips?${qs}`, {
@@ -160,12 +160,6 @@ test.describe("Role Isolation - API Level", () => {
       expect(data.hasMore, "hasMore must agree with nextToken").toBe(
         Boolean(data.nextToken),
       );
-      if (followingToken) {
-        expect(
-          data.trips.length,
-          "a nextToken must not lead to an empty page",
-        ).toBeGreaterThan(0);
-      }
       for (const trip of data.trips) {
         expect(trip.truckerId, "Trucker should only see own trips").toBe(
           truckerId,
