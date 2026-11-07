@@ -4,6 +4,9 @@ library;
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'package:wereda_connect/core/auth/auth_service.dart' show jwtSubject;
+import 'package:wereda_connect/core/auth/session_signals.dart';
+
 /// Interceptor that automatically injects the ID token and refreshes on 401
 ///
 /// This interceptor:
@@ -25,6 +28,10 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// token. Sending the access token causes the server to see a null role and
 /// reject every create operation with `*_UNAUTHORIZED`.
 ///
+/// On web every tab shares the token slots. With [sessionSubject] set, a
+/// tab never sends, refreshes or retries with another account's tokens
+/// (FUP-96); see [sessionSubject].
+///
 /// Ethiopian context:
 /// - Tokens are stored in secure storage (encrypted on device)
 /// - Refresh logic handles offline scenarios gracefully
@@ -36,15 +43,37 @@ class AuthInterceptor extends QueuedInterceptor {
     this.tokenKey = 'id_token',
     this.refreshTokenKey = 'refresh_token',
     List<Interceptor> retryInterceptors = const [],
-  }) : _retryDio = _createRetryDio(dio, retryInterceptors);
+    this.sessionSubject,
+    SessionSignals? signals,
+  })  : _retryDio = _createRetryDio(dio, retryInterceptors),
+        _signals = signals ?? SessionSignals.instance;
 
   /// Secure storage for reading/writing tokens
   final FlutterSecureStorage storage;
 
   /// Callback to refresh tokens (returns the new ID token to use as bearer).
-  /// Should call POST /auth/refresh with the refresh token and persist the
-  /// resulting tokens.
+  /// Must call POST /auth/refresh with the refresh token and persist the
+  /// resulting tokens: the interceptor writes nothing itself, because only
+  /// the callback can tell whether the session it refreshed is still the
+  /// stored one (FUP-82). Returns null when the server rejects the token.
   final Future<String?> Function(String refreshToken) refreshTokenCallback;
+
+  /// The `sub` of the account this app instance is signed in as, or null
+  /// when none (FUP-96). The web app sets it: every tab shares the token
+  /// slots, so a tab still showing one account can find another account's
+  /// session there after a sign-in in another tab. Sent with that token,
+  /// the tab's ids would act under the other account and log
+  /// `ROLE_FORBIDDEN` on it.
+  ///
+  /// When set, a stored or refreshed bearer whose `sub` names another
+  /// account is never sent: the request fails locally (an
+  /// [OtherAccountSessionException]) and
+  /// [SessionSignals.otherAccountSignedIn] fires so the tab signs itself
+  /// out. A bearer whose `sub` cannot be read is sent as before (the server
+  /// rejects it). Null (mobile) skips the check.
+  final String? Function()? sessionSubject;
+
+  final SessionSignals _signals;
 
   /// Dio instance for retrying requests, shares the parent's base config
   /// and httpClientAdapter (cert pinning) but without the AuthInterceptor
@@ -93,6 +122,10 @@ class AuthInterceptor extends QueuedInterceptor {
     // Inject the ID token if available (carries custom:role for the server).
     final bearerToken = await storage.read(key: tokenKey);
     if (bearerToken != null && bearerToken.isNotEmpty) {
+      if (_isOtherAccount(bearerToken)) {
+        _signals.otherAccountSignedIn();
+        return handler.reject(_otherAccountError(options));
+      }
       options.headers['Authorization'] = 'Bearer $bearerToken';
     }
 
@@ -118,11 +151,18 @@ class AuthInterceptor extends QueuedInterceptor {
     }
 
     try {
+      // Another account's session in the slots (another web tab signed in
+      // since this request was sent): neither refresh it nor retry with it.
+      final storedToken = await storage.read(key: tokenKey);
+      if (_isOtherAccount(storedToken)) {
+        _signals.otherAccountSignedIn();
+        return handler.next(err);
+      }
+
       // A 401 handled earlier in the queue may already have refreshed the
       // token. If the stored bearer differs from the one this request failed
       // with, retry directly instead of refreshing again.
       final failedBearer = _bearerOf(err.requestOptions);
-      final storedToken = await storage.read(key: tokenKey);
       if (storedToken != null &&
           storedToken.isNotEmpty &&
           storedToken != failedBearer) {
@@ -140,20 +180,26 @@ class AuthInterceptor extends QueuedInterceptor {
       final refreshToken = await storage.read(key: refreshTokenKey);
       if (refreshToken == null || refreshToken.isEmpty) {
         // No refresh token available - user must re-authenticate
-        await _clearTokens();
+        await _clearTokensIfUnchanged(bearer: storedToken);
         return handler.next(err);
       }
 
-      // Call refresh endpoint (returns the new ID token to use as bearer)
+      // Call refresh endpoint (returns the new ID token to use as bearer).
+      // The callback persists the new tokens, unless the session ended
+      // while it ran (FUP-82); nothing is written here.
       final newBearerToken = await refreshTokenCallback(refreshToken);
       if (newBearerToken == null || newBearerToken.isEmpty) {
         // Refresh failed - clear tokens and force re-authentication
-        await _clearTokens();
+        await _clearTokensIfUnchanged(
+          bearer: storedToken,
+          refreshToken: refreshToken,
+        );
         return handler.next(err);
       }
-
-      // Save new bearer (ID) token
-      await storage.write(key: tokenKey, value: newBearerToken);
+      if (_isOtherAccount(newBearerToken)) {
+        _signals.otherAccountSignedIn();
+        return handler.next(err);
+      }
 
       // Retry original request with new token
       final retryResponse = await _retry(err.requestOptions, newBearerToken);
@@ -181,6 +227,23 @@ class AuthInterceptor extends QueuedInterceptor {
   static bool _bringsOwnBearer(RequestOptions options) =>
       options.path.contains('/auth/logout') ||
       options.extra[ownBearerExtra] == true;
+
+  /// Whether [token] belongs to another account than [sessionSubject].
+  /// False without a signed-in account, without a token, or when its `sub`
+  /// cannot be read.
+  bool _isOtherAccount(String? token) {
+    final expected = sessionSubject?.call();
+    if (expected == null || expected.isEmpty) return false;
+    if (token == null || token.isEmpty) return false;
+    final subject = jwtSubject(token);
+    return subject != null && subject != expected;
+  }
+
+  DioException _otherAccountError(RequestOptions options) => DioException(
+        requestOptions: options,
+        error: const OtherAccountSessionException(),
+        message: OtherAccountSessionException.text,
+      );
 
   /// Extract the bearer token the failed request was sent with, if any.
   String? _bearerOf(RequestOptions options) {
@@ -218,9 +281,29 @@ class AuthInterceptor extends QueuedInterceptor {
     );
   }
 
-  /// Clear all tokens from secure storage
-  Future<void> _clearTokens() async {
-    await storage.delete(key: tokenKey);
-    await storage.delete(key: refreshTokenKey);
+  /// Clear the token slots this request found dead. A slot rewritten since
+  /// it was read (a new sign-in, here or in another web tab) belongs to
+  /// another session and is kept.
+  Future<void> _clearTokensIfUnchanged({
+    required String? bearer,
+    String? refreshToken,
+  }) async {
+    if (await storage.read(key: tokenKey) == bearer) {
+      await storage.delete(key: tokenKey);
+    }
+    if (await storage.read(key: refreshTokenKey) == refreshToken) {
+      await storage.delete(key: refreshTokenKey);
+    }
   }
+}
+
+/// A request refused before it was sent: the stored session belongs to
+/// another account than the one this app instance is signed in as (FUP-96).
+class OtherAccountSessionException implements Exception {
+  const OtherAccountSessionException();
+
+  static const text = 'Signed in as another account in another tab';
+
+  @override
+  String toString() => 'OtherAccountSessionException: $text';
 }

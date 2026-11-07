@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
@@ -11,6 +12,8 @@ import 'package:wereda_connect/core/auth/auth_service.dart';
 import 'package:wereda_connect/core/auth/device_identity.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
+import 'package:wereda_connect/core/auth/session_signals.dart';
+import 'package:wereda_connect/core/auth/token_refresh.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -40,6 +43,45 @@ class _RecordingAdapter implements HttpClientAdapter {
 
   @override
   void close({bool force = false}) {}
+}
+
+/// Answers POST /auth/refresh with fresh tokens once [gate] completes.
+class _GatedRefreshAdapter implements HttpClientAdapter {
+  final gate = Completer<void>();
+  var requests = 0;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests++;
+    await gate.future;
+    return ResponseBody.fromString(
+      jsonEncode({
+        'tokens': {
+          'accessToken': 'late-access',
+          'idToken': 'late-id',
+          'expiresIn': 900,
+        },
+      }),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+/// An unsigned JWT whose `sub` is [sub].
+String _jwt(String sub) {
+  String part(Map<String, dynamic> m) =>
+      base64Url.encode(utf8.encode(jsonEncode(m))).replaceAll('=', '');
+  return '${part({'alg': 'none'})}.${part({'sub': sub})}.sig';
 }
 
 const _phone = '+251911234567';
@@ -120,9 +162,18 @@ void main() {
   });
 
   /// A restored session: the slots hold the login tokens, as after login.
-  Future<AuthBloc> signedIn(AuthService service) async {
+  Future<AuthBloc> signedIn(
+    AuthService service, {
+    SessionSignals? signals,
+    Future<String?> Function()? pushTokenProvider,
+  }) async {
     _store['current_user_phone'] = _phone;
-    final bloc = AuthBloc(authService: service, offlineCache: offlineCache);
+    final bloc = AuthBloc(
+      authService: service,
+      offlineCache: offlineCache,
+      sessionSignals: signals ?? SessionSignals.forTesting(),
+      pushTokenProvider: pushTokenProvider,
+    );
     addTearDown(bloc.close);
     bloc.add(const AuthCheckRequested());
     await bloc.stream.firstWhere((s) => s is AuthAuthenticated);
@@ -305,5 +356,277 @@ void main() {
     expectSessionCleared();
     // Cleared once, by the bloc; the service is told not to.
     verify(() => offlineCache.clearCredentials(_phone)).called(1);
+  });
+
+  // FUP-82 and FUP-96: on web every tab shares the stored session.
+  group('another tab signed another account in', () {
+    late MockAuthService service;
+    late SessionSignals signals;
+
+    /// What another tab's sign-in of user-002 leaves in the shared slots.
+    const otherSession = {
+      'current_user_phone': '+251911000002',
+      'current_user_id': 'user-002',
+      'access_token': 'other-access',
+      'id_token': 'other-id',
+      'refresh_token': 'other-refresh',
+    };
+
+    setUp(() {
+      service = MockAuthService();
+      signals = SessionSignals.forTesting();
+      when(
+        () => service.logout(
+          phoneNumber: any(named: 'phoneNumber'),
+          accessToken: any(named: 'accessToken'),
+          refreshToken: any(named: 'refreshToken'),
+          clearCache: any(named: 'clearCache'),
+        ),
+      ).thenAnswer((_) async {});
+    });
+
+    test('a stale tab\'s logout keeps the other account\'s session', () async {
+      final bloc = await signedIn(service, signals: signals);
+      _store.addAll(otherSession);
+
+      await logOut(bloc);
+
+      expect(bloc.state, isA<AuthUnauthenticated>());
+      expect(_store, otherSession);
+      // This account's own offline cache still goes.
+      verify(() => offlineCache.clearCredentials(_phone)).called(1);
+    });
+
+    test('without a user pointer, the ID token\'s sub decides', () async {
+      final bloc = await signedIn(service, signals: signals);
+      _store
+        ..remove('current_user_id')
+        ..['id_token'] = _jwt('user-002');
+
+      await logOut(bloc);
+
+      expect(_store['id_token'], _jwt('user-002'));
+    });
+
+    test('this account\'s own token without a pointer is cleared', () async {
+      final bloc = await signedIn(service, signals: signals);
+      _store
+        ..remove('current_user_id')
+        ..['id_token'] = _jwt('user-001');
+
+      await logOut(bloc);
+
+      expectSessionCleared();
+    });
+
+    test(
+        'the session token\'s sub is the tab\'s identity, also when the '
+        'profile id differs', () async {
+      // A profile resolved by phone can carry another id than the sub.
+      when(() => offlineCache.getCachedTokens(_phone)).thenAnswer(
+        (_) async => AuthTokens(
+          accessToken: 'login-access',
+          refreshToken: 'login-refresh',
+          idToken: _jwt('cognito-sub'),
+        ),
+      );
+      final bloc = await signedIn(service, signals: signals);
+      expect(bloc.sessionSubject, 'cognito-sub');
+
+      // No pointer, and the stored token is this session's own.
+      _store.remove('current_user_id');
+      await logOut(bloc);
+
+      expectSessionCleared();
+    });
+
+    test('a stale tab\'s expired session keeps the other account\'s', () async {
+      final bloc = await signedIn(service, signals: signals);
+      _store.addAll(otherSession);
+
+      signals.sessionExpired();
+      await bloc.stream.firstWhere((s) => s is AuthUnauthenticated);
+
+      expect(_store, otherSession);
+    });
+
+    test(
+        'the interceptor\'s signal signs the tab out and leaves the stored '
+        'session and the offline cache alone', () async {
+      final bloc = await signedIn(service, signals: signals);
+      _store.addAll(otherSession);
+
+      signals.otherAccountSignedIn();
+      await bloc.stream
+          .firstWhere((s) => s is AuthUnauthenticated)
+          .timeout(const Duration(seconds: 2));
+
+      expect(_store, otherSession);
+      expect(bloc.sessionSubject, isNull);
+      verifyNever(() => offlineCache.clearCredentials(any()));
+      verifyNever(
+        () => service.logout(
+          phoneNumber: any(named: 'phoneNumber'),
+          accessToken: any(named: 'accessToken'),
+          refreshToken: any(named: 'refreshToken'),
+          clearCache: any(named: 'clearCache'),
+        ),
+      );
+    });
+
+    test('the signal is ignored while the stored session is still this one',
+        () async {
+      final bloc = await signedIn(service, signals: signals);
+
+      signals.otherAccountSignedIn();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(bloc.state, isA<AuthAuthenticated>());
+      expect(_store['current_user_id'], 'user-001');
+    });
+
+    test('sessionSubject: set by sign-in, kept while logging out, then null',
+        () async {
+      final seen = <(String, String?)>[];
+      final bloc = AuthBloc(
+        authService: service,
+        offlineCache: offlineCache,
+        sessionSignals: signals,
+      );
+      addTearDown(bloc.close);
+      bloc.stream.listen(
+        (s) => seen.add((s.runtimeType.toString(), bloc.sessionSubject)),
+      );
+      expect(bloc.sessionSubject, isNull);
+      _store['current_user_phone'] = _phone;
+
+      bloc.add(const AuthCheckRequested());
+      await bloc.stream.firstWhere((s) => s is AuthAuthenticated);
+      await logOut(bloc);
+
+      expect(seen, [
+        ('AuthLoading', null),
+        ('AuthAuthenticated', 'user-001'),
+        ('AuthLoading', 'user-001'),
+        ('AuthUnauthenticated', null),
+      ]);
+    });
+  });
+
+  // FUP-82: the FCM token unregister gave up while the interceptor was
+  // refreshing; the refresh answers after the local clear.
+  group('a token refresh that outlives the logout', () {
+    late MockAuthService service;
+    late SessionSignals signals;
+    late _GatedRefreshAdapter refreshServer;
+    late List<String> cacheWrites;
+    late Future<String?> Function(String) refresh;
+    Future<String?>? lateRefresh;
+
+    setUp(() {
+      service = MockAuthService();
+      signals = SessionSignals.forTesting();
+      refreshServer = _GatedRefreshAdapter();
+      cacheWrites = [];
+      lateRefresh = null;
+      // The app's own refresh callback, on the same storage as the bloc.
+      refresh = buildRefreshTokenCallback(
+        refreshDio: Dio(BaseOptions(baseUrl: 'https://api.test'))
+          ..httpClientAdapter = refreshServer,
+        storage: const FlutterSecureStorage(
+          aOptions: AndroidOptions(encryptedSharedPreferences: true),
+        ),
+        signals: signals,
+        writeCachedTokens: (phone, _) async => cacheWrites.add(phone),
+      );
+      when(
+        () => service.logout(
+          phoneNumber: any(named: 'phoneNumber'),
+          accessToken: any(named: 'accessToken'),
+          refreshToken: any(named: 'refreshToken'),
+          clearCache: any(named: 'clearCache'),
+        ),
+      ).thenAnswer((_) async {});
+      // The unregister's 401 starts a refresh; the unregister gives up
+      // before the refresh answers.
+      when(() => service.unregisterDeviceToken(any())).thenAnswer((_) async {
+        lateRefresh = refresh(_store['refresh_token']!);
+      });
+    });
+
+    test('its tokens are not written back after the clear', () async {
+      final bloc = await signedIn(
+        service,
+        signals: signals,
+        pushTokenProvider: () async => 'fcm-1',
+      );
+      _store['refresh_token'] = 'live-refresh';
+
+      await logOut(bloc);
+      expectSessionCleared();
+
+      refreshServer.gate.complete();
+      expect(await lateRefresh, 'late-id');
+
+      expect(refreshServer.requests, 1);
+      expectSessionCleared();
+      expect(cacheWrites, isEmpty, reason: 'offline cache stays cleared');
+    });
+
+    test('nor over the next user\'s session', () async {
+      final bloc = await signedIn(
+        service,
+        signals: signals,
+        pushTokenProvider: () async => 'fcm-1',
+      );
+      await logOut(bloc);
+      // The next user signs in before the old refresh answers.
+      _store.addAll({
+        'current_user_phone': '+251911000002',
+        'current_user_id': 'user-002',
+        'access_token': 'next-access',
+        'id_token': 'next-id',
+        'refresh_token': 'next-refresh',
+      });
+
+      refreshServer.gate.complete();
+      await lateRefresh;
+
+      expect(_store['id_token'], 'next-id');
+      expect(_store['access_token'], 'next-access');
+      expect(_store['refresh_token'], 'next-refresh');
+      expect(cacheWrites, isEmpty);
+    });
+
+    test('a refresh that answers within the logout is kept (control)',
+        () async {
+      when(() => service.unregisterDeviceToken(any())).thenAnswer((_) async {
+        refreshServer.gate.complete();
+        await refresh(_store['refresh_token']!);
+      });
+      String? revoked;
+      when(
+        () => service.logout(
+          phoneNumber: any(named: 'phoneNumber'),
+          accessToken: any(named: 'accessToken'),
+          refreshToken: any(named: 'refreshToken'),
+          clearCache: any(named: 'clearCache'),
+        ),
+      ).thenAnswer((invocation) async {
+        revoked = invocation.namedArguments[#accessToken] as String?;
+      });
+      final bloc = await signedIn(
+        service,
+        signals: signals,
+        pushTokenProvider: () async => 'fcm-1',
+      );
+
+      await logOut(bloc);
+
+      // The in-time refresh was stored, so logout revoked with its tokens.
+      expect(revoked, 'late-access');
+      expect(cacheWrites, [_phone]);
+      expectSessionCleared();
+    });
   });
 }

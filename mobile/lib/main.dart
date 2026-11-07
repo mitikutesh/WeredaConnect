@@ -107,6 +107,10 @@ Future<void> main() async {
       refreshDio: refreshDio,
       storage: secureStorage,
     ),
+    // FUP-96: on web every tab shares the stored session, so each bearer is
+    // checked against the account this tab is signed in as. One app per
+    // device on mobile: no check.
+    sessionSubject: kIsWeb ? () => _webAuthBloc?.sessionSubject : null,
   );
   ApiClient().dio.interceptors.insert(0, authInterceptor);
   ApiClient()
@@ -147,6 +151,9 @@ Future<void> main() async {
 
 // ─── Web initialization ────────────────────────────────────────────
 
+/// The web tab's AuthBloc, once [_runWeb] created it (FUP-96).
+AuthBloc? _webAuthBloc;
+
 Future<void> _runWeb({
   required FlutterSecureStorage secureStorage,
   required DataUsageTracker dataUsageTracker,
@@ -163,6 +170,7 @@ Future<void> _runWeb({
     // user picked one on this device.
     applyProfileLanguage: languageProvider.applyProfileLanguage,
   )..add(const AuthCheckRequested());
+  _webAuthBloc = authBloc;
   // F-37: production-gated test auth seam for e2e (no-op in prod builds).
   registerWebTestAuthSeam(authBloc);
   bindDataUsageToAuth(dataUsageTracker, authBloc);

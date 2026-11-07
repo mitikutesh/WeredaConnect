@@ -97,6 +97,11 @@ Future<void> main() async {
   );
   refreshDio.interceptors.add(DataUsageInterceptor(dataUsageTracker));
 
+  // FUP-96: every tab shares the stored session, so the interceptor checks
+  // each bearer against the account this tab is signed in as. The bloc is
+  // created below; until then no tab account is known.
+  AuthBloc? tabAuth;
+
   // Shared refresh callback: persists the new tokens, restarts the 48h
   // offline session clock, and signs the user out (SessionSignals) when the
   // server rejects the refresh token.
@@ -108,6 +113,7 @@ Future<void> main() async {
       refreshDio: refreshDio,
       storage: secureStorage,
     ),
+    sessionSubject: () => tabAuth?.sessionSubject,
   );
   ApiClient().dio.interceptors.insert(0, authInterceptor);
   ApiClient()
@@ -138,6 +144,7 @@ Future<void> main() async {
     // user picked one on this device.
     applyProfileLanguage: languageProvider.applyProfileLanguage,
   )..add(const AuthCheckRequested());
+  tabAuth = authBloc;
   // F-37: production-gated test auth seam for e2e (no-op in prod builds).
   registerWebTestAuthSeam(authBloc);
   bindDataUsageToAuth(dataUsageTracker, authBloc);
