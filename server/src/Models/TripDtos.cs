@@ -11,17 +11,21 @@ public sealed record GetTripsResponse
     public required List<TripDto> Trips { get; init; }
 
     /// <summary>
-    /// Pagination token to retrieve next page (null if no more results).
+    /// Pagination token to retrieve next page. Null, and so omitted, when no trip follows this
+    /// page (FUP-126: it never leads to an empty last page).
     /// </summary>
     public string? NextToken { get; init; }
 
     /// <summary>
-    /// Whether more results are available beyond this page.
+    /// Whether a trip follows this page; true exactly when <see cref="NextToken"/> is present
+    /// (trip-listing-api 2.5.0, FUP-126).
     /// </summary>
     public bool HasMore { get; init; }
 
     /// <summary>
-    /// Approximate total count of matching trips (for UI display).
+    /// The number of trips on this page (<see cref="Trips"/>), not a count of every match
+    /// (trip-listing-api 2.5.0). Kept because shipped clients may read it; a client that needs a
+    /// count follows <see cref="NextToken"/> to the end.
     /// </summary>
     public int Total { get; init; }
 
