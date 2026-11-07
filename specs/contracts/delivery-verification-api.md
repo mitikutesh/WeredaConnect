@@ -1360,7 +1360,7 @@ the server has received:
 | Trucker check-in | Farmer check-in | Pickup scan | Outcome |
 |---|---|---|---|
 | any | any | yes | normal flow |
-| no | any | no | trucker no-show: `awaiting_transport` (`transportFailure: trucker_no_show`, `faultParty: trucker`), trucker +5 points (reputation, ESC-26 onward) |
+| no | any | no | trucker no-show: `awaiting_transport` (`transportFailure: trucker_no_show`, `faultParty: trucker`), trucker +5 points (reputation core, ESC-28) |
 | yes | no | no | farmer no-show: `cancelled` (`cancelReason: farmer_no_show`, `faultParty: farmer`), full refund (`refund#all`, `escrow-protocol.md` P.4), farmer +5 points |
 | yes | yes | no | admin queue (`adminQueueReason: both_present_no_scan`), money held, no automatic penalty |
 

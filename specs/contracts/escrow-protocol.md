@@ -4259,8 +4259,9 @@ read, no other index, no write); the audit row uses its existing transaction-aud
 The leg amounts are what each leg still carries: a refund takes its amount out of its leg (and
 adds it to `refundedTotal`); a release leaves the amount in its leg and marks the leg `released`.
 The order keeps the original split (`cropCost`, `transportCost`, `commissionAmount`). `amount`
-never changes. `truckerPayout` and `commission` change only through ledger rows (P.10), and
-`farmerPayout` only through a verdict (P.8).
+never changes. The leg amounts change only with a ledger row: a refund lowers its leg (P.4), a
+rebind moves `truckerPayout` and `commission` (P.10), and a split verdict sets the amounts paid
+(P.8).
 
 | Leg status | Meaning |
 |---|---|
@@ -4285,6 +4286,7 @@ row per money movement. Rows are never deleted and never re-keyed.
 | `gatewayRef` | the reference sent to the gateway, fixed when the row is written (P.5) |
 | `telebirrRef` | the gateway's reference on success, or the admin's `externalRef` on a manual payment |
 | `attempts`, `lastCode` | gateway calls made, and the last gateway error code |
+| `callingSince` | ISO time stamped by a conditional write just before a gateway call and removed with its result: a row that carries it may have reached the gateway |
 | `manualReason` | `PAYOUT_NOT_SUPPORTED`, `GATEWAY_REF_MISSING`, `GATEWAY_OUTCOME_UNKNOWN`, `GATEWAY_REFUSED_3`, `PAYEE_NOT_VERIFIED` |
 | `reason` | why the money moves: the order's `cancelReason` or `rejected`, `delivered`, `verdict:<resolution>`, `transport_rebind`, `self_pickup`, `duplicate_payment` |
 | `actor` | `system`, the admin id, or the buyer id for a buyer's transport choice |
@@ -4294,7 +4296,8 @@ row per money movement. Rows are never deleted and never re-keyed.
 
 **`LedgerOpenIndex`** (sparse GSI, projection ALL): partition key `openStatus` (the row's `status`
 while it is not `done`), sort key `dueAt` (ISO): when the sweep should look at the row next.
-`pending` and `sent`: written time plus 15 minutes; `failed`: the next attempt; `manual`: the time it
+`pending`: its written time when the writer leaves the call to the sweep, plus 15 minutes when the
+writer calls at once; `sent`: plus 15 minutes; `failed`: the next attempt; `manual`: the time it
 entered `manual`, so the admin queue reads it oldest first. A `done` row carries neither key, so the
 index holds open rows only.
 
@@ -4337,15 +4340,17 @@ Replaces the whole-escrow settlement lock for ledger escrows.
    moves being `held` and on the status the caller validated. When an order event causes the
    movement (a cancel, a rejection, a transport choice), the order write is in the same transaction,
    as the one-transaction cancel and refund arm of 1.25.0.
-2. **Call** the gateway with the row's `gatewayRef`. It is derived from `{escrowId}:{ref}`; a gateway
-   whose reference field is shorter or narrower gets a stable mapping of that string (ESC-20 picks it
-   when it adds the B2B gateway), stored on the row, so every retry sends the same reference.
+2. **Call** the gateway with the row's `gatewayRef`, after a conditional write stamps `callingSince`
+   (row `pending` or `failed` and no `callingSince`), so two callers never send one row at once. The
+   reference is derived from `{escrowId}:{ref}`; a gateway whose reference field is shorter or
+   narrower gets a stable mapping of that string (ESC-20 picks it when it adds the B2B gateway),
+   stored on the row, so every retry sends the same reference.
 3. **Success with a reference:** the row becomes `done` with `telebirrRef` and `doneAt`.
 4. **Definite refusal:** `failed`, `attempts` + 1, `lastCode`; retried by a later sweep with the same
    reference. The third definite refusal makes it `manual` (`GATEWAY_REFUSED_3`). (1.11.0 retried a
    trucker leg forever.)
 5. **Unknown outcome** (a timeout, an answer that does not say whether money moved, a call that threw
-   after sending, a Lambda that died after step 1): `sent`. It is retried only after a status check on
+   after sending, a Lambda that died after stamping `callingSince`): `sent`. It is retried only after a status check on
    the same reference says the payment never happened. A gateway without a reliable status check
    (the live gateway answers `unknown`) sends the row to `manual` (`GATEWAY_OUTCOME_UNKNOWN`). Nothing
    is retried blindly.
@@ -4380,8 +4385,8 @@ Checked by the writer before every transaction and by tests on every path:
 - **I2** `releasedTotal` = the amounts of the legs that are `released`.
 - **I3** the rows of `amount` (every row except `refund#duplicate#...` and `shift#...`) add up to
   `releasedTotal + refundedTotal`.
-- **I4** a leg leaves `held` once. Only the transport leg's amount may change while it is held, and
-  only through a rebind row (P.10).
+- **I4** a leg leaves `held` once. While held, only the transport and commission amounts may change,
+  and only through a rebind row (P.10).
 
 A write that would break one is not sent; the writer logs `ESCROW_LEDGER_INVARIANT escrowId=<id>
 ref=<ref> check=<I1..I4>` (any occurrence alarms) and answers the caller as a failed read does
@@ -4391,8 +4396,9 @@ ref=<ref> check=<I1..I4>` (any occurrence alarms) and answers the caller as a fa
 
 - Reads `LedgerOpenIndex` for `pending`, `sent` and `failed` with `dueAt <= now`, oldest first, with a
   cursor and the run budget of the other sweeps (1.15.0), so skipped rows cannot starve it.
-- A `pending` row is 15 minutes old at the earliest when it is read: its call may have gone out, so it
-  is handled as `sent`.
+- A `pending` row without `callingSince` was never sent (its writer left the call to the sweep, or
+  died before calling): the sweep calls it. A `pending` or `failed` row whose `callingSince` is older
+  than 15 minutes may have reached the gateway, so it is handled as `sent`.
 - `sent`: the status check of P.5 step 5. `failed`: the gates again (a payee who lost verification
   waits, F2), then the call with the same reference.
 - Re-checks I1 and I3 on every escrow it touches.
@@ -4438,8 +4444,9 @@ escrow path wrote transaction-audit rows) for ledger escrows.
   when `farmerAmount` is above 0 (the sale happened in part) and refunded otherwise, so `farmerAmount +
   truckerAmount + buyerRefund` must equal the crop and transport legs held, plus the commission held
   when `farmerAmount` is 0. The example above holds 15,000 crop, 1,500 transport and 750 commission:
-  9,000 + 1,500 + 6,000 = 16,500, the crop and transport legs, and the 750 commission is kept. A split that breaks a rule is `400 ADMIN_021`
-  with the field named; the 1.9.0 and 1.21.0 errors and the order checks are unchanged (a split
+  9,000 + 1,500 + 6,000 = 16,500, the crop and transport legs, and the 750 commission is kept. A
+  split that breaks a rule is `400 ADMIN_021` with the field named; the 1.9.0 and 1.21.0 errors and
+  the order checks are unchanged (a split
   needs the goods delivered, like `farmer_wins`, or the `delivered_anyway` disposition). The
   verdict writes `verdict#farmer`, `verdict#trucker` and `verdict#buyer` for the amounts above 0,
   each `pending`, in the transaction that records the verdict; the leg amounts become the amounts
