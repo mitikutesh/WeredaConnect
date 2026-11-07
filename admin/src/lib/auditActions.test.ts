@@ -105,6 +105,8 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "user_unsuspend",
   "user_verify",
   "user_change_role",
+  // FRD-18: the outcome label of a resolved case (Fraud Review decision, dispute verdict, held exit)
+  "outcome_label",
 ];
 
 /** Written by an open PR that has no admin change of its own; labelled here ahead of the merge. */
