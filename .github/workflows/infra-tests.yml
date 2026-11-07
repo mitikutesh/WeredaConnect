@@ -182,54 +182,57 @@ jobs:
         working-directory: infra
         run: |
           echo "Scanning npm packages for known vulnerabilities..."
-          AUDIT_JSON=$(npm audit --json 2>&1 || true)
-
-          # Count fixable high/critical vulns (excludes bundled deps inside aws-cdk-lib
-          # that cannot be overridden — e.g. fast-uri bundled in aws-cdk-lib tarball)
-          UNFIXABLE=$(echo "$AUDIT_JSON" | node -e "
-            let raw = '';
-            process.stdin.on('data', d => raw += d);
-            process.stdin.on('end', () => {
-              try {
-                const data = JSON.parse(raw);
-                const vulns = data.vulnerabilities || {};
-                const bad = Object.values(vulns).filter(v =>
-                  ['high', 'critical'].includes(v.severity) &&
-                  (v.nodes || []).every(n => n.includes('node_modules/aws-cdk-lib/node_modules/'))
-                );
-                process.stdout.write(bad.map(v => v.name + ' (' + v.severity + ') — bundled in aws-cdk-lib, cannot be overridden').join('\n'));
-              } catch { process.stdout.write(''); }
-            });
-          " 2>/dev/null)
-
-          FIXABLE=$(echo "$AUDIT_JSON" | node -e "
-            let raw = '';
-            process.stdin.on('data', d => raw += d);
-            process.stdin.on('end', () => {
-              try {
-                const data = JSON.parse(raw);
-                const vulns = data.vulnerabilities || {};
-                const bad = Object.values(vulns).filter(v =>
-                  ['high', 'critical'].includes(v.severity) &&
-                  !(v.nodes || []).every(n => n.includes('node_modules/aws-cdk-lib/node_modules/'))
-                );
-                process.stdout.write(String(bad.length));
-              } catch { process.stdout.write('0'); }
-            });
-          " 2>/dev/null)
-
-          if [ -n "$UNFIXABLE" ]; then
-            echo "::warning::Known bundled vulnerabilities in aws-cdk-lib (cannot be overridden — upgrade aws-cdk-lib when fixed upstream):"
-            echo "$UNFIXABLE"
-          fi
-
-          if [ "${FIXABLE:-0}" -gt "0" ]; then
-            echo "::error::High or critical severity vulnerabilities found in addressable npm packages"
-            npm audit --audit-level=high
-            exit 1
-          fi
-
-          echo "No addressable high/critical vulnerabilities found."
+          # FUP-13: fail closed. Only stdout is the report (npm writes warnings to stderr, and
+          # mixing them in broke the JSON, which used to count as zero findings). npm audit
+          # exits 1 when it finds anything, so its exit code is not the verdict; the parser is.
+          npm audit --json > "$RUNNER_TEMP/npm-audit.json" 2> "$RUNNER_TEMP/npm-audit.err" || true
+          node - "$RUNNER_TEMP/npm-audit.json" "$RUNNER_TEMP/npm-audit.err" <<'EOF'
+          const fs = require('fs');
+          const [reportPath, errPath] = process.argv.slice(2);
+          const fail = (why) => {
+            console.log(`::error::npm audit gave no usable report (${why}); failing closed.`);
+            const err = fs.existsSync(errPath) ? fs.readFileSync(errPath, 'utf8').trim() : '';
+            if (err) console.log(err.slice(0, 4000));
+            process.exit(1);
+          };
+          let data;
+          try {
+            data = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+          } catch (e) {
+            fail(`output is not JSON: ${e.message}`);
+          }
+          if (data === null || typeof data !== 'object' || data.error) {
+            fail(`npm reported an error: ${JSON.stringify(data && data.error).slice(0, 500)}`);
+          }
+          if (data.auditReportVersion !== 2) fail(`unknown auditReportVersion ${data.auditReportVersion}`);
+          const vulns = data.vulnerabilities;
+          const counts = data.metadata && data.metadata.vulnerabilities;
+          if (vulns === null || typeof vulns !== 'object' || !counts || typeof counts !== 'object') {
+            fail('no vulnerabilities map or metadata counts');
+          }
+          const severe = Object.values(vulns).filter((v) => v && ['high', 'critical'].includes(v.severity));
+          const expected = Number(counts.high) + Number(counts.critical);
+          if (!Number.isInteger(expected) || severe.length !== expected) {
+            fail(`${severe.length} high/critical entries but metadata counts ${counts.high} high, ${counts.critical} critical`);
+          }
+          // Only a finding whose every install path is inside aws-cdk-lib's own bundled
+          // node_modules cannot be overridden here. An entry with no paths is not bundled.
+          const bundled = (v) =>
+            Array.isArray(v.nodes) && v.nodes.length > 0 &&
+            v.nodes.every((n) => n.includes('node_modules/aws-cdk-lib/node_modules/'));
+          const unfixable = severe.filter(bundled);
+          const fixable = severe.filter((v) => !bundled(v));
+          if (unfixable.length > 0) {
+            console.log('::warning::Known bundled vulnerabilities in aws-cdk-lib (cannot be overridden here; upgrade aws-cdk-lib when fixed upstream):');
+            for (const v of unfixable) console.log(`${v.name} (${v.severity}), bundled in aws-cdk-lib`);
+          }
+          if (fixable.length > 0) {
+            console.log('::error::High or critical severity vulnerabilities found in addressable npm packages:');
+            for (const v of fixable) console.log(`${v.name} (${v.severity}): ${(v.nodes || []).join(', ') || 'no install path reported'}`);
+            process.exit(1);
+          }
+          console.log(`No addressable high/critical vulnerabilities found (${counts.total} findings below high or bundled).`);
+          EOF
 
   smoke-tests:
     name: Smoke Tests

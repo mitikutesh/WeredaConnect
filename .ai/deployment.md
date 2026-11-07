@@ -839,8 +839,9 @@ nothing.
 - Platform: Lambda errors across the critical functions, API Gateway 5xx rate, DynamoDB
   throttles, cold start duration, order-cron errors, auth brute force, escrow dispute rate.
 - `<prefix>-escrow-dispute-rate`: more than 5 disputes in one hour. It counts every
-  `POST /escrow/dispute` request (the escrow Lambda's `ESCROW`/`DISPUTE` audit line, any outcome)
-  and, since FUP-27, every delivery dispute through sync that froze an escrow
+  `POST /escrow/dispute` that froze an escrow (the escrow Lambda's `ESCROW`/`DISPUTE` audit line
+  with outcome `success`, since FUP-81; a refused request is not counted, a replay of the same
+  idempotency key is) and, since FUP-27, every delivery dispute through sync that froze an escrow
   (`DELIVERY_DISPUTE_FROZEN escrowId=.. orderId=.. deliveryId=..` in the sync log group; an escrow
   already disputed, a refused dispute and escrow-cron's freeze of an old disputed trade are not
   counted). First action: look for one account or one trip behind most lines (fraud, or a trucker
@@ -975,6 +976,7 @@ dimension `SignalType`) and the risk lines:
 | `<prefix>-risk-score-unknown-record` | a score read counted rows with an unknown `recordType` as signals | deploy one server build to every Lambda; a kind not in section 20 of the fraud spec: find who wrote it |
 | `<prefix>-risk-hold-order-mismatch` | an admin refund of a held escrow was refused (422) because its order cannot follow it (`RISK_HOLD_ORDER_MISMATCH escrowId=.. heldFor=.. legs=order:<status>`); nothing moved | open `/transactions/<orderId>`, reconcile the order with the parties, then release instead (goods delivered) or refund again once the order can be cancelled |
 | `<prefix>-risk-table-unconfigured` | escrow-cron's settlement gate reads no risk tier (`FRAUD_SIGNALS_TABLE` empty), so a CRITICAL party is paid as if LOW; logged once per hourly run | check the escrow-cron configuration and deploy the api stack |
+| `<prefix>-outcome-label-failed` | (FUP-142) an FRD-18 outcome label row was not written (`OUTCOME_LABEL_FAILED case=.. outcome=.. caseId=.. error=..` in the admin, escrow or escrow-cron log group); the decision itself stands, only the label is missing from `scripts/export_outcome_labels.py` | check throttling and `dynamodb:PutItem` on the transaction-audit table and the Lambda's `TRANSACTION_AUDIT_TABLE`. A dispute verdict heals when the admin sends the same verdict again; a Fraud Review decision or a held exit does not repeat and has no backfill yet, so note the caseId and time |
 
 `CLEAN_DELIVERY_CREDIT_FAILED` (FRD-10) is a dashboard metric only, by design. The risk alarms use the
 money alarm shape (clear 75 to 90 minutes after the last line); the spike clears 15 to 30 minutes after

@@ -2379,6 +2379,11 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-dispute-verdict-order-mismatch',
     'wereda-connect-dev-dispute-verdict-settlement-blocked',
     'wereda-connect-dev-risk-settlement-skipped',
+    // FUP-81: ESC-09's order-money sweep and FUP-27's dispute mirror.
+    'wereda-connect-dev-order-money-mismatch',
+    'wereda-connect-dev-dispute-propagation-failed',
+    // ESC-16: a confirmed delivery whose escrow stamp failed.
+    'wereda-connect-dev-escrow-delivery-stamp-failures',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -2997,18 +3002,67 @@ describe('MonitoringStack', () => {
     return (pattern.match(/\??"[^"]*"|\??\S+/g) ?? []).map((t) => t.replace(/^\?/, '').replace(/^"|"$/g, ''));
   }
 
-  // The money filters of the five log groups that carry them (webhook only with the live gateway).
+  // The five log groups that carry money filters (webhook only with the live gateway).
+  const MONEY_LOG_GROUPS = [ESCROW_LG, ESCROW_CRON_LG, SYNC_LG, ORDER_CRON_LG, '/aws/lambda/wereda-connect-dev-telebirr-webhook'];
+  const MONEY_METRICS = [
+    'EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue',
+    'OrderPaymentProblems', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
+    'EscrowSettlementUnknownOutcomes', 'TruckerPayoutsOverdue', 'RiskSettlementSkipped',
+    // FUP-81: ESC-09's order-money sweep and FUP-27's dispute mirror.
+    'OrderMoneyMismatch', 'DisputePropagationFailed',
+    // ESC-16: a confirmed delivery whose escrow stamp failed.
+    'EscrowDeliveryStampFailures',
+  ];
+  // FUP-81: the other filters of those log groups, each named, so a new filter there must be
+  // sorted into one list or the other. The JSON audit filters match a field exactly (client text
+  // cannot spell them), the fraud ones are FRD-16's (fraud-alarms.test.ts), and the inbox replay
+  // count is a heartbeat whose alarm fires when it is missing.
+  const NOT_MONEY_METRICS = [
+    'EscrowInitiate', 'EscrowRelease', 'TelebirrInboxReplayRuns', 'FraudSignalsRecorded', 'FraudSignalsByType',
+    'RiskScoreUnavailable', 'RiskScoreTruncated', 'RiskScoreUnknownRecord', 'RiskHoldOrderMismatch',
+    'RiskTableUnconfigured', 'CleanDeliveryCreditFailed', 'OutcomeLabelFailed',
+  ];
+
+  // The money filters, and the sync's FUP-27 dispute filter: a rate, not money, but an alarm that
+  // client text must not fire either. Its escrow twin is the JSON audit filter (not listed).
   function moneyFilterPatterns(template: Template): string[] {
-    const groups = [ESCROW_LG, ESCROW_CRON_LG, SYNC_LG, ORDER_CRON_LG, '/aws/lambda/wereda-connect-dev-telebirr-webhook'];
-    const money = [
-      'EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue',
-      'OrderPaymentProblems', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
-      'EscrowSettlementUnknownOutcomes', 'TruckerPayoutsOverdue', 'RiskSettlementSkipped',
-    ];
     return (Object.values(template.findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[])
-      .filter((f) => groups.includes(f.Properties.LogGroupName) && money.includes(f.Properties.MetricTransformations[0].MetricName))
+      .filter((f) => MONEY_LOG_GROUPS.includes(f.Properties.LogGroupName))
+      .filter((f) => {
+        const metric = f.Properties.MetricTransformations[0].MetricName;
+        return MONEY_METRICS.includes(metric) || (metric === 'EscrowDispute' && f.Properties.LogGroupName === SYNC_LG);
+      })
       .map((f) => f.Properties.FilterPattern);
   }
+
+  test('FUP-81: every filter of the money log groups is listed as money or as not money', () => {
+    for (const live of [false, true]) {
+      const filters = Object.values(monitoringTemplate(live).findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[];
+      for (const f of filters.filter((x) => MONEY_LOG_GROUPS.includes(x.Properties.LogGroupName))) {
+        const metric = f.Properties.MetricTransformations[0].MetricName;
+        const listed = MONEY_METRICS.includes(metric) || NOT_MONEY_METRICS.includes(metric) || metric === 'EscrowDispute';
+        expect([f.Properties.LogGroupName, metric, listed]).toEqual([f.Properties.LogGroupName, metric, true]);
+      }
+    }
+  });
+
+  test('FUP-81: every alarm on a money metric is in MONEY_ALARMS (or is the live-only webhook one)', () => {
+    // ESC-01's alarm exists only with the live gateway (its own test above); MONEY_ALARMS holds
+    // the alarms of both shapes.
+    const liveOnly = ['wereda-connect-dev-order-payment-problems'];
+    for (const live of [false, true]) {
+      const alarms = Object.values(monitoringTemplate(live).findResources('AWS::CloudWatch::Alarm')) as Array<{
+        Properties: { AlarmName: string; Metrics?: Array<{ MetricStat?: { Metric: { MetricName: string } } }> };
+      }>;
+      const onMoney = alarms
+        .filter((a) => (a.Properties.Metrics ?? []).some((m) => MONEY_METRICS.includes(m.MetricStat?.Metric.MetricName ?? '')))
+        .map((a) => a.Properties.AlarmName);
+      expect(onMoney.length).toBeGreaterThanOrEqual(MONEY_METRICS.length - (live ? 0 : 1)); // OrderPaymentProblems is live only
+      for (const name of onMoney) {
+        expect([name, MONEY_ALARMS.includes(name) || (live && liveOnly.includes(name))]).toEqual([name, true]);
+      }
+    }
+  });
 
   // Whether every term a pattern requires appears in the line as a plain substring (any one of
   // them for a pattern of `?` alternatives): stricter than the service's token match.
@@ -3019,7 +3073,10 @@ describe('MonitoringStack', () => {
 
   test('ESC-13: every money filter needs a term with an underscore (the server defangs client text by turning _ into -)', () => {
     const patterns = moneyFilterPatterns(monitoringTemplate(true));
-    expect(patterns.length).toBe(15); // ESC-18 added the webhook's refund-schedule filter
+    // ESC-18 added the webhook's refund-schedule filter; FUP-81 added OrderMoneyMismatch (1),
+    // DisputePropagationFailed (3) and the sync dispute filter (1); ESC-16 added
+    // EscrowDeliveryStampFailures (2: sync and escrow-cron).
+    expect(patterns.length).toBe(22);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the
@@ -3099,6 +3156,8 @@ describe('MonitoringStack', () => {
         'DisputeVerdictOrderMismatch',
         'DisputeVerdictSettlementBlocked',
         'RiskSettlementSkipped',
+        'OrderMoneyMismatch',
+        'DisputePropagationFailed',
       ]) {
         expect(body).toMatch(new RegExp(`"Fn::GetAtt":\\["${logicalId}[0-9A-F]+","Arn"\\]`));
       }

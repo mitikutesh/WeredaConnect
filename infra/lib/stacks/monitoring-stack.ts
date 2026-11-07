@@ -39,16 +39,17 @@ interface DynamoTableDef {
  *
  * S2-04 Phase 2: Audit Logging — compliance observability layer.
  *
- * Cost: ~$7/month (1 dashboard @ $3 + 12 alarms @ $0.10 + 9 custom metrics from the log
- * filters @ $0.30). The live gateway adds 5 alarms and 2 metrics on the API alarm ($0.70),
- * 2 log metrics ($0.60) and the webhook route's 6 detailed API Gateway metrics (at most
- * $1.80, billed only for hours with webhook traffic; FUP-39). The order notification
- * stream adds 3 alarms ($0.30; ESC-21). FRD-16 adds $1.70 fixed (the total signal metric
- * $0.30, 5 risk alarms $0.50, the anomaly alarm $0.30 as 3 alarm metrics, its floor $0.10, the
- * composite $0.50) plus the per-type signal metrics, $0.30 a month for a type written every hour,
- * prorated by the hours it is written ($6.30 at most for the 21 types of today; fraud spec
- * section 23.1). Metric filters are free. FRD-19 adds the fraud-advisory errors alarm over two Lambda
- * metrics ($0.20) and the FRD-16 filters on the fraud-advisory log group (free).
+ * Cost per environment and month (FUP-81: counted from the synthesized template on 2026-11-07,
+ * us-east-1 list prices, before the free tier): about $14.50 with the live gateway off and $15.80
+ * with it on, plus usage. Fixed: the dashboard $3; the alarms at $0.10 per metric they read, 56
+ * metrics over 32 alarms (63 over 37 live: the Lambda errors and DynamoDB throttle alarms read 10
+ * each, the anomaly alarm 3, the API 5xx alarm 2, or 4 live); the composite alarm $0.50; and $0.30
+ * for each metric a log filter publishes with a default value, 18 (20 live), because a default
+ * publishes in every hour its log group logs anything. Usage: a filter metric without a default
+ * (the risk lines, OutcomeLabelFailed) is billed only in the hours a line is written, and so are
+ * FRD-16's per-type signal metrics ($6.30 at most for the 21 types of today; fraud spec section
+ * 23.1) and the live webhook route's 6 detailed API Gateway metrics (at most $1.80; FUP-39).
+ * Metric filters are free. Recount when an alarm, or a filter with a default, is added.
  *
  * References Lambda functions and DynamoDB tables by name (no cross-stack refs needed).
  */
@@ -153,12 +154,16 @@ export class MonitoringStack extends cdk.Stack {
       defaultValue: 0,
     });
 
-    // ESCROW: Dispute
+    // ESCROW: Dispute. FUP-81: only outcome "success", a dispute that froze the escrow, as the
+    // sync filter below counts only fresh freezes. A refused dispute (403 step-up, 409 already
+    // disputed, 503) logs "failure" or "error" and is not a new dispute. A replay of the same
+    // idempotency key also logs "success" and still counts (rare: a retry after a lost answer).
     new logs.MetricFilter(this, 'EscrowDisputeFilter', {
       logGroup: escrowLogGroup,
       filterPattern: logs.FilterPattern.all(
         logs.FilterPattern.stringValue('$.category', '=', 'ESCROW'),
         logs.FilterPattern.stringValue('$.action', '=', 'DISPUTE'),
+        logs.FilterPattern.stringValue('$.outcome', '=', 'success'),
       ),
       metricNamespace,
       metricName: 'EscrowDispute',
@@ -432,7 +437,7 @@ export class MonitoringStack extends cdk.Stack {
           '',
           `**API URL:** ${props.apiUrl}`,
           '',
-          `**Region:** ${envConfig.region} | **Cost:** ~$7/month | **Updated:** ESC-13 money alarms`,
+          `**Region:** ${envConfig.region} | **Cost:** about $15/month plus usage (the MonitoringStack header in infra/lib/stacks/monitoring-stack.ts)`,
         ].join('\n'),
         width: 24,
         height: 3,
@@ -892,10 +897,11 @@ export class MonitoringStack extends cdk.Stack {
         alarmName: `${prefix}-escrow-dispute-rate`,
         alarmDescription:
           'More than 5 escrow disputes in 1 hour. Possible fraud or ' +
-          'systematic delivery issues. Investigate dispute patterns. Counts POST /escrow/dispute ' +
-          'requests (the escrow Lambda\'s ESCROW/DISPUTE audit line, any outcome) and, since FUP-27, ' +
-          'delivery disputes through sync that froze an escrow (DELIVERY_DISPUTE_FROZEN in the sync ' +
-          'log group, with escrowId, orderId and deliveryId).',
+          'systematic delivery issues. Investigate dispute patterns. Counts disputes that froze an ' +
+          'escrow: POST /escrow/dispute (the escrow Lambda\'s ESCROW/DISPUTE audit line with outcome ' +
+          'success, since FUP-81; refused requests are not counted) and, since FUP-27, delivery ' +
+          'disputes through sync (DELIVERY_DISPUTE_FROZEN in the sync log group, with escrowId, ' +
+          'orderId and deliveryId).',
         metric: new cloudwatch.Metric({
           namespace: metricNamespace,
           metricName: 'EscrowDispute',
@@ -1960,6 +1966,38 @@ export class MonitoringStack extends cdk.Stack {
     fraudAdvisoryErrorsAlarm.addAlarmAction(snsAction);
     fraudAdvisoryErrorsAlarm.addOkAction(snsAction);
 
+    // ─── FUP-142: outcome label write failures (FRD-18) ──────────────
+    // OutcomeLabelWriter logs OUTCOME_LABEL_FAILED when a label row could not be written: from the
+    // admin Lambda (a Fraud Review decision, a dispute verdict) and from the escrow Lambda (an admin
+    // exit of a held escrow, EscrowService.LabelHeldExitAsync, which also logs a short form without
+    // caseId). escrow-cron runs the same EscrowService settlements as the system actor, which writes
+    // no label today; it is counted too, so a later change cannot fail there unseen. A plain term
+    // with an underscore, so it matches behind the runtime prefix and client text cannot spell it.
+    // No default: the line is rare and the metric is billed only in the hours it appears.
+    const outcomeLabelLogGroups: Array<[string, logs.ILogGroup]> = [
+      ['Admin', logs.LogGroup.fromLogGroupName(this, 'OutcomeLabelAdminLogGroup', `/aws/lambda/${prefix}-admin`)],
+      ['Escrow', escrowLogGroup],
+      ['EscrowCron', escrowCronLogGroup],
+    ];
+    for (const [key, logGroup] of outcomeLabelLogGroups) {
+      riskLogFilter(`OutcomeLabelFailed${key}Filter`, logGroup, 'OUTCOME_LABEL_FAILED', 'OutcomeLabelFailed');
+    }
+    const outcomeLabelFailedAlarm = moneyLogAlarm(
+      'OutcomeLabelFailed',
+      'outcome-label-failed',
+      'OutcomeLabelFailed',
+      'Outcome Label Failed',
+      'An outcome label row could not be written (OUTCOME_LABEL_FAILED case=<case> outcome=<outcome> ' +
+        'caseId=<id> error=<exception type> in the admin or escrow log group; FRD-18, fraud spec section ' +
+        '20.1). The decision stands: a Fraud Review decision, a dispute verdict or an admin exit of a held ' +
+        'escrow is never failed or undone by its label. Only that case is missing from the outcome label ' +
+        'export (scripts/export_outcome_labels.py). Usually throttling or IAM on the transaction-audit ' +
+        'table: check dynamodb:PutItem on it and the TRANSACTION_AUDIT_TABLE variable of the admin and ' +
+        'escrow Lambdas. A dispute verdict heals when the admin sends the same verdict again; a Fraud ' +
+        'Review decision or a held exit is not repeated and has no backfill yet, so note the caseId and ' +
+        'the time (FUP-142).',
+    );
+
     // ─── Alarm Status Widget (summary at bottom of dashboard) ────────
     dashboard.addWidgets(
       new cloudwatch.AlarmStatusWidget({
@@ -2000,6 +2038,8 @@ export class MonitoringStack extends cdk.Stack {
           riskTableUnconfiguredAlarm,
           // FRD-19 AI advisory reviewer
           fraudAdvisoryErrorsAlarm,
+          // FUP-142 outcome label write failures
+          outcomeLabelFailedAlarm,
           ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
           ...(webhook5xxAlarm ? [webhook5xxAlarm] : []),
           ...(webhookErrorsAlarm ? [webhookErrorsAlarm] : []),

@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { FaydaMockConstruct } from '../lib/constructs/fayda-mock-construct';
+import { FaydaMockConstruct } from '../../lib/constructs/fayda-mock-construct';
 
 describe('FaydaMockConstruct', () => {
   let template: Template;
