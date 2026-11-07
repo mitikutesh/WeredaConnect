@@ -1,7 +1,7 @@
 # User Entity Contract
 
 ## Version
-2.0.0
+2.0.1
 
 ## Parties
 - **Mobile** (client): caches the signed-in user in Isar (`core/database/schemas/user.dart`) for offline sign-in and display
@@ -52,7 +52,7 @@ value is left out (the serializer omits nulls).
 | `preferredLanguage` | S | yes | registration; the `/sync` `user` entity (section 9) | `en`, `am` or `om`; a row without it reads as `am` |
 | `isPhoneVerified` | BOOL | yes (`false` included) | registration, `POST /auth/verify-otp`, `/user/fayda-link` (when the Fayda record proves the phone) | SMS OTP or Fayda proved the phone |
 | `suspended` | BOOL | yes (`false` included) | admin `suspend`, `unsuspend` | Blocks login, OTP and refresh (`AUTH_025`); ESC-29 extends it to the write endpoints (`reputation-api.md` 8.4). A row without it reads as `false` |
-| `suspendReason` | S | never (admin detail shows it beside the user) | admin `suspend` (removed by `unsuspend`) | `fraud_confirmed` is the Fraud Review reject (FRD-05) |
+| `suspendReason` | S | never (admin detail shows it beside the user) | admin `suspend` (removed by `unsuspend`) | `fraud_confirmed` is the Fraud Review reject (FRD-05). Since 2.0.1 a later `suspend` with another reason keeps `fraud_confirmed`; only `unsuspend` clears it (FUP-103) |
 | `knownDevices` | SS | yes (`[]` when none) | registration, login on a new install | Install ids (`X-Device-Id`), at most 10; a string set, so DynamoDB keeps no order; a new one triggers a sign-in notice; FRD-15 compares them |
 | `profilePhotoRef` | S | yes | nothing today | Read and written back by `UpdateUserAsync`; no upload path exists, so it is never set |
 | `buyerType` | S | yes | registration | Buyer only: `private` or `company` (F-32) |
@@ -474,6 +474,7 @@ screened.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.0.1 | 2026-11-07 | `suspendReason`: an admin's `suspend` with a free-text reason no longer replaces a stored `fraud_confirmed` (FUP-103); the account stays held as confirmed fraud until `unsuspend`. Shape unchanged |
 | 2.0.0 | 2026-11-07 | Rewritten from the code (ESC-27): every attribute with its type, writer and whether the `user` object returns it; `passwordHash`, `drivingLicensePath` and the ID scan paths are not on the row; `profilePhotoRef` has no writer; the NULL-or-missing rule, with an open question on `UpdateUserAsync` writing `NULL` to the `FaydaIdIndex` key on rows without a Fayda ID; `knownDevices` is an unordered string set; table settings as built (default encryption, no stream, no TTL); access patterns; the writers table with version semantics (admin actions do not bump `version`) and the known `UpdateUserAsync` revert gap; the Isar schema and web model as built (field-level PII encryption; `preferredLanguage` not in Isar); sync is the `user` entity only; `UserJsonContext` and the embedded `MinimalUserDto` were never used. PLANNED (ESC-28): `reputation` map, top-level `ratingSum`, `ratingCount`, `ratingsAggregatedAt`, their write rules and invariants 11 to 13 (`reputation-api.md` 1.0.0, `rating-api.md` 1.2.0). No wire change for built clients |
 | 1.3.2 | 2026-11-07 | Doc only (ESC-14, survey 9.5): the row as built. `role` is changed by an admin's `change_role` (marketplace roles only, Cognito claim rewritten, user signed out), not immutable; new table of server-written fields (`fullName`, `faydaVerified`, `faydaVerifiedAt`, `faydaAuthenticatedAt`, `suspended`, `suspendReason`, `knownDevices`) saying which the register and login `user` object returns; `RoleWaredaIndex` projects `ALL` (was documented `KEYS_ONLY`); `FaydaIdIndex` documented. The full rewrite with `reputation` stays ESC-27 (user-entity 2.0.0). No wire change |
 | 1.3.1 | 2026-11-06 | `preferredLanguage` is read back: after a sign-in the app shows it unless the user picked a language on that device (`auth-api.md` 2.12.3, SIM-37). Shape unchanged |

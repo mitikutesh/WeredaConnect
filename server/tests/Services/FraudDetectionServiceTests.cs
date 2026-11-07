@@ -225,6 +225,107 @@ public class FraudDetectionServiceTests
         Assert.False(result.IsFlagged);
     }
 
+    // ===== FUP-135: Rule 2 on a robust band (median and MAD) =====
+
+    /// <summary>
+    /// Like the dev teff sample of FUP-135: 27 honest listings from 70 to 140 ETB/kg and four test listings at
+    /// 1,000 (mean 217.6, sample deviation 306.7; dev had 216.6 and 322.0). Mean plus 3 deviations is about
+    /// 1,138, so the old rule let 999 through.
+    /// </summary>
+    private static List<decimal> TeffSampleWithTestListings() =>
+        Enumerable.Range(0, 27).Select(i => 70m + 5m * (i % 15)).Concat(Enumerable.Repeat(1000m, 4)).ToList();
+
+    private void SetupPrices(IEnumerable<decimal> prices) =>
+        SetupPriceHistoryQuery(prices
+            .Select(p => new Dictionary<string, AttributeValue>
+            {
+                { "pricePerKg", new AttributeValue { N = p.ToString(System.Globalization.CultureInfo.InvariantCulture) } }
+            })
+            .ToList());
+
+    [Fact]
+    public async Task CheckListingCreation_AbsurdPriceIsFlagged_DespiteOutliersInTheSample()
+    {
+        var sample = TeffSampleWithTestListings();
+        var mean = sample.Average();
+        var sd = Math.Sqrt((double)sample.Sum(p => (p - mean) * (p - mean)) / (sample.Count - 1));
+        Assert.True(Math.Abs(999 - (double)mean) < 3 * sd); // what the mean and deviation rule saw
+        SetupFarmerListingsQuery(new List<Dictionary<string, AttributeValue>>());
+        SetupPrices(sample);
+
+        var result = await _service.CheckListingCreationAsync(FarmerId, "teff", 999m);
+
+        Assert.True(result.IsAllowed); // flagged, not rejected
+        Assert.True(result.IsFlagged);
+        Assert.Equal("PRICE_ANOMALY", result.FlagReason);
+        Assert.Equal("Price 999 ETB/kg is unusual for teff (median: 105.00, MAD: 20.00).", result.Message);
+    }
+
+    [Theory]
+    [InlineData(70)]
+    [InlineData(105)]
+    [InlineData(160)]
+    public async Task CheckListingCreation_AnOrdinaryPriceIsNotFlagged_InASampleWithOutliers(int price)
+    {
+        SetupFarmerListingsQuery(new List<Dictionary<string, AttributeValue>>());
+        SetupPrices(TeffSampleWithTestListings());
+
+        var result = await _service.CheckListingCreationAsync(FarmerId, "teff", price);
+
+        Assert.True(result.IsAllowed);
+        Assert.False(result.IsFlagged);
+    }
+
+    [Fact]
+    public async Task CheckListingCreation_AnAbsurdlyLowPriceIsFlagged()
+    {
+        SetupFarmerListingsQuery(new List<Dictionary<string, AttributeValue>>());
+        SetupPrices(TeffSampleWithTestListings());
+
+        var result = await _service.CheckListingCreationAsync(FarmerId, "teff", 1m);
+
+        Assert.True(result.IsFlagged);
+        Assert.Equal("PRICE_ANOMALY", result.FlagReason);
+    }
+
+    [Theory]
+    [InlineData(100, false)]
+    [InlineData(129, false)] // within 3 spreads of 10 (the floor, 10% of the median)
+    [InlineData(71, false)]
+    [InlineData(131, true)]
+    [InlineData(69, true)]
+    [InlineData(999, true)]
+    public async Task CheckListingCreation_MostFarmersAskingOnePrice_FlagsOnlyBeyondTheSpreadFloor(int price, bool flagged)
+    {
+        // 30 of 50 listings at 100 ETB/kg: the median absolute deviation is 0, so the spread is its floor.
+        // The mean and deviation rule never flagged an all-identical sample at all (deviation 0).
+        SetupFarmerListingsQuery(new List<Dictionary<string, AttributeValue>>());
+        SetupPrices(Enumerable.Repeat(100m, 30).Concat(Enumerable.Range(0, 20).Select(i => 90m + i)));
+
+        var result = await _service.CheckListingCreationAsync(FarmerId, "teff", price);
+
+        Assert.True(result.IsAllowed);
+        Assert.Equal(flagged, result.IsFlagged);
+    }
+
+    [Fact]
+    public void PriceBand_IsTheMedianAndTheScaledMad_WithAFloor()
+    {
+        // Odd count: the middle value; MAD of {1, 2, 3, 4, 100} around 3 is median {2, 1, 0, 1, 97} = 1.
+        var band = FraudDetectionService.PriceBand.Of(new List<decimal> { 4m, 1m, 100m, 3m, 2m })!;
+        Assert.Equal(3m, band.Median);
+        Assert.Equal(1m, band.Mad);
+        Assert.Equal(FraudDetectionService.MadToStdDev, band.Spread);
+
+        // Even count: the mean of the two middle values; the floor (10% of 200) beats 1.4826 x MAD (0).
+        var flat = FraudDetectionService.PriceBand.Of(new List<decimal> { 200m, 200m, 200m, 200m, 200m, 200m })!;
+        Assert.Equal(200m, flat.Median);
+        Assert.Equal(0m, flat.Mad);
+        Assert.Equal(20m, flat.Spread);
+
+        Assert.Null(FraudDetectionService.PriceBand.Of(new List<decimal> { 1m, 2m, 3m, 4m }));
+    }
+
     // ===== Payment Velocity Tests =====
 
     [Fact]
@@ -357,6 +458,8 @@ public class FraudDetectionServiceTests
         Assert.NotNull(captured);
         Assert.Equal(FraudSignalsTable, captured!.TableName);
         Assert.Equal(FarmerId, captured.Item["userId"].S);
+        // FUP-103: the row kind of section 20, which every reader also accepts absent (rows written before).
+        Assert.Equal(FraudDetectionService.RecordTypeSignal, captured.Item["recordType"].S);
         Assert.EndsWith("#PRICE_ANOMALY", captured.Item["signalKey"].S);
         Assert.Equal("PRICE_ANOMALY", captured.Item["signalType"].S);
         Assert.Equal("medium", captured.Item["severity"].S);

@@ -589,13 +589,94 @@ public class FraudRiskScoreTests
 
         var result = await ScoreAsync();
 
-        _queries.Should().HaveCount(2); // RISK_MAX_PAGES default
+        // RISK_MAX_PAGES (default 2) pages, then the one-row probe (FUP-62), which finds a row.
+        _queries.Should().HaveCount(3);
         result.Truncated.Should().BeTrue();
         result.Tier.Should().Be(RiskTier.Critical);
         result.Score.Should().Be(15);
         result.Source.Should().Be(RiskScoreSource.Computed);
         _alarms.Should().ContainSingle()
             .Which.Should().Be($"{FraudDetectionService.RiskScoreTruncatedToken} userId=user-risk-1 pages=2");
+    }
+
+    [Fact]
+    public async Task Read_AtThePageCap_ProbesOneRowFromTheLastKey_InTheSameOrderAndWindow()
+    {
+        var lastKey = PageKey("k2");
+        Pages(
+            Page(PageKey("k1"), Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-1))),
+            Page(lastKey, Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-2))),
+            Page(null));
+
+        await ScoreAsync();
+
+        var probe = _queries[2];
+        probe.TableName.Should().Be(Table);
+        probe.KeyConditionExpression.Should().Be(_queries[0].KeyConditionExpression);
+        probe.ExpressionAttributeValues[":uid"].S.Should().Be(UserId);
+        probe.ExpressionAttributeValues[":since"].S.Should().Be(_queries[0].ExpressionAttributeValues[":since"].S);
+        probe.ExclusiveStartKey.Should().BeSameAs(lastKey);
+        probe.ScanIndexForward.Should().BeFalse();
+        probe.Limit.Should().Be(1);
+        probe.FilterExpression.Should().BeNullOrEmpty();
+        probe.ProjectionExpression.Should().Be("#k");
+        probe.ExpressionAttributeNames.Keys.Should().BeEquivalentTo("#u", "#k");
+    }
+
+    [Fact]
+    public async Task Read_ALastPageThatEndsExactlyAtTheCap_IsNotTruncated()
+    {
+        // FUP-62 (section 14.3): DynamoDB can end a page at the last row and still return a key. Nothing is
+        // left, so the user is scored on what was read, not CRITICAL.
+        Pages(
+            Page(PageKey("k1"), Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-1))),
+            Page(PageKey("k2"), Signal("FRAUD_DUPLICATE_LISTING", Now.AddHours(-5))),
+            Page(null));
+
+        var result = await ScoreAsync();
+
+        _queries.Should().HaveCount(3);
+        result.Truncated.Should().BeFalse();
+        result.Score.Should().Be(35);
+        result.Tier.Should().Be(RiskTier.Medium);
+        result.Source.Should().Be(RiskScoreSource.Computed);
+        _alarms.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Read_AProbeThatAnswersOnlyAKey_StaysTruncated()
+    {
+        Pages(
+            Page(PageKey("k1"), Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-1))),
+            Page(PageKey("k2"), Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-2))),
+            Page(PageKey("k3")));
+
+        var result = await ScoreAsync();
+
+        result.Truncated.Should().BeTrue();
+        result.Tier.Should().Be(RiskTier.Critical);
+    }
+
+    [Fact]
+    public async Task Read_AProbeThatFails_StaysTruncatedToCritical_NotUnavailable()
+    {
+        // A failed probe must not turn a CRITICAL read into an unscored one, which a gate treats as LOW.
+        var calls = 0;
+        _ddb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => ++calls switch
+            {
+                1 => Task.FromResult(Page(PageKey("k1"), Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-1)))),
+                2 => Task.FromResult(Page(PageKey("k2"), Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-2)))),
+                _ => throw new ProvisionedThroughputExceededException("slow down")
+            });
+
+        var result = await ScoreAsync();
+
+        result.Truncated.Should().BeTrue();
+        result.Tier.Should().Be(RiskTier.Critical);
+        result.Source.Should().Be(RiskScoreSource.Computed);
+        _alarms.Should().ContainSingle().Which.Should().Be(
+            $"{FraudDetectionService.RiskScoreTruncatedToken} userId=user-risk-1 pages=2 probe=ProvisionedThroughputExceededException");
     }
 
     [Fact]

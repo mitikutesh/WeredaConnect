@@ -1725,9 +1725,10 @@ export class MonitoringStack extends cdk.Stack {
         '(RISK_SCORE_TRUNCATED userId=.. pages=.. in the sync, escrow, escrow-cron or admin log group; ' +
         'fraud spec section 14.3): payments and creates are refused (FRAUD_ACCOUNT_HELD) and their ' +
         'escrows held or skipped. It fails closed on purpose. With the hourly write limit an honest user ' +
-        'cannot reach about 3,000 rows in 30 days, so this is abuse across many types and hours, or the ' +
-        'known edge of a last page that ends exactly at the cap. Open the user in Fraud Review: reject ' +
-        'the signals if it is abuse. If the rows are honest (a client bug), RISK_MAX_PAGES (at most 10) ' +
+        'cannot reach about 3,000 rows in 30 days, so this is abuse across many types and hours (a ' +
+        'line with probe=<error> is a failed check for rows left, retried on the next read). Open the ' +
+        'user in Fraud Review: reject the signals if it is abuse. If the rows are honest (a client ' +
+        'bug), RISK_MAX_PAGES (at most 10) ' +
         'on the sync, escrow, escrow-cron and admin Lambdas reads further; otherwise the tier stays ' +
         'CRITICAL until rows leave the 30 day window. Logged on every read of that user. Never delete ' +
         'signal rows by hand (FRD-16).',
