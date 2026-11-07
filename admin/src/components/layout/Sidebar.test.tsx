@@ -40,6 +40,7 @@ describe("Sidebar", () => {
       "/payouts",
       "/unapplied-payments",
       "/fraud-review",
+      "/listing-reports",
       "/users",
       "/transactions",
       "/revenue",

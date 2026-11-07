@@ -5127,6 +5127,48 @@ class AppLocalizationsAm extends AppLocalizations {
       'ዕቃው ስለተነሳ የማውረጃ ምልክቱን ከእንግዲህ መቀየር አይቻልም።';
 
   @override
+  String get reportListing => 'ይህን ዝርዝር ሪፖርት አድርግ';
+
+  @override
+  String get reportListingTitle => 'በዚህ ዝርዝር ላይ ምን ችግር አለ?';
+
+  @override
+  String get reportListingPrivacyNote =>
+      'ባለቤቱ ማን ሪፖርት እንዳደረገ አያይም። ቡድናችን እያንዳንዱን ሪፖርት ይመረምራል።';
+
+  @override
+  String get reportReasonContactInfo => 'ስልክ ቁጥር ወይም ሌላ አድራሻ ያጋራል';
+
+  @override
+  String get reportReasonMisleading => 'የተሳሳተ ወይም አሳሳች መረጃ';
+
+  @override
+  String get reportReasonScam => 'ማጭበርበር ይመስላል';
+
+  @override
+  String get reportReasonOffensive => 'አጸያፊ ወይም ተገቢ ያልሆነ';
+
+  @override
+  String get reportReasonOther => 'ሌላ ነገር';
+
+  @override
+  String get reportListingSend => 'ሪፖርቱን ላክ';
+
+  @override
+  String get reportListingSent => 'እናመሰግናለን። ቡድናችን ይህን ዝርዝር ይመረምራል።';
+
+  @override
+  String get reportListingAlreadySent => 'ይህን ዝርዝር ቀደም ብለው ሪፖርት አድርገዋል።';
+
+  @override
+  String get errorReportNotSent => 'ሪፖርትዎ ሊላክ አልቻለም።';
+
+  @override
+  String errorReportLimitReached(int count) {
+    return 'በቀን እስከ $count ሪፖርቶች መላክ ይችላሉ። ነገ እንደገና ይሞክሩ።';
+  }
+
+  @override
   String get deliveryPlaceLabel => 'የማውረጃ ቦታ';
 
   @override

@@ -20,6 +20,7 @@ const protectedRoutes = [
   "/payouts",
   "/unapplied-payments",
   "/fraud-review",
+  "/listing-reports",
   "/users",
   "/revenue",
   "/transactions",

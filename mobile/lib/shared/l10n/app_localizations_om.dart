@@ -5314,6 +5314,51 @@ class AppLocalizationsOm extends AppLocalizations {
       'Meeshaan waan fe\'ameef mallattoo bakka buusii jijjiiruun hin danda\'amu.';
 
   @override
+  String get reportListing => 'Tarree kana gabaasi';
+
+  @override
+  String get reportListingTitle => 'Tarree kana irratti rakkoon maali?';
+
+  @override
+  String get reportListingPrivacyNote =>
+      'Abbaan tarree kanaa eenyu akka gabaase hin argu. Gareen keenya gabaasa hunda ni ilaala.';
+
+  @override
+  String get reportReasonContactInfo =>
+      'Lakkoofsa bilbilaa ykn quunnamtii biraa qooda';
+
+  @override
+  String get reportReasonMisleading =>
+      'Odeeffannoo dogoggoraa ykn kan nama dogoggorsu';
+
+  @override
+  String get reportReasonScam => 'Shira fakkaata';
+
+  @override
+  String get reportReasonOffensive => 'Kan nama arrabsu ykn kan hin malle';
+
+  @override
+  String get reportReasonOther => 'Waan biraa';
+
+  @override
+  String get reportListingSend => 'Gabaasa ergi';
+
+  @override
+  String get reportListingSent =>
+      'Galatoomaa. Gareen keenya tarree kana ni ilaala.';
+
+  @override
+  String get reportListingAlreadySent => 'Tarree kana duraan gabaaftee jirta.';
+
+  @override
+  String get errorReportNotSent => 'Gabaasni kee ergamuu hin dandeenye.';
+
+  @override
+  String errorReportLimitReached(int count) {
+    return 'Guyyaatti hanga gabaasa $count erguu dandeessa. Boru irra deebi\'ii yaali.';
+  }
+
+  @override
   String get deliveryPlaceLabel => 'Bakka buusii';
 
   @override

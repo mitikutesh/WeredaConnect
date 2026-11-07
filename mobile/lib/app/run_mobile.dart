@@ -43,6 +43,8 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
+import 'package:wereda_connect/features/listing_report/data/listing_report_repository.dart';
+import 'package:wereda_connect/features/listing_report/domain/base_listing_report_repository.dart';
 import 'package:wereda_connect/features/live_trip/check_in_engine_binding.dart';
 import 'package:wereda_connect/features/live_trip/check_in_notice.dart';
 import 'package:wereda_connect/features/live_trip/data/geolocator_location_source.dart';
@@ -405,6 +407,11 @@ class WeredaConnectApp extends StatelessWidget {
             api: ApiClient(),
             connectivity: connectivityMonitor,
           ),
+        ),
+        // FUP-67: a buyer's listing report is queued and sent by the sync
+        // queue, so a report made offline goes out later.
+        Provider<BaseListingReportRepository>(
+          create: (_) => ListingReportRepository(syncQueue: syncQueue),
         ),
       ],
       child: MultiBlocProvider(
