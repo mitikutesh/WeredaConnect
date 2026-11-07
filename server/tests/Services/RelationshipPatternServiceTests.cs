@@ -36,6 +36,8 @@ public class RelationshipPatternServiceTests
                 (_byStatus.GetValueOrDefault(call.ArgAt<string>(0)) ?? new List<Dictionary<string, object>>())
                     // The key condition: createdAt >= since (ISO strings of one format compare as times).
                     .Where(o => string.CompareOrdinal((string)o["createdAt"], call.ArgAt<string>(1)) >= 0)
+                    // Newest first, as the index answers (ScanIndexForward = false).
+                    .OrderByDescending(o => (string)o["createdAt"], StringComparer.Ordinal)
                     .ToList(),
                 (Dictionary<string, AttributeValue>?)null));
         _orders.QueryOrdersAsync(Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
@@ -59,7 +61,8 @@ public class RelationshipPatternServiceTests
     private string Logs => ((TestLambdaLogger)_context.Logger).Buffer.ToString();
 
     private Dictionary<string, object> SeedOrder(
-        string orderId, string buyerId, string farmerId, double hoursAgo, string status = "accepted", bool funded = true)
+        string orderId, string buyerId, string farmerId, double hoursAgo, string status = "accepted", bool funded = true,
+        string? farmerResponse = null)
     {
         var order = new Dictionary<string, object>
         {
@@ -72,6 +75,11 @@ public class RelationshipPatternServiceTests
         if (funded)
         {
             order["paymentVerifiedAt"] = Iso(Now.AddHours(-hoursAgo).AddMinutes(3));
+        }
+
+        if (farmerResponse != null)
+        {
+            order["farmerResponse"] = farmerResponse;
         }
 
         (_byStatus.TryGetValue(status, out var list) ? list : _byStatus[status] = new()).Add(order);
@@ -147,19 +155,94 @@ public class RelationshipPatternServiceTests
     }
 
     [Fact]
-    public async Task RepeatedPair_ThreeFundedOrdersInAWeek_FlagsBothParties()
+    public async Task RepeatedPair_ThreeAcceptedFundedOrdersInAWeek_FlagsBothParties()
     {
         SeedUser("b-1", "+251911000001");
         SeedUser("f-1", "+251911000002");
         SeedOrder("ord-old-1", "b-1", "f-1", 24 * 5, status: "settled");   // before the 48 h lookback, inside 7 days
         SeedOrder("ord-old-2", "b-1", "f-1", 24 * 3, status: "settled");
-        SeedOrder("ord-new", "b-1", "f-1", 3, status: "funded");
+        SeedOrder("ord-new", "b-1", "f-1", 3, status: "funded", farmerResponse: "accepted");  // trip order, trucker pending
 
         var summary = await RunAsync();
 
         await SignalWritten("b-1", "REPEATED_PAIR", "ord-new");
         await SignalWritten("f-1", "REPEATED_PAIR", "ord-new");
         summary.Examined.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task RepeatedPair_FundedOrdersTheFarmerHasNotAccepted_AreNoHit_UntilTheAccept()
+    {
+        // A buyer pays three orders to one farmer: nothing is written on anyone while the farmer has not
+        // accepted (a farmer who declines them all is never flagged).
+        SeedUser("b-1", "+251911000001");
+        SeedUser("f-1", "+251911000002");
+        foreach (var (id, hoursAgo) in new[] { ("ord-1", 30.0), ("ord-2", 20.0), ("ord-3", 10.0) })
+        {
+            SeedOrder(id, "b-1", "f-1", hoursAgo, status: "funded", farmerResponse: "pending");
+        }
+
+        var before = await RunAsync();
+
+        before.Examined.Should().Be(3);
+        before.Hits.Should().Be(0);
+        await _fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+
+        // The farmer accepts all three: the next run flags the pair once, on the order that completes the count.
+        foreach (var order in _byStatus["funded"])
+        {
+            order["status"] = "accepted";
+            order["farmerResponse"] = "accepted";
+        }
+
+        _byStatus["accepted"] = _byStatus["funded"];
+        _byStatus.Remove("funded");
+
+        var after = await RunAsync();
+
+        after.Hits.Should().Be(2);
+        await SignalWritten("b-1", "REPEATED_PAIR", "ord-3");
+        await SignalWritten("f-1", "REPEATED_PAIR", "ord-3");
+    }
+
+    [Fact]
+    public async Task RepeatedPair_ABurst_FlagsOnlyTheOrderThatCompletesTheCount()
+    {
+        SeedUser("b-1", "+251911000001");
+        SeedUser("f-1", "+251911000002");
+        SeedOrder("ord-1", "b-1", "f-1", 40);
+        SeedOrder("ord-2", "b-1", "f-1", 25);
+        SeedOrder("ord-3", "b-1", "f-1", 10);
+        SeedOrder("ord-4", "b-1", "f-1", 2);
+
+        var summary = await RunAsync();
+
+        // ord-3 completes 3 and ord-4 makes 4; ord-1 and ord-2 had fewer before them.
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(Arg.Any<string>(), "REPEATED_PAIR", "ord-1", Arg.Any<string>(), Arg.Any<string?>());
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(Arg.Any<string>(), "REPEATED_PAIR", "ord-2", Arg.Any<string>(), Arg.Any<string?>());
+        summary.Hits.Should().Be(4);
+        summary.Written.Should().Be(2);   // ord-4 first (newest first); ord-3 is deferred to the next run
+        summary.Deferred.Should().Be(2);
+        await SignalWritten("b-1", "REPEATED_PAIR", "ord-4");
+        await SignalWritten("f-1", "REPEATED_PAIR", "ord-4");
+    }
+
+    [Fact]
+    public async Task ARejectedExaminedOrder_IsNoPairHit_AndNoSharedDeviceHit()
+    {
+        // Three accepted orders this week, and a fourth on a shared install that the farmer declined.
+        SeedUser("b-1", "+251911000001", null, "install-1");
+        SeedUser("f-1", "+251911000002", null, "install-1");
+        SeedOrder("ord-1", "b-1", "f-1", 24 * 5, status: "settled");
+        SeedOrder("ord-2", "b-1", "f-1", 24 * 4, status: "settled");
+        SeedOrder("ord-3", "b-1", "f-1", 24 * 3, status: "settled");
+        SeedOrder("ord-4", "b-1", "f-1", 3, status: "rejected", farmerResponse: "declined");
+
+        var summary = await RunAsync();
+
+        summary.Examined.Should().Be(1);
+        summary.Hits.Should().Be(0);
+        await _fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
     }
 
     [Fact]

@@ -63,13 +63,29 @@ internal sealed record RiskScoreSettings(
     }
 
     /// <summary>
-    /// The per-type cap of a capped type over the window: <c>RISK_REJECT_TYPE_CAP</c> for the FRD-08
-    /// reject types, <c>RISK_PATTERN_TYPE_CAP</c> for the FRD-09 pattern types and the FRD-15 shared device
-    /// and repeated pair types, null for every other type.
+    /// FRD-15: the cap group of <c>SHARED_DEVICE_TRADE</c> and <c>REPEATED_PAIR</c>. The two soft relationship
+    /// types share one <c>RISK_PATTERN_TYPE_CAP</c>, so together they stop at MEDIUM: an honest family or
+    /// cooperative phone never reaches CRITICAL on them alone.
     /// </summary>
-    internal int? CapOf(string signalType) =>
-        FraudDetectionService.IsCappedRejectType(signalType) ? RejectTypeCap
-        : FraudDetectionService.IsPatternSignal(signalType) || FraudDetectionService.IsCappedRelationshipType(signalType)
+    internal const string SoftRelationshipCapGroup = "group:soft_relationship";
+
+    /// <summary>
+    /// The key a capped type's weight is summed under: its cap group (<see cref="SoftRelationshipCapGroup"/>)
+    /// or the type itself.
+    /// </summary>
+    internal static string CapKeyOf(string signalType) =>
+        FraudDetectionService.IsCappedRelationshipType(signalType) ? SoftRelationshipCapGroup : signalType;
+
+    /// <summary>
+    /// The cap of a capped type (or of a cap group) over the window: <c>RISK_REJECT_TYPE_CAP</c> for the FRD-08
+    /// reject types, <c>RISK_PATTERN_TYPE_CAP</c> for each FRD-09 pattern type and for the FRD-15 soft
+    /// relationship group as a whole, null for every other type.
+    /// </summary>
+    internal int? CapOf(string signalTypeOrGroup) =>
+        FraudDetectionService.IsCappedRejectType(signalTypeOrGroup) ? RejectTypeCap
+        : FraudDetectionService.IsPatternSignal(signalTypeOrGroup)
+          || FraudDetectionService.IsCappedRelationshipType(signalTypeOrGroup)
+          || signalTypeOrGroup == SoftRelationshipCapGroup
             ? PatternTypeCap
         : null;
 
@@ -234,10 +250,12 @@ internal sealed class RiskScoreCalculator
     {
         if (_settings.CapOf(signalType) != null)
         {
-            _cappedWeight[signalType] = _cappedWeight.GetValueOrDefault(signalType) + weight;
+            // Summed per type, or per cap group (FRD-15), and capped in CappedSum.
+            var key = RiskScoreSettings.CapKeyOf(signalType);
+            _cappedWeight[key] = _cappedWeight.GetValueOrDefault(key) + weight;
             if (!clearable)
             {
-                _cappedFixedWeight[signalType] = _cappedFixedWeight.GetValueOrDefault(signalType) + weight;
+                _cappedFixedWeight[key] = _cappedFixedWeight.GetValueOrDefault(key) + weight;
             }
         }
         else if (clearable)
@@ -252,7 +270,7 @@ internal sealed class RiskScoreCalculator
 
     /// <summary>
     /// FRD-08: each capped reject type adds at most <c>RISK_REJECT_TYPE_CAP</c>; FRD-09: each pattern
-    /// type at most <c>RISK_PATTERN_TYPE_CAP</c>.
+    /// type at most <c>RISK_PATTERN_TYPE_CAP</c>; FRD-15: the soft relationship group at most that too.
     /// </summary>
     private long CappedSum(Dictionary<string, long> byType) =>
         byType.Sum(entry => Math.Min(entry.Value, (long)(_settings.CapOf(entry.Key) ?? 0)));

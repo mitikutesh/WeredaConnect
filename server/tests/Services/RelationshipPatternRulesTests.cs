@@ -112,21 +112,23 @@ public class RelationshipPatternRulesTests
     // ── Repeated pair ────────────────────────────────────────
 
     [Fact]
-    public void PairCount_CountsFundedOrdersWithThisFarmerInTheWindow()
+    public void PairCount_CountsAcceptedFundedOrdersWithThisFarmer_InTheWindowEndingAtTheExaminedOrder()
     {
         var history = new List<Dictionary<string, object>>
         {
-            Order("o-1", "farmer-1", 1),
-            Order("o-2", "farmer-1", 3),
-            Order("o-3", "farmer-2", 2),                       // another farmer
-            Order("o-4", "farmer-1", 2, funded: false),        // never paid
-            Order("o-5", "farmer-1", 8),                       // before the 7 day window
-            Order("o-6", "farmer-1", 4, status: "rejected"),   // the farmer declined it
+            Order("o-1", "farmer-1", 1),                                           // legacy accepted row: counts
+            Order("o-2", "farmer-1", 3, status: "settled"),                        // legacy, past accepted: counts
+            Order("o-3", "farmer-2", 2),                                           // another farmer
+            Order("o-4", "farmer-1", 2, funded: false),                            // never paid
+            Order("o-5", "farmer-1", 8),                                           // before the 7 day window
+            Order("o-6", "farmer-1", 4, status: "rejected"),                       // the farmer declined it
             Order("o-7", "farmer-1", 5, status: "cancelled", farmerResponse: "expired"),
-            Order("o-8", "farmer-1", 6, status: "cancelled", farmerResponse: "declined")
+            Order("o-8", "farmer-1", 6, status: "cancelled", farmerResponse: "declined"),
+            Order("o-9", "farmer-1", 2, status: "funded", farmerResponse: "pending"), // still waiting for the farmer
+            Order("o-10", "farmer-1", 2, status: "funded"),                        // legacy funded: not answered yet
         };
 
-        RelationshipPatternRules.PairOrderCount(history, Order("o-9", "farmer-1", 0.1), "farmer-1", Now,
+        RelationshipPatternRules.PairOrderCount(history, Order("o-11", "farmer-1", 0.1), "farmer-1",
             RelationshipPatternSettings.Default).Should().Be(3);
     }
 
@@ -134,7 +136,7 @@ public class RelationshipPatternRulesTests
     public void PairCount_TheExaminedOrderCountsOnce_EvenWhenTheIndexShowsIt()
     {
         var examined = Order("o-1", "farmer-1", 0.1);
-        RelationshipPatternRules.PairOrderCount(new[] { examined, Order("o-2", "farmer-1", 1) }, examined, "farmer-1", Now,
+        RelationshipPatternRules.PairOrderCount(new[] { examined, Order("o-2", "farmer-1", 1) }, examined, "farmer-1",
             RelationshipPatternSettings.Default).Should().Be(2);
     }
 
@@ -144,8 +146,54 @@ public class RelationshipPatternRulesTests
         // The farmer took the order on, then the transport failed: the trade involved both of them.
         var history = new[] { Order("o-1", "farmer-1", 1, status: "cancelled", farmerResponse: "accepted") };
 
-        RelationshipPatternRules.PairOrderCount(history, Order("o-2", "farmer-1", 0.1), "farmer-1", Now,
+        RelationshipPatternRules.PairOrderCount(history, Order("o-2", "farmer-1", 0.1), "farmer-1",
             RelationshipPatternSettings.Default).Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData("funded", "pending")]       // the farmer has not answered
+    [InlineData("funded", null)]            // the same on a row from before the commitments
+    [InlineData("rejected", "declined")]    // the farmer declined it
+    [InlineData("rejected", null)]
+    public void PairCount_IsZero_WhenTheExaminedOrderItselfDoesNotCount(string status, string? farmerResponse)
+    {
+        var accepted = new[] { Order("o-1", "farmer-1", 1), Order("o-2", "farmer-1", 2), Order("o-3", "farmer-1", 3) };
+
+        RelationshipPatternRules.PairOrderCount(accepted, Order("o-4", "farmer-1", 0.1, status: status, farmerResponse: farmerResponse),
+            "farmer-1", RelationshipPatternSettings.Default).Should().Be(0);
+    }
+
+    [Fact]
+    public void PairCount_CountsOnlyOrdersCreatedAtOrBeforeTheExaminedOne()
+    {
+        // A burst of three accepted orders: only the last one completes the count.
+        var burst = new[] { Order("o-1", "farmer-1", 1.5), Order("o-2", "farmer-1", 1), Order("o-3", "farmer-1", 0.5) };
+
+        RelationshipPatternRules.PairOrderCount(burst, burst[0], "farmer-1", RelationshipPatternSettings.Default).Should().Be(1);
+        RelationshipPatternRules.PairOrderCount(burst, burst[1], "farmer-1", RelationshipPatternSettings.Default).Should().Be(2);
+        RelationshipPatternRules.PairOrderCount(burst, burst[2], "farmer-1", RelationshipPatternSettings.Default).Should().Be(3);
+    }
+
+    [Fact]
+    public void PairCount_TheWindowEndsAtTheExaminedOrder_NotAtNow()
+    {
+        // Examined 2 days ago: an order 8.5 days ago is inside its 7 days, one 9.5 days ago is not.
+        var history = new[] { Order("o-1", "farmer-1", 8.5), Order("o-2", "farmer-1", 9.5) };
+
+        RelationshipPatternRules.PairOrderCount(history, Order("o-3", "farmer-1", 2), "farmer-1",
+            RelationshipPatternSettings.Default).Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData("rejected", null, true)]
+    [InlineData("cancelled", "declined", true)]
+    [InlineData("accepted", null, false)]
+    [InlineData("funded", "pending", false)]
+    [InlineData("cancelled", "expired", false)]
+    public void FarmerRefused_IsARejectOrADecline(string status, string? farmerResponse, bool refused)
+    {
+        RelationshipPatternRules.FarmerRefused(Order("o-1", "farmer-1", 1, status: status, farmerResponse: farmerResponse))
+            .Should().Be(refused);
     }
 
     // ── Evaluate ─────────────────────────────────────────────
@@ -160,6 +208,20 @@ public class RelationshipPatternRulesTests
         hits[0].SignalType.Should().Be("SELF_TRADE");
         hits[0].UserIds.Should().Equal("b", "f");
         hits[0].Description.Should().Contain("same_phone").And.Contain("o-1").And.NotContain("+251");
+    }
+
+    [Fact]
+    public void Evaluate_SharedDevice_NotOnAnOrderTheFarmerRefused()
+    {
+        RelationshipPatternRules.Evaluate("o-1", "b", "f",
+                User("b", "+1", null, "dev-a"), User("f", "+2", null, "dev-a"), 0, RelationshipPatternSettings.Default,
+                farmerRefused: true)
+            .Should().BeEmpty();
+        // One identity on both sides is flagged whatever the farmer answered.
+        RelationshipPatternRules.Evaluate("o-1", "b", "f",
+                User("b", "+1", "F-1", "dev-a"), User("f", "+2", "F-1", "dev-a"), 0, RelationshipPatternSettings.Default,
+                farmerRefused: true)
+            .Select(h => h.SignalType).Should().Equal("SELF_TRADE");
     }
 
     [Fact]

@@ -466,8 +466,9 @@ public sealed class FraudDetectionService : IFraudDetectionService
 
     /// <summary>
     /// FRD-15: the relationship types honest users can also produce (a shared phone, a regular customer),
-    /// capped per type at <c>RISK_PATTERN_TYPE_CAP</c> like the FRD-09 patterns. <c>SELF_TRADE</c> is not:
-    /// one user id, phone or Fayda ID on both sides is not an honest trade.
+    /// capped together, as one group, at <c>RISK_PATTERN_TYPE_CAP</c> (<see cref="RiskScoreSettings.CapKeyOf"/>),
+    /// so the two alone stop at MEDIUM. <c>SELF_TRADE</c> is not capped: one user id, phone or Fayda ID on both
+    /// sides is not an honest trade.
     /// </summary>
     internal static bool IsCappedRelationshipType(string signalType) =>
         signalType is SharedDeviceTradeSignal or RepeatedPairSignal;

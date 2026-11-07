@@ -50,10 +50,13 @@ public class FraudRelationshipSignalTests
         captured.Item["status"].S.Should().Be("pending");
     }
 
-    private static RiskScoreResult ScoreOf(params (int HoursAgo, string Type, string EntityId)[] rows)
+    private static RiskScoreResult ScoreOf(params (int HoursAgo, string Type, string EntityId)[] rows) =>
+        ScoreOf(RiskScoreSettings.Default, rows);
+
+    private static RiskScoreResult ScoreOf(RiskScoreSettings settings, params (int HoursAgo, string Type, string EntityId)[] rows)
     {
         var now = DateTime.UtcNow;
-        var calculator = new RiskScoreCalculator(RiskScoreSettings.Default, now);
+        var calculator = new RiskScoreCalculator(settings, now);
         foreach (var (hoursAgo, type, entityId) in rows.OrderBy(r => r.HoursAgo))
         {
             var hour = now.AddHours(-hoursAgo).ToString("yyyy-MM-dd'T'HH':00:00.0000000Z'", CultureInfo.InvariantCulture);
@@ -83,6 +86,35 @@ public class FraudRelationshipSignalTests
         ScoreOf((1, "SHARED_DEVICE_TRADE", "ord-1"), (5, "SHARED_DEVICE_TRADE", "ord-2")).Tier.Should().Be(RiskTier.Medium);
         var many = Enumerable.Range(1, 6).Select(h => (h * 3, "SHARED_DEVICE_TRADE", $"ord-{h}")).ToArray();
         ScoreOf(many).Score.Should().Be(50);
+    }
+
+    [Fact]
+    public void SharedDeviceAndRepeatedPair_ShareOneCap_SoTogetherTheyStopAtMedium()
+    {
+        // A family phone that trades often: six shared-device orders and six repeated-pair orders are 180
+        // uncapped, 50 with the shared cap, never CRITICAL.
+        var shared = Enumerable.Range(1, 6).Select(h => (h * 3, "SHARED_DEVICE_TRADE", $"ord-{h}"));
+        var pairs = Enumerable.Range(1, 6).Select(h => (h * 3 + 1, "REPEATED_PAIR", $"ord-{h}"));
+
+        var result = ScoreOf(shared.Concat(pairs).ToArray());
+
+        result.Score.Should().Be(50);
+        result.Tier.Should().Be(RiskTier.Medium);
+        ScoreOf((1, "SHARED_DEVICE_TRADE", "ord-1"), (2, "REPEATED_PAIR", "ord-1")).Score.Should().Be(30);
+        RiskScoreSettings.CapKeyOf("SHARED_DEVICE_TRADE").Should().Be(RiskScoreSettings.CapKeyOf("REPEATED_PAIR"));
+        RiskScoreSettings.CapKeyOf("SELF_TRADE").Should().Be("SELF_TRADE");
+        RiskScoreSettings.CapKeyOf("DISPUTE_RATE").Should().Be("DISPUTE_RATE");
+    }
+
+    [Fact]
+    public void TheSharedCap_IsRiskPatternTypeCap_AndOtherTypesStillAddUp()
+    {
+        var soft = new[] { (1, "SHARED_DEVICE_TRADE", "ord-1"), (2, "SHARED_DEVICE_TRADE", "ord-2"), (3, "REPEATED_PAIR", "ord-2") };
+
+        ScoreOf(RiskScoreSettings.Default with { PatternTypeCap = 30 }, soft).Score.Should().Be(30);
+        // A FRD-09 pattern keeps its own cap, and SELF_TRADE is outside the group.
+        ScoreOf(soft.Append((4, "DISPUTE_RATE", "esc-1")).Append((5, "SELF_TRADE", "ord-3")).ToArray())
+            .Score.Should().Be(50 + 10 + 40);
     }
 
     [Fact]

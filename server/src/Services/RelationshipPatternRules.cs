@@ -124,28 +124,36 @@ internal static class RelationshipPatternRules
     }
 
     /// <summary>
-    /// The funded orders between the buyer and <paramref name="farmerId"/> created in the pair window ending at
-    /// <paramref name="nowUtc"/>, from the buyer's history and the examined order (counted once even when the
-    /// lagging index already shows it). An order the farmer turned down (<c>rejected</c>, or a
-    /// <c>farmerResponse</c> of <c>declined</c> or <c>expired</c>) does not count: the farmer took no part.
+    /// The pair orders of <paramref name="examined"/>: the buyer's funded orders with <paramref name="farmerId"/>
+    /// that the farmer accepted, created in the <c>FRAUD_PAIR_WINDOW_DAYS</c> ending at the examined order's own
+    /// <c>createdAt</c> (so of a burst only the order that completes the count is a hit, not every order of it),
+    /// from the buyer's history and the examined order (counted once even when the lagging index already shows
+    /// it). 0 when the examined order itself does not count: a pair is flagged only on an order both parties
+    /// took part in. An order still waiting for the farmer, or one the farmer declined (<c>rejected</c>), never
+    /// counts, so a buyer cannot flag a farmer by paying orders the farmer refuses.
     /// </summary>
     public static int PairOrderCount(
         IReadOnlyList<Dictionary<string, object>> buyerHistory,
         IReadOnlyDictionary<string, object> examined,
         string farmerId,
-        DateTime nowUtc,
         RelationshipPatternSettings settings)
     {
-        var since = nowUtc.AddDays(-settings.PairWindowDays);
-        var counted = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var order in buyerHistory.Append(examined))
+        if (!CountsForPair(examined, farmerId)
+            || TransactionPatternRules.ParseUtc(Str(examined, "createdAt")) is not { } until)
+        {
+            return 0;
+        }
+
+        var since = until.AddDays(-settings.PairWindowDays);
+        var counted = new HashSet<string>(StringComparer.Ordinal) { Str(examined, "orderId") };
+        foreach (var order in buyerHistory)
         {
             var orderId = Str(order, "orderId");
             if (orderId.Length == 0
-                || !string.Equals(Str(order, "farmerId"), farmerId, StringComparison.Ordinal)
-                || !CountsForPair(order)
+                || !CountsForPair(order, farmerId)
                 || TransactionPatternRules.ParseUtc(Str(order, "createdAt")) is not { } createdAt
-                || createdAt < since)
+                || createdAt < since
+                || createdAt > until)
             {
                 continue;
             }
@@ -157,10 +165,19 @@ internal static class RelationshipPatternRules
     }
 
     /// <summary>
+    /// The farmer turned the order down: it is <c>rejected</c>, or its <c>farmerResponse</c> is
+    /// <c>declined</c>. A shared install is not flagged on such an order (the farmer took no part in it).
+    /// </summary>
+    public static bool FarmerRefused(IReadOnlyDictionary<string, object> order) =>
+        Str(order, "status") == "rejected"
+        || Str(order, OrderCommitment.FarmerResponseField) == OrderCommitment.Response.Declined;
+
+    /// <summary>
     /// The hits of one funded order: <c>SELF_TRADE</c> when the two parties are one identity, else
-    /// <c>SHARED_DEVICE_TRADE</c> when their accounts share an install (one order, one identity reason), and
-    /// <c>REPEATED_PAIR</c> when the pair holds at least <c>FRAUD_PAIR_MIN_ORDERS</c> funded orders in
-    /// <c>FRAUD_PAIR_WINDOW_DAYS</c>. <paramref name="pairCount"/> is null when the history was not read.
+    /// <c>SHARED_DEVICE_TRADE</c> when their accounts share an install (one order, one identity reason) and the
+    /// farmer did not turn the order down (<paramref name="farmerRefused"/>), and <c>REPEATED_PAIR</c> when the
+    /// pair count (<see cref="PairOrderCount"/>, 0 unless the examined order itself counts) reaches
+    /// <c>FRAUD_PAIR_MIN_ORDERS</c>. <paramref name="pairCount"/> is null when the history was not read.
     /// </summary>
     public static IReadOnlyList<RelationshipHit> Evaluate(
         string orderId,
@@ -169,7 +186,8 @@ internal static class RelationshipPatternRules
         UserDto? buyer,
         UserDto? farmer,
         int? pairCount,
-        RelationshipPatternSettings settings)
+        RelationshipPatternSettings settings,
+        bool farmerRefused = false)
     {
         var hits = new List<RelationshipHit>();
         var parties = string.Equals(buyerId, farmerId, StringComparison.Ordinal)
@@ -181,7 +199,7 @@ internal static class RelationshipPatternRules
             hits.Add(new RelationshipHit(FraudDetectionService.SelfTradeSignal, orderId, parties,
                 $"Buyer {buyerId} and farmer {farmerId} of funded order {orderId} are one identity ({reason})."));
         }
-        else if (SharedDeviceCount(buyer, farmer) is var shared and > 0)
+        else if (!farmerRefused && SharedDeviceCount(buyer, farmer) is var shared and > 0)
         {
             hits.Add(new RelationshipHit(FraudDetectionService.SharedDeviceTradeSignal, orderId, parties,
                 $"Buyer {buyerId} and farmer {farmerId} of funded order {orderId} have signed in on the same device ({shared} shared)."));
@@ -190,16 +208,21 @@ internal static class RelationshipPatternRules
         if (pairCount is { } count && count >= settings.PairMinOrders)
         {
             hits.Add(new RelationshipHit(FraudDetectionService.RepeatedPairSignal, orderId, parties,
-                $"Buyer {buyerId} and farmer {farmerId}: {count} funded orders in {settings.PairWindowDays} days, this one {orderId}."));
+                $"Buyer {buyerId} and farmer {farmerId}: {count} funded orders the farmer accepted in {settings.PairWindowDays} days, the last one {orderId}."));
         }
 
         return hits;
     }
 
-    private static bool CountsForPair(IReadOnlyDictionary<string, object> order) =>
-        IsFunded(order)
+    /// <summary>
+    /// A funded order of this farmer that the farmer accepted (<see cref="OrderCommitment.FarmerResponseOf"/>, which
+    /// reads an order written before the commitments as accepted once it left <c>funded</c>), not <c>rejected</c>.
+    /// </summary>
+    private static bool CountsForPair(IReadOnlyDictionary<string, object> order, string farmerId) =>
+        string.Equals(Str(order, "farmerId"), farmerId, StringComparison.Ordinal)
+        && IsFunded(order)
         && Str(order, "status") != "rejected"
-        && Str(order, OrderCommitment.FarmerResponseField) is not (OrderCommitment.Response.Declined or OrderCommitment.Response.Expired);
+        && OrderCommitment.FarmerResponseOf(order) == OrderCommitment.Response.Accepted;
 
     private static bool SameValue(string? a, string? b) =>
         !string.IsNullOrWhiteSpace(a) && string.Equals(a.Trim(), b?.Trim(), StringComparison.Ordinal);

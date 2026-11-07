@@ -196,8 +196,9 @@ internal sealed class RelationshipPatternService
             var buyer = await UserAsync(buyerId, run);
             var farmer = buyerId == farmerId ? buyer : await UserAsync(farmerId, run);
             var history = await BuyerHistoryAsync(buyerId, run);
-            var pairCount = RelationshipPatternRules.PairOrderCount(history, order, farmerId, run.Now, run.Settings);
-            hits = RelationshipPatternRules.Evaluate(orderId, buyerId, farmerId, buyer, farmer, pairCount, run.Settings);
+            var pairCount = RelationshipPatternRules.PairOrderCount(history, order, farmerId, run.Settings);
+            hits = RelationshipPatternRules.Evaluate(orderId, buyerId, farmerId, buyer, farmer, pairCount, run.Settings,
+                RelationshipPatternRules.FarmerRefused(order));
         }
         catch (Exception ex)
         {
@@ -262,7 +263,8 @@ internal sealed class RelationshipPatternService
     }
 
     /// <summary>
-    /// The buyer's orders created in the pair window, newest first on <c>BuyerIdCreatedAtIndex</c>, at most
+    /// The buyer's orders created in the pair window before the oldest order the lookback can hold (each pair
+    /// count ends at its examined order), newest first on <c>BuyerIdCreatedAtIndex</c>, at most
     /// <see cref="RelationshipPatternSettings.HistoryMaxPages"/> pages; read once per buyer per run.
     /// </summary>
     private async Task<IReadOnlyList<Dictionary<string, object>>> BuyerHistoryAsync(string buyerId, Run run)
@@ -272,7 +274,7 @@ internal sealed class RelationshipPatternService
             return known;
         }
 
-        var since = run.Now.AddDays(-run.Settings.PairWindowDays);
+        var since = run.Now.AddHours(-run.Settings.LookbackHours).AddDays(-run.Settings.PairWindowDays);
         var rows = new List<Dictionary<string, object>>();
         Dictionary<string, Amazon.DynamoDBv2.Model.AttributeValue>? start = null;
         for (var page = 0; page < RelationshipPatternSettings.HistoryMaxPages; page++)
