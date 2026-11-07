@@ -1,12 +1,37 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.40.0
+2.0.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
+- **Web** (client) -- the same escrow reads and actions in the browser
 - **Backend** (server) -- manages escrow state machine, integrates with Telebirr, enforces idempotency and audit trail
+- **Admin** -- manual payout queue, dispute verdicts, held escrows, unapplied payments
+- **Infrastructure** -- the escrow tables and indexes, the escrow cron schedules, the money alarms
 - **Telebirr Gateway** (external) -- holds/releases/refunds funds via Ethio Telecom's mobile money API
+
+---
+
+## Reading this contract (2.0.0)
+
+2.0.0 is a major version because the money model changes: the buyer still pays once per order,
+but the money is settled in three legs (crop, transport, commission) through an append-only
+ledger, so part of it can go back to the buyer while the rest stays held (design
+`specs/features/three-party-escrow-commitments-reputation.md` 4.7 and 4.9, decision D4).
+
+**2.0.0 changes nothing that is built.** It adds the PLANNED model next to the built one:
+
+| Part | Status | Where |
+|---|---|---|
+| Everything from "Escrow Lifecycle" to "Additions in 1.40.0": the whole-escrow settlement lock (1.10.0), the row-level manual payout queue (1.8.0), the hourly trucker retry (1.11.0), refunds of the whole `amount` armed with `expiresAt` and `refundReason` (1.1.0, 1.34.0), the 21-day cap (1.13.0), dispute verdicts `farmer_wins` and `buyer_wins` (1.9.0, 1.21.0) | **Built** | the 1.x sections |
+| The `escrow-ledger` table and `LedgerOpenIndex`, the write-ahead protocol, per-leg releases and refunds, the invariant, the ledger sweep, the admin per-leg verdict (`partial_refund`), the automatic refund of a duplicate payment | **PLANNED, ESC-20** | "Planned in 2.0.0", P.1 to P.9 and P.11 to P.13 |
+| The transport rebind after a transport failure: `refund#transport-delta#{n}`, `refund#transport`, `shift#commission-to-transport#{n}` | **PLANNED, ESC-19** (needs ESC-20) | "Planned in 2.0.0", P.10 |
+| A buyer top-up for a replacement truck that costs more than the commission left (`topup#{n}`) | **Later, ESC-37 (P4)** | P.10 |
+
+No request, response, status or field changes at 2.0.0, so no client or server change ships with
+it. The ticket that builds a PLANNED rule moves it into a dated "Additions in" section with its own
+minor version, names the 1.x rule it retires, and keeps the rest of the plan here.
 
 ---
 
@@ -356,8 +381,8 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 | Field | Type | Required | Constraints | Description |
 |-------|------|----------|-------------|-------------|
 | `escrowId` | string (UUID) | Yes | Must reference an existing escrow | Escrow to release |
-| `trigger` | string | Yes | Enum: `delivery_confirmed`, `dispute_resolved`, `admin_override` | What triggered the release |
-| `deliveryId` | string (UUID) | Yes | Must match the escrow's delivery | Delivery verification reference |
+| `trigger` | string | Yes | Enum: `delivery_confirmed`, `dispute_resolved`, `admin_override` | What triggered the release. As built (2.0.0 doc fix): checked against the enum, then neither stored on the escrow nor written to the audit row; the escrow's status and verdict decide what the release may do |
+| `deliveryId` | string (UUID) | Yes | Not blank (`ESCROW_002`) | Delivery verification reference. As built (2.0.0 doc fix): required but never compared with the escrow's `deliveryId`; the escrow named by `escrowId` is the one released. The text before 2.0.0 said it must match |
 | `idempotencyKey` | string | Yes | Format: `{actor}:{escrowId}:{action}:{timestamp}` | Prevents duplicate releases |
 | `reason` | string | For a `held` escrow | 10-500 chars (1.22.0) | Why the admin releases a held escrow; audited with the decision, ignored otherwise |
 
@@ -367,15 +392,27 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 
 ```json
 {
-  "escrowId": "escrow-789",
-  "status": "released",
-  "farmerPayout": 14625.00,
-  "commission": 375.00,
+  "escrowId": "escrow-order-ord-101",
+  "status": "completed",
+  "farmerPayout": 15000.00,
+  "truckerPayout": 1500.00,
+  "commission": 750.00,
   "telebirrRef": "TBR-2026021810-DEF456",
+  "truckerTelebirrRef": "TBR-2026021810-DEF457",
   "releasedAt": "2026-02-18T10:00:00Z",
-  "message": "Funds released to farmer's Telebirr account."
+  "message": "Funds released: farmer, trucker, and platform commission split."
 }
 ```
+
+`status` is the escrow's status after the call (2.0.0 doc fix; the example before 2.0.0 showed
+`released` for a full payout):
+
+| `status` | When | `message` |
+|---|---|---|
+| `completed` | every leg is paid: the farmer and, with a transport leg, the trucker (1.11.0) | `Funds released: farmer, trucker, and platform commission split.`, or without a transport leg `Funds released to farmer's Telebirr account.` |
+| `released` | the farmer is paid and the transport leg is still owed (`truckerPayoutPending`, retried hourly, 1.11.0); `truckerTelebirrRef` is null | `Farmer paid. The transport payout is pending and is retried every hour.` |
+
+`truckerPayout` is null on an escrow without a transport leg (self-pickup, legacy initiate).
 
 #### Error Responses
 
@@ -728,7 +765,8 @@ Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowe
 | Field | Type | Required | Constraints | Description |
 |-------|------|----------|-------------|-------------|
 | `escrowId` | string (UUID) | Yes | Server-generated | Unique escrow identifier |
-| `deliveryId` | string (UUID) | Yes | References Delivery entity | The delivery this escrow covers |
+| `deliveryId` | string (UUID) | Yes | References Delivery entity; empty on an order-funded escrow until its delivery is linked (Order-Funded Escrow) | The delivery this escrow covers |
+| `orderId` | string (UUID) | No | References Order entity; set on order-funded escrows only (`source: order`) | The order whose payment this escrow holds |
 | `buyerId` | string (UUID) | Yes | References User entity | Buyer making payment |
 | `farmerId` | string (UUID) | Yes | References User entity | Farmer receiving payment |
 | `amount` | number | Yes | 100.00 - 500,000.00 | Total payment amount (ETB) |
@@ -849,11 +887,11 @@ ITelebirrGateway:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `transactionRef` | string | Idempotency key |
+| `transactionRef` | string | Idempotency key. As built: `release:{escrowId}` for the farmer leg, `release:{escrowId}:trucker` for the transport leg (one call per leg) |
 | `holdRef` | string | Original hold reference (from HoldFundsResponse) |
-| `farmerPhone` | string | Farmer's Telebirr-registered phone |
-| `amount` | number | Amount to release (after commission deduction) |
-| `platformCommission` | number | Commission amount retained by platform |
+| `farmerPhone` | string | The payee's Telebirr-registered phone: the farmer's, or the trucker's on the transport leg call |
+| `amount` | number | The leg paid by this call: `farmerPayout` (the crop cost) or `truckerPayout`. Nothing is deducted: the commission was paid by the buyer on top (Commission Calculation) |
+| `platformCommission` | number | Commission retained by the platform, on the farmer leg call; 0 on the transport leg call |
 
 ### RefundFundsRequest
 
@@ -862,7 +900,7 @@ ITelebirrGateway:
 | `transactionRef` | string | Idempotency key |
 | `holdRef` | string | Original hold reference |
 | `buyerPhone` | string | Buyer's Telebirr phone for refund |
-| `amount` | number | Full amount to refund (no commission deducted) |
+| `amount` | number | Full amount to refund (no commission deducted). As built every refund is the whole `amount` under `transactionRef` `refund:{escrowId}`; a partial refund is PLANNED (P.4, ESC-20) |
 
 ### Mock Implementation (Development)
 
@@ -880,7 +918,7 @@ The real `TelebirrGateway` wraps Ethio Telecom's B2B API:
 2. Submit transaction with `transactionRef` as the idempotency key
 3. Poll or receive webhook for confirmation
 4. Map Telebirr-specific error codes to `ESCROW_*` error codes
-5. All calls have a 30-second timeout with 2 retries (exponential backoff: 5s, 15s)
+5. As built (2.0.0 doc fix): every call has a 30-second timeout, cut shorter when the Lambda's own time runs out (1.16.0), and is never retried inside the call. A definite refusal is retried by the next sweep; a timeout or any answer that does not say whether money moved is an unknown outcome, parked for an admin and never retried blindly (1.10.0). The live gateway has no payout API yet, so its release and refund fail closed into the manual payout queue (1.8.0). The text before 2.0.0 promised 2 retries with backoff
 6. Log all requests/responses (with PII redacted) for audit
 
 ---
@@ -1164,6 +1202,16 @@ A scheduled Lambda (every 6 hours) runs reconciliation:
 3. Update escrow state if Telebirr confirms hold
 4. Cancel escrow if Telebirr has no record of the hold
 
+As built (2.0.0 doc fix): an `initiated` escrow with no Telebirr reference yet (a hosted checkout
+the buyer has not paid) is cancelled only after 150 minutes, the 120-minute payment window plus 30
+minutes, so a payment that arrives late is never stranded on a cancelled row. One with a reference
+gets the status check after 30 minutes: `completed`, `held` or `success` makes it `escrowed`;
+`failed`, `not_found` or `expired` cancels it; anything else (`unknown`) leaves it for the next
+run. The live gateway answers every status check `unknown`, so on live Telebirr only the webhook
+moves these rows. Reconciliation covers holds only: a release or refund whose outcome is unknown is
+parked for an admin by the hourly recovery step (1.10.0), not checked with Telebirr. The ledger
+sweep (P.6, PLANNED, ESC-20) adds a status check per ledger row.
+
 ### Timeout Handling
 
 | Timeout | Duration | Action |
@@ -1172,7 +1220,7 @@ A scheduled Lambda (every 6 hours) runs reconciliation:
 | Dispute window | 48 hours from delivery confirmation | Auto-release if no dispute raised |
 | Telebirr API timeout | 30 seconds per call | Not retried: an unknown outcome, parked for an admin (1.10.0) |
 | Stale settlement lock | 15 minutes | The hourly recovery step parks the escrow for an admin (1.10.0) |
-| Initiated → escrowed timeout | 30 minutes | Reconciliation marks as failed |
+| Initiated → escrowed timeout | 30 minutes with a Telebirr reference, 150 minutes without one | Reconciliation checks the status, or cancels a row with no reference (see Reconciliation) |
 
 ---
 
@@ -1290,7 +1338,7 @@ A scheduled Lambda runs every hour:
    follow their order (1.1.0, 1.13.0), and from 1.15.0 an `/escrow/initiate` escrow follows its delivery
    and order and is never refunded while its goods move (§Additions in 1.15.0)
 3. Log audit entry with `actor = system`
-4. Notify buyer and farmer via push notification
+4. Notify the buyer: the escrows table stream sends the buyer `refund_sent` when the escrow becomes `refunded` (`notifications-api.md` 1.0.0, ESC-21). The farmer gets no refund notice from the escrow; the order's cancel or reject already told them (2.0.0 doc fix: the text before said the cron pushes to buyer and farmer)
 5. From 1.22.0 (FRD-03; the risk tier from 1.27.0, FRD-04): the same risk gate runs after the order-aware checks and before a stale `funded` order is cancelled or restocked
 
 ### Reconciliation (Cron)
@@ -1299,8 +1347,10 @@ A scheduled Lambda runs every 6 hours:
 1. Query escrows with `status = initiated` AND `createdAt < now - 30 minutes`
 2. For each, query Telebirr GetTransactionStatus
 3. If Telebirr confirms hold: update to `escrowed`
-4. If Telebirr has no record: mark as `cancelled` with reason "hold_failed"
+4. If Telebirr has no record: mark as `cancelled` (audit `reconcile_cancel` with the Telebirr status)
 5. Log all reconciliation actions in audit trail
+
+A row without a Telebirr reference waits 150 minutes instead (see Error Handling, Reconciliation).
 
 ---
 
@@ -1335,17 +1385,19 @@ A scheduled Lambda runs every 6 hours:
 ## Future Enhancements
 
 ### Phase R5+
-- **Partial refund**: Dispute resolution with partial refund (e.g., 50% refund for partially damaged goods)
+- **Partial refund**: Dispute resolution with partial refund (e.g., 50% refund for partially damaged goods). PLANNED for ESC-20 as the admin per-leg verdict (P.8)
 - **Multi-party escrow**: Support cooperative sales where multiple farmers are paid from a single escrow
-- **Telebirr webhook**: Replace polling with real-time webhook notifications from Telebirr
 - **USSD payment flow**: Support buyers who initiate payment via Telebirr USSD (`*127#`) instead of in-app
 - **Insurance integration (F-27)**: Link escrow to AICE insurance for high-value shipments
 - **Transaction analytics**: Dashboard showing platform transaction volume, commission revenue, dispute rates
-- **Trucker payment**: Separate escrow flow for transport payment (currently out of scope -- farmer-buyer only)
 - **Escrow expiry notifications**: Push notification 24 hours before auto-refund deadline
 
+Done since this list was written (2.0.0 doc fix): the Telebirr webhook (1.5.0, 1.16.0); the
+trucker's transport payment from the same escrow (`truckerPayout`, paid at release, retried hourly
+since 1.11.0; the three-leg ledger is PLANNED, P.1); the escrows table stream that sends the
+money notifications (`notifications-api.md`, ESC-21).
+
 ### Performance
-- Implement DynamoDB Streams for real-time escrow state change events
 - Add CloudWatch custom metrics: escrow initiation rate, release latency, dispute rate
 - Optimize reconciliation Lambda with parallel Telebirr queries
 
@@ -4167,10 +4219,314 @@ read, no other index, no write); the audit row uses its existing transaction-aud
 
 ---
 
+## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
+
+> **PLANNED. Nothing in this section is built at 2.0.0.** ESC-20 builds P.1 to P.9 and P.11 to
+> P.13; ESC-19 builds P.10 on top of the ledger. Source: spec
+> `three-party-escrow-commitments-reputation.md` 4.7 (transport failure), 4.9 (money), section 5
+> F1 to F8 (settlement cases), decisions D4 and D16. Until a ticket ships, the built 1.x sections
+> above are the contract. Where a rule below says "proposed", the ticket confirms it with the user
+> before building, the way D4 is confirmed at the start of ESC-19.
+
+### P.1 Scope and what stays
+
+- **Order escrows only** (`source: order`, `escrow-order-{orderId}`). An escrow made by the legacy
+  `POST /escrow/initiate` (no order) keeps the 1.x path; live Telebirr refuses new ones since 1.18.0.
+- **One payment, one escrow row.** The buyer still pays one `amount` = the order's `orderTotal` =
+  crop cost + transport cost + commission (Commission Calculation, 1.39.0). The escrow keeps its keys,
+  its statuses (no new status) and its three leg amounts `farmerPayout` (crop), `truckerPayout`
+  (transport) and `commission`.
+- **The gates stay in front of every movement**, checked before a row is written: the fraud hold
+  (`held`, 1.22.0, 1.27.0, 1.29.0), the payout delay (`releaseNotBefore`, 1.33.0), the identity gate
+  at release (1.3.0), the order checks (1.17.0, 1.21.0), the dispute freeze (1.12.0) and the risk
+  gate of the sweeps.
+- **Identity blocks keep the leg held** (F1, F2): a farmer or trucker who fails the identity gate gets
+  no ledger row; the leg stays `held`, the block is stamped and audited once (1.15.0), and the leg is
+  tried again on every sweep. The farmer leg can be paid while the trucker leg waits.
+- **A refund to a buyer whose phone is not verified** (F7) goes to the manual queue (`manual`,
+  `PAYEE_NOT_VERIFIED`).
+
+### P.2 Escrow row additions
+
+| Attribute | Type | Rule |
+|---|---|---|
+| `settlementModel` | string | `ledger` on an escrow that settles through the ledger; absent on a 1.x escrow (P.12) |
+| `legStatus` | map | `{crop, transport, commission}`, each `held`, `released`, `refunded` or `kept`. All `held` at funding. A leg with no money at funding (the transport leg of a self-pickup order) is absent |
+| `refundedTotal` | number (ETB, 2 decimals) | The part of `amount` decided for the buyer so far (refund and verdict rows). 0 at funding |
+| `releasedTotal` | number (ETB, 2 decimals) | The part of `amount` decided for the farmer and the trucker so far. 0 at funding |
+| `previousTruckerIds` | string list | Truckers the escrow was bound to before a rebind (P.10), oldest first |
+
+The leg amounts are what each leg still carries: a refund takes its amount out of its leg (and
+adds it to `refundedTotal`); a release leaves the amount in its leg and marks the leg `released`.
+The order keeps the original split (`cropCost`, `transportCost`, `commissionAmount`). `amount`
+never changes. `truckerPayout` and `commission` change only through ledger rows (P.10), and
+`farmerPayout` only through a verdict (P.8).
+
+| Leg status | Meaning |
+|---|---|
+| `held` | In the platform's escrow account, waiting |
+| `released` | Decided for its payee (crop: farmer, transport: trucker); the ledger row says whether it has left |
+| `refunded` | Decided for the buyer; the ledger row says whether it has left |
+| `kept` | The commission, kept by the platform. Set with the crop leg's release (the sale happened); never sent anywhere, so no ledger row |
+
+### P.3 The `escrow-ledger` table
+
+`{prefix}-escrow-ledger`: on-demand, point-in-time recovery, deletion protection in staging and
+prod, no TTL (money records are kept). Partition key `escrowId` (S), sort key `ref` (S, P.4). One
+row per money movement. Rows are never deleted and never re-keyed.
+
+| Attribute | Rule |
+|---|---|
+| `kind` | `release`, `refund`, `verdict`, `shift`, `topup` |
+| `legs` | string set of the legs it moves (`crop`, `transport`, `commission`); absent on a duplicate refund |
+| `payeeRole`, `payeeId` | `farmer`, `trucker` or `buyer` and the user id; a `shift` row has neither |
+| `amount` | ETB, 2 decimals, above 0 |
+| `status` | `pending`, `sent`, `done`, `failed`, `manual` (below) |
+| `gatewayRef` | the reference sent to the gateway, fixed when the row is written (P.5) |
+| `telebirrRef` | the gateway's reference on success, or the admin's `externalRef` on a manual payment |
+| `attempts`, `lastCode` | gateway calls made, and the last gateway error code |
+| `manualReason` | `PAYOUT_NOT_SUPPORTED`, `GATEWAY_REF_MISSING`, `GATEWAY_OUTCOME_UNKNOWN`, `GATEWAY_REFUSED_3`, `PAYEE_NOT_VERIFIED` |
+| `reason` | why the money moves: the order's `cancelReason` or `rejected`, `delivered`, `verdict:<resolution>`, `transport_rebind`, `self_pickup`, `duplicate_payment` |
+| `actor` | `system`, the admin id, or the buyer id for a buyer's transport choice |
+| `paidBy` | `gateway`, or the admin id that recorded a manual payment |
+| `createdAt`, `updatedAt`, `sentAt`, `doneAt` | ISO 8601 UTC |
+| `openStatus`, `dueAt` | the keys of `LedgerOpenIndex` while the row is open; removed when it is `done` |
+
+**`LedgerOpenIndex`** (sparse GSI, projection ALL): partition key `openStatus` (the row's `status`
+while it is not `done`), sort key `dueAt` (ISO): when the sweep should look at the row next.
+`pending` and `sent`: written time plus 15 minutes; `failed`: the next attempt; `manual`: the time it
+entered `manual`, so the admin queue reads it oldest first. A `done` row carries neither key, so the
+index holds open rows only.
+
+Row status moves forward only:
+
+```
+pending -> done | failed | sent | manual
+sent    -> done | failed (a status check says it never happened) | manual
+failed  -> done | failed | sent | manual     (each retry uses the same gatewayRef)
+manual  -> done                              (an admin records the external reference)
+```
+
+A `shift` row is written `done` at once: it moves money between two legs inside the escrow and
+never reaches the gateway.
+
+### P.4 Refs
+
+| `ref` | Movement | Amount | Leg effect, in the same transaction |
+|---|---|---|---|
+| `release#farmer` | crop leg to the farmer | `farmerPayout` | crop `released`, commission `kept`; `releasedTotal` + amount |
+| `release#trucker#{truckerId}` | transport leg to that trucker | `truckerPayout` | transport `released`; `releasedTotal` + amount |
+| `refund#all` | everything still held, to the buyer: any full cancel or rejection (spec 4.6, D16) and a `buyer_wins` verdict | the held legs together | every `held` leg `refunded` and set to 0; `refundedTotal` + amount |
+| `verdict#farmer`, `verdict#trucker`, `verdict#buyer` | an admin partial verdict (P.8) | as entered by the admin | P.8 |
+| `refund#transport-delta#{n}` | a cheaper replacement truck (ESC-19) | old transport cost minus new | P.10 |
+| `refund#transport` | the switch to self-pickup (ESC-19) | the whole transport leg | P.10 |
+| `shift#commission-to-transport#{n}` | a pricier replacement truck covered by the platform (D4, ESC-19); no gateway call | new transport cost minus old, at most the commission left | P.10 |
+| `refund#duplicate#{gatewayRef}` | a second payment for the same order (P.9); `{gatewayRef}` is that payment's Telebirr `payment_order_id` | the captured amount | none: outside `amount` |
+| `topup#{n}` | reserved for ESC-37 (P4): the buyer pays the extra of a truck beyond the commission left | | not specified yet |
+
+`{n}` is the attempt number of the replacement truck in the order's `transportAttempts` (2 or 3; the
+original trip is 1).
+
+### P.5 How every movement runs (write-ahead)
+
+Replaces the whole-escrow settlement lock for ledger escrows.
+
+1. **Decide.** One `TransactWriteItems` puts the ledger row `pending` with `attribute_not_exists(ref)`
+   and updates the escrow: leg statuses, leg amounts, totals and `version` + 1, conditioned on the
+   `version` read (a real compare-and-set; 1.38.0 conditioned no escrow write on it), on the legs it
+   moves being `held` and on the status the caller validated. When an order event causes the
+   movement (a cancel, a rejection, a transport choice), the order write is in the same transaction,
+   as the one-transaction cancel and refund arm of 1.25.0.
+2. **Call** the gateway with the row's `gatewayRef`. It is derived from `{escrowId}:{ref}`; a gateway
+   whose reference field is shorter or narrower gets a stable mapping of that string (ESC-20 picks it
+   when it adds the B2B gateway), stored on the row, so every retry sends the same reference.
+3. **Success with a reference:** the row becomes `done` with `telebirrRef` and `doneAt`.
+4. **Definite refusal:** `failed`, `attempts` + 1, `lastCode`; retried by a later sweep with the same
+   reference. The third definite refusal makes it `manual` (`GATEWAY_REFUSED_3`). (1.11.0 retried a
+   trucker leg forever.)
+5. **Unknown outcome** (a timeout, an answer that does not say whether money moved, a call that threw
+   after sending, a Lambda that died after step 1): `sent`. It is retried only after a status check on
+   the same reference says the payment never happened. A gateway without a reliable status check
+   (the live gateway answers `unknown`) sends the row to `manual` (`GATEWAY_OUTCOME_UNKNOWN`). Nothing
+   is retried blindly.
+6. **No payout API** (`PAYOUT_NOT_SUPPORTED`, the live gateway until the B2B integration) or a success
+   without a reference (`GATEWAY_REF_MISSING`): `manual` at once, as 1.8.0.
+7. **`manual` rows are the admin payout queue** (P.8). The admin pays in the merchant portal and
+   records the external reference, which makes the row `done`.
+
+**Who calls the gateway (proposed).** The escrow cron and the admin endpoints call it right after
+step 1. The sync Lambda (order commands) and the webhook only write the row and leave the call to
+the ledger sweep (P.6), so no order command and no webhook answer waits on Telebirr.
+
+**The escrow status follows the rows.** Legs and totals move at step 1; the escrow `status` moves
+when the money has moved, in the write that makes the deciding row `done`:
+
+| Escrow `status` | When |
+|---|---|
+| `escrowed` (or `disputed`, `dispute_resolved`, `held`, as built) | no release or verdict payout is `done` yet. A partial refund (P.10) keeps the escrow `escrowed` |
+| `released` | `release#farmer` (or `verdict#farmer`) is `done` and a leg or a row is still open |
+| `completed` | every leg is `released`, `refunded` or `kept`, at least one leg was released, and every row of `amount` is `done` |
+| `refunded` | every leg is `refunded` and every row is `done`: the whole `amount` went back |
+
+The order follows (1.17.0): `delivered -> disbursing` when the first release row is written, and
+`-> settled` when the escrow becomes `completed`. `refundPending` (SIM-20) is true while a refund row
+of `amount` is open.
+
+### P.6 The invariant and the ledger sweep
+
+Checked by the writer before every transaction and by tests on every path:
+
+- **I1** `farmerPayout + truckerPayout + commission + refundedTotal = amount`, to the santim.
+- **I2** `releasedTotal` = the amounts of the legs that are `released`.
+- **I3** the rows of `amount` (every row except `refund#duplicate#...` and `shift#...`) add up to
+  `releasedTotal + refundedTotal`.
+- **I4** a leg leaves `held` once. Only the transport leg's amount may change while it is held, and
+  only through a rebind row (P.10).
+
+A write that would break one is not sent; the writer logs `ESCROW_LEDGER_INVARIANT escrowId=<id>
+ref=<ref> check=<I1..I4>` (any occurrence alarms) and answers the caller as a failed read does
+(`503 ESCROW_012` on the escrow routes, an unprefixed retryable error on `/sync`).
+
+**The ledger sweep** (escrow cron, action `ledger_sweep`, every 15 minutes):
+
+- Reads `LedgerOpenIndex` for `pending`, `sent` and `failed` with `dueAt <= now`, oldest first, with a
+  cursor and the run budget of the other sweeps (1.15.0), so skipped rows cannot starve it.
+- A `pending` row is 15 minutes old at the earliest when it is read: its call may have gone out, so it
+  is handled as `sent`.
+- `sent`: the status check of P.5 step 5. `failed`: the gates again (a payee who lost verification
+  waits, F2), then the call with the same reference.
+- Re-checks I1 and I3 on every escrow it touches.
+- Logs `LEDGER_ROW_OVERDUE escrowId=<id> ref=<ref> status=<status> ageHours=<n>` for a row open more
+  than 24 hours, alarm `${prefix}-ledger-rows-overdue`; `manual` rows keep the `MANUAL_PAYOUT_OVERDUE`
+  line of 1.8.0 with `ref=<ledger ref>`.
+
+The auto-release and auto-refund sweeps keep deciding **when** money moves (dispute window, payout
+delay, the 7 day stale order rule, the 21 day cap); for a ledger escrow they write the release or
+refund rows instead of calling the gateway under the lock. A cancel or rejection writes `refund#all`
+with the order write (P.5 step 1) instead of arming `expiresAt` and `refundReason`. ESC-16 removes
+the 48h extension of order escrows (spec 4.5).
+
+### P.7 Audit
+
+Every ledger row write also appends escrow-audit `ledger_<status>` (`ledger_pending`, `ledger_sent`,
+`ledger_done`, `ledger_failed`, `ledger_manual`) with metadata `ref=<ref>;amount=<n>;attempt=<n>`
+(plus `code=` on a failure), and a `done` row writes one transaction-audit `escrow_money_moved` row
+(metadata `escrowId=<id>;ref=<ref>;amount=<n>;payee=<role>`), at deterministic keys like the 1.8.0
+manual payout rows, so a crash and a retry add no duplicate. This closes survey finding 1.13 (no
+escrow path wrote transaction-audit rows) for ledger escrows.
+
+### P.8 Admin: the queue, the record and the per-leg verdict
+
+- **Manual payout queue.** `GET /admin/payouts/manual` reads the `manual` partition of
+  `LedgerOpenIndex` for ledger escrows and `ManualPayoutIndex` for 1.x rows until they are drained. The
+  response shape of 1.8.0 stays; each `legs[]` item is one ledger row, `ref` is its ledger ref and
+  `reason` its `manualReason`.
+- **Recording a payment.** `POST /admin/payouts/{escrowId}/{ref}/complete` takes the URL-encoded
+  ledger ref (`release%23farmer`) for a ledger row; the 1.x leg names `farmer`, `trucker` and `buyer`
+  stay accepted for 1.x rows. Body `{"externalRef": "..."}` and the errors of 1.8.0 are unchanged
+  (`ESCROW_035` also for a ledger row that is not `manual`). The row becomes `done` with
+  `paidBy` = the admin and `telebirrRef` = the reference.
+- **Per-leg verdict** (`partial_refund`, F5). `POST /admin/disputes/{id}/resolve` accepts:
+
+  ```json
+  { "resolution": "partial_refund", "action": "split",
+    "farmerAmount": 9000.00, "truckerAmount": 1500.00, "buyerRefund": 6000.00 }
+  ```
+
+  Each amount is 0 or more with at most 2 decimals; `farmerAmount` is at most the crop leg held and
+  `truckerAmount` at most the transport leg held. **Proposed commission rule:** the commission is kept
+  when `farmerAmount` is above 0 (the sale happened in part) and refunded otherwise, so `farmerAmount +
+  truckerAmount + buyerRefund` must equal the crop and transport legs held, plus the commission held
+  when `farmerAmount` is 0. The example above holds 15,000 crop, 1,500 transport and 750 commission:
+  9,000 + 1,500 + 6,000 = 16,500, the crop and transport legs, and the 750 commission is kept. A split that breaks a rule is `400 ADMIN_021`
+  with the field named; the 1.9.0 and 1.21.0 errors and the order checks are unchanged (a split
+  needs the goods delivered, like `farmer_wins`, or the `delivered_anyway` disposition). The
+  verdict writes `verdict#farmer`, `verdict#trucker` and `verdict#buyer` for the amounts above 0,
+  each `pending`, in the transaction that records the verdict; the leg amounts become the amounts
+  paid, the rest goes to `refundedTotal`, and a leg left at 0 is `refunded`. `farmer_wins` writes
+  `release#farmer` and `release#trucker#{truckerId}`, `buyer_wins` writes `refund#all`, each when the
+  sweep settles the verdict, as 1.9.0. Admin responses carry `dispute.verdictAmounts`
+  (`{farmerAmount, truckerAmount, buyerRefund}`) on a split.
+
+### P.9 Duplicate payments are refunded by themselves
+
+- When the webhook decides for good that a captured payment is a duplicate (an
+  `order_payment_duplicate` row with a named `payment_order_id`, the "decided for good" rule of 1.20.0),
+  it also writes `refund#duplicate#{payment_order_id}` under `escrow-order-{orderId}`: `pending`,
+  payee the buyer, amount the captured amount, `reason: duplicate_payment`. The escrow row is not
+  written: the payment is outside `amount`, `refundedTotal` and I1. The sweep makes the call.
+- A duplicate whose amount is unknown (`reason=currency`, a give-up row, rows that disagree) gets no
+  row and keeps the 1.20.0 manual refund. `order_payment_unmatched` and `order_payment_unprocessed`
+  keep the 1.20.0 path too.
+- On the live gateway the first call answers `PAYOUT_NOT_SUPPORTED`, so the row waits in the manual
+  queue. Recording it also writes the 1.20.0 `order_payment_refunded_manual` row for the same payment,
+  so `GET /admin/payments/unapplied` and the account deletion blocker (`account-deletion.md`) clear.
+
+### P.10 Transport rebind (ESC-19)
+
+The buyer's choice in `awaiting_transport` with no open request (`sync-protocol.md`, PLANNED
+`transportChoice`; spec 4.7). The server computes every amount: the new transport cost is the order's
+quintals times the new trip's `pricePerQuintal`, rounded to the santim like 1.39.0 (F8).
+
+| Choice | Ledger row | Escrow change |
+|---|---|---|
+| a cheaper truck | `refund#transport-delta#{n}` (old cost minus new) | `truckerPayout` = new cost, `refundedTotal` + delta; the transport leg stays `held` |
+| a truck at the same price | none | `truckerId` only |
+| a pricier truck, extra at most the commission left (D4) | `shift#commission-to-transport#{n}`, written `done` | `truckerPayout` + extra, `commission` - extra; I1 holds and nothing reaches the gateway; the buyer pays nothing more |
+| a pricier truck, extra above the commission left | none: refused with `ORDER_TRIP_NOT_ELIGIBLE` (the top-up is ESC-37) | none |
+| collect it myself | `refund#transport` (the whole transport leg) | `truckerPayout` = 0, transport `refunded`, `refundedTotal` + leg; `truckerId` moves to `previousTruckerIds` |
+| cancel | `refund#all` | P.4 |
+
+- **One transaction**: the order (`tripId`, `truckerId`, `truckerName`, `transportCost`,
+  `transportAttempts`, `fulfillment`, the order's `refundedTotal`, version CAS), the escrow (`truckerId`,
+  `truckerPayout`, `commission`, `legStatus`, `refundedTotal`, `previousTruckerIds`, conditioned on the
+  previous `truckerId`, on the transport leg being `held` and on the escrow version) and the ledger row.
+  The new trip's capacity is reserved by the booking rules of `trip-listing-api.md` 2.0.0 before it; a
+  failed transaction releases it.
+- The trucker escrow index (`TruckerStatusIndex`) follows `truckerId`, so a trucker who dropped out
+  stops seeing an escrow they will not be paid from.
+- At most 3 trucks per order, the original included (`ORDER_TRANSPORT_ATTEMPTS_EXCEEDED`). Each later
+  replacement can only use the commission that is left after earlier shifts.
+- The order's `refundedTotal` (spec 4.4) mirrors the escrow's; `orderTotal` stays what the buyer paid.
+
+### P.11 Reads and clients
+
+- `EscrowDto` gains `legStatus`, `refundedTotal` and `releasedTotal` on the party and admin reads; the
+  admin escrow mapper gains `truckerPayout` and `truckerId` (spec 10.3; survey 7.3, ESC-24). Additive:
+  clients already ignore unknown keys. An app without `X-App-Build` reads them too (no status mapping
+  is needed).
+- Apps show a partial refund ("{refundedTotal} ETB returned to you") while the escrow is still
+  `escrowed` (ESC-23 adds the strings in en, am and om).
+- Every refund row that becomes `done` sends the buyer `refund_sent` with that row's amount
+  (`notifications-api.md` changes with the ticket).
+
+### P.12 Infrastructure and rollout
+
+- The table and `LedgerOpenIndex`; read and write grants for the escrow, escrow cron, admin, sync and
+  webhook Lambdas; the EventBridge rule `${prefix}-escrow-cron-ledger` every 15 minutes with
+  `{"action": "ledger_sweep"}`; metric filters and alarms for `LEDGER_ROW_OVERDUE` and
+  `ESCROW_LEDGER_INVARIANT` on the `${prefix}-alarms` topic.
+- **Which escrows move to the ledger.** New order escrows are born with `settlementModel: ledger`
+  behind a flag (ESC-20 names it; spec K3 rolls back per phase). An escrow funded earlier moves only
+  while no 1.x money movement has begun (no `settlementLock`, no `manualPayout`, no
+  `truckerPayoutPending`, status `escrowed`, `disputed`, `dispute_resolved` or `held`); everything else
+  finishes on the 1.x path. The 1.x references (`release:{escrowId}`, `release:{escrowId}:trucker`,
+  `refund:{escrowId}`) are never reused under a ledger ref, and a migrated escrow never had one sent.
+
+### P.13 What the ledger retires for ledger escrows
+
+The whole-escrow settlement lock and the stale lock recovery (1.10.0), the trucker retry and
+`truckerPayoutPending` (1.11.0), the row-level queue attributes `manualPayout*` and `manual{Leg}*`
+(1.8.0), and the refund arm by `expiresAt` and `refundReason` (1.1.0, 1.34.0). The `partial_refund`
+refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are settled.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.0.0 | 2026-11-07 | Three-party money model, PLANNED (ESC-14 for ESC-19 and ESC-20): a new "Reading this contract" table says what is built and what is planned, and "Planned in 2.0.0" (P.1 to P.13) specifies the `escrow-ledger` table (PK `escrowId`, SK `ref`) with the sparse `LedgerOpenIndex` (`openStatus`, `dueAt`), the refs (`release#farmer`, `release#trucker#{id}`, `refund#all`, `verdict#{farmer,trucker,buyer}`, `refund#transport-delta#{n}`, `refund#transport`, `shift#commission-to-transport#{n}`, `refund#duplicate#{gatewayRef}`, `topup#{n}` reserved for ESC-37), the escrow's `settlementModel`, `legStatus`, `refundedTotal`, `releasedTotal` and `previousTruckerIds`, the write-ahead protocol (row `pending` with the escrow CAS in one transaction, `done`, `failed` with 3 attempts, `sent` with a status check, `manual`), invariants I1 to I4 (`ESCROW_LEDGER_INVARIANT`), the 15 minute `ledger_sweep` (`LEDGER_ROW_OVERDUE`), per-movement audit rows, the manual queue and record on ledger refs, the per-leg verdict (`partial_refund`, `action: split`, `ADMIN_021`, a proposed commission rule), the automatic refund of a decided duplicate payment, the transport rebind of D4 and the migration rule. Major because the money model changes; nothing built changes. Doc fixes against the code (survey 1.16 and 9.4): `POST /escrow/release` answers `completed` when every leg is paid and `released` while the transport leg is owed (with `truckerPayout` and `truckerTelebirrRef`), its `trigger` is not stored and its `deliveryId` is not compared; the gateway calls are not retried inside a call (30 s, unknown outcome parked); reconciliation waits 150 minutes for a row without a Telebirr reference and covers holds only; the auto-refund notice is the buyer's `refund_sent` from the escrows stream; Future Enhancements no longer lists the webhook, the trucker payment and the streams as missing; Parties add Web, Admin and Infrastructure; `EscrowDto` gains `orderId` (already returned) and `deliveryId` is empty until linkage. Already fixed before 2.0.0: `dispute_resolved` in the state table (1.3.0), the retry and alert promises (1.10.0), the commission rule (1.39.0) |
 | 1.40.0 | 2026-11-07 | Dispute evidence (FRD-14): `GET /admin/disputes/{escrowId}/evidence`, admin group only, answers the escrow, order, delivery (photos, no phones or QR token), the stitched timeline and the handoffs (QR scan or typed code, who, GPS, distance to the planned point); with `include=messages` also the order's and delivery's message threads (`messaging.md` 1.4.0), each read audited as `admin_dispute_messages_read` before it is answered (`503 ADMIN_020` otherwise). `404 ADMIN_019` for an escrow that never had a dispute. Infra: the route, `MESSAGES_TABLE` and Query on `ConversationIdCreatedAtIndex` for the admin Lambda. |
 | 1.39.0 | 2026-11-06 | Commission rule and rounding (SIM-30, `order-lifecycle.md` 2.7.0): Commission Calculation now states the rule the server applies, a percentage of the crop cost (SSM `/{prefix}/escrow/commission-rate`, default 0.05) that the buyer pays on top of the order, held in the escrow and kept by the platform at release (refunded in full with the rest), with `commission = amount − farmerPayout − truckerPayout`; the 2.5 % deducted-at-release text was only true of the legacy initiate without an order, now marked as such. The order create rounds `cropCost`, `transportCost` and `commissionAmount` to the santim (halves away from zero, exact decimals) and `orderTotal` is their exact sum, so the order's commission equals the escrow's to the santim (was an unrounded double such as 0.9500000000000001). The money rule is unchanged; only an order whose crop or transport cost has more than 2 decimals (a fractional kg) can see its total move by a santim, since its legs are now rounded before they are added. No endpoint, status or field change |
 | 1.38.0 | 2026-11-06 | The escrow version (SIM-29): every write that changes what an escrow read returns adds 1 to `version` with `ADD`: the delivery link, the delivery confirmation stamp, a scheduled refund (also inside the 1.25.0 transaction), the 21 day cap extension and stamp, a backfilled `truckerId`, the admin verdict and a later disposition now too, and the hold, release, refund and completion writes add 1 instead of writing 2 or the read value plus 1 or 2. Locks, block reasons and the deletion scrub leave it alone. No write is conditioned on it and no client sends it; no endpoint, status or client change |
@@ -4223,5 +4579,5 @@ read, no other index, no write); the audit row uses its existing transaction-aud
 ---
 
 **Last Updated**: 2026-11-07
-**Version**: 1.40.0
+**Version**: 2.0.0
 **Status**: Draft (Phase R4)
