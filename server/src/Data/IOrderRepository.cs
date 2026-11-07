@@ -123,6 +123,14 @@ public interface IOrderRepository
     Task<List<Dictionary<string, object>>> QueryByStatusForCronAsync(string status, string? createdBefore = null);
 
     /// <summary>
+    /// FRD-15: one page of the <paramref name="status"/> partition of <c>StatusCreatedAtIndex</c>, orders created
+    /// at or after <paramref name="createdSince"/> (key condition, so older rows are never read), newest first,
+    /// at most <paramref name="limit"/> rows (1 to 100). The relationship scan pages it with the returned key.
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByStatusCreatedSinceAsync(
+        string status, string createdSince, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
     /// ESC-06: put the order in the admin stuck-order queue (<see cref="AdminQueueFields"/>) while
     /// it is still <paramref name="expectedStatus"/> and not queued yet. Written without bumping
     /// <c>version</c> or <c>updatedAt</c>, like the delivery slot claim. Returns false when the

@@ -64,11 +64,13 @@ internal sealed record RiskScoreSettings(
 
     /// <summary>
     /// The per-type cap of a capped type over the window: <c>RISK_REJECT_TYPE_CAP</c> for the FRD-08
-    /// reject types, <c>RISK_PATTERN_TYPE_CAP</c> for the FRD-09 pattern types, null for every other type.
+    /// reject types, <c>RISK_PATTERN_TYPE_CAP</c> for the FRD-09 pattern types and the FRD-15 shared device
+    /// and repeated pair types, null for every other type.
     /// </summary>
     internal int? CapOf(string signalType) =>
         FraudDetectionService.IsCappedRejectType(signalType) ? RejectTypeCap
-        : FraudDetectionService.IsPatternSignal(signalType) ? PatternTypeCap
+        : FraudDetectionService.IsPatternSignal(signalType) || FraudDetectionService.IsCappedRelationshipType(signalType)
+            ? PatternTypeCap
         : null;
 
     private static int Read(Func<string, string?> env, string name, int fallback, int min) =>

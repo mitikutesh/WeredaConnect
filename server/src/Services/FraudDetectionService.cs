@@ -268,6 +268,67 @@ public sealed class FraudDetectionService : IFraudDetectionService
         }
     }
 
+    // ── HasSignalAsync ─────────────────────────────────────
+    // FRD-15: the scan sees an order again in every hourly run of its lookback, and the writer's key only
+    // stops a second row within one hour. One Query of the user's partition over the table's 30 day life,
+    // consistent, the type and the entity as a filter, at most DefaultRiskMaxPages pages.
+    public async Task<bool> HasSignalAsync(string userId, string signalType, string entityId)
+    {
+        if (string.IsNullOrEmpty(_fraudSignalsTable) || string.IsNullOrEmpty(userId))
+        {
+            return false;
+        }
+
+        var since = DateTime.UtcNow.AddDays(-SignalTtlDays).ToString("o", CultureInfo.InvariantCulture);
+        var request = new QueryRequest
+        {
+            TableName = _fraudSignalsTable,
+            KeyConditionExpression = "#u = :uid AND #k >= :since",
+            // Any status and resolution: an approved (false positive) row also means "already seen".
+            FilterExpression = "#t = :type AND #e = :entity",
+            ProjectionExpression = "#k",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#u", "userId" },
+                { "#k", "signalKey" },
+                { "#t", "signalType" },
+                { "#e", "entityId" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":uid", new AttributeValue { S = userId } },
+                { ":since", new AttributeValue { S = since } },
+                { ":type", new AttributeValue { S = signalType } },
+                { ":entity", new AttributeValue { S = entityId } }
+            },
+            ConsistentRead = true
+        };
+
+        var pages = 0;
+        Dictionary<string, AttributeValue>? startKey = null;
+        do
+        {
+            if (startKey != null)
+            {
+                request.ExclusiveStartKey = startKey;
+            }
+
+            var response = await _dynamoDb.QueryAsync(request);
+            pages++;
+            if (response.Items is { Count: > 0 })
+            {
+                return true;
+            }
+
+            startKey = response.LastEvaluatedKey is { Count: > 0 } next ? next : null;
+        }
+        while (startKey != null && pages < DefaultRiskMaxPages);
+
+        // Rows left unread: absence cannot be shown, so nothing more is written. Such a partition already
+        // reads as truncated, CRITICAL (section 14.3).
+        return startKey != null;
+    }
+
     // FRD-08 signal types (fraud-detection-architecture.md section 15). Each is written on the
     // caller of the refused operation; the webhook's payer mismatch on the buyer our own row names.
 
@@ -328,6 +389,18 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// <summary>A delivery confirmed sooner after its pickup than the distance between the two scans allows.</summary>
     internal const string ImpossibleDeliveryTimeSignal = "IMPOSSIBLE_DELIVERY_TIME";
 
+    // FRD-15 relationship signals (section 15.2), written by the hourly order-cron scan on both the buyer and
+    // the farmer of a funded order. Flag-only: the trade already happened; the score and its gates enforce.
+
+    /// <summary>The buyer and the farmer of a funded order are one identity: the same user id, phone or Fayda ID.</summary>
+    internal const string SelfTradeSignal = "SELF_TRADE";
+
+    /// <summary>The buyer's and the farmer's accounts of a funded order have signed in on the same install (X-Device-Id).</summary>
+    internal const string SharedDeviceTradeSignal = "SHARED_DEVICE_TRADE";
+
+    /// <summary>A buyer and a farmer with several funded orders between them in a few days (a regular customer can do it too).</summary>
+    internal const string RepeatedPairSignal = "REPEATED_PAIR";
+
     // Weights per fraud-detection-architecture.md §2 Rule 5 and section 15.
     internal static int SignalWeight(string signalType) => signalType switch
     {
@@ -351,6 +424,9 @@ public sealed class FraudDetectionService : IFraudDetectionService
         CancelAfterFundRateSignal => 15,
         DisputeRateSignal => 10,
         ImpossibleDeliveryTimeSignal => 15,
+        SelfTradeSignal => 40,
+        SharedDeviceTradeSignal => 25,
+        RepeatedPairSignal => 5,
         _ => 10
     };
 
@@ -359,7 +435,8 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// whitelist skips. Every other type is hard and always counts. FRD-08 adds the rejects an
     /// honest client can also produce; LT-07 the check-in signals, which refuse nothing; FRD-09 its
     /// pattern rules except the structuring one, which is about dodging the Fayda rule and so a money
-    /// signal a whitelist does not silence.
+    /// signal a whitelist does not silence. FRD-15: the shared device (a family or cooperative phone) and
+    /// the repeated pair (a regular customer); <c>SELF_TRADE</c> is hard, since those identities are unique.
     /// </summary>
     internal static bool IsSoftSignal(string signalType) =>
         signalType is "GPS_ANOMALY" or "PRICE_ANOMALY"
@@ -367,7 +444,8 @@ public sealed class FraudDetectionService : IFraudDetectionService
             or StaleVersionBurstSignal or SuspendedTokenUseSignal
             or GpsJumpSignal or GpsMockedSignal
             or AmountAnomalySignal or NewAccountLargeAmountSignal or CancelAfterFundRateSignal
-            or DisputeRateSignal or ImpossibleDeliveryTimeSignal;
+            or DisputeRateSignal or ImpossibleDeliveryTimeSignal
+            or SharedDeviceTradeSignal or RepeatedPairSignal;
 
     /// <summary>
     /// FRD-09: the transaction pattern types. Each is written with the order, escrow, delivery or trip
@@ -380,6 +458,21 @@ public sealed class FraudDetectionService : IFraudDetectionService
             or CancelAfterFundRateSignal or DisputeRateSignal or ImpossibleDeliveryTimeSignal;
 
     /// <summary>
+    /// FRD-15: the relationship types. Each is written on both parties with the funded order as the entity,
+    /// so it counts once per order, and an order it names gets no clean-delivery credit (section 20).
+    /// </summary>
+    internal static bool IsRelationshipSignal(string signalType) =>
+        signalType is SelfTradeSignal or SharedDeviceTradeSignal or RepeatedPairSignal;
+
+    /// <summary>
+    /// FRD-15: the relationship types honest users can also produce (a shared phone, a regular customer),
+    /// capped per type at <c>RISK_PATTERN_TYPE_CAP</c> like the FRD-09 patterns. <c>SELF_TRADE</c> is not:
+    /// one user id, phone or Fayda ID on both sides is not an honest trade.
+    /// </summary>
+    internal static bool IsCappedRelationshipType(string signalType) =>
+        signalType is SharedDeviceTradeSignal or RepeatedPairSignal;
+
+    /// <summary>
     /// FRD-08 types the scorer counts once per (type, entityId) over the whole window, not once per
     /// hour: the mobile queue sends a refused operation again on every reconnect, so one honest
     /// refusal would otherwise add its weight in every hour it is retried. Probes of different ids
@@ -388,14 +481,16 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// client (marked synced) and web makes a new id per create, so no honest retry repeats it.
     /// LT-07: the check-in signals count once per trip, since a trip with a mock-location app on (or
     /// a phone with a bad GPS) writes a row in every hour it drives. FRD-09: the pattern types count
-    /// once per observed order, escrow, delivery or trip (<see cref="IsPatternSignal"/>).
+    /// once per observed order, escrow, delivery or trip (<see cref="IsPatternSignal"/>). FRD-15: the
+    /// relationship types once per order (<see cref="IsRelationshipSignal"/>).
     /// </summary>
     internal static bool CountsOncePerEntity(string signalType) =>
         signalType is RoleForbiddenSignal or ImmutableFieldChangeSignal
             or QrHandoffFailureSignal or TelebirrPayerMismatchSignal or TelebirrPayerRefusedSignal
             or StaleVersionBurstSignal or SuspendedTokenUseSignal
             or GpsJumpSignal or GpsMockedSignal
-            || IsPatternSignal(signalType);
+            || IsPatternSignal(signalType)
+            || IsRelationshipSignal(signalType);
 
     /// <summary>
     /// FRD-08 types whose counted weight is capped per type over the window (<c>RISK_REJECT_TYPE_CAP</c>):

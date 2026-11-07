@@ -561,6 +561,44 @@ public sealed class OrderRepository : IOrderRepository
     }
 
     /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByStatusCreatedSinceAsync(
+        string status, string createdSince, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
+    {
+        if (limit < 1 || limit > 100)
+        {
+            limit = 100;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "StatusCreatedAtIndex",
+            KeyConditionExpression = "#status = :status AND #created >= :since",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#created", "createdAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":status", new AttributeValue { S = status } },
+                { ":since", new AttributeValue { S = createdSince } }
+            },
+            Limit = limit,
+            ScanIndexForward = false // newest first
+        };
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(DynamoDbHelper.FromItem).ToList();
+        return (items, response.LastEvaluatedKey?.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <inheritdoc />
     public async Task<DeliverySlotWriteResult> TryCreateDeliveryWithSlotAsync(
         string orderId,
         string deliveriesTable,
