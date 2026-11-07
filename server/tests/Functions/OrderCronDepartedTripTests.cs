@@ -51,15 +51,33 @@ public class OrderCronDepartedTripTests
         _trips.QueryDepartedOpenAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns(ci =>
             {
+                // The index as the repository reads it: open rows below the cutoff, newest
+                // departure first, `limit` a page, the last row's key as the next start.
                 var cutoff = ci.ArgAt<string>(0);
+                var limit = ci.ArgAt<int>(1);
+                var startKey = ci.ArgAt<Dictionary<string, AttributeValue>?>(2);
                 _cutoffsRead.Add(cutoff);
-                var page = _rows
+                var below = _rows
                     .Where(r => r["status"].S == "open" && string.CompareOrdinal(r["departureDate"].S, cutoff) < 0)
+                    .OrderByDescending(r => r["departureDate"].S, StringComparer.Ordinal)
+                    .ThenByDescending(r => r["tripId"].S, StringComparer.Ordinal)
+                    .ToList();
+                // The start key is a position in the index, so rows closed since the last page
+                // (gone from the open partition) never move it.
+                var anchor = startKey == null ? null : _rows.FirstOrDefault(r => r["tripId"].S == startKey["tripId"].S);
+                var rest = anchor == null
+                    ? below
+                    : below.Where(r => string.CompareOrdinal(r["departureDate"].S, anchor["departureDate"].S) < 0
+                        || (r["departureDate"].S == anchor["departureDate"].S
+                            && string.CompareOrdinal(r["tripId"].S, anchor["tripId"].S) < 0)).ToList();
+                var page = rest.Take(limit)
                     .Select(r => new Dictionary<string, AttributeValue>(r))
                     .ToList();
                 Dictionary<string, AttributeValue>? next = _alwaysAnotherPage
                     ? new Dictionary<string, AttributeValue> { { "tripId", new AttributeValue { S = "more" } } }
-                    : null;
+                    : rest.Count > limit
+                        ? new Dictionary<string, AttributeValue> { { "tripId", S(page[^1]["tripId"].S) } }
+                        : null;
                 return (page, next);
             });
 
@@ -322,6 +340,25 @@ public class OrderCronDepartedTripTests
         Logs.Should().Contain("departed trips could not be read [InvalidOperationException]");
     }
 
+    [Fact]
+    public async Task OneTripsWriteFails_TheOthersAreStillClosed()
+    {
+        // A throttle on one trip's close must not end the walk (the condition failures are already
+        // answered false by the repository; this is any other DynamoDB error).
+        var failing = AddTrip(tripId: "trip-a", departureDay: -1);
+        var other = AddTrip(tripId: "trip-b", departureDay: -2);
+        _trips.TryExpireUnbookedAsync("trip-a", Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>())
+            .ThrowsAsync(new InvalidOperationException("throttled"));
+
+        var summary = await RunAsync();
+
+        summary["outcome"].Should().Be("ok");
+        summary["departedTripsClosed"].Should().Be("1");
+        failing["status"].S.Should().Be("open");
+        other["status"].S.Should().Be("cancelled");
+        Logs.Should().Contain("could not be closed [InvalidOperationException]; it waits a run");
+    }
+
     // ===== bounds =====
 
     [Fact]
@@ -349,6 +386,26 @@ public class OrderCronDepartedTripTests
         first["departedTripsClosed"].Should().Be(OrderCronFunction.MaxDepartedTripCloses.ToString(CultureInfo.InvariantCulture));
         second["departedTripsClosed"].Should().Be("1");
         _rows.Should().OnlyContain(r => r["status"].S == "cancelled");
+    }
+
+    [Fact]
+    public async Task KeptTripsThatLeftLongAgo_DoNotHideANewerDeparture()
+    {
+        // More kept trips than one run reads (booked trips whose trucker never started them, old trips
+        // with a settled order) sit below the cutoff for good. Read newest first, a trip that has just
+        // left is still reached, run after run.
+        var kept = OrderCronFunction.MaxDepartedTripPages * OrderCronFunction.DepartedTripPageSize + 1;
+        for (var i = 0; i < kept; i++)
+        {
+            AddTrip(tripId: $"kept-{i:D4}", departureDay: -10, bookedIds: [$"order-{i}"], booked: 1);
+        }
+
+        var fresh = AddTrip(tripId: "fresh", departureDay: -1);
+
+        var summary = await RunAsync();
+
+        summary["departedTripsClosed"].Should().Be("1");
+        fresh["status"].S.Should().Be("cancelled");
     }
 
     [Fact]

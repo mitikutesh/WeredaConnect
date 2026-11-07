@@ -48,6 +48,23 @@ public partial class SyncFunctionTests
                 .Select(d => new Dictionary<string, object> { { "deliveryId", d.Id }, { "tripId", "trip-001" }, { "status", d.Status } })
                 .ToList(), (Dictionary<string, AttributeValue>?)null));
 
+    /// <summary>The deliveries TripIdIndex with each delivery's order.</summary>
+    private void Esc17DeliveriesWithOrders(params (string Id, string Status, string OrderId)[] deliveries)
+        => _esc17Deliveries.QueryDeliveriesAsync(Arg.Any<string?>(), "trip-001", Arg.Any<string?>(), Arg.Any<int>(),
+                Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((deliveries
+                .Select(d => new Dictionary<string, object>
+                {
+                    { "deliveryId", d.Id }, { "tripId", "trip-001" }, { "status", d.Status }, { "orderId", d.OrderId }
+                })
+                .ToList(), (Dictionary<string, AttributeValue>?)null));
+
+    /// <summary>What the orders TripIdIndex returns for trip-001 (it may lag too).</summary>
+    private void Esc17OrdersOnTrip(params (string Id, string Status)[] orders)
+        => _mockOrderRepo.QueryByTripAsync("trip-001").Returns(orders
+            .Select(o => new Dictionary<string, object> { { "orderId", o.Id }, { "tripId", "trip-001" }, { "status", o.Status } })
+            .ToList());
+
     private async Task<JsonElement> Esc17SendAsync(SyncFunction function, SyncOperationRequest op, string userId, string role)
     {
         var response = await function.FunctionHandler(MakeAuthenticatedRequest(MakeSyncRequest(op), userId, role), _context);
@@ -188,6 +205,41 @@ public partial class SyncFunctionTests
         await Esc17CancelAsync(Esc17Function());
 
         await Esc17NotMarked();
+    }
+
+    [Theory]
+    [InlineData("funded")]
+    [InlineData("accepted")]
+    public async Task Esc17_AnOrderOnTheTripWithoutADeliveryYet_KeepsItInTransit(string orderStatus)
+    {
+        // Every delivery is done, but a booked or agreed order has no delivery yet: the truck still
+        // has a load to carry.
+        Esc17Trip("inTransit");
+        Esc17DeliveriesWithOrders(("del-001", "pickedUp", "order-1"));
+        Esc17OrdersOnTrip(("order-1", "in_transit"), ("order-2", orderStatus));
+
+        var result = await Esc17ConfirmAsync(Esc17Function());
+
+        Assert.Equal("success", result.GetProperty("status").GetString());
+        await Esc17NotMarked();
+        Assert.Contains("still waits for the truck; not marked delivered", Esc17Logs);
+    }
+
+    [Theory]
+    [InlineData("pickup_confirmed")]
+    [InlineData("in_transit")]
+    public async Task Esc17_AnOrderRowLaggingItsDoneDelivery_DoesNotHoldTheTrip(string laggingStatus)
+    {
+        // The order follows its delivery best effort and the orders index lags: an order whose
+        // delivery on this trip is done counts as carried. The delivery confirmed now keeps the
+        // order the index gave it.
+        Esc17Trip("inTransit");
+        Esc17DeliveriesWithOrders(("del-001", "pickedUp", "order-1"), ("del-002", "delivered", "order-2"));
+        Esc17OrdersOnTrip(("order-1", laggingStatus), ("order-2", "in_transit"), ("order-3", "cancelled"));
+
+        await Esc17ConfirmAsync(Esc17Function());
+
+        await Esc17MarkedDelivered();
     }
 
     [Fact]

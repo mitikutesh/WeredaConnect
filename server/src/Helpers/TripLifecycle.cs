@@ -50,4 +50,35 @@ public static class TripLifecycle
 
     /// <summary>Whether an order in <paramref name="orderStatus"/> still counts on its trip.</summary>
     public static bool OrderStillOnTrip(string orderStatus) => !OffTripOrderStatuses.Contains(orderStatus);
+
+    /// <summary>
+    /// Order statuses that still wait for the truck to carry them: paid and booked or agreed (no
+    /// delivery may exist yet), or picked up.
+    /// </summary>
+    private static readonly HashSet<string> AwaitingCarriageOrderStatuses = new(StringComparer.Ordinal)
+    {
+        "funded", "accepted", "pickup_confirmed", "in_transit"
+    };
+
+    /// <summary>
+    /// The first order on the trip that still waits for the truck (status <c>funded</c>,
+    /// <c>accepted</c>, <c>pickup_confirmed</c> or <c>in_transit</c>) and has no done delivery among
+    /// <paramref name="deliveries"/>; null when there is none. An order row can lag the delivery that
+    /// just finished it, so a done delivery for the order counts over the order's own status. A trip
+    /// with such an order is not finished even when every delivery on it is: the order's delivery may
+    /// not have been created yet.
+    /// </summary>
+    public static string? FirstOrderAwaitingCarriage(
+        IEnumerable<(string OrderId, string Status)> orders,
+        IEnumerable<(string Status, string OrderId)> deliveries)
+    {
+        var carried = deliveries
+            .Where(d => DoneDeliveryStatuses.Contains(d.Status) && d.OrderId.Length > 0)
+            .Select(d => d.OrderId)
+            .ToHashSet(StringComparer.Ordinal);
+        return orders
+            .Where(o => AwaitingCarriageOrderStatuses.Contains(o.Status) && !carried.Contains(o.OrderId))
+            .Select(o => o.OrderId)
+            .FirstOrDefault();
+    }
 }

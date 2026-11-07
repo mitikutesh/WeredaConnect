@@ -35,6 +35,39 @@ public class TripLifecycleTests
         => TripLifecycle.AllDeliveriesDone(new[] { "delivered", "cancelled", active }).Should().BeFalse();
 
     [Theory]
+    [InlineData("funded")]
+    [InlineData("accepted")]
+    [InlineData("pickup_confirmed")]
+    [InlineData("in_transit")]
+    public void FirstOrderAwaitingCarriage_AnOrderWithoutADoneDelivery_IsReturned(string status)
+        => TripLifecycle.FirstOrderAwaitingCarriage(
+                new[] { ("order-1", "delivered"), ("order-2", status) },
+                new[] { ("delivered", "order-1"), ("cancelled", "order-2") })
+            .Should().Be("order-2");
+
+    [Theory]
+    [InlineData("delivered")]
+    [InlineData("disputed")]
+    public void FirstOrderAwaitingCarriage_ADoneDeliveryCarriesItsLaggingOrder(string deliveryStatus)
+        => TripLifecycle.FirstOrderAwaitingCarriage(
+                new[] { ("order-1", "in_transit") },
+                new[] { (deliveryStatus, "order-1") })
+            .Should().BeNull();
+
+    [Theory]
+    [InlineData("created")]
+    [InlineData("payment_submitted")]
+    [InlineData("cancelled")]
+    [InlineData("awaiting_transport")]
+    [InlineData("delivered")]
+    [InlineData("settled")]
+    public void FirstOrderAwaitingCarriage_OrdersNotWaitingForTheTruck_AreIgnored(string status)
+        => TripLifecycle.FirstOrderAwaitingCarriage(
+                new[] { ("order-1", status) },
+                new[] { ("delivered", "order-2") })
+            .Should().BeNull();
+
+    [Theory]
     [InlineData("cancelled")]
     [InlineData("rejected")]
     [InlineData("payment_failed")]

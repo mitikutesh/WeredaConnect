@@ -44,7 +44,7 @@ public class TripRepositoryLifecycleTests
     // --- QueryDepartedOpenAsync ---
 
     [Fact]
-    public async Task DepartedOpen_ReadsTheOpenPartitionBelowTheCutoff_OldestFirst()
+    public async Task DepartedOpen_ReadsTheOpenPartitionBelowTheCutoff_NewestFirst()
     {
         var startKey = new Dictionary<string, AttributeValue> { { "tripId", new AttributeValue { S = "trip-0" } } };
 
@@ -60,7 +60,9 @@ public class TripRepositoryLifecycleTests
         query.ExpressionAttributeValues[":open"].S.Should().Be("open");
         query.ExpressionAttributeValues[":cutoff"].S.Should().Be(Cutoff);
         query.Limit.Should().Be(100);
-        query.ScanIndexForward.Should().BeTrue();
+        // Newest first: trips kept open after they left pile up at the old end and must not hide
+        // the ones that just crossed the cutoff.
+        query.ScanIndexForward.Should().BeFalse();
         query.ExclusiveStartKey.Should().BeSameAs(startKey);
     }
 

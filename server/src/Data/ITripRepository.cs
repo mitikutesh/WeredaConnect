@@ -100,9 +100,10 @@ public interface ITripRepository
 
     /// <summary>
     /// ESC-17: <c>open</c> trips whose <c>departureDate</c> is before <paramref name="departedBeforeIso"/>
-    /// (the start of today in Ethiopia, <see cref="Helpers.TripDeparture.CutoffIso"/>), oldest first,
-    /// from the StatusDepartureDateIndex with the cutoff in the key condition (no Scan). Deleted rows
-    /// are filtered out. Raw rows, so the caller sees the booking sets, the sort key and the version.
+    /// (the start of today in Ethiopia, <see cref="Helpers.TripDeparture.CutoffIso"/>), newest first
+    /// (the trips that just crossed the cutoff; the ones kept open after they left collect at the old
+    /// end), from the StatusDepartureDateIndex with the cutoff in the key condition (no Scan). Deleted
+    /// rows are filtered out. Raw rows, so the caller sees the booking sets, the sort key and the version.
     /// </summary>
     Task<(List<Dictionary<string, AttributeValue>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDepartedOpenAsync(
         string departedBeforeIso,

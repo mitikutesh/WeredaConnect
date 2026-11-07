@@ -449,6 +449,9 @@ public sealed class TripRepository : ITripRepository
     {
         // The browse reads the same partition from the cutoff up (L-7); this reads what lies below
         // it. departureDate is stored UTC with milliseconds (SIM-60), so it compares as a string.
+        // Newest first: trips that stay open after they left (booked, or kept by an order) collect
+        // at the old end for good, so a read from that end would see the same rows every run and
+        // never reach a trip that has just crossed the cutoff.
         var request = new QueryRequest
         {
             TableName = _tableName,
@@ -467,7 +470,7 @@ public sealed class TripRepository : ITripRepository
                 { ":cutoff", new AttributeValue { S = departedBeforeIso } }
             },
             Limit = limit,
-            ScanIndexForward = true
+            ScanIndexForward = false
         };
         if (exclusiveStartKey != null)
         {

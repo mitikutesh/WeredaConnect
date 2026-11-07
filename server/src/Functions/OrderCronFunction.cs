@@ -958,7 +958,11 @@ public class OrderCronFunction
     /// <summary>Departed open trips read per page of the StatusDepartureDateIndex.</summary>
     internal const int DepartedTripPageSize = 100;
 
-    /// <summary>Pages read per run, oldest departures first; what is left waits for the next run.</summary>
+    /// <summary>
+    /// Pages read per run, newest departures first. A trip is closable from the first run after its
+    /// Ethiopia day ends, when it sits at the head of the read; the trips kept open after they left
+    /// (booked, or named by a live order) only pile up behind it, so they never hide a newer one.
+    /// </summary>
     internal const int MaxDepartedTripPages = 10;
 
     /// <summary>Trips closed per run at most.</summary>
@@ -968,8 +972,8 @@ public class OrderCronFunction
     /// ESC-17 (design 4.10, edge case G4): close the <c>open</c> trips whose Ethiopia day is over
     /// (the browse stopped listing them, L-7), that hold no booking and that no live order still
     /// names: <c>cancelled</c> with <c>cancelReason: expired</c>. Read through the
-    /// StatusDepartureDateIndex below the browse cutoff (no Scan), bounded per run by
-    /// <see cref="MaxDepartedTripPages"/> and <see cref="MaxDepartedTripCloses"/>. Each close is one
+    /// StatusDepartureDateIndex below the browse cutoff (no Scan), newest departures first, bounded
+    /// per run by <see cref="MaxDepartedTripPages"/> and <see cref="MaxDepartedTripCloses"/>. Each close is one
     /// write conditioned on the version read, the status and no booking
     /// (<see cref="ITripRepository.TryExpireUnbookedAsync"/>), so a re-run, a trucker's edit or a
     /// funding that lands in between changes nothing more. A trip that left with bookings stays for
@@ -1064,7 +1068,20 @@ public class OrderCronFunction
 
         var version = trip.TryGetValue("version", out var versionAttr)
             && int.TryParse(versionAttr.N, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 0;
-        if (!await trips.TryExpireUnbookedAsync(tripId, createdAt, version, cutoff, run.NowIso))
+        bool closed;
+        try
+        {
+            closed = await trips.TryExpireUnbookedAsync(tripId, createdAt, version, cutoff, run.NowIso);
+        }
+        catch (Exception ex)
+        {
+            // A throttle or a network error on one trip must not end the walk for the others.
+            run.Context.Logger.LogWarning(
+                $"Commitment deadlines: departed trip {MoneyAlarmLog.LogId(tripId)} could not be closed [{ex.GetType().Name}]; it waits a run.");
+            return;
+        }
+
+        if (!closed)
         {
             run.Conflicts++;
             run.Context.Logger.LogInformation(

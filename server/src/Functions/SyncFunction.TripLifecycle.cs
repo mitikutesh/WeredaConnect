@@ -15,9 +15,12 @@ public partial class SyncFunction
     /// <summary>
     /// ESC-17: after a delivery reached <c>delivered</c>, <c>disputed</c> or <c>cancelled</c> through
     /// sync, an <c>inTransit</c> trip becomes <c>delivered</c> when every delivery on it is done or
-    /// cancelled and at least one is done (<see cref="TripLifecycle.AllDeliveriesDone"/>). The
-    /// deliveries are read through the deliveries TripIdIndex, which can lag the write this request
-    /// just made, so that delivery counts with the status it was given. The trip write is
+    /// cancelled and at least one is done (<see cref="TripLifecycle.AllDeliveriesDone"/>), and no
+    /// order on it still waits for the truck without a done delivery
+    /// (<see cref="TripLifecycle.FirstOrderAwaitingCarriage"/>: a funded or accepted order may have
+    /// no delivery yet). The deliveries and the orders are read through their TripIdIndex, which can
+    /// lag the write this request just made, so that delivery counts with the status it was given
+    /// (and a lagging order row of a done delivery does not hold the trip). The trip write is
     /// conditioned on the version read and on <c>inTransit</c>
     /// (<see cref="ITripRepository.TryMarkDeliveredAsync"/>), so the trucker's own "Mark delivered"
     /// landing first wins and a replay changes nothing. Behind <c>COMMITMENTS_ENABLED</c> like the
@@ -49,23 +52,34 @@ public partial class SyncFunction
                 return;
             }
 
-            var statuses = await ReadTripDeliveryStatusesAsync(tripId, deliveryId, deliveryStatus);
-            if (statuses == null)
+            var deliveries = await ReadTripDeliveryStatusesAsync(
+                tripId, deliveryId, deliveryStatus, AttrString(delivery, "orderId"));
+            if (deliveries == null)
             {
                 context.Logger.LogWarning(
                     $"Trip {MoneyAlarmLog.LogId(tripId)}: more than {MaxTripDeliveryPages * 50} deliveries; left for the trucker to mark delivered.");
                 return;
             }
 
-            if (!TripLifecycle.AllDeliveriesDone(statuses))
+            if (!TripLifecycle.AllDeliveriesDone(deliveries.Select(d => d.Status).ToList()))
             {
+                return;
+            }
+
+            var orders = await _orderRepo.QueryByTripAsync(tripId) ?? new List<Dictionary<string, object>>();
+            var waiting = TripLifecycle.FirstOrderAwaitingCarriage(
+                orders.Select(o => (ItemString(o, "orderId"), ItemString(o, "status"))), deliveries);
+            if (waiting != null)
+            {
+                context.Logger.LogInformation(
+                    $"Trip {MoneyAlarmLog.LogId(tripId)}: order {MoneyAlarmLog.LogId(waiting)} still waits for the truck; not marked delivered.");
                 return;
             }
 
             var marked = await _tripRepo.TryMarkDeliveredAsync(
                 tripId, AttrString(trip, "createdAt"), ItemVersion(trip), DateTime.UtcNow.ToString("o"));
             context.Logger.LogInformation(marked
-                ? $"Trip {MoneyAlarmLog.LogId(tripId)}: inTransit -> delivered (all {statuses.Count} deliveries done or cancelled)."
+                ? $"Trip {MoneyAlarmLog.LogId(tripId)}: inTransit -> delivered (all {deliveries.Count} deliveries done or cancelled)."
                 : $"Trip {MoneyAlarmLog.LogId(tripId)}: changed since it was read; not marked delivered.");
         }
         catch (Exception ex)
@@ -76,15 +90,16 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// The status of every delivery on the trip (soft-deleted rows are left out by the repository),
-    /// with <paramref name="deliveryId"/> at <paramref name="deliveryStatus"/>; null when the trip has
-    /// more than <see cref="MaxTripDeliveryPages"/> pages of them. Unlike the check-in's
+    /// The status and order of every delivery on the trip (soft-deleted rows are left out by the
+    /// repository), with <paramref name="deliveryId"/> at <paramref name="deliveryStatus"/>; null when
+    /// the trip has more than <see cref="MaxTripDeliveryPages"/> pages of them. Unlike the check-in's
     /// <c>ReadTripDeliveriesAsync</c>, which decides on the first pages, a trip is never finished on
     /// a partial list.
     /// </summary>
-    private async Task<List<string>?> ReadTripDeliveryStatusesAsync(string tripId, string deliveryId, string deliveryStatus)
+    private async Task<List<(string Status, string OrderId)>?> ReadTripDeliveryStatusesAsync(
+        string tripId, string deliveryId, string deliveryStatus, string deliveryOrderId)
     {
-        var statuses = new Dictionary<string, string>(StringComparer.Ordinal);
+        var statuses = new Dictionary<string, (string Status, string OrderId)>(StringComparer.Ordinal);
         Dictionary<string, AttributeValue>? startKey = null;
         for (var page = 0; page < MaxTripDeliveryPages; page++)
         {
@@ -94,13 +109,16 @@ public partial class SyncFunction
                 var id = ItemString(item, "deliveryId");
                 if (id.Length > 0)
                 {
-                    statuses[id] = ItemString(item, "status");
+                    statuses[id] = (ItemString(item, "status"), ItemString(item, "orderId"));
                 }
             }
 
             if (next == null)
             {
-                statuses[deliveryId] = deliveryStatus;
+                var orderId = deliveryOrderId.Length > 0 || !statuses.TryGetValue(deliveryId, out var indexed)
+                    ? deliveryOrderId
+                    : indexed.OrderId;
+                statuses[deliveryId] = (deliveryStatus, orderId);
                 return statuses.Values.ToList();
             }
 
