@@ -476,6 +476,33 @@ public class FraudRiskScoreTests
         result.Tier.Should().Be(RiskTier.High);
     }
 
+    [Fact]
+    public async Task Advisory_TheRowTheAdvisoryCronWrites_NeverMakesCritical_AndAnApproveClearsIt()
+    {
+        // FRD-19: keyed on the start of the UTC day, recordType signal, pending, weight 10.
+        var dayKey = FraudAdvisory.DayKey(Now);
+        Dictionary<string, AttributeValue> Advisory(string? resolution) => new()
+        {
+            ["signalKey"] = new() { S = dayKey },
+            ["signalType"] = new() { S = FraudDetectionService.AdvisorySignalType },
+            ["recordType"] = new() { S = "signal" },
+            ["status"] = new() { S = resolution == null ? "pending" : "reviewed" },
+            ["weight"] = new() { N = "10" },
+            ["resolution"] = resolution == null ? new() { NULL = true } : new() { S = resolution }
+        };
+
+        var pending = await ScoreRowsAsync(
+            Advisory(null), Signal("IDOR_CREATE_CONFLICT", Now.AddMinutes(-1), weight: 95));
+        pending.Score.Should().Be(105);
+        pending.EnforcementScore.Should().Be(95);
+        pending.Tier.Should().Be(RiskTier.High);
+
+        var approved = await ScoreRowsAsync(
+            Advisory("approve"), Signal("IDOR_CREATE_CONFLICT", Now.AddMinutes(-1), weight: 95));
+        approved.Score.Should().Be(95);
+        approved.Tier.Should().Be(RiskTier.High);
+    }
+
     // ── bounded read (section 14.3) ────────────────────────
 
     [Fact]

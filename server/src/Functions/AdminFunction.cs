@@ -3364,7 +3364,9 @@ public partial class AdminFunction
             ReviewedAt = GetStringOrNull(item, "reviewedAt"),
             ReviewNotes = GetStringOrNull(item, "reviewNotes"),
             CreatedAt = GetString(item, "createdAt"),
-            OrderId = SignalOrderId(GetStringOrNull(item, "entityType"), GetStringOrNull(item, "entityId"))
+            OrderId = SignalOrderId(GetStringOrNull(item, "entityType"), GetStringOrNull(item, "entityId")),
+            AiConcern = GetStringOrNull(item, "aiConcern"),
+            AiModel = GetStringOrNull(item, "aiModel")
         };
     }
 

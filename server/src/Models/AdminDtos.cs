@@ -147,6 +147,16 @@ public sealed record FraudSignalDto
     /// <c>order</c> signal, or an <c>escrow</c> signal on an order escrow (<c>escrow-order-{orderId}</c>).
     /// </summary>
     public string? OrderId { get; init; }
+
+    /// <summary>
+    /// FRD-19: on an <c>AI_ADVISORY</c> row, the AI reviewer's concern (<c>none</c>, <c>low</c>, <c>medium</c> or
+    /// <c>high</c>). Its explanation is the <see cref="Description"/>. Advice only (fraud-detection-architecture.md
+    /// section 21): its weight is capped and never counts toward CRITICAL.
+    /// </summary>
+    public string? AiConcern { get; init; }
+
+    /// <summary>FRD-19: the Bedrock model that wrote the advice, on an <c>AI_ADVISORY</c> row.</summary>
+    public string? AiModel { get; init; }
 }
 
 /// <summary>

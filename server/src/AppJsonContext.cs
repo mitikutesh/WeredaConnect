@@ -199,6 +199,9 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(AccountDeletionError))]
 [JsonSerializable(typeof(AccountDeletionErrorResponse))]
 [JsonSerializable(typeof(AccountDeletionJobRequest))]
+// FRD-19: the AI advisory reviewer's request and answer (fraud spec section 21)
+[JsonSerializable(typeof(AdvisoryReviewRequest))]
+[JsonSerializable(typeof(AdvisoryReviewReply))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

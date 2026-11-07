@@ -45,6 +45,8 @@
     <PackageReference Include="AWSSDK.SecretsManager" Version="3.7.504.43" />
     <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.505.15" />
     <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.502.61" />
+    <!-- FRD-19: the advisory cron invokes the non-AOT AI reviewer Lambda (AOT_COMPLIANCE.md lists it) -->
+    <PackageReference Include="AWSSDK.Lambda" Version="3.7.511.24" />
 
     <!-- Database Access (AOT-Compatible) -->
     <!-- ❌ BANNED: Entity Framework Core -->
