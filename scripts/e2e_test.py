@@ -40,12 +40,12 @@ Clearing rate limits:
     print(f'Cleared {len(items)} SYNC rate limit entries')
     "
 
-Test phases (10 phases, ~43 checks):
+Test phases (10 phases, ~46 checks):
     Phase  1: Register/login 7 users (3 farmers, 2 truckers, 2 buyers)
     Phase  2: Create 6 crop listings (or reuse existing if fraud-dup)
     Phase  3: Create 3 trip listings
     Phase  4: Browse & filter crops and trips
-    Phase  5: Create 3 deliveries (crop + trip + buyer)
+    Phase  5: Create 3 deliveries (crop + trip + buyer), farmer registers each QR nonce
     Phase  6: Delivery state machine (pending -> pickedUp -> inTransit -> delivered)
     Phase  7: Escrow payments (initiate, check status, payment history)
     Phase  8: Dispute flow (raise dispute, verify status)
@@ -54,7 +54,9 @@ Test phases (10 phases, ~43 checks):
 """
 
 import argparse
+import base64
 import json
+import secrets
 import ssl
 import sys
 import time
@@ -191,7 +193,7 @@ class DeliveryRecord:
     buyer_idx: int
     crop_id: str
     trip_id: str
-    qr_nonce: str = ""  # Server-generated, needed for pickup/delivery transitions
+    qr_nonce: str = ""  # The farmer's QR nonce, registered after create; the scans send it back
     order_id: str = ""  # Backing order; the escrow amount must equal its orderTotal
 
 
@@ -710,9 +712,10 @@ def phase_create_deliveries(state: TestState):
         if resp.status_code == 200:
             results = resp.json().get("results", [])
             if results and results[0].get("status") == "success":
-                # Extract server-generated qrNonce from response
-                server_data = results[0].get("serverData", {}) or {}
-                qr_nonce = server_data.get("qrNonce", "")
+                # The server never returns a QR nonce (it is kept in the secret store and
+                # stripped from serverData), so the farmer's phone makes one and registers
+                # it, as the apps do when the farmer opens the QR (FUP-138).
+                qr_nonce = register_qr_nonce(state, farmer, delivery_id, i + 1)
                 state.delivery_ids.append(delivery_id)
                 state.deliveries.append(DeliveryRecord(
                     delivery_id=delivery_id,
@@ -733,6 +736,36 @@ def phase_create_deliveries(state: TestState):
             state.record(f"Create delivery {i+1}", False, f"{resp.status_code}: {resp.body[:200]}")
 
         time.sleep(1)
+
+
+def register_qr_nonce(state: TestState, farmer: User, delivery_id: str, idx: int) -> str:
+    """The farmer's QR nonce, registered like the apps do (delivery-verification-api.md,
+    QR Secret Storage): 32 random bytes, base64url, sent by the farmer as a delivery update
+    carrying only `qrNonce` and the current version (1 after create). The server stores it
+    in the secret store, answers `success` and does not move the version. The trucker's
+    pickup and the buyer's drop-off scan send it back as `scannedQrNonce` (one nonce for
+    both legs). Returns "" when the server refused it, so the pickup is then recorded as a
+    failure instead of waiting 14 days as `deferred`."""
+    nonce = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii")
+    resp = api("POST", "/sync", token=farmer.access_token, json_body={
+        "syncBatchId": uid(),
+        "clientId": uid(),
+        "operations": [{
+            "operationId": uid(),
+            "idempotencyKey": f"{farmer.user_id}:delivery:{delivery_id}:update:{ts()}",
+            "entityType": "delivery",
+            "entityId": delivery_id,
+            "action": "update",
+            "data": {"qrNonce": nonce, "version": 1},
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }],
+    })
+    results = resp.json().get("results", []) if resp.status_code == 200 else []
+    ok = bool(results) and results[0].get("status") == "success"
+    detail = "registered" if ok else (
+        results[0].get("message", "unknown") if results else f"{resp.status_code}: {resp.body[:160]}")
+    state.record(f"Register QR nonce {idx}", ok, detail)
+    return nonce if ok else ""
 
 
 # ---------------------------------------------------------------------------
