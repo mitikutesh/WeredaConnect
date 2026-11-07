@@ -112,6 +112,35 @@ void main() {
     );
   });
 
+  // FUP-67: only a buyer may report someone's trip; a farmer or another
+  // trucker reading it, and the owner, get no button.
+  testWidgets('a buyer sees the report button', (tester) async {
+    tallView(tester);
+    signIn('buyer-001', UserRole.buyer);
+
+    await tester.pumpWidget(buildScreen(_trip()));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('report_listing_button')), findsOneWidget);
+    expect(find.text('Report this listing'), findsOneWidget);
+  });
+
+  for (final viewer in [
+    ('farmer-001', UserRole.farmer),
+    ('trucker-002', UserRole.trucker),
+    ('trucker-001', UserRole.trucker),
+  ]) {
+    testWidgets('${viewer.$1} sees no report button', (tester) async {
+      tallView(tester);
+      signIn(viewer.$1, viewer.$2);
+
+      await tester.pumpWidget(buildScreen(_trip()));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('report_listing_button')), findsNothing);
+    });
+  }
+
   testWidgets('the trip owner sees the bookings, not their own number',
       (tester) async {
     tallView(tester);

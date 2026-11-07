@@ -177,6 +177,14 @@ namespace WeredaConnect.Server;
 // FRD-07: the risk score of each user on a Fraud Review page.
 [JsonSerializable(typeof(FraudSignalUserDto))]
 [JsonSerializable(typeof(List<FraudSignalUserDto>))]
+// FUP-67: the admin queue of listing reports.
+[JsonSerializable(typeof(ListingReportDto))]
+[JsonSerializable(typeof(List<ListingReportDto>))]
+[JsonSerializable(typeof(ListingReportListingDto))]
+[JsonSerializable(typeof(List<ListingReportListingDto>))]
+[JsonSerializable(typeof(ListingReportListResponse))]
+[JsonSerializable(typeof(ReviewListingReportsRequest))]
+[JsonSerializable(typeof(ReviewListingReportsResponse))]
 [JsonSerializable(typeof(AdminUserListResponse))]
 [JsonSerializable(typeof(AdminUserDetailResponse))]
 [JsonSerializable(typeof(UserActionRequest))]

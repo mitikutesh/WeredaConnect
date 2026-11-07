@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.43.0
+1.44.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -34,7 +34,7 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
     {
       "operationId": "uuid-v4",
       "idempotencyKey": "farmer-123:crop_listing:crop-456:create:1707998400000",
-      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message | user | location_ping",
+      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message | user | location_ping | delivery_photo | listing_report",
       "entityId": "uuid-v4",
       "action": "create | update | delete",
       "clientVersion": 3,
@@ -225,6 +225,7 @@ These rules must always hold:
 - `DELIVERY_NONCE_MISSING` (since 1.43.0) → Mark as permanently rejected and revert the local delivery (see Refusals no retry can pass)
 - Every `*_UNAUTHORIZED` code but a role gate (`... Only farmers can ...`, `truckers`, `buyers`), `RATING_FORBIDDEN: You can only rate your own orders.` and a `CROP_VALIDATION`, `TRIP_VALIDATION` or `DELIVERY_VALIDATION` `... is immutable and cannot be changed on update.` (since 1.43.0) → Mark as permanently rejected, not reverted (see Refusals no retry can pass)
 - `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` (since 1.31.0) → Mark as permanently rejected, not reverted (see Location pings); `LOCATION_NOT_ACTIVE` comes as `deferred`, not as an error
+- A refused `listing_report` (since 1.44.0, always `SYNC_VALIDATION`) → Mark as permanently rejected; nothing local to revert (see Listing reports)
 
 **Retry State Management**:
 - `retryCount` field in `SyncOperation` entity tracks attempts (only incremented by server errors, not network failures)
@@ -1148,10 +1149,23 @@ funding.
 
 ---
 
+## Listing reports (1.44.0, FUP-67)
+
+New create-only entity `listing_report`: a buyer reports a crop listing or a trip to the admins. Full contract: `listing-report-api.md` 1.0.0.
+
+- `entityId` = `{listingType}#{listingId}`; `data` = `{listingType: crop | trip, listingId, reason}` with `reason` one of `contact_info`, `misleading`, `scam`, `offensive`, `other`. No free text; any other field is refused.
+- Buyers only (a farmer or a trucker sees only their own listings), never the caller's own listing, one report per buyer and listing (a repeat answers `duplicate`), at most 10 a day per buyer.
+- Every refusal is `SYNC_VALIDATION:`, which every client already treats as permanent (Retry Logic): `Only buyers can report a listing.`, `Unsupported action ...`, the payload problems, `The reported listing does not exist.`, `You cannot report your own listing.`, `report limit reached. A buyer can send at most 10 reports a day.` A server without the reports table answers the unprefixed `Listing reports are not enabled on this server yet.`, which clients retry.
+- Nothing is written to the listing and no `serverData` is returned: the owner never learns who reported.
+- Client handling: mobile queues the create in the sync queue (offline first) with no local row, so a refusal reverts nothing; it is announced like any refusal, as `errorReportLimitReached` for the limit and `errorReportNotSent` otherwise (en, am, om). `listing_report` is not in the unannounced types. Web sends the create straight to `/sync` and shows the same texts in the report sheet; `duplicate` reads as "already reported".
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.44.0 | 2026-11-07 | Listing reports (FUP-67, `listing-report-api.md` 1.0.0): new create-only entity `listing_report` (`{listingType}#{listingId}`, `{listingType, listingId, reason}`), buyers only, one per buyer and listing (`duplicate` on a repeat), 10 a day; every refusal `SYNC_VALIDATION:`, already permanent on every client; nothing local to revert. New mobile and web report sheet, texts `errorReportNotSent` and `errorReportLimitReached` (en, am, om). The entityType list in Request Format now also names `delivery_photo` (1.39.0) |
 | 1.43.0 | 2026-11-07 | Mobile sync refusals (B1: FUP-08, FUP-25, FUP-51, FUP-74, FUP-110, FUP-138), client only: every `*_UNAUTHORIZED` but a role gate (a token without the role claim gets it too), `RATING_FORBIDDEN` for another user's order, the immutable-field `CROP_VALIDATION`, `TRIP_VALIDATION` and `DELIVERY_VALIDATION` texts and `DELIVERY_NONCE_MISSING` are permanent (see Refusals no retry can pass; `CROP_UNAUTHORIZED` and `TRIP_UNAUTHORIZED` no longer stay retryable, 1.17.0); `DELIVERY_NONCE_MISSING` is reverted like a refused typed code; `CROP_CONTACT_IN_TEXT`, `TRIP_CONTACT_IN_TEXT` and `FRAUD_ACCOUNT_HELD` revert a crop listing or trip (1.17.0 rules); a reverted delivery and a message removed for a closed thread leave the "Sync failed" count; the mobile queue leaves a `pickupPhotoRef` or `dropoffPhotoRef` that is not this delivery's upload key out of a `delivery` operation (an old build's file path); the old `ORDER_VALIDATION` total text is no longer read as `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` (1.24.0). No server change |
 | 1.42.0 | 2026-11-07 | Drop-off place (LT-14, `order-lifecycle.md` 2.9.0): `deliveryLatitude` and `deliveryLongitude` are new order fields on create and on the buyer's update until pickup; new permanent `ORDER_DELIVERY_LOCATION_LOCKED` (a change after pickup) under the `ORDER_*` rule, with its own text in en, am and om (`errorDeliveryLocationLocked`); an order row in `serverData` leaves the point out for a caller who may not read it, and carries it as numbers. Older clients revert and show the generic order refusal |
 | 1.41.0 | 2026-11-07 | Minimum app version for order operations built (ESC-25): `/sync` refuses every `order` operation (create, update, delete) from a build below `MIN_ORDER_APP_BUILD` on the sync Lambda (infra `minOrderAppBuild`, 3 in dev, staging and prod; 0 or absent = off; independent of `COMMITMENTS_ENABLED`) before any read or write: `APP_UPDATE_REQUIRED: This version of the app is too old for orders. Update WeredaConnect to continue.` to an app that sends `X-App-Build`, `ORDER_VALIDATION:` with the same text to one that sends none (confirmed). Nothing stored, no idempotency key, no fraud signal; the rest of the batch goes on; other entities and `/escrow/*` are not gated. `COMMITMENTS_ENABLED` stays off in staging and prod until the owner turns it on after the gate is deployed. No client change: mobile and web already treat it as permanent on an order and show `errorAppUpdateRequired` (1.17.0) |
@@ -1197,4 +1211,4 @@ funding.
 ---
 
 **Last Updated**: 2026-11-07
-**Version**: 1.43.0
+**Version**: 1.44.0

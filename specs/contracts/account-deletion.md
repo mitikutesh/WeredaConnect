@@ -1,7 +1,7 @@
 # Account Deletion Contract
 
 ## Version
-1.4.0
+1.5.0
 
 ## Parties
 - **Mobile / Web** (client, ACC-03): Profile > "Delete account" flow, step-up re-auth, local wipe. Mobile and web are a platform pair and ship together.
@@ -289,8 +289,9 @@ Every DynamoDB table in `infra/lib/stacks/database-stack.ts` and `infra/lib/cons
 | `device-tokens` | Delete | Per row (PK `userId`, SK `endpointArn`): SNS `DeleteEndpoint(endpointArn)`, then DeleteItem. NotFound counts as done |
 | `notifications` | Delete (own rows) / Anonymize (counterparty rows) | Inbox rows (ESC-21, `notifications-api.md`): PK `userId`, SK `sortKey`, the notification type, ids and params (display names copied at event time, crop, kg, ETB, deadlines, reason codes; never a phone). `expiresAt` 90 days after the event. Step 10 (1.4.0, FUP-120): every row with PK `userId` = the user is deleted (Query, DeleteItem). For every other party named on the user's orders, escrows and deliveries (the Lookups set), their rows are read (Query PK their `userId`); a row about one of them (by its `orderId`, or by its escrow or delivery `entityId` when it names no order) gets the param of the user's role there (`buyerName`, `farmerName` or `truckerName`) set to the sentinel by an UpdateItem conditional on the row existing, so a row the TTL removed is not recreated. The other params, the other parties' names among them, and `expiresAt` stay. A row without that param, or already the sentinel, is not written. A failed read or write stops the run with `503 ACCOUNT_005` like the other step 10 writes, and the resume finds the rows already done. Known limit: a stream record about a change made before the deletion but processed after it (in flight, or retried up to a day late) writes its row with the name its image carried; that row keeps it until its TTL |
 | `trip-locations` | Retain until TTL | Live Trip check-ins (LT-05, `live-trip-api.md`): PK `tripId`, SK `sortKey` (`{capturedAt}#{kind}`), `truckerId`, coordinates (4 decimals), `accuracyM`, `source`, `mocked`, `pausedUntil`, `receivedAt`; `expiresAt` 60 days after capture. Kept as dispute and fraud evidence like the deliveries' `gpsPickup` and `gpsDropoff`; the deletion steps do not touch it |
+| `listing-reports` | Retain until TTL | Buyers' reports of listings (FUP-67, `listing-report-api.md`): PK `listingId`, SK `reporterId`, `listingType`, `ownerId`, a reason code, `status` and the admin review fields; no free text from the buyer. `expiresAt` 180 days after the report. Pseudonymous moderation evidence, like `fraud-signals`; the deletion steps do not touch it |
 | `fraud-signals` | Retain until TTL | Fraud prevention. PK `userId`, SK `signalKey`, weight and rule text; `expiresAt` 30 days after the signal. The one `~whitelist` row per user (FRD-05, fraud spec section 20) carries no rule text and expires at its `whitelistUntil`, up to `FRAUD_WHITELIST_DAYS` days (at most 365) after the admin's whitelist, inside the 400-day bound of the TTL rows. Not rewritten |
-| `rate-limits` | Retain until TTL | Counters and auth state keyed by phone or `userId` (`LOGIN#`, `REGISTER#`, `OTP#`, `OTPSEND#`, `SYNC#`, `IP#`, `AUTHSTATE#OTP#`, `AUTHSTATE#OIDC#`, `AUTHSTATE#JTI#`). `expiresAt` within 24 hours. Kept so abuse limits still apply to a phone that re-registers; the OIDC state rows are the only Fayda-related rows outside the users row and hold no identity data |
+| `rate-limits` | Retain until TTL | Counters and auth state keyed by phone or `userId` (`LOGIN#`, `REGISTER#`, `OTP#`, `OTPSEND#`, `SYNC#`, `IP#`, `AUTHSTATE#OTP#`, `AUTHSTATE#OIDC#`, `AUTHSTATE#JTI#`, and since 1.5.0 `LISTING_REPORT#{buyerId}#{day}`). `expiresAt` within 24 hours (48 hours for `LISTING_REPORT#`). Kept so abuse limits still apply to a phone that re-registers; the OIDC state rows are the only Fayda-related rows outside the users row and hold no identity data |
 | `sync-metadata` | Retain until TTL | Idempotency keys `{userId}:{entityType}:{entityId}:{action}:{timestamp}` plus a result string; `expiresAt` 7 days. Deleted-account syncs are refused before this table is touched |
 | `escrow-idempotency` | Retain until TTL | Money idempotency rows (30 days); ESC-01 checkout slot and mapping rows (`buyerId`, amount, ids only) 400 days; webhook inbox rows 30 days; FUP-02 refund claim rows (order, payment and refund ids, admin id; no buyer data) 400 days. Read by the blocker check, never written by deletion |
 | `delivery-qr-secrets` | Retain until TTL | Per-delivery nonce and consumption flags, no personal data; `expiresAt` 30 days |
@@ -366,7 +367,7 @@ Without this a buyer could fund an order of a farmer mid-deletion and the payout
 | Data | Retention after deletion |
 |------|--------------------------|
 | Live personal data in DynamoDB, Cognito, SNS | Gone when the request returns `200`; otherwise within 24 hours of `deletionRequestedAt` (sweep bound) |
-| TTL rows (`fraud-signals`, `rate-limits`, `sync-metadata`, `escrow-idempotency`, `delivery-qr-secrets`, `match-events`, `fayda-mock-codes`) | Expire per the table above, 400 days at most, all pseudonymous (`userId` only) |
+| TTL rows (`fraud-signals`, `rate-limits`, `sync-metadata`, `escrow-idempotency`, `delivery-qr-secrets`, `match-events`, `fayda-mock-codes`, `listing-reports`) | Expire per the table above, 400 days at most, all pseudonymous (`userId` only) |
 | Backups (PITR) | 35 days or less; `reapply` after any restore |
 | CloudWatch logs | 3 months by default, 1 year at most |
 | Kept money and audit rows (`orders`, `deliveries`, `escrows`, `escrow-audit`, `transaction-audit`, `payments`) and the users tombstone | Today's retention: no automatic expiry |
@@ -442,6 +443,7 @@ Not built yet (follow-ups):
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.5.0 | 2026-11-07 | Per-table policy: `listing-reports` (FUP-67, `listing-report-api.md` 1.0.0) retained until its 180 day TTL: ids, a reason code and the admin review fields, no free text from the buyer; no deletion step. No wire change |
 | 1.4.0 | 2026-11-06 | Per-table policy: `notifications` (ESC-21 inbox) is Delete for the user's own rows and Anonymize for the other parties' rows about a shared order, escrow or delivery: the user's copied name param becomes the sentinel, conditional on the row existing (FUP-120, replaces 1.3.1's "retain until TTL"). Lookups row for the inbox; both deletion Lambdas get Query, UpdateItem and DeleteItem on the table; the `account_deleted` metadata counts both writes; a stream record processed after the deletion is a known limit. No wire change |
 | 1.3.3 | 2026-10-31 | Per-table policy: `crops` also drops `photoIds` (`crop-listing-api.md` 1.6.0), so no photo URL is signed for a deleted farmer's listings; the photo objects expire with the photos bucket lifecycle (365 days) |
 | 1.3.2 | 2026-10-28 | Per-table policy: `trip-locations` (LT-05, Live Trip check-ins) retained until its 60 day TTL as dispute and fraud evidence; no deletion step |

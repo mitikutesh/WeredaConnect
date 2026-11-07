@@ -41,6 +41,7 @@ function apiTemplate(): Template {
     messagesTable: db.messagesTable,
     notificationsTable: db.notificationsTable,
     tripLocationsTable: db.tripLocationsTable,
+    listingReportsTable: db.listingReportsTable,
     transactionAuditTable: db.transactionAuditTable,
     uploadsBucket: db.uploadsBucket,
   });
