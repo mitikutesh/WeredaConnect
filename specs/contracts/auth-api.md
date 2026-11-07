@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.13.0
+2.13.1
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -1063,8 +1063,7 @@ The refresh token lifetime is 7 days, not 30.
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
-| 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.13.1 | 2026-11-07 | Doc only (ESC-14 drift pass): the changelog is newest first throughout; the 1.0.0 and 2.0.0 rows sat above 2.13.0. 2.5.0 was never used. No wire change |
 | 2.13.0 | 2026-11-06 | Error codes as served (SIM-27, Additions in 2.13.0): a missing, `null` or blank field answers that field's code with `field` set (it was `AUTH_007` "Invalid JSON" when the field was absent), on register, login, verify-otp, resend-otp, forgot-password, reset-password, refresh, logout and fayda-verify; verify-otp without a password is `AUTH_002` and reset-password without a code or new password `AUTH_022` / `AUTH_024` (they were `AUTH_007`); register without `preferredLanguage` uses `am` as documented (it was refused); the 400 uses of `AUTH_007` are documented. Docs only: the accepted phone spellings (`+251`, `00251`, local `0`, spaces and hyphens ignored) and their normalization to `+251`; `AUTH_019` is reserved and a revoked refresh token is `AUTH_018` because Cognito does not tell revoked from expired; the refresh token lives 7 days, not 30; reset-password codes `AUTH_022` to `AUTH_024` in the reference table. No client change |
 | 2.12.3 | 2026-11-06 | The examples show `preferredLanguage` in the `user` object of register `201` and login (verify-otp returns the login shape); the server always sent it. The app reads it back after a sign-in (SIM-37): it shows the profile's language unless the user picked a language on that device, keeps it as the device's language and does not write it back; an offline login keeps the device's language. Request and response shapes unchanged |
 | 2.12.2 | 2026-10-26 | Sandbox mode, dev only (`FAYDA_SANDBOX=true` + `FAYDA_SANDBOX_REDIRECT_URI`): the server runs against the real VeriFayda sandbox with its shared test client; the authorize URL and the token request carry the test client's registered redirect (`http://localhost:3000/callback`) and a local relay forwards the callback to the app's own redirect, which clients keep sending and the state row keeps storing; web callback pages accepted as against the mock; no `login_hint`. Live-eSignet fixes for every mode: the ID token and userinfo `iss` may carry the `/v1/esignet` servlet path, and the client assertion header has no `kid` (eSignet answers `invalid_client` to one); a client JWK whose `dp`, `dq` or `qi` disagree with `d`, `p`, `q` (Fayda's published test key does) is repaired on import. Request and response shapes unchanged |
@@ -1080,8 +1079,10 @@ The refresh token lifetime is 7 days, not 30.
 | 2.3.0 | 2026-09-29 | `POST /user/fayda-link` binds only the account owner's identity: same Fayda ID as on file, else a Fayda phone equal to the account phone; `FAYDA_005` (different Fayda ID), `FAYDA_006` (phone mismatch), `FAYDA_007` (no phone claim, nothing to compare), all `403` with no write |
 | 2.2.0 | 2026-09-28 | Registration requires Fayda: `POST /auth/register` without a `faydaVerificationToken` returns `400 AUTH_021`; the app has no skip on the Fayda step and retries transient Fayda failures before showing an error; the server retries Fayda's token endpoint while the code cannot have been used (connection refused, 502/503/504) and reports any Fayda 5xx as `FAYDA_003` instead of `FAYDA_001`; a Fayda ID held only by an abandoned sign-up (profile phone unverified and Cognito user unconfirmed or gone) no longer blocks `fayda-verify` or `register` with `FAYDA_004`: register replaces it |
 | 2.1.0 | 2026-09-26 | Phone proof and step-up: register returns `202 otpRequired` unless Fayda released the same phone; `POST /auth/verify-otp` (code + password) and `POST /auth/resend-otp`; login `AUTH_016` routes to the code; `AUTH_040` step-up on money actions; server-driven Fayda (`/auth/fayda-start`, `/user/fayda-start`, `/user/fayda-link`) with state, nonce and PKCE; single-use phone-bound verification token; refresh refuses suspended accounts (`AUTH_025`); per-IP caps; `X-Device-Id` / `X-Device-Name` and `newDevice` |
+| 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 
 ---
 
-**Last Updated**: 2026-11-06
-**Version**: 2.13.0
+**Last Updated**: 2026-11-07
+**Version**: 2.13.1

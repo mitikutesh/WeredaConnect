@@ -57,7 +57,7 @@ Each contract file follows this structure:
 | Contract | File | Version | Parties |
 |----------|------|---------|---------|
 | Sync Protocol | `sync-protocol.md` | 1.40.0 | Mobile, Backend |
-| Authentication API | `auth-api.md` | 2.13.0 | Mobile, Backend, Infrastructure |
+| Authentication API | `auth-api.md` | 2.13.1 | Mobile, Backend, Infrastructure |
 | User Entity | `user-entity.md` | 1.3.1 | Mobile, Backend, Infrastructure |
 | Rating API | `rating-api.md` | 1.1.0 | Mobile, Backend, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.7.0 | Mobile, Backend, Admin |
@@ -69,7 +69,7 @@ Each contract file follows this structure:
 | Buyer Match API | `match-api.md` | 1.2.0 | Mobile, Backend |
 | Match Events (`match_event` sync entity) | `match-events.md` | n/a | Mobile, Backend |
 | Push Alerts API | `push-alerts-api.md` | 1.4.0 | Mobile, Backend |
-| Notifications API (order, delivery and money inbox + push) | `notifications-api.md` | 1.4.0 | Mobile, Web, Backend, Infrastructure |
+| Notifications API (order, delivery and money inbox + push) | `notifications-api.md` | 1.4.1 | Mobile, Web, Backend, Infrastructure |
 | Live Trip (`location_ping` check-ins, track, admin trail, `truck_nearby`) | `live-trip-api.md` | 1.0.8 | Mobile, Web, Backend, Infrastructure, Admin |
 | In-App Messaging (context-scoped chat) | `messaging.md` | 1.4.0 | Mobile, Backend, Admin |
 | Data Models | `data-models.md` | 1.5.1 | Mobile, Backend |

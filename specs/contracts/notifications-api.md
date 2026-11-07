@@ -1,7 +1,7 @@
 # Notifications API Contract
 
 ## Version
-1.4.0
+1.4.1
 
 ## Parties
 - **Mobile** (client): pulls the inbox, renders the entries and the Action-needed cards, receives the Android push, opens the order on tap
@@ -359,6 +359,7 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.4.1 | 2026-11-07 | Doc only (ESC-14 drift pass): the footer said Last Updated 2026-10-28, before 1.3.0's day and 1.4.0; it now carries the date and the version like the other contracts. No wire change |
 | 1.4.0 | 2026-11-04 | `amountEtb` is the recipient's own money on every order and escrow event (F-1): the farmer reads the crop leg and the trucker the transport leg, never the buyer's total (the farmer's `order_request` said "Buyer paid" with the buyer's total). A legacy order without `cropCost` gives the farmer no amount. The `order_request` push says the amount is the farmer's ("Buyer {buyer} paid 40,000 ETB for you, held safely until delivery.", the same in am and om). No new param, type or endpoint. |
 | 1.3.0 | 2026-10-28 | `truck_nearby` (LT-07, `live-trip-api.md` section 4): a new type for the buyer when a check-in puts the truck within 5 km of the drop-off, derived from the deliveries table `MODIFY` that stamps `nearbyNotifiedAt` (once per delivery, conditional write); params `truckerName`, `distanceKm` (one decimal) and `minutes` (to the start of the arrival window, rounded to 5, absent at 0); push text in en, am and om with no clock time; push time to live one hour; inbox text names the trucker without the minutes. The deliveries stream's filter also passes that `MODIFY`. |
 | 1.2.0 | 2026-10-28 | Push text deadlines on the Ethiopian clock in `am` and `om` (LT-04, `live-trip.md` section 9): `27 ኦክቶ ከምሽቱ 12:00`, `27 Onk 12:00 galgala`; `en` unchanged (`27 Oct 18:00`). Section 2 states the format per language. No payload, param or endpoint change. |
@@ -367,5 +368,6 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 ---
 
-**Last Updated**: 2026-10-28
+**Last Updated**: 2026-11-07
+**Version**: 1.4.1
 **Status**: Draft
