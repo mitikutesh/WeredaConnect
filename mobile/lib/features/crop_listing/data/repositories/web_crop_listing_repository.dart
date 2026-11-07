@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
@@ -124,30 +125,24 @@ class WebCropListingRepository extends BaseCropListingRepository {
     return listing;
   }
 
+  /// The farmer's own listings, every page (FUP-126: this read the first
+  /// page only, so a farmer with more than 20 listings did not see the rest).
+  /// The server scopes a farmer to their own listings whatever is asked.
   @override
-  Future<List<CropListing>> getListingsByFarmer(String farmerId) async {
-    final data = await _api.get<Map<String, dynamic>>(
-      '/crops',
-      queryParameters: {'farmerId': farmerId},
-    );
-    return _parseListings(data);
-  }
+  Future<List<CropListing>> getListingsByFarmer(String farmerId) =>
+      _allPages({'farmerId': farmerId});
 
   @override
   Future<List<CropListing>> getListingsByFarmerFiltered({
     required String farmerId,
     String? statusFilter,
     String? cropTypeFilter,
-  }) async {
-    final params = <String, dynamic>{'farmerId': farmerId};
-    if (statusFilter != null) params['status'] = statusFilter;
-    if (cropTypeFilter != null) params['cropType'] = cropTypeFilter;
-    final data = await _api.get<Map<String, dynamic>>(
-      '/crops',
-      queryParameters: params,
-    );
-    return _parseListings(data);
-  }
+  }) =>
+      _allPages({
+        'farmerId': farmerId,
+        if (statusFilter != null) 'status': statusFilter,
+        if (cropTypeFilter != null) 'cropType': cropTypeFilter,
+      });
 
   @override
   Future<List<CropListing>> getActiveListings({
@@ -156,23 +151,13 @@ class WebCropListingRepository extends BaseCropListingRepository {
     double? priceMin,
     double? priceMax,
   }) async {
-    // Buyer browse MUST return ALL matching crops (role-visibility rule), so drain
-    // every page — a single request caps at the server default of 20 listings.
-    var listings = <CropListing>[];
-    String? nextToken;
-    do {
-      // Server stores listings with status=available (not "active"). Pages
-      // hold at most 50 (crop-listing-api 1.9.0, SIM-26).
-      final params = <String, dynamic>{'status': 'available', 'limit': '50'};
-      if (cropTypeFilter != null) params['cropType'] = cropTypeFilter;
-      if (nextToken != null) params['nextToken'] = nextToken;
-      final data = await _api.get<Map<String, dynamic>>(
-        '/crops',
-        queryParameters: params,
-      );
-      listings.addAll(_parseListings(data));
-      nextToken = data['nextToken'] as String?;
-    } while (nextToken != null && nextToken.isNotEmpty);
+    // Buyer browse MUST return ALL matching crops (role-visibility rule), so
+    // read every page. Server stores listings with status=available (not
+    // "active").
+    var listings = await _allPages({
+      'status': 'available',
+      if (cropTypeFilter != null) 'cropType': cropTypeFilter,
+    });
 
     // The search box is free text over crop, farmer and place. It runs here,
     // not on the server, with the same rules as the Isar repo (SIM-51).
@@ -187,6 +172,35 @@ class WebCropListingRepository extends BaseCropListingRepository {
     }
     return listings;
   }
+
+  /// Every page of `GET /crops` for [params], following `nextToken`, 50
+  /// listings a page (the server's largest, crop-listing-api.md 1.9.0).
+  /// Stops after [maxPages] pages as a guard against a token that never
+  /// ends.
+  Future<List<CropListing>> _allPages(Map<String, dynamic> params) async {
+    final listings = <CropListing>[];
+    String? nextToken;
+    var pages = 0;
+    do {
+      final data = await _api.get<Map<String, dynamic>>(
+        '/crops',
+        queryParameters: {
+          ...params,
+          'limit': '50',
+          if (nextToken != null) 'nextToken': nextToken,
+        },
+      );
+      listings.addAll(_parseListings(data));
+      nextToken = data['nextToken'] as String?;
+      pages++;
+    } while (nextToken != null && nextToken.isNotEmpty && pages < maxPages);
+    return listings;
+  }
+
+  /// Most pages one list read follows (2,500 listings), as the web trip
+  /// repository.
+  @visibleForTesting
+  static const int maxPages = 50;
 
   @override
   Future<void> deleteListing({

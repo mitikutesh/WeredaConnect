@@ -1024,8 +1024,10 @@ class _ActiveIntentsSectionState extends State<_ActiveIntentsSection> {
 class _HomeStats {
   final int listings;
 
-  /// [listings] counts one page and the server has more (web, SIM-33): the
-  /// tile reads "50+", never a short count as if it were all.
+  /// [listings] stopped short and the server has more (web, SIM-33): the
+  /// tile reads "50+", never a short count as if it were all. The buyer's
+  /// count is one page; the farmer's own count follows every page up to
+  /// [_ownListMaxPages] (FUP-126).
   final bool moreListings;
   final int activeListings;
   final int reservedListings;
@@ -1036,7 +1038,8 @@ class _HomeStats {
   final int inTransit;
   final int trips;
 
-  /// [trips] counts one page and the server has more, as [moreListings].
+  /// [trips] stopped at [_ownListMaxPages] pages and the server has more,
+  /// as [moreListings].
   final bool moreTrips;
   final int matched;
   final double escrowEtb;
@@ -1191,9 +1194,15 @@ class _OverviewStatsState extends State<_OverviewStats> {
       // concurrent identical reads into a single request (SIM-21).
       switch (role) {
         case UserRole.farmer:
-          final cropsFuture = safeGet(
+          // FUP-126: every page of the farmer's own listings (up to
+          // [_ownListMaxPages]), so the active and reserved counts are not
+          // those of the first 50 only.
+          final cropsFuture = fetchApiPages(
+            safeGet,
             '/crops',
-            queryParameters: {'farmerId': userId, 'limit': '50'},
+            listKey: 'crops',
+            params: {'farmerId': userId},
+            maxPages: _ownListMaxPages,
           );
           final deliveriesFuture = safeGet(
             '/deliveries',
@@ -1201,11 +1210,11 @@ class _OverviewStatsState extends State<_OverviewStats> {
           );
           final orderItems =
               await _fetchOrderPages(safeGet, {'farmerId': userId});
-          final cropsPage = await cropsFuture;
-          final crops = _apiItems(cropsPage, alt: 'crops');
+          final cropPages = await cropsFuture;
+          final crops = cropPages.items;
           stats = _HomeStats(
             listings: crops.length,
-            moreListings: apiPageHasMore(cropsPage),
+            moreListings: cropPages.more,
             // The API says "available" for an active listing.
             activeListings: _countByStatus(crops, 'available') +
                 _countByStatus(crops, 'active'),
@@ -1260,20 +1269,25 @@ class _OverviewStatsState extends State<_OverviewStats> {
             ),
           );
         case UserRole.trucker:
-          // One trips read: the status counts come from the page. The
-          // escrow tile sums the transport pay of the orders assigned to
-          // this trucker (truckerId=, the Action needed card's read).
-          final tripsFuture = safeGet(
+          // The trucker's own trips, every page up to [_ownListMaxPages]
+          // like the farmer's listings (FUP-126), so the matched count is
+          // not that of the first 50 only. The escrow tile sums the
+          // transport pay of the orders assigned to this trucker
+          // (truckerId=, the Action needed card's read).
+          final tripsFuture = fetchApiPages(
+            safeGet,
             '/trips',
-            queryParameters: {'truckerId': userId, 'limit': '50'},
+            listKey: 'trips',
+            params: {'truckerId': userId},
+            maxPages: _ownListMaxPages,
           );
           final orderItems =
               await _fetchOrderPages(safeGet, {'truckerId': userId});
-          final tripsPage = await tripsFuture;
-          final trips = _apiItems(tripsPage, alt: 'trips');
+          final tripPages = await tripsFuture;
+          final trips = tripPages.items;
           stats = _HomeStats(
             trips: trips.length,
-            moreTrips: apiPageHasMore(tripsPage),
+            moreTrips: tripPages.more,
             matched: _countByStatus(trips, 'matched'),
             escrowEtb: _sumOrders(
               orderItems,
@@ -1312,24 +1326,14 @@ class _OverviewStatsState extends State<_OverviewStats> {
     }) get,
     Map<String, String> params,
   ) async {
-    final items = <dynamic>[];
-    String? nextToken;
-    for (var page = 0; page < 5; page++) {
-      final data = await get(
-        '/orders',
-        queryParameters: {
-          ...params,
-          'limit': '50',
-          if (nextToken != null) 'nextToken': nextToken,
-        },
-      );
-      final list = data['orders'] ?? data['items'];
-      if (list is List) items.addAll(list);
-      final token = data['nextToken'];
-      if (token is! String || token.isEmpty) break;
-      nextToken = token;
-    }
-    return items;
+    final pages = await fetchApiPages(
+      get,
+      '/orders',
+      listKey: 'orders',
+      params: params,
+      maxPages: 5,
+    );
+    return pages.items;
   }
 
   /// The order rows whose wire status (snake_case, order_status_wire.dart)
@@ -2011,6 +2015,48 @@ class _RecentActivityListState extends State<_RecentActivityList> {
       return [];
     }
   }
+}
+
+/// Most pages the web At a glance follows for the user's own crops or trips
+/// (FUP-126): 500 rows, a cap on what the dashboard costs on 3G. More than
+/// that reads "500+".
+const int _ownListMaxPages = 10;
+
+/// Every page of the list at [path] for [params], 50 rows a page, following
+/// `nextToken` for at most [maxPages] pages. The first request is [params]
+/// with `limit=50`, the same read as the Recent line, so ApiClient folds the
+/// two (SIM-21). `more` is true when the read stopped at [maxPages] while the
+/// server had another page. A failed page ([get] answers an empty map) ends
+/// the read.
+@visibleForTesting
+Future<({List<dynamic> items, bool more})> fetchApiPages(
+  Future<Map<String, dynamic>> Function(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+  }) get,
+  String path, {
+  required String listKey,
+  required Map<String, String> params,
+  required int maxPages,
+}) async {
+  final items = <dynamic>[];
+  String? nextToken;
+  for (var page = 0; page < maxPages; page++) {
+    final data = await get(
+      path,
+      queryParameters: {
+        ...params,
+        'limit': '50',
+        if (nextToken != null) 'nextToken': nextToken,
+      },
+    );
+    final list = data[listKey] ?? data['items'];
+    if (list is List) items.addAll(list);
+    final token = data['nextToken'];
+    if (token is! String || token.isEmpty) return (items: items, more: false);
+    nextToken = token;
+  }
+  return (items: items, more: true);
 }
 
 /// Whether a list response has another page: its `hasMore` when it sends

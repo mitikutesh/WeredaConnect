@@ -82,6 +82,152 @@ void main() {
     });
   });
 
+  // FUP-126: the farmer's active and reserved counts (and the trucker's
+  // matched count) came from the first page of 50 only.
+  group('fetchApiPages: own lists over every page (FUP-126)', () {
+    late List<Map<String, dynamic>?> sent;
+
+    /// A fake GET answering [pages] in order, recording each query.
+    Future<Map<String, dynamic>> Function(
+      String path, {
+      Map<String, dynamic>? queryParameters,
+    }) server(List<Map<String, dynamic>> pages) {
+      var next = 0;
+      return (path, {queryParameters}) async {
+        sent.add(queryParameters);
+        return next < pages.length ? pages[next++] : <String, dynamic>{};
+      };
+    }
+
+    Map<String, dynamic> crop(String id, String status) =>
+        {'cropId': id, 'status': status};
+
+    setUp(() => sent = []);
+
+    test('follows nextToken to the last page and counts every row', () async {
+      final get = server([
+        {
+          'crops': [crop('c1', 'available'), crop('c2', 'reserved')],
+          'nextToken': 't1',
+          'hasMore': true,
+        },
+        {
+          'crops': [crop('c3', 'reserved')],
+          'hasMore': false,
+        },
+      ]);
+
+      final pages = await fetchApiPages(
+        get,
+        '/crops',
+        listKey: 'crops',
+        params: {'farmerId': 'farmer-1'},
+        maxPages: 10,
+      );
+
+      expect(pages.items.map((c) => (c as Map)['cropId']), ['c1', 'c2', 'c3']);
+      expect(
+        pages.items.where((c) => (c as Map)['status'] == 'reserved').length,
+        2,
+      );
+      expect(pages.more, isFalse);
+      // The first read is the Recent line's (SIM-21 folding); the second
+      // carries the token. The farmer id is never dropped or widened.
+      expect(sent, [
+        {'farmerId': 'farmer-1', 'limit': '50'},
+        {'farmerId': 'farmer-1', 'limit': '50', 'nextToken': 't1'},
+      ]);
+    });
+
+    test('stops at maxPages and reports more', () async {
+      final get = server([
+        for (var i = 0; i < 5; i++)
+          {
+            'trips': [
+              {'tripId': 'trip-$i', 'status': 'matched'},
+            ],
+            'nextToken': 'token-$i',
+          },
+      ]);
+
+      final pages = await fetchApiPages(
+        get,
+        '/trips',
+        listKey: 'trips',
+        params: {'truckerId': 'trucker-1'},
+        maxPages: 3,
+      );
+
+      expect(pages.items, hasLength(3));
+      expect(pages.more, isTrue);
+      expect(sent, hasLength(3));
+      expect(sent.every((q) => q!['truckerId'] == 'trucker-1'), isTrue);
+    });
+
+    test('an empty token ends the read', () async {
+      final get = server([
+        {
+          'crops': [crop('c1', 'available')],
+          'nextToken': '',
+        },
+      ]);
+
+      final pages = await fetchApiPages(
+        get,
+        '/crops',
+        listKey: 'crops',
+        params: {'farmerId': 'farmer-1'},
+        maxPages: 10,
+      );
+
+      expect(pages.items, hasLength(1));
+      expect(pages.more, isFalse);
+      expect(sent, hasLength(1));
+    });
+
+    test('a failed page (an empty map) ends the read', () async {
+      final get = server([
+        {
+          'crops': [crop('c1', 'available')],
+          'nextToken': 't1',
+        },
+        <String, dynamic>{},
+      ]);
+
+      final pages = await fetchApiPages(
+        get,
+        '/crops',
+        listKey: 'crops',
+        params: {'farmerId': 'farmer-1'},
+        maxPages: 10,
+      );
+
+      expect(pages.items, hasLength(1));
+      expect(pages.more, isFalse);
+      expect(sent, hasLength(2));
+    });
+
+    test('reads the items envelope too', () async {
+      final get = server([
+        {
+          'items': [
+            {'orderId': 'o1'},
+          ],
+        },
+      ]);
+
+      final pages = await fetchApiPages(
+        get,
+        '/orders',
+        listKey: 'orders',
+        params: {'farmerId': 'farmer-1'},
+        maxPages: 5,
+      );
+
+      expect(pages.items, hasLength(1));
+    });
+  });
+
   group('delivered activity mark (ESC-09)', () {
     test('delivered, disbursing and settled orders show the success mark', () {
       expect(
