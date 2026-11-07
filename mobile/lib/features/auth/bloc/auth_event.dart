@@ -237,3 +237,10 @@ class AuthStepUpSucceeded extends AuthEvent {
 class AuthSessionExpired extends AuthEvent {
   const AuthSessionExpired();
 }
+
+/// The stored session belongs to another account (FUP-96: on web, another
+/// tab signed someone else in). Sign this app instance out without touching
+/// the stored session, which is that account's.
+class AuthOtherAccountSignedIn extends AuthEvent {
+  const AuthOtherAccountSignedIn();
+}

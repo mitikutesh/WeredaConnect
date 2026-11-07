@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.13.1
+2.14.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -357,6 +357,8 @@ Clients treat every logout error as non-fatal and clear the local session anyway
 2. When the access token is missing or past its `exp` (30-second margin), the app first mints one with `POST /auth/refresh` and the same refresh token. Minted tokens serve this call only and are never stored. A refused refresh means the refresh token is already inactive, so nothing is sent.
 3. A `401` (the gateway answers `{"message":"Unauthorized"}` to an expired bearer) or a `403 AUTH_026` on a held bearer is retried once with a minted bearer, which always belongs to the refresh token's owner. Other errors are not retried.
 4. Offline, or without a refresh token, nothing is sent.
+5. A token refresh still running when the session is cleared or replaced (a logout that went ahead once its 3-second FCM token unregister budget ran out, an expiry, a deletion, a new sign-in) writes nothing: neither the token slots nor the offline cache. Its ID token may still finish the request that started it. Logout removes the leaving session's refresh token from its slot as soon as it has read the live tokens, so a refresh that starts later has nothing to refresh. A refused refresh of a session that ended here, or whose slot now holds another session's token, signs nobody out; one whose slot another web tab of the same account emptied still signs this tab out (2.14.0).
+6. On web every tab shares the stored session. A tab's logout, expiry or deletion clears it only while it holds that tab's account (its user pointer, or without one the ID token's `sub`). Another account's session, signed in from another tab since, stays (2.14.0).
 
 Before 2.9.0 the app cleared the session first and sent the access token from login, so any session older than 15 minutes got a `401` and its refresh token stayed live until it expired (SIM-55).
 
@@ -721,6 +723,7 @@ These rules must always hold:
 8. **Phone number is the identity.** All authentication flows use phone number as the primary identifier, never email.
 9. **Error messages do not leak information.** Login failures return generic "invalid credentials" regardless of whether the phone number exists.
 10. **All auth endpoints are idempotent.** Retrying any request with the same parameters produces the same result (or a safe duplicate detection).
+11. **A web tab acts only for its own account (2.14.0).** Tabs share the stored session, so a tab left open on one account can find another account's tokens there after a sign-in in another tab. The tab never sends, refreshes or retries a request with a bearer whose `sub` is another account than the one it is signed in as: the request fails locally and the tab signs itself out, leaving the stored session and its own offline cache alone. A bearer whose `sub` cannot be read is sent as before.
 
 ---
 
@@ -1063,6 +1066,7 @@ The refresh token lifetime is 7 days, not 30.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.14.0 | 2026-11-07 | Client session rules (FUP-82, FUP-96): a token refresh that answers after its session was cleared or replaced writes nothing and signs nobody out (logout step 5); on web a tab clears the shared stored session only while it holds that tab's account (logout step 6); a web tab never sends, refreshes or retries with another account's bearer and signs itself out instead (invariant 11). Server unchanged |
 | 2.13.1 | 2026-11-07 | Doc only (ESC-14 drift pass): the changelog is newest first throughout; the 1.0.0 and 2.0.0 rows sat above 2.13.0. 2.5.0 was never used. No wire change |
 | 2.13.0 | 2026-11-06 | Error codes as served (SIM-27, Additions in 2.13.0): a missing, `null` or blank field answers that field's code with `field` set (it was `AUTH_007` "Invalid JSON" when the field was absent), on register, login, verify-otp, resend-otp, forgot-password, reset-password, refresh, logout and fayda-verify; verify-otp without a password is `AUTH_002` and reset-password without a code or new password `AUTH_022` / `AUTH_024` (they were `AUTH_007`); register without `preferredLanguage` uses `am` as documented (it was refused); the 400 uses of `AUTH_007` are documented. Docs only: the accepted phone spellings (`+251`, `00251`, local `0`, spaces and hyphens ignored) and their normalization to `+251`; `AUTH_019` is reserved and a revoked refresh token is `AUTH_018` because Cognito does not tell revoked from expired; the refresh token lives 7 days, not 30; reset-password codes `AUTH_022` to `AUTH_024` in the reference table. No client change |
 | 2.12.3 | 2026-11-06 | The examples show `preferredLanguage` in the `user` object of register `201` and login (verify-otp returns the login shape); the server always sent it. The app reads it back after a sign-in (SIM-37): it shows the profile's language unless the user picked a language on that device, keeps it as the device's language and does not write it back; an offline login keeps the device's language. Request and response shapes unchanged |

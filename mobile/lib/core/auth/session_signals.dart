@@ -7,7 +7,13 @@ import 'dart:async';
 /// directly. It raises [sessionExpired]; the AuthBloc listens and logs the
 /// user out instead of leaving the UI signed in with wiped tokens. The API
 /// client and the sync queue raise [accountGone] the same way when the server
-/// says the account is deleted; the AuthBloc decides whether to wipe.
+/// says the account is deleted; the AuthBloc decides whether to wipe. The
+/// interceptor raises [otherAccountSignedIn] when the stored session belongs
+/// to another account than the one the app is signed in as (a web tab left
+/// open after another tab signed someone else in).
+///
+/// [generation] lets a token refresh that outlives its session drop its
+/// result instead of writing it back after a logout (FUP-82).
 class SessionSignals {
   SessionSignals._();
 
@@ -21,6 +27,20 @@ class SessionSignals {
   final StreamController<void> _expired = StreamController<void>.broadcast();
   final StreamController<String> _accountGone =
       StreamController<String>.broadcast();
+  final StreamController<void> _otherAccount =
+      StreamController<void>.broadcast();
+  int _generation = 0;
+
+  /// Moves on each time this app instance clears or replaces the stored
+  /// session (logout, expiry, deletion, a new sign-in). A token refresh notes
+  /// it before its request and writes the new tokens only if it has not
+  /// moved on: a refresh that answers after a logout must not put the old
+  /// session back, nor write over the next user's.
+  int get generation => _generation;
+
+  /// Report that the stored session is being cleared or replaced. Call it
+  /// before the first storage write or delete.
+  void sessionChanged() => _generation++;
 
   /// Fires each time the server rejects the refresh token.
   Stream<void> get onSessionExpired => _expired.stream;
@@ -37,5 +57,14 @@ class SessionSignals {
   /// Report a `410 ACCOUNT_004` refusal and its `deletionState`.
   void accountGone(String deletionState) {
     if (!_accountGone.isClosed) _accountGone.add(deletionState);
+  }
+
+  /// Fires each time a request is refused because the stored session (on
+  /// web, shared by every tab) belongs to another account (FUP-96).
+  Stream<void> get onOtherAccountSignedIn => _otherAccount.stream;
+
+  /// Report that the stored session is another account's.
+  void otherAccountSignedIn() {
+    if (!_otherAccount.isClosed) _otherAccount.add(null);
   }
 }
