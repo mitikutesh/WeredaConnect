@@ -120,6 +120,14 @@ jobs:
             exit 1
           fi
 
+      # FUP-13: install before the deploy credentials exist, and with install scripts off.
+      # The job holds id-token: write, so a package's install script could mint the OIDC
+      # token and assume the deploy role. cdk deploy needs no install script (the only
+      # ones in the lockfile are jest's native resolvers).
+      - name: Install CDK dependencies
+        working-directory: infra
+        run: npm ci --ignore-scripts
+
       - name: Set AWS region
         id: region
         run: |
@@ -134,10 +142,6 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ steps.region.outputs.region }}
-
-      - name: Install CDK dependencies
-        working-directory: infra
-        run: npm ci
 
       # Non-prod secrets live in SSM Parameter Store (free) instead of Secrets
       # Manager. Ordering here is load-bearing:

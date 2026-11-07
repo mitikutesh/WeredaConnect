@@ -202,13 +202,48 @@ describe('FUP-27: sync delivery disputes count toward the escrow dispute rate', 
     for (const line of [...OTHER_DISPUTE_LINES, PROPAGATION_LINE, ...OTHER_MONEY_LINES]) {
       expect([line, cloudWatchTermsMatch(sync.Properties.FilterPattern, line)]).toEqual([line, false]);
     }
-    // The escrow Lambda's JSON audit filter is still there, unchanged, and nothing else publishes
-    // the metric (escrow-cron's sweep freeze is a repair of an old dispute).
+    // The escrow Lambda's JSON audit filter is still there (FUP-81: success only, below), and
+    // nothing else publishes the metric (escrow-cron's sweep freeze is a repair of an old dispute).
     const escrow = filterOn(template, ESCROW_LG, 'EscrowDispute');
-    expect(escrow.Properties.FilterPattern).toBe('{ ($.category = "ESCROW") && ($.action = "DISPUTE") }');
+    expect(escrow.Properties.FilterPattern).toBe(
+      '{ ($.category = "ESCROW") && ($.action = "DISPUTE") && ($.outcome = "success") }',
+    );
     expect(filtersPublishing(template, 'EscrowDispute').map((f) => f.Properties.LogGroupName).sort()).toEqual(
       [ESCROW_LG, SYNC_LG].sort(),
     );
+  });
+
+  // FUP-81: the escrow Lambda's filter counts what sync counts, a dispute that froze an escrow.
+  test('the escrow audit filter counts a successful dispute only, not a refused one', () => {
+    const escrow = filterOn(monitoringTemplate(false), ESCROW_LG, 'EscrowDispute');
+    // A minimal model of a JSON filter that ANDs string equalities: { ($.a = "v") && ($.b = "w") }.
+    const terms = [...escrow.Properties.FilterPattern.matchAll(/\(\$\.(\w+) = "([^"]*)"\)/g)].map((m) => [m[1], m[2]]);
+    expect(terms).toEqual([['category', 'ESCROW'], ['action', 'DISPUTE'], ['outcome', 'success']]);
+    const counts = (line: string) => {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      return terms.every(([field, value]) => event[field] === value);
+    };
+    // The lines EscrowFunction.HandleDisputeAsync writes through AuditLogger.FormatAudit.
+    const audit = (outcome: string, errorCode?: string) =>
+      JSON.stringify({
+        timestamp: '2026-11-07T10:00:00Z', category: 'ESCROW', action: 'DISPUTE', userId: 'u-1',
+        correlationId: 'c-1', entityType: 'escrow', entityId: 'escrow-order-ord-1', outcome,
+        ...(errorCode ? { errorCode } : {}),
+      });
+    expect(counts(audit('success'))).toBe(true);
+    for (const refused of [
+      audit('failure', 'ESCROW_020'), // already disputed (409)
+      audit('failure', 'AUTH_040'), // step-up (403)
+      audit('failure', 'ESCROW_012'), // the step-up read failed (503)
+      audit('error', 'ESCROW_012'), // an exception (500)
+    ]) {
+      expect([refused, counts(refused)]).toEqual([refused, false]);
+    }
+    // The handler's outcomes and the audit line's field, as the server writes them.
+    const read = (rel: string) => fs.readFileSync(path.join(__dirname, '../../../server/src', rel), 'utf8');
+    const handler = read('Functions/EscrowFunction.cs');
+    expect(handler).toContain('outcome: result.IsSuccess ? "success" : "failure"');
+    expect(read('Helpers/AuditLogger.cs')).toContain('Outcome = outcome ?? "unknown"');
   });
 
   test('no money filter counts a sync dispute (it is a rate, not a failure)', () => {
@@ -236,6 +271,10 @@ describe('FUP-27: sync delivery disputes count toward the escrow dispute rate', 
       AlarmActions: notifiesTopic,
       OKActions: notifiesTopic,
       AlarmDescription: Match.stringLikeRegexp('DELIVERY_DISPUTE_FROZEN'),
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-escrow-dispute-rate',
+      AlarmDescription: Match.stringLikeRegexp('outcome success.*refused requests are not counted'),
     });
   });
 });
