@@ -432,7 +432,6 @@ def delivery_and_escrow(s: State):
     })
     res0 = r.json().get("results", [{}])[0] if r.status == 200 else {}
     ok = res0.get("status") == "success"
-    qr_nonce = (res0.get("serverData") or {}).get("qrNonce", "")
     s.check("trucker creates delivery", ok, "" if ok else r.body[:140])
     if not ok:
         return

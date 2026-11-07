@@ -90,10 +90,29 @@ typedef OperationSyncedHandler = Future<void> Function(
 /// The operation data the server gets. Keys the client keeps for itself
 /// (prefixed `_`, such as the order status a refused payment goes back to)
 /// are left out: the server refuses unknown fields.
-Object? wireOperationData(String data) {
+///
+/// FUP-08: a `delivery` operation queued by a build before SIM-60 may carry
+/// a photo file path in `pickupPhotoRef` or `dropoffPhotoRef`. The server
+/// refuses any value there that is not this delivery's upload key
+/// (`DELIVERY_INVALID_FIELD`, retried without end) and drops a valid key
+/// unwritten (`sync-protocol.md` 1.39.0), so such a value is left out and the
+/// rest of the operation goes through.
+Object? wireOperationData(
+  String data, {
+  String? entityType,
+  String? entityId,
+}) {
   final decoded = jsonDecode(data);
   if (decoded is Map<String, dynamic>) {
     decoded.removeWhere((key, _) => key.startsWith('_'));
+    if (entityType == 'delivery' && entityId != null) {
+      for (final field in deliveryOpPhotoRefFields) {
+        if (decoded.containsKey(field) &&
+            !isDeliveryPhotoKeyOf(decoded[field], entityId)) {
+          decoded.remove(field);
+        }
+      }
+    }
   }
   return decoded;
 }
@@ -301,11 +320,13 @@ class SyncBatchResult {
 ///   `DELIVERY_ORDER_REQUIRED`, `DELIVERY_CANCEL_NOT_ALLOWED`,
 ///   `DELIVERY_DISPUTE_REFUSED`, `DELIVERY_DISPUTE_EXPIRED`,
 ///   `MESSAGE_CONTACT_LOCKED`, `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`,
-///   `TRIP_CAPACITY_EXCEEDED`, `CROP_HAS_ACTIVE_ORDERS`, or
-///   `APP_UPDATE_REQUIRED` on an order → reject (never retried) and explain
-///   through a [SyncOperationRejected] event; a refused order change, delivery
-///   cancel or delivery dispute, and a crop listing or trip change refused by
-///   one of the ESC-12 part B codes, is first undone via
+///   `TRIP_CAPACITY_EXCEEDED`, `CROP_HAS_ACTIVE_ORDERS`,
+///   `DELIVERY_NONCE_MISSING`, any `*_UNAUTHORIZED` but a role gate, a
+///   rating of another user's order, a changed immutable field, or
+///   `APP_UPDATE_REQUIRED` on an order → reject (never retried) and explain through a
+///   [SyncOperationRejected] event; a refused order change, delivery cancel,
+///   dispute or handoff, and a crop listing or trip change refused by one of
+///   the codes that say what the server holds, is first undone via
 ///   [PermanentRejectionHandler]
 /// - `error` with `APP_UPDATE_REQUIRED` on anything but an order → keep it
 ///   pending without burning a retry and never undo it (the updated build
@@ -822,7 +843,11 @@ class SyncExecutor {
               'entityType': op.entityType,
               'entityId': op.entityId,
               'action': op.action,
-              'data': wireOperationData(op.data),
+              'data': wireOperationData(
+                op.data,
+                entityType: op.entityType,
+                entityId: op.entityId,
+              ),
               'timestamp': op.createdAt.toIso8601String(),
             },
           )
@@ -1188,8 +1213,13 @@ class SyncExecutor {
   /// app below the minimum version (any other operation refused for the app
   /// version was held back earlier), and a crop listing or trip whose text
   /// holds a phone number (1.23.0, FUP-49), every `LOCATION_*` refusal
-  /// of a check-in (1.31.0, LT-08), and every `DELIVERY_PHOTO_*` refusal of a
-  /// handoff photo (1.39.0, FRD-12).
+  /// of a check-in (1.31.0, LT-08), every `DELIVERY_PHOTO_*` refusal of a
+  /// handoff photo (1.39.0, FRD-12), a handoff without the farmer's QR nonce
+  /// (`DELIVERY_NONCE_MISSING`, FUP-138), and the FRD-08 refusals no retry
+  /// can pass: every `*_UNAUTHORIZED` code but a role gate, a rating of
+  /// another user's order and a changed immutable field (1.27.0, FUP-110).
+  /// A role gate also answers a token without the role claim, so it retries
+  /// ([isUnretryableFraudSignalMessage]).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
@@ -1205,7 +1235,8 @@ class SyncExecutor {
         isAppUpdateRequiredMessage(message) ||
         isContactInTextMessage(message) ||
         isLocationRejectionMessage(message) ||
-        isDeliveryPhotoRejectionMessage(message);
+        isDeliveryPhotoRejectionMessage(message) ||
+        isUnretryableFraudSignalMessage(message);
   }
 
   /// Whether a crop listing or trip refusal undoes the local change
@@ -1223,14 +1254,29 @@ class SyncExecutor {
 
   /// Whether the client undoes the local change of a refused [operation]
   /// through [PermanentRejectionHandler]: any order refusal, any `ORDER_*`
-  /// code, a refused delivery cancel or dispute, a message into a closed
-  /// thread, and a crop listing or trip refused by an ESC-12 part B code.
+  /// code, a refused delivery cancel, dispute or handoff, a message into a
+  /// closed thread, and a crop listing or trip refused by a code that says
+  /// what the server holds.
   static bool _revertsLocalChange(SyncOperation operation, String? message) =>
       operation.entityType == 'order' ||
       isRevertableRejectionMessage(message) ||
       isRevertableDeliveryRejectionMessage(message) ||
       isContactLockedMessage(message) ||
       _isRevertableListingOrTripRejection(operation.entityType, message);
+
+  /// Whether a reverted [operation] leaves the "Sync failed" count
+  /// ([SyncQueue.markRevertedFor]) once [PermanentRejectionHandler] returned:
+  /// its local row went back to the server's view or was removed, and the
+  /// user was told why, so nothing is left to act on. A crop listing or trip
+  /// for the codes its revert undoes, every delivery the handler gets (it is
+  /// always put back, FUP-25), and a message refused because its thread is
+  /// closed (removed). Orders never count.
+  static bool _leavesFailedCount(SyncOperation operation, String? message) =>
+      switch (operation.entityType) {
+        'delivery' => true,
+        'message' => isContactLockedMessage(message),
+        _ => _isRevertableListingOrTripRejection(operation.entityType, message),
+      };
 
   /// Background operations the user never made (matching analytics,
   /// check-ins): a refusal is not announced. A refused check-in has no local
@@ -1279,13 +1325,14 @@ class SyncExecutor {
   /// - a refused `create` rejects the operations queued behind it for that
   ///   entity, which could only loop on a transient "not found";
   /// - a refused order change (or any `ORDER_*` refusal), a delivery cancel
-  ///   refused after pickup, a refused delivery dispute, a message refused
-  ///   because its thread's contact is not open, and a crop listing or trip
-  ///   change refused by an ESC-12 part B code are undone through
-  ///   [PermanentRejectionHandler], once per entity, with the entity's first
-  ///   operation in the batch whose code undoes the change;
-  /// - a reverted crop listing or trip leaves the "Sync failed" count
-  ///   ([SyncQueue.markRevertedFor]) once the handler returned;
+  ///   refused after pickup, a refused delivery dispute or handoff, a message
+  ///   refused because its thread's contact is not open, and a crop listing
+  ///   or trip change refused by a code that says what the server holds are
+  ///   undone through [PermanentRejectionHandler], once per entity, with the
+  ///   entity's first operation in the batch whose code undoes the change;
+  /// - a reverted crop listing, trip, delivery or message leaves the "Sync
+  ///   failed" count ([SyncQueue.markRevertedFor]) once the handler returned
+  ///   ([_leavesFailedCount]);
   /// - every refusal is announced as a [SyncOperationRejected] event, once
   ///   per entity. The batch's events go out together after every undo has
   ///   finished: a screen that reloads reads the reverted rows, and the UI
@@ -1342,12 +1389,7 @@ class SyncExecutor {
           final handler = _onPermanentRejection;
           if (handler != null) {
             await handler(revertOp, revertMessage ?? '');
-            // Only crop listings and trips leave the failed count here; a
-            // reverted delivery still counts until FUP-25.
-            if (_isRevertableListingOrTripRejection(
-              revertOp.entityType,
-              revertMessage,
-            )) {
+            if (_leavesFailedCount(revertOp, revertMessage)) {
               await _syncQueue.markRevertedFor(
                 revertOp.entityType,
                 revertOp.entityId,

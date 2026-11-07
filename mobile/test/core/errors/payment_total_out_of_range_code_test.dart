@@ -17,8 +17,9 @@ class _MockApiClient extends Mock implements ApiClient {}
 
 /// FUP-22: the live gateway's refusal of a payment total one Telebirr payment
 /// cannot take has its own code (`ORDER_PAYMENT_TOTAL_OUT_OF_RANGE`,
-/// sync-protocol.md 1.24.0). The client matches the code, and for one more
-/// release the English text older servers send under `ORDER_VALIDATION`.
+/// sync-protocol.md 1.24.0). The client matches the code only: the English
+/// text servers before 1.24.0 sent under `ORDER_VALIDATION` was matched for
+/// one release and now reads as a generic order refusal (FUP-84).
 void main() {
   const newMessage = 'ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: This order total '
       '(50.00 ETB) is outside what one Telebirr payment can take '
@@ -37,8 +38,10 @@ void main() {
       );
     });
 
-    test('still matches the old servers\' ORDER_VALIDATION text', () {
-      expect(isPaymentTotalOutOfRangeMessage(oldMessage), isTrue);
+    test('no longer matches the old servers\' ORDER_VALIDATION text', () {
+      expect(isPaymentTotalOutOfRangeMessage(oldMessage), isFalse);
+      // Still a permanent order refusal, reverted like any ORDER_* code.
+      expect(isRevertableRejectionMessage(oldMessage), isTrue);
     });
 
     test('does not match other refusals', () {
@@ -122,11 +125,19 @@ void main() {
       return states;
     }
 
-    for (final (label, message) in [
-      ('the dedicated code', newMessage),
-      ('an old server\'s ORDER_VALIDATION text', oldMessage),
+    for (final (label, message, code) in [
+      (
+        'the dedicated code',
+        newMessage,
+        AppErrorCode.paymentTotalOutOfRange,
+      ),
+      (
+        'an old server\'s ORDER_VALIDATION text',
+        oldMessage,
+        AppErrorCode.orderRefused,
+      ),
     ]) {
-      test('$label ends in paymentTotalOutOfRange, never success', () async {
+      test('$label ends in ${code.name}, never success', () async {
         refuseWith(message);
 
         await expectLater(
@@ -142,11 +153,7 @@ void main() {
         expect(states.first, isA<OrderLoading>());
         expect(
           states.last,
-          isA<OrderError>().having(
-            (s) => s.code,
-            'code',
-            AppErrorCode.paymentTotalOutOfRange,
-          ),
+          isA<OrderError>().having((s) => s.code, 'code', code),
         );
       });
     }
@@ -154,17 +161,22 @@ void main() {
 
   group('mobile: the sync queue rejection snackbar', () {
     test('an order payment refused with the code has its own text', () {
-      for (final message in [newMessage, oldMessage]) {
-        expect(
-          syncRejectionErrorCode(
-            entityType: 'order',
-            action: 'update',
-            message: message,
-          ),
-          AppErrorCode.paymentTotalOutOfRange,
-          reason: message,
-        );
-      }
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'order',
+          action: 'update',
+          message: newMessage,
+        ),
+        AppErrorCode.paymentTotalOutOfRange,
+      );
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'order',
+          action: 'update',
+          message: oldMessage,
+        ),
+        AppErrorCode.orderRefused,
+      );
     });
 
     test('a refused create still reads as not placed', () {

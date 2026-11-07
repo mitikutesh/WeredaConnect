@@ -249,13 +249,15 @@ bool isDeliveryCodeRejectionMessage(String? message) =>
 
 /// Whether a /sync per-operation error message refuses a delivery change for
 /// good and the client must put the delivery back from the server: a cancel
-/// after pickup (ESC-08), a dispute that was refused or too late (ESC-07), or
-/// a typed handoff code that was refused (T-1).
+/// after pickup (ESC-08), a dispute that was refused or too late (ESC-07), a
+/// typed handoff code that was refused (T-1), or a handoff without the
+/// farmer's QR nonce (FUP-138).
 bool isRevertableDeliveryRejectionMessage(String? message) =>
     isDeliveryCancelRefusalMessage(message) ||
     isDeliveryDisputeRefusalMessage(message) ||
     isDeliveryDisputeExpiredMessage(message) ||
-    isDeliveryCodeRejectionMessage(message);
+    isDeliveryCodeRejectionMessage(message) ||
+    isDeliveryNonceMissingMessage(message);
 
 /// Sync rejection prefix when a farmer's or trucker's response to an order
 /// comes after its deadline (three-party commitments, spec section 8).
@@ -352,21 +354,28 @@ bool isAppUpdateRequiredMessage(String? message) =>
 /// Whether a /sync per-operation error message refuses a crop listing change
 /// for good and the client must put the listing back from the server (or
 /// remove a refused create): the farmer is restricted or the listing has
-/// active orders (sync-protocol.md 1.17.0). Only these codes: `CROP_VALIDATION`
+/// active orders (sync-protocol.md 1.17.0), its text holds a phone number, or
+/// the account is under review (FUP-51). Only these codes: `CROP_VALIDATION`
 /// also covers a failed profile read on the server, so a `CROP_` prefix is not
 /// deterministic and keeps retrying. `APP_UPDATE_REQUIRED` is not one either:
 /// the same listing goes through once the app is updated.
 bool isRevertableListingRejectionMessage(String? message) =>
     isReputationRestrictedMessage(message) ||
-    isCropHasActiveOrdersMessage(message);
+    isCropHasActiveOrdersMessage(message) ||
+    (message != null && message.startsWith(cropContactInTextCode)) ||
+    isFraudAccountHeldMessage(message);
 
 /// Whether a /sync per-operation error message refuses a trip change for
 /// good and the client must put the trip back from the server (or remove a
 /// refused create): the trucker is restricted or the trip has bookings
-/// (sync-protocol.md 1.17.0). Only these codes, for the same reasons as
+/// (sync-protocol.md 1.17.0), its text holds a phone number, or the account
+/// is under review (FUP-51). Only these codes, for the same reasons as
 /// [isRevertableListingRejectionMessage].
 bool isRevertableTripRejectionMessage(String? message) =>
-    isReputationRestrictedMessage(message) || isTripHasBookingsMessage(message);
+    isReputationRestrictedMessage(message) ||
+    isTripHasBookingsMessage(message) ||
+    (message != null && message.startsWith(tripContactInTextCode)) ||
+    isFraudAccountHeldMessage(message);
 
 /// Sync rejection prefix when the live gateway refuses a payment whose order
 /// total one Telebirr payment cannot take (FUP-22, sync-protocol.md 1.24.0).
@@ -375,16 +384,12 @@ const String orderPaymentTotalOutOfRangeCode =
     'ORDER_PAYMENT_TOTAL_OUT_OF_RANGE';
 
 /// Whether a /sync per-operation error message is the live gateway's refusal
-/// of a payment whose order total one Telebirr payment cannot take:
-/// `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: ...` since sync-protocol.md 1.24.0, or,
-/// from servers before it, `ORDER_VALIDATION: This order total (X ETB) is
-/// outside what one Telebirr payment can take (100 to 500000 ETB).`
-/// (order-lifecycle.md 1.7.0). The old text is matched for one more release.
+/// of a payment whose order total one Telebirr payment cannot take
+/// (`ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: ...`, sync-protocol.md 1.24.0). The
+/// `ORDER_VALIDATION` text servers sent before 1.24.0 is no longer matched
+/// (FUP-84): it reads as a generic order refusal.
 bool isPaymentTotalOutOfRangeMessage(String? message) =>
-    message != null &&
-    (message.startsWith(orderPaymentTotalOutOfRangeCode) ||
-        (message.startsWith('ORDER_VALIDATION:') &&
-            message.contains('outside what one Telebirr payment can take')));
+    message != null && message.startsWith(orderPaymentTotalOutOfRangeCode);
 
 /// Sync rejection prefix when the live gateway refuses a payment method it
 /// cannot fund (FUP-20, sync-protocol.md 1.16.0): a bank transfer
@@ -426,6 +431,55 @@ bool isLocationRejectionMessage(String? message) =>
 /// trip (`LOCATION_SHARING_ENDED: ...`).
 bool isLocationSharingEndedMessage(String? message) =>
     message != null && message.startsWith(locationSharingEndedCode);
+
+/// Sync rejection prefix when a pickup or drop-off goes without the farmer's
+/// QR nonce (FRD-11, `delivery-verification-api.md` 1.24.0): the operation
+/// carries no scanned nonce or typed code while the server holds one, or the
+/// farmer's nonce never reached the server within 14 days. Permanent and
+/// reverted (FUP-138): the same operation always gets the same answer, so the
+/// delivery goes back to the server's view. `DELIVERY_NONCE_PENDING` (the
+/// nonce may still sync) comes as `deferred`, not as this error.
+const String deliveryNonceMissingCode = 'DELIVERY_NONCE_MISSING';
+
+/// Whether a /sync per-operation error message refuses a handoff without the
+/// farmer's QR nonce (`DELIVERY_NONCE_MISSING: ...`).
+bool isDeliveryNonceMissingMessage(String? message) =>
+    message != null && message.startsWith(deliveryNonceMissingCode);
+
+/// FRD-08 refusals no retry can pass (FUP-110, sync-protocol.md 1.27.0):
+/// every `*_UNAUTHORIZED` code but a role gate (a row or field that is not
+/// the caller's), a rating of another user's order, and a changed identity
+/// or money field. Permanent, not reverted: the honest apps never send these.
+final RegExp _unauthorizedCodePattern = RegExp(
+  r'^[A-Z][A-Z_]*_UNAUTHORIZED(:|$)',
+);
+
+/// A role gate (`CROP_UNAUTHORIZED: Only farmers can create crop listings.`
+/// and the like) also answers a token without the role claim, a client
+/// set-up problem the server does not score: the same operation passes once
+/// the app sends a token with the role, so it keeps retrying.
+final RegExp _roleGatePattern = RegExp(
+  r'^[A-Z_]+_UNAUTHORIZED: Only (farmers|truckers|buyers) can ',
+);
+const String _ratingOfOthersOrderText =
+    'RATING_FORBIDDEN: You can only rate your own orders.';
+const String _immutableFieldText =
+    'is immutable and cannot be changed on update.';
+
+/// Whether a /sync per-operation error message is an FRD-08 refusal no retry
+/// can pass. Not a role gate (see [_roleGatePattern]), not
+/// `RATING_FORBIDDEN` for an order that is not delivered yet (it can pass
+/// later), and not the QR nonce codes other than [deliveryNonceMissingCode]
+/// (a nonce regenerated offline passes once it syncs).
+bool isUnretryableFraudSignalMessage(String? message) =>
+    message != null &&
+    ((_unauthorizedCodePattern.hasMatch(message) &&
+            !_roleGatePattern.hasMatch(message)) ||
+        message.startsWith(_ratingOfOthersOrderText) ||
+        ((message.startsWith('CROP_VALIDATION:') ||
+                message.startsWith('TRIP_VALIDATION:') ||
+                message.startsWith('DELIVERY_VALIDATION:')) &&
+            message.contains(_immutableFieldText)));
 
 /// Request validation error (400)
 final class ValidationException extends ApiException {

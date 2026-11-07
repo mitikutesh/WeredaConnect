@@ -812,6 +812,8 @@ void main() {
     for (final message in [
       'CROP_HAS_ACTIVE_ORDERS: This listing has active orders.',
       'REPUTATION_RESTRICTED: restricted',
+      // FUP-51
+      'CROP_CONTACT_IN_TEXT: Remove the phone number from description.',
     ]) {
       test(
           'a refused delete goes back to the server listing and version '
@@ -831,6 +833,9 @@ void main() {
 
     for (final message in [
       'REPUTATION_RESTRICTED: restricted',
+      // FUP-51
+      'CROP_CONTACT_IN_TEXT: Remove the phone number from description.',
+      'FRAUD_ACCOUNT_HELD: Your account is under review.',
     ]) {
       test(
           'a refused create removes the local listing without a read '
@@ -925,7 +930,9 @@ void main() {
       for (final message in [
         'FRAUD_VELOCITY_EXCEEDED: slow down',
         'CROP_VALIDATION: The farmer profile could not be read.',
+        'CROP_UNAUTHORIZED: You can only update your own crop listings.',
         'TRIP_HAS_BOOKINGS: x',
+        'TRIP_CONTACT_IN_TEXT: x',
         'APP_UPDATE_REQUIRED: minimum 2.0.0',
         '',
       ]) {
@@ -1012,6 +1019,8 @@ void main() {
     for (final message in [
       'TRIP_HAS_BOOKINGS: This trip has booked orders.',
       'REPUTATION_RESTRICTED: restricted',
+      // FUP-51
+      'TRIP_CONTACT_IN_TEXT: Remove the phone number from vehiclePlate.',
     ]) {
       test(
           'a refused cancel goes back to the server trip and version '
@@ -1031,6 +1040,9 @@ void main() {
 
     for (final message in [
       'REPUTATION_RESTRICTED: restricted',
+      // FUP-51
+      'TRIP_CONTACT_IN_TEXT: Remove the phone number from vehiclePlate.',
+      'FRAUD_ACCOUNT_HELD: Your account is under review.',
     ]) {
       test(
           'a refused create removes the local trip without a read '
@@ -1117,9 +1129,11 @@ void main() {
 
       for (final message in [
         'TRIP_VALIDATION: bad',
+        'TRIP_UNAUTHORIZED: You can only update your own trips.',
         'TRIP_CAPACITY_EXCEEDED: x',
         'CROP_HAS_ACTIVE_ORDERS: x',
-        'FRAUD_ACCOUNT_HELD: held',
+        'CROP_CONTACT_IN_TEXT: x',
+        'FRAUD_VELOCITY_EXCEEDED: slow down',
         'APP_UPDATE_REQUIRED: minimum 2.0.0',
       ]) {
         await sync.revertRejected(op, message);

@@ -204,15 +204,18 @@ class IsarMarketplaceSync implements MarketplaceSync {
   ///   the row.
   ///
   /// Every path clears the order pull stamp so that pull is not throttled.
-  /// A delivery cancel refused after pickup (ESC-08) and a refused or late
-  /// delivery dispute (ESC-07) are undone the same way from
+  /// A delivery cancel refused after pickup (ESC-08), a refused or late
+  /// delivery dispute (ESC-07) and a handoff refused for good (a typed code,
+  /// T-1, or a missing QR nonce, FUP-138) are undone the same way from
   /// `GET /deliveries/{id}`, never removing the delivery; only a refused
   /// delivery `create`, never stored, is removed (1.17.0). A message refused
   /// because its thread's contact is not open (ESC-48) was never stored, so
   /// its local copy is removed. A crop listing or trip change refused by
-  /// reputation, bookings or active orders (ESC-12 part B, 1.17.0) is undone
-  /// with the order rules; any other refusal of those, `APP_UPDATE_REQUIRED`
-  /// included, leaves the row alone. Other entity types are left alone.
+  /// reputation, bookings or active orders (ESC-12 part B, 1.17.0), by a
+  /// phone number in its text or by an account under review (FUP-51) is
+  /// undone with the order rules; any other refusal of those,
+  /// `APP_UPDATE_REQUIRED` included, leaves the row alone. Other entity types
+  /// are left alone.
   Future<void> revertRejected(SyncOperation operation, String message) async {
     if (operation.entityType == 'delivery') {
       await _revertRejectedDelivery(operation);
