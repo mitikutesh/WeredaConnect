@@ -98,9 +98,11 @@ A_QUEUE="${PREFIX}-admin-queue-overdue"
 A_TRUCKER="${PREFIX}-trucker-payouts-overdue"
 A_MISMATCH="${PREFIX}-dispute-verdict-order-mismatch"
 A_PROPAGATION="${PREFIX}-dispute-propagation-failed"
+# ESC-16: a confirmed delivery whose escrow could not be stamped.
+A_STAMP="${PREFIX}-escrow-delivery-stamp-failures"
 # Persistence alarm (three of four hourly datapoints): checked, never fired by this script.
 A_BLOCKED="${PREFIX}-dispute-verdict-settlement-blocked"
-ALL_ALARMS=("$A_SETTLE" "$A_UNKNOWN" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE" "$A_TRUCKER" "$A_MISMATCH" "$A_PROPAGATION" "$A_BLOCKED")
+ALL_ALARMS=("$A_SETTLE" "$A_UNKNOWN" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE" "$A_TRUCKER" "$A_MISMATCH" "$A_PROPAGATION" "$A_STAMP" "$A_BLOCKED")
 
 # Sample lines: the exact formats of MoneyAlarmLog and the sync Lambda, with a synthetic id.
 SID="synthetic-esc13"
@@ -115,6 +117,9 @@ L_BLOCKED="DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=${SID} op=refund legs=ord
 # FUP-27: a dispute mirror leg that failed, and a sync delivery dispute that froze its escrow.
 L_PROPAGATION="DISPUTE_PROPAGATION_FAILED escrowId=${SID} orderId=${SID} deliveryId=${SID} legs=order:conflict"
 L_FROZEN="DELIVERY_DISPUTE_FROZEN escrowId=${SID} orderId=${SID} deliveryId=${SID}"
+# ESC-16: the sync's failed inline stamp and the escrow cron's failed repair of it.
+L_STAMP_SYNC="ESCROW_DELIVERY_STAMP_FAILED deliveryId=${SID} source=sync reason=[Synthetic]: delivery confirmed but its escrow is not marked delivery-confirmed; the hourly order-money sweep retries the stamp."
+L_STAMP_CRON="ESCROW_DELIVERY_STAMP_FAILED escrowId=${SID} deliveryId=${SID} source=escrow-cron reason=[Synthetic]: failed to stamp a delivered-but-unstamped escrow; no refund (the order was delivered), the next run retries."
 
 # How the Lambda runtime writes a line to CloudWatch: time, request id and level, tab separated.
 RT_PREFIX=$'2026-10-09T10:00:00.000Z\tsynthetic-esc13-request\twarn\t'
@@ -154,6 +159,8 @@ CHECKS=(
   "${LG_ESCROW}|DisputePropagationFailed|${L_PROPAGATION}"
   "${LG_SYNC}|DisputePropagationFailed|${L_PROPAGATION}"
   "${LG_CRON}|DisputePropagationFailed|${L_PROPAGATION}"
+  "${LG_SYNC}|EscrowDeliveryStampFailures|${L_STAMP_SYNC}"
+  "${LG_CRON}|EscrowDeliveryStampFailures|${L_STAMP_CRON}"
   # Not a money alarm: the escrow dispute rate's sync filter (the escrow one is a JSON filter).
   "${LG_SYNC}|EscrowDispute|${L_FROZEN}"
 )
@@ -289,8 +296,8 @@ put_lines() {
   fi
 }
 put_lines "$LG_ESCROW" "$L_SETTLE" "$L_UNKNOWN" "$L_MISMATCH" "$L_PROPAGATION"
-put_lines "$LG_CRON" "$L_SETTLE" "$L_UNKNOWN" "$L_PAYOUT" "$L_TRUCKER" "$L_QUEUE" "$L_MISMATCH" "$L_PROPAGATION"
-put_lines "$LG_SYNC" "$L_LINK" "$L_PROPAGATION"
+put_lines "$LG_CRON" "$L_SETTLE" "$L_UNKNOWN" "$L_PAYOUT" "$L_TRUCKER" "$L_QUEUE" "$L_MISMATCH" "$L_PROPAGATION" "$L_STAMP_CRON"
+put_lines "$LG_SYNC" "$L_LINK" "$L_PROPAGATION" "$L_STAMP_SYNC"
 
 # A JSON string cannot deserialize into APIGatewayProxyRequest, so the runtime fails the
 # invocation before the handler runs: one Errors datapoint, no sweep, no money effect. If
@@ -349,7 +356,7 @@ for lg in "$LG_ESCROW" "$LG_CRON" "$LG_SYNC"; do
 done
 echo
 echo "Expected to clear by themselves with no new lines or errors:"
-echo "  ${A_SETTLE}, ${A_UNKNOWN}, ${A_PAYOUT}, ${A_TRUCKER}, ${A_QUEUE}, ${A_MISMATCH}, ${A_PROPAGATION}: about 75 to 90 minutes after the lines were written"
+echo "  ${A_SETTLE}, ${A_UNKNOWN}, ${A_PAYOUT}, ${A_TRUCKER}, ${A_QUEUE}, ${A_MISMATCH}, ${A_PROPAGATION}, ${A_STAMP}: about 75 to 90 minutes after the lines were written"
 echo "  ${A_ORDER}: 15 to 30 minutes"
 echo "  ${A_CRON}: 20 to 25 minutes"
 

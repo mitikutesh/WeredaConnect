@@ -114,6 +114,22 @@ describe('DatabaseStack', () => {
     });
   });
 
+  test('orders table carries the sparse, keys-only DeadlineIndex (ESC-16)', () => {
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'wereda-connect-dev-orders',
+      GlobalSecondaryIndexes: Match.arrayWith([
+        Match.objectLike({
+          IndexName: 'DeadlineIndex',
+          KeySchema: [
+            { AttributeName: 'deadlineShard', KeyType: 'HASH' },
+            { AttributeName: 'nextDeadlineAt', KeyType: 'RANGE' },
+          ],
+          Projection: { ProjectionType: 'KEYS_ONLY' },
+        }),
+      ]),
+    });
+  });
+
   test('ESC-21: orders, deliveries and escrows stream old and new images to the notifier', () => {
     // The notification rules compare the old and new status, so NEW_IMAGE is not enough.
     for (const table of ['orders', 'deliveries', 'escrows']) {
@@ -1590,11 +1606,11 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     expect(actionsOn('UsersTable')).not.toEqual(expect.arrayContaining(['dynamodb:PutItem', 'dynamodb:UpdateItem']));
   });
 
-  test('a second hourly rule invokes the order cron with the commitment_deadlines body (ESC-15)', () => {
+  test('a second rule invokes the order cron with the commitment_deadlines body every 15 minutes (ESC-15, ESC-16)', () => {
     const t = buildTemplate(false);
     t.hasResourceProperties('AWS::Events::Rule', {
       Name: 'wereda-connect-dev-order-cron-commitments',
-      ScheduleExpression: 'rate(1 hour)',
+      ScheduleExpression: 'rate(15 minutes)',
       Targets: [
         Match.objectLike({
           Arn: { 'Fn::GetAtt': [Match.stringLikeRegexp('^OrderCronFunction'), 'Arn'] },
@@ -1612,6 +1628,81 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       ],
     });
   });
+
+  test('a daily rule invokes the order cron with the deadline_repair body (ESC-16)', () => {
+    const t = buildTemplate(false);
+    t.hasResourceProperties('AWS::Events::Rule', {
+      Name: 'wereda-connect-dev-order-cron-deadline-repair',
+      ScheduleExpression: 'rate(1 day)',
+      Targets: [
+        Match.objectLike({
+          Arn: { 'Fn::GetAtt': [Match.stringLikeRegexp('^OrderCronFunction'), 'Arn'] },
+          Input: JSON.stringify({ body: JSON.stringify({ action: 'deadline_repair' }) }),
+        }),
+      ],
+    });
+  });
+
+  test('the order deadline timings live in SSM with the old defaults (ESC-16, F9)', () => {
+    const t = buildTemplate(false);
+    const expected: Record<string, string> = {
+      'unpaid-expiry-hours': '24',
+      'payment-verification-hours': '24',
+      'response-window-hours': '24',
+      'departure-margin-hours': '12',
+      'buyer-choice-window-hours': '48',
+      'reminder-lead-hours': '6',
+      'pickup-grace-hours': '48',
+      'self-pickup-window-hours': '168',
+    };
+    for (const [name, value] of Object.entries(expected)) {
+      t.hasResourceProperties('AWS::SSM::Parameter', {
+        Name: `/wereda-connect-dev/orders/${name}`,
+        Type: 'String',
+        Value: value,
+      });
+    }
+  });
+
+  test.each([false, true])(
+    'every Lambda that writes orders reads the order timings, GetParameters on the path only (live=%s, ESC-16)',
+    (live) => {
+      const t = buildTemplate(live);
+      const functions = t.findResources('AWS::Lambda::Function');
+      const withOrders = Object.entries(functions).filter(([, f]) => {
+        const vars = (f as { Properties: { Environment?: { Variables?: Record<string, unknown> } } })
+          .Properties.Environment?.Variables ?? {};
+        return 'ORDERS_TABLE' in vars && !String((f as { Properties: { FunctionName?: string } }).Properties.FunctionName)
+          .includes('account-deletion');
+      });
+      const names = withOrders.map(([, f]) => (f as { Properties: { FunctionName: string } }).Properties.FunctionName);
+      const writers = ['sync', 'deliveries', 'escrow', 'escrow-cron', 'orders', 'messages', 'order-cron', 'admin'];
+      expect(names).toEqual(expect.arrayContaining(
+        [...writers, ...(live ? ['telebirr-webhook'] : [])].map((fn) => `wereda-connect-dev-${fn}`)));
+      // The trips Lambda reports the order lead (FUP-122), the same response window.
+      const trips = Object.values(functions).filter(
+        (f) => (f as { Properties: { FunctionName?: string } }).Properties.FunctionName === 'wereda-connect-dev-trips');
+      expect(trips).toHaveLength(1);
+      for (const [, f] of [...withOrders, ['trips', trips[0]] as [string, unknown]]) {
+        const props = (f as { Properties: { FunctionName: string; Environment: { Variables: Record<string, unknown> } } }).Properties;
+        expect([props.FunctionName, props.Environment.Variables.ORDER_TIMINGS_PARAM_PATH])
+          .toEqual([props.FunctionName, '/wereda-connect-dev/orders/']);
+      }
+      type Statement = { Action: unknown; Resource: unknown };
+      type PolicyResource = { Properties: { PolicyDocument: { Statement: Statement[] } } };
+      const ssmStatements = [
+        ...Object.values(t.findResources('AWS::IAM::Policy')),
+        ...Object.values(t.findResources('AWS::IAM::ManagedPolicy')),
+      ]
+        .flatMap((p) => (p as PolicyResource).Properties.PolicyDocument.Statement)
+        .filter((s) => JSON.stringify(s.Resource).includes('/orders/*'));
+      expect(ssmStatements.length).toBeGreaterThanOrEqual(withOrders.length + 1);
+      for (const s of ssmStatements) {
+        expect(s.Action).toBe('ssm:GetParameters');
+        expect(JSON.stringify(s.Resource)).toContain(':parameter/wereda-connect-dev/orders/*');
+      }
+    },
+  );
 
   test('a third hourly rule invokes the order cron with the relationship_patterns body (FRD-15)', () => {
     const t = buildTemplate(false);
@@ -2288,6 +2379,11 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-dispute-verdict-order-mismatch',
     'wereda-connect-dev-dispute-verdict-settlement-blocked',
     'wereda-connect-dev-risk-settlement-skipped',
+    // FUP-81: ESC-09's order-money sweep and FUP-27's dispute mirror.
+    'wereda-connect-dev-order-money-mismatch',
+    'wereda-connect-dev-dispute-propagation-failed',
+    // ESC-16: a confirmed delivery whose escrow stamp failed.
+    'wereda-connect-dev-escrow-delivery-stamp-failures',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -2702,6 +2798,39 @@ describe('MonitoringStack', () => {
     });
   });
 
+  test('ESC-16: a delivery stamp that failed is counted on sync and escrow-cron and alarms', () => {
+    const template = monitoringTemplate(false);
+    const lines = [
+      'ESCROW_DELIVERY_STAMP_FAILED deliveryId=del-1 source=sync reason=[ProvisionedThroughputExceededException]: '
+        + 'delivery confirmed but its escrow is not marked delivery-confirmed; the hourly order-money sweep retries the stamp.',
+      'ESCROW_DELIVERY_STAMP_FAILED escrowId=escrow-order-ord-1 deliveryId=del-1 source=escrow-cron '
+        + 'reason=[InvalidOperationException]: failed to stamp a delivered-but-unstamped escrow; no refund (the order was '
+        + 'delivered), the next run retries.',
+    ];
+    for (const lg of [SYNC_LG, ESCROW_CRON_LG]) {
+      const filter = metricFilter(template, lg, 'EscrowDeliveryStampFailures');
+      expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
+      for (const line of lines) {
+        const prefixed = `2026-11-07T10:00:00.000Z\t4f1c7a2e-req\terror\t${line}`;
+        expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, true]);
+        expect([prefixed, cloudWatchTermsMatch(filter.Properties.FilterPattern, prefixed)]).toEqual([prefixed, true]);
+      }
+      for (const line of [SETTLEMENT_LINE, REFUND_SCHEDULE_LINE, LINK_LINE]) {
+        expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+      }
+    }
+    expect(() => metricFilter(template, ESCROW_LG, 'EscrowDeliveryStampFailures')).toThrow();
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-escrow-delivery-stamp-failures',
+      Metrics: [customMetric('EscrowDeliveryStampFailures', 900)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 5,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
   test('FRD-03: a settlement the fraud risk gate skipped alarms on its first line (escrow-cron only)', () => {
     const template = monitoringTemplate(false);
     const filter = metricFilter(template, ESCROW_CRON_LG, 'RiskSettlementSkipped');
@@ -2873,18 +3002,67 @@ describe('MonitoringStack', () => {
     return (pattern.match(/\??"[^"]*"|\??\S+/g) ?? []).map((t) => t.replace(/^\?/, '').replace(/^"|"$/g, ''));
   }
 
-  // The money filters of the five log groups that carry them (webhook only with the live gateway).
+  // The five log groups that carry money filters (webhook only with the live gateway).
+  const MONEY_LOG_GROUPS = [ESCROW_LG, ESCROW_CRON_LG, SYNC_LG, ORDER_CRON_LG, '/aws/lambda/wereda-connect-dev-telebirr-webhook'];
+  const MONEY_METRICS = [
+    'EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue',
+    'OrderPaymentProblems', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
+    'EscrowSettlementUnknownOutcomes', 'TruckerPayoutsOverdue', 'RiskSettlementSkipped',
+    // FUP-81: ESC-09's order-money sweep and FUP-27's dispute mirror.
+    'OrderMoneyMismatch', 'DisputePropagationFailed',
+    // ESC-16: a confirmed delivery whose escrow stamp failed.
+    'EscrowDeliveryStampFailures',
+  ];
+  // FUP-81: the other filters of those log groups, each named, so a new filter there must be
+  // sorted into one list or the other. The JSON audit filters match a field exactly (client text
+  // cannot spell them), the fraud ones are FRD-16's (fraud-alarms.test.ts), and the inbox replay
+  // count is a heartbeat whose alarm fires when it is missing.
+  const NOT_MONEY_METRICS = [
+    'EscrowInitiate', 'EscrowRelease', 'TelebirrInboxReplayRuns', 'FraudSignalsRecorded', 'FraudSignalsByType',
+    'RiskScoreUnavailable', 'RiskScoreTruncated', 'RiskScoreUnknownRecord', 'RiskHoldOrderMismatch',
+    'RiskTableUnconfigured', 'CleanDeliveryCreditFailed', 'OutcomeLabelFailed',
+  ];
+
+  // The money filters, and the sync's FUP-27 dispute filter: a rate, not money, but an alarm that
+  // client text must not fire either. Its escrow twin is the JSON audit filter (not listed).
   function moneyFilterPatterns(template: Template): string[] {
-    const groups = [ESCROW_LG, ESCROW_CRON_LG, SYNC_LG, ORDER_CRON_LG, '/aws/lambda/wereda-connect-dev-telebirr-webhook'];
-    const money = [
-      'EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue',
-      'OrderPaymentProblems', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
-      'EscrowSettlementUnknownOutcomes', 'TruckerPayoutsOverdue', 'RiskSettlementSkipped',
-    ];
     return (Object.values(template.findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[])
-      .filter((f) => groups.includes(f.Properties.LogGroupName) && money.includes(f.Properties.MetricTransformations[0].MetricName))
+      .filter((f) => MONEY_LOG_GROUPS.includes(f.Properties.LogGroupName))
+      .filter((f) => {
+        const metric = f.Properties.MetricTransformations[0].MetricName;
+        return MONEY_METRICS.includes(metric) || (metric === 'EscrowDispute' && f.Properties.LogGroupName === SYNC_LG);
+      })
       .map((f) => f.Properties.FilterPattern);
   }
+
+  test('FUP-81: every filter of the money log groups is listed as money or as not money', () => {
+    for (const live of [false, true]) {
+      const filters = Object.values(monitoringTemplate(live).findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[];
+      for (const f of filters.filter((x) => MONEY_LOG_GROUPS.includes(x.Properties.LogGroupName))) {
+        const metric = f.Properties.MetricTransformations[0].MetricName;
+        const listed = MONEY_METRICS.includes(metric) || NOT_MONEY_METRICS.includes(metric) || metric === 'EscrowDispute';
+        expect([f.Properties.LogGroupName, metric, listed]).toEqual([f.Properties.LogGroupName, metric, true]);
+      }
+    }
+  });
+
+  test('FUP-81: every alarm on a money metric is in MONEY_ALARMS (or is the live-only webhook one)', () => {
+    // ESC-01's alarm exists only with the live gateway (its own test above); MONEY_ALARMS holds
+    // the alarms of both shapes.
+    const liveOnly = ['wereda-connect-dev-order-payment-problems'];
+    for (const live of [false, true]) {
+      const alarms = Object.values(monitoringTemplate(live).findResources('AWS::CloudWatch::Alarm')) as Array<{
+        Properties: { AlarmName: string; Metrics?: Array<{ MetricStat?: { Metric: { MetricName: string } } }> };
+      }>;
+      const onMoney = alarms
+        .filter((a) => (a.Properties.Metrics ?? []).some((m) => MONEY_METRICS.includes(m.MetricStat?.Metric.MetricName ?? '')))
+        .map((a) => a.Properties.AlarmName);
+      expect(onMoney.length).toBeGreaterThanOrEqual(MONEY_METRICS.length - (live ? 0 : 1)); // OrderPaymentProblems is live only
+      for (const name of onMoney) {
+        expect([name, MONEY_ALARMS.includes(name) || (live && liveOnly.includes(name))]).toEqual([name, true]);
+      }
+    }
+  });
 
   // Whether every term a pattern requires appears in the line as a plain substring (any one of
   // them for a pattern of `?` alternatives): stricter than the service's token match.
@@ -2895,7 +3073,10 @@ describe('MonitoringStack', () => {
 
   test('ESC-13: every money filter needs a term with an underscore (the server defangs client text by turning _ into -)', () => {
     const patterns = moneyFilterPatterns(monitoringTemplate(true));
-    expect(patterns.length).toBe(15); // ESC-18 added the webhook's refund-schedule filter
+    // ESC-18 added the webhook's refund-schedule filter; FUP-81 added OrderMoneyMismatch (1),
+    // DisputePropagationFailed (3) and the sync dispute filter (1); ESC-16 added
+    // EscrowDeliveryStampFailures (2: sync and escrow-cron).
+    expect(patterns.length).toBe(22);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the
@@ -2975,6 +3156,8 @@ describe('MonitoringStack', () => {
         'DisputeVerdictOrderMismatch',
         'DisputeVerdictSettlementBlocked',
         'RiskSettlementSkipped',
+        'OrderMoneyMismatch',
+        'DisputePropagationFailed',
       ]) {
         expect(body).toMatch(new RegExp(`"Fn::GetAtt":\\["${logicalId}[0-9A-F]+","Arn"\\]`));
       }

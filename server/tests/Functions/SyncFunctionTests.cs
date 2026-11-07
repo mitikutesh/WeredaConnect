@@ -8,6 +8,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
@@ -7248,6 +7249,28 @@ public partial class SyncFunctionTests
         Assert.Contains("\"status\":\"success\"", body);
         Assert.NotNull(_updatedOrderData);
         Assert.False(_updatedOrderData!.ContainsKey("pendingPaymentAt"));
+    }
+
+    [Fact]
+    public async Task OrderUpdate_DeadlineIndexFields_AreStripped_NotRejected()
+    {
+        // ESC-16: the next deadline is the server's; a client echoing it (or planting a far one to
+        // keep its order out of the sweep) is stripped and the rest of the update goes through.
+        SetupExistingOrder(status: "pending_payment");
+        SetupOrderUpdateSucceeds();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "paymentMethod", "telebirr" },
+            { OrderDeadlines.AtField, "2099-01-01T00:00:00.0000000Z" },
+            { OrderDeadlines.KindField, OrderDeadlines.Kind.FarmerResponse },
+            { OrderDeadlines.ShardField, OrderDeadlines.Shard },
+            { "version", 1 }
+        });
+
+        Assert.Contains("\"status\":\"success\"", body);
+        Assert.NotNull(_updatedOrderData);
+        Assert.DoesNotContain(_updatedOrderData!.Keys, OrderDeadlines.IsDeadlineField);
     }
 
     [Fact]

@@ -132,6 +132,14 @@ public static class MoneyAlarmLog
     public const string DisputePropagationFailedToken = "DISPUTE_PROPAGATION_FAILED";
     public const string DeliveryDisputeFrozenToken = "DELIVERY_DISPUTE_FROZEN";
 
+    /// <summary>
+    /// ESC-16: a confirmed delivery whose escrow could not be stamped <c>deliveryConfirmedAt</c> (the
+    /// sync's inline stamp, or the escrow cron's repair of it). Until the stamp lands the auto-release
+    /// never pays the farmer, and with the commitments on the escrow next comes back to the refund
+    /// sweep only at its 21 day cap; the hourly order-money sweep retries the stamp.
+    /// </summary>
+    public const string EscrowDeliveryStampFailedToken = "ESCROW_DELIVERY_STAMP_FAILED";
+
     /// <summary>The gateway definitely refused the settlement; no money moved.</summary>
     public const string OutcomeFailed = "failed";
 

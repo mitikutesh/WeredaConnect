@@ -6,6 +6,7 @@ using FluentAssertions;
 using NSubstitute;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
@@ -706,6 +707,8 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryAdminQueueAsync(int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => inner.QueryAdminQueueAsync(limit, exclusiveStartKey);
         public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryMoneySweepPageAsync(string status, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => inner.QueryMoneySweepPageAsync(status, limit, exclusiveStartKey);
         public Task<bool> TryMarkMoneySweepSkipAsync(string orderId, string status, string markedAt) => inner.TryMarkMoneySweepSkipAsync(orderId, status, markedAt);
+        public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDueDeadlinesAsync(string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => inner.QueryDueDeadlinesAsync(dueBefore, limit, exclusiveStartKey);
+        public Task<bool> TrySetDeadlineAsync(string orderId, string createdAt, int expectedVersion, OrderDeadline? deadline) => inner.TrySetDeadlineAsync(orderId, createdAt, expectedVersion, deadline);
         public Task<bool> TryHoldForPaymentAsync(string orderId, string holdUntil, string? paymentSubmittedAt) => inner.TryHoldForPaymentAsync(orderId, holdUntil, paymentSubmittedAt);
         public Task<bool> TryMarkPaymentFailedAsync(string orderId, int expectedVersion, string nowIso) => inner.TryMarkPaymentFailedAsync(orderId, expectedVersion, nowIso);
     }

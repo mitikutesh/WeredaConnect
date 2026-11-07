@@ -150,6 +150,131 @@ void main() {
     });
   });
 
+  // FUP-126: the farmer's own lists read the first page (20) only.
+  group('WebCropListingRepository farmer lists over every page (FUP-126)', () {
+    late _MockApiClient api;
+    late WebCropListingRepository repository;
+    late List<Map<String, dynamic>> sent;
+
+    Map<String, dynamic> crop(String id, String status) => {
+          'cropId': id,
+          'farmerId': 'farmer-1',
+          'cropType': 'teff',
+          'quantityKg': 10,
+          'pricePerKg': 50,
+          'status': status,
+          'createdAt': '2026-11-01T00:00:00.000Z',
+          'updatedAt': '2026-11-01T00:00:00.000Z',
+          'version': 1,
+        };
+
+    /// Answers [pages] in order, recording each query.
+    void serve(List<Map<String, dynamic>> pages) {
+      var next = 0;
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/crops',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((invocation) async {
+        sent.add(
+          Map<String, dynamic>.from(
+            invocation.namedArguments[#queryParameters] as Map,
+          ),
+        );
+        return pages[next++ % pages.length];
+      });
+    }
+
+    setUp(() {
+      api = _MockApiClient();
+      repository = WebCropListingRepository(
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
+      sent = [];
+    });
+
+    test('getListingsByFarmer follows nextToken to the last page', () async {
+      serve([
+        {
+          'crops': [crop('c1', 'available'), crop('c2', 'reserved')],
+          'nextToken': 't1',
+          'hasMore': true,
+        },
+        {
+          'crops': [crop('c3', 'sold')],
+          'hasMore': false,
+        },
+      ]);
+
+      final listings = await repository.getListingsByFarmer('farmer-1');
+
+      expect(listings.map((l) => l.listingId), ['c1', 'c2', 'c3']);
+      expect(sent, [
+        {'farmerId': 'farmer-1', 'limit': '50'},
+        {'farmerId': 'farmer-1', 'limit': '50', 'nextToken': 't1'},
+      ]);
+    });
+
+    test('getListingsByFarmerFiltered keeps its filters on every page',
+        () async {
+      serve([
+        {
+          'crops': [crop('c1', 'available')],
+          'nextToken': 't1',
+        },
+        {
+          'crops': [crop('c2', 'available')],
+        },
+      ]);
+
+      final listings = await repository.getListingsByFarmerFiltered(
+        farmerId: 'farmer-1',
+        cropTypeFilter: 'teff',
+      );
+
+      expect(listings, hasLength(2));
+      expect(sent, [
+        {'farmerId': 'farmer-1', 'cropType': 'teff', 'limit': '50'},
+        {
+          'farmerId': 'farmer-1',
+          'cropType': 'teff',
+          'limit': '50',
+          'nextToken': 't1',
+        },
+      ]);
+    });
+
+    test('a token that never ends stops at maxPages', () async {
+      serve([
+        {
+          'crops': [crop('c', 'available')],
+          'nextToken': 'again',
+        },
+      ]);
+
+      final listings = await repository.getListingsByFarmer('farmer-1');
+
+      expect(sent, hasLength(WebCropListingRepository.maxPages));
+      expect(listings, hasLength(WebCropListingRepository.maxPages));
+    });
+
+    test('the buyer browse is bounded the same way', () async {
+      serve([
+        {
+          'crops': [crop('c', 'available')],
+          'nextToken': 'again',
+        },
+      ]);
+
+      await repository.getActiveListings();
+
+      expect(sent, hasLength(WebCropListingRepository.maxPages));
+      expect(sent.first, {'status': 'available', 'limit': '50'});
+    });
+  });
+
   // ESC-12: the delete used to go out without a version, so the server's
   // version check always conflicted and nothing was deleted; a conflict now
   // fails on web, so the delete reads the real version first.

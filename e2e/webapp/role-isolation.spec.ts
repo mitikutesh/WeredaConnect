@@ -138,6 +138,38 @@ test.describe("Role Isolation - API Level", () => {
     }
   });
 
+  test("trucker's own trips page consistently and stay own-only (FUP-126)", async () => {
+    test.skip(!truckerTokens, "API unavailable - skipping");
+
+    // limit=1 makes every trip a page boundary (trip-listing-api 2.5.0):
+    // hasMore agrees with nextToken and every page stays on this trucker's
+    // trips. A page may be short or empty with a token when a run of dropped
+    // trips uses up the read budget (Paging), so emptiness is not asserted.
+    let nextToken: string | undefined;
+    let pages = 0;
+    do {
+      const qs = new URLSearchParams({ truckerId, limit: "1" });
+      if (nextToken) qs.set("nextToken", nextToken);
+
+      const res = await fetch(`${API_URL}/trips?${qs}`, {
+        headers: { Authorization: `Bearer ${truckerTokens!.idToken}` },
+      });
+      expect(res.ok, `GET /trips failed: ${res.status}`).toBeTruthy();
+
+      const data = await res.json();
+      expect(data.hasMore, "hasMore must agree with nextToken").toBe(
+        Boolean(data.nextToken),
+      );
+      for (const trip of data.trips) {
+        expect(trip.truckerId, "Trucker should only see own trips").toBe(
+          truckerId,
+        );
+      }
+      nextToken = data.nextToken ?? undefined;
+      pages++;
+    } while (nextToken && pages < 50);
+  });
+
   test("buyer can browse ALL crops (marketplace - no farmerId filter)", async () => {
     test.skip(!buyerTokens, "API unavailable - skipping");
 

@@ -560,14 +560,30 @@ export class DatabaseStack extends cdk.Stack {
     // GSI: Admin stuck-order queue (ESC-06). Sparse: only orders an admin must
     // decide on carry adminQueue = "open" (an order escrow held 21 days after
     // funding while its order is not done); the sort key orders the queue oldest
-    // first. Written and removed without bumping the order version. ESC-16 adds
-    // more reasons to it. See OrderRepository.QueryAdminQueueAsync and the
-    // escrow-cron admin queue report (ADMIN_QUEUE_OVERDUE).
+    // first. Written and removed without bumping the order version. See
+    // OrderRepository.QueryAdminQueueAsync and the escrow-cron admin queue report
+    // (ADMIN_QUEUE_OVERDUE).
     this.ordersTable.addGlobalSecondaryIndex({
       indexName: "AdminQueueIndex",
       partitionKey: { name: "adminQueue", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "adminQueuedAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: the order deadlines (ESC-16, spec 4.5). Sparse: every order write keeps
+    // the order's next deadline on the row (nextDeadlineAt, nextDeadlineKind and
+    // deadlineShard, removed together when nothing is pending; OrderDeadlines.cs),
+    // so only orders with something pending are here. The order cron's
+    // commitment_deadlines sweep reads "deadlineShard = 0 AND nextDeadlineAt < now",
+    // oldest first, instead of walking the status partitions. One shard: order
+    // writes are far below one partition's limits. Keys only: the sweep reads every
+    // due row again (strongly consistent) before it acts. Deploy this index before
+    // the code that queries it; a table takes one new GSI per deployment.
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: "DeadlineIndex",
+      partitionKey: { name: "deadlineShard", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "nextDeadlineAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.KEYS_ONLY,
     });
 
     // ─── Buyer Intents Table (push-alerts; synced from mobile) ─────

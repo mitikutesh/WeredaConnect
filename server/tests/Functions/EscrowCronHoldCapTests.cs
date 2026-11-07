@@ -54,16 +54,19 @@ public class EscrowCronHoldCapTests
         _escrows.TryExtendExpiryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()).Returns(true);
     }
 
-    private EscrowCronFunction MakeFunction()
+    private EscrowCronFunction MakeFunction(bool commitments = false)
     {
         var service = new EscrowService(_escrows, _audit, _idempotency, _gateway);
         return new EscrowCronFunction(service, _escrows, _audit, _gateway,
-            deliveryRepo: _deliveries, orderRepo: _orders, cropRepo: _crops, transactionAuditRepo: _txAudit);
+            deliveryRepo: _deliveries, orderRepo: _orders, cropRepo: _crops, transactionAuditRepo: _txAudit)
+        {
+            CommitmentsEnabled = commitments
+        };
     }
 
-    private async Task<Dictionary<string, string>> RunAsync()
+    private async Task<Dictionary<string, string>> RunAsync(bool commitments = false)
     {
-        var response = await MakeFunction().FunctionHandler(new APIGatewayProxyRequest
+        var response = await MakeFunction(commitments).FunctionHandler(new APIGatewayProxyRequest
         {
             Body = JsonSerializer.Serialize(new Dictionary<string, string> { { "action", "auto_release_and_refund" } })
         }, _context);
@@ -100,6 +103,59 @@ public class EscrowCronHoldCapTests
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
         _swept!.AssertServed();
+    }
+
+    // ESC-16 (spec 4.5): with COMMITMENTS_ENABLED the order deadlines own the trade's life, so the sweep
+    // no longer pushes a live trade's expiry 48 hours at a time: it holds it to the cap in one write.
+    [Theory]
+    [InlineData(7.0)]
+    [InlineData(20.99)]
+    public async Task CommitmentsOn_ProgressingOrderBeforeTheCap_IsHeldToTheCapInOneWrite(double fundedDaysAgo)
+    {
+        var fundedAt = DateTime.UtcNow.AddDays(-fundedDaysAgo);
+        var escrow = Escrow(fundedAt);
+        var cap = DateTime.Parse((string)escrow["createdAt"], null, System.Globalization.DateTimeStyles.AdjustToUniversal).AddDays(21);
+        SweepFinds(escrow);
+        OrderIs("in_transit");
+        var extendedTo = new List<string>();
+        _escrows.TryExtendExpiryAsync(EscrowId, Arg.Any<string>(), Arg.Do<string>(e => extendedTo.Add(e))).Returns(true);
+
+        await RunAsync(commitments: true);
+
+        var only = extendedTo.Should().ContainSingle().Subject;
+        DateTime.Parse(only, null, System.Globalization.DateTimeStyles.AdjustToUniversal)
+            .Should().BeCloseTo(cap, TimeSpan.FromMilliseconds(1));
+        Logs.Should().Contain($"ORDER_ESCROW_HELD_TO_CAP escrowId={EscrowId} orderId={OrderId}");
+        await _orders.DidNotReceive().TryEnterAdminQueueAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        _swept!.AssertServed();
+    }
+
+    [Fact]
+    public async Task CommitmentsOn_ARefundScheduledSinceTheRead_KeepsItsExpiry()
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-8)));
+        OrderIs("accepted");
+        _escrows.TryExtendExpiryAsync(EscrowId, Arg.Any<string>(), Arg.Any<string>()).Returns(false);
+
+        await RunAsync(commitments: true);
+
+        Logs.Should().NotContain("ORDER_ESCROW_HELD_TO_CAP");
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task CommitmentsOn_AtTheCap_TheOrderStillEntersTheQueue()
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-21).AddMinutes(-1)));
+        OrderIs("accepted");
+        _orders.TryEnterAdminQueueAsync(OrderId, "hold_cap", EscrowId, Arg.Any<string>(), "accepted").Returns(true);
+
+        await RunAsync(commitments: true);
+
+        await _escrows.DidNotReceive().TryExtendExpiryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _orders.Received(1).TryEnterAdminQueueAsync(OrderId, "hold_cap", EscrowId, Arg.Any<string>(), "accepted");
     }
 
     [Theory]
