@@ -108,21 +108,22 @@ class OrderRepository extends BaseOrderRepository {
   }
 
   /// Get orders where the user is the assigned trucker, optionally by status.
+  /// Reads through the `truckerId` index (ESC-22), not a scan of every order.
   Future<List<Order>> _getOrdersByTrucker(
     String truckerId, {
     String? statusFilter,
   }) async {
-    var query = _isar.orders.filter().truckerIdEqualTo(truckerId);
+    final query = _isar.orders.where().truckerIdEqualTo(truckerId);
 
-    if (statusFilter != null) {
-      final status = OrderStatus.values.firstWhere(
-        (s) => s.name == statusFilter,
-        orElse: () => OrderStatus.unknown,
-      );
-      query = query.statusEqualTo(status);
+    if (statusFilter == null) {
+      return query.sortByCreatedAtDesc().findAll();
     }
 
-    return query.sortByCreatedAtDesc().findAll();
+    final status = OrderStatus.values.firstWhere(
+      (s) => s.name == statusFilter,
+      orElse: () => OrderStatus.unknown,
+    );
+    return query.filter().statusEqualTo(status).sortByCreatedAtDesc().findAll();
   }
 
   /// Get a single order by its orderId.
