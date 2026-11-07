@@ -374,9 +374,43 @@ public sealed class FraudDetectionService : IFraudDetectionService
         }
         while (startKey != null && pages < DefaultRiskMaxPages);
 
-        // Rows left unread: absence cannot be shown, so nothing more is written. Such a partition already
-        // reads as truncated, CRITICAL (section 14.3).
-        return startKey != null;
+        // FUP-62: a last page that merely ends at the cap is not rows left unread. Rows left: absence cannot
+        // be shown, so nothing more is written, and such a partition reads as truncated, CRITICAL (section
+        // 14.3). A failed probe reaches the caller like a failed page, which writes nothing either.
+        return startKey != null
+            && await RowsRemainAsync(userId, since, startKey, newestFirst: false, consistentRead: true);
+    }
+
+    /// <summary>
+    /// FUP-62 (section 14.3): whether a read of a user's partition that stopped at its page cap left any row.
+    /// DynamoDB can end a page exactly at the last row and still return a <c>LastEvaluatedKey</c>, so the key
+    /// alone does not show that rows remain. One more Query from that key with the same key condition and
+    /// order, no filter, the key only, <c>Limit</c> 1: a row, or another key, means rows remain.
+    /// </summary>
+    private async Task<bool> RowsRemainAsync(
+        string userId, string sinceKey, Dictionary<string, AttributeValue> startKey, bool newestFirst, bool consistentRead)
+    {
+        var response = await _dynamoDb.QueryAsync(new QueryRequest
+        {
+            TableName = _fraudSignalsTable,
+            KeyConditionExpression = "#u = :uid AND #k >= :since",
+            ProjectionExpression = "#k",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#u", "userId" },
+                { "#k", "signalKey" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":uid", new AttributeValue { S = userId } },
+                { ":since", new AttributeValue { S = sinceKey } }
+            },
+            ExclusiveStartKey = startKey,
+            ScanIndexForward = !newestFirst,
+            ConsistentRead = consistentRead,
+            Limit = 1
+        });
+        return response.Items is { Count: > 0 } || response.LastEvaluatedKey is { Count: > 0 };
     }
 
     /// <summary>
@@ -650,15 +684,36 @@ public sealed class FraudDetectionService : IFraudDetectionService
             }
             while (startKey != null && pages < settings.MaxPages);
 
-            if (startKey != null)
+            if (startKey == null)
             {
-                // Fail closed: newest-first, a burst in the current hour (deduplicated to one)
-                // could otherwise push older weight out of the read.
-                AlarmLog($"{RiskScoreTruncatedToken} userId={MoneyAlarmLog.LogId(userId)} pages={pages}");
-                return Finish(truncated: true);
+                return Finish(truncated: false);
             }
 
-            return Finish(truncated: false);
+            // FUP-62: the last page can end exactly at the last row and still carry a key, so a one-row
+            // probe tells "nothing left" from rows left unread. A probe that fails counts as rows left: it
+            // must not turn a CRITICAL read into an Unavailable one, which a gate scores LOW.
+            string? probeError = null;
+            bool rowsLeft;
+            try
+            {
+                rowsLeft = await RowsRemainAsync(userId, calculator.SinceKey, startKey, newestFirst: true, consistentRead: false);
+            }
+            catch (Exception ex)
+            {
+                rowsLeft = true;
+                probeError = ex.GetType().Name;
+            }
+
+            if (!rowsLeft)
+            {
+                return Finish(truncated: false);
+            }
+
+            // Fail closed: newest-first, a burst in the current hour (deduplicated to one)
+            // could otherwise push older weight out of the read.
+            AlarmLog($"{RiskScoreTruncatedToken} userId={MoneyAlarmLog.LogId(userId)} pages={pages}"
+                + (probeError == null ? "" : $" probe={MoneyAlarmLog.LogId(probeError)}"));
+            return Finish(truncated: true);
         }
         catch (Exception ex)
         {

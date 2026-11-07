@@ -167,7 +167,9 @@ public class FraudRelationshipSignalTests
                 FilterExpression = r.FilterExpression,
                 ExpressionAttributeValues = new Dictionary<string, AttributeValue>(r.ExpressionAttributeValues),
                 ConsistentRead = r.ConsistentRead,
-                ExclusiveStartKey = r.ExclusiveStartKey
+                ExclusiveStartKey = r.ExclusiveStartKey,
+                ScanIndexForward = r.ScanIndexForward,
+                Limit = r.Limit
             });
             return pages[Math.Min(index++, pages.Length - 1)];
         });
@@ -210,14 +212,49 @@ public class FraudRelationshipSignalTests
         requests[1].ExclusiveStartKey["signalKey"].S.Should().Be("next");
     }
 
-    [Fact]
-    public async Task HasSignal_RowsLeftAfterThePageCap_IsTrue()
+    [Theory]
+    [InlineData(1, false)] // the probe meets a row
+    [InlineData(0, true)]  // the probe answers only a key
+    public async Task HasSignal_RowsLeftAfterThePageCap_IsTrue(int probeItems, bool probeMore)
     {
-        var (service, requests) = WithPages(Page(0, more: true), Page(0, more: true), Page(0, more: true));
+        var (service, requests) = WithPages(Page(0, more: true), Page(0, more: true), Page(probeItems, probeMore));
 
         (await service.HasSignalAsync("user-1", "SELF_TRADE", "ord-1")).Should().BeTrue();
 
-        requests.Should().HaveCount(2);
+        // Two pages (DefaultRiskMaxPages), then one unfiltered row from the last key, in the read's order (FUP-62).
+        requests.Should().HaveCount(3);
+        var probe = requests[2];
+        probe.ExclusiveStartKey["signalKey"].S.Should().Be("next");
+        probe.Limit.Should().Be(1);
+        probe.FilterExpression.Should().BeNullOrEmpty();
+        probe.ConsistentRead.Should().BeTrue();
+        probe.ScanIndexForward.Should().BeTrue();
+        probe.ExpressionAttributeValues[":since"].S.Should().Be(requests[0].ExpressionAttributeValues[":since"].S);
+    }
+
+    [Fact]
+    public async Task HasSignal_ALastPageThatEndsExactlyAtTheCap_IsFalse()
+    {
+        // FUP-62: the second page carried a key but nothing is left, so absence is shown and the signal is written.
+        var (service, requests) = WithPages(Page(0, more: true), Page(0, more: true), Page(0, more: false));
+
+        (await service.HasSignalAsync("user-1", "SELF_TRADE", "ord-1")).Should().BeFalse();
+
+        requests.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task HasSignal_AProbeThatFails_ReachesTheCaller()
+    {
+        // The relationship scan logs a failed check and writes nothing, as for a failed page.
+        var ddb = Substitute.For<IAmazonDynamoDB>();
+        var calls = 0;
+        ddb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => ++calls <= 2 ? Task.FromResult(Page(0, more: true)) : throw new ProvisionedThroughputExceededException("slow"));
+        var service = new FraudDetectionService(ddb, "crops", "fraud-signals", Substitute.For<IRateLimitRepository>());
+
+        await FluentActions.Awaiting(() => service.HasSignalAsync("user-1", "SELF_TRADE", "ord-1"))
+            .Should().ThrowAsync<ProvisionedThroughputExceededException>();
     }
 
     [Fact]
