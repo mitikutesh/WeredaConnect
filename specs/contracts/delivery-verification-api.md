@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.24.0
+1.25.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -17,7 +17,7 @@ The Delivery Verification API tracks the physical handoff of crops from farmer t
 - **Offline-first**: QR generation, QR scanning, GPS capture, and photo capture all work offline
 - **QR code verification**: HMAC-SHA256 signed tokens for tamper-proof handoff confirmation
 - **GPS proximity validation**: 5km radius check against registered locations
-- **Photo evidence**: Optional WebP images (<200KB) for dispute resolution
+- **Photo evidence**: Optional handoff photos (WebP from the phone, JPEG from the browser, at most 200 KB) for dispute resolution, seen only by the delivery's buyer, farmer and trucker and by admins (1.25.0)
 - **State machine enforcement**: Server validates all status transitions
 - **Cancel, never delete**: a cancelled delivery keeps its row with `status: cancelled` (since 1.9.0 without `deletedAt`, so every party's list still returns it); rows soft-deleted before 1.9.0 keep their `deletedAt`
 
@@ -104,6 +104,12 @@ window, so a client value is never trusted). Since 1.23.0 the `pickedUp` transit
 also stamps the server-only `pickupCapturedAt` from the operation's `timestamp`
 (DeliveryDto Entity); clients send `timestamp` on every operation already. The example payloads above succeed as
 written.
+
+Photo refs (1.25.0, FRD-12): a handoff photo is attached by its own `delivery_photo` operation
+(section 4b), never by the handoff. A `pickupPhotoRef` or `dropoffPhotoRef` in a delivery create
+or update is still checked (any value that is not this delivery's photo key fails the operation
+with `DELIVERY_INVALID_FIELD`, Validation Rules item 8) but a valid key is dropped, not written:
+it would skip the attach's checks of the taker and the object.
 
 Order coupling (v1.4.0, SIM-11): a successful `pickedUp`, `inTransit` or `delivered`
 transition advances the linked order to `pickup_confirmed`, `in_transit` or
@@ -237,7 +243,6 @@ admin delivery cancel is not available yet (ESC-24).
           "latitude": 9.6778,
           "longitude": 39.5318
         },
-        "pickupPhotoRef": "uploads/photos/del-101/pickup-1708084900000.webp",
         "pickedUpAt": "2026-02-18T08:15:00Z"
       },
       "timestamp": "2026-02-18T08:15:00Z"
@@ -264,7 +269,6 @@ admin delivery cancel is not available yet (ESC-24).
           "latitude": 9.0054,
           "longitude": 38.7636
         },
-        "dropoffPhotoRef": "uploads/photos/del-101/dropoff-1708171200000.webp",
         "confirmedAt": "2026-02-19T08:00:00Z"
       },
       "timestamp": "2026-02-19T08:00:00Z"
@@ -426,6 +430,7 @@ GET /deliveries/del-101
   },
   "gpsDropoff": null,
   "pickupPhotoRef": "uploads/photos/del-101/pickup-1708084900000.webp",
+  "pickupPhotoUrl": "https://<uploads-bucket>.s3.<region>.amazonaws.com/uploads/photos/del-101/pickup-1708084900000.webp?X-Amz-...",
   "dropoffPhotoRef": null,
   "pickedUpAt": "2026-02-18T08:15:00Z",
   "confirmedAt": null,
@@ -435,6 +440,14 @@ GET /deliveries/del-101
   "version": 2
 }
 ```
+
+**Photos (1.25.0, FRD-12)**: `pickupPhotoUrl` and `dropoffPhotoUrl` are presigned S3 `GET`s
+(15 minutes) of the stored photo keys, signed only after the participant check below, so the
+delivery's buyer, farmer and trucker see both photos and nobody else gets a URL. A key that is not
+this delivery's photo key of that type (written through a delivery update before 1.25.0) is not
+signed. Absent when there is no photo, the uploads bucket is not configured or signing fails (the
+delivery is still answered). Lists (`GET /deliveries`) never carry them. Admins get the same URLs
+in the transaction view (`GET /admin/transactions/{orderId}`).
 
 **Note**: Access is restricted to the farmerId, truckerId, or buyerId matching the authenticated user's JWT `sub` claim. Since 1.15.0 (ESC-48) no phone number is returned, to any party: the parties take each other's number from the order, only while its contact is open (`order-lifecycle.md` 1.18.0). Admins still see the stored phones in the transaction view (`GET /admin/transactions/{orderId}`).
 
@@ -448,23 +461,35 @@ GET /deliveries/del-101
 
 ### 4. Upload Photo Evidence
 **Method**: POST /deliveries/{id}/photos
-**Authentication**: Required (only delivery participants)
+**Authentication**: Required (the photo's taker only, 1.25.0)
 **Content-Type**: application/json
 
 The server does not receive the file. It issues a pre-signed S3 `PUT` URL and the key the
-photo will live at; the client uploads the WebP straight to S3 and then sends the key as
-`pickupPhotoRef` / `dropoffPhotoRef` in a delivery sync operation (section 1). This was
-documented as `multipart/form-data` with a `photo` file before 1.7.0; the server never
-worked that way.
+photo will live at; the client uploads the photo straight to S3 and then attaches the key with a
+`delivery_photo` sync operation (section 4b). This was documented as `multipart/form-data` with a
+`photo` file before 1.7.0; the server never worked that way. Before 1.25.0 the key went in
+`pickupPhotoRef` / `dropoffPhotoRef` of a delivery update; no shipped client did that.
 
 **Request Body**:
 ```json
-{ "type": "pickup" }
+{ "type": "pickup", "sizeBytes": 148213, "contentType": "image/webp" }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `type` | string | Yes | `pickup` or `dropoff` |
+| `sizeBytes` | number | Yes (1.25.0) | The photo's exact size, 1 to 204800 (200 KiB) |
+| `contentType` | string | No | `image/webp` (default, the phone) or `image/jpeg` (the browser) |
+
+**Who may ask (1.25.0, FRD-12)**: only the party who confirms that handoff takes its photo.
+
+| `type` | Taker | Everyone else (the farmer, the other party, an outsider) |
+|--------|-------|----------------------------------------------------------|
+| `pickup` | the delivery's trucker (a self-pickup has no trucker, so no pickup photo) | `403 DELIVERY_UNAUTHORIZED` |
+| `dropoff` | the delivery's buyer (the buyer's delivery confirm, or the self-pickup confirm at the farm) | `403 DELIVERY_UNAUTHORIZED` |
+
+The delivery may still be `pending` (a phone uploads before its pickup syncs) but not cancelled.
+A handoff that already has its photo gets `409 DELIVERY_PHOTO_EXISTS`: evidence is never replaced.
 
 **Response (200)**:
 ```json
@@ -476,28 +501,87 @@ worked that way.
 }
 ```
 
-**Upload**: `PUT uploadUrl` with `Content-Type: image/webp` and the file as the body, within
-`expiresInSeconds` (15 minutes). Then include `photoRef` in the next delivery update op.
+The key is `uploads/photos/{deliveryId}/{type}-{ms}.webp`, or `.jpg` for `image/jpeg` (1.25.0).
 
-**Constraints** (client-side; the server does not inspect the object):
-- Format: WebP only (best compression for 3G); the pre-signed URL is bound to `image/webp`
-- Max width: 800px (auto-resized client-side)
-- Max file size: 200KB
-- Max photos per delivery: 3 per type (pickup/dropoff)
+**Upload**: `PUT uploadUrl` with `Content-Type` equal to `contentType` and the file as the body,
+within `expiresInSeconds` (15 minutes). Both the type and the length (`sizeBytes`) are signed into
+the URL, so S3 refuses a body of any other size or type (`403 SignatureDoesNotMatch`): the 200 KiB
+cap holds whatever the client does. A browser sets `Content-Length` itself. Then attach `photoRef`
+(section 4b).
 
-**Client status (1.7.0)**: the shipped mobile and web apps do not call this endpoint yet
-(upload is FRD-12). The camera screen keeps the captured photo's local path on the device
-(`{appDir}/photos/{deliveryId}/{type}-{ms}.webp`) and the delivery repositories send a
-photo ref only when it is a server key for that delivery, so attaching a photo never
-blocks a pickup or delivery confirmation. Before 1.7.0 the local path was sent and the
-server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
+**Constraints**:
+- Size: at most 200 KiB, enforced twice by the server since 1.25.0 (the signed length here, the
+  object's size at the attach)
+- Format: WebP (phone) or JPEG (browser); the URL is bound to the type
+- Max width: 800px (resized client-side)
+- One photo per handoff type (the first stays)
+
+**Client status (1.25.0)**: both apps use it. The phone keeps the compressed WebP and its sync
+queue uploads it when online (Offline Storage, Upload Flow); the browser uploads the JPEG as soon
+as it is taken.
 
 **Error Codes**:
-- `400 DELIVERY_VALIDATION` -- missing delivery id, missing or invalid `type`
+- `400 DELIVERY_VALIDATION` -- missing delivery id, missing or invalid `type`, `contentType` other than `image/webp` or `image/jpeg`
+- `400 DELIVERY_PHOTO_TOO_LARGE` -- `sizeBytes` missing, below 1 or above 204800 (1.25.0)
 - `401 DELIVERY_UNAUTHORIZED` -- authentication required
-- `403 DELIVERY_UNAUTHORIZED` -- user is not a participant in this delivery
+- `403 DELIVERY_UNAUTHORIZED` -- not a participant, or not this photo's taker (1.25.0)
 - `404 DELIVERY_NOT_FOUND` -- delivery not found or cancelled (by `status` or a legacy `deletedAt`, 1.9.0)
+- `409 DELIVERY_PHOTO_EXISTS` -- the handoff already has its photo (1.25.0)
 - `500 DELIVERY_SERVER_ERROR` -- upload bucket not configured or S3 failure
+
+---
+
+### 4b. Attach a Photo (`delivery_photo`, 1.25.0, FRD-12)
+**Method**: POST /sync (`sync-protocol.md` 1.39.0)
+**Authentication**: Required (the photo's taker only)
+
+After the `PUT`, the taker attaches the key to the delivery with a create-only sync operation:
+
+```json
+{
+  "operationId": "uuid-v4",
+  "idempotencyKey": "trucker-789:delivery_photo:del-101#pickup:create:1708084960000",
+  "entityType": "delivery_photo",
+  "entityId": "del-101#pickup",
+  "action": "create",
+  "data": { "photoRef": "uploads/photos/del-101/pickup-1708084900000.webp" },
+  "timestamp": "2026-02-18T08:16:00Z"
+}
+```
+
+The entity id is `{deliveryId}#{pickup|dropoff}`: it names the photo, not the delivery, so a photo
+waiting in a phone's queue never holds back the delivery's own operations or its refresh.
+
+The server, in this order:
+
+1. `action` must be `create`, the entity id must have a known type, `data` must hold `photoRef`
+   only, and `photoRef` must be this delivery's key of this type (section 4); else
+   `DELIVERY_PHOTO_INVALID`.
+2. Reads the delivery: missing answers the unprefixed `Delivery not found.` (retried: its create
+   may still be on its way); a read failure answers `deferred`.
+3. The caller must be the photo's taker (the table in section 4); else `DELIVERY_PHOTO_FORBIDDEN`.
+   An outsider also writes a `ROLE_FORBIDDEN` fraud signal (`sync-protocol.md` 1.27.0); a party
+   of the delivery sending the other type does not.
+4. A cancelled delivery refuses (`DELIVERY_PHOTO_REFUSED`). The same key already attached is a
+   `success` with nothing written; another key is `DELIVERY_PHOTO_EXISTS`.
+5. `HEAD` on the object in the uploads bucket: missing is `DELIVERY_PHOTO_MISSING`; over 200 KiB
+   (or empty) is `DELIVERY_PHOTO_TOO_LARGE`; a stored type that is not the key's is
+   `DELIVERY_PHOTO_INVALID`; any other storage failure, or no bucket configured, is `deferred`.
+6. Writes `pickupPhotoRef` or `dropoffPhotoRef` only, conditioned on the field being absent (or
+   this key), the delivery not cancelled and not soft-deleted. `version` and `updatedAt` do not
+   move, so a handoff queued on another phone never conflicts with a photo, and the next pull of
+   the same version brings the key. A condition that fails is judged again on a strongly
+   consistent read (step 4).
+
+| Answer | Mobile client (sync queue) | Web |
+|--------|----------------------------|-----|
+| `success` (`serverVersion` is the delivery's, no `serverData`) | Synced | Done |
+| `deferred` with `DELIVERY_PHOTO_PENDING:` | Re-queued without a retry | Logged |
+| `DELIVERY_PHOTO_*` error | Rejected for good, not reverted, not announced and not counted in "Sync failed": the handoff stands without its photo | Logged; the confirmed handoff stands |
+| unprefixed error | Retried | Logged |
+
+The write's stream record is filtered out by the notifier (it reads deliveries on `INSERT` and
+on the `nearbyNotifiedAt` stamp only), so attaching a photo sends no push.
 
 ---
 
@@ -528,8 +612,10 @@ server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 | `pickupPlannedAt` | string (ISO 8601) | No | Server-only | The trip's `departureDate` at create time (1.21.0), the planned pickup day on the waiting card; absent on a self-pickup |
 | `gpsPickup` | LatLng | No | -- | GPS coordinates at pickup (null until picked up) |
 | `gpsDropoff` | LatLng | No | -- | GPS coordinates at dropoff (null until delivered) |
-| `pickupPhotoRef` | string | No | `uploads/photos/{deliveryId}/pickup-{ms}.webp`, the key from section 4 | Photo evidence at pickup; any other value fails the op (1.7.0) |
-| `dropoffPhotoRef` | string | No | `uploads/photos/{deliveryId}/dropoff-{ms}.webp`, the key from section 4 | Photo evidence at dropoff; any other value fails the op (1.7.0) |
+| `pickupPhotoRef` | string | No | `uploads/photos/{deliveryId}/pickup-{ms}.{webp\|jpg}`, the key from section 4 | Photo evidence at pickup, written only by a `delivery_photo` attach since 1.25.0 (section 4b); in a delivery op any other value fails the op (1.7.0) and a valid key is dropped (1.25.0) |
+| `dropoffPhotoRef` | string | No | `uploads/photos/{deliveryId}/dropoff-{ms}.{webp\|jpg}`, the key from section 4 | Photo evidence at dropoff, as `pickupPhotoRef` |
+| `pickupPhotoUrl` | string | No | Server-only, read-only | Presigned GET (15 minutes) of the pickup photo, on `GET /deliveries/{id}` for the parties and on the admin transaction view only (1.25.0) |
+| `dropoffPhotoUrl` | string | No | Server-only, read-only | Presigned GET of the drop-off photo, as `pickupPhotoUrl` (1.25.0) |
 | `pickedUpAt` | string (ISO 8601) | No | -- | Timestamp when trucker picked up crops |
 | `pickupCapturedAt` | string (ISO 8601) | No | Server-only | When the phone made the pickup scan: the `pickedUp` operation's `timestamp`, stamped with `pickedUpAt` (1.23.0, FRD-09). Stored only when plausible (not more than 5 minutes after the operation reached the server, not older than 30 days); absent otherwise and on deliveries picked up before 1.23.0. The fraud rule for a delivery too fast for its distance reads it (`fraud-detection-architecture.md` 15.1); a client value is never written |
 | `confirmedAt` | string (ISO 8601) | No | -- | Timestamp when buyer confirmed receipt |
@@ -745,39 +831,53 @@ As built (1.24.0): no `requires_review` flag is written yet. A scanned pickup wi
 
 Photo evidence is **optional but encouraged**. It provides visual proof of crop condition at pickup and delivery, critical for dispute resolution.
 
-These are client-side rules. The server enforces only the key shape (section 4 and Validation Rules, item 8), not the size, width or count.
+Since 1.25.0 the server enforces the size (signed into the `PUT` and checked at the attach), the
+format (WebP or JPEG, bound to the URL), the taker and one photo per type; the width and the
+quality are client rules.
 
 | Constraint | Value | Rationale |
 |------------|-------|-----------|
-| Format | WebP | Best compression ratio for 3G upload |
+| Format | WebP (phone), JPEG (browser) | WebP is the best ratio for 3G; the browser's canvas re-encodes JPEG |
 | Max width | 800px | Sufficient for visual proof, small file size |
-| Max file size | 200KB | Uploadable on 3G in <2 seconds |
-| Max photos per type | 3 | Pickup: 3, Dropoff: 3 (6 total per delivery) |
-| Compression quality | 75% | Good visual quality at small file size |
+| Max file size | 200 KiB (server-enforced, 1.25.0) | Uploadable on 3G in a few seconds |
+| Photos per type | 1 (the first stays, 1.25.0) | One pickup and one drop-off photo per delivery |
+| Compression quality | 75%, then 60%, then 45% at 640 px (phone); 70% (browser) | Good visual quality at small file size; a photo still over the cap is dropped |
 
 ### Offline Storage
 
 1. Camera captures JPEG on device
 2. Client resizes to max 800px width
-3. Client converts to WebP at 75% quality
-4. Client stores in local filesystem: `{appDir}/photos/{deliveryId}/{type}-{timestamp}.webp` (`-fb` suffix for the fallback quality)
-5. Isar delivery record keeps the local file path in `pickupPhotoRef` / `dropoffPhotoRef`; it is never sent to the server (1.7.0)
-6. Upload queue: planned (FRD-12), not shipped. A later server pull of the delivery overwrites the Isar field with the server value, so FRD-12 needs its own queue entry rather than this field
+3. Client converts to WebP at 75% quality (60%, then 45% at 640 px, when over 200 KiB; still over, the photo is dropped and the screen says so)
+4. Client stores in local filesystem: `{appDir}/photos/{deliveryId}/{type}-{timestamp}.webp` (`-fb` and `-fb2` suffixes for the fallbacks)
+5. Isar delivery record keeps the local file path in `pickupPhotoRef` / `dropoffPhotoRef`; it is never sent to the server (1.7.0). A pull keeps it while the server has no photo for that type, and takes the server's key once it has one (1.25.0)
+6. Upload queue (1.25.0, FRD-12): the handoff confirm queues a `delivery_photo` create behind the handoff, with the file path in `data.localPath` (never sent: see Upload Flow)
 
-### Upload Flow (FRD-12, planned)
+The browser keeps no files: it takes the photo at 800 px and JPEG quality 70 and uploads it at once (Upload Flow).
 
-When connectivity is available:
-1. `POST /deliveries/{id}/photos` with `{ "type": ... }` (section 4) returns `uploadUrl` + `photoRef`
-2. `PUT` the WebP to `uploadUrl` with `Content-Type: image/webp` within 15 minutes
-3. Next delivery sync update op carries `pickupPhotoRef` / `dropoffPhotoRef` = `photoRef`
-4. Client deletes the local file once the sync op is applied
+### Upload Flow (1.25.0, FRD-12)
+
+Mobile, when the sync queue reaches the `delivery_photo` operation (a preflight of the batch):
+1. `POST /deliveries/{id}/photos` with `{type, sizeBytes, contentType}` (section 4) returns `uploadUrl` + `photoRef`
+2. `PUT` the file to `uploadUrl` with the signed `Content-Type` and `Content-Length` within 15 minutes
+3. The operation's payload becomes `{"photoRef": key}`, in the batch and in the queue, so a later run never uploads twice; the batch then attaches it (section 4b)
+4. Offline, a failed `PUT`, a `5xx`, a `401` or a `404` (the delivery's own create may be in the same batch) keep the operation queued without using a retry; the handoff in front of it is sent anyway. A `400`, `403` or `409`, or a file that is gone, sends the operation without a key so the server refuses it for good
+5. The local file stays, so the photo shows on this phone offline
+
+Web: the browser uploads right after the photo is taken (steps 1 and 2), shows it from memory,
+and after the handoff confirm succeeded sends the `delivery_photo` operation on its own `/sync`
+call; a refusal is logged and the confirmed handoff stands.
+
+Viewing: the delivery detail of each party loads `pickupPhotoUrl` / `dropoffPhotoUrl` from
+`GET /deliveries/{id}` (one read per delivery, reused 10 minutes) and caches the image on the
+phone under its key; offline and never cached, the tile says it shows when online.
 
 ### S3 Storage
 
-- **Bucket**: Same uploads bucket used for other media (audio notes, etc.)
-- **Key pattern**: `uploads/photos/{deliveryId}/{type}-{timestamp}.webp`
-- **Lifecycle**: Photos retained for 1 year, then moved to Glacier
-- **Access**: Pre-signed URLs for viewing (15-minute expiry)
+- **Bucket**: Same uploads bucket used for other media (audio notes, etc.); private, SSE-S3, versioned
+- **Key pattern**: `uploads/photos/{deliveryId}/{type}-{timestamp}.{webp|jpg}`
+- **CORS (1.25.0)**: `PUT`, `GET`, `HEAD` with `Content-Type` from the web app and admin origins only (the browser `PUT`s and CanvasKit fetches images with XHR); the CloudFront CSP already allows the regional S3 hosts
+- **Lifecycle**: the bucket's `photos/` rule (Glacier after a year) does not match the `uploads/photos/` keys; no lifecycle applies to them yet (follow-up)
+- **Access**: Pre-signed URLs for viewing (15-minute expiry), signed by the delivery Lambda after its participant check and by the admin Lambda; the sync Lambda reads `uploads/photos/*` for the attach's `HEAD` only
 
 ---
 
@@ -813,8 +913,8 @@ When connectivity is available:
    - Invalid transitions return `422 Unprocessable Entity`
    - Dispute must be raised within 48 hours of `confirmedAt`
 8. **Photo References** (sync, create and update):
-   - `pickupPhotoRef` / `dropoffPhotoRef` must be exactly `uploads/photos/{deliveryId}/(pickup|dropoff)-{ms}.webp` for the operation's own delivery (the key section 4 issued). Anything else, including a local file path, another delivery's key or the pre-1.7.0 `photos/...` shape, fails the whole operation with `DELIVERY_INVALID_FIELD: <field> has invalid format.` (FIX-011, path traversal)
-   - The server does not check that the S3 object exists, its size, or the count per type (client-side rules)
+   - `pickupPhotoRef` / `dropoffPhotoRef` must be exactly `uploads/photos/{deliveryId}/(pickup|dropoff)-{ms}.(webp|jpg)` for the operation's own delivery (the key section 4 issued). Anything else, including a local file path, another delivery's key or the pre-1.7.0 `photos/...` shape, fails the whole operation with `DELIVERY_INVALID_FIELD: <field> has invalid format.` (FIX-011, path traversal)
+   - A valid key is dropped, not written (1.25.0): photos are attached only by `delivery_photo` (section 4b), which checks the taker, the object's presence, size and type, and keeps the first photo
 9. **Participant Authorization**:
    - Only the order's matched trucker can create a delivery and confirm pickup; the buyer creates self-pickup deliveries (v1.3.0)
    - Only the buyer can confirm delivery
@@ -830,7 +930,7 @@ When connectivity is available:
 - Show localized error messages in user's preferred language (Amharic, Afan Oromo, English)
 - Validate before enqueueing sync operation (prevent invalid operations from clogging queue)
 - Display GPS proximity result immediately after capture (green check if within 5km, red warning if outside)
-- Compress photos to WebP <200KB before uploading (FRD-12)
+- Compress photos to at most 200 KiB before uploading (WebP on the phone, JPEG in the browser; 1.25.0)
 
 ---
 
@@ -949,6 +1049,7 @@ Rural Ethiopian markets follow weekly schedules (different woredas have differen
 - **Confirm delivery**: Only buyers can confirm delivery (they scan trucker's QR)
 - **Raise dispute**: Any participant (farmer, trucker, buyer) can dispute
 - **Cancel**: Any participant can cancel while `pending` (update or the legacy delete); nobody can after pickup (1.9.0)
+- **Handoff photos (1.25.0)**: the trucker takes (uploads and attaches) the pickup photo, the buyer the drop-off photo; the farmer takes none. The delivery's buyer, farmer and trucker, and admins, see both; nobody else gets a URL
 - Server validates the JWT `sub` claim matches the appropriate participant ID for each action
 
 ### QR Token Security
@@ -966,7 +1067,7 @@ Rural Ethiopian markets follow weekly schedules (different woredas have differen
 - Delivery details visible only to participants (farmer, trucker, buyer)
 - No phone numbers in any client read of a delivery (detail, list, `/sync` data) since 1.15.0; contact goes through the order (ESC-48)
 - GPS coordinates are sensitive -- only stored for verification, not displayed to other platform users
-- Photo evidence accessible only via pre-signed S3 URLs with 15-minute expiry
+- Photo evidence accessible only via pre-signed S3 URLs with 15-minute expiry, signed for the delivery's three parties (`GET /deliveries/{id}`) and admins (transaction view) only; never on a list
 
 ---
 
@@ -980,7 +1081,7 @@ All core delivery verification operations work offline:
 | Generate QR code | Full -- HMAC computed locally | No sync needed |
 | Scan QR code | Full -- HMAC verified locally | No sync needed |
 | Capture GPS | Full -- coordinates stored in Isar | POST /sync when online |
-| Capture photo | Full -- WebP stored locally | POST /deliveries/{id}/photos when online |
+| Capture photo | Full -- WebP stored locally, a `delivery_photo` op queued at the confirm | POST /deliveries/{id}/photos and the S3 `PUT` when online, then the attach in `/sync` (1.25.0) |
 | Update status | Full -- local Isar update | POST /sync when online |
 | Browse deliveries | Full -- query local Isar cache | Refresh on next sync |
 
@@ -989,8 +1090,9 @@ All core delivery verification operations work offline:
 The sync queue has no per-entity priority. `SyncQueue` sends pending operations oldest
 first (FIFO, `sortByCreatedAt` in `mobile/lib/core/sync/sync_queue.dart`), so a delivery
 status change syncs after whatever was queued before it and before whatever was queued
-after it, regardless of entity type. Photo evidence is not in the sync queue at all: it
-uploads through `POST /deliveries/{id}/photos` when online, separate from `POST /sync`.
+after it, regardless of entity type. A handoff photo (1.25.0) is a `delivery_photo` operation
+queued right behind its handoff: its upload runs as a preflight when the batch is built, and a
+photo that cannot go up yet waits without holding back the handoff or anything else.
 
 ---
 
@@ -1055,8 +1157,8 @@ as a delivery with `deliveryType: "self_pickup"`:
   once per leg (consumed after the write commits). A trucker's pickup stores `gpsPickup` as
   taken at the scan (when the phone had a fix), the server's `pickedUpAt` and the phone's
   `pickupCapturedAt`; a self-pickup stores `gpsDropoff` (mandatory) and `confirmedAt`; both
-  audit `handoff=qr` or `handoff=code`. A cargo photo is taken on the
-  phone and kept there until the photo upload ships (FRD-12). Shipped apps already prove every
+  audit `handoff=qr` or `handoff=code`. A cargo photo taken at the scan
+  goes up and is attached since 1.25.0 (FRD-12, section 4b). Shipped apps already prove every
   pickup this way (the farmer's QR registers its nonce, the scan sends it), so no client or flag
   change is needed.
 - For a trucker's drop-off of a money-bearing delivery whose nonce has not yet synced, the server returns
@@ -1167,11 +1269,12 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.21.0 | 2026-10-30 | Cargo on the row (Fieldway deliveries boards): the create stamps the server-only `cropType` and `quantity` (kg) from the order, `pickupPlace` from the listing's `locationName` and `pickupPlannedAt` from the trip's `departureDate` (none on a self-pickup), all returned on `GET /deliveries`, `GET /deliveries/{id}` and every `/sync` delivery row, so the list cards read "Teff · 1,500 kg" and "Kebede Alemu, Bichena · pickup Thu 30 Oct" without one order read per delivery; a client that sends them hits the field whitelist; deliveries created before 1.21.0 carry none and the clients fall back to the delivery number. |
 | 1.22.0 | 2026-11-04 | Typed handoff code and drop-off QR (usability audit T-1, T-3; see QR Secret Storage): `scannedQrCode` (nine digits, eight derived from the nonce and a Damm check digit) stands in for `scannedQrNonce` on `pickedUp` and `delivered`, compared in fixed time, with the scan's freshness, single-use and deferral rules; per-leg misses in the secret row (string sets of operation ids, cleared by a new nonce), `DELIVERY_CODE_LOCKED` from the fifth wrong code (a scan still works), `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED_DROPOFF` for a trucker's drop-off (support settles it), `DELIVERY_CODE_GPS_REQUIRED` for a typed code without GPS on a paid delivery, a malformed code is `DELIVERY_VALIDATION`; attempt ids carry a hash of the code, so a reused operation id cannot guess for free; the farmer's nonce op stores only the nonce and nothing once the delivery left `pending`; the secret row is read strongly consistent; `handoff=qr` or `handoff=code` in the transition's audit `metadata`. The trucker's phone keeps the farmer's pickup token and shows it as the drop-off QR the buyer scans (one nonce for both legs). Header drift fixed (the README and footer still said 1.20.0). |
 | 1.23.0 | 2026-11-06 | Pickup capture time (FRD-09, `fraud-detection-architecture.md` 3.12.0, section 15.1): the `pickedUp` transition also stamps the server-only `pickupCapturedAt`, the operation's `timestamp` when it is plausible (at most 5 minutes after the operation reached the server and not older than 30 days), so the fraud rule for a delivery too fast for its distance can tell a pickup synced late from an offline phone from a fast trip. Returned on `/sync` delivery rows like the other server-only fields; no request or answer changes, no client change. A confirmed delivery may write the `IMPOSSIBLE_DELIVERY_TIME` signal on its trucker, flag-only. |
+| 1.25.0 | 2026-11-07 | Handoff photos (FRD-12): `POST /deliveries/{id}/photos` takes `sizeBytes` (1 to 204800, required) and `contentType` (`image/webp` default or `image/jpeg`, `.jpg` keys), signs both into the `PUT`, answers only the photo's taker (the trucker for `pickup`, the buyer for `dropoff`; anyone else `403`) and `409 DELIVERY_PHOTO_EXISTS` once the handoff has its photo; new create-only sync entity `delivery_photo` (`{deliveryId}#{type}`, `{photoRef}`) attaches the key after a `HEAD` (present, at most 200 KiB, its key's type), first photo kept, no version or `updatedAt` move, `DELIVERY_PHOTO_INVALID` / `_FORBIDDEN` / `_REFUSED` / `_EXISTS` / `_MISSING` / `_TOO_LARGE` final and `DELIVERY_PHOTO_PENDING` deferred; a photo ref in a delivery create or update is still shape-checked but no longer written; `GET /deliveries/{id}` and the admin transaction view carry `pickupPhotoUrl` / `dropoffPhotoUrl` (15-minute presigned GETs), lists never; the uploads bucket gets CORS for the web app and admin. Clients: the phone queues the photo behind the handoff and uploads it when online, the browser uploads at capture and attaches after the confirm; the three parties see the photos on the delivery detail, admins on the transaction detail |
 | 1.24.0 | 2026-11-07 | Pickup proof (FRD-11, see QR Secret Storage): a pickup at the farm (the trucker's `pickedUp`, the self-pickup buyer's `delivered`) with no farmer's nonce on record is `deferred` until the nonce syncs and refused with `DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server for this pickup. Contact support.` once 14 days have passed since the later of the delivery's creation and the scan (the operation's `timestamp` when plausible), whatever the money and with no escrow read; before, a delivery without an escrow passed with no QR. The drop-off keeps the money rule; its 14 days now count the same way (before, from creation only). The scan screen's Confirm waits for the fix taken at the scan (at most 30 seconds; a phone with no fix still confirms a scanned QR). No new code or field; shipped clients already send the farmer's nonce on every pickup and handle `deferred`. GPS Failure Handling says what is built. |
 | 1.19.0 | 2026-10-23 | Payout delay (FRD-13, `escrow-protocol.md` 1.33.0): the `delivered` transition stamps the linked escrow's `releaseNotBefore` in the same write as `deliveryConfirmedAt` and `disputeWindowEndsAt` (the trucker named by the delivery when the escrow has none yet); the automatic release waits for it. The dispute window and the delivery's own fields are unchanged; no client change on deliveries. |
 
 ---
 
 **Last Updated**: 2026-11-07
-**Version**: 1.24.0
+**Version**: 1.25.0
 **Status**: Draft (Phase R4.2)

@@ -8,7 +8,7 @@ namespace WeredaConnect.Server.Functions;
 
 /// <summary>
 /// FRD-12: the <c>delivery_photo</c> entity (delivery-verification-api.md 1.25.0, sync-protocol.md
-/// 1.32.0). Create only. After the photo went up through the presigned PUT of
+/// 1.39.0). Create only. After the photo went up through the presigned PUT of
 /// <c>POST /deliveries/{id}/photos</c>, its taker attaches the key to the delivery:
 ///
 /// - entity id <c>{deliveryId}#{pickup|dropoff}</c>, data <c>{"photoRef": key}</c>;

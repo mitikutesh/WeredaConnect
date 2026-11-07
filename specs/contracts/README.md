@@ -56,13 +56,13 @@ Each contract file follows this structure:
 
 | Contract | File | Version | Parties |
 |----------|------|---------|---------|
-| Sync Protocol | `sync-protocol.md` | 1.38.0 | Mobile, Backend |
+| Sync Protocol | `sync-protocol.md` | 1.39.0 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 2.13.0 | Mobile, Backend, Infrastructure |
 | User Entity | `user-entity.md` | 1.3.1 | Mobile, Backend, Infrastructure |
 | Rating API | `rating-api.md` | 1.1.0 | Mobile, Backend, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.7.0 | Mobile, Backend, Admin |
 | Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 1.39.0 | Mobile, Backend, Admin, Infrastructure, Telebirr Gateway |
-| Delivery Verification API | `delivery-verification-api.md` | 1.24.0 | Mobile, Backend |
+| Delivery Verification API | `delivery-verification-api.md` | 1.25.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Account Deletion | `account-deletion.md` | 1.4.0 | Mobile, Backend, Infrastructure, Admin |
 | Crop Listing API | `crop-listing-api.md` | 1.9.0 | Mobile, Backend, Infrastructure |
 | Trip Listing API | `trip-listing-api.md` | 2.3.0 | Mobile, Backend |
@@ -85,5 +85,5 @@ Each contract file follows this structure:
 
 ---
 
-**Last Updated**: 2026-11-06
+**Last Updated**: 2026-11-07
 **Version**: 1.0.0
