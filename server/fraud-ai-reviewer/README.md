@@ -7,8 +7,10 @@ the Lambda runtime.
 
 It is the only code that talks to Amazon Bedrock. The advisory cron (`FraudAdvisoryCronFunction`, AOT .NET) invokes
 it synchronously with a redacted timeline of one HIGH or CRITICAL user; it answers a verdict, and the cron writes the
-`AI_ADVISORY` signal row. Its IAM role allows `bedrock:InvokeModel` on the configured model and nothing else: no
-table, no queue, no other Lambda.
+`AI_ADVISORY` signal row. Its IAM role allows `bedrock:InvokeModel` and `bedrock:GetInferenceProfile` on the
+configured model, plus the CloudWatch Logs writes every Lambda role has: no table, no queue, no other Lambda. The
+cron's role is the one granted `lambda:InvokeFunction` on it; no resource policy restricts other principals of the
+account that hold a broad invoke permission.
 
 ## What it does
 

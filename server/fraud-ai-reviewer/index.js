@@ -1,7 +1,8 @@
 'use strict';
 
-// FRD-19: Lambda entry point of the AI reviewer (fraud-detection-architecture.md section 21). Invoked
-// synchronously by the advisory cron only (its role is the one principal allowed to invoke it). The AWS SDK for
+// FRD-19: Lambda entry point of the AI reviewer (fraud-detection-architecture.md section 21). The advisory cron
+// invokes it synchronously; the cron's role is the one granted lambda:InvokeFunction on it, but no resource
+// policy restricts other principals of the account that hold a broad invoke permission. The AWS SDK for
 // JavaScript v3 ships with the Node.js Lambda runtime, so this function has no dependencies to bundle.
 
 const { review } = require('./src/review');

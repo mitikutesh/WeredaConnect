@@ -63,7 +63,7 @@ Sources (read 2026-11-07):
 
 ## Decision
 
-- **Split**: a new AOT Lambda, `wereda-connect-<env>-fraud-advisory` (`FraudAdvisoryCronFunction`), selects the users, scores them with the existing `FraudDetectionService` (the same code the gates use), builds the redacted timeline, invokes the reviewer synchronously, checks the answer and writes the row. The reviewer, `wereda-connect-<env>-fraud-ai-reviewer` (`server/fraud-ai-reviewer`, Node.js 24, option 1), checks the timeline again and makes the one Bedrock call. The reviewer's role has `bedrock:InvokeModel` on the chosen model and nothing else: the code that talks to the model cannot read or write any table. The cron's role has no grant on orders, escrows or any money table: it cannot move money whatever the model says. The scorer and the signal row schema stay single-sourced in C#.
+- **Split**: a new AOT Lambda, `wereda-connect-<env>-fraud-advisory` (`FraudAdvisoryCronFunction`), selects the users, scores them with the existing `FraudDetectionService` (the same code the gates use), builds the redacted timeline, invokes the reviewer synchronously, checks the answer and writes the row. The reviewer, `wereda-connect-<env>-fraud-ai-reviewer` (`server/fraud-ai-reviewer`, Node.js 24, option 1), checks the timeline again and makes the one Bedrock call. The reviewer's role has `bedrock:InvokeModel` and `bedrock:GetInferenceProfile` on the chosen model and the usual CloudWatch Logs writes, nothing else: the code that talks to the model cannot read or write any table. (The cron's role is the one granted invoke on the reviewer; no resource policy restricts other principals of the account.) The cron's role has no grant on orders, escrows or any money table: it cannot move money whatever the model says. Nothing that moves or delays money reads the advisory weight: the CRITICAL gates rest on the enforcement score, and the payout delay of section 17.5 classes payees on the rules-only tier (`RiskScoreCalculator.RulesTier`); only the MEDIUM and HIGH payment step-up reads the full tier. The scorer and the signal row schema stay single-sourced in C#.
 - **Trigger**: option 1, hourly, lookback 2 hours, at most 3 index pages and 50 candidates. A user is reviewed only when the rules alone put them at HIGH or CRITICAL (enforcement score at least `RISK_TIER_HIGH`, or CRITICAL), so an earlier advisory is never the reason for the next one; and at most once per UTC day.
 - **Model**: Claude Opus 5.5 (`eu.anthropic.claude-opus-5-5` in dev), at effort `low`, with structured output (a JSON schema of `concern` and `explanation`) and the fixed system prompt marked for prompt caching. It is a configuration value (`aiReviewModelId` in `infra/lib/config/environments.ts`). Haiku 5.5 is about 40 times cheaper and is likely enough for this task; choosing it is a one-line change and the owner's call (see "Open decisions").
 - **Dev route**: the EU geo profile from `eu-north-1`.
@@ -86,7 +86,7 @@ Assumptions: per review about 3,000 input tokens (the system prompt with the sig
 | Prod, expected (1 to 5 users a day newly HIGH or above with new signals) | 30 to 150 | $1 to $5 | under $0.15 |
 | Hard ceiling (`FRAUD_AI_REVIEW_MAX_PER_RUN` 5, 24 runs a day, one review per user a day; needs 120 distinct HIGH users with new signals every day) | 3,600 | $112 typical, $470 at the largest size | $3 to $12 |
 
-Prompt caching saves a little within one run (the second to fifth review read the cached system prompt at a tenth of the price). AWS side, per environment and month: the cron runs 720 times (about a second each at 256 MB) and the reviewer at most as often as there are reviews; both fit in the Lambda free tier or cost cents. DynamoDB: per review about 5 to 12 reads and one write. CloudWatch: one alarm over two metrics ($0.20); the FRD-16 metric filters on the new log group are free. Lowering `FRAUD_AI_REVIEW_MAX_PER_RUN` lowers the ceiling proportionally.
+Prompt caching saves a little within one run (the second to fifth review read the cached system prompt at a tenth of the price). AWS side, per environment and month: while on, the cron runs 720 times (about a second each at 256 MB; while off its rule is disabled and it never runs) and the reviewer at most as often as there are reviews; both fit in the Lambda free tier or cost cents. DynamoDB: per review about 5 to 12 reads and one write. CloudWatch: one alarm over two metrics ($0.20); the FRD-16 metric filters on the new log group are free. Lowering `FRAUD_AI_REVIEW_MAX_PER_RUN` lowers the ceiling proportionally.
 
 ## Privacy
 
@@ -105,7 +105,7 @@ Bedrock: model providers have no access to prompts and completions (AWS data pro
 | Failure | Effect |
 |---------|--------|
 | Kill switch off (either Lambda) | Cron: logs `FRAUD_AI_REVIEW_OFF`, reads nothing. Reviewer: answers `disabled`, no Bedrock call |
-| Candidate Query fails | The run answers 500 `FRAUD_AI_REVIEW_ERROR` (no retry: the next hourly run reads the lookback again) |
+| Candidate Query fails | The run logs `FRAUD_AI_REVIEW_FAILED` and rethrows: a Lambda error the alarm counts. The async invoke is never retried (`MaximumRetryAttempts` 0); the next hourly run reads the lookback again |
 | A user's score cannot be read | Counted `unscored`, not reviewed (never treated as HIGH or LOW) |
 | Bedrock throttles, denies access (model access not granted) or fails | The reviewer throws, the invocation returns a function error; the cron logs `FRAUD_AI_REVIEW_FAILED` with the reason and writes nothing; the error alarm fires |
 | Model refuses, runs out of tokens, or answers outside the schema | `refused`, `truncated` or `unparsable`; logged, nothing written |
@@ -118,7 +118,7 @@ A failed review is retried by the next hourly run while the user's new signal is
 
 ## Kill switch and caps
 
-- `FRAUD_AI_REVIEW_ENABLED` on both Lambdas (CDK, `aiReviewEnabled` in `environments.ts`, default false in dev, staging and prod). Either one off stops every Bedrock call.
+- `aiReviewEnabled` in `environments.ts` (default false in dev, staging and prod) sets `FRAUD_AI_REVIEW_ENABLED` on the cron, `AI_REVIEW_ENABLED` on the reviewer, and the hourly rule's state: off, the rule is disabled and nothing runs. Either Lambda's switch off stops every Bedrock call, also for a run invoked by hand.
 - Emergency stop without a deploy: set the reviewer's reserved concurrency to 0 in the console (every invocation is throttled, the cron logs the failures and writes nothing), or disable the EventBridge rule `wereda-connect-<env>-fraud-advisory-hourly`.
 - `FRAUD_AI_REVIEW_MAX_PER_RUN` (default 5, at most 20) and one review per user and UTC day bound the spend; `FRAUD_AI_REVIEW_LOOKBACK_HOURS` (default 2, at most 24).
 
