@@ -31,7 +31,28 @@ const tierVariant: Record<string, "danger" | "warning" | "default"> = {
 /* FRD-05: the soft class of the signal catalogue (fraud-detection-architecture.md section 15), as the
  * server's FraudDetectionService.IsSoftSignal has it. A whitelist clears the signal it is given for good
  * and skips only soft signals until its end, so it is offered on soft signals only. */
-const SOFT_SIGNAL_TYPES = new Set(["GPS_ANOMALY", "PRICE_ANOMALY"]);
+const SOFT_SIGNAL_TYPES = new Set([
+  "GPS_ANOMALY",
+  "PRICE_ANOMALY",
+  // FRD-08
+  "QR_HANDOFF_FAILURE",
+  "TELEBIRR_PAYER_MISMATCH",
+  "TELEBIRR_PAYER_REFUSED",
+  "STALE_VERSION_BURST",
+  "SUSPENDED_TOKEN_USE",
+  // LT-07
+  "GPS_JUMP",
+  "GPS_MOCKED",
+  // FRD-09 (not KYC_THRESHOLD_STRUCTURING, which is hard)
+  "AMOUNT_ANOMALY",
+  "NEW_ACCOUNT_LARGE_AMOUNT",
+  "CANCEL_AFTER_FUND_RATE",
+  "DISPUTE_RATE",
+  "IMPOSSIBLE_DELIVERY_TIME",
+  // FRD-15 (not SELF_TRADE, which is hard)
+  "SHARED_DEVICE_TRADE",
+  "REPEATED_PAIR",
+]);
 
 /* FRD-05: what a reviewed signal was decided as. */
 const resolutionVariant: Record<string, "success" | "danger" | "info"> = {

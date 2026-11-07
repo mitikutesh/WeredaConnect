@@ -45,6 +45,15 @@ public interface IFraudDetectionService
         string entityType, string? description);
 
     /// <summary>
+    /// FRD-15: whether the user already holds a signal row of <paramref name="signalType"/> on
+    /// <paramref name="entityId"/> within the table's 30 day life, whatever its review status, so a
+    /// scan that sees the same entity again in a later hour writes nothing more. False when the
+    /// table is not configured. True when the partition has more rows than the read cap (absence
+    /// cannot be shown). Throws on a failed read.
+    /// </summary>
+    Task<bool> HasSignalAsync(string userId, string signalType, string entityId);
+
+    /// <summary>
     /// Record a successful listing creation for velocity tracking.
     /// Call AFTER _cropRepo.CreateAsync() succeeds.
     /// </summary>

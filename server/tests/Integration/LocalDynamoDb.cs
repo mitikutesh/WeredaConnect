@@ -61,6 +61,16 @@ public sealed class OrderMoneyDynamoDbCollection : ICollectionFixture<LocalDynam
 }
 
 /// <summary>
+/// FRD-15: its own set of tables for the relationship scan, which reads whole order status partitions and writes
+/// signals on whoever it finds there: rows the other classes seed never reach it, and its signals never reach theirs.
+/// </summary>
+[CollectionDefinition(Name)]
+public sealed class RelationshipScanDynamoDbCollection : ICollectionFixture<LocalDynamoDbFixture>
+{
+    public const string Name = "RelationshipScanDynamoDb";
+}
+
+/// <summary>
 /// One set of tables for the collection, with the deployed key schemas and indexes
 /// (<c>infra/lib/stacks/database-stack.ts</c>), uniquely named per run and deleted afterwards.
 /// </summary>
@@ -111,7 +121,9 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
         await CreateAsync(Orders, ("orderId", "createdAt"), ("AdminQueueIndex", "adminQueue", "adminQueuedAt"),
             ("StatusCreatedAtIndex", "status", "createdAt"),
             // ESC-18: the listing guards read a listing's orders.
-            ("ListingIdIndex", "listingId", "createdAt"));
+            ("ListingIdIndex", "listingId", "createdAt"),
+            // FRD-15: the relationship scan reads a buyer's orders.
+            ("BuyerIdCreatedAtIndex", "buyerId", "createdAt"));
         await CreateAsync(Deliveries, ("deliveryId", "tripId"),
             ("ListingIndex", "listingId", "createdAt"),
             ("ParticipantIndex", "participantId", "createdAt"),

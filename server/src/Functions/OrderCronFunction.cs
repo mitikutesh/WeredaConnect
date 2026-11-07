@@ -3,6 +3,7 @@ using Amazon.DynamoDBv2;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Functions;
@@ -14,6 +15,8 @@ namespace WeredaConnect.Server.Functions;
 ///   - commitment_deadlines (hourly, ESC-15): settle the response windows of paid orders (the
 ///     farmer's, the trucker's and the buyer's), notice cancelled trips, and stamp the reminder
 ///     and pickup-overdue markers the notification layer reads
+///   - relationship_patterns (hourly, FRD-15): flag self-trading, shared devices and repeated
+///     buyer and farmer pairs on recently funded orders as fraud signals
 ///
 /// Error codes:
 /// - 400: ORDER_CRON_VALIDATION - Invalid or missing action
@@ -46,12 +49,26 @@ public class OrderCronFunction
     /// </summary>
     public bool CommitmentsEnabled { get; init; } = OrderCommitment.IsEnabled;
 
+    /// <summary>
+    /// FRD-15 (fraud-detection-architecture.md section 15.2): the relationship scan. The Lambda wires it when
+    /// <c>FRAUD_SIGNALS_TABLE</c> and <c>USERS_TABLE</c> are set; without it (the test constructor) the action
+    /// logs <c>FRAUD_RELATIONSHIP_UNCONFIGURED</c> and writes nothing.
+    /// </summary>
+    internal RelationshipPatternService? RelationshipPatterns { get; init; }
+
+    /// <summary>FRD-15: the relationship scan's share of the 5 minute Lambda, with a 30 second reserve for the summary.</summary>
+    internal static readonly TimeSpan RelationshipScanTime = TimeSpan.FromMinutes(4);
+
+    internal const string RelationshipUnconfiguredToken = "FRAUD_RELATIONSHIP_UNCONFIGURED";
+
     private const int ExpirationHours = 24;
 
     /// <summary>ESC-45: pending inbox rows read per run (pages of 100); past it the payment-failed step waits a run.</summary>
     private const int MaxPendingInboxPages = 20;
 
     private const string CommitmentsAction = "commitment_deadlines";
+
+    private const string RelationshipAction = "relationship_patterns";
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -106,6 +123,17 @@ public class OrderCronFunction
                 deliveryRepo: _deliveryRepo,
                 transactionAuditRepo: _transactionAuditRepo)
             : null;
+
+        // FRD-15: the relationship scan reads users rows and writes signals; the fraud service needs no
+        // crops or rate-limit table here (the cron runs no listing or velocity check).
+        var fraudSignalsTable = Environment.GetEnvironmentVariable("FRAUD_SIGNALS_TABLE");
+        if (!string.IsNullOrEmpty(fraudSignalsTable) && !string.IsNullOrEmpty(usersTable))
+        {
+            RelationshipPatterns = new RelationshipPatternService(
+                _orderRepo,
+                new UserRepository(dynamoDb, usersTable),
+                new FraudDetectionService(dynamoDb, cropsTable ?? "", fraudSignalsTable, new RateLimitRepository(dynamoDb, "")));
+        }
     }
 
     /// <summary>
@@ -161,7 +189,7 @@ public class OrderCronFunction
         if (string.IsNullOrEmpty(action))
         {
             return LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
-                $"Missing 'action' field. Expected: auto_cancel_expired or {CommitmentsAction}.");
+                $"Missing 'action' field. Expected: auto_cancel_expired, {CommitmentsAction} or {RelationshipAction}.");
         }
 
         var safeAction = action.Length > 50 ? action[..50] : action;
@@ -173,8 +201,9 @@ public class OrderCronFunction
             {
                 "auto_cancel_expired" => await HandleAutoCancelExpiredAsync(context),
                 CommitmentsAction => await HandleCommitmentDeadlinesAsync(context),
+                RelationshipAction => await HandleRelationshipPatternsAsync(context),
                 _ => LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
-                    $"Unknown action '{safeAction}'. Expected: auto_cancel_expired or {CommitmentsAction}.")
+                    $"Unknown action '{safeAction}'. Expected: auto_cancel_expired, {CommitmentsAction} or {RelationshipAction}.")
             };
         }
         catch (Exception ex)
@@ -452,6 +481,26 @@ public class OrderCronFunction
             { "tripReads", TripReads.ToString() },
             { "completedAt", NowIso }
         };
+    }
+
+    /// <summary>
+    /// FRD-15 (fraud-detection-architecture.md section 15.2): flag self-trading, shared devices and repeated
+    /// buyer and farmer pairs on the orders funded in the lookback. Writes nothing and logs
+    /// <c>FRAUD_RELATIONSHIP_UNCONFIGURED</c> when the Lambda has no signals or users table. Outcome
+    /// <c>partial</c> when the run's time slice ended first; the next hourly run sees the same orders.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleRelationshipPatternsAsync(ILambdaContext context)
+    {
+        if (RelationshipPatterns == null)
+        {
+            context.Logger.LogError(
+                $"{RelationshipUnconfiguredToken} missing=fraud_signals_or_users: no relationship signal was written this run.");
+            return JsonResponse(new RelationshipScanSummary().ToDictionary("unconfigured"));
+        }
+
+        var slice = CronRunBudget.StartNew().Slice(RelationshipScanTime);
+        var summary = await RelationshipPatterns.RunAsync(DateTime.UtcNow, slice, context);
+        return JsonResponse(summary.ToDictionary(summary.StopReason == null ? "ok" : "partial"));
     }
 
     /// <summary>
