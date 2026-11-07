@@ -350,6 +350,69 @@ void main() {
       );
     });
 
+    // ESC-15 (trip-listing-api.md 2.0.0): `matched` means full, so a partly
+    // booked open trip may start; the server allows `open -> inTransit` with
+    // bookings and the trip detail screen offers Start for it.
+    group('startTrip from open', () {
+      Future<Trip> openTrip({double? bookedQuintals}) async {
+        final trip = await repository.createTrip(
+          truckerId: 'trucker-001',
+          truckerName: 'Test Trucker',
+          truckerPhone: '+251911000000',
+          fromWoreda: 'Bishoftu',
+          toWoreda: 'Addis Ababa',
+          departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+          capacity: 150.0,
+          pricePerQuintal: 120.0,
+        );
+        await isar.writeTxn(() async {
+          final row =
+              await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+          row!
+            ..bookedQuintals = bookedQuintals
+            ..remainingQuintals =
+                bookedQuintals == null ? null : 150.0 - bookedQuintals;
+          await isar.trips.put(row);
+        });
+        return trip;
+      }
+
+      test('with bookings, it starts and queues inTransit', () async {
+        final trip = await openTrip(bookedQuintals: 20);
+
+        final started = await repository.startTrip(
+          tripId: trip.tripId,
+          truckerId: 'trucker-001',
+        );
+
+        expect(started.status, TripStatus.inTransit);
+        expect(started.version, 2);
+        final op = (await syncQueue.getPendingOperations()).last;
+        expect(op.action, 'update');
+        expect(
+          jsonDecode(op.data),
+          {'status': 'inTransit', 'version': 1},
+        );
+      });
+
+      for (final booked in [null, 0.0]) {
+        test('without bookings ($booked), it is refused and nothing queued',
+            () async {
+          final trip = await openTrip(bookedQuintals: booked);
+
+          await expectLater(
+            repository.startTrip(tripId: trip.tripId, truckerId: 'trucker-001'),
+            throwsA(isA<TripValidationException>()),
+          );
+
+          final row =
+              await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+          expect(row!.status, TripStatus.open);
+          expect(await syncQueue.getPendingOperations(), hasLength(1));
+        });
+      }
+    });
+
     // --- Contract Edge Cases: Capacity Boundaries ---
 
     test('createTrip with minimum capacity 0.1 quintals', () async {

@@ -6,6 +6,7 @@ import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
@@ -280,15 +281,16 @@ class TripListingRepository extends BaseTripListingRepository {
 
   /// Shared trip status-transition logic.
   ///
-  /// Looks up the trip, validates ownership and current status,
-  /// applies the new status, bumps version, and enqueues an `update` sync op
-  /// (every status change, the cancel included, is an update since ESC-17).
+  /// Looks up the trip, validates ownership and that [isValidFrom] accepts
+  /// the trip as it is, applies the new status, bumps version, and enqueues
+  /// an `update` sync op (every status change, the cancel included, is an
+  /// update since ESC-17).
   ///
   /// Throws [TripValidationException] on any validation failure.
   Future<Trip> _transitionTrip({
     required String tripId,
     required String truckerId,
-    required bool Function(TripStatus) isValidStatus,
+    required bool Function(Trip trip) isValidFrom,
     required String statusErrorMessage,
     required TripStatus newStatus,
   }) async {
@@ -305,7 +307,7 @@ class TripListingRepository extends BaseTripListingRepository {
       );
     }
 
-    if (!isValidStatus(trip.status)) {
+    if (!isValidFrom(trip)) {
       throw TripValidationException('status', statusErrorMessage);
     }
 
@@ -363,14 +365,17 @@ class TripListingRepository extends BaseTripListingRepository {
     await _transitionTrip(
       tripId: tripId,
       truckerId: truckerId,
-      isValidStatus: (s) =>
-          s != TripStatus.delivered && s != TripStatus.cancelled,
+      isValidFrom: (t) =>
+          t.status != TripStatus.delivered && t.status != TripStatus.cancelled,
       statusErrorMessage: 'Trip cannot be cancelled in its current state.',
       newStatus: TripStatus.cancelled,
     );
   }
 
-  /// Start a trip (transition from matched -> inTransit).
+  /// Start a trip: `matched -> inTransit`, or `open -> inTransit` when the
+  /// trip has bookings (ESC-15, trip-listing-api.md 2.0.0: `matched` means
+  /// full, so a partly booked truck may leave). The trip detail screen offers
+  /// Start for the same two cases.
   ///
   /// Throws [TripValidationException] if the trip cannot be started.
   @override
@@ -381,8 +386,11 @@ class TripListingRepository extends BaseTripListingRepository {
     return _transitionTrip(
       tripId: tripId,
       truckerId: truckerId,
-      isValidStatus: (s) => s == TripStatus.matched,
-      statusErrorMessage: 'Only matched trips can be started.',
+      isValidFrom: (t) =>
+          t.status == TripStatus.matched ||
+          (t.status == TripStatus.open && tripHasBookings(t)),
+      statusErrorMessage:
+          'Only a full trip, or an open one with bookings, can be started.',
       newStatus: TripStatus.inTransit,
     );
   }
@@ -398,7 +406,7 @@ class TripListingRepository extends BaseTripListingRepository {
     return _transitionTrip(
       tripId: tripId,
       truckerId: truckerId,
-      isValidStatus: (s) => s == TripStatus.inTransit,
+      isValidFrom: (t) => t.status == TripStatus.inTransit,
       statusErrorMessage: 'Only in-transit trips can be marked as delivered.',
       newStatus: TripStatus.delivered,
     );
