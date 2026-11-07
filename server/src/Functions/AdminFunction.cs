@@ -2628,15 +2628,8 @@ public partial class AdminFunction
         {
             var entity = GetString(e, "entityType");
             var action = GetString(e, "action");
-            if (entity == "order")
-            {
-                hasUnifiedOrder = true;
-            }
-
-            if (entity == "delivery")
-            {
-                hasUnifiedDelivery = true;
-            }
+            if (entity == "order") hasUnifiedOrder = true;
+            if (entity == "delivery") hasUnifiedDelivery = true;
 
             LatLngDto? location = null;
             if (entity == "delivery" && delivery != null)
@@ -3152,10 +3145,7 @@ public partial class AdminFunction
     {
         var distinct = userIds.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
         var result = new Dictionary<string, string>();
-        if (distinct.Count == 0)
-        {
-            return result;
-        }
+        if (distinct.Count == 0) return result;
 
         // BatchGetItem supports max 100 keys per request
         foreach (var batch in distinct.Chunk(100))
@@ -3195,9 +3185,7 @@ public partial class AdminFunction
                         var id = item.TryGetValue("userId", out var uid) ? uid.S : "";
                         var name = item.TryGetValue("displayName", out var dn) ? dn.S : "";
                         if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
-                        {
                             result[id] = name;
-                        }
                     }
                 }
 
