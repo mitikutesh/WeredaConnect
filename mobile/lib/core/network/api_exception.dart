@@ -352,21 +352,28 @@ bool isAppUpdateRequiredMessage(String? message) =>
 /// Whether a /sync per-operation error message refuses a crop listing change
 /// for good and the client must put the listing back from the server (or
 /// remove a refused create): the farmer is restricted or the listing has
-/// active orders (sync-protocol.md 1.17.0). Only these codes: `CROP_VALIDATION`
+/// active orders (sync-protocol.md 1.17.0), its text holds a phone number, or
+/// the account is under review (FUP-51). Only these codes: `CROP_VALIDATION`
 /// also covers a failed profile read on the server, so a `CROP_` prefix is not
 /// deterministic and keeps retrying. `APP_UPDATE_REQUIRED` is not one either:
 /// the same listing goes through once the app is updated.
 bool isRevertableListingRejectionMessage(String? message) =>
     isReputationRestrictedMessage(message) ||
-    isCropHasActiveOrdersMessage(message);
+    isCropHasActiveOrdersMessage(message) ||
+    (message != null && message.startsWith(cropContactInTextCode)) ||
+    isFraudAccountHeldMessage(message);
 
 /// Whether a /sync per-operation error message refuses a trip change for
 /// good and the client must put the trip back from the server (or remove a
 /// refused create): the trucker is restricted or the trip has bookings
-/// (sync-protocol.md 1.17.0). Only these codes, for the same reasons as
+/// (sync-protocol.md 1.17.0), its text holds a phone number, or the account
+/// is under review (FUP-51). Only these codes, for the same reasons as
 /// [isRevertableListingRejectionMessage].
 bool isRevertableTripRejectionMessage(String? message) =>
-    isReputationRestrictedMessage(message) || isTripHasBookingsMessage(message);
+    isReputationRestrictedMessage(message) ||
+    isTripHasBookingsMessage(message) ||
+    (message != null && message.startsWith(tripContactInTextCode)) ||
+    isFraudAccountHeldMessage(message);
 
 /// Sync rejection prefix when the live gateway refuses a payment whose order
 /// total one Telebirr payment cannot take (FUP-22, sync-protocol.md 1.24.0).

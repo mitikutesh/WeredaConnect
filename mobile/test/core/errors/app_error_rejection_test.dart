@@ -624,12 +624,18 @@ void main() {
       for (final message in [
         'REPUTATION_RESTRICTED: x',
         'CROP_HAS_ACTIVE_ORDERS: x',
+        // FUP-51
+        'CROP_CONTACT_IN_TEXT: x',
+        'FRAUD_ACCOUNT_HELD: x',
       ]) {
         expect(isRevertableListingRejectionMessage(message), isTrue);
       }
       for (final message in [
         'REPUTATION_RESTRICTED: x',
         'TRIP_HAS_BOOKINGS: x',
+        // FUP-51
+        'TRIP_CONTACT_IN_TEXT: x',
+        'FRAUD_ACCOUNT_HELD: x',
       ]) {
         expect(isRevertableTripRejectionMessage(message), isTrue);
       }
@@ -645,7 +651,9 @@ void main() {
         'TRIP_VALIDATION: bad',
         'TRIP_UNAUTHORIZED: not yours',
         'FRAUD_DUPLICATE_LISTING: dup',
+        'FRAUD_VELOCITY_EXCEEDED: x',
         'TRIP_CAPACITY_EXCEEDED: x',
+        'ORDER_CONTACT_IN_TEXT: x',
       ]) {
         expect(
           isRevertableListingRejectionMessage(message),

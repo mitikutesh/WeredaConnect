@@ -210,9 +210,11 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// delivery `create`, never stored, is removed (1.17.0). A message refused
   /// because its thread's contact is not open (ESC-48) was never stored, so
   /// its local copy is removed. A crop listing or trip change refused by
-  /// reputation, bookings or active orders (ESC-12 part B, 1.17.0) is undone
-  /// with the order rules; any other refusal of those, `APP_UPDATE_REQUIRED`
-  /// included, leaves the row alone. Other entity types are left alone.
+  /// reputation, bookings or active orders (ESC-12 part B, 1.17.0), by a
+  /// phone number in its text or by an account under review (FUP-51) is
+  /// undone with the order rules; any other refusal of those,
+  /// `APP_UPDATE_REQUIRED` included, leaves the row alone. Other entity types
+  /// are left alone.
   Future<void> revertRejected(SyncOperation operation, String message) async {
     if (operation.entityType == 'delivery') {
       await _revertRejectedDelivery(operation);

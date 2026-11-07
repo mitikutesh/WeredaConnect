@@ -31,8 +31,9 @@ class _FakeConnectivitySource implements ConnectivitySource {
 
 /// FUP-49: a crop listing or trip refused because its text holds a phone
 /// number is deterministic, so the queue never resends it; it is announced
-/// (the snackbar explains it) and, until a crop/trip revert exists, not
-/// undone.
+/// (the snackbar explains it). FUP-51: it is also undone (the local row goes
+/// back to the server's view, a refused create is removed) and leaves the
+/// "Sync failed" count. A code meant for the other entity is not undone.
 void main() {
   late Isar isar;
   late Directory tempDir;
@@ -122,7 +123,7 @@ void main() {
     ('crop_listing', 'crop-1', 'CROP_CONTACT_IN_TEXT', 'description'),
     ('trip', 'trip-1', 'TRIP_CONTACT_IN_TEXT', 'vehicleDescription'),
   ]) {
-    test('$code is permanent, announced and not undone', () async {
+    test('$code is permanent, announced and undone', () async {
       final message = '$code: Remove the phone number from $field. '
           'Contact opens after payment is held in escrow.';
       await enqueue(
@@ -142,13 +143,37 @@ void main() {
       expect(SyncQueue.isRejected(op!), isTrue);
       // A reconnect never resends it.
       expect(await syncQueue.retryFailed(), 0);
-      expect(reverts, isEmpty);
+      expect(reverts.single.$1.operationId, 'op-1');
+      expect(reverts.single.$2, message);
+      expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+      expect(await syncQueue.getFailedCount(), 0);
       final event = rejections().single;
       expect(event.entityType, entityType);
       expect(event.entityId, entityId);
       expect(event.message, message);
     });
   }
+
+  test('TRIP_CONTACT_IN_TEXT on a crop listing is permanent, not undone',
+      () async {
+    const message = 'TRIP_CONTACT_IN_TEXT: Remove the phone number from '
+        'vehicleDescription. Contact opens after payment is held in escrow.';
+    await enqueue(
+      entityType: 'crop_listing',
+      entityId: 'crop-1',
+      action: 'create',
+      data: '{"description":"White teff"}',
+    );
+    replyWith(message);
+
+    await executor.executeBatch();
+    await waitFor(() => rejections().isNotEmpty);
+
+    final op = await syncQueue.getOperation('op-1');
+    expect(SyncQueue.isRejected(op!), isTrue);
+    expect(reverts, isEmpty);
+    expect(await syncQueue.getFailedCount(), 1);
+  });
 
   test('CROP_VALIDATION stays retryable', () async {
     await enqueue(

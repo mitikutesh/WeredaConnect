@@ -1246,8 +1246,9 @@ class SyncExecutor {
 
   /// Whether the client undoes the local change of a refused [operation]
   /// through [PermanentRejectionHandler]: any order refusal, any `ORDER_*`
-  /// code, a refused delivery cancel or dispute, a message into a closed
-  /// thread, and a crop listing or trip refused by an ESC-12 part B code.
+  /// code, a refused delivery cancel, dispute or handoff, a message into a
+  /// closed thread, and a crop listing or trip refused by a code that says
+  /// what the server holds.
   static bool _revertsLocalChange(SyncOperation operation, String? message) =>
       operation.entityType == 'order' ||
       isRevertableRejectionMessage(message) ||
