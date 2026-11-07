@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.4.0
+2.5.0
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -114,7 +114,7 @@ The Trip Listing API enables transport providers (truckers) to post available tr
 **Method**: GET /trips
 **Authentication**: Required. Browse-all is restricted to Buyer and Admin (F-36). Truckers see only their own trips (a `truckerId` other than their own is `403`); farmers and other roles receive `403 TRIP_FORBIDDEN`. The route sits behind the API's JWT authorizer, so a call without a valid token is answered `401` by API Gateway before the Lambda runs (2.3.1; the text before said such callers got 403).
 
-Cancelled trips are never listed, for any role: a trip with `status: cancelled` (status update) or with `deletedAt` (soft delete) is omitted, the same trips `GET /trips/{id}` answers with `404`. `status=cancelled` returns an empty page (`trips: []`, `hasMore: false`). These trips are dropped after DynamoDB applies `limit`, so a page can hold fewer than `limit` trips while `hasMore` is `true`.
+Cancelled trips are never listed, for any role: a trip with `status: cancelled` (status update) or with `deletedAt` (soft delete) is omitted, the same trips `GET /trips/{id}` answers with `404`. `status=cancelled` returns an empty page (`trips: []`, `hasMore: false`). These trips are dropped while the server fills the page (2.5.0, see Paging below), so they no longer leave a page short.
 
 Open trips that have left are not listed (2.2.0, L-7). A trip has left once its departure day is over in Ethiopia (Africa/Addis_Ababa, UTC+3 all year): `departureDate` is the instant of Ethiopia midnight on the day the trucker picked, and trucks run late, so a trip stays listed all of its day. The browse of `status=open` (the default) therefore returns only trips with `departureDate` at or after the start of today in Ethiopia (21:00 UTC the day before). The cutoff is part of the DynamoDB key condition on the `StatusDepartureDateIndex` sort key, not a filter: departed trips are never read and never leave a page short. The string compare is exact because `departureDate` is stored as UTC with milliseconds (1.3.0). Not affected: the trucker's own list (`truckerId`, the trucker sees every trip; the apps mark a passed day as "Date passed"), `GET /trips/{id}` (orders and the live trip still read the trip), and the other statuses. A `nextToken` read before the cutoff moved (Ethiopia midnight between two pages) still works: that page starts at the token and drops the trips that have left. The apps apply the same cutoff to their cached open trips, so an offline phone does not offer a truck that left either. On a buyer's phone the trip pull keeps only what the browse returns (other truckers' trips the server no longer lists are dropped from the cache), so a read by id from that cache, such as a conversation's trip context or the live trip's vehicle line, finds nothing for an open trip that has left and those screens show without it.
 
@@ -159,17 +159,19 @@ GET /trips?fromWoreda=Bishoftu&toWoreda=Addis%20Ababa&status=open&limit=20
   ],
   "nextToken": "base64-encoded-pagination-token",
   "hasMore": true,
-  "total": 12,
+  "total": 1,
   "orderLeadHours": 24
 }
 ```
 
 **Response Fields**:
 - `trips` — Array of trip listings matching query
-- `nextToken` — Base64-encoded token for next page (null if no more results)
-- `hasMore` — Boolean indicating if more results available
-- `total` — Total count of matching trips (approximate, for UI display)
+- `nextToken`: token for the next page (2.5.0). Absent, never `null`, when no trip follows; when present a trip may follow (a long run of dropped trips can use up the read budget, see Paging)
+- `hasMore`: `true` exactly when `nextToken` is present (2.5.0)
+- `total`: the number of trips on this page (`trips.length`), not a count of every match (2.5.0; it was always the page count, the text before called it a total). Kept for older clients; a client that needs a count follows `nextToken` to the end
 - `orderLeadHours` (2.3.0, FUP-122): integer, on every page and for every caller. An order create refuses a trip whose `departureDate` is less than this many hours after the server's now (`departureDate < now + orderLeadHours`, so a trip exactly that far ahead is taken). `24` while the server runs the commitments (`COMMITMENTS_ENABLED` on the trips Lambda, the same value as on sync), `0` when it does not (no lead; the left-trip rule of 2.2.0 still applies). The list itself does not change: browse still returns every open trip that has not left. The apps leave trips inside the lead out of the buyer's match suggestions (mobile `MatchingService`, web `WebMatchingService`) with the same comparison on the device clock. The phone keeps the last value a trip pull returned for its offline matching (app-wide, kept over logout) and forgets it when a page comes without the field; a missing or unreadable value reads as unknown, which keeps the FUP-85 rule (a trip leaving today is suggested all day)
+
+**Paging (2.5.0, FUP-126)**: some trips are dropped after DynamoDB counts the page: soft-deleted ones and the `fromWoreda`, `toWoreda` and (trucker list) `status` filters in DynamoDB, cancelled ones and `minCapacity`, `maxPrice`, `departureDateFrom` and `departureDateTo` on the server. One read can therefore come back short while matching trips remain. The server reads again until the page holds `limit` trips, then reads one more trip to learn whether anything follows. Before 2.5.0 a page could be short with a token, and a full last page carried a `nextToken` that led to an empty page, with `hasMore: true`. One request makes at most 5 reads: in a long run of dropped trips a page can hold fewer than `limit` trips (even none) while `hasMore` is `true`. Clients keep following `nextToken` while it is present and never treat a short page as the end. Same rule as `crop-listing-api.md` 1.9.0. The role rules do not change: every read of a trucker's list stays on that trucker's trips, and a buyer's browse reads every trucker's.
 
 **Error Codes**:
 - `400 Bad Request`: Invalid query parameter (e.g., negative minCapacity, invalid date format)
@@ -446,8 +448,8 @@ pending delivery) does not move the trip yet.
 ### Pagination
 - Default limit: 20 trips per page
 - Maximum limit: 50 trips per page
-- Pagination token: Base64-encoded DynamoDB ExclusiveStartKey
-- Token expiration: 24 hours (after which, query restarts from beginning)
+- Pagination token: the DynamoDB key to start after, Base64-encoded and HMAC-signed (a changed token is `400 TRIP_VALIDATION`). Tokens do not expire (the text before 2.5.0 said 24 hours; nothing ever checked it)
+- No token on the last page, and `hasMore` agrees with the token (2.5.0, see Browse Trips)
 
 ### DynamoDB Key Design
 
@@ -577,9 +579,10 @@ Common route patterns:
 | 2.3.0 | 2026-11-06 | The order lead on the browse (FUP-122): with `COMMITMENTS_ENABLED` on, an order create refuses a trip departing in under 24 hours (2.0.0), but the buyer's match suggestions still offered such trips (FUP-85 keeps a trip leaving today all day), so a buyer could pick a truck the server then refused. `GET /trips` now returns `orderLeadHours` on every page: 24 with the flag on, 0 off (`OrderCommitment.OrderLeadHours`, the same `ResponseWindow` the order create checks). The trips Lambda now gets `COMMITMENTS_ENABLED` too. Additive: older apps ignore it, and the list is unchanged. Mobile caches the last value from its trip pull (SharedPreferences, for offline matching) and web reads it with the trips it matches; both drop from the suggestions a trip with `departureDate < now + orderLeadHours`. Lead 0 or unknown (an older server) keeps FUP-85. The buyer's trip browse is not filtered |
 | 2.4.0 | 2026-11-07 | Trip lifecycle (ESC-17, design 4.10 and G4): one cancel path, mobile now sends an `update` to `cancelled` like web and refuses locally a trip not `open` or `matched` (the legacy `delete` stays accepted with its old rules: no transition check, same `TRIP_HAS_BOOKINGS` check and cascade, `deletedAt`); the hourly `commitment_deadlines` run closes `open` trips whose Ethiopia day is over, that hold no booking and that no live order names (`cancelled`, new server-written `cancelReason: expired` and `cancelledAt`, version CAS, read newest departures first through the StatusDepartureDateIndex, bounded per run); an `inTransit` trip becomes `delivered` once every delivery on it is `delivered`, `disputed` or `cancelled`, one is done and no `funded`, `accepted`, `pickup_confirmed` or `in_transit` order on it lacks a done delivery (hooked on the `/sync` delivery writes, version CAS); a change to a trip already cancelled, delivered or deleted answers `conflict` with the stored row when it asks for what holds or its version is behind (before: `TRIP_TERMINAL_STATE` / `TRIP_ALREADY_CANCELLED` errors the apps retried). Both server moves behind `COMMITMENTS_ENABLED`. No new index, no wire change for clients beyond the conflict |
 | 2.3.1 | 2026-11-07 | Doc only (ESC-14, survey 9.2): Security Considerations said `GET /trips` and `GET /trips/{id}` are public; both sit behind the JWT authorizer and the F-36 role rules (buyers and admins any trip, a trucker their own, everyone else `403 TRIP_FORBIDDEN`). Browse and Get Single Trip now say that a caller without a valid token gets `401` from API Gateway (not `403`), list the `401` and `403` answers, show the `{"trip": {...}}` wrapper the server has always sent for `GET /trips/{id}`, and give that endpoint's error order (`404` before the role check). The status transition note that a matched cancel "re-opens matched listings" is left for ESC-17, which owns trip cancel. No wire change |
+| 2.5.0 | 2026-11-07 | Paging (FUP-126, as `crop-listing-api.md` 1.9.0 for crops): `GET /trips` set `hasMore` from DynamoDB's last key, so a full last page carried a `nextToken` that led to an empty page, and the trips dropped after DynamoDB's count (cancelled, `minCapacity`, `maxPrice`, the departure dates) left pages short. The server now fills each page through every filter (at most 5 reads) and looks one trip ahead, so a full last page no longer carries a `nextToken` and `hasMore` agrees with it. `total` is documented as what it always was, the trips on this page. A bad `minCapacity` or `maxPrice` is still `400`, now checked before any read. Docs: tokens are HMAC-signed and do not expire. No new field, role rules unchanged. Web: the farmer's My crops lists and the farmer and trucker home tiles follow every page (bounded) instead of the first one |
 
 ---
 
 **Last Updated**: 2026-11-07
-**Version**: 2.4.0
+**Version**: 2.5.0
 **Status**: Draft (Phase R4.1)

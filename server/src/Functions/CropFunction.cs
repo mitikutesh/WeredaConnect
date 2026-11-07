@@ -57,7 +57,7 @@ public class CropFunction
     internal const int MaxPageSize = 50;
 
     /// <summary>Most repository reads one GET /crops makes to fill its page and look ahead (SIM-26).</summary>
-    internal const int MaxReadsPerPage = 5;
+    internal const int MaxReadsPerPage = PageFill.MaxReads;
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -194,8 +194,12 @@ public class CropFunction
 
         try
         {
-            var (items, nextKey) = await ReadPageAsync(
-                farmerId, woreda, cropType, status, limit, exclusiveStartKey);
+            // SIM-26: fill the page and look one listing ahead (PageFill), so a nextToken never
+            // leads to an empty last page.
+            var (items, nextKey) = await PageFill.ReadAsync(
+                (count, key) => _cropRepo.QueryCropsAsync(farmerId, woreda, cropType, status, count, key),
+                limit,
+                exclusiveStartKey);
 
             // ESC-48: the phone goes only to the listing's farmer and admins. A buyer browsing
             // could otherwise call the farmer and agree to trade off the platform.
@@ -222,54 +226,6 @@ public class CropFunction
             context.Logger.LogError($"Error querying crops: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "CROP_SERVER_ERROR", "Failed to query crop listings.");
         }
-    }
-
-    /// <summary>
-    /// SIM-26: one page of at most <paramref name="limit"/> listings, and the key the next page
-    /// starts at (null when nothing follows). DynamoDB applies the filters (soft-deleted, woreda, and
-    /// status on the farmer index) after it counts <c>Limit</c>, so one read can come back short, or
-    /// empty with a key, while matching listings remain. The page is filled with further reads; once
-    /// it is full, one more read of a single listing tells whether anything follows, so a nextToken
-    /// never leads to an empty last page. At most <see cref="MaxReadsPerPage"/> reads: when they run
-    /// out the key is returned as it stands, so a long run of filtered-out listings can make a page
-    /// short (never wrong).
-    /// </summary>
-    private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? NextKey)> ReadPageAsync(
-        string? farmerId,
-        string? woreda,
-        string? cropType,
-        string? status,
-        int limit,
-        Dictionary<string, AttributeValue>? startKey)
-    {
-        var items = new List<Dictionary<string, object>>(limit);
-        var key = startKey;
-        for (var reads = 0; reads < MaxReadsPerPage; reads++)
-        {
-            var lookAhead = items.Count >= limit;
-            var (page, lastKey) = await _cropRepo.QueryCropsAsync(
-                farmerId, woreda, cropType, status, lookAhead ? 1 : limit - items.Count, key);
-
-            if (lookAhead && page.Count > 0)
-            {
-                // A listing follows: the next page starts where this look-ahead did.
-                return (items, key);
-            }
-
-            if (!lookAhead)
-            {
-                items.AddRange(page);
-            }
-
-            if (lastKey == null)
-            {
-                return (items, null);
-            }
-
-            key = lastKey;
-        }
-
-        return (items, key);
     }
 
     /// <summary>
