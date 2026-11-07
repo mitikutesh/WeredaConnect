@@ -377,10 +377,16 @@ put_lines() {
     fail "could not create log stream ${STREAM} in ${lg}"
     return
   fi
+  # Through a file: a large --spike would exceed the single-argument limit (128 KB on Linux).
+  local events_file
+  events_file=$(mktemp "${TMPDIR:-/tmp}/fraud-alarms-events.XXXXXX")
+  printf '%s' "$events" > "$events_file"
   if aws --region "$REGION" logs put-log-events --log-group-name "$lg" --log-stream-name "$STREAM" \
-       --log-events "$events" >/dev/null 2>&1; then
+       --log-events "file://${events_file}" >/dev/null 2>&1; then
+    rm -f "$events_file"
     pass "wrote $# synthetic line(s) to ${lg}"
   else
+    rm -f "$events_file"
     fail "could not write the synthetic lines to ${lg}"
   fi
 }
