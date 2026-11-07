@@ -97,7 +97,11 @@ public class EscrowFunction
 
         _escrowService = new EscrowService(
             escrowRepo, auditRepo, idempotencyRepo, telebirrGateway, userRepo, orderRepo, deliveryRepo,
-            orderCheckoutRepo, txAuditRepo, cropRepo, tripRepo);
+            orderCheckoutRepo, txAuditRepo, cropRepo, tripRepo)
+        {
+            // ESC-20: release and refund settle a ledger escrow through its rows.
+            LedgerRepo = EscrowLedgerConfig.FromEnvironment(dynamoDb, escrowsTable, auditTable)
+        };
         _userRepo = userRepo;
 
         // Fraud detection (F-14)

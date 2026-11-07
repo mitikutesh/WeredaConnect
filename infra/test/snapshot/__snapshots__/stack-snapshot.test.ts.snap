@@ -33,6 +33,12 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "Ref": "EscrowIdempotencyTableEB0B1AB5",
       },
     },
+    "EscrowLedgerTableName": {
+      "Description": "DynamoDB Escrow Ledger Table (ESC-20)",
+      "Value": {
+        "Ref": "EscrowLedgerTableF72590F7",
+      },
+    },
     "EscrowsTableName": {
       "Description": "DynamoDB Escrows Table",
       "Value": {
@@ -730,6 +736,64 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           "AttributeName": "expiresAt",
           "Enabled": true,
         },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "EscrowLedgerTableF72590F7": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "escrowId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "ref",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "openStatus",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "dueAt",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "LedgerOpenIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "openStatus",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "dueAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "escrowId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "ref",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-escrow-ledger",
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",

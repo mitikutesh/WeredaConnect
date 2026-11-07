@@ -109,6 +109,12 @@ public class TelebirrWebhookFunction
     // FRD-08: a verified payer mismatch is a fraud signal on the buyer. Null without FRAUD_SIGNALS_TABLE.
     private readonly IFraudDetectionService? _fraudService;
 
+    /// <summary>
+    /// ESC-20 (escrow-protocol.md 2.2.0, P.9): writes the ledger refund of a duplicate payment the webhook decided
+    /// for good. Null while the ledger is off (the 1.20.0 manual refund stays the only path).
+    /// </summary>
+    internal EscrowService? DuplicateRefunds { get; init; }
+
     /// <summary>Default constructor for the Lambda runtime.</summary>
     public TelebirrWebhookFunction()
     {
@@ -146,7 +152,14 @@ public class TelebirrWebhookFunction
             var orderRepo = new OrderRepository(dynamoDb, ordersTable);
             var orderEscrowService = new EscrowService(
                 _escrowRepo, _auditRepo, idempotencyRepo: null, telebirrGateway: null,
-                userRepo: _userRepo, orderRepo: orderRepo);
+                userRepo: _userRepo, orderRepo: orderRepo)
+            {
+                // ESC-20: a live-funded order's escrow is born on the ledger behind ESCROW_LEDGER_ENABLED,
+                // and a duplicate payment gets its ledger refund row here (P.9).
+                LedgerRepo = EscrowLedgerConfig.FromEnvironment(dynamoDb, escrowsTable, auditTable),
+                LedgerBirthEnabled = EscrowLedgerConfig.BirthEnabled
+            };
+            DuplicateRefunds = EscrowLedgerConfig.BirthEnabled && orderEscrowService.LedgerRepo != null ? orderEscrowService : null;
             _orderRepo = orderRepo;
             // ESC-15: the funding write stamps the farmer's request and reserves the trip capacity,
             // so the trips table is read and written here too (TRIPS_TABLE; absent → no stamps).
@@ -1116,6 +1129,26 @@ public class TelebirrWebhookFunction
             telebirrRef: payment.PaymentOrderId.Length > 0 ? payment.PaymentOrderId : null,
             metadata: $"orderId={payment.Checkout.OrderId},merchOrderId={payment.Checkout.MerchOrderId},"
                       + $"amount={payment.Checkout.Amount},reason={reason}");
+
+        // ESC-20 (P.9): a named duplicate is decided for good: the ledger refunds it to the buyer by itself
+        // (the sweep makes the call). Best effort: without the row it stays in the 1.20.0 manual queue.
+        if (token == DuplicateToken && DuplicateRefunds != null && payment.PaymentOrderId.Length > 0)
+        {
+            try
+            {
+                if (await DuplicateRefunds.RecordDuplicatePaymentRefundAsync(
+                        payment.Checkout.OrderId, payment.Checkout.BuyerId, payment.PaymentOrderId, payment.Checkout.Amount))
+                {
+                    context.Logger.LogInformation(
+                        $"ORDER_PAYMENT_DUPLICATE_REFUND_QUEUED {Describe(payment)} ref=refund.duplicate");
+                }
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning($"{BookkeepingToken} {Describe(payment)} step=duplicate_refund_row reason={ex.GetType().Name}");
+            }
+        }
+
         return token == DuplicateToken ? "duplicate" : $"unmatched:{reason}";
     }
 

@@ -29,6 +29,7 @@ function buildApi(
     paymentsTable: dbStack.paymentsTable,
     escrowsTable: dbStack.escrowsTable,
     escrowAuditTable: dbStack.escrowAuditTable,
+    escrowLedgerTable: dbStack.escrowLedgerTable,
     escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
     deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
     ordersTable: dbStack.ordersTable,

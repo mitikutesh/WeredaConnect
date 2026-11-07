@@ -30,6 +30,7 @@ function apiTemplate(): Template {
     paymentsTable: db.paymentsTable,
     escrowsTable: db.escrowsTable,
     escrowAuditTable: db.escrowAuditTable,
+    escrowLedgerTable: db.escrowLedgerTable,
     escrowIdempotencyTable: db.escrowIdempotencyTable,
     deliveryQrSecretsTable: db.deliveryQrSecretsTable,
     ordersTable: db.ordersTable,

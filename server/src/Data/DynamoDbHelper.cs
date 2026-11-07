@@ -51,6 +51,15 @@ internal static class DynamoDbHelper
         return value switch
         {
             string s => new AttributeValue { S = s },
+            // ESC-20: a map (the escrow's legStatus, a split verdict's amounts) becomes an M.
+            IDictionary<string, object> map => new AttributeValue
+            {
+                M = map.Where(kv => kv.Value != null).ToDictionary(kv => kv.Key, kv => ToAttributeValue(kv.Value))
+            },
+            IDictionary<string, string> map => new AttributeValue
+            {
+                M = map.ToDictionary(kv => kv.Key, kv => new AttributeValue { S = kv.Value })
+            },
             IEnumerable<string> list => new AttributeValue
             {
                 L = list.Select(item => new AttributeValue { S = item }).ToList()

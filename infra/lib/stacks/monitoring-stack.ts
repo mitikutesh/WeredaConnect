@@ -400,6 +400,36 @@ export class MonitoringStack extends cdk.Stack {
       metricValue: '1',
       defaultValue: 0,
     });
+    // ESC-20: the 15 minute ledger sweep logs one LEDGER_ROW_OVERDUE line per ledger row open (pending,
+    // sent or failed) for more than 24 hours, every run. escrow-cron only: only the sweep reports age.
+    new logs.MetricFilter(this, 'LedgerRowsOverdueFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"LEDGER_ROW_OVERDUE"'),
+      metricNamespace,
+      metricName: 'LedgerRowsOverdue',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+    // ESC-20: a ledger write that would break I1 to I4 was not sent (escrow: a release or refund; escrow-cron:
+    // the sweeps, a split verdict, the ledger sweep's re-check), or a row an admin recorded by hand left the
+    // escrow failing a check (admin: the manual payout queue). Any line alarms. Three filters, one metric.
+    const countLedgerInvariant = (id: string, logGroup: logs.ILogGroup) =>
+      new logs.MetricFilter(this, id, {
+        logGroup,
+        filterPattern: logs.FilterPattern.literal('"ESCROW_LEDGER_INVARIANT"'),
+        metricNamespace,
+        metricName: 'EscrowLedgerInvariant',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+    countLedgerInvariant('EscrowLedgerInvariantFilter', escrowLogGroup);
+    countLedgerInvariant('EscrowCronLedgerInvariantFilter', escrowCronLogGroup);
+    // The admin Lambda's group, created by the api-stack Lambda construct like the others.
+    countLedgerInvariant(
+      'AdminLedgerInvariantFilter',
+      logs.LogGroup.fromLogGroupName(this, 'AdminLogGroup', `/aws/lambda/${prefix}-admin`),
+    );
+
     // ESC-09: the hourly order-money sweep logs one line when an order does not show what its
     // escrow's money says and it cannot fix it: write_failed (every run once the money moved
     // more than two hours ago), cannot_follow and order_ahead (once per escrow), sweep_truncated
@@ -1096,6 +1126,38 @@ export class MonitoringStack extends cdk.Stack {
         'agrees; if the order has none the leg has no payee until ESC-20. Escalate, and never ' +
         'edit the escrow row by hand. reason=gateway_refused or queue_failed: see ' +
         'escrow-settlement-failures. A leg in Manual Payouts is reported by manual-payouts-overdue instead.',
+    );
+
+    // ESC-20: ledger rows that stay open. A row the gateway refused is retried (3 times, then the manual
+    // queue), a row whose outcome is unknown is checked with the gateway first, so a row open for a day
+    // means something keeps it from both.
+    const ledgerRowsOverdueAlarm = moneyLogAlarm(
+      'LedgerRowsOverdue',
+      'ledger-rows-overdue',
+      'LedgerRowsOverdue',
+      'Ledger Rows Overdue',
+      'An escrow ledger row (one money movement, ESC-20) has been open more than 24 hours ' +
+        '(LEDGER_ROW_OVERDUE in the escrow-cron log group, every 15 minute ledger sweep, with escrowId, ' +
+        'ref (# written as .), status and ageHours). status=pending: the payee fails the identity gate ' +
+        '(the row waits, lastCode PAYEE_BLOCKED) or the sweep cannot call; ask the payee to verify. ' +
+        'status=sent: the gateway outcome is unknown and its status check keeps failing; do NOT pay by ' +
+        'hand, search the merchant portal for the row gatewayRef first. status=failed: the gateway keeps ' +
+        'refusing; after 3 refusals the row moves to Manual Payouts. Rows in Manual Payouts are reported ' +
+        'by manual-payouts-overdue (ref=<ledger ref>). Never edit a ledger row or the escrow by hand.',
+    );
+
+    const ledgerInvariantAlarm = moneyLogAlarm(
+      'EscrowLedgerInvariant',
+      'escrow-ledger-invariant',
+      'EscrowLedgerInvariant',
+      'Escrow Ledger Invariant',
+      'A ledger money check failed (ESCROW_LEDGER_INVARIANT in the escrow, escrow-cron or admin log group, with ' +
+        'escrowId, ref and check). I1: the legs plus the refunded total no longer add up to the amount paid; ' +
+        'I2: the released total differs from the released legs; I3: the ledger rows differ from the totals; ' +
+        'I4: a leg would leave held twice. A decision that fails a check is not written and no money moves ' +
+        '(the caller got 503 ESCROW_012); a check that fails after money moved is recorded and alarmed. ' +
+        'check=AMOUNTS or SPLIT: a split verdict cannot be applied as recorded. Stop: compare the escrow row ' +
+        'with its escrow-ledger rows and escalate. Never edit either by hand.',
     );
 
     const disputeVerdictMismatchAlarm = moneyLogAlarm(
@@ -2294,6 +2356,9 @@ export class MonitoringStack extends cdk.Stack {
           orderEscrowProblemsAlarm,
           manualPayoutsOverdueAlarm,
           truckerPayoutsOverdueAlarm,
+          // ESC-20 escrow ledger
+          ledgerRowsOverdueAlarm,
+          ledgerInvariantAlarm,
           adminQueueOverdueAlarm,
           disputeVerdictMismatchAlarm,
           disputeSettlementBlockedAlarm,

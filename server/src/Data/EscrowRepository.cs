@@ -175,6 +175,9 @@ public sealed class EscrowRepository : IEscrowRepository
             request.ExpressionAttributeNames["#lock"] = "settlementLock";
             conditions.Add("attribute_not_exists(#refundReason)");
             request.ExpressionAttributeNames["#refundReason"] = "refundReason";
+            // ESC-20: nor on a ledger escrow whose crop leg is already decided (its rows are moving the money).
+            conditions.Add(LedgerCropHeldCondition);
+            AddLedgerCropHeldNames(request.ExpressionAttributeNames, request.ExpressionAttributeValues);
         }
 
         if (conditions.Count > 0)
@@ -183,6 +186,22 @@ public sealed class EscrowRepository : IEscrowRepository
         }
 
         await _dynamoDb.UpdateItemAsync(request);
+    }
+
+
+    /// <summary>
+    /// ESC-20: the condition that a ledger escrow's crop leg is still held (a 1.x escrow has no
+    /// <c>legStatus</c> and always passes). Once a release, refund or split is decided the escrow can
+    /// still read <c>escrowed</c> while its rows are open; nothing that assumes the money is still
+    /// held (a dispute, a hold, a scheduled refund, a sweep) may land on it then.
+    /// </summary>
+    internal const string LedgerCropHeldCondition = "(attribute_not_exists(#ledgerLegs) OR #ledgerLegs.#ledgerCrop = :ledgerHeld)";
+
+    internal static void AddLedgerCropHeldNames(Dictionary<string, string> names, Dictionary<string, AttributeValue> values)
+    {
+        names["#ledgerLegs"] = LedgerEscrowFields.LegStatus;
+        names["#ledgerCrop"] = LedgerEscrowFields.LegCrop;
+        values[":ledgerHeld"] = new AttributeValue { S = LedgerEscrowFields.Held };
     }
 
     /// <inheritdoc />
@@ -198,7 +217,8 @@ public sealed class EscrowRepository : IEscrowRepository
             // delivery that took the money since it was read refuses the whole transaction.
             ConditionExpression = "#status = :escrowed AND attribute_not_exists(#lock) "
                 + "AND attribute_not_exists(#manualPayout) "
-                + "AND (attribute_not_exists(#confirmed) OR size(#confirmed) = :zero)",
+                + "AND (attribute_not_exists(#confirmed) OR size(#confirmed) = :zero) "
+                + "AND " + LedgerCropHeldCondition,
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#expiresAt", "expiresAt" },
@@ -208,7 +228,9 @@ public sealed class EscrowRepository : IEscrowRepository
                 { "#lock", SettlementLockFields.Lock },
                 { "#manualPayout", ManualPayoutFields.Marker },
                 { "#confirmed", "deliveryConfirmedAt" },
-                { "#version", "version" }
+                { "#version", "version" },
+                { "#ledgerLegs", LedgerEscrowFields.LegStatus },
+                { "#ledgerCrop", LedgerEscrowFields.LegCrop }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
@@ -216,7 +238,8 @@ public sealed class EscrowRepository : IEscrowRepository
                 { ":reason", new AttributeValue { S = reason } },
                 { ":escrowed", new AttributeValue { S = "escrowed" } },
                 { ":zero", new AttributeValue { N = "0" } },
-                { ":one", new AttributeValue { N = "1" } }
+                { ":one", new AttributeValue { N = "1" } },
+                { ":ledgerHeld", new AttributeValue { S = LedgerEscrowFields.Held } }
             }
         }
     };
@@ -367,7 +390,10 @@ public sealed class EscrowRepository : IEscrowRepository
         const string updateExpression = "SET #status = :held, #reason = :reason, #heldAt = :heldAt, #heldBy = :system, "
                                         + "#heldFrom = :from, #heldFor = :for, #updated = :heldAt ADD #version :one";
         // A settlement in progress (its lock) or waiting for an admin (the queue) wins over the hold.
-        const string condition = "#status = :from AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout)";
+        // ESC-20: and a ledger escrow whose crop leg is decided is past holding (its rows are moving the money).
+        const string condition = "#status = :from AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout) AND "
+                                 + LedgerCropHeldCondition;
+        AddLedgerCropHeldNames(names, values);
 
         var orderChanged = false;
         try
@@ -1147,6 +1173,11 @@ public sealed class EscrowRepository : IEscrowRepository
         var filters = new List<string> { "attribute_not_exists(#manualPayout)", "attribute_not_exists(#truckerPending)" };
         request.ExpressionAttributeNames["#manualPayout"] = ManualPayoutFields.Marker;
         request.ExpressionAttributeNames["#truckerPending"] = TruckerPayoutFields.Pending;
+
+        // ESC-20: a ledger escrow whose crop leg is decided belongs to the ledger sweep (its rows), so no
+        // status sweep releases, refunds or crash-completes it again; it must not fill the window either.
+        filters.Add(LedgerCropHeldCondition);
+        AddLedgerCropHeldNames(request.ExpressionAttributeNames, request.ExpressionAttributeValues);
 
         // ESC-06: an order escrow held to its 21-day cap keeps that expiresAt and its order waits in
         // the admin queue, which owns it; it would sit at the head of both sweep windows for good.

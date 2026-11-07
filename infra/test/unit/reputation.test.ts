@@ -44,6 +44,7 @@ function stacks(envConfig: EnvironmentConfig, environmentContext?: string): { db
     tripLocationsTable: db.tripLocationsTable,
     reputationEventsTable: db.reputationEventsTable,
     listingReportsTable: db.listingReportsTable,
+    escrowLedgerTable: db.escrowLedgerTable,
     transactionAuditTable: db.transactionAuditTable,
     uploadsBucket: db.uploadsBucket,
   });

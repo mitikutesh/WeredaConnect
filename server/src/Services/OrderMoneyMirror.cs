@@ -154,11 +154,15 @@ public sealed class OrderMoneyMirror
         var status = Str(escrow, "status");
         var queued = string.Equals(Str(escrow, ManualPayoutFields.Marker), ManualPayoutFields.MarkerOpen, StringComparison.Ordinal);
         var queuedRelease = queued && Str(escrow, ManualPayoutFields.Op) == ManualPayoutFields.OpRelease;
+        // ESC-20: a ledger escrow whose crop leg is released has its release decided: its rows are open
+        // (the gateway, the sweep or the manual queue), so the order is disbursing (escrow-protocol.md P.5).
+        var ledgerReleaseDecided = LedgerEscrowFields.IsLedger(escrow)
+                                   && LedgerEscrow.From(escrow).LegState(LedgerEscrowFields.LegCrop) == LedgerEscrowFields.Released;
         return status switch
         {
             "completed" when !Flag(escrow, TruckerPayoutFields.Pending) && !queued => OrderMoneyTarget.Settled,
             "completed" or "released" => OrderMoneyTarget.Disbursing,
-            "escrowed" when queuedRelease => OrderMoneyTarget.Disbursing,
+            "escrowed" when queuedRelease || ledgerReleaseDecided => OrderMoneyTarget.Disbursing,
             "refunded" => OrderMoneyTarget.Refunded,
             _ => OrderMoneyTarget.None
         };
@@ -226,7 +230,10 @@ public sealed class OrderMoneyMirror
 
     private async Task<OrderMoneyResult> FollowVerdictAsync(Dictionary<string, object> escrow, ILambdaContext? context)
     {
-        var resolution = Str(escrow, "disputeResolution") ?? "";
+        // ESC-20: a ledger split (partial_refund) needs the goods delivered, so the order follows it as farmer_wins.
+        var resolution = LedgerEscrowFields.IsLedger(escrow)
+            ? DisputeVerdicts.MirrorDirection(Str(escrow, "disputeResolution"))
+            : Str(escrow, "disputeResolution") ?? "";
         if (resolution is not ("farmer_wins" or "buyer_wins")
             || Str(escrow, "status") is not ("released" or "completed" or "refunded"))
         {

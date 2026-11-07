@@ -119,6 +119,14 @@ export interface EnvironmentConfig {
    */
   readonly timeoutPenalties?: boolean;
   /**
+   * ESC-20: ESCROW_LEDGER_ENABLED on the sync and telebirr-webhook Lambdas (escrow-protocol.md 2.2.0, P.12).
+   * On, a new order escrow is born on the escrow ledger (settlementModel ledger: per-leg write-ahead rows
+   * instead of the whole-escrow settlement lock) and a duplicate payment gets its ledger refund row. Off, new
+   * escrows take the 1.x path again; escrows already on the ledger keep settling there (the table stays wired
+   * in every escrow Lambda). Default false; dev is on, staging and prod off until the ledger has run in dev.
+   */
+  readonly escrowLedgerEnabled?: boolean;
+  /**
    * FRD-19 kill switch: FRAUD_AI_REVIEW_ENABLED on the fraud-advisory cron and AI_REVIEW_ENABLED on the
    * fraud-ai-reviewer Lambda (fraud-detection-architecture.md section 21). On, an hourly run sends the redacted
    * audit timeline of each user the rules have just put at HIGH or CRITICAL to a Claude model on Amazon Bedrock
@@ -162,6 +170,8 @@ export const environments: Record<string, EnvironmentConfig> = {
     // ESC-28: reputation penalties and timeout penalties stay off until the rollout (reputation-architecture.md 12.1).
     reputationPenalties: false,
     timeoutPenalties: false,
+    // ESC-20: new order escrows settle through the escrow ledger; staging and prod stay off.
+    escrowLedgerEnabled: true,
     // FRD-19: the AI advisory reviewer stays off until the owner turns it on; the EU profile keeps the
     // redacted timelines in EU Regions.
     aiReviewEnabled: false,

@@ -140,6 +140,12 @@ public static class MoneyAlarmLog
     /// </summary>
     public const string EscrowDeliveryStampFailedToken = "ESCROW_DELIVERY_STAMP_FAILED";
 
+    /// <summary>ESC-20: a ledger write that would break I1 to I4 was not sent (any occurrence alarms).</summary>
+    public const string LedgerInvariantToken = "ESCROW_LEDGER_INVARIANT";
+
+    /// <summary>ESC-20: a ledger row has been open (pending, sent or failed) for more than 24 hours.</summary>
+    public const string LedgerRowOverdueToken = "LEDGER_ROW_OVERDUE";
+
     /// <summary>The gateway definitely refused the settlement; no money moved.</summary>
     public const string OutcomeFailed = "failed";
 
@@ -189,6 +195,17 @@ public static class MoneyAlarmLog
 
     public static string ManualPayoutOverdue(string? escrowId, string? reference, int ageHours)
         => $"{ManualPayoutOverdueToken} escrowId={LogId(escrowId)} ref={Safe(reference)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>ESC-20: the invariant <paramref name="check"/> (I1 to I4) fails for a ledger write or on a sweep re-check.</summary>
+    public static string LedgerInvariant(string? escrowId, string? reference, string? check)
+        => $"{LedgerInvariantToken} escrowId={LogId(escrowId)} ref={LogRef(reference)} check={Safe(check)}";
+
+    /// <summary>ESC-20: a ledger row open longer than <see cref="QueueAlarmAfter"/>, logged on every sweep that sees it.</summary>
+    public static string LedgerRowOverdue(string? escrowId, string? reference, string? status, int ageHours)
+        => $"{LedgerRowOverdueToken} escrowId={LogId(escrowId)} ref={LogRef(reference)} status={Safe(status)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>ESC-20: a ledger ref for a log line: <c>#</c> becomes <c>.</c>, then as <see cref="LogId"/> (a ref can embed a user id).</summary>
+    public static string LogRef(string? reference) => LogId(reference?.Replace('#', '.'));
 
     public static string AdminQueueOverdue(string? orderId, string? reason, int ageHours, string? escrowId = null)
         => $"{AdminQueueOverdueToken} orderId={LogId(orderId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}"

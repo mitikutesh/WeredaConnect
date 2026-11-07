@@ -16,6 +16,7 @@ namespace WeredaConnect.Server.Functions;
 ///   - reconciliation (every 6h): reconcile stuck "initiated" escrows with Telebirr
 ///   - park_legacy_trucker_legs (no schedule; the server deploy invokes it, ESC-04): queue the
 ///     trucker legs of escrows completed before ESC-04 without them
+///   - ledger_sweep (every 15 minutes, ESC-20): call, check or retry the open rows of the escrow ledger
 ///
 /// Accepts APIGatewayProxyRequest for compatibility with the existing Lambda bootstrap.
 /// EventBridge rule passes the action payload in the request body as JSON.
@@ -344,7 +345,11 @@ public class EscrowCronFunction
 
         _transactionAuditRepo = txAuditRepo;
         _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway, userRepo,
-            _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo, cropRepo: _cropRepo, tripRepo: _tripRepo);
+            _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo, cropRepo: _cropRepo, tripRepo: _tripRepo)
+        {
+            // ESC-20: the cron settles ledger escrows (sweeps, verdicts, the ledger sweep).
+            LedgerRepo = EscrowLedgerConfig.FromEnvironment(dynamoDb, escrowsTable, auditTable)
+        };
 
         // FRD-04: the gate also reads each party's risk tier from the fraud-signals table. The cron never
         // runs the velocity checks, so the service gets no rate-limit table. FRD-10: its only write to the
@@ -429,7 +434,7 @@ public class EscrowCronFunction
         if (string.IsNullOrEmpty(action))
         {
             return LambdaResponse.Error(400, "ESCROW_CRON_VALIDATION",
-                "Missing 'action' field. Expected: auto_release_and_refund, reconciliation, park_legacy_trucker_legs.");
+                "Missing 'action' field. Expected: auto_release_and_refund, reconciliation, park_legacy_trucker_legs, ledger_sweep.");
         }
 
         var safeAction = action.Length > 50 ? action[..50] : action;
@@ -442,8 +447,9 @@ public class EscrowCronFunction
                 "auto_release_and_refund" => await HandleAutoReleaseAndRefundAsync(context),
                 "reconciliation" => await HandleReconciliationAsync(context),
                 "park_legacy_trucker_legs" => await HandleParkLegacyTruckerLegsAsync(context),
+                "ledger_sweep" => await HandleLedgerSweepAsync(context),
                 _ => LambdaResponse.Error(400, "ESCROW_CRON_VALIDATION",
-                    $"Unknown action '{safeAction}'. Expected: auto_release_and_refund, reconciliation, park_legacy_trucker_legs.")
+                    $"Unknown action '{safeAction}'. Expected: auto_release_and_refund, reconciliation, park_legacy_trucker_legs, ledger_sweep.")
             };
         }
         catch (Exception ex)
@@ -501,6 +507,8 @@ public class EscrowCronFunction
         var completedCount = await CompleteReleasedAsync(context);
         // ESC-04: last, so the money sweeps above keep their share of the 5 minute run.
         var trucker = await RetryPendingTruckerLegsAsync(context, runStart);
+        // ESC-20: a ledger escrow's transport leg the identity gate held back at the release (F2).
+        var ledgerTransport = await RetryLedgerTransportLegsAsync(context);
         // ESC-09: after every money sweep (it moves no money): orders follow where the money went.
         var orders = await FollowMoneySweepAsync(context);
 
@@ -520,6 +528,9 @@ public class EscrowCronFunction
             { "truckerLegsFailed", trucker.Failed.ToString() },
             { "truckerLegsDeferred", trucker.Deferred.ToString() },
             { "truckerLegsOverdue", trucker.Overdue.ToString() },
+            { "ledgerTransportLegsDecided", ledgerTransport.Decided.ToString() },
+            { "ledgerTransportLegsBlocked", ledgerTransport.Blocked.ToString() },
+            { "ledgerTransportLegsOverdue", ledgerTransport.Overdue.ToString() },
             { "adminQueueEntered", _adminQueueEntered.ToString() },
             { "adminQueueOverdue", (queueOverdue + _adminQueueOverdue).ToString() },
             { "adminQueueCleared", queueCleared.ToString() },
@@ -588,17 +599,43 @@ public class EscrowCronFunction
                 var escrowId = GetString(escrow, "escrowId");
                 var deliveryId = GetStringOrNull(escrow, "deliveryId") ?? "";
                 var resolution = GetStringOrNull(escrow, "disputeResolution");
-                if (resolution is "farmer_wins" or "buyer_wins")
+                // ESC-20: a split verdict (partial_refund) on a ledger escrow pays farmer, trucker and buyer.
+                var split = resolution == DisputeVerdicts.PartialRefund && EscrowService.IsLedgerEscrow(escrow);
+                if (resolution is "farmer_wins" or "buyer_wins" || split)
                 {
                     sweep.CountRow();
 
                     // FRD-03: the risk gate, before the verdict's order and delivery hops and the money.
                     if (await HoldsSettlementAsync(escrow, "dispute_resolved",
-                            resolution == "farmer_wins" ? EscrowHoldFields.ForRelease : EscrowHoldFields.ForRefund,
+                            resolution == "buyer_wins" ? EscrowHoldFields.ForRefund : EscrowHoldFields.ForRelease,
                             "dispute", null, context))
                     {
                         continue;
                     }
+                }
+
+                if (split)
+                {
+                    var result = await _escrowService.SettleSplitVerdictAsync(escrowId);
+                    if (result.IsSuccess)
+                    {
+                        released++;
+                    }
+                    else if (IsManualPayoutWaiting(result.Error))
+                    {
+                        NoteManualPayoutWaiting(context, escrowId, "split verdict");
+                    }
+                    else if (IsPayoutBlocked(result.Error))
+                    {
+                        NoteReleaseBlocked(context, escrowId, "split verdict");
+                    }
+                    else
+                    {
+                        context.Logger.LogError(
+                            $"Dispute settlement (split) failed for {MoneyAlarmLog.LogId(escrowId)}: {result.Error?.Code} - {MoneyAlarmLog.LogText(result.Error?.Message)}");
+                    }
+
+                    continue;
                 }
 
                 switch (resolution)
@@ -1736,6 +1773,143 @@ public class EscrowCronFunction
         }
 
         return completedCount;
+    }
+
+    /// <summary>
+    /// ESC-20: the ledger sweep (escrow-protocol.md 2.2.0, P.6), every 15 minutes: open rows due now, oldest
+    /// first, within a 4 minute slice of the run. A <c>pending</c> row is called, a <c>sent</c> row (or one
+    /// whose caller died after stamping it) is checked with the gateway first, a <c>failed</c> row is retried
+    /// with the same reference; then the overdue lines.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleLedgerSweepAsync(ILambdaContext context)
+    {
+        var slice = _runBudget.Slice(LedgerSweepSlice, CronRunBudget.DefaultReserve);
+        var counts = await _escrowService.SweepLedgerAsync(() => slice.MayStartRow(context), context);
+        if (counts.Truncated)
+        {
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                null, "sweep_truncated", MoneyAlarmLog.OutcomeFailed, $"ledger_sweep:{slice.StopReason ?? "time"}"));
+        }
+
+        var summary = new Dictionary<string, string>
+        {
+            { "action", "ledger_sweep" },
+            { "seen", counts.Seen.ToString() },
+            { "done", counts.Done.ToString() },
+            { "sent", counts.Sent.ToString() },
+            { "failed", counts.Failed.ToString() },
+            { "manual", counts.Manual.ToString() },
+            { "blocked", counts.Blocked.ToString() },
+            { "skipped", counts.Skipped.ToString() },
+            { "overdue", counts.Overdue.ToString() },
+            { "manualOverdue", counts.ManualOverdue.ToString() },
+            { "invariantFailures", counts.Invariant.ToString() },
+            { "truncated", counts.Truncated ? "true" : "false" },
+            { "completedAt", DateTime.UtcNow.ToString("o") }
+        };
+        context.Logger.LogInformation(
+            $"Ledger sweep complete: {counts.Seen} rows seen, {counts.Done} done, {counts.Sent} sent, {counts.Failed} failed, "
+            + $"{counts.Manual} manual, {counts.Blocked} blocked, {counts.Skipped} skipped, {counts.Overdue} overdue, "
+            + $"{counts.ManualOverdue} manual overdue, {counts.Invariant} invariant failures.");
+
+        return new APIGatewayProxyResponse
+        {
+            StatusCode = counts.QueryFailed ? 500 : 200,
+            Body = JsonSerializer.Serialize(summary, AppJsonContext.Default.DictionaryStringString),
+            Headers = new Dictionary<string, string> { { "Content-Type", "application/json" } }
+        };
+    }
+
+    /// <summary>ESC-20: how long the ledger sweep may run (the escrow-cron Lambda has 5 minutes).</summary>
+    internal TimeSpan LedgerSweepSlice { get; init; } = TimeSpan.FromMinutes(4);
+
+    /// <summary>What the ledger transport retry did this run (ESC-20, F2).</summary>
+    private sealed class LedgerTransportCounts
+    {
+        public int Decided { get; set; }
+        public int Blocked { get; set; }
+        public int Overdue { get; set; }
+    }
+
+    /// <summary>
+    /// ESC-20 (F2): ledger escrows whose crop leg is decided while the transport leg is still held, because
+    /// the trucker failed the identity gate at the release. Each is retried once the gate passes (the
+    /// trucker row is decided and called); the block is recorded once per reason. Replaces the 1.x trucker
+    /// retry for ledger escrows. At most <see cref="TruckerRetryMaxRows"/> rows a run. A transport leg still
+    /// blocked more than 24 hours after the farmer was paid (<c>releasedAt</c>) logs the 1.x
+    /// <c>TRUCKER_PAYOUT_OVERDUE</c> line every run (alarm <c>trucker-payouts-overdue</c>): no ledger row exists
+    /// for it, so <c>LEDGER_ROW_OVERDUE</c> cannot. The read starts from the oldest row every run (no cursor;
+    /// blocked rows at the head can hold back newer ones past the cap, a follow-up).
+    /// </summary>
+    private async Task<LedgerTransportCounts> RetryLedgerTransportLegsAsync(ILambdaContext context)
+    {
+        var counts = new LedgerTransportCounts();
+        var ledger = _escrowService.LedgerRepo;
+        if (ledger == null)
+        {
+            return counts;
+        }
+
+        var slice = _runBudget.Slice(TimeSpan.FromSeconds(30), CronRunBudget.DefaultReserve);
+        var seen = 0;
+        foreach (var status in new[] { "released", "escrowed" })
+        {
+            Dictionary<string, AttributeValue>? startKey = null;
+            do
+            {
+                List<Dictionary<string, object>> page;
+                try
+                {
+                    (page, startKey) = await ledger.QueryOwedTransportLegsAsync(status, startKey);
+                }
+                catch (Exception ex)
+                {
+                    context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                        null, "sweep_failed", MoneyAlarmLog.OutcomeFailed, $"ledger_transport_query:{ex.GetType().Name}"));
+                    break;
+                }
+
+                foreach (var escrow in page)
+                {
+                    if (++seen > TruckerRetryMaxRows || !slice.MayStartRow(context))
+                    {
+                        return counts;
+                    }
+
+                    try
+                    {
+                        var retry = await _escrowService.RetryLedgerTransportLegAsync(escrow);
+                        switch (retry.Outcome)
+                        {
+                            case EscrowService.LedgerCallOutcome.Blocked:
+                                counts.Blocked++;
+                                if (ParseUtc(GetStringOrNull(escrow, "releasedAt")) is { } releasedAt
+                                    && DateTime.UtcNow - releasedAt >= MoneyAlarmLog.QueueAlarmAfter)
+                                {
+                                    context.Logger.LogWarning(MoneyAlarmLog.TruckerPayoutOverdue(
+                                        GetStringOrNull(escrow, "escrowId"), retry.BlockReason ?? "blocked",
+                                        (int)(DateTime.UtcNow - releasedAt).TotalHours));
+                                    counts.Overdue++;
+                                }
+
+                                break;
+                            case null:
+                                break;
+                            default:
+                                counts.Decided++;
+                                break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        context.Logger.LogError(
+                            $"Ledger transport retry: {MoneyAlarmLog.LogId(GetStringOrNull(escrow, "escrowId"))} failed: [{ex.GetType().Name}]. Continuing.");
+                    }
+                }
+            } while (startKey != null);
+        }
+
+        return counts;
     }
 
     /// <summary>What the trucker retry did this run (ESC-04).</summary>
