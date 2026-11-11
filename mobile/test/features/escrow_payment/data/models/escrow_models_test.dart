@@ -567,4 +567,131 @@ void main() {
       expect(response.isExisting, isFalse);
     });
   });
+
+  group('deriveEscrowCommissionRate (FUP-129)', () {
+    test('an order escrow is charged on the crop leg, not the amount', () {
+      // 10,000 crop + 4,500 transport + 500 commission: 5 % of the crop.
+      expect(
+        deriveEscrowCommissionRate(
+          amount: 15000,
+          commission: 500,
+          farmerPayout: 10000,
+          truckerPayout: 4500,
+          orderId: 'ord-1',
+        ),
+        0.05,
+      );
+    });
+
+    test('an order escrow without a trip still uses the crop leg', () {
+      expect(
+        deriveEscrowCommissionRate(
+          amount: 10500,
+          commission: 500,
+          farmerPayout: 10000,
+          orderId: 'ord-1',
+        ),
+        0.05,
+      );
+    });
+
+    test('a transport gap in the legs marks an order split without its id', () {
+      // An initiate response carries neither the order id nor the trucker leg.
+      expect(
+        deriveEscrowCommissionRate(
+          amount: 15000,
+          commission: 500,
+          farmerPayout: 10000,
+        ),
+        0.05,
+      );
+    });
+
+    test('a legacy delivery escrow is charged on the amount', () {
+      expect(
+        deriveEscrowCommissionRate(
+          amount: 15000,
+          commission: 375,
+          farmerPayout: 14625,
+        ),
+        0.025,
+      );
+    });
+
+    test('rounds to 4 decimals', () {
+      expect(
+        deriveEscrowCommissionRate(
+          amount: 15000,
+          commission: 500,
+          farmerPayout: 11500,
+          truckerPayout: 3000,
+        ),
+        0.0435,
+      );
+    });
+
+    test('no usable base falls back to the legacy rate', () {
+      expect(deriveEscrowCommissionRate(amount: 0, commission: 0), 0.025);
+    });
+  });
+
+  group('commissionRate on responses (FUP-129)', () {
+    Map<String, dynamic> initiateJson() => {
+          'escrowId': 'esc-001',
+          'deliveryId': 'del-001',
+          'buyerId': 'buyer-001',
+          'farmerId': 'farmer-001',
+          'amount': 15000.0,
+          'commission': 500.0,
+          'farmerPayout': 10000.0,
+          'currency': 'ETB',
+          'status': 'escrowed',
+          'createdAt': '2026-02-19T10:00:00Z',
+          'expiresAt': '2026-02-26T10:00:00Z',
+        };
+
+    test('InitiateEscrowResponse reads the server rate, null when absent', () {
+      expect(
+        InitiateEscrowResponse.fromJson({
+          ...initiateJson(),
+          'commissionRate': 0.05,
+        }).commissionRate,
+        0.05,
+      );
+      expect(
+        InitiateEscrowResponse.fromJson(initiateJson()).commissionRate,
+        isNull,
+      );
+    });
+
+    test('EscrowSummary reads the server rate, null when absent', () {
+      expect(
+        EscrowSummary.fromJson({
+          ...initiateJson(),
+          'commissionRate': 0.05,
+        }).commissionRate,
+        0.05,
+      );
+      expect(EscrowSummary.fromJson(initiateJson()).commissionRate, isNull);
+    });
+
+    test('EscrowDetailResponse keeps the server rate over a derived one', () {
+      final response = EscrowDetailResponse.fromJson({
+        ...initiateJson(),
+        'truckerPayout': 4500.0,
+        'orderId': 'ord-1',
+        'commissionRate': 0.04,
+      });
+      expect(response.commissionRate, 0.04);
+    });
+
+    test('EscrowDetailResponse without a rate derives it on the crop leg', () {
+      final response = EscrowDetailResponse.fromJson({
+        ...initiateJson(),
+        'truckerPayout': 4500.0,
+        'orderId': 'ord-1',
+      });
+      expect(response.commissionRate, 0.05);
+    });
+  });
 }

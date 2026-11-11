@@ -626,6 +626,11 @@ public sealed partial class EscrowService
             }
         }
 
+        // FUP-129: the stored rate follows the commission actually used, the same way the
+        // order-funded path stores it. Display metadata only, no money is computed from it.
+        var commissionRate = StoredCommissionRate(
+            linkedOrder, orderCommissionAmount.HasValue, commission, farmerPayout);
+
         var escrowRecord = new Dictionary<string, object>
         {
             { "escrowId", escrowId },
@@ -634,7 +639,7 @@ public sealed partial class EscrowService
             { "farmerId", request.FarmerId },
             { "amount", request.Amount },
             { "commission", commission },
-            { "commissionRate", DefaultCommissionRate },
+            { "commissionRate", commissionRate },
             { "farmerPayout", farmerPayout },
             { "currency", "ETB" },
             { "status", "initiated" },
@@ -722,6 +727,7 @@ public sealed partial class EscrowService
                 FarmerId = request.FarmerId,
                 Amount = request.Amount,
                 Commission = commission,
+                CommissionRate = commissionRate,
                 FarmerPayout = farmerPayout,
                 Currency = "ETB",
                 Status = "initiated",
@@ -758,6 +764,7 @@ public sealed partial class EscrowService
                 FarmerId = request.FarmerId,
                 Amount = request.Amount,
                 Commission = commission,
+                CommissionRate = commissionRate,
                 FarmerPayout = farmerPayout,
                 Currency = "ETB",
                 Status = "escrowed",
@@ -838,8 +845,10 @@ public sealed partial class EscrowService
         var truckerPayout = RoundMoney(Math.Clamp(GetDecimalOrNull(order, "transportCost") ?? 0m, 0m, amount));
         var truckerId = GetStringOrNull(order, "truckerId");
         var farmerPayout = RoundMoney(GetDecimalOrNull(order, "cropCost") ?? 0m);
+        var orderSplitUsed = true;
         if (farmerPayout <= 0m || farmerPayout + truckerPayout > amount)
         {
+            orderSplitUsed = false;
             // Legacy/inconsistent split: default commission rule, farmer takes the rest.
             var defaultCommission = RoundMoney(Math.Max(amount * DefaultCommissionRate, MinCommission));
             farmerPayout = Math.Max(amount - truckerPayout - defaultCommission, 0m);
@@ -883,7 +892,7 @@ public sealed partial class EscrowService
             { "farmerId", farmerId },
             { "amount", amount },
             { "commission", commission },
-            { "commissionRate", GetDecimalOrNull(order, "commissionRate") ?? DefaultCommissionRate },
+            { "commissionRate", StoredCommissionRate(order, orderSplitUsed, commission, farmerPayout) },
             { "farmerPayout", farmerPayout },
             { "currency", "ETB" },
             { "status", "escrowed" },
@@ -1696,8 +1705,9 @@ public sealed partial class EscrowService
         }
 
         // 3b. FUP-147: a release names the delivery it pays for; when the escrow is linked to one, they must agree.
+        //     FUP-139: the field is optional, so a missing or blank one is not compared.
         var escrowDeliveryId = GetStringOrNull(escrowItem, "deliveryId");
-        if (!string.IsNullOrEmpty(request.DeliveryId) && !string.IsNullOrEmpty(escrowDeliveryId)
+        if (!string.IsNullOrWhiteSpace(request.DeliveryId) && !string.IsNullOrEmpty(escrowDeliveryId)
             && !string.Equals(request.DeliveryId, escrowDeliveryId, StringComparison.Ordinal))
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(
@@ -6484,6 +6494,32 @@ public sealed partial class EscrowService
                && expiresAt <= DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// The rate stored on an escrow row (FUP-129): the rate its commission was computed with,
+    /// one definition for both creation paths. With the order's commission it is the order's
+    /// own rate, a share of the crop cost; an order that carries no rate gets the rate its
+    /// legs imply (commission over the crop leg, 4 decimals). Under the legacy rule it is
+    /// 0.025 of the amount. Display metadata only: no money is ever computed from it.
+    /// </summary>
+    internal static decimal StoredCommissionRate(
+        Dictionary<string, object>? order, bool orderCommissionUsed, decimal commission, decimal cropLeg)
+    {
+        if (!orderCommissionUsed || order == null)
+        {
+            return DefaultCommissionRate;
+        }
+
+        var orderRate = GetDecimalOrNull(order, "commissionRate");
+        if (orderRate is >= 0m)
+        {
+            return orderRate.Value;
+        }
+
+        return cropLeg > 0m
+            ? Math.Round(commission / cropLeg, 4, MidpointRounding.AwayFromZero)
+            : DefaultCommissionRate;
+    }
+
     internal static EscrowSummaryDto MapToEscrowSummaryDto(
         Dictionary<string, object> item, bool isBuyer)
     {
@@ -6502,6 +6538,7 @@ public sealed partial class EscrowService
             CounterpartyName = counterpartyName,
             Amount = GetDecimal(item, "amount"),
             Commission = GetDecimal(item, "commission"),
+            CommissionRate = GetDecimalOrNull(item, "commissionRate"),
             // Each party's own leg; amount = farmerPayout + truckerPayout + commission.
             FarmerPayout = GetDecimal(item, "farmerPayout"),
             TruckerPayout = GetDecimalOrNull(item, "truckerPayout"),
@@ -6534,6 +6571,7 @@ public sealed partial class EscrowService
             FarmerId = GetString(escrow, "farmerId"),
             Amount = GetDecimal(escrow, "amount"),
             Commission = GetDecimal(escrow, "commission"),
+            CommissionRate = GetDecimalOrNull(escrow, "commissionRate"),
             FarmerPayout = GetDecimal(escrow, "farmerPayout"),
             Currency = GetString(escrow, "currency"),
             Status = GetString(escrow, "status"),

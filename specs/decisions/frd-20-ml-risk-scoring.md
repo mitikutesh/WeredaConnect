@@ -202,7 +202,7 @@ Configuration (P2): set per environment in `infra/lib/config/environments.ts` (a
   Readings taken when it was built, each the smaller one: the units map keeps every counted type (the fit drops `AI_ADVISORY` and `SUSPENDED_TOKEN_USE`, as "Never used" says); the credits are stored as a row count and their points; the completed escrows are the count among the user's newest 50 in its role (FRD-13's read) with a flag when the user has more; the account age is stored in whole days, not `createdAt`; the rules' score and tier are not stored; the signal read is eventually consistent, like the score read; a failed read stores no partial snapshot.
 - **P2, shadow and priority** (server, infra, admin with en, am, om; at the trigger): the second weights table in `RiskScoreSettings` and `RiskScoreCalculator`, the settings `RISK_ML_MODE`, `RISK_ML_WEIGHTS` and `RISK_ML_WEIGHTS_VERSION`, the shadow line and its metric, the invalid-weights metric and alarm, the Fraud Review ordering and display.
 - **P3, the fit script** (`scripts/fit_risk_weights.py`, stdlib like the export, its tests offline) and the report template.
-- Optional: a random audit sample of unflagged trades; the pre-FRD-18 label backfill (section 20.1).
+- Optional: a random audit sample of unflagged trades; the pre-FRD-18 label backfill (section 20.1; `scripts/backfill_outcome_labels.py`, FUP-143, run per environment).
 
 ## Open decisions (owner)
 

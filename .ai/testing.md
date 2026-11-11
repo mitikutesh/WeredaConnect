@@ -37,6 +37,35 @@
 - `server/TESTING.md` — .NET AOT-compatible testing, NSubstitute patterns, LocalStack integration
 - `infra/TESTING.md` — CDK construct tests, IAM policy validation, snapshot tests
 
+## Admin Playwright Specs (local only)
+
+No CI workflow runs the Playwright suite in `e2e/`; it is run by hand. Two admin specs,
+`e2e/admin/fraud-review.spec.ts` (FRD-07) and `e2e/admin/dispute-evidence.spec.ts` (FRD-14), also need a
+local admin build. They do not sign in (the admin pool needs TOTP): each seeds a fake Cognito session in
+localStorage under the app client id `e2eadminclient` and answers every API call with `page.route`, so
+they check what the page sends and shows, never the server. Against the deployed dev admin the seeded
+session is not found, so both skip themselves unless `ADMIN_URL` is a localhost address (or
+`ADMIN_COGNITO_CLIENT_ID` names the deployed build's client id).
+
+```bash
+# Terminal 1: build the admin with the client id the specs seed, and serve it (no .env needed, no network)
+cd admin && npm ci
+VITE_COGNITO_ADMIN_USER_POOL_ID=eu-north-1_e2eAdmin VITE_COGNITO_ADMIN_CLIENT_ID=e2eadminclient \
+  VITE_API_BASE_URL=https://api.e2e.invalid npx vite build
+npx vite preview --port 4173
+
+# Terminal 2: run the two specs against it (first time only: npx playwright install chromium)
+cd e2e && npm ci
+ADMIN_URL=http://localhost:4173 npx playwright test --project=admin \
+  admin/fraud-review.spec.ts admin/dispute-evidence.spec.ts
+```
+
+Expected: 9 passed (6 Fraud Review, 3 dispute evidence), a few seconds. The values on the build line
+override `admin/.env` for that build only; rebuild with the real values (`npm run build`) before using
+`admin/dist` for anything else. The other admin specs (`login`, `dashboard`, `navigation`) and the
+`webapp` project run against the deployed dev sites by default (`e2e/playwright.config.ts`):
+`cd e2e && npm run test:admin`.
+
 ## Adversarial Fraud Personas (dev, FRD-17)
 
 `scripts/e2e_fraud_personas.py` drives six abusive users against the dev API (listing spammer,
@@ -65,3 +94,34 @@ python3 -I scripts/test_export_outcome_labels.py                  # offline test
 python3 -I scripts/export_outcome_labels.py --env dev --dry-run   # print the AWS call only
 python3 -I scripts/export_outcome_labels.py --env dev --out /tmp/labels.jsonl   # needs AWS credentials
 ```
+
+### Outcome label backfill (FUP-143, one-off)
+
+`scripts/backfill_outcome_labels.py` writes the label of every case resolved before FRD-18, or whose
+live label write failed (`OUTCOME_LABEL_FAILED`), from the `fraud_approve`, `fraud_reject`,
+`fraud_whitelist`, `admin_dispute_resolved`, `fraud_hold_release` and `fraud_hold_refund` rows of the
+transaction-audit table. Dry run by default, `--apply` writes. Append only (a conditional put at the
+live label's key, never an update or delete), and a case that already has its label is skipped, so it
+can be run again at any time. It reads the audit table with one full Scan (there is no index on
+`action`): about 1 read unit per 8 KB, a few cents for a million rows. Do not schedule it. Needs the
+AWS CLI v2 with `dynamodb:Scan`, `Query` and `PutItem` on transaction-audit, `GetItem` on
+fraud-signals and `Query` on escrows. Mapping and limits: section 20.1 of the fraud spec.
+
+Run per environment (dev, then staging, then prod):
+
+```bash
+python3 -I scripts/test_backfill_outcome_labels.py                               # offline tests, run after editing the script
+python3 -I scripts/backfill_outcome_labels.py --env dev > /tmp/backfill-dry.jsonl    # 1. dry run, writes nothing
+#    2. read the summary on stderr: would_write per action and outcome, skipped per reason.
+#       Check every `unresolvable` line in the file (its `detail` says why) before going on.
+python3 -I scripts/backfill_outcome_labels.py --env dev --limit 5 --apply        # 3. a small first pass
+python3 -I scripts/backfill_outcome_labels.py --env dev --apply > /tmp/backfill-apply.jsonl   # 4. the rest
+python3 -I scripts/backfill_outcome_labels.py --env dev                          # 5. dry run again: no would_write left
+python3 -I scripts/export_outcome_labels.py --env dev --out /tmp/labels.jsonl    # 6. verify: the labels are in the export
+```
+
+Exit codes: 0 done, 1 an AWS call or a write failed (fix the cause and run again), 2 usage, 3 the Scan
+stopped at `--max-pages`. The JSON lines carry ids only. A backfilled row has `labelBackfill: FUP-143`
+and `backfilledAt` on the table row; the export carries `labelBackfill` (empty on a live label), so
+an analysis can tell the two apart. The summary also names every other `fraud_*` action it saw
+(`fraud_hold`, or one the script does not know): counted, never labelled.

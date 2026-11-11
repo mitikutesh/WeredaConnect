@@ -66,6 +66,10 @@ public sealed record InitiateEscrowResponse
     public required string FarmerId { get; init; }
     public required decimal Amount { get; init; }
     public required decimal Commission { get; init; }
+
+    /// <summary>The escrow's stored rate (FUP-129); null on rows that carry none.</summary>
+    public decimal? CommissionRate { get; init; }
+
     public required decimal FarmerPayout { get; init; }
     public required string Currency { get; init; }
     public required string Status { get; init; }
@@ -129,7 +133,12 @@ public sealed record ReleaseEscrowRequest
     /// </summary>
     public string Trigger { get; init; } = "";
 
-    public string DeliveryId { get; init; } = "";
+    /// <summary>
+    /// Optional (escrow-protocol 2.5.0, FUP-139): the delivery this release pays for. When it is sent and the
+    /// escrow is linked to a delivery, the two must be equal; a self-pickup escrow has none. Null when absent.
+    /// </summary>
+    public string? DeliveryId { get; init; }
+
     public string IdempotencyKey { get; init; } = "";
 
     /// <summary>
@@ -607,6 +616,9 @@ public sealed record EscrowSummaryDto
     public required string CounterpartyName { get; init; }
     public required decimal Amount { get; init; }
     public required decimal Commission { get; init; }
+
+    /// <summary>The escrow's stored rate (FUP-129); null on rows that carry none.</summary>
+    public decimal? CommissionRate { get; init; }
 
     /// <summary>Crop leg of the held amount: what the farmer receives on release.</summary>
     public decimal FarmerPayout { get; init; }
