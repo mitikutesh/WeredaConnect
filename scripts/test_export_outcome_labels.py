@@ -139,6 +139,18 @@ class RecordTest(unittest.TestCase):
             self.assertNotIn(leaked, text)
         self.assertEqual(set(record), set(eol.COLUMNS) - {"final"})
 
+    def test_a_backfilled_row_is_marked_and_a_live_one_is_not(self):
+        # FUP-143: scripts/backfill_outcome_labels.py sets labelBackfill (and backfilledAt, not exported).
+        self.assertIsNone(eol.to_record(label_row())["labelBackfill"])
+        row = label_row(labelBackfill=S("FUP-143"), backfilledAt=S("2026-11-11T09:00:00.0000000Z"))
+        record = eol.to_record(row)
+        self.assertEqual(record["labelBackfill"], "FUP-143")
+        self.assertNotIn("backfilledAt", record)
+        self.assertIn("labelBackfill", eol.COLUMNS)
+        csv_text = eol.render(eol.mark_final([record, eol.to_record(label_row())]), "csv")
+        rows = list(csv.DictReader(io.StringIO(csv_text)))
+        self.assertEqual([r["labelBackfill"] for r in rows], ["FUP-143", ""])
+
     def test_a_row_that_is_not_a_label_is_skipped(self):
         row = label_row()
         row["action"] = S("admin_dispute_resolved")

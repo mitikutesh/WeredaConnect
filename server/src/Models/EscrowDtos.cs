@@ -66,6 +66,10 @@ public sealed record InitiateEscrowResponse
     public required string FarmerId { get; init; }
     public required decimal Amount { get; init; }
     public required decimal Commission { get; init; }
+
+    /// <summary>The escrow's stored rate (FUP-129); null on rows that carry none.</summary>
+    public decimal? CommissionRate { get; init; }
+
     public required decimal FarmerPayout { get; init; }
     public required string Currency { get; init; }
     public required string Status { get; init; }
@@ -612,6 +616,9 @@ public sealed record EscrowSummaryDto
     public required string CounterpartyName { get; init; }
     public required decimal Amount { get; init; }
     public required decimal Commission { get; init; }
+
+    /// <summary>The escrow's stored rate (FUP-129); null on rows that carry none.</summary>
+    public decimal? CommissionRate { get; init; }
 
     /// <summary>Crop leg of the held amount: what the farmer receives on release.</summary>
     public decimal FarmerPayout { get; init; }

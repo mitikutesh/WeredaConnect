@@ -31,10 +31,14 @@ class Payment {
   /// Payment amount in Ethiopian Birr (ETB)
   late double amount;
 
-  /// Platform commission in ETB: max(amount * commissionRate, 5.0)
+  /// Platform commission in ETB, set by the server. On an order escrow it is
+  /// the order's commission (a rate of the crop cost, paid on top by the
+  /// buyer); on a legacy delivery escrow max(amount * 0.025, 5.0).
   late double commission;
 
-  /// Commission rate (server-configured, default 0.025)
+  /// Rate the commission was computed with, as stored by the server: the
+  /// order's rate on the crop cost (default 0.05), or 0.025 of the amount on a
+  /// legacy delivery escrow. Not a rate of [amount] on an order escrow.
   late double commissionRate;
 
   /// Crop leg the farmer receives on release. With a trucker split:
