@@ -77,7 +77,7 @@ const mentions = (s: Statement, hint: string) => JSON.stringify(s.Resource).incl
 describe('FRD-19 AI advisory reviewer (ApiStack)', () => {
   const template = apiTemplate();
 
-  test('the reviewer is a Node.js 24 Lambda on ARM64 with no bundle step, 30 s, off by default', () => {
+  test('the reviewer is a Node.js 24 Lambda on ARM64 with no bundle step, 30 s, on in dev with Haiku 5.5', () => {
     const fn = functionOf(template, REVIEWER).props;
     expect(fn.Runtime).toBe('nodejs24.x');
     expect(fn.Architectures).toEqual(['arm64']);
@@ -86,8 +86,8 @@ describe('FRD-19 AI advisory reviewer (ApiStack)', () => {
     expect(fn.MemorySize).toBe(256);
     expect(fn.ReservedConcurrentExecutions).toBeUndefined(); // dev: the account limit is 10
     expect(fn.Environment.Variables).toEqual({
-      AI_REVIEW_ENABLED: 'false',
-      BEDROCK_MODEL_ID: 'eu.anthropic.claude-opus-5-5',
+      AI_REVIEW_ENABLED: 'true',
+      BEDROCK_MODEL_ID: 'eu.anthropic.claude-haiku-5-5',
       BEDROCK_REGION: 'eu-north-1',
     });
   });
@@ -105,24 +105,24 @@ describe('FRD-19 AI advisory reviewer (ApiStack)', () => {
     expect(actions.every((a) => a.startsWith('bedrock:'))).toBe(true);
     expect([...new Set(actions)].sort()).toEqual(['bedrock:GetInferenceProfile', 'bedrock:InvokeModel']);
 
-    const profile = statements.find((s) => mentions(s, 'inference-profile/eu.anthropic.claude-opus-5-5'));
+    const profile = statements.find((s) => mentions(s, 'inference-profile/eu.anthropic.claude-haiku-5-5'));
     expect(profile).toBeDefined();
     expect(JSON.stringify(profile!.Resource)).toContain(':bedrock:eu-north-1:');
 
-    const models = statements.find((s) => mentions(s, 'foundation-model/anthropic.claude-opus-5-5'));
+    const models = statements.find((s) => mentions(s, 'foundation-model/anthropic.claude-haiku-5-5'));
     expect(models).toBeDefined();
     expect(actionsOf(models!)).toEqual(['bedrock:InvokeModel']);
     expect(JSON.stringify(models!.Condition)).toContain('bedrock:InferenceProfileArn');
-    expect(JSON.stringify(models!.Condition)).toContain('inference-profile/eu.anthropic.claude-opus-5-5');
+    expect(JSON.stringify(models!.Condition)).toContain('inference-profile/eu.anthropic.claude-haiku-5-5');
   });
 
-  test('the cron is the AOT bootstrap with the kill switch off, the reviewer named, 3 minutes, one at a time', () => {
+  test('the cron is the AOT bootstrap with the switch on in dev, the reviewer named, 3 minutes, one at a time', () => {
     const fn = functionOf(template, CRON).props;
     expect(fn.Runtime).toBe('provided.al2023');
     expect(fn.Timeout).toBe(180);
     expect(fn.Environment.Variables).toEqual(expect.objectContaining({
       FUNCTION_HANDLER: 'FraudAdvisoryCronFunction',
-      FRAUD_AI_REVIEW_ENABLED: 'false',
+      FRAUD_AI_REVIEW_ENABLED: 'true',
       FRAUD_AI_REVIEWER_FUNCTION: expect.anything(),
       FRAUD_SIGNALS_TABLE: expect.anything(),
       USERS_TABLE: expect.anything(),
@@ -159,11 +159,11 @@ describe('FRD-19 AI advisory reviewer (ApiStack)', () => {
     expect(statements.flatMap(actionsOf).some((a) => a.startsWith('bedrock:'))).toBe(false);
   });
 
-  test('an hourly rule runs the cron, disabled while the switch is off', () => {
+  test('an hourly rule runs the cron, enabled in dev', () => {
     template.hasResourceProperties('AWS::Events::Rule', {
       Name: 'wereda-connect-dev-fraud-advisory-hourly',
       ScheduleExpression: 'rate(1 hour)',
-      State: 'DISABLED',
+      State: 'ENABLED',
       Targets: Match.arrayWith([
         Match.objectLike({
           Arn: { 'Fn::GetAtt': [Match.stringLikeRegexp('^FraudAdvisoryCronFunction'), 'Arn'] },
@@ -173,13 +173,13 @@ describe('FRD-19 AI advisory reviewer (ApiStack)', () => {
     });
   });
 
-  test('aiReviewEnabled turns both switches and the rule on', () => {
-    const on = apiTemplate({ ...devConfig, aiReviewEnabled: true });
-    expect(functionOf(on, REVIEWER).props.Environment.Variables.AI_REVIEW_ENABLED).toBe('true');
-    expect(functionOf(on, CRON).props.Environment.Variables.FRAUD_AI_REVIEW_ENABLED).toBe('true');
-    on.hasResourceProperties('AWS::Events::Rule', {
+  test('aiReviewEnabled false turns both switches and the rule off', () => {
+    const off = apiTemplate({ ...devConfig, aiReviewEnabled: false });
+    expect(functionOf(off, REVIEWER).props.Environment.Variables.AI_REVIEW_ENABLED).toBe('false');
+    expect(functionOf(off, CRON).props.Environment.Variables.FRAUD_AI_REVIEW_ENABLED).toBe('false');
+    off.hasResourceProperties('AWS::Events::Rule', {
       Name: 'wereda-connect-dev-fraud-advisory-hourly',
-      State: 'ENABLED',
+      State: 'DISABLED',
     });
   });
 
@@ -190,8 +190,10 @@ describe('FRD-19 AI advisory reviewer (ApiStack)', () => {
     });
   });
 
-  test('every environment ships with the reviewer off', () => {
-    for (const name of ['dev', 'staging', 'prod']) {
+  test('only dev has the reviewer on (Haiku 5.5); staging and prod ship with it off', () => {
+    expect(environments['dev'].aiReviewEnabled).toBe(true);
+    expect(environments['dev'].aiReviewModelId).toBe('eu.anthropic.claude-haiku-5-5');
+    for (const name of ['staging', 'prod']) {
       expect([name, environments[name].aiReviewEnabled ?? false]).toEqual([name, false]);
     }
   });

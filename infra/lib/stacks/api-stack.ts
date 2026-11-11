@@ -2207,7 +2207,7 @@ export class ApiStack extends cdk.Stack {
     //   sends each redacted timeline to the reviewer and writes one capped AI_ADVISORY signal row. Its role reads
     //   fraud signals (table and status index), users rows and the transaction audit, puts fraud-signal rows and
     //   invokes the reviewer: no grant on orders, escrows or any money table.
-    // Kill switch: aiReviewEnabled (environments.ts), off everywhere by default, on both Lambdas.
+    // Kill switch: aiReviewEnabled (environments.ts), off unless set (on in dev only), on both Lambdas.
     const aiReviewEnabled = envConfig.aiReviewEnabled ? "true" : "false";
     const aiReviewModelId = envConfig.aiReviewModelId ?? "eu.anthropic.claude-opus-5-5";
     const aiReviewBedrockRegion = envConfig.aiReviewBedrockRegion ?? this.region;

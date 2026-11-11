@@ -172,10 +172,10 @@ export const environments: Record<string, EnvironmentConfig> = {
     timeoutPenalties: false,
     // ESC-20: new order escrows settle through the escrow ledger; staging and prod stay off.
     escrowLedgerEnabled: true,
-    // FRD-19: the AI advisory reviewer stays off until the owner turns it on; the EU profile keeps the
-    // redacted timelines in EU Regions.
-    aiReviewEnabled: false,
-    aiReviewModelId: 'eu.anthropic.claude-opus-5-5',
+    // FRD-19: the AI advisory reviewer is on in dev only (owner's decision, 2026-11-11), on Haiku 5.5; the EU
+    // profile keeps the redacted timelines in EU Regions. Staging and prod stay off.
+    aiReviewEnabled: true,
+    aiReviewModelId: 'eu.anthropic.claude-haiku-5-5',
     tags: {
       Environment: 'development',
       Project: 'WeredaConnect',
