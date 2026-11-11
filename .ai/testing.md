@@ -93,4 +93,6 @@ python3 -I scripts/export_outcome_labels.py --env dev --out /tmp/labels.jsonl   
 
 Exit codes: 0 done, 1 an AWS call or a write failed (fix the cause and run again), 2 usage, 3 the Scan
 stopped at `--max-pages`. The JSON lines carry ids only. A backfilled row has `labelBackfill: FUP-143`
-and `backfilledAt` on the table row; the export does not carry them.
+and `backfilledAt` on the table row; the export carries `labelBackfill` (empty on a live label), so
+an analysis can tell the two apart. The summary also names every other `fraud_*` action it saw
+(`fraud_hold`, or one the script does not know): counted, never labelled.

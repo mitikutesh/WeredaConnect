@@ -49,6 +49,9 @@ Options:
   --page-size N           items per Query page (default 100, at most 1000)
   --max-pages N           pages read at most (default 50); more pages exit 3 with what was read
 
+`labelBackfill` is `FUP-143` on a row the one-off backfill wrote
+(scripts/backfill_outcome_labels.py) and empty on a label written live.
+
 Every row has `final`: true for the latest decision of its case (a Fraud Review
 signal can be decided again, for example reject then approve; the other cases
 have one label each). It is computed over the rows this run read only: with
@@ -113,6 +116,8 @@ FIELDS = [
     ("heldFromStatus", "heldFromStatus"),
     ("heldAt", "heldAt"),
     ("whitelistUntil", "whitelistUntil"),
+    # Set (FUP-143) on a row scripts/backfill_outcome_labels.py wrote; empty on a label written live.
+    ("labelBackfill", "labelBackfill"),
 ]
 COLUMNS = [name for name, _ in FIELDS] + ["hasReason", "final"]
 

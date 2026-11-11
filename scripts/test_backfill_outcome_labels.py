@@ -112,7 +112,7 @@ class TimeTests(unittest.TestCase):
         self.assertIsNone(bol.key_timestamp(None, "", "buyer_wins"))
 
     def test_slots_are_the_servers(self):
-        # OutcomeLabels.Slot (OutcomeLabelWriter.cs:66-76).
+        # OutcomeLabels.Slot.
         self.assertEqual(bol.SLOTS, {"false_positive": 1, "fraud_confirmed": 2, "whitelisted": 3, "buyer_wins": 4,
                                      "farmer_wins": 5, "hold_released": 6, "hold_refunded": 7})
         self.assertEqual(bol.key_timestamp("2026-11-01T10:00:00Z", None, "partial_refund"), "2026-11-01T10:00:00.0000008Z")
@@ -154,7 +154,7 @@ class EntryTests(unittest.TestCase):
 
 class FraudTests(unittest.TestCase):
     def test_each_verb_maps_to_the_servers_outcome(self):
-        # OutcomeLabels.FraudOutcome (OutcomeLabelWriter.cs:51-57).
+        # OutcomeLabels.FraudOutcome.
         for verb, outcome, slot in (("approve", "false_positive", 1), ("reject", "fraud_confirmed", 2)):
             rows = [fraud_row(verb, "2026-10-02T08:00:00.5000000Z", "Looks honest.")]
             stamped = signal_row(status="reviewed", resolution=verb, reviewedAt="2026-10-02T08:00:00.1000000Z")
@@ -189,10 +189,28 @@ class FraudTests(unittest.TestCase):
         entry = only(bol.plan_fraud(SIGNAL, no_notes, signal_row(), NOW))["entry"]
         self.assertNotIn("labelReason", entry)
 
-    def test_whitelist_without_its_end_is_skipped_not_guessed(self):
+    def test_whitelist_from_before_frd05_is_labelled_without_its_end(self):
+        # Before FRD-05 the audit row's metadata was the notes alone, or absent without notes.
         result = only(bol.plan_fraud(SIGNAL, [fraud_row("whitelist", "2026-10-02T08:00:00Z", "just notes")],
                                      signal_row(), NOW))
-        self.assertEqual((result["kind"], result["why"]), ("skip", "unresolvable"))
+        self.assertEqual(result["kind"], "write")
+        entry = result["entry"]
+        self.assertEqual((entry["labelOutcome"], entry["labelSource"]), ("whitelisted", "fraud_whitelist"))
+        self.assertEqual(entry["timestamp"], "2026-10-01T10:20:30.1234570Z")  # createdAt plus slot 3
+        self.assertEqual(entry["labelReason"], "just notes")
+        self.assertNotIn("whitelistUntil", entry)
+        self.assertIn("before FRD-05", result["note"])
+
+        result = only(bol.plan_fraud(SIGNAL, [fraud_row("whitelist", "2026-10-02T08:00:00Z")], signal_row(), NOW))
+        self.assertEqual(result["kind"], "write")
+        self.assertEqual(result["entry"]["labelOutcome"], "whitelisted")
+        self.assertNotIn("whitelistUntil", result["entry"])
+        self.assertNotIn("labelReason", result["entry"])
+        self.assertIn("before FRD-05", result["note"])
+
+    def test_a_current_whitelist_has_no_note(self):
+        rows = [fraud_row("whitelist", "2026-10-02T08:00:00Z", "whitelistUntil=2026-11-01T08:00:00.0000000Z")]
+        self.assertIsNone(only(bol.plan_fraud(SIGNAL, rows, signal_row(), NOW))["note"])
 
     def test_escrow_and_delivery_entities_link_as_the_server_does(self):
         rows = [fraud_row("approve", "2026-10-02T08:00:00Z")]
@@ -317,7 +335,7 @@ class DisputeTests(unittest.TestCase):
 
 class HeldTests(unittest.TestCase):
     def test_each_exit_maps_to_the_servers_outcome(self):
-        # OutcomeLabels.HeldExitOutcome (OutcomeLabelWriter.cs:60).
+        # OutcomeLabels.HeldExitOutcome.
         for op, status, outcome, slot in (("release", "completed", "hold_released", 6),
                                           ("release", "released", "hold_released", 6),
                                           ("refund", "refunded", "hold_refunded", 7)):
@@ -375,13 +393,15 @@ class FakeAws:
         opts = {cmd[i]: cmd[i + 1] for i in range(3, len(cmd) - 1) if cmd[i].startswith("--")}
         table = opts["--table-name"]
         if op == "scan":
-            assert "--filter-expression" in opts and "--projection-expression" in opts
-            wanted = {v["S"] for v in json.loads(opts["--expression-attribute-values"]).values()}
+            assert opts["--filter-expression"] == "begins_with(#a, :fraud) OR #a = :dispute"
+            assert "--projection-expression" in opts
+            values = json.loads(opts["--expression-attribute-values"])
+            prefix, exact = values[":fraud"]["S"], values[":dispute"]["S"]
             start = json.loads(opts["--exclusive-start-key"])["i"]["N"] if "--exclusive-start-key" in opts else 0
             start = int(start)
             chunk = self.audit[start:start + self.page]
             answer = {"Items": [to_item({k: r[k] for k in ("transactionId", "entityId", "action") if k in r})
-                                for r in chunk if r.get("action") in wanted]}
+                                for r in chunk if r.get("action", "").startswith(prefix) or r.get("action") == exact]}
             if start + self.page < len(self.audit):
                 answer["LastEvaluatedKey"] = {"i": {"N": str(start + self.page)}}
             return answer
@@ -514,6 +534,28 @@ class MainTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(len(aws.puts), 2)  # the other cases still go through
         self.assertTrue(any(l["result"] == "failed" for l in lines))
+
+    def test_other_fraud_actions_are_counted_and_never_labelled(self):
+        aws = world()
+        aws.audit.append(audit("ord-2", "escrow", "escrow-order-ord-2", "fraud_hold", "2026-10-20T06:00:00Z", "escrowed", "held"))
+        aws.audit.append(audit("x-1", "fraud", "x-1", "fraud_escalate", "2026-10-20T07:00:00Z"))
+        code, lines, err = run(aws, "--apply")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(aws.puts), 3)
+        self.assertRegex(err, r"not examined\s+fraud_hold\s+1 rows \(not an admin decision")
+        self.assertRegex(err, r"not examined\s+fraud_escalate\s+1 rows \(UNKNOWN")
+
+    def test_an_answer_that_is_not_json_is_a_clear_failure(self):
+        import subprocess
+        import unittest.mock
+        done = subprocess.CompletedProcess([], 0, stdout="<html>proxy</html>", stderr="")
+        with unittest.mock.patch.object(bol.subprocess, "run", return_value=done):
+            with self.assertRaisesRegex(bol.BackfillError, "not JSON"):
+                bol.aws_runner(["aws", "dynamodb", "scan"])
+            out, err = io.StringIO(), io.StringIO()
+            code = bol.main(["--env", "dev"], stdout=out, stderr=err, now=NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("not JSON", err.getvalue())
 
     def test_env_resolves_the_repo_table_names(self):
         args = bol.parse_args(["--env", "prod"])

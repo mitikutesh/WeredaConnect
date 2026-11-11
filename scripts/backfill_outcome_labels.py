@@ -18,8 +18,12 @@ prints one JSON line per decision (what it would write, or why it skips it) and
 a summary. --apply writes the planned labels.
 
 What it reads and writes
-  1. One Scan of the transaction-audit table, filtered on the six actions above,
-     projecting three ids. The table has no index on `action`, so this is a full
+  1. One Scan of the transaction-audit table, filtered on `admin_dispute_resolved`
+     and every action that starts with `fraud_`, projecting three ids. Rows of
+     any other `fraud_*` action (`fraud_hold`, the hold itself, or one this
+     script does not know) are only counted and named in the summary, never
+     labelled. The wider filter costs nothing more: a Scan is billed for the
+     rows it reads, not the rows it returns. The table has no index on `action`, so this is a full
      table Scan: DynamoDB reads every row once (about 1 read unit per 8 KB,
      eventually consistent). A table of a million 0.5 KB rows is about 62,500
      read units, a few US cents on demand. It is a one-off; do not schedule it.
@@ -40,7 +44,9 @@ you like.
 
 Never guessed. A decision is skipped and reported when the label the server
 would have written cannot be established: the escrow is gone or still held, the
-escrow and the audit row disagree, a field the key needs is missing. See
+escrow and the audit row disagree, a field the key needs is missing. A
+whitelist from before FRD-05 has no `whitelistUntil=` on its audit row: it is
+labelled `whitelisted` without `whitelistUntil`, with a note on its line. See
 SKIP_REASONS for the list. A held exit attempt is audited before the money
 moves, so it counts only once the escrow row shows the exit settled (released,
 completed or refunded). An exit still waiting in the manual payout queue reads
@@ -102,7 +108,7 @@ import sys
 
 BACKFILL_TAG = "FUP-143"
 
-# The label row constants: server/src/Helpers/OutcomeLabelWriter.cs:14-26 (OutcomeLabels).
+# The label row constants: server/src/Helpers/OutcomeLabelWriter.cs (OutcomeLabels).
 LABEL_ACTION = "outcome_label"
 LABEL_ENTITY_TYPE = "label"
 STREAM_ENTITY_ID = "outcome-labels"
@@ -111,28 +117,28 @@ CASE_FRAUD_SIGNAL = "fraud_signal"
 CASE_DISPUTE = "dispute"
 CASE_HELD_ESCROW = "held_escrow"
 
-# Fraud Review verb -> outcome: server/src/Helpers/OutcomeLabelWriter.cs:51-57 (OutcomeLabels.FraudOutcome).
-# The audit action is `fraud_<verb>` (server/src/Functions/AdminFunction.cs:1637) and so is the label's source
-# (AdminFunction.cs:1753).
+# Fraud Review verb -> outcome: server/src/Helpers/OutcomeLabelWriter.cs (OutcomeLabels.FraudOutcome).
+# The audit action is `fraud_<verb>` (server/src/Functions/AdminFunction.cs, HandleFraudActionAsync) and so is
+# the label's source (AdminFunction.LabelFraudDecisionAsync).
 FRAUD_OUTCOME = {
     "approve": "false_positive",
     "reject": "fraud_confirmed",
     "whitelist": "whitelisted",
 }
 
-# Held exit op -> outcome: server/src/Helpers/OutcomeLabelWriter.cs:60 (OutcomeLabels.HeldExitOutcome). The audit
-# action and the label's source: server/src/Services/EscrowService.cs:2837 and 2885.
+# Held exit op -> outcome: server/src/Helpers/OutcomeLabelWriter.cs (OutcomeLabels.HeldExitOutcome). The audit
+# action and the label's source: server/src/Services/EscrowService.cs (RecordHeldExitAsync, LabelHeldExitAsync).
 HELD_EXIT = {
     "fraud_hold_release": ("release", "hold_released"),
     "fraud_hold_refund": ("refund", "hold_refunded"),
 }
 
-# A dispute label's outcome is the verdict itself: server/src/Functions/AdminFunction.cs:789
-# (`Outcome = body.Resolution`). The verdicts: server/src/Services/EscrowService.LedgerSettle.cs:640-642.
+# A dispute label's outcome is the verdict itself: server/src/Functions/AdminFunction.cs, DisputeLabel
+# (`Outcome = body.Resolution`). The verdicts: server/src/Services/EscrowService.LedgerSettle.cs (DisputeVerdicts).
 DISPUTE_VERDICTS = ("buyer_wins", "farmer_wins", "partial_refund")
-DISPUTE_ACTION = "admin_dispute_resolved"  # AdminFunction.cs:733 (the audit row) and 790 (the label's source)
+DISPUTE_ACTION = "admin_dispute_resolved"  # AdminFunction.HandleResolveDisputeAsync (the audit row), DisputeLabel (the source)
 
-# The ticks an outcome adds to the key time: server/src/Helpers/OutcomeLabelWriter.cs:66-76 (OutcomeLabels.Slot).
+# The ticks an outcome adds to the key time: server/src/Helpers/OutcomeLabelWriter.cs (OutcomeLabels.Slot).
 SLOTS = {
     "false_positive": 1,
     "fraud_confirmed": 2,
@@ -165,9 +171,9 @@ ENVIRONMENTS = {
 
 SKIP_REASONS = {
     "already_labelled": "the case already has this label (written live or by an earlier run)",
-    "same_decision": "the same verb again on a signal: the server writes no label for it (AdminFunction.cs:1737)",
+    "same_decision": "the same verb again on a signal: the server writes no label for it (AdminFunction.LabelFraudDecisionAsync)",
     "not_a_raised_dispute": "the escrow has no disputedBy: the server labels it as a held exit, not a dispute "
-                            "(AdminFunction.cs:824)",
+                            "(AdminFunction.RepairDisputeLabelAsync)",
     "still_held": "the escrow is still held: no exit has settled yet, run again after it has",
     "unresolvable": "the label the server would have written cannot be established (see `detail`)",
 }
@@ -188,7 +194,7 @@ ISO = re.compile(r"(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d
 
 def parse_ticks(value):
     """An ISO 8601 time as 100 ns ticks since 1970 UTC, or None. No offset means UTC, as
-    OutcomeLabelWriter.ParseUtc reads it (OutcomeLabelWriter.cs:252-257)."""
+    OutcomeLabelWriter.ParseUtc reads it."""
     m = ISO.fullmatch(value.strip()) if isinstance(value, str) else None
     if not m:
         return None
@@ -214,7 +220,7 @@ def format_ticks(ticks):
 
 def key_timestamp(key_time, labelled_at, outcome):
     """The label's sort key: the key time, else the decision time, plus the outcome's slot
-    (OutcomeLabelWriter.KeyTimestamp, OutcomeLabelWriter.cs:180-184). None when neither is a time: the
+    (OutcomeLabelWriter.KeyTimestamp). None when neither is a time: the
     server then falls back to the clock, which a backfill must not do (the key would change every run)."""
     ticks = parse_ticks(key_time)
     if ticks is None:
@@ -234,7 +240,7 @@ LINK_FIELDS = [
 
 
 def build_entry(label, backfilled_at):
-    """The row OutcomeLabelWriter.BuildEntry writes (OutcomeLabelWriter.cs:186-242), plus the two backfill
+    """The row OutcomeLabelWriter.BuildEntry writes, plus the two backfill
     marks. `label` is a dict with case, caseId, outcome, source, transactionId, keyTime, adminId, labelledAt
     and the optional reason, link fields, ipAddress and correlationId. None when it has no usable key."""
     timestamp = key_timestamp(label.get("keyTime"), label.get("labelledAt"), label["outcome"])
@@ -362,7 +368,7 @@ def finish(label, row, rows, backfilled_at, note=None):
 
 def parse_signal_id(signal_id):
     """(userId, signalKey) of a signal id, or None: FraudDetectionService.TryParseSignalId
-    (server/src/Services/FraudDetectionService.cs:622-645)."""
+    (server/src/Services/FraudDetectionService.cs)."""
     try:
         padded = signal_id.replace("-", "+").replace("_", "/")
         padded += "=" * ((4 - len(padded) % 4) % 4)
@@ -376,7 +382,7 @@ def parse_signal_id(signal_id):
 
 
 def signal_order_id(entity_type, entity_id):
-    """AdminFunction.SignalOrderId (AdminFunction.cs:3585-3599)."""
+    """AdminFunction.SignalOrderId."""
     if not entity_id:
         return None
     if entity_type == "order":
@@ -389,10 +395,13 @@ def signal_order_id(entity_type, entity_id):
 
 WHITELIST_METADATA = re.compile(r"whitelistUntil=([^;]+)(?:;notes=(.*))?", re.DOTALL)
 
+# The actions of the fraud family that are not an admin decision, so never a label: the hold itself.
+NOT_A_DECISION = ("fraud_hold",)
+
 
 def plan_fraud(signal_id, rows, signal_row, backfilled_at):
-    """The labels of one signal's Fraud Review decisions, as AdminFunction.LabelFraudDecisionAsync writes them
-    (AdminFunction.cs:1729-1769): one per decision that changes what the signal says, keyed on the time of
+    """The labels of one signal's Fraud Review decisions, as AdminFunction.LabelFraudDecisionAsync writes them:
+    one per decision that changes what the signal says, keyed on the time of
     the decision before it, or on the signal's createdAt for the first.
 
     rows: every row of the signal's audit partition (transactionId = the signal id), labels included.
@@ -406,7 +415,7 @@ def plan_fraud(signal_id, rows, signal_row, backfilled_at):
         return [skip("unresolvable", CASE_FRAUD_SIGNAL, signal_id, d, "the row at the signal's key is not a signal")
                 for d in decisions]
 
-    # AdminFunction.cs:1744: `Field("createdAt") ?? signalKey.Split('#')[0]`.
+    # LabelFraudDecisionAsync: `Field("createdAt") ?? signalKey.Split('#')[0]`.
     created_at = text(signal_row, "createdAt") or signal_key.split("#")[0]
     signal_type = text(signal_row, "signalType") or (signal_key[signal_key.index("#") + 1:] if "#" in signal_key else None)
     entity_type = text(signal_row, "entityType")
@@ -419,7 +428,7 @@ def plan_fraud(signal_id, rows, signal_row, backfilled_at):
     for index, row in enumerate(decisions):
         verb = row["action"][len("fraud_"):]
         at = parse_ticks(row["timestamp"])
-        # The audit row carries the verb twice (action and toState, AdminFunction.cs:1637).
+        # The audit row carries the verb twice (action and toState, HandleFraudActionAsync).
         if row.get("toState") not in (None, verb) or at is None:
             results.append(skip("unresolvable", CASE_FRAUD_SIGNAL, signal_id, row,
                                 "the audit row's toState does not match its action"))
@@ -446,7 +455,7 @@ def plan_fraud(signal_id, rows, signal_row, backfilled_at):
         if match is not None:
             results.append(skip("already_labelled", CASE_FRAUD_SIGNAL, signal_id, row))
         elif previous_verb == verb:
-            # AdminFunction.cs:1737: reviewed with the same resolution writes no label.
+            # LabelFraudDecisionAsync: reviewed with the same resolution writes no label.
             results.append(skip("same_decision", CASE_FRAUD_SIGNAL, signal_id, row))
         else:
             label = {
@@ -455,7 +464,7 @@ def plan_fraud(signal_id, rows, signal_row, backfilled_at):
                 "outcome": FRAUD_OUTCOME[verb],
                 "source": row["action"],
                 "transactionId": signal_id,
-                # AdminFunction.cs:1755: the previous decision's reviewedAt, or createdAt while pending.
+                # LabelFraudDecisionAsync: the previous decision's reviewedAt, or createdAt while pending.
                 "keyTime": created_at if previous_time is None else previous_time,
                 "adminId": text(row, "actor") or "admin",
                 "labelledAt": labelled_at,
@@ -470,31 +479,27 @@ def plan_fraud(signal_id, rows, signal_row, backfilled_at):
                 "deliveryId": entity_id if entity_type == "delivery" else None,
             }
             metadata = text(row, "metadata")
-            problem = None
-            if verb == "whitelist":
-                # AdminFunction.cs:1639-1641: `whitelistUntil=<iso>` then `;notes=<notes>` when there are notes.
-                m = WHITELIST_METADATA.fullmatch(metadata or "")
-                if m is None:
-                    problem = "the whitelist audit row carries no whitelistUntil"
-                else:
-                    label["whitelistUntil"], label["reason"] = m.group(1), m.group(2)
+            notes = [] if signal_row else ["signal row gone (TTL): key time and type from the signal key, no entity links"]
+            m = WHITELIST_METADATA.fullmatch(metadata or "") if verb == "whitelist" else None
+            if m is not None:
+                # HandleFraudActionAsync: `whitelistUntil=<iso>` then `;notes=<notes>` when there are notes.
+                label["whitelistUntil"], label["reason"] = m.group(1), m.group(2)
             else:
-                label["reason"] = metadata  # the notes themselves (AdminFunction.cs:1639)
-            if problem:
-                results.append(skip("unresolvable", CASE_FRAUD_SIGNAL, signal_id, row, problem))
-            else:
-                note = None if signal_row else "signal row gone (TTL): key time and type from the signal key, no entity links"
-                results.append(finish(label, row, rows, backfilled_at, note))
+                # The notes themselves, or nothing. A whitelist from before FRD-05 (#180) has this shape too:
+                # no whitelist row was written then, so its label has no whitelistUntil (optional on the row).
+                label["reason"] = metadata
+                if verb == "whitelist":
+                    notes.append("whitelist from before FRD-05: no whitelistUntil on its audit row")
+            results.append(finish(label, row, rows, backfilled_at, "; ".join(notes) or None))
 
-        # Every action stamps reviewedAt, the same verb again included (AdminFunction.cs:1596-1604).
+        # Every action stamps reviewedAt, the same verb again included (the stamp of HandleFraudActionAsync).
         previous_verb, previous_time = verb, labelled_at
     return results
 
 
 def plan_dispute(escrow_id, rows, escrow, backfilled_at):
     """The label of an escrow's dispute verdict, from what the escrow stored: what
-    AdminFunction.RepairDisputeLabelAsync writes on a replay (AdminFunction.cs:818-835), with the fields of
-    AdminFunction.DisputeLabel (AdminFunction.cs:778-809)."""
+    AdminFunction.RepairDisputeLabelAsync writes on a replay, with the fields of AdminFunction.DisputeLabel."""
     decisions = decisions_of(rows, (DISPUTE_ACTION,), escrow_id)
     last = decisions[-1] if decisions else None
 
@@ -509,13 +514,13 @@ def plan_dispute(escrow_id, rows, escrow, backfilled_at):
         return unresolvable("the escrow row was not found")
     resolved_at = text(escrow, "disputeResolvedAt")
     if text(escrow, "disputedBy") is None:
-        return [skip("not_a_raised_dispute", CASE_DISPUTE, escrow_id, last)]  # AdminFunction.cs:824
+        return [skip("not_a_raised_dispute", CASE_DISPUTE, escrow_id, last)]  # RepairDisputeLabelAsync
     if resolved_at is None or parse_ticks(resolved_at) is None:
         return unresolvable("the escrow stores no disputeResolvedAt")
     resolution = text(escrow, "disputeResolution")
     if resolution not in DISPUTE_VERDICTS:
         return unresolvable(f"the escrow's disputeResolution is {resolution!r}")
-    # The audit row's metadata is the verdict (AdminFunction.cs:734).
+    # The audit row's metadata is the verdict (HandleResolveDisputeAsync).
     said = sorted({text(d, "metadata") or "" for d in decisions})
     if said != [resolution]:
         return unresolvable(f"the audit rows say {said}, the escrow says {resolution!r}")
@@ -530,12 +535,12 @@ def plan_dispute(escrow_id, rows, escrow, backfilled_at):
     label = {
         "case": CASE_DISPUTE,
         "caseId": stored_id,
-        "outcome": resolution,                          # AdminFunction.cs:789
-        "source": DISPUTE_ACTION,                       # AdminFunction.cs:790
-        "transactionId": order_id or stored_id,         # AdminFunction.cs:731 and 829
-        "keyTime": resolved_at,                         # AdminFunction.cs:792
-        "adminId": text(escrow, "disputeResolvedBy") or text(row, "actor") or "admin",  # AdminFunction.cs:829
-        "labelledAt": resolved_at,                      # AdminFunction.cs:794
+        "outcome": resolution,                          # DisputeLabel: Outcome
+        "source": DISPUTE_ACTION,                       # DisputeLabel: Source
+        "transactionId": order_id or stored_id,         # the audit row's partition, RepairDisputeLabelAsync
+        "keyTime": resolved_at,                         # DisputeLabel: KeyTime
+        "adminId": text(escrow, "disputeResolvedBy") or text(row, "actor") or "admin",  # RepairDisputeLabelAsync
+        "labelledAt": resolved_at,                      # DisputeLabel: LabelledAt
         "reason": text(escrow, "disputeDispositionReason"),  # the notes were never stored
         "orderId": order_id,
         "escrowId": stored_id,
@@ -555,9 +560,11 @@ HELD_EXIT_METADATA = re.compile(r"reason=(.*);holdReason=[^;]*;heldFor=[^;]*;hel
 
 def plan_held(escrow_id, rows, escrow, backfilled_at):
     """The label of an admin exit of a held escrow, as EscrowService.LabelHeldExitAsync writes it once the
-    exit has committed the money (server/src/Services/EscrowService.cs:2867-2908). The audit row is written
-    on every attempt, before the money moves (EscrowService.cs:2834-2857), so the exit counts only when the
-    escrow row shows it settled, and the last attempt must be the exit that leads to that status."""
+    exit has committed the money (server/src/Services/EscrowService.cs). The audit row is written on every
+    attempt, before the money moves (EscrowService.RecordHeldExitAsync), so the exit counts only when the
+    escrow row shows it settled, and the last attempt must be the exit that leads to that status. The admin,
+    the decision time and the reason come from that last attempt row: when an earlier attempt of the same
+    kind was the one that settled, they are a later admin's, while the outcome is still right."""
     attempts = decisions_of(rows, tuple(HELD_EXIT), escrow_id)
     last = attempts[-1] if attempts else None
 
@@ -590,13 +597,13 @@ def plan_held(escrow_id, rows, escrow, backfilled_at):
     label = {
         "case": CASE_HELD_ESCROW,
         "caseId": stored_id,
-        "outcome": outcome,                              # EscrowService.cs:2884
-        "source": last["action"],                        # EscrowService.cs:2885
-        "transactionId": order_id or stored_id,          # EscrowService.cs:2886
-        "keyTime": held_at,                              # EscrowService.cs:2887
-        "adminId": text(last, "actor") or "admin",       # EscrowService.cs:2888
-        "labelledAt": last["timestamp"],                 # EscrowService.cs:2889, to within the request
-        "reason": reason.group(1) if reason else None,   # EscrowService.cs:2838 (the row's metadata)
+        "outcome": outcome,                              # LabelHeldExitAsync: Outcome
+        "source": last["action"],                        # LabelHeldExitAsync: Source
+        "transactionId": order_id or stored_id,          # LabelHeldExitAsync: TransactionId
+        "keyTime": held_at,                              # LabelHeldExitAsync: KeyTime
+        "adminId": text(last, "actor") or "admin",       # LabelHeldExitAsync: AdminId
+        "labelledAt": last["timestamp"],                 # LabelHeldExitAsync: LabelledAt, to within the request
+        "reason": reason.group(1) if reason else None,   # RecordHeldExitAsync (the row's metadata)
         "orderId": order_id,
         "escrowId": stored_id,
         "deliveryId": text(escrow, "deliveryId"),
@@ -620,6 +627,7 @@ def compact(value):
 
 class Aws:
     def __init__(self, run, region, profile):
+        self.other_actions = collections.Counter()
         self._run = run
         self._tail = ["--output", "json", "--region", region] + (["--profile", profile] if profile else [])
 
@@ -630,11 +638,12 @@ class Aws:
         """The cases that have a decision row: {(case, entityId): {transactionId, ...}}, in the order found.
         Returns (cases, truncated). Only ids are kept."""
         names = {"#a": "action"}
-        values = {f":a{i}": {"S": action} for i, action in enumerate(DECISION_ACTIONS)}
+        values = {":fraud": {"S": "fraud_"}, ":dispute": {"S": DISPUTE_ACTION}}
         cases, start_key, pages = collections.OrderedDict(), None, 0
+        self.other_actions = collections.Counter()
         while True:
             args = ["scan", "--table-name", table,
-                    "--filter-expression", f"#a IN ({', '.join(values)})",
+                    "--filter-expression", "begins_with(#a, :fraud) OR #a = :dispute",
                     "--projection-expression", "transactionId, entityId, #a",
                     "--expression-attribute-names", compact(names),
                     "--expression-attribute-values", compact(values),
@@ -646,7 +655,10 @@ class Aws:
             for item in page.get("Items", []):
                 row = plain(item)
                 case, entity_id, partition = FAMILY.get(row.get("action")), text(row, "entityId"), text(row, "transactionId")
-                if case is None or entity_id is None or partition is None:
+                if case is None:
+                    self.other_actions[str(row.get("action"))] += 1  # reported in the summary, never labelled
+                    continue
+                if entity_id is None or partition is None:
                     continue
                 key = (case, entity_id)
                 if key not in cases and limit is not None and len(cases) >= limit:
@@ -707,7 +719,10 @@ def aws_runner(cmd):
         raise BackfillError(f"aws call failed: {type(e).__name__}")
     if done.returncode != 0:
         raise BackfillError(f"aws {cmd[2]} failed ({done.returncode}): {done.stderr.strip()[:500]}")
-    return json.loads(done.stdout or "{}")
+    try:
+        return json.loads(done.stdout or "{}")
+    except ValueError:
+        raise BackfillError(f"aws {cmd[2]} answered something that is not JSON: {done.stdout.strip()[:200]!r}")
 
 
 def plan_case(aws, args, case, entity_id, partitions, backfilled_at):
@@ -827,6 +842,9 @@ def main(argv=None, run=aws_runner, stdout=None, stderr=None, now=None):
             print(f"  {status:<12} {first:<24} {second:<18} {count}", file=stderr)
     for why in sorted({first for (status, first, _) in counts if status == "skip"}):
         print(f"  {why}: {SKIP_REASONS[why]}", file=stderr)
+    for action, count in sorted(aws.other_actions.items()):
+        what = "not an admin decision" if action in NOT_A_DECISION else "UNKNOWN to this script: check what it decides"
+        print(f"  not examined  {action:<24} {count} rows ({what}; never labelled)", file=stderr)
     if not args.apply:
         print("nothing was written; run again with --apply to write the would_write rows", file=stderr)
     if args.limit is not None and len(cases) >= args.limit:
