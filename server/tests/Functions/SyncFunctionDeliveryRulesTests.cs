@@ -423,7 +423,7 @@ public class SyncFunctionDeliveryRulesTests
         }
     }
 
-    // ===== Create:the trucker delivery is bound to the order's trip and listing =====
+    // ===== Create: the trucker delivery is bound to the order's trip and listing =====
 
     [Fact]
     public async Task Create_MatchingTripAndListing_Writes()

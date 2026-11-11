@@ -219,6 +219,11 @@ public class EscrowFunction
             return LambdaResponse.Error(400, "ESCROW_001", "Request body is required.");
         }
 
+        if (MissingInitiateField(body) is { } missingInitiate)
+        {
+            return missingInitiate;
+        }
+
         var userId = GetAuthenticatedUserId(request);
         if (string.IsNullOrEmpty(userId))
         {
@@ -554,6 +559,11 @@ public class EscrowFunction
             return LambdaResponse.Error(400, "ESCROW_001", "Request body is required.");
         }
 
+        if (MissingDisputeField(body) is { } missingDispute)
+        {
+            return missingDispute;
+        }
+
         var userId = GetAuthenticatedUserId(request);
         if (string.IsNullOrEmpty(userId))
         {
@@ -871,6 +881,77 @@ public class EscrowFunction
         }
 
         if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            return LambdaResponse.Error(400, "ESCROW_003", "idempotencyKey is required.", "idempotencyKey");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// FUP-127 (escrow-protocol 2.3.0): the first missing or blank field of an initiate body, answered
+    /// with that field's own code, or null when all are there. An absent <c>amount</c> is read as 0,
+    /// so 0 is answered here with the amount code as well. Checked where
+    /// <see cref="MissingSettlementField"/> is: right after parsing, before the caller's role.
+    /// </summary>
+    private static APIGatewayProxyResponse? MissingInitiateField(InitiateEscrowRequest body)
+    {
+        if (string.IsNullOrWhiteSpace(body.DeliveryId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_002", "deliveryId is required.", "deliveryId");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.BuyerId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_VALIDATION", "buyerId is required.", "buyerId");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.FarmerId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_VALIDATION", "farmerId is required.", "farmerId");
+        }
+
+        if (body.Amount == 0m)
+        {
+            return LambdaResponse.Error(400, "ESCROW_001", "amount is required.", "amount");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.Currency))
+        {
+            return LambdaResponse.Error(400, "ESCROW_004", "currency is required.", "currency");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.IdempotencyKey))
+        {
+            return LambdaResponse.Error(400, "ESCROW_003", "idempotencyKey is required.", "idempotencyKey");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// FUP-127 (escrow-protocol 2.3.0): the first missing or blank field of a dispute body, answered
+    /// with that field's own code, or null when all are there. Checked right after parsing, before
+    /// the step-up read of the escrow.
+    /// </summary>
+    private static APIGatewayProxyResponse? MissingDisputeField(DisputeEscrowRequest body)
+    {
+        if (string.IsNullOrWhiteSpace(body.EscrowId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_VALIDATION", "escrowId is required.", "escrowId");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.DisputedBy))
+        {
+            return LambdaResponse.Error(400, "ESCROW_VALIDATION", "disputedBy is required.", "disputedBy");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.Reason))
+        {
+            return LambdaResponse.Error(400, "ESCROW_017", "reason is required.", "reason");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.IdempotencyKey))
         {
             return LambdaResponse.Error(400, "ESCROW_003", "idempotencyKey is required.", "idempotencyKey");
         }

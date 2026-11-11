@@ -621,6 +621,92 @@ public partial class SyncFunctionTests
         Assert.Contains("SYNC_VALIDATION", response.Body);
     }
 
+    // FUP-127 audit: SyncRequest and SyncOperationRequest mark their members required and carry no
+    // initializer. A body that omits one is refused whole as SYNC_VALIDATION; one that sends null
+    // must not crash the batch.
+    private const string AuditOp =
+        "{\"operationId\":\"op-1\",\"idempotencyKey\":\"user:crop_listing:crop-1:create:12345\","
+        + "\"entityType\":\"crop_listing\",\"entityId\":\"crop-1\",\"action\":\"create\",\"data\":{}}";
+
+    private static APIGatewayProxyRequest RawSyncRequest(string body) => new()
+    {
+        Body = body,
+        RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+        {
+            Authorizer = new APIGatewayCustomAuthorizerContext { { "userId", "farmer-001" }, { "custom:role", "farmer" } }
+        }
+    };
+
+    [Theory]
+    [InlineData("{\"clientId\":\"d-1\",\"operations\":[" + AuditOp + "]}")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"operations\":[" + AuditOp + "]}")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\"}")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":[{\"operationId\":\"op-1\"}]}")]
+    public async Task FunctionHandler_BodyWithoutARequiredMember_Returns400SyncValidation(string body)
+    {
+        var response = await _function.FunctionHandler(RawSyncRequest(body), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("SYNC_VALIDATION", response.Body);
+    }
+
+    [Theory]
+    [InlineData("{\"syncBatchId\":null,\"clientId\":\"d-1\",\"operations\":[" + AuditOp + "]}")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":null,\"operations\":[" + AuditOp + "]}")]
+    public async Task FunctionHandler_NullBatchIdOrClientId_StillProcessesTheBatch(string body)
+    {
+        // Neither is dereferenced: the batch runs and the operation gets its own result.
+        var response = await _function.FunctionHandler(RawSyncRequest(body), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"operationId\":\"op-1\"", response.Body);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_NullOperations_Returns400SyncValidation()
+    {
+        var response = await _function.FunctionHandler(
+            RawSyncRequest("{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":null}"), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("Request must contain at least one operation.", response.Body);
+    }
+
+    [Theory]
+    [InlineData("[null]")]
+    [InlineData("[" + AuditOp + ",null]")]
+    public async Task FunctionHandler_NullOperation_Returns400SyncValidation_NothingApplied(string operations)
+    {
+        // It was a NullReferenceException (a 502 from API Gateway), also for the valid operation
+        // sent with it.
+        var body = "{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":" + operations + "}";
+
+        var response = await _function.FunctionHandler(RawSyncRequest(body), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("SYNC_VALIDATION", response.Body);
+        Assert.Contains("Operations must not contain null.", response.Body);
+    }
+
+    [Theory]
+    [InlineData("operationId")]
+    [InlineData("idempotencyKey")]
+    [InlineData("entityType")]
+    [InlineData("entityId")]
+    [InlineData("action")]
+    public async Task FunctionHandler_NullOperationMember_IsAnOperationError(string member)
+    {
+        var op = System.Text.RegularExpressions.Regex.Replace(
+            AuditOp, $"\"{member}\":\"[^\"]*\"", $"\"{member}\":null");
+        var body = "{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":[" + op + "]}";
+
+        var response = await _function.FunctionHandler(RawSyncRequest(body), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"status\":\"error\"", response.Body);
+        Assert.Contains("Missing required fields", response.Body);
+    }
+
     [Fact]
     public async Task FunctionHandler_EmptyOperations_Returns400()
     {
