@@ -4927,28 +4927,32 @@ public partial class SyncFunction
                         return await CancelDeliveryAsync(operation, existing, authenticatedUserId, "update", context);
                     }
 
-                    // Block updates to cancelled/deleted deliveries
+                    // Block updates to cancelled/deleted deliveries. FUP-128: a party who is behind
+                    // the stored version (the delivery was cancelled under it) gets the stored row
+                    // as a conflict, like the loser of any status race (SIM-28).
                     var currentStatus = existing.TryGetValue("status", out var existingStatusAttr)
                         ? existingStatusAttr.S : "pending";
                     if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
                         && !string.IsNullOrEmpty(deletedAtAttr.S))
                     {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a deleted delivery."
-                        };
+                        return CancelledDeliveryConflict(operation, existing, authenticatedUserId)
+                            ?? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a deleted delivery."
+                            };
                     }
                     if (currentStatus == "cancelled")
                     {
                         await AlarmPickupOnTransportCancelledDeliveryAsync(operation, existing, authenticatedUserId, context);
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery."
-                        };
+                        return CancelledDeliveryConflict(operation, existing, authenticatedUserId)
+                            ?? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery."
+                            };
                     }
 
                     // SIM-41: the pickup nonce proves the farmer handed over the goods, so
@@ -8834,6 +8838,44 @@ public partial class SyncFunction
             "disputed" => IsParty(delivery, userId, "buyerId", "farmerId", "truckerId"),
             _ => false
         };
+
+    /// <summary>
+    /// FUP-128: an update that reaches a delivery already cancelled (or soft-deleted before 1.9.0).
+    /// When the client is behind the stored version (another party or the system cancelled the
+    /// delivery while it was offline) and may make this change (the SIM-28 rule for a status; the
+    /// trucker, or the farmer storing the pickup nonce, for any other field), the answer is a
+    /// conflict with the stored row, so the client takes the cancelled delivery (server wins)
+    /// instead of retrying an error. Null otherwise: the caller keeps its refusal, so anyone else
+    /// never gets the row, and a current, newer or missing version is still an error.
+    /// </summary>
+    private static SyncOperationResult? CancelledDeliveryConflict(
+        SyncOperationRequest operation, Dictionary<string, AttributeValue> delivery, string? userId)
+    {
+        var storedVersion = ItemVersion(delivery);
+        if (StaleClientVersion(operation, storedVersion) is null)
+        {
+            return null;
+        }
+
+        var data = operation.Data!;
+        var mayAsk = data.TryGetValue("status", out var requestedStatus)
+            ? MayRequestDeliveryStatus(delivery, userId, requestedStatus?.ToString())
+            : IsParty(delivery, userId, "truckerId")
+                || (data.ContainsKey("qrNonce") && IsParty(delivery, userId, "farmerId"));
+        if (!mayAsk)
+        {
+            return null;
+        }
+
+        return new SyncOperationResult
+        {
+            OperationId = operation.OperationId,
+            Status = "conflict",
+            ServerVersion = storedVersion,
+            ServerData = ScrubDeliveryForClient(CropRepository.FromItem(delivery)),
+            Message = "DELIVERY_ALREADY_CANCELLED: The delivery is already cancelled."
+        };
+    }
 
     /// <summary>The <c>version</c> of a raw DynamoDB row, 0 when it has none.</summary>
     private static int ItemVersion(Dictionary<string, AttributeValue> row)

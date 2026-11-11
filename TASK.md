@@ -98,7 +98,6 @@ SIM-25 to SIM-30, SIM-33 and SIM-37 shipped in one P3 PR. These came out of its 
 | ID | Sev | Scope | Task | Done when |
 |---|---|---|---|---|
 | FUP-127 | P3 | @Server | `POST /escrow/initiate` and `POST /escrow/dispute` still answer a missing field with `400 ESCROW_001` "Invalid JSON" (SIM-27 fixed release and refund). The source-generated reader sets an absent init property to null and skips its default (seen on `RegisterRequest.PreferredLanguage`): audit the other request DTOs with defaults. | Field codes on both endpoints; audit done with tests for each DTO that had the bug. |
-| FUP-128 | P3 | @Server @Mobile | Race losers on a terminal trip (`TRIP_TERMINAL_STATE`) or a cancelled delivery (`DELIVERY_ALREADY_CANCELLED`) still get errors, not `conflict` (SIM-28 covered the invalid-transition sites). The mobile `ConflictResolver` still casts optional row fields as required (crop `description`, trip `truckerName`, `truckerPhone`). | Conflict for both; resolver tests with rows that lack the optional fields. |
 | FUP-129 | P3 | @Server @Mobile | Commission leftovers from SIM-30: `/escrow/initiate` with a linked order stores `commissionRate` 0.025 though it uses the order's split; the mobile escrow mappers derive `commissionRate` as commission divided by amount. | One stored rate that matches the split; mapper tests. |
 | FUP-130 | P3 | @Mobile @Server | Ids stored as names: the order and delivery `farmerName` falls back to `farmerId` when the listing has no name (SIM-33 guards the display only); the conversation title falls back to `counterpartId` and needs a localized fallback (the Amharic `contact` string is a verb). | No id stored or shown as a name; tests. |
 | FUP-131 | P3 | @Server @Ops | `AUTH_019` is reserved: Cognito throws the same exception for revoked and expired refresh tokens, only its message text differs. Confirm the text against dev Cognito, then answer `AUTH_019` for a revoked token. | Dev check recorded; test. |
@@ -360,6 +359,14 @@ SPK-01 questions:
 6. **Options.** Compare: QR scan as the main proof with GPS as optional evidence, photo proof, network or cell location, picked place or woreda centroid fallback, periodic in-transit pings, full background tracking. Note Android 10+ background-location and Play policy, battery and data cost on 2GB / 3G devices, consent and privacy.
 
 Starting point (light scan 2026-10-11, not verified): `mobile/lib/features/delivery_verification/data/services/gps_capture_service.dart` (single fix, 15s timeout, denied paths), `gps_distance_service.dart`, `delivery_bloc.dart`, `delivery_detail_screen.dart`, `qr_scan_screen.dart`; server `DeliveryDtos.cs:185-192` (optional `GpsPickup`/`GpsDropoff`), `DeliveryFunction.cs:415`, `FraudDetectionService` GPS rule; contract `specs/contracts/delivery-verification-api.md`; decision "5km GPS threshold" in the Key Decision Log. No position stream or background location code was found.
+
+---
+
+## Follow-ups from the 2026-11-11 run
+
+| ID | Priority | Scope | Task | Done when |
+|----|----------|-------|------|-----------|
+| FUP-148 | P3 | @Mobile | The mobile `ConflictResolver` maps a crop row whose server status the app has no name for (`deleted`) to `draft`, so a listing deleted on another device comes back as a local draft after a conflict (found in FUP-128; the crop pull maps unknown statuses to `active`, also wrong for `deleted`). | A conflict or pull with a `deleted` crop row removes the local listing; tests for both paths. |
 
 ---
 
