@@ -75,6 +75,19 @@ String? accountGoneState(int? statusCode, Object? body) {
   return state is String ? state : '';
 }
 
+/// REST error code (HTTP 403) for a suspended account. Sign-in, OTP and token
+/// refresh answer it, and since sync-protocol.md 1.47.0 so do `/sync` and the
+/// other write endpoints (reputation-api.md 8.4).
+const String accountSuspendedCode = 'AUTH_025';
+
+/// True for a `403 AUTH_025` answer
+/// (`{"error":{"code":"AUTH_025","message":"Account suspended."}}`).
+bool isAccountSuspended(int? statusCode, Object? body) {
+  if (statusCode != 403) return false;
+  final error = decodeJsonMap(body)?['error'];
+  return error is Map && error['code'] == accountSuspendedCode;
+}
+
 /// The server wants the user to confirm it is them before a money action
 /// (REST 403 `AUTH_040` for the password, `AUTH_041` for Fayda). Not an
 /// [AuthException]: the session is still valid, so callers must
