@@ -165,6 +165,33 @@ void main() {
     expect(find.text('+251911000002'), findsOneWidget);
   });
 
+  // FUP-130: without a real name the title is a localized noun, never the
+  // counterpart's id (old rows hold the id where the name belongs).
+  // om is covered in party_name_test.dart (this test app has no Material
+  // strings for om).
+  for (final code in ['en', 'am']) {
+    for (final name in ['', '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b']) {
+      testWidgets('$code: no real name ("$name") titles the thread "User"',
+          (tester) async {
+        final l10n = lookupAppLocalizations(Locale(code));
+
+        await tester.pumpWidget(
+          buildScreen(
+            'crop',
+            'crop-1',
+            counterpartName: name,
+            locale: Locale(code),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.unnamedUser), findsOneWidget);
+        expect(find.text('farmer-1'), findsNothing);
+        if (name.isNotEmpty) expect(find.text(name), findsNothing);
+      });
+    }
+  }
+
   const acceptNote = 'Contact opens once the farmer accepts the order.';
   const closedNote = 'Contact is closed for this conversation.';
 

@@ -7,6 +7,7 @@ import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -127,9 +128,8 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
             orderId: '',
             listingId: widget.listing.listingId,
             farmerId: widget.listing.farmerId,
-            farmerName: widget.listing.farmerName.isNotEmpty
-                ? widget.listing.farmerName
-                : widget.listing.farmerId, // fall back to id only if unnamed
+            // Never the id for a missing name (FUP-130).
+            farmerName: partyNameToStore(widget.listing.farmerName),
             truckerId: authState.userId,
             truckerName: trip.truckerName,
             buyerId: buyerId,

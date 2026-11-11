@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/messaging/domain/conversation_context_resolver.dart';
@@ -153,12 +154,10 @@ class _ConversationTile extends StatelessWidget {
     this.resolver,
   });
 
-  String get _title => (summary.counterpartName?.trim().isNotEmpty ?? false)
-      ? summary.counterpartName!.trim()
-      : summary.counterpartId;
-
-  String get _initials {
-    final name = _title.trim();
+  /// The counterpart's initials; `?` without a real name (FUP-130: the
+  /// id is never shown, and the "User" fallback has no initials).
+  String _initials(AppLocalizations l10n) {
+    final name = partyDisplayName(summary.counterpartName, l10n).trim();
     if (name.isEmpty) return '?';
     final parts = name.split(RegExp(r'\s+'));
     if (parts.length == 1) return parts.first.characters.first.toUpperCase();
@@ -168,6 +167,7 @@ class _ConversationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final time = clockFormatOf(context).time(summary.lastMessageAt);
     final hasUnread = summary.unreadCount > 0;
 
@@ -182,7 +182,7 @@ class _ConversationTile extends StatelessWidget {
               radius: 22,
               backgroundColor: AppTheme.fieldGreenTint,
               child: Text(
-                _initials,
+                _initials(l10n),
                 style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
@@ -196,7 +196,7 @@ class _ConversationTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _title,
+                    partyNameOrUnnamed(summary.counterpartName, l10n),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(

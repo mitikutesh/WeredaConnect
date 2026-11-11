@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
@@ -162,13 +163,15 @@ class _MatchResultsBody extends StatelessWidget {
     return '${diff.inDays}d';
   }
 
+  /// The farmer's name for the order: the listing's, else the cached
+  /// profile's (phone only), else empty. Never the id (FUP-130).
   static Future<String> _lookupFarmerName(CropListing listing) async {
-    if (listing.farmerName.isNotEmpty) return listing.farmerName;
-    if (kIsWeb) return listing.farmerId;
+    final listed = partyNameToStore(listing.farmerName);
+    if (listed.isNotEmpty || kIsWeb) return listed;
     final isar = IsarService.instance.db;
     final farmer =
         await isar.users.filter().userIdEqualTo(listing.farmerId).findFirst();
-    return farmer?.name ?? listing.farmerId;
+    return partyNameToStore(farmer?.name);
   }
 
   @override

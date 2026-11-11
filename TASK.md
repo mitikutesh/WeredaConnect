@@ -96,7 +96,6 @@ SIM-25 to SIM-30, SIM-33 and SIM-37 shipped in one P3 PR. These came out of its 
 
 | ID | Sev | Scope | Task | Done when |
 |---|---|---|---|---|
-| FUP-130 | P3 | @Mobile @Server | Ids stored as names: the order and delivery `farmerName` falls back to `farmerId` when the listing has no name (SIM-33 guards the display only); the conversation title falls back to `counterpartId` and needs a localized fallback (the Amharic `contact` string is a verb). | No id stored or shown as a name; tests. |
 | FUP-131 | P3 | @Server @Ops | `AUTH_019` is reserved: Cognito throws the same exception for revoked and expired refresh tokens, only its message text differs. Confirm the text against dev Cognito, then answer `AUTH_019` for a revoked token. | Dev check recorded; test. |
 | FUP-133 | P3 | @Mobile | Hand check of SIM-33 on web for all 3 roles (impossible values show `-`, the `50+` tiles, no ids or numeric places, the trucker name on buyer trip cards). | Checked on dev web after deploy. |
 
