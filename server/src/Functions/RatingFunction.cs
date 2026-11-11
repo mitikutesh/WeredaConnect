@@ -3,6 +3,7 @@ using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Functions;
 
@@ -17,28 +18,60 @@ namespace WeredaConnect.Server.Functions;
 /// Error codes:
 /// - 400: RATING_VALIDATION - Invalid/missing parameters
 /// - 401: UNAUTHORIZED      - Not authenticated
+/// - 403: RATING_FORBIDDEN  - The caller may not read this ratee's ratings (rating-api.md 1.2.0)
 /// - 404: RATING_NOT_FOUND  - Rating does not exist
 /// - 500: RATING_SERVER_ERROR - Unexpected server failure
 /// </summary>
 public class RatingFunction
 {
+    public const string ForbiddenCode = "RATING_FORBIDDEN";
+
     private readonly IRatingRepository _ratingRepo;
+
+    /// <summary>
+    /// ESC-29: reads the ratee's users row (role, stored rating sum and count, reputation) in one
+    /// GetItem. Null when the users or reputation-events table is not configured: the role rule
+    /// still holds (it needs only the caller's claim) and the summary keeps the 1.1.0 walk.
+    /// </summary>
+    private readonly ReputationService? _reputation;
+
+    /// <summary><c>reputationPublicTags</c>: the summary carries the effective rating and the public reputation. Off by default.</summary>
+    internal bool PublicTags { get; init; } = ReputationFlags.PublicTagsEnabled;
 
     /// <summary>Default constructor for the Lambda runtime.</summary>
     public RatingFunction()
     {
         var ratingsTable = Environment.GetEnvironmentVariable("RATINGS_TABLE")
                            ?? throw new InvalidOperationException("RATINGS_TABLE is not set.");
+        var usersTable = Environment.GetEnvironmentVariable("USERS_TABLE");
+        var eventsTable = Environment.GetEnvironmentVariable("REPUTATION_EVENTS_TABLE");
 
         var dynamoDb = new AmazonDynamoDBClient();
         _ratingRepo = new RatingRepository(dynamoDb, ratingsTable);
+        if (!string.IsNullOrEmpty(usersTable) && !string.IsNullOrEmpty(eventsTable))
+        {
+            // The policy parameter is read only while the feature is on (reputation-api.md section 11).
+            var settings = ReputationFlags.PenaltiesEnabled
+                ? ReputationPolicySettings.LoadForContainer(line => LambdaLogger.Log(line))
+                : ReputationPolicySettings.Defaults;
+            _reputation = new ReputationService(new ReputationEventRepository(dynamoDb, eventsTable, usersTable), settings);
+        }
     }
 
     /// <summary>Constructor for testing with mocked dependencies.</summary>
-    public RatingFunction(IRatingRepository ratingRepo)
+    public RatingFunction(IRatingRepository ratingRepo, ReputationService? reputation = null)
     {
         _ratingRepo = ratingRepo ?? throw new ArgumentNullException(nameof(ratingRepo));
+        _reputation = reputation;
     }
+
+    private static bool IsParty(string? role)
+        => string.Equals(role, "farmer", StringComparison.OrdinalIgnoreCase) || string.Equals(role, "trucker", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsBuyer(string? role) => string.Equals(role, "buyer", StringComparison.OrdinalIgnoreCase);
+
+    private static APIGatewayProxyResponse Forbidden()
+        => LambdaResponse.Error(403, ForbiddenCode, "You can only read your own ratings.");
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
         APIGatewayProxyRequest request,
@@ -73,6 +106,25 @@ public class RatingFunction
             return LambdaResponse.Error(400, "RATING_VALIDATION", "rateeId query parameter is required.");
         }
 
+        // rating-api.md 1.2.0 "Read rules": a buyer reads any farmer's or trucker's ratings, a
+        // farmer or trucker only their own, nobody else anything. Decided from the caller's claim
+        // before any read, so a refusal never tells whether the id exists.
+        var callerRole = AuthHelper.GetClaim(request, "custom:role");
+        if (!IsBuyer(callerRole) && !(IsParty(callerRole) && rateeId == authenticatedUserId))
+        {
+            return Forbidden();
+        }
+
+        queryParams.TryGetValue("rateeRole", out var rateeRole);
+        if (string.IsNullOrEmpty(rateeRole))
+        {
+            rateeRole = null;
+        }
+        else if (rateeRole is not ("farmer" or "trucker"))
+        {
+            return LambdaResponse.Error(400, "RATING_VALIDATION", "rateeRole must be farmer or trucker.");
+        }
+
         var limit = 20;
         if (queryParams.TryGetValue("limit", out var limitStr))
         {
@@ -95,10 +147,42 @@ public class RatingFunction
 
         try
         {
-            var queryResult = await _ratingRepo.QueryByRateeAsync(rateeId, limit, exclusiveStartKey);
+            // The ratee's row: its current role, the stored sum and count, the reputation.
+            ReputationRead? ratee = null;
+            if (_reputation != null)
+            {
+                ratee = await _reputation.ReadAsync(rateeId, withEvents: false);
+                if (ratee == null || !IsParty(ratee.User.Role) || !string.IsNullOrEmpty(ratee.User.DeletionState))
+                {
+                    // No row, a buyer or a deleted account: an empty answer, as 1.1.0 gave for an
+                    // unknown id (no account oracle).
+                    return LambdaResponse.Ok(new GetRatingsResponse
+                    {
+                        Ratings = new List<RatingDto>(),
+                        Summary = new RatingSummaryDto { Average = 0, Count = 0 }
+                    }, AppJsonContext.Default.GetRatingsResponse);
+                }
+
+                rateeRole ??= ratee.User.Role.ToLowerInvariant();
+            }
+
+            var queryResult = await _ratingRepo.QueryByRateeAsync(rateeId, limit, exclusiveStartKey, rateeRole);
             var ratings = queryResult.Items.Select(MapToRatingDto).ToList();
 
-            var (average, count) = await _ratingRepo.GetSummaryAsync(rateeId);
+            // Summary source: the users row when the role asked for is the current one and the sum
+            // is exact (ratingsAggregatedAt); otherwise the 1.1.0 walk, filtered by the role.
+            var isCurrentRole = ratee != null && string.Equals(ratee.User.Role, rateeRole, StringComparison.OrdinalIgnoreCase);
+            double average;
+            int count;
+            if (isCurrentRole && !string.IsNullOrEmpty(ratee!.User.RatingsAggregatedAt))
+            {
+                count = (int)ratee.Ratings.Count;
+                average = count > 0 ? (double)ratee.Ratings.Sum / count : 0.0;
+            }
+            else
+            {
+                (average, count) = await _ratingRepo.GetSummaryAsync(rateeId, rateeRole);
+            }
 
             string? nextTokenResponse = null;
             if (queryResult.LastEvaluatedKey != null)
@@ -106,10 +190,20 @@ public class RatingFunction
                 nextTokenResponse = PaginationTokenHelper.EncodeNextToken(queryResult.LastEvaluatedKey);
             }
 
+            // The effective rating and the public reputation only for the current role, with
+            // reputationPublicTags on. An unstamped row has no stored rating to deduct from.
+            var showReputation = PublicTags && isCurrentRole;
             var response = new GetRatingsResponse
             {
                 Ratings = ratings,
-                Summary = new RatingSummaryDto { Average = average, Count = count },
+                Summary = new RatingSummaryDto
+                {
+                    Average = average,
+                    Count = count,
+                    RateeRole = rateeRole,
+                    EffectiveRating = showReputation && count > 0 ? ratee!.Aggregate.EffectiveRating : null
+                },
+                Reputation = showReputation ? ReputationReadModels.Public(ratee!, publicTags: true) : null,
                 NextToken = nextTokenResponse
             };
 
@@ -140,7 +234,28 @@ public class RatingFunction
 
         try
         {
+            // rating-api.md 1.2.0 "Read rules": a buyer reads a rating of a farmer or trucker, a
+            // farmer or trucker only one they received. Anyone else is refused before the read.
+            var callerRole = AuthHelper.GetClaim(request, "custom:role");
+            if (!IsBuyer(callerRole) && !IsParty(callerRole))
+            {
+                return Forbidden();
+            }
+
             var rating = await _ratingRepo.GetByIdAsync(ratingId);
+            if (IsParty(callerRole))
+            {
+                // The same answer for a rating of someone else and for no rating at all.
+                if (rating == null || GetString(rating, "rateeId") != authenticatedUserId)
+                {
+                    return Forbidden();
+                }
+            }
+            else if (rating != null && !IsParty(GetString(rating, "rateeRole")))
+            {
+                return Forbidden();
+            }
+
             if (rating == null)
             {
                 return LambdaResponse.Error(404, "RATING_NOT_FOUND", "Rating not found.");

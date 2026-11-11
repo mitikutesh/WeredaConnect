@@ -63,8 +63,18 @@ public class AccountDeletionServiceTests
 
                 return Task.FromResult(new DeleteEndpointResponse());
             });
-        _service = new AccountDeletionService(_repo, _cognito, _sns, _audit, () => _now = _now.AddMilliseconds(1));
+        _service = new AccountDeletionService(_repo, _cognito, _sns, _audit, () => _now = _now.AddMilliseconds(1))
+        {
+            AppealPhotos = userId =>
+            {
+                _appealPhotoDeletes.Add(userId);
+                return Task.FromResult(2);
+            }
+        };
     }
+
+    // ESC-29: the users whose appeal photos were deleted.
+    private readonly List<string> _appealPhotoDeletes = new();
 
     private string DeletedAt(string userId) => _repo.UserRow(userId)["deletedAt"].S;
 
@@ -1296,6 +1306,9 @@ public class AccountDeletionServiceTests
         _repo.ReputationEvents[userId].Should().BeEmpty();
         _repo.ReputationEvents["someone-else"].Should().ContainSingle();
         _audit.WithAction("account_deleted").Single()["metadata"].ToString().Should().Contain("reputationEvents=3");
+        // ESC-29: the appeal photos of this user only, counted in the audit row.
+        _appealPhotoDeletes.Should().Equal(userId);
+        _audit.WithAction("account_deleted").Single()["metadata"].ToString().Should().Contain("appealPhotos=2");
     }
 
     [Fact]

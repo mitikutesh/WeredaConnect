@@ -189,4 +189,130 @@ public sealed class ReputationReadsDynamoDbTests
         ReputationGate.CheckOwn(row, T0.AddDays(1)).Should().StartWith("REPUTATION_RESTRICTED: until=");
         ReputationGate.CheckOwn(row, until).Should().BeNull();
     }
+
+    private static ReputationEvent Penalty(string userId, string eventId, string? appealStatus = null) => new()
+    {
+        UserId = userId,
+        EventId = eventId,
+        Code = ReputationCodes.LateCancel,
+        Party = "farmer",
+        BasePoints = 4,
+        Points = 4,
+        OrderId = "o1",
+        BuyerId = "buyer-1",
+        OccurredAt = T0,
+        RecordedAt = T0,
+        PointsExpireAt = T0.AddDays(90),
+        AppealStatus = appealStatus,
+        AppealedAt = appealStatus == null ? null : ReputationPolicy.Iso(T0),
+        PurgeAt = 1900000000
+    };
+
+    [LocalDynamoDbFact]
+    public async Task Appeal_IsStoredOnce_JoinsTheAppealIndex_AndReadsBack()
+    {
+        var userId = Id("farmer");
+        var repo = new ReputationEventRepository(_db.Client, _db.ReputationEvents, _db.Users);
+        await _db.Client.PutItemAsync(_db.ReputationEvents, ReputationEventRepository.ToItem(Penalty(userId, "CANCEL#o1")));
+        const string photo = "uploads/appeals/f/5b0c.webp";
+
+        (await repo.TryAppealAsync(userId, "CANCEL#o1", "The road was closed.", photo, T0.AddDays(1), openReview: false)).Should().BeTrue();
+        (await repo.TryAppealAsync(userId, "CANCEL#o1", "Another story.", null, T0.AddDays(2), openReview: false))
+            .Should().BeFalse("one appeal per event");
+        (await repo.TryAppealAsync(userId, "CANCEL#missing", "Text.", null, T0, openReview: false)).Should().BeFalse();
+
+        var row = await repo.GetEventAsync(userId, "CANCEL#o1");
+        row!.AppealText.Should().Be("The road was closed.");
+        row.AppealPhotoRef.Should().Be(photo);
+        row.AppealStatus.Should().Be("pending");
+        row.AppealedAt.Should().Be(ReputationPolicy.Iso(T0.AddDays(1)));
+        row.AppealTextAt.Should().Be(ReputationPolicy.Iso(T0.AddDays(1)));
+        row.Points.Should().Be(4);
+        row.Version.Should().Be(1, "an appeal changes no counted attribute");
+        (await repo.GetEventAsync(userId, "CANCEL#nope")).Should().BeNull();
+
+        // The row is now on the sparse index the admin queue reads.
+        var listed = 0;
+        for (var i = 0; i < 20 && listed == 0; i++)
+        {
+            listed = (await _db.Client.QueryAsync(new QueryRequest
+            {
+                TableName = _db.ReputationEvents,
+                IndexName = ReputationEventRepository.AppealStatusIndex,
+                KeyConditionExpression = "appealStatus = :s",
+                FilterExpression = "userId = :u",
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    [":s"] = new() { S = "pending" }, [":u"] = new() { S = userId }
+                }
+            })).Count;
+            if (listed == 0)
+            {
+                await Task.Delay(100);
+            }
+        }
+
+        listed.Should().Be(1);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task Appeal_OnAReviewRow_KeepsItsQueueKey_AndAnInactiveRowIsRefused()
+    {
+        var userId = Id("trucker");
+        var repo = new ReputationEventRepository(_db.Client, _db.ReputationEvents, _db.Users);
+        await _db.Client.PutItemAsync(_db.ReputationEvents, ReputationEventRepository.ToItem(Penalty(userId, "OVERDUE#o1", "review")));
+        await _db.Client.PutItemAsync(_db.ReputationEvents,
+            ReputationEventRepository.ToItem(Penalty(userId, "CANCEL#o2") with { Status = ReputationStatuses.Excused }));
+
+        (await repo.TryAppealAsync(userId, "OVERDUE#o1", "The truck broke down.", null, T0.AddDays(1), openReview: true)).Should().BeTrue();
+        (await repo.TryAppealAsync(userId, "CANCEL#o2", "Text.", null, T0.AddDays(1), openReview: false)).Should().BeFalse();
+
+        var row = await repo.GetEventAsync(userId, "OVERDUE#o1");
+        row!.AppealStatus.Should().Be("review");
+        row.AppealedAt.Should().Be(ReputationPolicy.Iso(T0));
+        row.AppealText.Should().Be("The truck broke down.");
+        row.AppealPhotoRef.Should().BeNull();
+    }
+
+    [LocalDynamoDbFact]
+    public async Task Ratings_AreFilteredByTheRoleTheyWereReceivedIn()
+    {
+        var ratee = Id("user");
+        var ratings = new RatingRepository(_db.Client, _db.Ratings);
+        foreach (var (order, role, stars, at) in new[]
+                 {
+                     ("o1", "farmer", 5, "2026-11-01T00:00:00.000Z"), ("o2", "farmer", 4, "2026-11-02T00:00:00.000Z"),
+                     ("o3", "trucker", 1, "2026-11-03T00:00:00.000Z")
+                 })
+        {
+            await _db.Client.PutItemAsync(_db.Ratings, new Dictionary<string, AttributeValue>
+            {
+                ["ratingId"] = new() { S = $"{order}:{ratee}" },
+                ["orderId"] = new() { S = order },
+                ["rateeId"] = new() { S = ratee },
+                ["rateeRole"] = new() { S = role },
+                ["stars"] = new() { N = stars.ToString() },
+                ["createdAt"] = new() { S = at }
+            });
+        }
+
+        (double Average, int Count) farmer = (0, 0);
+        for (var i = 0; i < 20 && farmer.Count < 2; i++)
+        {
+            farmer = await ratings.GetSummaryAsync(ratee, "farmer");
+            if (farmer.Count < 2)
+            {
+                await Task.Delay(100);
+            }
+        }
+
+        farmer.Should().Be((4.5, 2));
+        (await ratings.GetSummaryAsync(ratee, "trucker")).Should().Be((1.0, 1));
+        (await ratings.GetSummaryAsync(ratee)).Count.Should().Be(3);
+
+        var (asFarmer, _) = await ratings.QueryByRateeAsync(ratee, 50, null, "farmer");
+        asFarmer.Select(r => r["orderId"]).Should().Equal("o2", "o1");
+        var (all, _) = await ratings.QueryByRateeAsync(ratee, 50);
+        all.Should().HaveCount(3);
+    }
 }

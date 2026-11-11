@@ -244,6 +244,47 @@ public sealed class ReputationService
             $"The reputation of user {MoneyAlarmLog.LogId(userId)} kept changing; refresh gave up.");
     }
 
+    // ===== reads (6.6, ESC-29) =====
+
+    /// <summary>
+    /// A user's reputation at read time, with no write: the stored aggregate under the live policy,
+    /// or, once <c>now</c> has passed the map's <c>nextChangeAt</c> (an expiry or an end the daily
+    /// job has not written yet), a recompute from the events (one Query). So a read never shows an
+    /// expired point, an ended restriction or an ended override. <paramref name="withEvents"/> also
+    /// reads the events while points are active (the party's own view needs the next expiry).
+    /// Null when the user has no row.
+    /// </summary>
+    public async Task<ReputationRead?> ReadAsync(string userId, bool withEvents)
+    {
+        var user = await _repo.GetUserStateAsync(userId);
+        if (user == null)
+        {
+            return null;
+        }
+
+        var now = Now;
+        var ratings = ReputationGate.StoredRatings(user.RatingSum, user.RatingCount, user.RatingsAggregatedAt);
+        var snapshot = user.Snapshot;
+        var stale = snapshot?.NextChangeAt is { } next && next <= now;
+        if (snapshot == null || !(stale || (withEvents && snapshot.ActivePoints > 0)))
+        {
+            return new ReputationRead(user, ReputationPolicy.FromSnapshot(snapshot, ratings, user.Suspended, now, _settings), ratings, null, now);
+        }
+
+        var (rows, _) = await _repo.QueryEventsAsync(userId, _settings.EventsReadCap);
+        var aggregate = Aggregate(rows, user, now);
+        var nextExpiry = rows
+            .Where(e => ReputationCodes.Penalties.Contains(e.Code) && e.Status == ReputationStatuses.Active
+                        && e.Points - e.EarnedBack > 0 && e.PointsExpireAt is { } expires && expires > now)
+            .Select(e => e.PointsExpireAt)
+            .Min();
+        return new ReputationRead(user, aggregate, ratings, nextExpiry, now);
+    }
+
+    /// <summary>The user's rows for the party's event list (one Query, up to <c>eventsReadCap</c>).</summary>
+    public async Task<IReadOnlyList<ReputationEvent>> ReadEventsAsync(string userId)
+        => (await _repo.QueryEventsAsync(userId, _settings.EventsReadCap)).Rows;
+
     // ===== the daily job's per-user step (8.2) =====
 
     /// <summary>
@@ -604,6 +645,10 @@ public sealed class ReputationService
     /// <summary>One due row's change in the daily step: a transition or a delete.</summary>
     private sealed record DueChange(ReputationRowTransition? Transition, string? Delete);
 }
+
+/// <summary>ESC-29: a user's reputation as read (<see cref="ReputationService.ReadAsync"/>).</summary>
+public sealed record ReputationRead(
+    ReputationUserState User, ReputationAggregate Aggregate, (long Sum, long Count) Ratings, DateTime? NextPointExpiryAt, DateTime AsOf);
 
 /// <summary>How <see cref="ReputationService.RecordAsync"/> ended.</summary>
 public enum ReputationRecordResult

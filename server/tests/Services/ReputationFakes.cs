@@ -236,6 +236,34 @@ internal sealed class FakeReputationRepository : IReputationEventRepository
             .Select(r => (r.UserId, r.EventId))
             .ToList());
 
+    public Task<ReputationEvent?> GetEventAsync(string userId, string eventId)
+        => Task.FromResult(Rows.TryGetValue(userId, out var rows) && rows.TryGetValue(eventId, out var row) ? row : null);
+
+    /// <summary>Set to make the next appeal write lose its condition (a concurrent change).</summary>
+    public Action? BeforeAppeal { get; set; }
+
+    public Task<bool> TryAppealAsync(string userId, string eventId, string text, string? photoRef, DateTime at, bool openReview)
+    {
+        BeforeAppeal?.Invoke();
+        BeforeAppeal = null;
+        if (!Rows.TryGetValue(userId, out var rows) || !rows.TryGetValue(eventId, out var row)
+            || row.Status != ReputationStatuses.Active || !string.IsNullOrEmpty(row.AppealText))
+        {
+            return Task.FromResult(false);
+        }
+
+        var iso = ReputationPolicy.Iso(at);
+        rows[eventId] = row with
+        {
+            AppealText = text,
+            AppealPhotoRef = photoRef,
+            AppealTextAt = iso,
+            AppealStatus = openReview ? row.AppealStatus : "pending",
+            AppealedAt = openReview ? row.AppealedAt : iso
+        };
+        return Task.FromResult(true);
+    }
+
     public Task<int> CountOpenAppealsAsync(string appealStatus, string appealedBefore)
         => Task.FromResult(Rows.Values.SelectMany(r => r.Values)
             .Count(r => r.AppealStatus == appealStatus && string.CompareOrdinal(r.AppealedAt, appealedBefore) < 0));

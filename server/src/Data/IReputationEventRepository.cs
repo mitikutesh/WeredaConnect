@@ -25,6 +25,17 @@ public interface IReputationEventRepository
     /// <summary>The keys due on one <c>DueIndex</c> day partition with <c>dueAt</c> at or before <paramref name="dueAtOrBefore"/> (all pages).</summary>
     Task<IReadOnlyList<(string UserId, string EventId)>> QueryDueAsync(string day, string dueAtOrBefore);
 
+    /// <summary>ESC-29: one row by its key, strongly consistent; null when the user has no such row.</summary>
+    Task<ReputationEvent?> GetEventAsync(string userId, string eventId);
+
+    /// <summary>
+    /// ESC-29 (reputation-api.md section 6): store the party's appeal on an active event that has
+    /// none yet. <paramref name="openReview"/> is true for a row already in an admin review
+    /// (<c>DELIVERY_OVERDUE</c>): its <c>appealStatus</c> and queue position stay. False when the
+    /// row is missing, no longer active or already appealed (nothing written).
+    /// </summary>
+    Task<bool> TryAppealAsync(string userId, string eventId, string text, string? photoRef, DateTime at, bool openReview);
+
     /// <summary>How many rows sit on <c>AppealStatusIndex</c> with <paramref name="appealStatus"/> since before <paramref name="appealedBefore"/>.</summary>
     Task<int> CountOpenAppealsAsync(string appealStatus, string appealedBefore);
 }

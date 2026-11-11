@@ -60,6 +60,20 @@ public sealed record ReputationEvent
 
     public string? AppealedAt { get; init; }
 
+    /// <summary>ESC-29: the party's appeal (reputation-api.md section 6); the text is never logged.</summary>
+    public string? AppealText { get; init; }
+
+    public string? AppealPhotoRef { get; init; }
+
+    /// <summary>When the party's appeal text was received (on a review row <c>appealedAt</c> stays the queue key).</summary>
+    public string? AppealTextAt { get; init; }
+
+    /// <summary>The admin's decision (<c>excused</c> or <c>upheld</c>), when and the note to the party (ESC-32 writes them).</summary>
+    public string? AppealDecision { get; init; }
+
+    public string? DecidedAt { get; init; }
+    public string? DecisionNote { get; init; }
+
     /// <summary>The <c>DueIndex</c> keys while the row will still change state.</summary>
     public string? DueDay { get; init; }
 

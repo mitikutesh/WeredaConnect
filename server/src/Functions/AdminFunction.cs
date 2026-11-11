@@ -2299,6 +2299,9 @@ public partial class AdminFunction
                 : reasonKept ? $"keptReason={FraudConfirmedReason};reason={body.Reason}"
                 : body.Reason);
 
+        // ESC-29: the owner fields copied onto the user's listings follow the suspension (daily job).
+        await MarkReputationCopyDueAsync(userId, body.Action, context);
+
         // The DynamoDB flag alone left refreshed and live tokens working: push the
         // change into Cognito so sessions actually end (or the new role is issued).
         var cognitoNote = await ApplyAccountControlAsync(userId, body.Action, attrValues, context);

@@ -57,7 +57,13 @@ public class AccountDeletionFunction
             new CognitoAuthService(
                 new AmazonCognitoIdentityProviderClient(), Env("COGNITO_CLIENT_ID"), Env("COGNITO_USER_POOL_ID")),
             new AmazonSimpleNotificationServiceClient(),
-            new TransactionAuditRepository(dynamoDb, Env("TRANSACTION_AUDIT_TABLE")));
+            new TransactionAuditRepository(dynamoDb, Env("TRANSACTION_AUDIT_TABLE")))
+        {
+            // ESC-29: the appeal photos go with the reputation events.
+            AppealPhotos = Environment.GetEnvironmentVariable("UPLOADS_BUCKET") is { Length: > 0 } uploads
+                ? new AppealPhotoStore(new Amazon.S3.AmazonS3Client(), uploads).DeleteAllAsync
+                : null
+        };
     }
 
     /// <summary>Constructor for testing.</summary>
