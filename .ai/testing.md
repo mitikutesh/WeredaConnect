@@ -65,3 +65,32 @@ python3 -I scripts/test_export_outcome_labels.py                  # offline test
 python3 -I scripts/export_outcome_labels.py --env dev --dry-run   # print the AWS call only
 python3 -I scripts/export_outcome_labels.py --env dev --out /tmp/labels.jsonl   # needs AWS credentials
 ```
+
+### Outcome label backfill (FUP-143, one-off)
+
+`scripts/backfill_outcome_labels.py` writes the label of every case resolved before FRD-18, or whose
+live label write failed (`OUTCOME_LABEL_FAILED`), from the `fraud_approve`, `fraud_reject`,
+`fraud_whitelist`, `admin_dispute_resolved`, `fraud_hold_release` and `fraud_hold_refund` rows of the
+transaction-audit table. Dry run by default, `--apply` writes. Append only (a conditional put at the
+live label's key, never an update or delete), and a case that already has its label is skipped, so it
+can be run again at any time. It reads the audit table with one full Scan (there is no index on
+`action`): about 1 read unit per 8 KB, a few cents for a million rows. Do not schedule it. Needs the
+AWS CLI v2 with `dynamodb:Scan`, `Query` and `PutItem` on transaction-audit, `GetItem` on
+fraud-signals and `Query` on escrows. Mapping and limits: section 20.1 of the fraud spec.
+
+Run per environment (dev, then staging, then prod):
+
+```bash
+python3 -I scripts/test_backfill_outcome_labels.py                               # offline tests, run after editing the script
+python3 -I scripts/backfill_outcome_labels.py --env dev > /tmp/backfill-dry.jsonl    # 1. dry run, writes nothing
+#    2. read the summary on stderr: would_write per action and outcome, skipped per reason.
+#       Check every `unresolvable` line in the file (its `detail` says why) before going on.
+python3 -I scripts/backfill_outcome_labels.py --env dev --limit 5 --apply        # 3. a small first pass
+python3 -I scripts/backfill_outcome_labels.py --env dev --apply > /tmp/backfill-apply.jsonl   # 4. the rest
+python3 -I scripts/backfill_outcome_labels.py --env dev                          # 5. dry run again: no would_write left
+python3 -I scripts/export_outcome_labels.py --env dev --out /tmp/labels.jsonl    # 6. verify: the labels are in the export
+```
+
+Exit codes: 0 done, 1 an AWS call or a write failed (fix the cause and run again), 2 usage, 3 the Scan
+stopped at `--max-pages`. The JSON lines carry ids only. A backfilled row has `labelBackfill: FUP-143`
+and `backfilledAt` on the table row; the export does not carry them.
