@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.44.1
+1.45.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -123,6 +123,7 @@ This format ensures:
 4. **Client behind = conflict.** If `clientVersion < serverVersion`, return `conflict` with the server's current data.
 5. **Deletes are soft.** Deleted entities are marked with a `deletedAt` timestamp, not physically removed. This prevents sync issues with other clients that haven't synced yet.
 6. **The loser of a status race gets a conflict (1.38.0, SIM-28).** A status change that is not a valid transition from the stored status, sent with a version lower than the stored one (another device or party moved the entity first), is answered `conflict` with `serverVersion` and the current row in `serverData`, like any version conflict, instead of the entity's invalid-transition error (`ORDER_VALIDATION: Invalid status transition ...`, `DELIVERY_INVALID_TRANSITION`, `TRIP_INVALID_TRANSITION`, `CROP_INVALID_TRANSITION`). Nothing is written. Only a caller who may ask for that status gets it, and the row is scrubbed as in the other conflicts: an order's party for a status that party may set (a system-managed status or another party's keeps the error, `order-lifecycle.md` 2.6.0), a delivery's trucker for `pickedUp` and `inTransit`, its buyer for `delivered`, any of its parties for `disputed` (anyone else keeps the error), the listing's farmer, the trip's trucker. With the current version, a newer one or none, the invalid-transition error stands. Clients need no change: they already resolve a `conflict` server-wins (mobile) or treat it as a failure (web).
+7. **The same for a change that reaches a finished entity (1.45.0, FUP-128).** A delivery update that reaches a delivery already `cancelled` (or soft-deleted before `delivery-verification-api.md` 1.9.0) with a version lower than the stored one is answered `conflict` with the row, by rule 6's caller rule (the trucker for `pickedUp` and `inTransit`, the buyer for `delivered`, any party for `disputed`; for an update without a status the trucker, or the farmer storing `qrNonce`). A trip update or delete that reaches a trip already `cancelled`, `delivered` or deleted has answered that way to its trucker since `trip-listing-api.md` 2.4.0. In every other case the errors stand (`DELIVERY_ALREADY_CANCELLED`, `TRIP_TERMINAL_STATE`, `TRIP_ALREADY_CANCELLED`), and clients no longer resend them (see Changes to a finished delivery or trip).
 
 ### Client-Side Conflict Resolution (Mobile)
 
@@ -223,6 +224,7 @@ These rules must always hold:
 - `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED`, `DELIVERY_CODE_LOCKED_DROPOFF` and `DELIVERY_CODE_GPS_REQUIRED` (since 1.33.0) → Mark as permanently rejected and revert the local delivery (see Typed handoff code)
 - `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` (since 1.23.0) → Mark as permanently rejected; since 1.43.0 also revert the local crop listing or trip (see Listing text refusal)
 - `DELIVERY_NONCE_MISSING` (since 1.43.0) → Mark as permanently rejected and revert the local delivery (see Refusals no retry can pass)
+- `DELIVERY_ALREADY_CANCELLED`, `TRIP_TERMINAL_STATE` and `TRIP_ALREADY_CANCELLED` as an `error` (since 1.45.0) → Mark as permanently rejected and revert the local delivery or trip (see Changes to a finished delivery or trip)
 - Every `*_UNAUTHORIZED` code but a role gate (`... Only farmers can ...`, `truckers`, `buyers`), `RATING_FORBIDDEN: You can only rate your own orders.` and a `CROP_VALIDATION`, `TRIP_VALIDATION` or `DELIVERY_VALIDATION` `... is immutable and cannot be changed on update.` (since 1.43.0) → Mark as permanently rejected, not reverted (see Refusals no retry can pass)
 - `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` (since 1.31.0) → Mark as permanently rejected, not reverted (see Location pings); `LOCATION_NOT_ACTIVE` comes as `deferred`, not as an error
 - A refused `listing_report` (since 1.44.0, always `SYNC_VALIDATION`) → Mark as permanently rejected; nothing local to revert (see Listing reports)
@@ -1000,6 +1002,40 @@ Clients before 1.43.0 retry these codes like any other error.
 
 ---
 
+## Changes to a finished delivery or trip (1.45.0, FUP-128)
+
+A cancelled delivery and a trip that is `cancelled`, `delivered` or deleted never change again.
+A change that reaches one comes from a client that did not know yet: the other party, the cron or
+an admin's verdict ended it while the phone was offline. Rule 6 (SIM-28) covered the changes the
+transition table refuses; the finished states are refused before that table is read.
+
+Server (the delivery part is new in 1.45.0; the trip part has been built since
+`trip-listing-api.md` 2.4.0, ESC-17, and is unchanged):
+
+| Operation | Sent version | Caller | Answer |
+|---|---|---|---|
+| Delivery `update` on a delivery that is `cancelled` or carries a legacy `deletedAt` | lower than the stored one | may make the change: the trucker for `pickedUp` and `inTransit`, the buyer for `delivered`, any party for `disputed`; without a `status`, the trucker, or the farmer when the update stores `qrNonce` | `conflict`, `serverVersion`, the scrubbed row in `serverData` (no phones, no `qrNonce`, no photo version ids), message `DELIVERY_ALREADY_CANCELLED: The delivery is already cancelled.` Nothing is written. |
+| The same | lower than the stored one | anyone else (an outsider, or a party asking for another party's status) | `error` `DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery.` (or `... a deleted delivery.`), no row |
+| The same | the stored version, a newer one or none | anyone | The same `error` |
+| Delivery cancel (`update` to `cancelled` or the legacy `delete`) of a cancelled delivery | any | a party | `conflict` with the row, as since 1.11.0 |
+| Trip `update` or `delete` on a trip that is `cancelled`, `delivered` or deleted | lower than the stored one, or asking for the status it already has | the trip's trucker (ownership is checked first) | `conflict` with the row (2.4.0) |
+| The same | the stored version or none, asking for something else | the trip's trucker | `error` `TRIP_TERMINAL_STATE` or `TRIP_ALREADY_CANCELLED` |
+
+A pickup that reaches a delivery cancelled by a transport-failure cancel still logs the alarmed
+`ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED` token before it is answered, conflict or error.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `conflict` with the cancelled delivery or the finished trip | Server wins, as for any conflict: the local row takes the server's status and version, the operation is settled. The resolver reads a row without its optional fields (a crop without `description` or with the flat `latitude` and `longitude`, a trip without `truckerName` or `truckerPhone`, a self-pickup without a trucker) and maps the server's crop status `available` to the app's `active`. | A failure, as for any conflict (the web reads the version right before it writes, so it is rarely behind); the next read shows the cancelled delivery. |
+| `error` `DELIVERY_ALREADY_CANCELLED:` | Permanent and reverted like a refused delivery cancel (1.11.0): rejected, never resent, the delivery goes back to `GET /deliveries/{id}`, the operation leaves the "Sync failed" count, explained with `errorChangeNotSaved`. This is what the second of two queued changes gets (a pickup, then in transit): the first is behind and gets the conflict, the second was queued one version higher, which is the cancelled row's version. | Unchanged: a failure with the message. |
+| `error` `TRIP_TERMINAL_STATE:` or `TRIP_ALREADY_CANCELLED:` | Permanent and reverted with the trip rules (1.17.0): the trip goes back to `GET /trips/{id}` (a `404`, which a cancelled trip answers, removes it, as the trip pull does), the operation leaves the "Sync failed" count, explained with `errorChangeNotSaved`. | Unchanged. |
+
+All three roles: the trucker's pickup, in-transit mark and trip changes, the buyer's confirmation
+(a self-pickup included) and any party's dispute. Clients before 1.45.0 resolve the new conflict
+as any other and keep retrying the errors as before, so the server ships first or together.
+
+---
+
 ## Minimum app version for order operations (1.41.0, ESC-25)
 
 Spec `three-party-escrow-commitments-reputation.md` K1: client support first, then the server, and
@@ -1165,6 +1201,7 @@ New create-only entity `listing_report`: a buyer reports a crop listing or a tri
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.45.0 | 2026-11-11 | Changes to a finished delivery or trip (FUP-128, `delivery-verification-api.md` 2.2.0): a delivery update that reaches a cancelled (or legacy soft-deleted) delivery with a version behind the stored one answers `conflict` with the scrubbed row to a caller who may make that change (SIM-28's rule; the trucker or the farmer's `qrNonce` for an update without a status), instead of `DELIVERY_ALREADY_CANCELLED`; at the current version, without one or for anyone else the error stands. The trip side was built in `trip-listing-api.md` 2.4.0. Mobile: `DELIVERY_ALREADY_CANCELLED`, `TRIP_TERMINAL_STATE` and `TRIP_ALREADY_CANCELLED` errors are permanent and revert the delivery or trip (they were retried); the conflict resolver no longer fails on a crop row without `description`, a trip row without `truckerName` or `truckerPhone`, reads a crop's flat `latitude` and `longitude` and maps `available` to `active`. Web unchanged. New conflict resolution rule 7 |
 | 1.44.1 | 2026-11-11 | A JSON `null` inside `operations` (FUP-127 audit): the whole batch is refused with `400 SYNC_VALIDATION` `"Operations must not contain null."` and nothing is applied. Before, the request failed with an unhandled error (a `502` without a code from API Gateway), also for the valid operations sent with it. No client sends one; no app change |
 | 1.44.0 | 2026-11-07 | Listing reports (FUP-67, `listing-report-api.md` 1.0.0): new create-only entity `listing_report` (`{listingType}#{listingId}`, `{listingType, listingId, reason}`), buyers only, one per buyer and listing (`duplicate` on a repeat), 10 a day; every refusal `SYNC_VALIDATION:`, already permanent on every client; nothing local to revert. New mobile and web report sheet, texts `errorReportNotSent` and `errorReportLimitReached` (en, am, om). The entityType list in Request Format now also names `delivery_photo` (1.39.0) |
 | 1.43.0 | 2026-11-07 | Mobile sync refusals (B1: FUP-08, FUP-25, FUP-51, FUP-74, FUP-110, FUP-138), client only: every `*_UNAUTHORIZED` but a role gate (a token without the role claim gets it too), `RATING_FORBIDDEN` for another user's order, the immutable-field `CROP_VALIDATION`, `TRIP_VALIDATION` and `DELIVERY_VALIDATION` texts and `DELIVERY_NONCE_MISSING` are permanent (see Refusals no retry can pass; `CROP_UNAUTHORIZED` and `TRIP_UNAUTHORIZED` no longer stay retryable, 1.17.0); `DELIVERY_NONCE_MISSING` is reverted like a refused typed code; `CROP_CONTACT_IN_TEXT`, `TRIP_CONTACT_IN_TEXT` and `FRAUD_ACCOUNT_HELD` revert a crop listing or trip (1.17.0 rules); a reverted delivery and a message removed for a closed thread leave the "Sync failed" count; the mobile queue leaves a `pickupPhotoRef` or `dropoffPhotoRef` that is not this delivery's upload key out of a `delivery` operation (an old build's file path); the old `ORDER_VALIDATION` total text is no longer read as `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` (1.24.0). No server change |
@@ -1212,4 +1249,4 @@ New create-only entity `listing_report`: a buyer reports a crop listing or a tri
 ---
 
 **Last Updated**: 2026-11-11
-**Version**: 1.44.0
+**Version**: 1.45.0
