@@ -61,10 +61,9 @@ Plan: `specs/features/sprint-plan-2026-03-19.md`. Only the open rows are left.
 
 ## Security Posture (open items)
 
-Open findings from the 2026-06-20 assessment (`docs/security/security-assessment-2026-06-20.md`) and the 2026-03-05 pentest. Fixed since: ROL-01/ROL-02, ROL-03 and CHAIN-01 (auth hardening #56 and the server deploy pipeline), SRV-01, DEPLOY-01, CI-01 (#110), T-SEC-TTL and T-SEC-JWT (Sprint 1 to 3 work), T-SEC-AUDIT (transaction-audit table).
+Open findings from the 2026-06-20 assessment (`docs/security/security-assessment-2026-06-20.md`) and the 2026-03-05 pentest. Fixed since: ROL-01/ROL-02, ROL-03 and CHAIN-01 (auth hardening #56 and the server deploy pipeline), SRV-01, DEPLOY-01, CI-01 (#110), T-SEC-TTL and T-SEC-JWT (Sprint 1 to 3 work), T-SEC-AUDIT (transaction-audit table), T-SEC-CERT / MOB-02 (refresh client shares the pinned adapter).
 
 ### Unfixed (HIGH priority)
-- [ ] **T-SEC-CERT**: The main API client pins to the Amazon Trust Services roots since SIM-01 (#52), but the token refresh client (`refreshDio` in `main.dart`) is a plain Dio with no pinning (MOB-02). Sprint 2.
 - [ ] **T-SEC-WAF**: AWS WAF not configured. Sprint 2 (re-confirmed 2026-06-20, see assessment; cross-ref INFRA-01. NOTE: API is an HTTP API, so WAF can't attach directly; needs /api/* via CloudFront or REST migration)
 - [ ] **T-SEC-GIT**: Git history contains exposed private key. Sprint 2 (re-confirmed 2026-06-20, see assessment; key also still on disk: server/localstack-data/cache/server.test.pem.key)
 - [ ] **T-SEC-SNS**: SNS in sandbox mode. Sprint 2 (re-confirmed 2026-06-20, see assessment)
