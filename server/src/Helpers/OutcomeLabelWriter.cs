@@ -31,6 +31,11 @@ public static class OutcomeLabels
     /// </summary>
     public const int SnapshotVersion = 1;
 
+    /// <summary>
+    /// FRD-20 P1: warning line of a snapshot that could not be read or stored; the label is written without it.
+    /// </summary>
+    public const string SnapshotFailedToken = "LABEL_SNAPSHOT_FAILED";
+
     public const string CaseFraudSignal = "fraud_signal";
     public const string CaseDispute = "dispute";
     public const string CaseHeldEscrow = "held_escrow";
@@ -202,7 +207,21 @@ public static class OutcomeLabelWriter
 
         try
         {
-            var written = await repo.AppendIfAbsentAsync(BuildEntry(label, ctx));
+            bool written;
+            try
+            {
+                written = await repo.AppendIfAbsentAsync(BuildEntry(label, ctx));
+            }
+            catch (Exception ex) when (label.Snapshot != null)
+            {
+                // FRD-20 P1: a snapshot must never cost a label. Whatever refused the row, write it once
+                // more without the snapshot; a second failure is the label's own (below).
+                Log(context,
+                    $"{OutcomeLabels.SnapshotFailedToken} caseId={MoneyAlarmLog.LogId(label.CaseId)} stage=write error={ex.GetType().Name}",
+                    warning: true);
+                written = await repo.AppendIfAbsentAsync(BuildEntry(label with { Snapshot = null }, ctx));
+            }
+
             Log(context, written
                 ? $"OUTCOME_LABEL_WRITTEN case={label.Case} outcome={label.Outcome} caseId={MoneyAlarmLog.LogId(label.CaseId)}"
                 : $"OUTCOME_LABEL_EXISTS case={label.Case} outcome={label.Outcome} caseId={MoneyAlarmLog.LogId(label.CaseId)}");

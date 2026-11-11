@@ -18,7 +18,7 @@ using WeredaConnect.Server.RateLimiting;
 internal sealed class LabelFeatureSnapshotReader
 {
     /// <summary>Warning line of a snapshot that could not be read: <c>LABEL_SNAPSHOT_FAILED userId=&lt;id&gt; error=&lt;type&gt;</c>.</summary>
-    public const string FailedToken = "LABEL_SNAPSHOT_FAILED";
+    public const string FailedToken = OutcomeLabels.SnapshotFailedToken;
 
     /// <summary>The escrows the completed count looks at: the newest of the user in its role (as FRD-13).</summary>
     internal const int CompletedReadLimit = PayoutDelaySettings.CompletedReadLimit;

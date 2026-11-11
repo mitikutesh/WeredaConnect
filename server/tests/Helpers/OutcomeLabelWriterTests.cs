@@ -233,4 +233,56 @@ public class OutcomeLabelWriterTests
         entry["snapshotSignalUnits"].Should().BeAssignableTo<IDictionary<string, object>>()
             .Which.Should().BeEquivalentTo(new Dictionary<string, object> { ["PRICE_ANOMALY"] = 1, ["OTHER"] = 4 });
     }
+
+    [Fact]
+    public void ASnapshotWithoutAnyUnit_IsSentAsAnEmptyMap_NotAsAnAttributeWithoutAType()
+    {
+        // FUP-144: the SDK drops an empty M unless IsMSet is set, and DynamoDB then refuses the whole put.
+        var entry = OutcomeLabelWriter.BuildEntry(Label() with
+        {
+            Snapshot = new LabelFeatureSnapshot { SignalUnits = new Dictionary<string, int>(), WindowDays = 30 }
+        }, Admin);
+
+        var stored = WeredaConnect.Server.Data.DynamoDbHelper.ToAttributeValue(entry["snapshotSignalUnits"]);
+
+        stored.IsMSet.Should().BeTrue();
+        stored.M.Should().BeEmpty();
+        WeredaConnect.Server.Data.DynamoDbHelper.ToAttributeValue(new Dictionary<string, string>()).IsMSet.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ARowRefusedWithItsSnapshot_IsWrittenAgainWithoutIt_SoTheSnapshotNeverCostsTheLabel()
+    {
+        var puts = new List<Dictionary<string, object>>();
+        _repo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>()).Returns(ci =>
+        {
+            var entry = ci.Arg<Dictionary<string, object>>();
+            puts.Add(entry);
+            return entry.ContainsKey("snapshotVersion")
+                ? Task.FromException<bool>(new Amazon.DynamoDBv2.AmazonDynamoDBException("Supplied AttributeValue is empty"))
+                : Task.FromResult(true);
+        });
+
+        var result = await OutcomeLabelWriter.WriteAsync(_repo, Label() with
+        {
+            Snapshot = new LabelFeatureSnapshot { SignalUnits = new Dictionary<string, int>(), WindowDays = 30 }
+        }, Admin);
+
+        result.Should().Be(OutcomeLabelWrite.Written);
+        puts.Should().HaveCount(2);
+        puts[1].Keys.Should().NotContain(k => k.StartsWith("snapshot", StringComparison.Ordinal));
+        puts[1]["timestamp"].Should().Be(puts[0]["timestamp"], "the same key, so a retry still writes one row");
+        puts[1]["labelOutcome"].Should().Be(puts[0]["labelOutcome"]);
+    }
+
+    [Fact]
+    public async Task ALabelWithoutASnapshotThatFails_IsNotRetried()
+    {
+        _repo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>())
+            .Returns(Task.FromException<bool>(new Amazon.DynamoDBv2.AmazonDynamoDBException("throttled")));
+
+        (await OutcomeLabelWriter.WriteAsync(_repo, Label(), Admin)).Should().Be(OutcomeLabelWrite.Failed);
+
+        await _repo.Received(1).AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+    }
 }

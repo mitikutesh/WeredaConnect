@@ -1222,4 +1222,20 @@ public class AdminFraudActionTests
 
         SnapshotReads.Should().BeEmpty();
     }
+
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("whitelist")]
+    public async Task AUserWithNoCountedSignal_StillGetsALabel_WithAnEmptyUnitsMapDynamoDbAccepts(string action)
+    {
+        // FUP-144: the second decision on a user's only signal (approve, then whitelist) counts nothing.
+        // An empty M must be marked set, or DynamoDB refuses the label put.
+        SignalRowIs("reviewed", action == "approve" ? "reject" : "approve", "2026-11-02T08:00:00.0000000Z");
+
+        (await ActAsync(action)).StatusCode.Should().Be(200);
+
+        var units = LabelPuts.Should().ContainSingle().Subject.Item["snapshotSignalUnits"];
+        units.IsMSet.Should().BeTrue();
+        units.M.Should().BeEmpty();
+    }
 }
