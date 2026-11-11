@@ -129,7 +129,12 @@ public sealed record ReleaseEscrowRequest
     /// </summary>
     public string Trigger { get; init; } = "";
 
-    public string DeliveryId { get; init; } = "";
+    /// <summary>
+    /// Optional (escrow-protocol 2.5.0, FUP-139): the delivery this release pays for. When it is sent and the
+    /// escrow is linked to a delivery, the two must be equal; a self-pickup escrow has none. Null when absent.
+    /// </summary>
+    public string? DeliveryId { get; init; }
+
     public string IdempotencyKey { get; init; } = "";
 
     /// <summary>

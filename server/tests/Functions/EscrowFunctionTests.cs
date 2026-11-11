@@ -704,7 +704,6 @@ public class EscrowFunctionTests
     [Theory]
     [InlineData("escrowId", "ESCROW_VALIDATION")]
     [InlineData("trigger", "ESCROW_VALIDATION")]
-    [InlineData("deliveryId", "ESCROW_002")]
     [InlineData("idempotencyKey", "ESCROW_003")]
     public async Task HandleRelease_MissingField_AnswersThatFieldsCode(string field, string code)
     {
@@ -724,6 +723,24 @@ public class EscrowFunctionTests
         Assert.Contains($"\"code\":\"{code}\"", response.Body);
         Assert.Contains($"\"field\":\"{field}\"", response.Body);
         await _mockEscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+    }
+
+    // FUP-139 (escrow-protocol 2.5.0): deliveryId is optional on a release. A self-pickup escrow has no
+    // delivery, so a body without one (absent, null or blank) is not refused for it and reaches the service.
+    [Theory]
+    [InlineData("")]
+    [InlineData(",\"deliveryId\":null")]
+    [InlineData(",\"deliveryId\":\" \"")]
+    public async Task HandleRelease_WithoutDeliveryId_IsNotRefusedForIt(string deliveryJson)
+    {
+        var body = "{\"escrowId\":\"escrow-001\",\"trigger\":\"delivery_confirmed\","
+                   + "\"idempotencyKey\":\"system:escrow-001:release:1708171200000\"" + deliveryJson + "}";
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/release", body, "system"), _context);
+
+        Assert.DoesNotContain("ESCROW_002", response.Body);
+        Assert.DoesNotContain("\"field\":\"deliveryId\"", response.Body);
+        await _mockEscrowRepo.Received().GetByIdAsync("escrow-001");
     }
 
     [Fact]
@@ -765,7 +782,7 @@ public class EscrowFunctionTests
     [Fact]
     public async Task HandleRefund_WithoutDeliveryId_IsNotRefusedForIt()
     {
-        // The refund body has no deliveryId: only release requires one.
+        // The refund body has no deliveryId, and a release takes an optional one (FUP-139).
         var body = "{\"escrowId\":\"escrow-001\",\"trigger\":\"delivery_timeout\","
                    + "\"idempotencyKey\":\"system:escrow-001:refund:1708257600000\"}";
 
