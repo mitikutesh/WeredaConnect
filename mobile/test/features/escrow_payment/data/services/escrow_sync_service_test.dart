@@ -162,6 +162,45 @@ void main() {
             .findFirst();
         expect(payment, isNotNull);
         expect(payment!.amount, 15000.0);
+        // No rate from the server: the legacy rule, on the amount (FUP-129).
+        expect(payment.commissionRate, 0.025);
+      });
+
+      test('caches the server commissionRate of a synced intent (FUP-129)',
+          () async {
+        await _insertTestIntent(isar);
+
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenAnswer(
+          (_) async => {
+            'escrowId': 'esc-001',
+            'deliveryId': 'del-001',
+            'buyerId': 'buyer-001',
+            'farmerId': 'farmer-001',
+            // 10,000 crop + 4,500 transport + 500 commission.
+            'amount': 15000.0,
+            'commission': 500.0,
+            'commissionRate': 0.05,
+            'farmerPayout': 10000.0,
+            'currency': 'ETB',
+            'status': 'escrowed',
+            'createdAt': '2026-02-19T10:00:00Z',
+            'expiresAt': '2026-02-26T10:00:00Z',
+          },
+        );
+
+        await syncService.processQueuedIntents();
+
+        final payment = await isar.payments
+            .filter()
+            .paymentIdEqualTo('esc-001')
+            .findFirst();
+        // Not commission / amount (0.0333).
+        expect(payment!.commissionRate, 0.05);
       });
 
       test('processing lock prevents concurrent execution (MH4)', () async {
