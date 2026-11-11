@@ -15,6 +15,34 @@ typedef RefreshedTokensWriter = Future<void> Function(
   AuthTokens tokens,
 );
 
+/// Builds the client that carries the refresh token to `POST /auth/refresh`,
+/// shared by `main.dart` and `main_web.dart`.
+///
+/// It copies [apiDio]'s base configuration and shares its
+/// `httpClientAdapter`, the same way the interceptor's retry client does. On
+/// mobile that adapter is the one `applyCertPinning` installed on the API
+/// client, so the refresh call trusts only the bundled Amazon Trust Services
+/// roots (MOB-02: a separate plain Dio used the system trust store, and a
+/// rogue CA on the path could read the refresh token). On web it is the
+/// browser adapter; the browser owns TLS there.
+///
+/// The client has none of [apiDio]'s interceptors (the auth interceptor
+/// would deadlock on its own refresh); [interceptors] are safe extras such
+/// as data-usage metering.
+Dio buildRefreshDio(Dio apiDio, {List<Interceptor> interceptors = const []}) {
+  final refreshDio = Dio(
+    BaseOptions(
+      baseUrl: apiDio.options.baseUrl,
+      connectTimeout: apiDio.options.connectTimeout,
+      receiveTimeout: apiDio.options.receiveTimeout,
+      headers: Map<String, dynamic>.from(apiDio.options.headers),
+    ),
+  );
+  refreshDio.httpClientAdapter = apiDio.httpClientAdapter;
+  refreshDio.interceptors.addAll(interceptors);
+  return refreshDio;
+}
+
 /// Builds the [AuthInterceptor] refresh callback shared by `main.dart` and
 /// `main_web.dart` (they used to carry two hand-rolled copies).
 ///

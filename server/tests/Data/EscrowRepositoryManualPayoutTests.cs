@@ -76,6 +76,36 @@ public class EscrowRepositoryManualPayoutTests
     }
 
     [Fact]
+    public async Task Queue_WithAReleaseOrigin_StoresItInTheSameWrite()
+    {
+        // FUP-137: the auto-release's queue write says who started the release.
+        var ok = await _repo.TryQueueManualPayoutAsync(EscrowId, CreatedAt, "release", "PAYOUT_NOT_SUPPORTED", "escrowed",
+            new List<ManualPayoutLegSeed> { new("farmer", "pending", null, null, null) }, "2026-10-02T09:00:00.0000000Z",
+            "auto_release");
+
+        ok.Should().BeTrue();
+        _update!.UpdateExpression.Should().StartWith("SET #origin = :origin, ").And.Contain("#marker = :open");
+        Name(_update, "#origin").Should().Be("releaseOrigin");
+        _update.ExpressionAttributeValues[":origin"].S.Should().Be("auto_release");
+        // The condition is the queue's own: the origin never loosens or tightens it.
+        _update.ConditionExpression.Should().Be("#lock = :op AND attribute_not_exists(#marker)");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task Queue_WithoutAReleaseOrigin_WritesNone(string? origin)
+    {
+        await _repo.TryQueueManualPayoutAsync(EscrowId, CreatedAt, "release", "PAYOUT_NOT_SUPPORTED", "escrowed",
+            new List<ManualPayoutLegSeed> { new("farmer", "pending", null, null, null) }, "2026-10-02T09:00:00.0000000Z",
+            origin);
+
+        _update!.UpdateExpression.Should().NotContain("#origin");
+        _update.ExpressionAttributeNames.Should().NotContainKey("#origin");
+        _update.ExpressionAttributeValues.Should().NotContainKey(":origin");
+    }
+
+    [Fact]
     public async Task Queue_ConditionalCheckFailed_ReturnsFalse()
     {
         _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())

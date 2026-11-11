@@ -483,8 +483,8 @@ public class EscrowFunction
             return LambdaResponse.Error(400, "ESCROW_001", "Request body is required.");
         }
 
-        if (MissingSettlementField(body.EscrowId, body.Trigger, body.IdempotencyKey, body.DeliveryId,
-                requireDelivery: true) is { } missingRelease)
+        // FUP-139: deliveryId is optional (a self-pickup escrow has no delivery); the service compares one that is sent.
+        if (MissingSettlementField(body.EscrowId, body.Trigger, body.IdempotencyKey) is { } missingRelease)
         {
             return missingRelease;
         }
@@ -666,8 +666,7 @@ public class EscrowFunction
             return LambdaResponse.Error(400, "ESCROW_001", "Request body is required.");
         }
 
-        if (MissingSettlementField(body.EscrowId, body.Trigger, body.IdempotencyKey, deliveryId: null,
-                requireDelivery: false) is { } missingRefund)
+        if (MissingSettlementField(body.EscrowId, body.Trigger, body.IdempotencyKey) is { } missingRefund)
         {
             return missingRefund;
         }
@@ -863,7 +862,7 @@ public class EscrowFunction
     /// right after parsing, where a malformed body is answered too, so before the caller's role.
     /// </summary>
     private static APIGatewayProxyResponse? MissingSettlementField(
-        string? escrowId, string? trigger, string? idempotencyKey, string? deliveryId, bool requireDelivery)
+        string? escrowId, string? trigger, string? idempotencyKey)
     {
         if (string.IsNullOrWhiteSpace(escrowId))
         {
@@ -873,11 +872,6 @@ public class EscrowFunction
         if (string.IsNullOrWhiteSpace(trigger))
         {
             return LambdaResponse.Error(400, "ESCROW_VALIDATION", "trigger is required.", "trigger");
-        }
-
-        if (requireDelivery && string.IsNullOrWhiteSpace(deliveryId))
-        {
-            return LambdaResponse.Error(400, "ESCROW_002", "deliveryId is required.", "deliveryId");
         }
 
         if (string.IsNullOrWhiteSpace(idempotencyKey))

@@ -143,7 +143,8 @@ public partial class AdminFunction
         string escrowIdempotencyTable = "",
         string tripLocationsTable = "",
         string tripsTable = "",
-        string cropsTable = "")
+        string cropsTable = "",
+        string fraudSignalsTable = "")
     {
         _dynamoDb = dynamoDb;
         _usersTable = usersTable;
@@ -152,7 +153,7 @@ public partial class AdminFunction
         _deliveriesTable = deliveriesTable;
         _escrowAuditTable = escrowAuditTable;
         _transactionAuditTable = transactionAuditTable;
-        _fraudSignalsTable = "";
+        _fraudSignalsTable = fraudSignalsTable;
         _cropsTable = cropsTable;
         _tripsTable = tripsTable;
         _paymentsTable = "";
@@ -1295,7 +1296,56 @@ public partial class AdminFunction
             entityType: "escrow", entityId: escrowId, outcome: value.AlreadyRecorded ? "replay" : "success",
             detail: $"leg={leg};escrowStatus={value.EscrowStatus}");
 
+        // FUP-137: the close that wrote releasedAt completes the clean-delivery credit of an auto-release.
+        // A replay of a recorded leg runs it again, which writes only what an earlier attempt lost.
+        if (value.EscrowStatus is "released" or "completed")
+        {
+            await TryCreditCleanDeliveryAsync(escrowId, service, context);
+        }
+
         return LambdaResponse.Ok(value, AppJsonContext.Default.CompleteManualPayoutResponse);
+    }
+
+    /// <summary>
+    /// FUP-137 (fraud-detection-architecture.md section 20): in live mode the gateway cannot pay out, so every
+    /// auto-release waits in the manual payout queue and the credit of FRD-10 is written here, once the admin
+    /// has recorded the payout and the close wrote the escrow's <c>releasedAt</c>. The row is read again
+    /// (strongly consistent) and credited through <see cref="CleanDeliveryCreditService.CreditReleasedAsync"/>:
+    /// only a release the hourly auto-release queued (the <c>releaseOrigin</c> marker of the queue write), never
+    /// an admin release, a dispute verdict, a held exit or a refund, and only a clean trade. The key is the
+    /// stored <c>releasedAt</c> and the escrow id with a conditional put, so a double click, a second admin
+    /// and a retry write each party's row once between them. Runs after the money is on record and catches
+    /// everything: it never fails or changes the payout answer.
+    /// </summary>
+    private async Task TryCreditCleanDeliveryAsync(string escrowId, EscrowService service, ILambdaContext context)
+    {
+        if (string.IsNullOrEmpty(_fraudSignalsTable))
+        {
+            return;
+        }
+
+        try
+        {
+            var escrow = await new EscrowRepository(_dynamoDb, _escrowsTable).GetByIdAsync(escrowId, consistentRead: true);
+            if (escrow == null)
+            {
+                return;
+            }
+
+            var outcome = await new CleanDeliveryCreditService(_dynamoDb, _fraudSignalsTable).CreditReleasedAsync(
+                escrow, async row => (await service.ResolveTruckerIdAsync(row)).TruckerId, DateTime.UtcNow);
+            // Any payout that is not an auto-release's is the normal case here, not a line worth logging.
+            if (outcome.NotCleanReason != CleanDeliveryCreditService.NotCleanNotAutoRelease)
+            {
+                CleanDeliveryCreditService.LogOutcome(
+                    escrowId, outcome, context.Logger.LogInformation, context.Logger.LogError);
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"{CleanDeliveryCreditService.CreditFailedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} error={MoneyAlarmLog.LogId(ex.GetType().Name)}");
+        }
     }
 
     /// <summary>Escrow ids are server-generated: 1 to 128 of [A-Za-z0-9_-].</summary>

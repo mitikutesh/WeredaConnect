@@ -2,6 +2,7 @@ using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
+using WeredaConnect.Server.Helpers;
 
 namespace WeredaConnect.Server.Services;
 
@@ -41,6 +42,11 @@ internal sealed record CleanDeliveryCreditOutcome(
 /// is the escrow's release time and its id, <c>{releasedAt}#CLEAN_DELIVERY#{escrowId}</c>, written with
 /// <c>attribute_not_exists(signalKey)</c>, so one escrow credits each party once however often it is
 /// replayed. No Scan: one Query per party on its own partition, then one put per party.
+/// FUP-137: the credit follows the write of the escrow's <c>releasedAt</c>. Where the gateway pays, that is
+/// the auto-release itself (<see cref="CreditAsync"/>, called by escrow-cron). Where an admin pays the legs
+/// by hand, it is the manual payout close that writes <c>releasedAt</c>, and the crash recovery of
+/// escrow-cron reads a released row again: both go through <see cref="CreditReleasedAsync"/>, which
+/// credits only a row the auto-release marked (<see cref="OriginField"/>).
 /// </summary>
 internal sealed class CleanDeliveryCreditService
 {
@@ -61,6 +67,30 @@ internal sealed class CleanDeliveryCreditService
 
     /// <summary>The release time is missing or does not parse, so no stable key can be built.</summary>
     internal const string NotCleanNoReleaseTime = "no_release_time";
+
+    /// <summary>FUP-137: the row was not released by the auto-release (no <see cref="OriginField"/> marker).</summary>
+    internal const string NotCleanNotAutoRelease = "not_auto_release";
+
+    /// <summary>FUP-137: the row is not <c>released</c> or <c>completed</c>, so no money is on record as paid.</summary>
+    internal const string NotCleanNotReleased = "not_released";
+
+    /// <summary>
+    /// FUP-137: the escrow attribute that says who started the release this row records or waits for.
+    /// <see cref="OriginAutoRelease"/> is written by the release itself, in the write that settles the row
+    /// (the gateway paid) or queues it for a manual payout (the gateway could not), and only for the hourly
+    /// auto-release: the system actor, trigger <c>delivery_confirmed</c>, from <c>escrowed</c>. An admin
+    /// release, a dispute verdict, a held exit and a refund never write it. A ledger escrow can be decided
+    /// more than once, so every release decision writes it (<see cref="OriginOther"/> when not the
+    /// auto-release). A stale settlement the recovery step parks has no origin and earns no credit.
+    /// </summary>
+    internal const string OriginField = ReleaseOriginFields.Field;
+    internal const string OriginAutoRelease = ReleaseOriginFields.AutoRelease;
+    internal const string OriginOther = ReleaseOriginFields.Other;
+
+    /// <summary>FUP-137: log lines of the credit (not alarmed; a lost credit only means a higher score).</summary>
+    internal const string CreditedToken = "CLEAN_DELIVERY_CREDITED";
+    internal const string NotCreditedToken = "CLEAN_DELIVERY_NOT_CREDITED";
+    internal const string CreditFailedToken = "CLEAN_DELIVERY_CREDIT_FAILED";
 
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _fraudSignalsTable;
@@ -93,10 +123,89 @@ internal sealed class CleanDeliveryCreditService
     }
 
     /// <summary>
+    /// FUP-137: <see cref="OriginAutoRelease"/> when a release by <paramref name="actor"/> with
+    /// <paramref name="trigger"/> that settles from <paramref name="settledFrom"/> is the hourly
+    /// auto-release of a confirmed delivery, else null.
+    /// </summary>
+    internal static string? OriginOf(string actor, string trigger, string settledFrom) =>
+        actor == EscrowService.SystemActor && trigger == "delivery_confirmed" && settledFrom == "escrowed"
+            ? OriginAutoRelease
+            : null;
+
+    /// <summary>
+    /// FUP-137: credits the parties of an escrow row read after its release was recorded: the manual
+    /// payout close that wrote <c>releasedAt</c> (live mode), or a row escrow-cron reads again after a run
+    /// that died between the release and the credit. Only a <c>released</c> or <c>completed</c> row the
+    /// auto-release marked (<see cref="OriginField"/>) with no dispute or hold field is credited, with the
+    /// key of <see cref="CreditAsync"/> (the stored <c>releasedAt</c> and the escrow id), so the close, its
+    /// replay, a second admin and the recovery write each party's row once between them.
+    /// <paramref name="resolveTruckerId"/> finds the trucker of a row that pays one and names none.
+    /// </summary>
+    public async Task<CleanDeliveryCreditOutcome> CreditReleasedAsync(
+        Dictionary<string, object> escrow, Func<Dictionary<string, object>, Task<string?>> resolveTruckerId,
+        DateTime nowUtc)
+    {
+        if (Value(escrow, "status") is not ("released" or "completed"))
+        {
+            return CleanDeliveryCreditOutcome.NotClean(NotCleanNotReleased);
+        }
+
+        if (Value(escrow, OriginField) != OriginAutoRelease)
+        {
+            return CleanDeliveryCreditOutcome.NotClean(NotCleanNotAutoRelease);
+        }
+
+        if (EscrowNotCleanReason(escrow) is { } reason)
+        {
+            return CleanDeliveryCreditOutcome.NotClean(reason);
+        }
+
+        var truckerId = Value(escrow, "truckerId");
+        if (truckerId == null && PartySuspensionGate.HasTruckerLeg(escrow))
+        {
+            truckerId = await resolveTruckerId(escrow);
+        }
+
+        return await CreditAsync(
+            new CleanDeliveryTrade(
+                Value(escrow, "escrowId") ?? "",
+                Value(escrow, "orderId"),
+                Value(escrow, "deliveryId"),
+                new[] { Value(escrow, "buyerId"), Value(escrow, "farmerId"), truckerId },
+                Value(escrow, "releasedAt")),
+            nowUtc);
+    }
+
+    /// <summary>
+    /// FUP-137: the log lines of one outcome, shared by escrow-cron and the admin's manual payout close.
+    /// Returns true when the credit is settled (written, already there, or ruled out) and false when a
+    /// write failed, so the caller may try the escrow again.
+    /// </summary>
+    internal static bool LogOutcome(
+        string escrowId, CleanDeliveryCreditOutcome outcome, Action<string> info, Action<string> error)
+    {
+        if (outcome.NotCleanReason != null)
+        {
+            info($"{NotCreditedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} reason={MoneyAlarmLog.LogId(outcome.NotCleanReason)}");
+            return true;
+        }
+
+        foreach (var (userId, failure) in outcome.Failed)
+        {
+            error($"{CreditFailedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} userId={MoneyAlarmLog.LogId(userId)} error={MoneyAlarmLog.LogId(failure)}");
+        }
+
+        info($"{CreditedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} credited={outcome.Credited.Count} alreadyCredited={outcome.AlreadyCredited} failed={outcome.Failed.Count}");
+        return outcome.Failed.Count == 0;
+    }
+
+    /// <summary>
     /// Credits each party of a clean trade. First reads every party's partition for a signal row on the
     /// order, the delivery or the escrow (one Query each over the table's 30 day life, at most
     /// <see cref="MaxPages"/> pages); a signal an admin approved (false positive) or whitelisted does not
-    /// count, any other signal row does, whatever its weight. Then writes the credit rows. A read that
+    /// count, any other signal row does, whatever its weight. A row is a signal unless it is a credit or
+    /// the whitelist row, as the score reads it (FUP-137: a <c>recordType</c> nobody knows blocks the
+    /// credit, it never lowers a score unseen). Then writes the credit rows. A read that
     /// throws propagates and nothing is written; a failed write is reported per user and the other
     /// parties are still written.
     /// </summary>
@@ -202,7 +311,8 @@ internal sealed class CleanDeliveryCreditService
         {
             { ":uid", new AttributeValue { S = userId } },
             { ":since", new AttributeValue { S = sinceKey } },
-            { ":signal", new AttributeValue { S = FraudDetectionService.RecordTypeSignal } },
+            { ":credit", new AttributeValue { S = FraudDetectionService.RecordTypeCredit } },
+            { ":whitelistRow", new AttributeValue { S = FraudDetectionService.RecordTypeWhitelist } },
             { ":approve", new AttributeValue { S = "approve" } },
             { ":whitelist", new AttributeValue { S = "whitelist" } }
         };
@@ -221,10 +331,11 @@ internal sealed class CleanDeliveryCreditService
             {
                 TableName = _fraudSignalsTable,
                 KeyConditionExpression = "#u = :uid AND #k >= :since",
-                // Signal rows only (credit and whitelist rows are not signals), on this trade, not cleared
-                // by an admin: the rows the score counts (section 14.2).
+                // Every row but a credit or the whitelist row, on this trade, not cleared by an admin: the
+                // rows the score counts (section 14.2). FUP-137: as RiskScoreCalculator.Add, a recordType
+                // other than those two is a signal, whatever its value (fails closed).
                 FilterExpression = $"#e IN ({string.Join(", ", placeholders)})"
-                    + " AND (attribute_not_exists(#rt) OR #rt = :signal)"
+                    + " AND (attribute_not_exists(#rt) OR NOT (#rt IN (:credit, :whitelistRow)))"
                     + " AND (attribute_not_exists(#r) OR NOT (#r IN (:approve, :whitelist)))",
                 ProjectionExpression = "#k",
                 ExpressionAttributeNames = names,
@@ -250,6 +361,9 @@ internal sealed class CleanDeliveryCreditService
         return startKey != null ? NotCleanUnread : null;
     }
 
-    private static bool HasValue(Dictionary<string, object> row, string key) =>
-        row.TryGetValue(key, out var value) && !string.IsNullOrEmpty(value?.ToString());
+    private static bool HasValue(Dictionary<string, object> row, string key) => Value(row, key) != null;
+
+    /// <summary>The attribute as a string, or null when it is missing or empty.</summary>
+    private static string? Value(Dictionary<string, object> row, string key) =>
+        row.TryGetValue(key, out var value) && value?.ToString() is { Length: > 0 } text ? text : null;
 }
