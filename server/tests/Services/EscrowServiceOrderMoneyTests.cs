@@ -169,7 +169,7 @@ public class EscrowServiceOrderMoneyTests
         });
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(_ =>
             {
                 _escrow[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;
@@ -491,7 +491,7 @@ public class EscrowServiceOrderMoneyTests
         });
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(_ =>
             {
                 _escrow[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;
@@ -685,7 +685,7 @@ public class EscrowServiceOrderMoneyTests
                 : new ReleaseFundsResponse { Success = true, TelebirrRef = "TB-REL-1" });
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(_ =>
             {
                 _escrow[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;

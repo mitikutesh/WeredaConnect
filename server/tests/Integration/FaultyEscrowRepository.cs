@@ -81,8 +81,8 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
         IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string? lockId, string parkId)
         => _inner.TryQueueStaleSettlementAsync(escrowId, createdAt, op, fromStatus, legs, queuedAt, lockId, parkId);
     public Task<bool> TryQueueManualPayoutAsync(string escrowId, string createdAt, string op, string reason, string fromStatus,
-        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt)
-        => _inner.TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, queuedAt);
+        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string? releaseOrigin = null)
+        => _inner.TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, queuedAt, releaseOrigin);
     public Task<bool> TryMarkManualLegPaidAsync(string escrowId, string createdAt, string op, string leg, string externalRef,
         string paidBy, string paidAt, string? otherLegMustBePending)
         => _inner.TryMarkManualLegPaidAsync(escrowId, createdAt, op, leg, externalRef, paidBy, paidAt, otherLegMustBePending);

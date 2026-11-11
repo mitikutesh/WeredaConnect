@@ -80,6 +80,22 @@ internal static class ManualPayoutFields
 }
 
 /// <summary>
+/// FUP-137: the escrow attribute that says who started the release a row records or waits for, written by
+/// the release itself in the write that settles the row or queues it for a manual payout. The
+/// clean-delivery credit reads it (<c>CleanDeliveryCreditService</c>).
+/// </summary>
+internal static class ReleaseOriginFields
+{
+    public const string Field = "releaseOrigin";
+
+    /// <summary>The hourly auto-release of a confirmed delivery: system actor, <c>delivery_confirmed</c>, from <c>escrowed</c>.</summary>
+    public const string AutoRelease = "auto_release";
+
+    /// <summary>Any other release decision of a ledger escrow, which can be decided more than once.</summary>
+    public const string Other = "other";
+}
+
+/// <summary>
 /// The settlement lock on the escrow row. <c>settlementLock</c> holds the operation
 /// (release or refund); ESC-05 adds <c>settlementLockAt</c>, the ISO time it was taken, and
 /// <c>settlementLockId</c>, a random id that tells one lock from another (two locks can carry
