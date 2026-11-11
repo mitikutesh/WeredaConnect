@@ -2186,6 +2186,12 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
 });
 
 describe('MonitoringStack', () => {
+  test('monitoring is off in dev only: staging and prod keep their alarms', () => {
+    expect(environments['dev'].monitoringEnabled).toBe(false);
+    expect(environments['staging'].monitoringEnabled).not.toBe(false);
+    expect(environments['prod'].monitoringEnabled).not.toBe(false);
+  });
+
   test('creates CloudWatch dashboard', () => {
     const app = new cdk.App();
     const stack = new MonitoringStack(app, 'TestMonitoringStack', {

@@ -341,7 +341,7 @@ flutter build appbundle --release
 | **ApiStack** | `{prefix}-api` | 14 Lambdas, API Gateway, 2 Cognito pools, EventBridge rules, Secrets Manager (prod) / SSM SecureString refs (dev+staging), SSM params |
 | **WebStack** | `{prefix}-web` | 3 S3 buckets + 3 CloudFront distributions (website, webapp, admin) |
 | **CertificateStack** | `{prefix}-cert` | ACM wildcard cert (`*.weredaconnect.com`) in us-east-1 |
-| **MonitoringStack** | `{prefix}-monitoring` | CloudWatch dashboard + alarms |
+| **MonitoringStack** | `{prefix}-monitoring` | CloudWatch dashboard + alarms. Not deployed in dev (`monitoringEnabled: false` in `infra/lib/config/environments.ts`, saves about $15 a month); `-c monitoringEnabled=true` deploys it there |
 
 Stack source: `infra/lib/stacks/`
 

@@ -22,6 +22,15 @@ export interface EnvironmentConfig {
   /** Extra CORS origins beyond the standard domain-derived ones (e.g. temp CloudFront URLs). */
   readonly extraCorsOrigins?: readonly string[];
   /**
+   * When false, the Monitoring stack (CloudWatch dashboard, alarms, log metric filters, alarm SNS
+   * topic; about $15 a month, counted in the MonitoringStack header) is not synthesized. Default
+   * true. Dev is off to save cost; staging and prod must stay on (a test pins it). Override per
+   * deploy with `-c monitoringEnabled=true|false`. Turning it off does not delete a stack that is
+   * already deployed: run `npx cdk destroy WeredaConnect-<env>-Monitoring -c environment=<env>
+   * -c monitoringEnabled=true` once.
+   */
+  readonly monitoringEnabled?: boolean;
+  /**
    * When true, provision the real Telebirr gateway path instead of the mock:
    * a Telebirr credentials secret, a VPC + t4g.nano NAT instance (for a stable
    * outbound IP that Telebirr can source-IP allow-list), the public
@@ -153,6 +162,9 @@ export const environments: Record<string, EnvironmentConfig> = {
     name: 'dev',
     region: 'eu-north-1',
     isProd: false,
+    // No dashboard or alarms in dev, to save the CloudWatch cost (owner's decision, 2026-11-11).
+    // `-c monitoringEnabled=true` brings them back for one deploy, e.g. for the synthetic alarm scripts.
+    monitoringEnabled: false,
     // Dev signs in against the mock Fayda eSignet provider (tools/fayda-mock).
     // To use real Fayda: faydaMode 'live' + faydaClientId, then seed the client
     // private key (specs/features/fayda-mock-server.md, "Switching to live Fayda").

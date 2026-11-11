@@ -67,17 +67,34 @@ const apiStack = new ApiStack(app, `${stackPrefix}-API`, {
 });
 apiStack.addDependency(databaseStack);
 
-// 2b. Monitoring stack (depends on API) — CloudWatch dashboard, metric filters, alarms
-const monitoringStack = new MonitoringStack(app, `${stackPrefix}-Monitoring`, {
-  env: envProps,
-  stackName: `wereda-connect-${envConfig.name}-monitoring`,
-  description: `WeredaConnect ${envConfig.name} - CloudWatch dashboard, metric filters, and alarms`,
-  tags: envConfig.tags,
-  envConfig,
-  apiUrl: apiStack.httpApiUrl,
-  apiId: apiStack.httpApiId,
-});
-monitoringStack.addDependency(apiStack);
+// 2b. Monitoring stack (depends on API): CloudWatch dashboard, metric filters, alarms.
+// Skipped where envConfig.monitoringEnabled is false (dev); `-c monitoringEnabled=true|false` overrides.
+const monitoringContext = app.node.tryGetContext("monitoringEnabled");
+const monitoringEnabled =
+  monitoringContext === undefined
+    ? envConfig.monitoringEnabled !== false
+    : String(monitoringContext) === "true";
+if (monitoringEnabled) {
+  const monitoringStack = new MonitoringStack(
+    app,
+    `${stackPrefix}-Monitoring`,
+    {
+      env: envProps,
+      stackName: `wereda-connect-${envConfig.name}-monitoring`,
+      description: `WeredaConnect ${envConfig.name} - CloudWatch dashboard, metric filters, and alarms`,
+      tags: envConfig.tags,
+      envConfig,
+      apiUrl: apiStack.httpApiUrl,
+      apiId: apiStack.httpApiId,
+    },
+  );
+  monitoringStack.addDependency(apiStack);
+} else {
+  // Keep the two exports a deployed Monitoring stack imports. Without them CloudFormation refuses
+  // the API stack update ("export in use") until that Monitoring stack is destroyed.
+  apiStack.exportValue(apiStack.httpApiUrl);
+  apiStack.exportValue(apiStack.httpApiId);
+}
 
 // 3a. Certificate stack (us-east-1 — hard AWS requirement for CloudFront)
 const certStack = new CertificateStack(app, `${stackPrefix}-Certificate`, {
