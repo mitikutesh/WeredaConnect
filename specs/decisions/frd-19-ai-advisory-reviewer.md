@@ -1,7 +1,7 @@
 # ADR: AI advisory reviewer on Amazon Bedrock (FRD-19)
 
 **Date**: 2026-11-07
-**Status**: Accepted and built, OFF in every environment. Turning it on, the model and the production Region route are the owner's decisions (section "Open decisions").
+**Status**: Accepted and built. ON in dev since 2026-11-11 on Haiku 5.5 (`eu.anthropic.claude-haiku-5-5`, the owner's choice); OFF in staging and prod. Turning it on there and the production Region route are the owner's decisions (section "Open decisions").
 **Ticket**: FRD-19 (EPIC FRD, story S6, P3)
 **Spec**: `specs/architecture/fraud-detection-architecture.md` section 21 (3.20.0)
 
@@ -118,7 +118,7 @@ A failed review is retried by the next hourly run while the user's new signal is
 
 ## Kill switch and caps
 
-- `aiReviewEnabled` in `environments.ts` (default false in dev, staging and prod) sets `FRAUD_AI_REVIEW_ENABLED` on the cron, `AI_REVIEW_ENABLED` on the reviewer, and the hourly rule's state: off, the rule is disabled and nothing runs. Either Lambda's switch off stops every Bedrock call, also for a run invoked by hand.
+- `aiReviewEnabled` in `environments.ts` (true in dev, false in staging and prod) sets `FRAUD_AI_REVIEW_ENABLED` on the cron, `AI_REVIEW_ENABLED` on the reviewer, and the hourly rule's state: off, the rule is disabled and nothing runs. Either Lambda's switch off stops every Bedrock call, also for a run invoked by hand.
 - Emergency stop without a deploy: set the reviewer's reserved concurrency to 0 in the console (every invocation is throttled, the cron logs the failures and writes nothing), or disable the EventBridge rule `wereda-connect-<env>-fraud-advisory-hourly`.
 - `FRAUD_AI_REVIEW_MAX_PER_RUN` (default 5, at most 20) and one review per user and UTC day bound the spend; `FRAUD_AI_REVIEW_LOOKBACK_HOURS` (default 2, at most 24).
 
@@ -134,8 +134,8 @@ Turn `aiReviewEnabled` off and deploy (or the emergency stops above). Advisory r
 
 ## Open decisions (owner)
 
-1. The model: Opus 5.5 (configured, most capable) or Haiku 5.5 (about 40 times cheaper, likely enough for a short classification).
-2. Turning it on in dev, and later in staging and prod, with the production route (EU profile from `eu-central-1`, Global from `me-south-1`, or off) after a data protection review.
+1. Decided 2026-11-11: Haiku 5.5 in dev (about 40 times cheaper than Opus 5.5, enough for a short classification). Staging and prod still name Opus 5.5 and are off; choose their model when they are turned on.
+2. Dev is on since 2026-11-11. Still open: staging and prod, with the production route (EU profile from `eu-central-1`, Global from `me-south-1`, or off) after a data protection review.
 3. Whether a `none` verdict should be written at all (today it is, with weight 0, so the admin sees the AI found an honest explanation).
 
 ## Accepted trade-offs
