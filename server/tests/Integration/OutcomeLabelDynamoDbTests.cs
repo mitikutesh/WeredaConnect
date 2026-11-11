@@ -160,6 +160,19 @@ public sealed class OutcomeLabelDynamoDbTests
             .Where(r => (string)r["action"] == "outcome_label")
             .ToList();
         labels.Select(r => r["labelOutcome"]).Should().Equal("false_positive", "whitelisted");
+
+        // FRD-20 P1 (FUP-144): each label carries its snapshot, read before its decision. The first sees the
+        // pending signal; the second sees none counted (the approve cleared it), an empty map DynamoDB keeps.
+        var rows = (await Ddb.QueryAsync(new QueryRequest
+        {
+            TableName = _db.TransactionAudit,
+            KeyConditionExpression = "transactionId = :t",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":t"] = new() { S = signalId } }
+        })).Items.Where(r => r["action"].S == "outcome_label").ToList();
+        rows.Should().HaveCount(2).And.OnlyContain(r => r["snapshotVersion"].N == "1" && r["snapshotTruncated"].BOOL == false);
+        rows[0]["snapshotSignalUnits"].M.Should().ContainSingle().Which.Key.Should().Be("GPS_ANOMALY");
+        rows[0]["snapshotSignalUnits"].M["GPS_ANOMALY"].N.Should().Be("1");
+        rows[1]["snapshotSignalUnits"].M.Should().BeEmpty();
         labels.Should().OnlyContain(r => (string)r["subjectUserId"] == user && (string)r["deliveryId"] == $"del-{_run}"
                                          && (string)r["signalType"] == "GPS_ANOMALY");
     }

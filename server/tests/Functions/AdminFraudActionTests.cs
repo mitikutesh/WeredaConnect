@@ -54,6 +54,20 @@ public class AdminFraudActionTests
     private Exception? _failNextWhitelistWrite;
     private Exception? _failNextLabelPut;
 
+    // FRD-20 P1: what the feature snapshot's three reads answer (the user's signal partition, the users row
+    // with the snapshot's projection, the counted escrows Query), and their one-shot failures.
+    private readonly Queue<QueryResponse> _signalPages = new();
+    private Dictionary<string, AttributeValue>? _snapshotUserRow = new()
+    {
+        { "role", new AttributeValue { S = "farmer" } },
+        { "createdAt", new AttributeValue { S = DateTime.UtcNow.AddDays(-100).AddHours(-1).ToString("o", CultureInfo.InvariantCulture) } },
+        { "faydaVerified", new AttributeValue { BOOL = true } }
+    };
+    private QueryResponse _completedEscrows = new() { Count = 4, LastEvaluatedKey = new Dictionary<string, AttributeValue>() };
+    private Exception? _failNextSignalQuery;
+    private Exception? _failNextSnapshotUserRead;
+    private Exception? _failNextCompletedCount;
+
     public AdminFraudActionTests()
     {
         _ddb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
@@ -82,6 +96,13 @@ public class AdminFraudActionTests
                     return Task.FromResult(new GetItemResponse { Item = _signalRow });
                 }
 
+                if (IsSnapshotUserRead(ci.ArgAt<GetItemRequest>(0)))
+                {
+                    return Take(ref _failNextSnapshotUserRead) is { } snapshotFailure
+                        ? Task.FromException<GetItemResponse>(snapshotFailure)
+                        : Task.FromResult(new GetItemResponse { Item = _snapshotUserRow });
+                }
+
                 return Take(ref _failNextUserRead) is { } ex
                     ? Task.FromException<GetItemResponse>(ex)
                     : Task.FromResult(new GetItemResponse
@@ -90,10 +111,28 @@ public class AdminFraudActionTests
                     });
             });
         _ddb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Task.FromResult(
-                _escrowPages.TryGetValue(ci.ArgAt<QueryRequest>(0).IndexName, out var pages) && pages.Count > 0
-                    ? pages.Dequeue()
-                    : new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() }));
+            .Returns(ci =>
+            {
+                var query = ci.ArgAt<QueryRequest>(0);
+                if (query.TableName == FraudTable)
+                {
+                    return Take(ref _failNextSignalQuery) is { } ex
+                        ? Task.FromException<QueryResponse>(ex)
+                        : Task.FromResult(_signalPages.Count > 0 ? _signalPages.Dequeue() : Page(null));
+                }
+
+                if (query.Select == Select.COUNT)
+                {
+                    return Take(ref _failNextCompletedCount) is { } ex
+                        ? Task.FromException<QueryResponse>(ex)
+                        : Task.FromResult(_completedEscrows);
+                }
+
+                return Task.FromResult(
+                    _escrowPages.TryGetValue(query.IndexName, out var pages) && pages.Count > 0
+                        ? pages.Dequeue()
+                        : new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() });
+            });
         var ok = AuthResult<bool>.Success(true);
         _cognito.AdminDisableUserAsync(Arg.Any<string>()).Returns(ok);
         _cognito.AdminEnableUserAsync(Arg.Any<string>()).Returns(ok);
@@ -156,7 +195,18 @@ public class AdminFraudActionTests
 
     private List<PutItemRequest> Puts => Requests<PutItemRequest>();
 
-    private List<QueryRequest> Queries => Requests<QueryRequest>();
+    /// <summary>The Queries of the action itself; the feature snapshot's reads are in <see cref="SnapshotReads"/>.</summary>
+    private List<QueryRequest> Queries => Requests<QueryRequest>().Where(q => !IsSnapshotQuery(q)).ToList();
+
+    private static bool IsSnapshotQuery(QueryRequest query) => query.TableName == FraudTable || query.Select == Select.COUNT;
+
+    private static bool IsSnapshotUserRead(GetItemRequest get) =>
+        get.TableName == UsersTable && get.ProjectionExpression == "#c, #f, #r";
+
+    /// <summary>FRD-20 P1: the feature snapshot's reads, in order.</summary>
+    private List<object> SnapshotReads => Requests<object>()
+        .Where(r => r is QueryRequest q ? IsSnapshotQuery(q) : r is GetItemRequest g && IsSnapshotUserRead(g))
+        .ToList();
 
     private List<TransactWriteItemsRequest> Transactions => Requests<TransactWriteItemsRequest>();
 
@@ -1010,5 +1060,182 @@ public class AdminFraudActionTests
         item["timestamp"].S.Should().Be("2026-11-01T09:00:00.0000001Z");
         item["signalType"].S.Should().Be("PRICE_ANOMALY");
         item.Should().NotContainKeys("orderId", "escrowId", "deliveryId");
+    }
+
+    // ──────────────────────────────────────────────
+    // FRD-20 P1: the feature snapshot on the label (section 20.1)
+    // ──────────────────────────────────────────────
+
+    private static readonly Dictionary<string, AttributeValue> MoreSignals = new() { { "signalKey", new AttributeValue { S = "more" } } };
+
+    /// <summary>The index of the first client call that matches, in call order; -1 when none does.</summary>
+    private int CallIndex(Func<object, bool> match) =>
+        _ddb.ReceivedCalls().Select(c => c.GetArguments()[0]!).ToList().FindIndex(r => match(r));
+
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("reject")]
+    [InlineData("whitelist")]
+    public async Task EveryDecision_PutsTheSubjectsFeatureSnapshotOnItsLabel(string action)
+    {
+        SignalRowIs();
+        var now = DateTime.UtcNow;
+        _signalPages.Enqueue(Page(null,
+            PendingSignal("SELF_TRADE", 40, now.AddHours(-2)),
+            PendingSignal("PRICE_ANOMALY", 15, now.AddHours(-30)),
+            PendingSignal("PRICE_ANOMALY", 15, now.AddHours(-50)),
+            new Dictionary<string, AttributeValue>
+            {
+                { "signalKey", new AttributeValue { S = SignalKey("CLEAN_DELIVERY", now.AddDays(-2)) } },
+                { "recordType", new AttributeValue { S = "credit" } },
+                { "weight", new AttributeValue { N = "-5" } }
+            }));
+
+        var response = await ActAsync(action, SignalKey("SELF_TRADE"));
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var item = LabelPuts.Should().ContainSingle().Subject.Item;
+        item["snapshotVersion"].N.Should().Be("1");
+        item["snapshotWindowDays"].N.Should().Be("30");
+        item["snapshotSignalUnits"].M.ToDictionary(kv => kv.Key, kv => kv.Value.N).Should().BeEquivalentTo(
+            new Dictionary<string, string> { ["SELF_TRADE"] = "1", ["PRICE_ANOMALY"] = "2" });
+        item["snapshotCreditUnits"].N.Should().Be("1");
+        item["snapshotCreditPoints"].N.Should().Be("5");
+        item["snapshotTruncated"].BOOL.Should().BeFalse();
+        item["snapshotAccountAgeDays"].N.Should().Be("100");
+        item["snapshotFaydaVerified"].BOOL.Should().BeTrue();
+        item["snapshotRole"].S.Should().Be("farmer");
+        item["snapshotCompletedEscrows"].N.Should().Be("4");
+        item["snapshotCompletedEscrowsPartial"].BOOL.Should().BeFalse();
+
+        // Counts, codes and ages only: the one text value is the role code, and no score or tier is stored.
+        item.Where(kv => kv.Key.StartsWith("snapshot", StringComparison.Ordinal) && kv.Value.S != null)
+            .Select(kv => kv.Key).Should().Equal("snapshotRole");
+        item.Keys.Should().NotContain(k => k.Contains("score", StringComparison.OrdinalIgnoreCase)
+            || k.Contains("tier", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("reject")]
+    [InlineData("whitelist")]
+    public async Task TheSnapshotIsRead_AfterTheSignalRow_AndBeforeAnySideEffectOrStamp(string action)
+    {
+        SignalRowIs();
+
+        (await ActAsync(action)).StatusCode.Should().Be(200);
+
+        // Three reads: the signal partition, the users row, the counted escrows.
+        SnapshotReads.Should().HaveCount(3);
+        SnapshotReads[0].Should().BeOfType<QueryRequest>().Which.TableName.Should().Be(FraudTable);
+        SnapshotReads[1].Should().BeOfType<GetItemRequest>();
+        SnapshotReads[2].Should().BeOfType<QueryRequest>().Which.IndexName.Should().Be("FarmerStatusIndex");
+
+        var rowRead = CallIndex(r => r is GetItemRequest g && g.TableName == FraudTable);
+        var lastSnapshotRead = CallIndex(r => ReferenceEquals(r, SnapshotReads[2]));
+        var firstWrite = CallIndex(r => r is UpdateItemRequest or PutItemRequest or TransactWriteItemsRequest);
+        rowRead.Should().BeLessThan(CallIndex(r => ReferenceEquals(r, SnapshotReads[0])));
+        lastSnapshotRead.Should().BeLessThan(firstWrite,
+            "the suspension, the whitelist row and the review stamp all come after the snapshot");
+        if (action == "reject")
+        {
+            await _cognito.Received(1).AdminDisableUserAsync(Phone);
+        }
+    }
+
+    [Fact]
+    public async Task ASignalReadCutAtThePageCap_IsMarkedTruncated_AndTheDecisionGoesOn()
+    {
+        SignalRowIs();
+        var now = DateTime.UtcNow;
+        for (var i = 0; i < 10; i++)
+        {
+            _signalPages.Enqueue(Page(MoreSignals, PendingSignal("PRICE_ANOMALY", 15, now.AddHours(-i - 2))));
+        }
+
+        (await ActAsync("approve")).StatusCode.Should().Be(200);
+
+        // The score's page cap (2 by default) and one key-only probe, whatever the user has.
+        Requests<QueryRequest>().Count(q => q.TableName == FraudTable).Should().Be(3);
+        var item = LabelPuts.Single().Item;
+        item["snapshotTruncated"].BOOL.Should().BeTrue();
+        item["snapshotSignalUnits"].M["PRICE_ANOMALY"].N.Should().Be("2");
+    }
+
+    [Theory]
+    [InlineData("approve", "signals")]
+    [InlineData("reject", "signals")]
+    [InlineData("whitelist", "signals")]
+    [InlineData("approve", "user")]
+    [InlineData("reject", "escrows")]
+    public async Task ASnapshotReadThatFails_NeverFailsTheDecision_AndTheLabelCarriesNoSnapshot(string action, string failing)
+    {
+        SignalRowIs();
+        var failure = new ProvisionedThroughputExceededException("throttled");
+        _failNextSignalQuery = failing == "signals" ? failure : null;
+        _failNextSnapshotUserRead = failing == "user" ? failure : null;
+        _failNextCompletedCount = failing == "escrows" ? failure : null;
+
+        var response = await ActAsync(action);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        Json(response).GetProperty("resolution").GetString().Should().Be(action);
+        SignalUpdate.ExpressionAttributeValues[":status"].S.Should().Be("reviewed");
+        AuditActions.Should().Contain($"fraud_{action}");
+        var item = LabelPuts.Should().ContainSingle().Subject.Item;
+        item["labelOutcome"].S.Should().Be(WeredaConnect.Server.Helpers.OutcomeLabels.FraudOutcome(action));
+        item.Keys.Should().NotContain(k => k.StartsWith("snapshot", StringComparison.Ordinal));
+        _context.Logger.Should().BeOfType<TestLambdaLogger>().Which.Buffer.ToString()
+            .Should().Contain("LABEL_SNAPSHOT_FAILED userId=").And.Contain("error=ProvisionedThroughputExceededException");
+    }
+
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("reject")]
+    public async Task TheDecisionTheSignalAlreadyCarries_ReadsNoSnapshot(string action)
+    {
+        // No label is written for it, so nothing is read for one.
+        SignalRowIs("reviewed", action, "2026-11-02T08:00:00.0000000Z");
+
+        (await ActAsync(action)).StatusCode.Should().Be(200);
+
+        SnapshotReads.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AChangeOfMind_GetsItsOwnSnapshot()
+    {
+        SignalRowIs("reviewed", "reject", "2026-11-02T08:00:00.0000000Z");
+
+        (await ActAsync("approve")).StatusCode.Should().Be(200);
+
+        SnapshotReads.Should().HaveCount(3);
+        LabelPuts.Single().Item.Should().ContainKey("snapshotVersion");
+    }
+
+    [Fact]
+    public async Task ARowThatIsNotASignal_OrABadAction_ReadsNoSnapshot()
+    {
+        _signalRow = null;
+        (await ActAsync("approve")).StatusCode.Should().Be(404);
+        (await ActAsync("flag")).StatusCode.Should().Be(400);
+
+        SnapshotReads.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("whitelist")]
+    public async Task AUserWithNoCountedSignal_StillGetsALabel_WithAnEmptyUnitsMapDynamoDbAccepts(string action)
+    {
+        // FUP-144: the second decision on a user's only signal (approve, then whitelist) counts nothing.
+        // An empty M must be marked set, or DynamoDB refuses the label put.
+        SignalRowIs("reviewed", action == "approve" ? "reject" : "approve", "2026-11-02T08:00:00.0000000Z");
+
+        (await ActAsync(action)).StatusCode.Should().Be(200);
+
+        var units = LabelPuts.Should().ContainSingle().Subject.Item["snapshotSignalUnits"];
+        units.IsMSet.Should().BeTrue();
+        units.M.Should().BeEmpty();
     }
 }

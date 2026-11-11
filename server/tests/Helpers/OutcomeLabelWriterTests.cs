@@ -154,4 +154,135 @@ public class OutcomeLabelWriterTests
     {
         OutcomeLabels.FraudOutcome(action).Should().Be(outcome);
     }
+
+    // FRD-20 P1: the feature snapshot attributes.
+
+    [Fact]
+    public void ASnapshot_IsStoredAsCountsCodesAndAges_UnderItsVersion()
+    {
+        var entry = OutcomeLabelWriter.BuildEntry(Label() with
+        {
+            Snapshot = new LabelFeatureSnapshot
+            {
+                SignalUnits = new Dictionary<string, int> { ["PRICE_ANOMALY"] = 3, ["SELF_TRADE"] = 1 },
+                CreditUnits = 2,
+                CreditPoints = 10,
+                Truncated = true,
+                WindowDays = 30,
+                AccountAgeDays = 12,
+                FaydaVerified = false,
+                Role = "buyer",
+                CompletedEscrows = 0,
+                CompletedEscrowsPartial = false
+            }
+        }, Admin);
+
+        entry["snapshotVersion"].Should().Be(OutcomeLabels.SnapshotVersion);
+        entry["snapshotWindowDays"].Should().Be(30);
+        entry["snapshotSignalUnits"].Should().BeAssignableTo<IDictionary<string, object>>()
+            .Which.Should().BeEquivalentTo(new Dictionary<string, object> { ["PRICE_ANOMALY"] = 3, ["SELF_TRADE"] = 1 });
+        entry["snapshotCreditUnits"].Should().Be(2);
+        entry["snapshotCreditPoints"].Should().Be(10);
+        entry["snapshotTruncated"].Should().Be(true);
+        entry["snapshotAccountAgeDays"].Should().Be(12);
+        entry["snapshotFaydaVerified"].Should().Be(false);
+        entry["snapshotRole"].Should().Be("buyer");
+        entry["snapshotCompletedEscrows"].Should().Be(0);
+        entry["snapshotCompletedEscrowsPartial"].Should().Be(false);
+        entry["labelVersion"].Should().Be(OutcomeLabels.SchemaVersion);
+
+        // The map reaches DynamoDB as a map of numbers.
+        var stored = WeredaConnect.Server.Data.DynamoDbHelper.ToAttributeValue(entry["snapshotSignalUnits"]);
+        stored.M["PRICE_ANOMALY"].N.Should().Be("3");
+    }
+
+    [Fact]
+    public void ASnapshotWithoutControls_LeavesThemOut_AndALabelWithoutASnapshotHasNoSnapshotField()
+    {
+        var entry = OutcomeLabelWriter.BuildEntry(Label() with
+        {
+            Snapshot = new LabelFeatureSnapshot { SignalUnits = new Dictionary<string, int>(), WindowDays = 30 }
+        }, Admin);
+
+        entry.Should().ContainKeys("snapshotVersion", "snapshotSignalUnits", "snapshotCreditUnits", "snapshotTruncated");
+        entry.Should().NotContainKeys("snapshotAccountAgeDays", "snapshotFaydaVerified", "snapshotRole",
+            "snapshotCompletedEscrows", "snapshotCompletedEscrowsPartial");
+
+        OutcomeLabelWriter.BuildEntry(Label(), Admin).Keys
+            .Should().NotContain(k => k.StartsWith("snapshot", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ASignalTypeThatIsNotAPlainCode_IsCountedAsOther_SoNoTextReachesTheRow()
+    {
+        var entry = OutcomeLabelWriter.BuildEntry(Label() with
+        {
+            Snapshot = new LabelFeatureSnapshot
+            {
+                SignalUnits = new Dictionary<string, int>
+                {
+                    ["PRICE_ANOMALY"] = 1,
+                    ["+251911000001"] = 2,
+                    ["call Abebe"] = 1,
+                    [""] = 1
+                },
+                WindowDays = 30
+            }
+        }, Admin);
+
+        entry["snapshotSignalUnits"].Should().BeAssignableTo<IDictionary<string, object>>()
+            .Which.Should().BeEquivalentTo(new Dictionary<string, object> { ["PRICE_ANOMALY"] = 1, ["OTHER"] = 4 });
+    }
+
+    [Fact]
+    public void ASnapshotWithoutAnyUnit_IsSentAsAnEmptyMap_NotAsAnAttributeWithoutAType()
+    {
+        // FUP-144: the SDK drops an empty M unless IsMSet is set, and DynamoDB then refuses the whole put.
+        var entry = OutcomeLabelWriter.BuildEntry(Label() with
+        {
+            Snapshot = new LabelFeatureSnapshot { SignalUnits = new Dictionary<string, int>(), WindowDays = 30 }
+        }, Admin);
+
+        var stored = WeredaConnect.Server.Data.DynamoDbHelper.ToAttributeValue(entry["snapshotSignalUnits"]);
+
+        stored.IsMSet.Should().BeTrue();
+        stored.M.Should().BeEmpty();
+        WeredaConnect.Server.Data.DynamoDbHelper.ToAttributeValue(new Dictionary<string, string>()).IsMSet.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ARowRefusedWithItsSnapshot_IsWrittenAgainWithoutIt_SoTheSnapshotNeverCostsTheLabel()
+    {
+        var puts = new List<Dictionary<string, object>>();
+        _repo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>()).Returns(ci =>
+        {
+            var entry = ci.Arg<Dictionary<string, object>>();
+            puts.Add(entry);
+            return entry.ContainsKey("snapshotVersion")
+                ? Task.FromException<bool>(new Amazon.DynamoDBv2.AmazonDynamoDBException("Supplied AttributeValue is empty"))
+                : Task.FromResult(true);
+        });
+
+        var result = await OutcomeLabelWriter.WriteAsync(_repo, Label() with
+        {
+            Snapshot = new LabelFeatureSnapshot { SignalUnits = new Dictionary<string, int>(), WindowDays = 30 }
+        }, Admin);
+
+        result.Should().Be(OutcomeLabelWrite.Written);
+        puts.Should().HaveCount(2);
+        puts[1].Keys.Should().NotContain(k => k.StartsWith("snapshot", StringComparison.Ordinal));
+        puts[1]["timestamp"].Should().Be(puts[0]["timestamp"], "the same key, so a retry still writes one row");
+        puts[1]["labelOutcome"].Should().Be(puts[0]["labelOutcome"]);
+    }
+
+    [Fact]
+    public async Task ALabelWithoutASnapshotThatFails_IsNotRetried()
+    {
+        _repo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>())
+            .Returns(Task.FromException<bool>(new Amazon.DynamoDBv2.AmazonDynamoDBException("throttled")));
+
+        (await OutcomeLabelWriter.WriteAsync(_repo, Label(), Admin)).Should().Be(OutcomeLabelWrite.Failed);
+
+        await _repo.Received(1).AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+    }
 }

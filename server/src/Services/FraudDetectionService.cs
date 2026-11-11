@@ -736,6 +736,50 @@ public sealed class FraudDetectionService : IFraudDetectionService
         }
     }
 
+    /// <summary>
+    /// FRD-20 P1 (section 20.1): the counted units of the user's window for a fraud label's feature snapshot.
+    /// The same Query, key condition and page cap as the score read (section 14.3), but over the whole
+    /// window: the score read stops once CRITICAL is certain and would undercount. A read that stops at the
+    /// page cap with rows left (or whose probe fails) is marked truncated. Throws when a page fails; the
+    /// caller leaves the label without a snapshot. Writes no alarm line: this is not a score.
+    /// </summary>
+    internal async Task<RiskFeatureUnits> ReadFeatureUnitsAsync(
+        string userId, DateTime nowUtc, RiskScoreSettings settings)
+    {
+        var calculator = new RiskScoreCalculator(settings, nowUtc);
+        var pages = 0;
+        Dictionary<string, AttributeValue>? startKey = null;
+        do
+        {
+            var response = await _dynamoDb.QueryAsync(BuildRiskQuery(userId, calculator.SinceKey, startKey));
+            pages++;
+            foreach (var row in response.Items ?? new List<Dictionary<string, AttributeValue>>())
+            {
+                calculator.Add(row);
+            }
+
+            startKey = response.LastEvaluatedKey is { Count: > 0 } next ? next : null;
+        }
+        while (startKey != null && pages < settings.MaxPages);
+
+        if (startKey == null)
+        {
+            return calculator.FeatureUnits(truncated: false);
+        }
+
+        bool rowsLeft;
+        try
+        {
+            rowsLeft = await RowsRemainAsync(userId, calculator.SinceKey, startKey, newestFirst: true, consistentRead: false);
+        }
+        catch (Exception)
+        {
+            rowsLeft = true;
+        }
+
+        return calculator.FeatureUnits(rowsLeft);
+    }
+
     private QueryRequest BuildRiskQuery(
         string userId, string sinceKey, Dictionary<string, AttributeValue>? startKey)
     {
