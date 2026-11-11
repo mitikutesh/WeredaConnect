@@ -150,8 +150,12 @@ public class CleanDeliveryCreditServiceTests
         query.FilterExpression.Should().StartWith("#e IN (:e0, :e1, :e2)");
         new[] { ":e0", ":e1", ":e2" }.Select(k => query.ExpressionAttributeValues[k].S)
             .Should().Equal(EscrowId, OrderId, DeliveryId);
-        // Signal rows only, and an admin-cleared signal (approve = false positive, whitelist) does not count.
-        query.FilterExpression.Should().Contain("(attribute_not_exists(#rt) OR #rt = :signal)");
+        // Every row but a credit or the whitelist row (FUP-137: an unknown recordType is a signal, as the score
+        // reads it), and an admin-cleared signal (approve = false positive, whitelist) does not count.
+        query.FilterExpression.Should().Contain("(attribute_not_exists(#rt) OR NOT (#rt IN (:credit, :whitelistRow)))");
+        query.ExpressionAttributeValues[":credit"].S.Should().Be(FraudDetectionService.RecordTypeCredit);
+        query.ExpressionAttributeValues[":whitelistRow"].S.Should().Be(FraudDetectionService.RecordTypeWhitelist);
+        query.ExpressionAttributeValues.Should().NotContainKey(":signal");
         query.FilterExpression.Should().Contain("NOT (#r IN (:approve, :whitelist))");
         query.ExpressionAttributeValues[":approve"].S.Should().Be("approve");
         query.ExpressionAttributeValues[":whitelist"].S.Should().Be("whitelist");
@@ -371,5 +375,165 @@ public class CleanDeliveryCreditServiceTests
             .Returns(new QueryResponse { Items = ordered, LastEvaluatedKey = new Dictionary<string, AttributeValue>() });
         var service = new FraudDetectionService(ddb, "test-crops", Table, Substitute.For<IRateLimitRepository>());
         return service.GetUserRiskScoreAsync(FarmerId, Now, RiskScoreSettings.Default);
+    }
+
+    // ── FUP-137: the origin marker and a released row read again ──
+
+    [Theory]
+    [InlineData("system", "delivery_confirmed", "escrowed", "auto_release")]
+    [InlineData("admin-1", "delivery_confirmed", "escrowed", null)] // an admin may send the same trigger
+    [InlineData("admin-1", "admin_override", "escrowed", null)]
+    [InlineData("system", "dispute_resolved", "dispute_resolved", null)] // the dispute sweep
+    [InlineData("system", "delivery_confirmed", "dispute_resolved", null)]
+    [InlineData("system", "delivery_confirmed", "held", null)]
+    public void OriginOf_OnlyTheHourlyAutoReleaseOfAConfirmedDeliveryIsMarked(
+        string actor, string trigger, string settledFrom, string? expected)
+    {
+        CleanDeliveryCreditService.OriginOf(actor, trigger, settledFrom).Should().Be(expected);
+    }
+
+    private static Dictionary<string, object> ReleasedRow(string status = "completed", string? origin = "auto_release") =>
+        new()
+        {
+            { "escrowId", EscrowId },
+            { "orderId", OrderId },
+            { "deliveryId", DeliveryId },
+            { "buyerId", BuyerId },
+            { "farmerId", FarmerId },
+            { "truckerId", TruckerId },
+            { "truckerPayout", 1_000m },
+            { "status", status },
+            { "releasedAt", Iso(ReleasedAt) },
+            { "releaseTrigger", "delivery_confirmed" },
+            { "releaseOrigin", origin ?? "" }
+        };
+
+    private static Task<string?> NoTrucker(Dictionary<string, object> _) =>
+        throw new InvalidOperationException("The row names its trucker: nothing to resolve.");
+
+    [Theory]
+    [InlineData("released")]
+    [InlineData("completed")]
+    public async Task CreditReleased_AMarkedReleasedRowCreditsEachPartyWithTheStoredReleaseTime(string status)
+    {
+        var outcome = await Service().CreditReleasedAsync(ReleasedRow(status), NoTrucker, Now);
+
+        outcome.NotCleanReason.Should().BeNull();
+        outcome.Credited.Should().Equal(BuyerId, FarmerId, TruckerId);
+        _puts.Should().OnlyContain(p => p.Item["signalKey"].S == CreditKey()
+                                        && p.ConditionExpression == "attribute_not_exists(signalKey)");
+        // The trade's entities are the row's escrow, order and delivery.
+        new[] { ":e0", ":e1", ":e2" }.Select(k => _queries[0].ExpressionAttributeValues[k].S)
+            .Should().Equal(EscrowId, OrderId, DeliveryId);
+    }
+
+    [Theory]
+    [InlineData(null)] // an admin release, a dispute verdict, a refund: the release wrote no origin
+    [InlineData("other")]
+    [InlineData("AUTO_RELEASE")] // the value is exact
+    public async Task CreditReleased_ARowTheAutoReleaseDidNotMarkIsNeverCredited(string? origin)
+    {
+        var outcome = await Service().CreditReleasedAsync(ReleasedRow(origin: origin), NoTrucker, Now);
+
+        outcome.NotCleanReason.Should().Be(CleanDeliveryCreditService.NotCleanNotAutoRelease);
+        _ddb.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("escrowed")] // queued for a manual payout: the money is not on record yet
+    [InlineData("refunded")]
+    [InlineData("disputed")]
+    [InlineData("dispute_resolved")]
+    [InlineData("held")]
+    public async Task CreditReleased_ARowThatIsNotReleasedIsNeverCredited(string status)
+    {
+        var outcome = await Service().CreditReleasedAsync(ReleasedRow(status), NoTrucker, Now);
+
+        outcome.NotCleanReason.Should().Be(CleanDeliveryCreditService.NotCleanNotReleased);
+        _ddb.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("disputedBy", "dispute")]
+    [InlineData("disputeResolution", "dispute")]
+    [InlineData("heldAt", "hold")]
+    [InlineData("holdReason", "hold")]
+    public async Task CreditReleased_AMarkedRowWithADisputeOrHoldFieldIsNotClean(string field, string expected)
+    {
+        var row = ReleasedRow();
+        row[field] = "x";
+
+        var outcome = await Service().CreditReleasedAsync(row, NoTrucker, Now);
+
+        outcome.NotCleanReason.Should().Be(expected);
+        _ddb.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CreditReleased_WithoutAStoredReleaseTimeWritesNothing()
+    {
+        var row = ReleasedRow();
+        row.Remove("releasedAt");
+
+        var outcome = await Service().CreditReleasedAsync(row, NoTrucker, Now);
+
+        outcome.NotCleanReason.Should().Be(CleanDeliveryCreditService.NotCleanNoReleaseTime);
+        _puts.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CreditReleased_ATruckerLegWithoutATruckerOnTheRowIsResolved()
+    {
+        var row = ReleasedRow();
+        row.Remove("truckerId");
+
+        var outcome = await Service().CreditReleasedAsync(row, _ => Task.FromResult<string?>("trucker-from-order"), Now);
+
+        outcome.Credited.Should().Equal(BuyerId, FarmerId, "trucker-from-order");
+    }
+
+    [Fact]
+    public async Task CreditReleased_ASelfPickupNeverAsksForATrucker()
+    {
+        var row = ReleasedRow();
+        row.Remove("truckerId");
+        row.Remove("truckerPayout");
+
+        var outcome = await Service().CreditReleasedAsync(row, NoTrucker, Now);
+
+        outcome.Credited.Should().Equal(BuyerId, FarmerId);
+    }
+
+    [Fact]
+    public async Task CreditReleased_ReadAgainByAnotherCaller_WritesTheSameKeys()
+    {
+        // The manual payout close, its replay and the cron's recovery all build the key from the row.
+        await Service().CreditReleasedAsync(ReleasedRow("released"), NoTrucker, Now);
+        await Service().CreditReleasedAsync(ReleasedRow("completed"), NoTrucker, Now.AddHours(2));
+
+        _puts.Should().HaveCount(6);
+        _puts.Select(p => p.Item["signalKey"].S).Distinct().Should().Equal(CreditKey());
+    }
+
+    [Fact]
+    public void LogOutcome_SaysWhetherTheCreditIsSettled()
+    {
+        var info = new List<string>();
+        var errors = new List<string>();
+
+        CleanDeliveryCreditService.LogOutcome(EscrowId, CleanDeliveryCreditOutcome.NotClean("signal"), info.Add, errors.Add)
+            .Should().BeTrue();
+        CleanDeliveryCreditService.LogOutcome(EscrowId,
+                new CleanDeliveryCreditOutcome(null, new[] { BuyerId }, 1, Array.Empty<(string, string)>()), info.Add, errors.Add)
+            .Should().BeTrue();
+        CleanDeliveryCreditService.LogOutcome(EscrowId,
+                new CleanDeliveryCreditOutcome(null, new[] { BuyerId }, 0, new[] { (FarmerId, "Throttled") }), info.Add, errors.Add)
+            .Should().BeFalse();
+
+        info.Should().Equal(
+            "CLEAN_DELIVERY_NOT_CREDITED escrowId=esc-1 reason=signal",
+            "CLEAN_DELIVERY_CREDITED escrowId=esc-1 credited=1 alreadyCredited=1 failed=0",
+            "CLEAN_DELIVERY_CREDITED escrowId=esc-1 credited=1 alreadyCredited=0 failed=1");
+        errors.Should().Equal("CLEAN_DELIVERY_CREDIT_FAILED escrowId=esc-1 userId=farmer-1 error=Throttled");
     }
 }

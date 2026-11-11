@@ -549,9 +549,18 @@ public sealed class EscrowRepository : IEscrowRepository
     /// <inheritdoc />
     public async Task<bool> TryQueueManualPayoutAsync(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
-        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt)
+        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string? releaseOrigin = null)
     {
         var request = BuildQueueRequest(escrowId, createdAt, op, reason, fromStatus, legs, queuedAt);
+        if (!string.IsNullOrEmpty(releaseOrigin))
+        {
+            // FUP-137: who started the queued release, in the queue write itself, so the close that
+            // records the payout can tell an auto-release from an admin's (the clean-delivery credit).
+            request.UpdateExpression = request.UpdateExpression.Replace("SET ", "SET #origin = :origin, ");
+            request.ExpressionAttributeNames["#origin"] = ReleaseOriginFields.Field;
+            request.ExpressionAttributeValues[":origin"] = new AttributeValue { S = releaseOrigin };
+        }
+
         // Only the settlement that holds the lock may queue, and only once. The lock
         // stays in place on purpose: a queued escrow must not be settled by anyone else.
         request.ExpressionAttributeNames["#lock"] = SettlementLockFields.Lock;

@@ -123,6 +123,25 @@ public class EscrowLedgerServiceTests
 
     // ── Release ─────────────────────────────────────────────────────────────
 
+    [Theory]
+    [InlineData("system", "delivery_confirmed", "auto_release")]
+    [InlineData("admin-1", "delivery_confirmed", "other")] // the actor decides, not the trigger
+    [InlineData("admin-1", "admin_override", "other")]
+    public async Task Release_StoresWhoStartedIt_WithTheDecision(string actor, string trigger, string origin)
+    {
+        // FUP-137: a ledger escrow can be decided again, so every release decision writes its origin; the
+        // clean-delivery credit is written only for the hourly auto-release.
+        Seed();
+
+        var result = actor == "system"
+            ? await Service().ReleaseAsync(Release(trigger), actor)
+            : await Service().ReleaseAsync(Release(trigger), actor, "admin", adminGroupVerified: true);
+
+        result.IsSuccess.Should().BeTrue(result.Error?.Code + " " + result.Error?.Message);
+        _ledger.Escrow(EscrowId)["releaseOrigin"].Should().Be(origin);
+        _ledger.DecideWrites.Should().Be(1);
+    }
+
     [Fact]
     public async Task Release_DecidesBothLegsInOneWrite_PaysEach_AndCompletes()
     {
