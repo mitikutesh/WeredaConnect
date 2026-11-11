@@ -1696,8 +1696,9 @@ public sealed partial class EscrowService
         }
 
         // 3b. FUP-147: a release names the delivery it pays for; when the escrow is linked to one, they must agree.
+        //     FUP-139: the field is optional, so a missing or blank one is not compared.
         var escrowDeliveryId = GetStringOrNull(escrowItem, "deliveryId");
-        if (!string.IsNullOrEmpty(request.DeliveryId) && !string.IsNullOrEmpty(escrowDeliveryId)
+        if (!string.IsNullOrWhiteSpace(request.DeliveryId) && !string.IsNullOrEmpty(escrowDeliveryId)
             && !string.Equals(request.DeliveryId, escrowDeliveryId, StringComparison.Ordinal))
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(
