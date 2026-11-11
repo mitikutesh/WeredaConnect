@@ -183,6 +183,8 @@ public class EscrowServiceOrderFundedTests
         Assert.Equal(3228.30m, written["farmerPayout"]);
         Assert.Equal(434.44m, written["truckerPayout"]);
         Assert.Equal(161.42m, written["commission"]);
+        // FUP-129: the stored rate is the order's.
+        Assert.Equal(0.05m, written["commissionRate"]);
         Assert.Equal((decimal)written["amount"],
             (decimal)written["farmerPayout"] + (decimal)written["truckerPayout"] + (decimal)written["commission"]);
     }
@@ -202,6 +204,38 @@ public class EscrowServiceOrderFundedTests
         Assert.Equal(975m, written!["farmerPayout"]);
         Assert.Equal(25m, written["commission"]);
         Assert.False(written.ContainsKey("truckerPayout"));
+        Assert.Equal(0.025m, written["commissionRate"]);
+    }
+
+    [Fact]
+    public async Task CreateFromFundedOrder_LegacyFallbackOnAnOrderWithARate_StoresTheLegacyRate()
+    {
+        // FUP-129: the order carries 5 % but no usable breakdown, so the commission is the
+        // legacy 2.5 % of the amount. The stored rate says which rule was used.
+        Dictionary<string, object>? written = null;
+        await _mockEscrowRepo.CreateAsync(Arg.Do<Dictionary<string, object>>(r => written = r));
+        var order = MakeFundedOrder(
+            orderTotal: 1000m, cropCost: null, transportCost: null, truckerId: null);
+        order["commissionRate"] = "0.05";
+
+        Assert.True(await _sut.CreateFromFundedOrderAsync(order, "system"));
+
+        Assert.Equal(25m, written!["commission"]);
+        Assert.Equal(0.025m, written["commissionRate"]);
+    }
+
+    [Fact]
+    public async Task CreateFromFundedOrder_SplitWithoutARate_StoresTheRateTheLegsImply()
+    {
+        // FUP-129: 1,000 crop + 150 transport + 50 commission, no commissionRate on the order.
+        Dictionary<string, object>? written = null;
+        await _mockEscrowRepo.CreateAsync(Arg.Do<Dictionary<string, object>>(r => written = r));
+        var order = MakeFundedOrder(orderTotal: 1200m, cropCost: 1000m, transportCost: 150m);
+
+        Assert.True(await _sut.CreateFromFundedOrderAsync(order, "system"));
+
+        Assert.Equal(50m, written!["commission"]);
+        Assert.Equal(0.05m, written["commissionRate"]);
     }
 
     [Fact]

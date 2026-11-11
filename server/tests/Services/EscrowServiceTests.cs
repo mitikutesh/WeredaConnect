@@ -3992,6 +3992,102 @@ public class EscrowServiceTests
         Assert.Equal(11_500m, result.Value!.FarmerPayout);
     }
 
+    // FUP-129: the stored commissionRate follows the commission actually used.
+
+    private async Task<(EscrowResult<InitiateEscrowResponse> Result, Dictionary<string, object>? Written)>
+        InitiateWithOrderAsync(Dictionary<string, object> order)
+    {
+        Dictionary<string, object>? written = null;
+        await _mockEscrowRepo.CreateAsync(Arg.Do<Dictionary<string, object>>(r => written = r));
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1").Returns(order);
+        var request = new InitiateEscrowRequest
+        {
+            DeliveryId = DeliveryId,
+            BuyerId = BuyerId,
+            FarmerId = FarmerId,
+            Amount = 15_000m,
+            Currency = "ETB",
+            OrderId = "order-1",
+            IdempotencyKey = $"{BuyerId}:{DeliveryId}:initiate:1708084800000"
+        };
+
+        var result = await CreateServiceWithOrderRepo(orderRepo).InitiateAsync(request, BuyerId);
+        return (result, written);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_OrderSplit_StoresTheOrdersCommissionRate()
+    {
+        // 10,000 crop at the order's 5 % = 500 commission, plus 4,500 transport.
+        var (result, written) = await InitiateWithOrderAsync(new Dictionary<string, object>
+        {
+            { "buyerId", BuyerId }, { "deliveryId", DeliveryId }, { "orderTotal", 15_000m },
+            { "cropCost", 10_000m }, { "transportCost", 4_500m }, { "commissionRate", 0.05 },
+            { "commissionAmount", 500m }, { "truckerId", "trucker-1" }
+        });
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0.05m, written!["commissionRate"]);
+        Assert.Equal(0.05m, result.Value!.CommissionRate);
+        // The money is the order's split, untouched by the rate.
+        Assert.Equal(500m, written["commission"]);
+        Assert.Equal(10_000m, written["farmerPayout"]);
+        Assert.Equal(4_500m, written["truckerPayout"]);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_OrderSplitWithoutARate_StoresTheRateTheLegsImply()
+    {
+        // 500 commission on an 11,500 crop leg: 0.0435 to 4 decimals, not 0.025.
+        var (result, written) = await InitiateWithOrderAsync(MakeBoundOrder());
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0.0435m, written!["commissionRate"]);
+        Assert.Equal(500m, written["commission"]);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_OrderWithoutACommissionAmount_StoresTheLegacyRate()
+    {
+        // The order gives the legs but no commission: the legacy 2.5 % of the amount applies
+        // (375 on 15,000), so the legacy rate is stored even though the order carries a rate.
+        var (result, written) = await InitiateWithOrderAsync(new Dictionary<string, object>
+        {
+            { "buyerId", BuyerId }, { "deliveryId", DeliveryId }, { "orderTotal", 15_000m },
+            { "cropCost", 11_625m }, { "transportCost", 3_000m }, { "commissionRate", 0.05 },
+            { "truckerId", "trucker-1" }
+        });
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(375m, written!["commission"]);
+        Assert.Equal(0.025m, written["commissionRate"]);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_NoOrder_StoresTheLegacyRate()
+    {
+        Dictionary<string, object>? written = null;
+        await _mockEscrowRepo.CreateAsync(Arg.Do<Dictionary<string, object>>(r => written = r));
+
+        var result = await _service.InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0.025m, written!["commissionRate"]);
+        Assert.Equal(0.025m, result.Value!.CommissionRate);
+    }
+
+    [Fact]
+    public void MapToEscrowSummaryDto_CarriesTheStoredCommissionRate_NullWhenTheRowHasNone()
+    {
+        var item = MakeEscrowItem();
+        item["commissionRate"] = 0.05m;
+        Assert.Equal(0.05m, EscrowService.MapToEscrowSummaryDto(item, isBuyer: true).CommissionRate);
+
+        item.Remove("commissionRate");
+        Assert.Null(EscrowService.MapToEscrowSummaryDto(item, isBuyer: true).CommissionRate);
+    }
+
     [Fact]
     public async Task ReleaseAsync_InvalidTrigger_ReturnsValidationError()
     {

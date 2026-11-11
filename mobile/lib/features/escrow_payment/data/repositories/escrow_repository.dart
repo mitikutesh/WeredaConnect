@@ -391,6 +391,11 @@ class EscrowRepository extends BaseEscrowRepository {
 
       final response = EscrowHistoryResponse.fromJson(json);
       final payments = response.escrows.map(_mapSummaryResponse).toList();
+      // Rows whose summary carried the server's own rate (FUP-129).
+      final ratedIds = {
+        for (final summary in response.escrows)
+          if (summary.commissionRate != null) summary.escrowId,
+      };
 
       // Upsert all into local cache
       await _isar.writeTxn(() async {
@@ -412,7 +417,11 @@ class EscrowRepository extends BaseEscrowRepository {
             payment.truckerId ??= existing.truckerId;
             payment.truckerPayout ??= existing.truckerPayout;
             payment.orderId ??= existing.orderId;
-            payment.commissionRate = existing.commissionRate;
+            // The server's rate wins; a summary without one keeps the cached
+            // rate (it may be the detail's) over a derived one.
+            if (!ratedIds.contains(payment.paymentId)) {
+              payment.commissionRate = existing.commissionRate;
+            }
             payment.telebirrRef = existing.telebirrRef;
             payment.expiresAt ??= existing.expiresAt;
             payment.disputeWindowEndsAt = existing.disputeWindowEndsAt;
@@ -571,8 +580,12 @@ class EscrowRepository extends BaseEscrowRepository {
       ..farmerId = response.farmerId
       ..amount = response.amount
       ..commission = response.commission
-      ..commissionRate =
-          response.amount > 0 ? response.commission / response.amount : 0.025
+      ..commissionRate = response.commissionRate ??
+          deriveEscrowCommissionRate(
+            amount: response.amount,
+            commission: response.commission,
+            farmerPayout: response.farmerPayout,
+          )
       ..farmerPayout = response.farmerPayout
       ..telebirrRef = response.telebirrRef
       ..status = paymentStatusFromWire(response.status)
@@ -623,6 +636,10 @@ class EscrowRepository extends BaseEscrowRepository {
 
   /// Map summary response to local [Payment] entity.
   Payment _mapSummaryResponse(EscrowSummary summary) {
+    // Pre-SIM-15 servers send no per-party legs: the farmer leg is then the
+    // remainder after commission and any trucker leg.
+    final farmerPayout = summary.farmerPayout ??
+        (summary.amount - summary.commission - (summary.truckerPayout ?? 0));
     return Payment()
       ..paymentId = summary.escrowId
       ..deliveryId = summary.deliveryId
@@ -632,12 +649,15 @@ class EscrowRepository extends BaseEscrowRepository {
       ..farmerId = summary.farmerId
       ..amount = summary.amount
       ..commission = summary.commission
-      ..commissionRate =
-          summary.amount > 0 ? summary.commission / summary.amount : 0.025
-      // Pre-SIM-15 servers send no per-party legs: the farmer leg is then the
-      // remainder after commission and any trucker leg.
-      ..farmerPayout = summary.farmerPayout ??
-          (summary.amount - summary.commission - (summary.truckerPayout ?? 0))
+      ..commissionRate = summary.commissionRate ??
+          deriveEscrowCommissionRate(
+            amount: summary.amount,
+            commission: summary.commission,
+            farmerPayout: farmerPayout,
+            truckerPayout: summary.truckerPayout,
+            orderId: summary.orderId,
+          )
+      ..farmerPayout = farmerPayout
       ..truckerPayout = summary.truckerPayout
       ..truckerId = summary.truckerId
       ..orderId = summary.orderId

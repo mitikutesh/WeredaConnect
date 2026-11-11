@@ -104,6 +104,48 @@ void main() {
     });
   });
 
+  group('WebEscrowRepository commissionRate (FUP-129)', () {
+    Map<String, dynamic> orderEscrow() => {
+          ...escrowDto(),
+          // 10,000 crop + 4,500 transport + 500 commission.
+          'orderId': 'ord-1',
+          'commission': 500.0,
+          'farmerPayout': 10000.0,
+          'truckerPayout': 4500.0,
+        };
+
+    test('reads the server rate as sent', () async {
+      when(
+        () => api.get<Map<String, dynamic>>('/escrow/by-delivery/del-001'),
+      ).thenAnswer((_) async => {...orderEscrow(), 'commissionRate': 0.04});
+
+      final result = await repo.getEscrowByDelivery('del-001');
+
+      expect(result!.commissionRate, 0.04);
+    });
+
+    test('without a rate an order row is derived on the crop leg', () async {
+      when(
+        () => api.get<Map<String, dynamic>>('/escrow/by-delivery/del-001'),
+      ).thenAnswer((_) async => orderEscrow());
+
+      final result = await repo.getEscrowByDelivery('del-001');
+
+      expect(result!.commissionRate, 0.05);
+    });
+
+    test('without a rate a legacy delivery row is derived on the amount',
+        () async {
+      when(
+        () => api.get<Map<String, dynamic>>('/escrow/by-delivery/del-001'),
+      ).thenAnswer((_) async => escrowDto());
+
+      final result = await repo.getEscrowByDelivery('del-001');
+
+      expect(result!.commissionRate, 0.025);
+    });
+  });
+
   group('WebEscrowRepository expected payout date (FRD-13)', () {
     test('parses releaseNotBefore on the escrow detail', () async {
       when(

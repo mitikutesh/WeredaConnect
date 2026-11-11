@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.2.0
+2.4.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -264,6 +264,7 @@ Buyer initiates escrow payment for a delivery. Queues a Telebirr HoldFunds call.
   "farmerId": "farmer-123",
   "amount": 15000.00,
   "commission": 375.00,
+  "commissionRate": 0.025,
   "farmerPayout": 14625.00,
   "currency": "ETB",
   "status": "initiated",
@@ -277,6 +278,7 @@ Buyer initiates escrow payment for a delivery. Queues a Telebirr HoldFunds call.
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `commissionRate` | number | (2.4.0) The escrow's stored rate, as on `EscrowDto`. Absent from servers before 2.4.0 and on a replayed row that stores none; a client then derives it (Commission Calculation). |
 | `toPayUrl` | string \| null | **Async gateways only.** The Telebirr H5 checkout URL the buyer opens to complete payment. Present when the real gateway is used; `null` for the synchronous mock (which returns `status: "escrowed"` directly). **Transient — never persisted; never returned by `GET /escrow/{id}`.** |
 
 #### Asynchronous Payment (real Telebirr gateway)
@@ -729,6 +731,7 @@ Get the authenticated user's payment history.
       "counterpartyName": "Alemayehu Bekele",
       "amount": 15000.00,
       "commission": 375.00,
+      "commissionRate": 0.0275,
       "farmerPayout": 13625.00,
       "truckerPayout": 1000.00,
       "truckerId": "trucker-789",
@@ -748,6 +751,8 @@ Get the authenticated user's payment history.
 ```
 
 Money legs (SIM-15): `amount = farmerPayout + truckerPayout + commission` on every row. `truckerPayout` and `truckerId` are `null` when the order carried no trucker split. Each client renders only the caller's own leg in its Payments and Profile views (buyer: `amount`, farmer: `farmerPayout`, trucker: `truckerPayout`); the escrow detail shows the full breakdown. `counterpartyName` is the farmer for a buyer and the buyer for a farmer or trucker.
+
+Commission rate (2.4.0, FUP-129): each row carries the escrow's stored `commissionRate` (see `EscrowDto`); it is omitted on a row that stores none and by servers before 2.4.0.
 
 Expected payout (1.33.0, FRD-13): an `escrowed` row of `role=farmer` or `role=trucker` carries `releaseNotBefore` (see `EscrowDto`); a buyer's row never does.
 
@@ -775,7 +780,7 @@ Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowe
 | `farmerId` | string (UUID) | Yes | References User entity | Farmer receiving payment |
 | `amount` | number | Yes | 100.00 - 500,000.00 | Total payment amount (ETB) |
 | `commission` | number | Yes | 2 decimals; amount − farmerPayout − truckerPayout, the order's `commissionAmount` (see Commission Calculation, 1.39.0) | Platform commission (ETB), paid by the buyer on top of the crop cost |
-| `commissionRate` | number | Yes | The order's rate (SSM, default 0.05); 0.025 under the legacy rule | Rate the commission was computed with, on the crop cost (or the amount under the legacy rule) |
+| `commissionRate` | number | Yes | The order's rate (SSM, default 0.05) whenever the order's commission is used, on either creation path (2.4.0); 0.025 under the legacy rule | Rate the commission was computed with, on the crop cost (or the amount under the legacy rule). Display metadata: no amount is ever computed from it |
 | `farmerPayout` | number | Yes | Crop leg of amount | Net amount farmer receives (ETB); with a trucker split amount = farmerPayout + truckerPayout + commission |
 | `truckerPayout` | number | No | Transport leg of amount; null without a trucker split | Net amount the trucker receives on release (ETB) |
 | `truckerId` | string (UUID) | No | References User entity; stamped at creation from the order, or backfilled at delivery linkage | Trucker paid out of this escrow (the truck the order was bound to) |
@@ -1124,7 +1129,19 @@ commission    = amount − farmerPayout − truckerPayout             (= the ord
 - Every leg has 2 decimals, so `amount = farmerPayout + truckerPayout + commission` holds exactly on
   every row. `commissionRate` on an order escrow is the order's rate.
 - `POST /escrow/initiate` for a delivery that names an order takes the same split from the order
-  (rule 6 above), but still stores `commissionRate` 0.025 (a known gap of this mock-only path).
+  (rule 6 above) and, since 2.4.0 (FUP-129), stores the order's `commissionRate` like the
+  order-funded path (before, it stored 0.025; rows written then keep it).
+- One stored rate, both creation paths (2.4.0): when the order's commission is the escrow's
+  commission, `commissionRate` is the order's rate; an order that carries the amounts but no rate
+  gets `round4(commission / farmerPayout)`. When the legacy rule sets the commission (no order, an
+  order with no `commissionAmount` on initiate, an order with no usable cost breakdown on the
+  order-funded path), `commissionRate` is 0.025, even if the order carries a rate. The stored rate
+  is display metadata: no hold, payout, refund or ledger row is computed from it.
+- Clients (2.4.0) show the server's `commissionRate` when a response carries it (`EscrowDto`, the
+  initiate response, history rows). Without one they derive `round4(commission / base)`, where the
+  base is `farmerPayout` for an order split (the row has an `orderId` or a `truckerPayout`, or its
+  legs leave part of the amount to transport) and `amount` otherwise. Never `commission / amount`
+  on an order escrow.
 - `commissionRate` is the SSM parameter `/{prefix}/escrow/commission-rate` (default 0.05), read by
   the sync Lambda when an order is created. Changing it changes new orders only.
 - Legacy rule, only where no order supplies a split: `POST /escrow/initiate` for a delivery without
@@ -4770,6 +4787,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.4.0 | 2026-11-11 | One stored `commissionRate` (FUP-129): `POST /escrow/initiate` with a linked order stores the order's rate instead of 0.025, by the same rule as the order-funded path; the legacy rule stores 0.025 on both paths, an order without a rate stores `round4(commission / farmerPayout)`. The initiate response and `GET /escrow/history` rows carry `commissionRate` (additive, optional). Clients read it and fall back to a derivation on the crop leg for an order split. No amount held, paid out or refunded changes. (2.3.0 is taken by another open change.) |
 | 2.2.0 | 2026-11-07 | The escrow ledger is built (ESC-20, "Additions in 2.2.0"): the `escrow-ledger` table and `LedgerOpenIndex`, `settlementModel: ledger` on new order escrows behind `ESCROW_LEDGER_ENABLED` (dev on), the write-ahead decision (rows, escrow CAS on `version`, audit rows in one transaction), the `callingSince` stamp, `gatewayRef` = `WCL` + 27 hex of SHA-256(`{escrowId}:{ref}`), `done`/`failed` (3 attempts)/`sent` (status check first)/`manual` rows, the 15 minute `ledger_sweep` (`LEDGER_ROW_OVERDUE`, `ESCROW_LEDGER_INVARIANT` and their alarms), the per-leg release order (F1, F2) and the hourly transport retry, `partial_refund` with `action: split` and `ADMIN_021` (settled by the hourly verdict sweep, not in the verdict's write), duplicate payments refunded through the ledger (`ESCROW_045` on the manual unapplied record), the manual queue on ledger refs, `EscrowDto.legStatus`/`refundedTotal`/`releasedTotal`, and FUP-147 (`deliveryId` compared, `422 ESCROW_VALIDATION`; `releaseTrigger` stored). A decided ledger escrow is skipped by the 1.x sweeps and refuses a dispute, a hold and a scheduled refund. A held split leaves through the admin release exit; a transport leg blocked more than 24 hours after the farmer was paid logs `TRUCKER_PAYOUT_OVERDUE`; the crop leg names a fully decided escrow `completed` or `refunded`. Not built: the refund row in the cancel's own transaction, the per-row `refund_sent`, migrating 1.x escrows. P.10 stays PLANNED (ESC-19) |
 | 2.1.1 | 2026-11-07 | Dispute evidence (LT-14): a drop-off handoff's `planned` point is, of the trip's destination and the order's own drop-off point (`deliveryLatitude`, `deliveryLongitude`, `order-lifecycle.md` 2.9.0), the one nearer to the buyer's fix, since the delivered GPS check passes within 5 km of either; the admin's `order` carries the point. No new field or read. |
 | 2.1.0 | 2026-11-07 | Order escrows held to the cap (ESC-16, spec 4.5, `order-lifecycle.md` 2.8.0): with `COMMITMENTS_ENABLED` on, the auto-refund sweep no longer extends a live order escrow 48 hours at a time; it sets `expiresAt` to the 21 day cap in one conditional write (`ORDER_ESCROW_HELD_TO_CAP`), and at the cap the order enters the admin queue as before. Off, the 1.13.0 rule stays. A failed delivery stamp is alarmed (`ESCROW_DELIVERY_STAMP_FAILED`, sync and escrow-cron, alarm `escrow-delivery-stamp-failures`) and the hourly order-money sweep stamps a delivered order's unstamped escrow (`deliveryStampsRepaired`). No endpoint, status, field or client change |
