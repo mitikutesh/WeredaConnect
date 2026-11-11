@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.9.0
+1.10.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -18,7 +18,7 @@ The Crop Listing API enables farmers to post crop availability (type, quantity, 
 - **Ethiopian crops**: 9 crop types (Teff, Wheat, Barley, Maize, Chickpea, Lentils, Sorghum, Coffee, Sesame)
 - **Location-based**: Query by woreda (district) for local sourcing
 - **Price transparency**: Price per kg in Ethiopian Birr (ETB)
-- **Soft deletes**: Expired listings marked with `deletedAt`, not physically removed
+- **Soft deletes**: A deleted listing keeps its row, with `status: deleted` and `deletedAt`; it is not physically removed
 
 ---
 
@@ -108,7 +108,7 @@ The Crop Listing API enables farmers to post crop availability (type, quantity, 
 - `409 Conflict` — Client version behind server version
 - `422 Unprocessable Entity` — Validation error (e.g., quantity > 10,000 quintals)
 - `CROP_HAS_ACTIVE_ORDERS` (1.7.0, per-operation `error` result of `POST /sync`): a `delete`, or an `update` to `status: deleted`, of a listing that orders still depend on (Validation rule 10)
-- `429 Too Many Requests` — Rate limit exceeded (100 req/s per user)
+- `429 Too Many Requests`: `SYNC_RATE_LIMITED` when the user sent more than 60 sync requests in 60 seconds (`Retry-After: 60`), or API Gateway's own throttle (25 req/s per route, burst 50, no `error.code`). See Rate Limiting
 - `500 Internal Server Error` — Server-side failure
 
 ---
@@ -221,7 +221,7 @@ GET /crops/crop-456
 **Error Codes**:
 - `400 CROP_VALIDATION`: no id in the path
 - `403 CROP_FORBIDDEN`: not a buyer or admin, or a farmer reading another farmer's listing
-- `404 CROP_NOT_FOUND`: no such listing, or it was deleted (`deletedAt` set)
+- `404 CROP_NOT_FOUND`: no such listing, or it was deleted (`deletedAt` set, or `status: deleted`, 1.10.0)
 - `500 CROP_SERVER_ERROR`: server-side failure
 
 ---
@@ -348,7 +348,7 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
 | `description` | string | No | Free text (rule 6) |
 | `location` | string | No | Legacy: a free-text place some older listings carry; `/sync` does not accept it |
 | `locationName` | string | No | The place the farmer entered for this listing; clients show it before `woreda` |
-| `deletedAt` | string (ISO 8601) | No | Soft-delete stamp; a deleted listing is never listed and `GET /crops/{id}` answers 404 for it |
+| `deletedAt` | string (ISO 8601) | No | Soft-delete stamp, written by a `delete` and by an `update` to `status: deleted` (1.10.0); a deleted listing is never listed and `GET /crops/{id}` answers 404 for it. A row with `status: deleted` and no stamp is treated the same |
 | `farmerReliability` | number | No | 0 to 1, stamped at create for on-device matching |
 | `latitude`, `longitude` | number | No | GPS of the listing. The web client matches by fetching `GET /crops?status=available` and scoring with the shared `MatchScorer`, so they must be returned for true haversine geo-scoring; when absent the matcher falls back to a woreda-string proxy (`match-api.md`, same fields on `MatchDto`) |
 | `photos` | object[] | No | 1.6.0: `{photoId, thumbUrl}` on the list, plus `fullUrl` on the single read |
@@ -437,7 +437,7 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
 
 10. **Listings that orders depend on** (1.7.0, ESC-18; `order-lifecycle.md` 2.4.0 Stock at funding):
    - `quantity` is the free stock. Funding an order takes its quintals out of `quantity` in one conditional write that requires `quantity >= q`, and writes the remainder exactly (orders are kilograms with 2 decimals, so the stock can carry up to 4 after a funding; a restore adds back the same amount); a funding that finds less takes nothing and the order is cancelled with a full refund (`listing_out_of_stock`). So stock that funded and later orders hold is never part of `quantity`, and a farmer's quantity edit cannot drop below it: any value from 0.01 is accepted (rule 2), and an edit made before a funding fails the version check (`SYNC_CONFLICT`) instead of putting the taken stock back.
-   - A `delete`, or an `update` with `status: deleted`, is refused while any order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`: `CROP_HAS_ACTIVE_ORDERS: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.`, nothing written. Orders in any other status (unpaid, failed, cancelled, rejected, or past pickup) do not block. The orders are read through the orders table's `ListingIdIndex` (one query, every page). When they cannot be read the answer is the unprefixed `The listing's orders could not be checked. Please try again later.` (retryable, nothing written).
+   - A `delete`, or an `update` with `status: deleted`, is refused while any order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`: `CROP_HAS_ACTIVE_ORDERS: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.`, nothing written. An `update` to `status: deleted` that passes is a delete: it writes `deletedAt` as the `delete` action does (1.10.0). Orders in any other status (unpaid, failed, cancelled, rejected, or past pickup) do not block. The orders are read through the orders table's `ListingIdIndex` (one query, every page). When they cannot be read the answer is the unprefixed `The listing's orders could not be checked. Please try again later.` (retryable, nothing written).
    - Behind `COMMITMENTS_ENABLED` (on in dev, off in staging and prod), like `TRIP_HAS_BOOKINGS`: clients handle the code since `sync-protocol.md` 1.17.0, and the flag goes on in staging and prod only after the minimum app version gate (spec K1). Ownership is checked first (`CROP_UNAUTHORIZED`).
    - Permanent on clients: the mobile queue reverts the listing from `GET /crops/{id}` and shows `errorCropHasActiveOrders`; web shows the same text (`sync-protocol.md` 1.17.0).
 
@@ -466,7 +466,7 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
 
 ### Caching
 - **Mobile**: All listings cached in Isar database (offline browsing)
-- **Server**: CloudFront CDN caches GET /crops responses for 60 seconds (reduce DynamoDB read costs)
+- **Server**: none. No CDN or cache sits in front of the API: clients call the API Gateway HTTP API directly, and the CloudFront distributions in `infra/lib/stacks/web-stack.ts` serve only the static sites from S3. Every API response carries `Cache-Control: no-store`. `GET /crops` is authenticated and filtered by role, so a shared cache in front of it would be a role-visibility risk and must not be added without a per-caller cache key
 
 ### Query Optimization
 - **Avoid full table scans**: Always filter by `status` using GSI
@@ -517,8 +517,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 - On create, `farmerName` and `farmerPhone` are set by the server from the farmer's profile; values sent by the client are ignored. The name is the profile display name, else the legal name received from Fayda. If the profile cannot be read, or has neither name, the create is rejected with `CROP_VALIDATION`.
 
 ### Rate Limiting
-- **POST /sync**: 100 requests/second per user (API Gateway throttling)
-- **GET /crops**: 200 requests/second per IP (CloudFront caching reduces load)
+- **API Gateway (all routes)**: the HTTP API stage throttles each route at 25 requests/second steady with a burst of 50 (`DefaultRouteSettings` in `infra/lib/stacks/api-stack.ts`). The limit is shared by all callers, not counted per user or per IP. Over it, API Gateway answers `429` with its own body (`{"message":"Too Many Requests"}`), no `error.code` and no `Retry-After`
+- **POST /sync**: on top of that, 60 requests per 60 seconds per user, counted by the server in the rate-limits table: `429 SYNC_RATE_LIMITED` with `Retry-After: 60`
+- **GET /crops**: no per-user or per-IP limit of its own. The `crops` Lambda has a 10 second timeout (sync: 30 seconds) and, in staging and prod, a reserved concurrency of 10 (sync: 10); dev sets no reserved concurrency (`lambda-construct.ts` skips it there). A request beyond the reserved concurrency, or one that runs out of time, fails at API Gateway with a 5xx
+- **WAF**: none attached. AWS WAF cannot be put on an HTTP API directly; `infra/lib/constructs/waf-construct.ts` is not used by any stack
 
 ### Data Privacy
 - Phone numbers returned only to the owning farmer and admins, never to buyers (1.3.0, ESC-48: no contact before the money is held, so a buyer and a farmer cannot agree to trade off the platform)
@@ -559,9 +561,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.7.0 | 2026-11-06 | Listings that orders depend on (ESC-18, rule 10): `quantity` is the free stock (exact, never rounded to 2 decimals by the server) and funding takes an order's quintals only when `quantity >= q` (a loser is cancelled with a full refund, `order-lifecycle.md` 2.4.0); server-only `stockRefusedFor` joins `stockDecrementedFor` and `stockRestoredFor`; with `COMMITMENTS_ENABLED`, a `delete` or an update to `status: deleted` is refused with `CROP_HAS_ACTIVE_ORDERS` while an order is `payment_submitted`, `funded`, `awaiting_transport` or `accepted` (orders read through `ListingIdIndex`; unreadable: retryable unprefixed error). No client change (`sync-protocol.md` 1.17.0 already handles the code) |
 | 1.8.0 | 2026-11-06 | The crop `woreda` is screened for a phone number on `/sync` create and update (FUP-98, rule 6b), refused with `CROP_CONTACT_IN_TEXT` like `description` and `locationName` (listed last in `<fields>`), nothing written. Not checked: an unchanged echo of the stored value, or a value equal to the farmer's profile `woreda` after trimming (accounts registered before `auth-api.md` 2.12.0). No client change: the code is permanent on clients since `sync-protocol.md` 1.23.0, and the app sends the profile woreda, which is exempt |
 | 1.9.0 | 2026-11-06 | Read model reconciled with the server (SIM-26). Documented as served, not renamed, because mobile, web and e2e read these names: the flat read model (`cropId`, `quantityKg` that holds quintals, flat `woreda`, no `unit`, `currency`, `zone`, `region` or `harvestDate`), and `GET /crops/{id}` wrapped in `crop`. Server changes: `GET /crops` from a buyer or admin defaults to `status=available` (it listed every status before; a farmer's own list still has every status); a `limit` above 50 is served as 50 (it accepted up to 100 before; web asked for 100 and now asks for 50); the server fills each page and looks one listing ahead, so `nextToken` is sent only when a listing follows, and the new `hasMore` agrees with it. Docs only: `total`, `zone`, `region`, `minQuantity` and `maxPrice` were never built and are gone from the contract; the reads need a caller (F-36), they were marked public; pagination tokens are HMAC-signed and do not expire |
+| 1.10.0 | 2026-11-11 | Deleted by update, and the infrastructure claims (FUP-132). An `update` to `status: deleted` passed the delete guard (1.7.0) but wrote no `deletedAt`, and every list filters on `deletedAt`, so the listing stayed in the farmer's own `GET /crops`. The update now writes `deletedAt` like a `delete` (kept if already set). Rows already in that state are hidden too: `GET /crops` (farmer's own list, buyer browse), `GET /match` and `GET /crops/{id}` (404) treat `status: deleted` as deleted with or without the stamp, and a delivery create on such a listing is refused like on a stamped one. No client change: the shipped apps delete with the `delete` action. Docs corrected against the CDK code: no CloudFront cache in front of `GET /crops` (none exists, responses are `no-store`, and a shared cache on a role-filtered list would be a visibility risk), no 100 req/s per user or 200 req/s per IP limits; the real limits are the HTTP API stage throttle (25 req/s per route, burst 50, all callers together), 60 sync requests per minute per user (`SYNC_RATE_LIMITED`) and the Lambda reserved concurrency (staging and prod only; dev sets none) |
 
 ---
 
-**Last Updated**: 2026-11-06
-**Version**: 1.9.0
+**Last Updated**: 2026-11-11
+**Version**: 1.10.0
 **Status**: Implemented (Phase R3)
