@@ -174,6 +174,56 @@ void main() {
             .findFirst();
         expect(cached, isNotNull);
         expect(cached!.amount, 15000.0);
+        // No rate from the server: the legacy rule, on the amount (FUP-129).
+        expect(cached.commissionRate, 0.025);
+      });
+
+      test(
+          'caches the server commissionRate, else the crop-based rate '
+          '(FUP-129)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        Map<String, dynamic> orderEscrow(String id) => {
+              'escrowId': id,
+              'deliveryId': 'del-001',
+              'buyerId': 'buyer-001',
+              'farmerId': 'farmer-001',
+              // 10,000 crop + 4,500 transport + 500 commission.
+              'amount': 15000.0,
+              'commission': 500.0,
+              'farmerPayout': 10000.0,
+              'currency': 'ETB',
+              'status': 'escrowed',
+              'createdAt': '2026-02-19T10:00:00Z',
+              'expiresAt': '2026-02-26T10:00:00Z',
+            };
+        final bodies = [
+          {...orderEscrow('esc-rated'), 'commissionRate': 0.04},
+          orderEscrow('esc-unrated'),
+        ];
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenAnswer((_) async => bodies.removeAt(0));
+
+        final rated = await repository.initiatePayment(
+          deliveryId: 'del-001',
+          buyerId: 'buyer-001',
+          farmerId: 'farmer-001',
+          amount: 15000.0,
+        );
+        final unrated = await repository.initiatePayment(
+          deliveryId: 'del-001',
+          buyerId: 'buyer-001',
+          farmerId: 'farmer-001',
+          amount: 15000.0,
+        );
+
+        // The server's rate as sent, never commission / amount (0.0333).
+        expect((rated as EscrowSuccess).payment.commissionRate, 0.04);
+        expect((unrated as EscrowSuccess).payment.commissionRate, 0.05);
       });
 
       test('queues intent when offline', () async {
@@ -640,6 +690,42 @@ void main() {
         expect(cached.first.buyerId, 'buyer-001');
         expect(cached.first.farmerId, 'farmer-001');
         expect(cached.first.deliveryId, isEmpty);
+      });
+
+      test(
+          'history rate: the server rate wins, an order row without one is '
+          'derived on the crop leg (FUP-129)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        // 1,000 crop + 450 transport + 50 commission = 1,500.
+        final unrated = summaryJson(farmerPayout: 1000, truckerPayout: 450);
+        (unrated['escrows'] as List)
+            .cast<Map<String, dynamic>>()
+            .first['commission'] = 50.0;
+        final rated = summaryJson(farmerPayout: 1000, truckerPayout: 450);
+        (rated['escrows'] as List).cast<Map<String, dynamic>>().first
+          ..['commission'] = 50.0
+          ..['commissionRate'] = 0.04;
+        final bodies = [unrated, rated, unrated];
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer((_) async => bodies.removeAt(0));
+
+        final rows = await repository.refreshHistory(userId: 'farmer-001');
+        expect(rows.single.commissionRate, 0.05);
+
+        // The server's own rate replaces the cached derived one.
+        await repository.refreshHistory(userId: 'farmer-001');
+        var cached = await repository.getHistory(userId: 'farmer-001');
+        expect(cached.single.commissionRate, 0.04);
+
+        // A later summary without a rate keeps the cached server rate.
+        await repository.refreshHistory(userId: 'farmer-001');
+        cached = await repository.getHistory(userId: 'farmer-001');
+        expect(cached.single.commissionRate, 0.04);
       });
 
       test('preserves cached party ids when an older server sends none',
