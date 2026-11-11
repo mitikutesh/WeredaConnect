@@ -200,7 +200,7 @@ Configuration (P2): set per environment in `infra/lib/config/environments.ts` (a
   `OutcomeLabelWriter` stores them with `snapshotVersion` on the label (counts, codes and ages only), and the export adds the fields. A failed read leaves the label without a snapshot and never fails the decision. Every decision gets one; the fit uses the day's first.
 - **P2, shadow and priority** (server, infra, admin with en, am, om; at the trigger): the second weights table in `RiskScoreSettings` and `RiskScoreCalculator`, the settings `RISK_ML_MODE`, `RISK_ML_WEIGHTS` and `RISK_ML_WEIGHTS_VERSION`, the shadow line and its metric, the invalid-weights metric and alarm, the Fraud Review ordering and display.
 - **P3, the fit script** (`scripts/fit_risk_weights.py`, stdlib like the export, its tests offline) and the report template.
-- Optional: a random audit sample of unflagged trades; the pre-FRD-18 label backfill (section 20.1).
+- Optional: a random audit sample of unflagged trades; the pre-FRD-18 label backfill (section 20.1; `scripts/backfill_outcome_labels.py`, FUP-143, run per environment).
 
 ## Open decisions (owner)
 
