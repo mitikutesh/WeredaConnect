@@ -693,6 +693,24 @@ public class CropFunctionTests
     }
 
     [Fact]
+    public async Task HandleGetCropById_DeletedByStatusOnly_Returns404()
+    {
+        // FUP-132: a row deleted by an update before the stamp was written has no deletedAt.
+        var deletedCrop = CreateCropItem("crop-001");
+        deletedCrop["status"] = "deleted";
+        deletedCrop.Remove("deletedAt");
+
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(deletedCrop);
+
+        var pathParams = new Dictionary<string, string> { { "id", "crop-001" } };
+        var request = MakeGetRequest("/crops/crop-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(404, response.StatusCode);
+        Assert.Contains("CROP_NOT_FOUND", response.Body);
+    }
+
+    [Fact]
     public async Task HandleGetCropById_MissingId_Returns400()
     {
         var pathParams = new Dictionary<string, string> { { "id", "" } };
