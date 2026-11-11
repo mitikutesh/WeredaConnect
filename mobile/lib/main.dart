@@ -1,4 +1,3 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -88,15 +87,12 @@ Future<void> main() async {
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 
-  final refreshDio = Dio(
-    BaseOptions(
-      baseUrl: ApiClient().dio.options.baseUrl,
-      connectTimeout: ApiClient().dio.options.connectTimeout,
-      receiveTimeout: ApiClient().dio.options.receiveTimeout,
-      headers: Map<String, dynamic>.from(ApiClient().dio.options.headers),
-    ),
+  // Shares the API client's HTTP adapter, so the refresh token travels over
+  // the same pinned connection as every other API call (MOB-02).
+  final refreshDio = buildRefreshDio(
+    ApiClient().dio,
+    interceptors: [DataUsageInterceptor(dataUsageTracker)],
   );
-  refreshDio.interceptors.add(DataUsageInterceptor(dataUsageTracker));
 
   // Shared refresh callback: persists the new tokens, restarts the 48h
   // offline session clock, and signs the user out (SessionSignals) when the

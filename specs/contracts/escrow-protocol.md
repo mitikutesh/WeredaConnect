@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.4.0
+2.5.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -328,10 +328,12 @@ If the same `idempotencyKey` is received again, return the cached result with `2
 
 | Status | Error Code | Description |
 |--------|-----------|-------------|
-| `400` | `ESCROW_001` | Invalid amount (below 100 ETB or above 500,000 ETB) |
-| `400` | `ESCROW_002` | Missing or invalid deliveryId |
-| `400` | `ESCROW_003` | Missing or invalid idempotency key format |
-| `400` | `ESCROW_004` | Currency must be ETB |
+| `400` | `ESCROW_001` | Invalid amount (below 100 ETB or above 500,000 ETB); from 2.3.0 also `amount` missing or `0` (`field: amount`), checked with the missing fields below |
+| `400` | `ESCROW_001` | The body is not JSON, or is empty or `null` (`"Invalid JSON in request body."`, the code it shares with an invalid amount) |
+| `400` | `ESCROW_002` | Missing or invalid deliveryId (2.3.0: missing, `null` or blank answers with `field: deliveryId`) |
+| `400` | `ESCROW_003` | Missing or invalid idempotency key format (2.3.0: missing, `null` or blank answers with `field: idempotencyKey`) |
+| `400` | `ESCROW_004` | Currency must be ETB (2.3.0: missing, `null` or blank answers with `field: currency`) |
+| `400` | `ESCROW_VALIDATION` | `buyerId` or `farmerId` missing, `null` or blank (2.3.0, `field` names it) |
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
 | `403` | `ESCROW_006` | buyerId does not match authenticated user |
 | `403` | `ESCROW_007` | Fayda ID verification required (amount > 10,000 ETB) |
@@ -387,8 +389,8 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 | Field | Type | Required | Constraints | Description |
 |-------|------|----------|-------------|-------------|
 | `escrowId` | string (UUID) | Yes | Must reference an existing escrow | Escrow to release |
-| `trigger` | string | Yes | Enum: `delivery_confirmed`, `dispute_resolved`, `admin_override` | What triggered the release. As built (2.0.0 doc fix): checked against the enum, then neither stored on the escrow nor written to the audit row; the escrow's status and verdict decide what the release may do |
-| `deliveryId` | string (UUID) | Yes | Not blank (`ESCROW_002`) | Delivery verification reference. As built (2.0.0 doc fix): required but never compared with the escrow's `deliveryId`; the escrow named by `escrowId` is the one released. The text before 2.0.0 said it must match |
+| `trigger` | string | Yes | Enum: `delivery_confirmed`, `dispute_resolved`, `admin_override` | What triggered the release. Checked against the enum and, since 2.2.0, stored with the release as `releaseTrigger` on the escrow (a ledger row carries it as its `reason`; a verdict release there carries `verdict:<resolution>`). It is a record only: the escrow's status and verdict decide what the release may do |
+| `deliveryId` | string (UUID) | No (2.5.0) | When sent and the escrow is linked to a delivery: equal to the escrow's `deliveryId` (`422 ESCROW_VALIDATION`, 2.2.0) | The delivery this release pays for. Absent, `null` or blank is accepted and not compared (2.5.0; before, `400 ESCROW_002`). An escrow with no `deliveryId` (a self-pickup order, an order escrow not linked yet) is released whatever is sent here. The escrow named by `escrowId` is always the one released |
 | `idempotencyKey` | string | Yes | Format: `{actor}:{escrowId}:{action}:{timestamp}` | Prevents duplicate releases |
 | `reason` | string | For a `held` escrow | 10-500 chars (1.22.0) | Why the admin releases a held escrow; audited with the decision, ignored otherwise |
 
@@ -426,12 +428,12 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 |--------|-----------|-------------|
 | `400` | `ESCROW_001` | The body is not JSON, or is empty or `null` (the code it shares with an invalid amount) |
 | `400` | `ESCROW_VALIDATION` | `escrowId` or `trigger` missing or blank (1.37.0, `field` names it); checked right after the body is read, before the caller's role |
-| `400` | `ESCROW_002` | `deliveryId` missing or blank (1.37.0, `field: deliveryId`); checked with the fields above |
 | `400` | `ESCROW_003` | `idempotencyKey` missing or blank (1.37.0, checked with the fields above), or in an invalid format (checked after the role) |
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
 | `400` | `ESCROW_VALIDATION` | `trigger` outside the enum (`field: trigger`, checked after the role), or a `held` escrow without a `reason` of 10 to 500 characters (1.22.0) |
 | `403` | `ESCROW_015` | Unauthorized to release (not system/admin), or a `held` escrow from outside the admin group (1.22.0) |
 | `404` | `ESCROW_016` | Escrow not found |
+| `422` | `ESCROW_VALIDATION` | `deliveryId` is sent and is not the delivery the escrow is linked to (2.2.0, `field: deliveryId`); checked right after the escrow is read, before its status, nothing written. Never answered for an absent or blank `deliveryId`, nor for an escrow without one (2.5.0: `400 ESCROW_002` is no longer answered on this route) |
 | `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0); from 1.22.0 also: the decision on a `held` escrow could not be audited |
 | `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, or its verdict is `buyer_wins` (1.9.0; before 1.9.0 `disputed` was accepted too); from 1.22.0 an admin in the admin group may also settle `held`, checked on the status it was held from, and the system caller never (FRD-03); from 1.17.0 an admin release of a plain `escrowed` order escrow whose order is not `delivered` or `disbursing` (nor left behind a delivered delivery), no override |
 | `503` | `ESCROW_012` | From 1.17.0 also: the order behind an admin release could not be read, or changed while it was advanced to `delivered`; nothing moved, retry |
@@ -533,8 +535,10 @@ is answered like a lost race. See "Additions in 1.25.0".
 
 | Status | Error Code | Description |
 |--------|-----------|-------------|
-| `400` | `ESCROW_003` | Invalid idempotency key format |
-| `400` | `ESCROW_017` | Invalid dispute reason |
+| `400` | `ESCROW_001` | The body is not JSON, or is empty or `null` (`"Invalid JSON in request body."`) |
+| `400` | `ESCROW_VALIDATION` | `escrowId` or `disputedBy` missing, `null` or blank (2.3.0, `field` names it); checked right after the body is read, before the escrow is read |
+| `400` | `ESCROW_003` | Invalid idempotency key format; from 2.3.0 also `idempotencyKey` missing, `null` or blank (`field: idempotencyKey`, checked with the fields above) |
+| `400` | `ESCROW_017` | Invalid dispute reason; from 2.3.0 also `reason` missing, `null` or blank (`field: reason`, checked with the fields above) |
 | `400` | `ESCROW_018` | Dispute window expired (>48 hours since delivery confirmation) |
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
 | `403` | `ESCROW_019` | User is not buyer or farmer on this escrow |
@@ -3665,6 +3669,12 @@ pages of `limit` rows until `limit` rows matched, the table ends, or 25 pages we
 everything matched (up to twice `limit` less one) with a `nextToken` that resumes after the last page
 read, so no row is skipped or repeated. An unfiltered list still reads one page.
 
+Since FRD-07 (doc fix in 2.5.0) this no longer describes `GET /admin/fraud-signals`: it is a Query of one
+status partition (`pending`, the default, or `reviewed`; anything else is `400 ADMIN_005`) of the sparse
+`StatusCreatedAtIndex` of fraud-signals, newest first, one page of `limit` rows (default 20, at most 50)
+per call, never a Scan (`fraud-detection-architecture.md` section 19). `GET /admin/disputes` and
+`GET /admin/escrows?status=..` still read as described above.
+
 ### Roles and clients
 Admin only. Farmer, trucker and buyer see the result through their usual pulls: the order at
 `dispute_resolved`, the delivery at `cancelled` (with `cancelReason`) or `disputed`. Both statuses were
@@ -4426,7 +4436,8 @@ otherwise, `404 ESCROW_035` for an unknown ref), `done` with `paidBy` the admin 
 `422 ESCROW_VALIDATION` (`field: deliveryId`) before anything else is read or written; an empty one, or an
 escrow not linked yet, passes. This holds for 1.x escrows too. The admin held exit sends the escrow's own
 `deliveryId` (else its order or escrow id, for an escrow with no delivery), so it passes. The `trigger` is stored with the release: `releaseTrigger` on the escrow (1.x
-and ledger) and the rows' `reason`.
+and ledger) and the rows' `reason`. Since 2.5.0 (FUP-139) the field is optional on the route too: the
+handler no longer answers `400 ESCROW_002` for an absent, `null` or blank `deliveryId`.
 
 **Not built in 2.2.0** (follow-ups): a cancel or rejection still arms the 1.x refund (`expiresAt`,
 `refundReason`) and the hourly refund sweep writes `refund#all` within the hour, instead of the order's own
@@ -4787,7 +4798,9 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
-| 2.4.0 | 2026-11-11 | One stored `commissionRate` (FUP-129): `POST /escrow/initiate` with a linked order stores the order's rate instead of 0.025, by the same rule as the order-funded path; the legacy rule stores 0.025 on both paths, an order without a rate stores `round4(commission / farmerPayout)`. The initiate response and `GET /escrow/history` rows carry `commissionRate` (additive, optional). Clients read it and fall back to a derivation on the crop leg for an order split. No amount held, paid out or refunded changes. (2.3.0 is taken by another open change.) |
+| 2.5.0 | 2026-11-11 | `POST /escrow/release` takes an optional `deliveryId` (FUP-139, closing the release item of FUP-147): an absent, `null` or blank one is accepted and not compared (before, `400 ESCROW_002`, so the admin page sent an order or escrow id in its place for a self-pickup escrow, which has no delivery). Unchanged from 2.2.0: a `deliveryId` that is sent and differs from the one the escrow is linked to is `422 ESCROW_VALIDATION` (`field: deliveryId`), an escrow without a `deliveryId` is released whatever is sent, and the `trigger` is stored as `releaseTrigger`. No request that was accepted is refused now; amounts, conditions, status transitions and timing of a release are unchanged; the cron (in-process) and the admin page send what they sent. Doc fixes: the request table of section 2 still said the `deliveryId` was required and never compared and the `trigger` never stored (the 2.0.0 wording, out of date since 2.2.0), and the 1.21.0 section still listed `GET /admin/fraud-signals?status=..` with the lists that scan and filter (FRD-07 moved it to a Query of the sparse `StatusCreatedAtIndex`). 2.4.0 is taken by another branch |
+| 2.4.0 | 2026-11-11 | One stored `commissionRate` (FUP-129): `POST /escrow/initiate` with a linked order stores the order's rate instead of 0.025, by the same rule as the order-funded path; the legacy rule stores 0.025 on both paths, an order without a rate stores `round4(commission / farmerPayout)`. The initiate response and `GET /escrow/history` rows carry `commissionRate` (additive, optional). Clients read it and fall back to a derivation on the crop leg for an order split. No amount held, paid out or refunded changes. |
+| 2.3.0 | 2026-11-11 | Missing fields on `POST /escrow/initiate` and `POST /escrow/dispute` (FUP-127), as 1.37.0 did for release and refund. Initiate: a missing, `null` or blank `deliveryId` answers `400 ESCROW_002`, `buyerId` or `farmerId` `400 ESCROW_VALIDATION`, a missing or `0` `amount` `400 ESCROW_001`, `currency` `400 ESCROW_004`, `idempotencyKey` `400 ESCROW_003`. Dispute: `escrowId` or `disputedBy` `400 ESCROW_VALIDATION`, `reason` `400 ESCROW_017`, `idempotencyKey` `400 ESCROW_003`. Each carries `field` and is checked right after the body is read (where a malformed body was already answered, so before the caller's role, the live Telebirr refusal `ESCROW_039` and any read). Before, an absent field failed deserialization and answered `400 ESCROW_001 "Invalid JSON in request body."`; a blank one went on to a later refusal (for example `403 ESCROW_006`, `404 ESCROW_008`, `404 ESCROW_016`). A body that is not JSON keeps `400 ESCROW_001 "Invalid JSON in request body."`. No request that was accepted is refused now, and every code is one the apps already map; no app change |
 | 2.2.0 | 2026-11-07 | The escrow ledger is built (ESC-20, "Additions in 2.2.0"): the `escrow-ledger` table and `LedgerOpenIndex`, `settlementModel: ledger` on new order escrows behind `ESCROW_LEDGER_ENABLED` (dev on), the write-ahead decision (rows, escrow CAS on `version`, audit rows in one transaction), the `callingSince` stamp, `gatewayRef` = `WCL` + 27 hex of SHA-256(`{escrowId}:{ref}`), `done`/`failed` (3 attempts)/`sent` (status check first)/`manual` rows, the 15 minute `ledger_sweep` (`LEDGER_ROW_OVERDUE`, `ESCROW_LEDGER_INVARIANT` and their alarms), the per-leg release order (F1, F2) and the hourly transport retry, `partial_refund` with `action: split` and `ADMIN_021` (settled by the hourly verdict sweep, not in the verdict's write), duplicate payments refunded through the ledger (`ESCROW_045` on the manual unapplied record), the manual queue on ledger refs, `EscrowDto.legStatus`/`refundedTotal`/`releasedTotal`, and FUP-147 (`deliveryId` compared, `422 ESCROW_VALIDATION`; `releaseTrigger` stored). A decided ledger escrow is skipped by the 1.x sweeps and refuses a dispute, a hold and a scheduled refund. A held split leaves through the admin release exit; a transport leg blocked more than 24 hours after the farmer was paid logs `TRUCKER_PAYOUT_OVERDUE`; the crop leg names a fully decided escrow `completed` or `refunded`. Not built: the refund row in the cancel's own transaction, the per-row `refund_sent`, migrating 1.x escrows. P.10 stays PLANNED (ESC-19) |
 | 2.1.1 | 2026-11-07 | Dispute evidence (LT-14): a drop-off handoff's `planned` point is, of the trip's destination and the order's own drop-off point (`deliveryLatitude`, `deliveryLongitude`, `order-lifecycle.md` 2.9.0), the one nearer to the buyer's fix, since the delivered GPS check passes within 5 km of either; the admin's `order` carries the point. No new field or read. |
 | 2.1.0 | 2026-11-07 | Order escrows held to the cap (ESC-16, spec 4.5, `order-lifecycle.md` 2.8.0): with `COMMITMENTS_ENABLED` on, the auto-refund sweep no longer extends a live order escrow 48 hours at a time; it sets `expiresAt` to the 21 day cap in one conditional write (`ORDER_ESCROW_HELD_TO_CAP`), and at the cap the order enters the admin queue as before. Off, the 1.13.0 rule stays. A failed delivery stamp is alarmed (`ESCROW_DELIVERY_STAMP_FAILED`, sync and escrow-cron, alarm `escrow-delivery-stamp-failures`) and the hourly order-money sweep stamps a delivered order's unstamped escrow (`deliveryStampsRepaired`). No endpoint, status, field or client change |
@@ -4844,6 +4857,6 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 ---
 
-**Last Updated**: 2026-11-07
+**Last Updated**: 2026-11-11
 **Version**: 2.0.0
 **Status**: Draft (Phase R4)

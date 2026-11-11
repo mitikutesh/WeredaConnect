@@ -350,6 +350,21 @@ public class VerifyOtpFunctionTests
         await _mockSms.DidNotReceive().SendAsync(Arg.Any<string>(), Arg.Any<string>());
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"phoneNumber\":null}")]
+    public async Task Resend_AbsentPhone_AnswersAuth001(string body)
+    {
+        // FUP-127 audit: the reader leaves the absent phoneNumber null (its "" initializer does not
+        // run); the validator answers it like a blank one and nothing is sent.
+        var response = await _function.FunctionHandler(
+            new APIGatewayProxyRequest { Path = "/auth/resend-otp", Body = body }, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"AUTH_001\"", response.Body);
+        Assert.Contains("\"field\":\"phoneNumber\"", response.Body);
+    }
+
     [Fact]
     public async Task Resend_InvalidPhone_Returns400()
     {

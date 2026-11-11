@@ -837,6 +837,13 @@ public partial class SyncFunction
             return LambdaResponse.Error(400, "SYNC_VALIDATION", "Maximum 50 operations per batch.");
         }
 
+        // FUP-127: a JSON null in the operations array is read as a null element (the reader does
+        // not refuse it); the batch is refused here instead of failing on the first dereference.
+        if (syncRequest.Operations.Contains(null!))
+        {
+            return LambdaResponse.Error(400, "SYNC_VALIDATION", "Operations must not contain null.");
+        }
+
         // Extract authenticated user ID from API Gateway authorizer context.
         // Uses shared AuthHelper to handle both HTTP API v2 JWT authorizer
         // (claims nested under "claims" key) and flat test dictionaries.
@@ -4288,10 +4295,8 @@ public partial class SyncFunction
                                 };
                             }
 
-                            // Check if listing is deleted
-                            if (listing.TryGetValue("deletedAt", out var deletedAt)
-                                && deletedAt != null
-                                && !string.IsNullOrEmpty(deletedAt.ToString()))
+                            // Check if listing is deleted (FUP-132: by the stamp or by the status)
+                            if (CropRepository.IsDeleted(listing))
                             {
                                 return new SyncOperationResult
                                 {

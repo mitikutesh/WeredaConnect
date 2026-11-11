@@ -8,12 +8,19 @@ namespace WeredaConnect.Server.Models;
 /// POST /escrow/initiate request body.
 /// Buyer initiates escrow payment for a delivery.
 /// </summary>
+/// <remarks>
+/// No member is <c>required</c> (escrow-protocol 2.3.0, FUP-127), as on <see cref="ReleaseEscrowRequest"/>:
+/// a missing or blank field is answered with that field's code by the handler, not ESCROW_001
+/// "Invalid JSON". The source-generated reader does not run the initializers of init properties:
+/// an absent string arrives as null (an absent amount as 0), so the handler checks them before
+/// anything reads them. The initializers only serve code that builds a request itself.
+/// </remarks>
 public sealed record InitiateEscrowRequest
 {
     /// <summary>
     /// The delivery this payment covers (UUID).
     /// </summary>
-    public required string DeliveryId { get; init; }
+    public string DeliveryId { get; init; } = "";
 
     /// <summary>
     /// Optional: the order this escrow is linked to (UUID).
@@ -24,27 +31,27 @@ public sealed record InitiateEscrowRequest
     /// <summary>
     /// Buyer initiating payment (must match JWT sub claim).
     /// </summary>
-    public required string BuyerId { get; init; }
+    public string BuyerId { get; init; } = "";
 
     /// <summary>
     /// Farmer receiving payment (must be a verified user).
     /// </summary>
-    public required string FarmerId { get; init; }
+    public string FarmerId { get; init; } = "";
 
     /// <summary>
     /// Total payment amount in ETB (100.00 – 500,000.00).
     /// </summary>
-    public required decimal Amount { get; init; }
+    public decimal Amount { get; init; }
 
     /// <summary>
     /// Currency code. Must be "ETB".
     /// </summary>
-    public required string Currency { get; init; }
+    public string Currency { get; init; } = "";
 
     /// <summary>
     /// Idempotency key: {buyerId}:{deliveryId}:initiate:{timestamp}.
     /// </summary>
-    public required string IdempotencyKey { get; init; }
+    public string IdempotencyKey { get; init; } = "";
 }
 
 /// <summary>
@@ -126,7 +133,12 @@ public sealed record ReleaseEscrowRequest
     /// </summary>
     public string Trigger { get; init; } = "";
 
-    public string DeliveryId { get; init; } = "";
+    /// <summary>
+    /// Optional (escrow-protocol 2.5.0, FUP-139): the delivery this release pays for. When it is sent and the
+    /// escrow is linked to a delivery, the two must be equal; a self-pickup escrow has none. Null when absent.
+    /// </summary>
+    public string? DeliveryId { get; init; }
+
     public string IdempotencyKey { get; init; } = "";
 
     /// <summary>
@@ -156,19 +168,22 @@ public sealed record ReleaseEscrowResponse
 /// POST /escrow/dispute request body.
 /// Buyer or farmer raises a dispute within 48 hours of delivery confirmation.
 /// </summary>
+/// <remarks>
+/// No member is <c>required</c> (escrow-protocol 2.3.0, FUP-127), as on <see cref="InitiateEscrowRequest"/>.
+/// </remarks>
 public sealed record DisputeEscrowRequest
 {
-    public required string EscrowId { get; init; }
+    public string EscrowId { get; init; } = "";
 
     /// <summary>
     /// Must be buyer or farmer on this escrow (UUID).
     /// </summary>
-    public required string DisputedBy { get; init; }
+    public string DisputedBy { get; init; } = "";
 
     /// <summary>
     /// Enum: damaged_goods, wrong_quantity, wrong_crop, not_delivered, quality_mismatch, other.
     /// </summary>
-    public required string Reason { get; init; }
+    public string Reason { get; init; } = "";
 
     /// <summary>
     /// Free-text explanation (0-1000 chars, supports Amharic/Oromo/English).
@@ -180,7 +195,7 @@ public sealed record DisputeEscrowRequest
     /// </summary>
     public List<string>? EvidenceRefs { get; init; }
 
-    public required string IdempotencyKey { get; init; }
+    public string IdempotencyKey { get; init; } = "";
 }
 
 /// <summary>

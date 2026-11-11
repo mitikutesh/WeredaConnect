@@ -156,4 +156,95 @@ public sealed class CleanDeliveryCreditDynamoDbTests
         outcome.NotCleanReason.Should().Be(CleanDeliveryCreditService.NotCleanSignal);
         (await CreditRowsAsync(Farmer)).Should().BeEmpty();
     }
+
+    // ── FUP-137: the credit filter and the score agree on recordType ──
+
+    private async Task PutRowAsync(string userId, DateTime at, string? recordType, string entityId)
+    {
+        var item = new Dictionary<string, AttributeValue>
+        {
+            ["userId"] = new() { S = userId },
+            ["signalKey"] = new() { S = $"{Iso(at)}#SOME_ROW" },
+            ["signalType"] = new() { S = "SOME_ROW" },
+            // A credit row carries a negative weight, as its writer stores it.
+            ["weight"] = new() { N = recordType == "credit" ? "-5" : "10" },
+            ["entityId"] = new() { S = entityId }
+        };
+        if (recordType != null)
+        {
+            item["recordType"] = new AttributeValue { S = recordType };
+        }
+
+        await Ddb.PutItemAsync(new PutItemRequest { TableName = _db.FraudSignals, Item = item });
+    }
+
+    [LocalDynamoDbTheory]
+    [InlineData(null)] // a legacy signal row
+    [InlineData("signal")]
+    [InlineData("note")] // a row kind neither reader knows
+    [InlineData("Credit")] // the values are exact: this is not "credit"
+    [InlineData("credit")]
+    [InlineData("whitelist")]
+    public async Task ARowOnTheTrade_BlocksTheCreditExactlyWhenTheScoreCountsIt(string? recordType)
+    {
+        var now = DateTime.UtcNow;
+        var escrowId = $"esc-rt-{recordType ?? "none"}";
+        await PutRowAsync(Farmer, now.AddDays(-1), recordType, $"ord-{escrowId}");
+        // What the score makes of the row alone (a credit row lowers a score that is already 0).
+        var counted = (await Scores().GetUserRiskScoreAsync(Farmer)).Score > 0;
+
+        var outcome = await Credits().CreditAsync(Trade(escrowId, now.AddMinutes(-1)), now);
+
+        // The filter and RiskScoreCalculator read recordType the same way: everything but a credit or the
+        // whitelist row is a signal, so no row the score counts is ever left out of the clean check.
+        (outcome.NotCleanReason == CleanDeliveryCreditService.NotCleanSignal).Should().Be(counted);
+        counted.Should().Be(recordType is not ("credit" or "whitelist"));
+    }
+
+    [LocalDynamoDbFact]
+    public async Task AReleasedRowReadTwice_CreditsEachPartyOnce()
+    {
+        // The manual payout close and its replay (or the cron's recovery) read the same released row.
+        var now = DateTime.UtcNow;
+        var row = new Dictionary<string, object>
+        {
+            { "escrowId", "esc-live" }, { "deliveryId", "del-esc-live" },
+            { "buyerId", Buyer }, { "farmerId", Farmer }, { "truckerId", Trucker },
+            { "status", "completed" }, { "releasedAt", Iso(now.AddMinutes(-1)) },
+            { "releaseOrigin", "auto_release" }
+        };
+
+        var first = await Credits().CreditReleasedAsync(row, _ => Task.FromResult<string?>(null), now);
+        var replay = await Credits().CreditReleasedAsync(row, _ => Task.FromResult<string?>(null), now.AddMinutes(5));
+
+        first.Credited.Should().Equal(Buyer, Farmer, Trucker);
+        replay.Credited.Should().BeEmpty();
+        replay.AlreadyCredited.Should().Be(3);
+        (await CreditRowsAsync(Buyer)).Should().ContainSingle();
+        (await CreditRowsAsync(Farmer)).Should().ContainSingle();
+        (await CreditRowsAsync(Trucker)).Should().ContainSingle();
+    }
+
+    [LocalDynamoDbFact]
+    public async Task TheJournal_AddsRemovesAndReadsItsOneItem()
+    {
+        var journal = new CleanDeliveryCreditJournal(Ddb, _db.Idempotency);
+        var a = $"esc-a-{_run}";
+        var b = $"esc-b-{_run}";
+
+        (await journal.AddAsync(a)).Should().BeTrue();
+        (await journal.AddAsync(b)).Should().BeTrue();
+        (await journal.AddAsync(a)).Should().BeTrue(); // a set: adding twice keeps one
+        (await journal.ReadAsync()).Should().Contain(new[] { a, b }).And.OnlyHaveUniqueItems();
+
+        await journal.RemoveAsync(a);
+        await journal.RemoveAsync(a); // removing what is not there is a no-op
+        (await journal.ReadAsync()).Should().Contain(b).And.NotContain(a);
+
+        await journal.RemoveAsync(b);
+        (await journal.ReadAsync()).Should().NotContain(b);
+        // An empty journal still takes the next add (DynamoDB dropped the empty set attribute).
+        (await journal.AddAsync(a)).Should().BeTrue();
+        await journal.RemoveAsync(a);
+    }
 }
