@@ -77,16 +77,53 @@ public class RatingFunctionReadRulesTests
     }
 
     [Theory]
-    [InlineData("buyer-2")]
     [InlineData("ghost")]
-    public async Task List_ABuyerAskingAboutABuyerOrAnUnknownId_GetsAnEmptyAnswer(string ratee)
+    [InlineData("farmer-deleted")]
+    public async Task List_ARateeWithoutAUsableUsersRow_ReadsAsBefore_TheStoredRatingsAndTheWalk(string ratee)
     {
-        var body = await Ok(List("buyer-1", "buyer", ratee));
+        // An id with no users row (unknown, or a legacy account whose row sits under another id)
+        // and a deleted account keep the 1.1.0 read: no role filter, the walked summary, no reputation.
+        _repo.AddUser("farmer-deleted").DeletionState = "completed";
+
+        var body = await Ok(List("buyer-1", "buyer", ratee), publicTags: true);
+
+        await _ratings.Received(1).QueryByRateeAsync(ratee, 20, null, null);
+        await _ratings.Received(1).GetSummaryAsync(ratee, null);
+        body.GetProperty("ratings").GetArrayLength().Should().Be(1);
+        body.GetProperty("summary").GetProperty("count").GetInt32().Should().Be(2);
+        body.GetProperty("summary").TryGetProperty("rateeRole", out _).Should().BeFalse();
+        body.GetProperty("summary").TryGetProperty("effectiveRating", out _).Should().BeFalse();
+        body.TryGetProperty("reputation", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task List_AnIdWithNoRatingsAndNoRow_StillReadsEmpty()
+    {
+        _ratings.QueryByRateeAsync("ghost", Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(), Arg.Any<string?>())
+            .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
+        _ratings.GetSummaryAsync("ghost", Arg.Any<string?>()).Returns((0.0, 0));
+
+        var body = await Ok(List("buyer-1", "buyer", "ghost"));
 
         body.GetProperty("ratings").GetArrayLength().Should().Be(0);
-        body.GetProperty("summary").GetProperty("average").GetDouble().Should().Be(0);
         body.GetProperty("summary").GetProperty("count").GetInt32().Should().Be(0);
-        await _ratings.DidNotReceiveWithAnyArgs().QueryByRateeAsync(default!);
+    }
+
+    [Fact]
+    public async Task List_WithTheRoleFilter_FillsThePage_PastAnEmptyFilteredRead()
+    {
+        // A ratee rated in two roles: the first Query holds only the other role's rows.
+        var behind = new Dictionary<string, AttributeValue> { ["ratingId"] = new() { S = "order-0:farmer-1" } };
+        _ratings.QueryByRateeAsync("farmer-1", Arg.Any<int>(), null, "farmer")
+            .Returns((new List<Dictionary<string, object>>(), behind));
+        _ratings.QueryByRateeAsync("farmer-1", Arg.Any<int>(), behind, "farmer")
+            .Returns((new List<Dictionary<string, object>> { Rating("order-1:farmer-1", "farmer-1", "farmer") },
+                (Dictionary<string, AttributeValue>?)null));
+
+        var body = await Ok(List("buyer-1", "buyer", "farmer-1"));
+
+        body.GetProperty("ratings").GetArrayLength().Should().Be(1);
+        body.TryGetProperty("nextToken", out _).Should().BeFalse();
     }
 
     // ===== the role filter and the summary source =====
@@ -143,8 +180,13 @@ public class RatingFunctionReadRulesTests
     {
         await Service().RecordAsync(new ReputationCandidate
         {
-            UserId = "farmer-1", EventId = "CANCEL#o1", Code = ReputationCodes.LateCancel, Party = "farmer",
-            OrderId = "o1", BuyerId = "buyer-9", OccurredAt = T0.AddDays(-1)
+            UserId = "farmer-1",
+            EventId = "CANCEL#o1",
+            Code = ReputationCodes.LateCancel,
+            Party = "farmer",
+            OrderId = "o1",
+            BuyerId = "buyer-9",
+            OccurredAt = T0.AddDays(-1)
         }, timeoutPenaltiesOn: true, new TestLambdaLogger());
 
         var response = await Function(publicTags: true).FunctionHandler(List("buyer-1", "buyer", "farmer-1"), _ctx);

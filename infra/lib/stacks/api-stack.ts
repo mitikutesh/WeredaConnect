@@ -2467,8 +2467,11 @@ export class ApiStack extends cdk.Stack {
       DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
       NOTIFICATIONS_TABLE: props.notificationsTable.tableName,
       REPUTATION_EVENTS_TABLE: props.reputationEventsTable.tableName,
-      // ESC-29: the user's appeal photos (uploads/appeals/{userId}/) are deleted with the events.
+      // ESC-29: the user's appeal photos (uploads/appeals/{userId}/) are deleted with the events,
+      // only while reputationPenalties is on: off, no appeal photo can exist and the deletion
+      // makes no S3 call, so a live erasure can never stick on this step.
       UPLOADS_BUCKET: props.uploadsBucket.bucketName,
+      REPUTATION_PENALTIES_ENABLED: reputationPenalties,
       COGNITO_USER_POOL_ID: this.userPool.userPoolId,
       COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
     };

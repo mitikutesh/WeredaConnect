@@ -29,6 +29,7 @@ class SessionSignals {
       StreamController<String>.broadcast();
   final StreamController<void> _otherAccount =
       StreamController<void>.broadcast();
+  final StreamController<void> _suspended = StreamController<void>.broadcast();
   int _generation = 0;
 
   /// Moves on each time this app instance clears or replaces the stored
@@ -48,6 +49,16 @@ class SessionSignals {
   /// Report that the refresh token was rejected.
   void sessionExpired() {
     if (!_expired.isClosed) _expired.add(null);
+  }
+
+  /// Fires each time a write is refused because the account is suspended
+  /// (`403 AUTH_025` from `/sync` or another route outside `/auth/`).
+  Stream<void> get onAccountSuspended => _suspended.stream;
+
+  /// Report a `403 AUTH_025` refusal of a signed-in request. The AuthBloc
+  /// signs the user out like a rejected refresh and says why.
+  void accountSuspended() {
+    if (!_suspended.isClosed) _suspended.add(null);
   }
 
   /// Fires with the server's `deletionState` each time a request is refused

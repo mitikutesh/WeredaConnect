@@ -121,7 +121,8 @@ public sealed class AccountDeletionService
 
     /// <summary>
     /// ESC-29: deletes the user's appeal photos (every version under <c>uploads/appeals/{userId}/</c>)
-    /// and returns how many went. Null when the uploads bucket is not configured.
+    /// and returns how many went. Null while <c>reputationPenalties</c> is off or the uploads bucket
+    /// is not configured (<see cref="AppealPhotoStore.DeletionStep"/>): the step is skipped.
     /// </summary>
     public Func<string, Task<int>>? AppealPhotos { get; init; }
 

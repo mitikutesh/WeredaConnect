@@ -123,7 +123,7 @@ void main() {
       data: Matchers.any,
     );
     var expired = 0;
-    final expiredSub = signals.onSessionExpired.listen((_) => expired++);
+    final expiredSub = signals.onAccountSuspended.listen((_) => expired++);
 
     final result = await executor.executeBatch();
     await Future<void>.delayed(Duration.zero);
@@ -146,7 +146,7 @@ void main() {
       data: Matchers.any,
     );
     var expired = 0;
-    final expiredSub = signals.onSessionExpired.listen((_) => expired++);
+    final expiredSub = signals.onAccountSuspended.listen((_) => expired++);
 
     final result = await executor.executeBatch();
     await Future<void>.delayed(Duration.zero);

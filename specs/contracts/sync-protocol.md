@@ -1200,8 +1200,8 @@ until it expired (FRD-08).
 
 | Client | On `403 AUTH_025` from `/sync` |
 |---|---|
-| Mobile queue (app build with ESC-29) | Reverts the batch to pending without a retry counted, raises the session-expired signal (the user is signed out as after a rejected refresh) and keeps the queue for the next sign-in |
-| Web (app build with ESC-29) | The API client raises the same signal for a `403 AUTH_025` from any route outside `/auth/`; the caller still gets the error |
+| Mobile queue (app build with ESC-29) | Reverts the batch to pending without a retry counted, signs the user out as after a rejected refresh, with the "account disabled" text on the login screen, and keeps the queue for the next sign-in |
+| Web (app build with ESC-29) | The API client does the same for a `403 AUTH_025` from any route outside `/auth/`; the caller still gets the error |
 | Older builds | Keep the batch pending without a retry counted (the `401`/`403` rule) and are signed out when their token refresh is refused with `AUTH_025` |
 
 **Reputation gates (behind `reputationPenalties`, off in every environment).** The codes and the

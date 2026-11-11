@@ -329,7 +329,7 @@ class ApiClient {
           // there AUTH_025 is the answer to a sign-in and the screen shows it.
           if (isAccountSuspended(statusCode, data) &&
               !error.requestOptions.path.startsWith('/auth/')) {
-            SessionSignals.instance.sessionExpired();
+            SessionSignals.instance.accountSuspended();
           }
 
           if (statusCode == 400) {

@@ -89,7 +89,8 @@ void main() {
 
     setUp(() {
       expired = [];
-      expiredSub = SessionSignals.instance.onSessionExpired.listen(expired.add);
+      expiredSub =
+          SessionSignals.instance.onAccountSuspended.listen(expired.add);
     });
 
     tearDown(() => expiredSub.cancel());

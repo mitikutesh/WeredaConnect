@@ -627,8 +627,9 @@ and checks that both clients end the session on `AUTH_025` from `/sync`.
   leaves the day's `HEAL#` marker (only while `reputationPenalties` is on), so the daily job
   rewrites the copied owner fields within a day; until then 8.2 refuses orders from the live row.
 - Clients (app build with ESC-29): a `403 AUTH_025` from `/sync` or any other route outside
-  `/auth/` ends the session like a rejected refresh; the sync queue stays for the next sign-in. On
-  the `/auth/` routes it stays the sign-in screen's answer. Older builds keep the queue without
+  `/auth/` ends the session like a rejected refresh; the sync queue stays for the next sign-in, and
+  the login screen shows the existing "account disabled" text (`authAccountDisabled`, en, am, om)
+  on mobile and web. On the `/auth/` routes it stays the sign-in screen's answer. Older builds keep the queue without
   burning a retry and are signed out when their token refresh is refused.
 
 ---

@@ -21,6 +21,17 @@ public sealed class AppealPhotoStore
         _bucket = bucket ?? throw new ArgumentNullException(nameof(bucket));
     }
 
+    /// <summary>
+    /// The account deletion step, or null when it must not run: only while
+    /// <c>reputationPenalties</c> is on and the uploads bucket is configured. With the flag off no
+    /// appeal photo can exist (the photo URL answers 503), so a deletion makes no S3 call at all and
+    /// can never stick on this step. <paramref name="s3"/> is asked for only when the step runs.
+    /// </summary>
+    public static Func<string, Task<int>>? DeletionStep(bool penaltiesEnabled, string? uploadsBucket, Func<IAmazonS3> s3)
+        => penaltiesEnabled && !string.IsNullOrEmpty(uploadsBucket)
+            ? new AppealPhotoStore(s3(), uploadsBucket).DeleteAllAsync
+            : null;
+
     /// <summary>Delete everything under the user's appeal prefix; returns how many versions went. Safe to run again.</summary>
     public async Task<int> DeleteAllAsync(string userId)
     {

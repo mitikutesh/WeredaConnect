@@ -353,7 +353,7 @@ class SyncBatchResult {
 /// - Network/timeout → revert to pending without retry count increment
 /// - 401 → revert (AuthInterceptor should have refreshed token)
 /// - 403 `AUTH_025` (account suspended) → revert without a retry and raise
-///   [SessionSignals.sessionExpired]; the queue stays for the next sign-in
+///   [SessionSignals.accountSuspended]; the queue stays for the next sign-in
 /// - 429 → revert (rate limited, try again later)
 /// - 410 `ACCOUNT_004` (account being or already deleted) → revert without a
 ///   retry, stop this sync and raise [SessionSignals.accountGone]; for a
@@ -1131,7 +1131,7 @@ class SyncExecutor {
           // and nothing was applied. End the session now, as a rejected
           // refresh does; the queue stays for the next sign-in.
           if (isAccountSuspended(statusCode, error.response?.data)) {
-            _sessionSignals.sessionExpired();
+            _sessionSignals.accountSuspended();
           }
           return SyncBatchResult(
             total: operations.length,

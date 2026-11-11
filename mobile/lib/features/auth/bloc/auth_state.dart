@@ -98,6 +98,13 @@ class AuthUnauthenticated extends AuthState {
   const AuthUnauthenticated();
 }
 
+/// Signed out because the server refused a write with `403 AUTH_025`: the
+/// account is suspended. Still an [AuthUnauthenticated] for every screen and
+/// router; the login screen shows the "account disabled" text for it.
+class AuthSuspendedSignedOut extends AuthUnauthenticated {
+  const AuthSuspendedSignedOut();
+}
+
 /// Signed out because the account was deleted: the device no longer holds
 /// its data. Still an [AuthUnauthenticated] for every screen and router.
 class AuthAccountWiped extends AuthUnauthenticated {

@@ -943,14 +943,16 @@ How the build reads points the design left open:
    slot), newest `occurredAt` first, with a signed token bound to the caller.
 9. **Appeal**: one conditional `UpdateItem`, no version change; `appealTextAt` keeps when the text
    arrived, and a `DELIVERY_OVERDUE` row keeps its `review` status and queue key. Account deletion
-   deletes every version under `uploads/appeals/{userId}/`.
+   deletes every version under `uploads/appeals/{userId}/`, only while `reputationPenalties` is on
+   (off: no S3 call on the erasure path; TASK FUP-166 for the first run against real S3).
 10. **Old apps** (TASK FUP-75): to a request without `X-App-Build` the restriction text goes out as
     `SYNC_VALIDATION` or `ORDER_VALIDATION`.
 11. **Suspension** (R20): `/sync`, the three escrow POSTs that read the caller's row, the two Fayda
     POSTs, `POST /device-tokens` and the two reputation POSTs. `POST /escrow/release` and
     `/escrow/refund` read no caller row and are unchanged.
 12. **Rating reads**: the role rule is not flagged; the summary comes from the users row when the
-    role asked for is the current one and the row is stamped.
+    role asked for is the current one and the row is stamped. A ratee without a usable users row
+    keeps the old read, and a role-filtered page is filled (`PageFill`).
 13. **Monitoring**: `REPUTATION_COPY_FAILED` is counted on the stream, order-cron and sync log
     groups as before; the admin Lambda's marker failure logs the same token but is not in that
     alarm (the suspension itself stands and is audited).

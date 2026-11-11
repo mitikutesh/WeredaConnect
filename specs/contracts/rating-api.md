@@ -207,11 +207,18 @@ As built (1.4.0, `Functions/RatingFunction.cs`):
 - `GET /ratings/{id}` answers a farmer or trucker `403` both for a rating of
   someone else and for an id that does not exist; a buyer gets `404` for a
   missing id.
-- A ratee whose account is deleted reads like an unknown id (the empty answer).
-- The page is one Query with the role filter, so it can hold fewer rows than
-  `limit` while `nextToken` is present (a ratee who changed role); the client
-  pages on.
-- `summary.rateeRole` is always present once the ratee's row is read.
+- A ratee without a usable users row keeps the 1.1.0 read, so nothing that
+  was readable before goes empty: an id with no row (an unknown id, or a legacy
+  account whose row sits under another id), a buyer ratee and a deleted account
+  get the ratings stored for the id with no role filter and the walked summary,
+  without `summary.rateeRole`, `effectiveRating` or `reputation`. An id with no
+  ratings still reads empty, so the answer is no account oracle. This replaces
+  the "empty list" wording above for an id that does have ratings.
+- With a role filter the page is filled: DynamoDB applies the limit before the
+  filter, so the server reads on until the page is full and looks one row ahead
+  (`PageFill`, as the crop and trip lists do); `nextToken` is present only when
+  a row follows.
+- `summary.rateeRole` is present whenever the ratee's row was used.
   `summary.effectiveRating` and `reputation` need `reputationPublicTags`.
 - The ratee's row is one `GetItem` (`ReputationService.ReadAsync`); their
   reputation events are read only when `now` has passed the stored

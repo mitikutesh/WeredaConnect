@@ -432,6 +432,8 @@ describe('ESC-28 reputation core (ApiStack)', () => {
     expect(actionsOn(api, adminFn, 'ReputationEventsTable')).toEqual(['dynamodb:UpdateItem']);
     for (const fn of DELETION_FNS) {
       expect([fn, envOf(api, fn).UPLOADS_BUCKET]).toEqual([fn, expect.anything()]);
+      // The appeal photo step runs only with the flag on; off, a deletion makes no S3 call.
+      expect([fn, envOf(api, fn).REPUTATION_PENALTIES_ENABLED]).toEqual([fn, 'false']);
       const deletes = statementsOn(api, fn, 'uploads/appeals/*');
       expect([fn, [...new Set(deletes.flatMap(actionsOf))].sort()]).toEqual([fn, ['s3:DeleteObject', 's3:DeleteObjectVersion']]);
       const lists = statementsOn(api, fn, 'Uploads').filter((s) => actionsOf(s).includes('s3:ListBucketVersions'));
@@ -666,6 +668,9 @@ describe('ESC-28 reputation core outside dev', () => {
     }
     expect(envOf(api, SYNC_FN).REPUTATION_PUBLIC_TAGS_ENABLED).toBe('true');
     expect(envOf(api, 'wereda-connect-dev-admin').REPUTATION_PENALTIES_ENABLED).toBe('true');
+    for (const fn of DELETION_FNS) {
+      expect([fn, envOf(api, fn).REPUTATION_PENALTIES_ENABLED]).toEqual([fn, 'true']);
+    }
     for (const fn of [STREAM_FN, ORDER_CRON_FN]) {
       const env = envOf(api, fn);
       expect([fn, env.REPUTATION_PENALTIES_ENABLED, env.REPUTATION_TIMEOUT_PENALTIES_ENABLED]).toEqual([fn, 'true', 'true']);

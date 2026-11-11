@@ -222,21 +222,37 @@ public class AccountDeletionServiceTests
         _repo.AddUser(Live(FarmerId, "farmer"));
         _repo.Crops.Add(new Dictionary<string, object>
         {
-            ["cropId"] = "crop-1", ["createdAt"] = "2026-09-01T00:00:00Z", ["farmerId"] = FarmerId, ["status"] = "available",
-            ["farmerName"] = "Abebe", ["farmerPhone"] = "+251911000001", ["description"] = "Teff", ["latitude"] = "9.0",
-            ["cropType"] = "teff", ["quantity"] = "20", ["version"] = "4"
+            ["cropId"] = "crop-1",
+            ["createdAt"] = "2026-09-01T00:00:00Z",
+            ["farmerId"] = FarmerId,
+            ["status"] = "available",
+            ["farmerName"] = "Abebe",
+            ["farmerPhone"] = "+251911000001",
+            ["description"] = "Teff",
+            ["latitude"] = "9.0",
+            ["cropType"] = "teff",
+            ["quantity"] = "20",
+            ["version"] = "4"
         });
         _repo.Crops.Add(new Dictionary<string, object>
         {
-            ["cropId"] = "crop-2", ["createdAt"] = "2026-08-01T00:00:00Z", ["farmerId"] = FarmerId, ["status"] = "sold",
-            ["farmerName"] = "Abebe", ["farmerPhone"] = "+251911000001", ["version"] = "7"
+            ["cropId"] = "crop-2",
+            ["createdAt"] = "2026-08-01T00:00:00Z",
+            ["farmerId"] = FarmerId,
+            ["status"] = "sold",
+            ["farmerName"] = "Abebe",
+            ["farmerPhone"] = "+251911000001",
+            ["version"] = "7"
         });
         AddOrder("order-1", "settled");
         AddEscrow("escrow-1", "completed", "farmer", FarmerId);
         AddDelivery("delivery-1", "delivered", "farmer", FarmerId);
         _repo.Ratings["order-1:" + FarmerId] = new Dictionary<string, object>
         {
-            ["ratingId"] = "order-1:" + FarmerId, ["rateeId"] = FarmerId, ["stars"] = "4", ["comment"] = "call me on 0911"
+            ["ratingId"] = "order-1:" + FarmerId,
+            ["rateeId"] = FarmerId,
+            ["stars"] = "4",
+            ["comment"] = "call me on 0911"
         };
         _repo.Messages["msg-1"] = new Dictionary<string, object> { ["messageId"] = "msg-1", ["senderId"] = FarmerId, ["recipientId"] = BuyerId };
         _repo.Messages["msg-2"] = new Dictionary<string, object> { ["messageId"] = "msg-2", ["senderId"] = BuyerId, ["recipientId"] = FarmerId };
@@ -289,13 +305,24 @@ public class AccountDeletionServiceTests
         _repo.AddUser(Live(TruckerId, "trucker"));
         _repo.Trips.Add(new Dictionary<string, object>
         {
-            ["tripId"] = "trip-1", ["createdAt"] = "2026-09-01T00:00:00Z", ["truckerId"] = TruckerId, ["status"] = "open",
-            ["truckerName"] = "Kebede", ["truckerPhone"] = "+251911000002", ["vehiclePlate"] = "AA-123", ["version"] = "1"
+            ["tripId"] = "trip-1",
+            ["createdAt"] = "2026-09-01T00:00:00Z",
+            ["truckerId"] = TruckerId,
+            ["status"] = "open",
+            ["truckerName"] = "Kebede",
+            ["truckerPhone"] = "+251911000002",
+            ["vehiclePlate"] = "AA-123",
+            ["version"] = "1"
         });
         _repo.Trips.Add(new Dictionary<string, object>
         {
-            ["tripId"] = "trip-2", ["createdAt"] = "2026-08-01T00:00:00Z", ["truckerId"] = TruckerId, ["status"] = "delivered",
-            ["truckerName"] = "Kebede", ["truckerPhone"] = "+251911000002", ["version"] = "5"
+            ["tripId"] = "trip-2",
+            ["createdAt"] = "2026-08-01T00:00:00Z",
+            ["truckerId"] = TruckerId,
+            ["status"] = "delivered",
+            ["truckerName"] = "Kebede",
+            ["truckerPhone"] = "+251911000002",
+            ["version"] = "5"
         });
         AddOrder("order-1", "settled", truckerId: TruckerId);
         AddEscrow("escrow-1", "completed", "trucker", TruckerId);
@@ -329,11 +356,19 @@ public class AccountDeletionServiceTests
         AddOrder("order-done", "settled", truckerId: TruckerId);
         _repo.Ratings[$"order-done:{FarmerId}"] = new Dictionary<string, object>
         {
-            ["ratingId"] = $"order-done:{FarmerId}", ["rateeId"] = FarmerId, ["raterId"] = BuyerId, ["stars"] = "5", ["comment"] = "good"
+            ["ratingId"] = $"order-done:{FarmerId}",
+            ["rateeId"] = FarmerId,
+            ["raterId"] = BuyerId,
+            ["stars"] = "5",
+            ["comment"] = "good"
         };
         _repo.Ratings[$"order-done:{TruckerId}"] = new Dictionary<string, object>
         {
-            ["ratingId"] = $"order-done:{TruckerId}", ["rateeId"] = TruckerId, ["raterId"] = BuyerId, ["stars"] = "3", ["comment"] = "late"
+            ["ratingId"] = $"order-done:{TruckerId}",
+            ["rateeId"] = TruckerId,
+            ["raterId"] = BuyerId,
+            ["stars"] = "3",
+            ["comment"] = "late"
         };
         _repo.Intents.Add((BuyerId, "intent-1"));
         _repo.Intents.Add(("buyer-2", "intent-9"));
@@ -368,7 +403,11 @@ public class AccountDeletionServiceTests
         _repo.AddUser(Live(FarmerId, "farmer"));
         _repo.Crops.Add(new Dictionary<string, object>
         {
-            ["cropId"] = "crop-1", ["createdAt"] = "c", ["farmerId"] = FarmerId, ["status"] = "available", ["version"] = "1"
+            ["cropId"] = "crop-1",
+            ["createdAt"] = "c",
+            ["farmerId"] = FarmerId,
+            ["status"] = "available",
+            ["version"] = "1"
         });
         var signedOutBeforeWithdraw = false;
         _repo.BeforeCall = method =>
@@ -485,7 +524,10 @@ public class AccountDeletionServiceTests
             outcome.Result.Should().Be(AccountDeletionResult.Blocked);
             outcome.Blockers.Should().ContainSingle().Which.Should().BeEquivalentTo(new AccountDeletionBlocker
             {
-                Type = "order", Id = "order-1", Status = status, Role = role
+                Type = "order",
+                Id = "order-1",
+                Status = status,
+                Role = role
             });
             _repo.UserRow(userId).Should().NotContainKey("deletionState");
         }
@@ -527,8 +569,15 @@ public class AccountDeletionServiceTests
         _repo.AddUser(Live(BuyerId, "buyer"));
         AddOrder("order-1", "payment_failed", with: o =>
         {
-            if (evidence == "cbe") o["cbeTransactionId"] = "CBE-1";
-            if (evidence == "telebirr") o["telebirrMerchOrderId"] = "merch-1";
+            if (evidence == "cbe")
+            {
+                o["cbeTransactionId"] = "CBE-1";
+            }
+
+            if (evidence == "telebirr")
+            {
+                o["telebirrMerchOrderId"] = "merch-1";
+            }
         });
         if (evidence == "slot")
         {
@@ -540,7 +589,10 @@ public class AccountDeletionServiceTests
         outcome.Result.Should().Be(AccountDeletionResult.Blocked);
         outcome.Blockers.Should().ContainSingle().Which.Should().BeEquivalentTo(new AccountDeletionBlocker
         {
-            Type = "order", Id = "order-1", Status = "payment_failed", Role = "buyer"
+            Type = "order",
+            Id = "order-1",
+            Status = "payment_failed",
+            Role = "buyer"
         });
     }
 
@@ -574,7 +626,10 @@ public class AccountDeletionServiceTests
         outcome.Result.Should().Be(AccountDeletionResult.Blocked);
         outcome.Blockers.Should().ContainSingle().Which.Should().BeEquivalentTo(new AccountDeletionBlocker
         {
-            Type = type, Id = "escrow-1", Status = status, Role = "buyer"
+            Type = type,
+            Id = "escrow-1",
+            Status = status,
+            Role = "buyer"
         });
     }
 
@@ -600,7 +655,10 @@ public class AccountDeletionServiceTests
 
         outcome.Blockers.Should().ContainSingle().Which.Should().BeEquivalentTo(new AccountDeletionBlocker
         {
-            Type = "escrow", Id = "escrow-1", Status = "completed", Role = "trucker"
+            Type = "escrow",
+            Id = "escrow-1",
+            Status = "completed",
+            Role = "trucker"
         });
     }
 
@@ -622,7 +680,10 @@ public class AccountDeletionServiceTests
             outcome.Result.Should().Be(AccountDeletionResult.Blocked);
             outcome.Blockers.Should().ContainSingle().Which.Should().BeEquivalentTo(new AccountDeletionBlocker
             {
-                Type = type, Id = "delivery-1", Status = status, Role = role
+                Type = type,
+                Id = "delivery-1",
+                Status = status,
+                Role = role
             });
         }
     }
@@ -649,7 +710,10 @@ public class AccountDeletionServiceTests
 
         outcome.Blockers.Should().ContainSingle().Which.Should().BeEquivalentTo(new AccountDeletionBlocker
         {
-            Type = "delivery", Id = "delivery-1", Status = "pending", Role = "buyer"
+            Type = "delivery",
+            Id = "delivery-1",
+            Status = "pending",
+            Role = "buyer"
         });
     }
 
@@ -688,7 +752,10 @@ public class AccountDeletionServiceTests
         outcome.Result.Should().Be(AccountDeletionResult.Blocked);
         outcome.Blockers.Should().ContainSingle().Which.Should().BeEquivalentTo(new AccountDeletionBlocker
         {
-            Type = "payment_review", Id = "order-1", Status = "order_payment_unmatched", Role = "buyer"
+            Type = "payment_review",
+            Id = "order-1",
+            Status = "order_payment_unmatched",
+            Role = "buyer"
         });
     }
 
@@ -751,7 +818,10 @@ public class AccountDeletionServiceTests
         {
             outcome.Blockers.Should().ContainSingle().Which.Should().BeEquivalentTo(new AccountDeletionBlocker
             {
-                Type = "payment_review", Id = "order-1", Status = "order_payment_unprocessed", Role = "buyer"
+                Type = "payment_review",
+                Id = "order-1",
+                Status = "order_payment_unprocessed",
+                Role = "buyer"
             });
         }
         else
@@ -821,20 +891,31 @@ public class AccountDeletionServiceTests
         _repo.AddUser(Live(FarmerId, "farmer"));
         _repo.Crops.Add(new Dictionary<string, object>
         {
-            ["cropId"] = "crop-1", ["createdAt"] = "c", ["farmerId"] = FarmerId, ["status"] = "available",
-            ["farmerPhone"] = "+251911000001", ["version"] = "1"
+            ["cropId"] = "crop-1",
+            ["createdAt"] = "c",
+            ["farmerId"] = FarmerId,
+            ["status"] = "available",
+            ["farmerPhone"] = "+251911000001",
+            ["version"] = "1"
         });
         _repo.Trips.Add(new Dictionary<string, object>
         {
-            ["tripId"] = "trip-1", ["createdAt"] = "c", ["truckerId"] = FarmerId, ["status"] = "open",
-            ["truckerPhone"] = "+251911000001", ["version"] = "1"
+            ["tripId"] = "trip-1",
+            ["createdAt"] = "c",
+            ["truckerId"] = FarmerId,
+            ["status"] = "open",
+            ["truckerPhone"] = "+251911000001",
+            ["version"] = "1"
         });
         AddOrder("order-unpaid", "created");
         AddOrder("order-settled", "settled");
         AddDelivery("delivery-1", "delivered", "farmer", FarmerId);
         _repo.Ratings["order-settled:" + FarmerId] = new Dictionary<string, object>
         {
-            ["ratingId"] = "order-settled:" + FarmerId, ["rateeId"] = FarmerId, ["stars"] = "4", ["comment"] = "ok"
+            ["ratingId"] = "order-settled:" + FarmerId,
+            ["rateeId"] = FarmerId,
+            ["stars"] = "4",
+            ["comment"] = "ok"
         };
         _repo.Messages["msg-1"] = new Dictionary<string, object> { ["messageId"] = "msg-1", ["senderId"] = FarmerId, ["recipientId"] = BuyerId };
         _repo.Intents.Add((FarmerId, "intent-1"));
@@ -962,7 +1043,11 @@ public class AccountDeletionServiceTests
         _repo.AddUser(Live(FarmerId, "farmer"));
         _repo.Crops.Add(new Dictionary<string, object>
         {
-            ["cropId"] = "crop-1", ["createdAt"] = "c", ["farmerId"] = FarmerId, ["status"] = "available", ["version"] = "1"
+            ["cropId"] = "crop-1",
+            ["createdAt"] = "c",
+            ["farmerId"] = FarmerId,
+            ["status"] = "available",
+            ["version"] = "1"
         });
         // A buyer pays an order of this farmer right after the deletion started.
         _repo.BeforeCall = m =>
@@ -1189,8 +1274,13 @@ public class AccountDeletionServiceTests
         _repo.DeviceTokens[FarmerId] = new List<string> { EndpointArn };
         _repo.Crops.Add(new Dictionary<string, object>
         {
-            ["cropId"] = "crop-1", ["createdAt"] = "c", ["farmerId"] = FarmerId, ["status"] = "sold",
-            ["farmerName"] = "Abebe", ["farmerPhone"] = "+251911000001", ["version"] = "2"
+            ["cropId"] = "crop-1",
+            ["createdAt"] = "c",
+            ["farmerId"] = FarmerId,
+            ["status"] = "sold",
+            ["farmerName"] = "Abebe",
+            ["farmerPhone"] = "+251911000001",
+            ["version"] = "2"
         });
         _now = Now.AddDays(3);
 
@@ -1309,6 +1399,25 @@ public class AccountDeletionServiceTests
         // ESC-29: the appeal photos of this user only, counted in the audit row.
         _appealPhotoDeletes.Should().Equal(userId);
         _audit.WithAction("account_deleted").Single()["metadata"].ToString().Should().Contain("appealPhotos=2");
+    }
+
+    [Fact]
+    public async Task WithoutTheAppealPhotoStep_ReputationPenaltiesOff_TheDeletionStillCompletes()
+    {
+        // ESC-29: with the flag off the step does not exist (AppealPhotoStore.DeletionStep), so a
+        // deletion makes no S3 call and cannot stick there. The events are deleted as before.
+        var service = new AccountDeletionService(_repo, _cognito, _sns, _audit, () => _now = _now.AddMilliseconds(1));
+        _repo.AddUser(Live(FarmerId, "farmer"));
+        _repo.ReputationEvents[FarmerId] = new HashSet<string> { "CANCEL#order-1" };
+
+        var outcome = await service.RequestAsync(FarmerId, confirmed: true, stepUpFresh: true,
+            new AuditContext { Actor = FarmerId, IpAddress = "203.0.113.7", CorrelationId = "corr-1" },
+            DeletionBudget.Unlimited, _context);
+
+        outcome.Result.Should().Be(AccountDeletionResult.Completed);
+        _appealPhotoDeletes.Should().BeEmpty();
+        _repo.ReputationEvents[FarmerId].Should().BeEmpty();
+        _audit.WithAction("account_deleted").Single()["metadata"].ToString().Should().Contain("appealPhotos=0");
     }
 
     [Fact]

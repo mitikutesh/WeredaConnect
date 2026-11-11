@@ -59,10 +59,12 @@ public class AccountDeletionFunction
             new AmazonSimpleNotificationServiceClient(),
             new TransactionAuditRepository(dynamoDb, Env("TRANSACTION_AUDIT_TABLE")))
         {
-            // ESC-29: the appeal photos go with the reputation events.
-            AppealPhotos = Environment.GetEnvironmentVariable("UPLOADS_BUCKET") is { Length: > 0 } uploads
-                ? new AppealPhotoStore(new Amazon.S3.AmazonS3Client(), uploads).DeleteAllAsync
-                : null
+            // ESC-29: the appeal photos go with the reputation events, only while reputationPenalties
+            // is on (off: no photo can exist, and the deletion makes no S3 call).
+            AppealPhotos = AppealPhotoStore.DeletionStep(
+                ReputationFlags.PenaltiesEnabled,
+                Environment.GetEnvironmentVariable("UPLOADS_BUCKET"),
+                () => new Amazon.S3.AmazonS3Client())
         };
     }
 

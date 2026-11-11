@@ -154,19 +154,25 @@ public class RatingFunction
                 ratee = await _reputation.ReadAsync(rateeId, withEvents: false);
                 if (ratee == null || !IsParty(ratee.User.Role) || !string.IsNullOrEmpty(ratee.User.DeletionState))
                 {
-                    // No row, a buyer or a deleted account: an empty answer, as 1.1.0 gave for an
-                    // unknown id (no account oracle).
-                    return LambdaResponse.Ok(new GetRatingsResponse
-                    {
-                        Ratings = new List<RatingDto>(),
-                        Summary = new RatingSummaryDto { Average = 0, Count = 0 }
-                    }, AppJsonContext.Default.GetRatingsResponse);
+                    // No users row under this id (an unknown id, or a legacy account whose row sits
+                    // under another id), a buyer or a deleted account: the 1.1.0 read, unchanged. The
+                    // ratings stored for the id are listed and walked; an unknown id has none, so it
+                    // still reads empty (no account oracle). No reputation is attached.
+                    ratee = null;
                 }
-
-                rateeRole ??= ratee.User.Role.ToLowerInvariant();
+                else
+                {
+                    rateeRole ??= ratee.User.Role.ToLowerInvariant();
+                }
             }
 
-            var queryResult = await _ratingRepo.QueryByRateeAsync(rateeId, limit, exclusiveStartKey, rateeRole);
+            // With a role filter DynamoDB applies the limit before the filter, so one Query can
+            // come back short or empty with more behind it (a ratee rated in two roles): fill the
+            // page and look one row ahead, as the other lists do. Without a filter, the 1.1.0 read.
+            var queryResult = rateeRole == null
+                ? await _ratingRepo.QueryByRateeAsync(rateeId, limit, exclusiveStartKey)
+                : await PageFill.ReadAsync(
+                    (count, key) => _ratingRepo.QueryByRateeAsync(rateeId, count, key, rateeRole), limit, exclusiveStartKey);
             var ratings = queryResult.Items.Select(MapToRatingDto).ToList();
 
             // Summary source: the users row when the role asked for is the current one and the sum
@@ -185,9 +191,9 @@ public class RatingFunction
             }
 
             string? nextTokenResponse = null;
-            if (queryResult.LastEvaluatedKey != null)
+            if (queryResult.Item2 != null)
             {
-                nextTokenResponse = PaginationTokenHelper.EncodeNextToken(queryResult.LastEvaluatedKey);
+                nextTokenResponse = PaginationTokenHelper.EncodeNextToken(queryResult.Item2);
             }
 
             // The effective rating and the public reputation only for the current role, with
@@ -297,7 +303,11 @@ public class RatingFunction
 
     private static int GetInt(Dictionary<string, object> item, string key)
     {
-        if (!item.TryGetValue(key, out var value)) return 0;
+        if (!item.TryGetValue(key, out var value))
+        {
+            return 0;
+        }
+
         return value switch
         {
             int i => i,

@@ -72,6 +72,40 @@ public class AppealPhotoStoreTests
     }
 
     [Theory]
+    [InlineData(false, "uploads")]
+    [InlineData(true, null)]
+    [InlineData(true, "")]
+    public void TheDeletionStep_DoesNotExist_WithTheFlagOff_OrWithoutABucket_AndBuildsNoClient(bool flag, string? bucket)
+    {
+        var built = 0;
+
+        var step = AppealPhotoStore.DeletionStep(flag, bucket, () =>
+        {
+            built++;
+            return _s3;
+        });
+
+        step.Should().BeNull();
+        built.Should().Be(0);
+        _s3.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task TheDeletionStep_WithTheFlagOn_DeletesTheUsersPhotos()
+    {
+        _s3.ListVersionsAsync(Arg.Any<ListVersionsRequest>(), Arg.Any<CancellationToken>()).Returns(new ListVersionsResponse
+        {
+            Versions = new List<S3ObjectVersion> { new() { Key = "uploads/appeals/farmer-1/a.webp", VersionId = "v1" } }
+        });
+        _s3.DeleteObjectsAsync(Arg.Any<DeleteObjectsRequest>(), Arg.Any<CancellationToken>()).Returns(new DeleteObjectsResponse());
+
+        var step = AppealPhotoStore.DeletionStep(true, "uploads", () => _s3);
+
+        step.Should().NotBeNull();
+        (await step!("farmer-1")).Should().Be(1);
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("farmer-1/../farmer-2")]
     public async Task AnIdThatIsNoSinglePathSegment_ListsNothing(string userId)
