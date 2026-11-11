@@ -43,7 +43,7 @@ public class EscrowServiceManualPayoutTests
             .Returns(true);
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(true);
         _escrowRepo.TryMarkManualLegPaidAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
@@ -252,7 +252,7 @@ public class EscrowServiceManualPayoutTests
             Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs =>
                 legs.Count == 2
                 && legs[0].Leg == "farmer" && legs[0].Status == "pending" && legs[0].Ref == null
-                && legs[1].Leg == "trucker" && legs[1].Status == "pending"), Arg.Any<string>());
+                && legs[1].Leg == "trucker" && legs[1].Status == "pending"), Arg.Any<string>(), Arg.Any<string?>());
         // The lock is kept on purpose, nothing settled, the trucker leg was never attempted.
         await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
         await AssertNothingSettled();
@@ -261,6 +261,117 @@ public class EscrowServiceManualPayoutTests
         await _idempotencyRepo.DidNotReceive().DeleteAsync(Arg.Any<string>());
         (await AuditWritten("manual_payout_queued", "legs=farmer,trucker")).Should().BeTrue();
         (await AuditWritten("release_failed")).Should().BeFalse();
+    }
+
+    // FUP-137: the release origin, the marker the clean-delivery credit reads at the payout close.
+
+    [Fact]
+    public async Task Release_ByTheAutoRelease_Queued_StoresItsOriginInTheQueueWrite()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+
+        var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        AssertWaiting(result);
+        await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
+            EscrowId, CreatedAt, ManualPayoutFields.OpRelease, Arg.Any<string>(), "escrowed",
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), ReleaseOriginFields.AutoRelease);
+    }
+
+    [Fact]
+    public async Task Release_ByTheAutoRelease_FarmerPaidTruckerQueued_StoresItsOriginToo()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _gateway.ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => !r.TransactionRef.EndsWith(":trucker")))
+            .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "GW-FARMER-1" });
+
+        var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        AssertWaiting(result);
+        await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
+            EscrowId, CreatedAt, ManualPayoutFields.OpRelease, Arg.Any<string>(), "escrowed",
+            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs => legs[0].Status == "paid" && legs[1].Status == "pending"),
+            Arg.Any<string>(), ReleaseOriginFields.AutoRelease);
+    }
+
+    [Theory]
+    [InlineData("delivery_confirmed")] // an admin may send the auto-release's trigger: the actor decides
+    [InlineData("admin_override")]
+    public async Task Release_ByAnAdmin_Queued_StoresNoOrigin(string trigger)
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = EscrowId,
+            Trigger = trigger,
+            DeliveryId = "del-1",
+            IdempotencyKey = $"{AdminId}:{EscrowId}:release:2026100212"
+        };
+
+        var result = await _service.ReleaseAsync(request, AdminId, "admin", adminGroupVerified: true);
+
+        AssertWaiting(result);
+        await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
+            EscrowId, CreatedAt, ManualPayoutFields.OpRelease, Arg.Any<string>(), "escrowed",
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), null);
+    }
+
+    [Fact]
+    public async Task Release_OfADisputeVerdict_Queued_StoresNoOrigin()
+    {
+        var escrow = Escrow(status: "dispute_resolved");
+        escrow["disputeResolution"] = "farmer_wins";
+        escrow["disputedBy"] = BuyerId;
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(escrow);
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = EscrowId,
+            Trigger = "dispute_resolved",
+            DeliveryId = "del-1",
+            IdempotencyKey = $"system:{EscrowId}:dispute_release:2026100212"
+        };
+
+        var result = await _service.ReleaseAsync(request, "system");
+
+        AssertWaiting(result);
+        await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
+            EscrowId, CreatedAt, ManualPayoutFields.OpRelease, Arg.Any<string>(), "dispute_resolved",
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), null);
+    }
+
+    [Fact]
+    public async Task Refund_Queued_StoresNoOrigin()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+
+        await _service.RefundAsync(RefundRequest(), "system");
+
+        await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
+            EscrowId, CreatedAt, ManualPayoutFields.OpRefund, Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), null);
+    }
+
+    [Theory]
+    [InlineData("system", true)]
+    [InlineData(AdminId, false)]
+    public async Task Release_PaidByTheGateway_StoresTheOriginWithTheReleasedWrite_OnlyForTheAutoRelease(
+        string actor, bool marked)
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(withTrucker: false));
+        _gateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "GW-FARMER-1" });
+        var request = ReleaseRequest($"{actor}:{EscrowId}:release:2026100212");
+
+        var result = actor == "system"
+            ? await _service.ReleaseAsync(request, actor)
+            : await _service.ReleaseAsync(request, actor, "admin", adminGroupVerified: true);
+
+        result.IsSuccess.Should().BeTrue(result.Error?.Message);
+        await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "released", "escrowed",
+            Arg.Is<Dictionary<string, object>?>(f => f != null
+                && (string)f["releaseTrigger"] == "delivery_confirmed"
+                && f.ContainsKey(ReleaseOriginFields.Field) == marked
+                && (!marked || (string)f[ReleaseOriginFields.Field] == ReleaseOriginFields.AutoRelease)));
     }
 
     [Fact]
@@ -273,7 +384,7 @@ public class EscrowServiceManualPayoutTests
         AssertWaiting(result);
         await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
             EscrowId, CreatedAt, ManualPayoutFields.OpRelease, Arg.Any<string>(), "escrowed",
-            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs => legs.Count == 1 && legs[0].Leg == "farmer"), Arg.Any<string>());
+            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs => legs.Count == 1 && legs[0].Leg == "farmer"), Arg.Any<string>(), Arg.Any<string?>());
         await AssertNothingSettled();
     }
 
@@ -289,7 +400,7 @@ public class EscrowServiceManualPayoutTests
         AssertWaiting(result);
         await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
             EscrowId, CreatedAt, ManualPayoutFields.OpRelease, ManualPayoutFields.ReasonGatewayRefMissing, "escrowed",
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>());
         await AssertNothingSettled();
     }
 
@@ -311,7 +422,7 @@ public class EscrowServiceManualPayoutTests
                 legs.Count == 2
                 && legs[0].Leg == "farmer" && legs[0].Status == "paid" && legs[0].Ref == "GW-FARMER-1"
                 && legs[0].PaidBy == ManualPayoutFields.PaidByGateway && legs[0].PaidAt != null
-                && legs[1].Leg == "trucker" && legs[1].Status == "pending"), Arg.Any<string>());
+                && legs[1].Leg == "trucker" && legs[1].Status == "pending"), Arg.Any<string>(), Arg.Any<string?>());
         await AssertNothingSettled();
         await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
     }
@@ -322,7 +433,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(false);
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
@@ -343,7 +454,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
@@ -366,7 +477,7 @@ public class EscrowServiceManualPayoutTests
             .Returns(NotSupportedRelease());
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(false);
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
@@ -377,7 +488,7 @@ public class EscrowServiceManualPayoutTests
         result.Value.TruckerTelebirrRef.Should().BeNull();
         await _escrowRepo.Received(4).TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>());
         await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "released", "escrowed",
             Arg.Is<Dictionary<string, object>>(f =>
                 (string)f["telebirrReleaseRef"] == "GW-FARMER-1" && (bool)f["truckerPayoutPending"]
@@ -408,7 +519,7 @@ public class EscrowServiceManualPayoutTests
             Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs =>
                 legs.Count == 2
                 && legs[0].Leg == "farmer" && legs[0].Status == "paid" && legs[0].Ref == "GW-FARMER-1"
-                && legs[1].Leg == "trucker" && legs[1].Status == "pending"), Arg.Any<string>());
+                && legs[1].Leg == "trucker" && legs[1].Status == "pending"), Arg.Any<string>(), Arg.Any<string?>());
         await AssertNothingSettled();
         (await AuditWritten("trucker_release")).Should().BeFalse();
     }
@@ -422,7 +533,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .ThrowsAsync(new AmazonDynamoDBException("timeout"));
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
@@ -443,7 +554,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(false);
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
@@ -464,7 +575,7 @@ public class EscrowServiceManualPayoutTests
             .Returns(NotSupportedRelease());
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(false);
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
@@ -472,7 +583,7 @@ public class EscrowServiceManualPayoutTests
         AssertWaiting(result);
         await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>());
         await AssertNothingSettled();
         (await AuditWritten("trucker_release_failed")).Should().BeFalse();
     }
@@ -494,7 +605,7 @@ public class EscrowServiceManualPayoutTests
         await _gateway.Received(1).ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
         await _escrowRepo.DidNotReceive().TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>());
         await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "released", "escrowed",
             Arg.Is<Dictionary<string, object>>(f => (bool)f["truckerPayoutPending"]
                 && (string)f["truckerPayoutBlockReason"] == "phone_unverified"
@@ -588,7 +699,7 @@ public class EscrowServiceManualPayoutTests
         AssertWaiting(result);
         await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
             EscrowId, CreatedAt, ManualPayoutFields.OpRefund, ManualPayoutFields.ReasonPayoutNotSupported, "escrowed",
-            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs => legs.Count == 1 && legs[0].Leg == "buyer" && legs[0].Status == "pending"), Arg.Any<string>());
+            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs => legs.Count == 1 && legs[0].Leg == "buyer" && legs[0].Status == "pending"), Arg.Any<string>(), Arg.Any<string?>());
         await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
         await AssertNothingSettled();
         await _idempotencyRepo.Received(1).UpdateAsync(RefundRequest().IdempotencyKey, "manual_payout");
@@ -607,7 +718,7 @@ public class EscrowServiceManualPayoutTests
         AssertWaiting(result);
         await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
             EscrowId, CreatedAt, ManualPayoutFields.OpRefund, ManualPayoutFields.ReasonGatewayRefMissing, "escrowed",
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>());
         await AssertNothingSettled();
     }
 
@@ -617,7 +728,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(false);
 
         var result = await _service.RefundAsync(RefundRequest(), "system");
@@ -636,7 +747,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(false);
 
         var result = await _service.RefundAsync(RefundRequest(), "system");
@@ -673,7 +784,7 @@ public class EscrowServiceManualPayoutTests
         result.Error!.Code.Should().Be("ESCROW_013");
         await _escrowRepo.DidNotReceive().TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>());
         await _escrowRepo.Received(1).ReleaseSettlementLockAsync(EscrowId, CreatedAt);
     }
 
@@ -686,7 +797,7 @@ public class EscrowServiceManualPayoutTests
     private void QueueWritesFail()
         => _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(false);
 
     private void FarmerPaidTruckerGets(ReleaseFundsResponse trucker)
@@ -735,7 +846,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .ThrowsAsync(new AmazonDynamoDBException("timeout"));
 
         AssertWaiting(await _service.ReleaseAsync(ReleaseRequest(), "system"));
@@ -1735,7 +1846,7 @@ public class EscrowServiceManualPayoutTests
         await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
         await _escrowRepo.Received(6).TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>());
 
         // Only the admin's references settle the queued escrow.
         _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));

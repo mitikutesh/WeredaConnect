@@ -4297,10 +4297,8 @@ public partial class SyncFunction
                                 };
                             }
 
-                            // Check if listing is deleted
-                            if (listing.TryGetValue("deletedAt", out var deletedAt)
-                                && deletedAt != null
-                                && !string.IsNullOrEmpty(deletedAt.ToString()))
+                            // Check if listing is deleted (FUP-132: by the stamp or by the status)
+                            if (CropRepository.IsDeleted(listing))
                             {
                                 return new SyncOperationResult
                                 {

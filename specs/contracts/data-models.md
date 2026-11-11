@@ -1,6 +1,6 @@
 # Data Models Contract
 
-**Version**: 1.9.0
+**Version**: 1.10.0
 **Last Updated**: 2026-11-11
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
@@ -220,6 +220,12 @@ Isar schema) gains, on an order escrow born on the escrow ledger: `settlementMod
 `truckerAmount`, `buyerRefund`), and `releaseTrigger`/`refundTrigger`. `EscrowDto` returns `legStatus`,
 `refundedTotal` and `releasedTotal` (null on a 1.x escrow); apps ignore them until ESC-23 shows a partial
 refund.
+
+**Server escrow field `releaseOrigin` (1.9.0, FUP-137).** Server-only, never in `EscrowDto` or any client
+payload. `auto_release` when the hourly auto-release started the release the row records or waits for (system
+actor, trigger `delivery_confirmed`, from `escrowed`), written with the `released` write or the manual payout
+queue write; absent on any other 1.x release and on refunds; `other` on a ledger release decision that is not
+the auto-release. Read only by the clean-delivery credit (`fraud-detection-architecture.md` section 20).
 
 ### 5a. EscrowLedger (server only, 1.8.0, ESC-20)
 
@@ -464,7 +470,8 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.6.0 | 2026-11-07 | Order gains the server-only `nextDeadlineAt`, `nextDeadlineKind` and `deadlineShard` (dropped from client payloads, not in the `OrderDto` answers, echoed only in a sync result's raw `serverData`), kept by every order write and read by the order cron through the sparse `DeadlineIndex` (order-lifecycle 2.8.0, ESC-16); no client change | @Server |
 | 1.7.0 | 2026-11-07 | Order gains `deliveryLatitude` and `deliveryLongitude`, the order's own drop-off point (order-lifecycle 2.9.0, LT-14): server DTO, Isar schema and web mirror; returned per caller | @Server @Mobile |
 | 1.8.0 | 2026-11-07 | Server escrow ledger (escrow-protocol 2.2.0, ESC-20): the escrow row's ledger fields (`settlementModel`, `legStatus`, `refundedTotal`, `releasedTotal`, `verdictAmounts`, `releaseTrigger`, `refundTrigger`) and the new server-only EscrowLedger row (5a). No Isar or web model change | @Server |
-| 1.9.0 | 2026-11-11 | Order `farmerName` is never an id (order-lifecycle 2.11.0, FUP-130): the server writes the listing's name or the empty string, whatever the client sent; `truckerName` is the trip's name or absent. No schema change. |
+| 1.9.0 | 2026-11-11 | Server escrow row gains the server-only `releaseOrigin` (FUP-137: `auto_release` for a release the hourly auto-release started, written with the release or its manual payout queue entry; read by the clean-delivery credit). No client field changes | @Server |
+| 1.10.0 | 2026-11-11 | Order `farmerName` is never an id (order-lifecycle 2.11.0, FUP-130): the server writes the listing's name or the empty string, whatever the client sent; `truckerName` is the trip's name or absent. No schema change. |
 
 ---
 

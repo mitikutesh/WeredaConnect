@@ -222,9 +222,24 @@ public class EscrowCronFunction
     internal CleanDeliveryCreditService? CleanDeliveryCredits { get; init; }
 
     /// <summary>FRD-10: log lines of the clean-delivery credit (not alarmed; a lost credit only means a higher score).</summary>
-    internal const string CleanDeliveryCreditedToken = "CLEAN_DELIVERY_CREDITED";
-    internal const string CleanDeliveryNotCreditedToken = "CLEAN_DELIVERY_NOT_CREDITED";
-    internal const string CleanDeliveryCreditFailedToken = "CLEAN_DELIVERY_CREDIT_FAILED";
+    internal const string CleanDeliveryCreditedToken = CleanDeliveryCreditService.CreditedToken;
+    internal const string CleanDeliveryNotCreditedToken = CleanDeliveryCreditService.NotCreditedToken;
+    internal const string CleanDeliveryCreditFailedToken = CleanDeliveryCreditService.CreditFailedToken;
+
+    /// <summary>
+    /// FUP-137: the escrows whose credit this cron still owes (<see cref="CleanDeliveryCreditJournal"/>). The
+    /// auto-release notes an escrow before its release and clears it once the credit is settled; the next run
+    /// reads what a dead run left behind (<see cref="RecoverCleanDeliveryCreditsAsync"/>). The Lambda wires it
+    /// with the credits; without one the credit is written as before and a crash loses it.
+    /// </summary>
+    internal CleanDeliveryCreditJournal? CleanDeliveryJournal { get; init; }
+
+    /// <summary>FUP-137: journaled escrows read again per run; the rest wait for the next run.</summary>
+    internal const int CleanDeliveryRecoveryMaxRows = 50;
+
+    /// <summary>FUP-137: log lines of the journal (not alarmed, like the credit's own).</summary>
+    internal const string CleanDeliveryRecoveredToken = "CLEAN_DELIVERY_CREDIT_RECOVERY";
+    internal const string CleanDeliveryJournalFailedToken = "CLEAN_DELIVERY_JOURNAL_FAILED";
 
     /// <summary>
     /// ESC-09: order partitions the order-money sweep reads, in this order: where money moves first
@@ -370,6 +385,9 @@ public class EscrowCronFunction
         CleanDeliveryCredits = string.IsNullOrEmpty(fraudSignalsTable)
             ? null
             : new CleanDeliveryCreditService(dynamoDb, fraudSignalsTable);
+        CleanDeliveryJournal = CleanDeliveryCredits == null
+            ? null
+            : new CleanDeliveryCreditJournal(dynamoDb, idempotencyTable);
     }
 
     /// <summary>
@@ -501,6 +519,8 @@ public class EscrowCronFunction
         var (queueOverdue, queueCleared) = await ReportAdminQueueAsync(context);
         // ESC-05: before the sweeps, so a parked escrow is already out of their way this run.
         var parkedCount = await ParkStaleSettlementLocksAsync(context);
+        // FUP-137: before the auto-release, so the journal holds only what earlier runs left behind.
+        await RecoverCleanDeliveryCreditsAsync(context);
         var releaseCount = await AutoReleaseAsync(context);
         var refundCount = await AutoRefundAsync(context);
         var (settledReleases, settledRefunds) = await SettleResolvedDisputesAsync(context);
@@ -785,6 +805,9 @@ public class EscrowCronFunction
 
                 context.Logger.LogInformation($"Auto-releasing escrow {MoneyAlarmLog.LogId(escrowId)} (dispute window ended).");
 
+                // FUP-137: noted before the release, so a run that dies after it still owes the credit.
+                await NoteCleanDeliveryPendingAsync(escrowId, context);
+
                 var result = await _escrowService.ReleaseAsync(
                     new ReleaseEscrowRequest
                     {
@@ -798,10 +821,12 @@ public class EscrowCronFunction
                 if (result.IsSuccess)
                 {
                     releaseCount++;
-                    // FRD-10: a duplicate answer means another run released it, and that run credits.
-                    if (!result.IsDuplicate)
+                    // FRD-10: a duplicate answer means another run released it, and that run credits. FUP-137:
+                    // the journal entry is cleared only by a settled credit. After a duplicate, a failed
+                    // credit write or any other answer it stays, and the next run decides from the escrow row.
+                    if (!result.IsDuplicate && await TryCreditCleanDeliveryAsync(escrow, result.Value!, context))
                     {
-                        await TryCreditCleanDeliveryAsync(escrow, result.Value!, context);
+                        await ClearCleanDeliveryPendingAsync(escrowId, context);
                     }
                 }
                 else if (IsManualPayoutWaiting(result.Error))
@@ -837,13 +862,15 @@ public class EscrowCronFunction
     /// party of a clean trade: the buyer, the farmer, and the trucker when the escrow names one or pays one (taken
     /// the way the payout takes it). Runs after the money moved and catches everything, so a failed credit never
     /// fails, retries or rolls back the release; it is logged and the party's score is just not lowered.
+    /// FUP-137: true when the credit is settled (written, already there, or ruled out), false when a read or
+    /// a write failed, so the journal keeps the escrow for the next run.
     /// </summary>
-    private async Task TryCreditCleanDeliveryAsync(
+    private async Task<bool> TryCreditCleanDeliveryAsync(
         Dictionary<string, object> escrow, ReleaseEscrowResponse released, ILambdaContext context)
     {
         if (CleanDeliveryCredits == null)
         {
-            return;
+            return false;
         }
 
         var escrowId = GetString(escrow, "escrowId");
@@ -853,7 +880,7 @@ public class EscrowCronFunction
             {
                 context.Logger.LogInformation(
                     $"{CleanDeliveryNotCreditedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} reason={MoneyAlarmLog.LogId(escrowReason)}");
-                return;
+                return true;
             }
 
             var truckerId = GetStringOrNull(escrow, "truckerId");
@@ -871,27 +898,139 @@ public class EscrowCronFunction
                     released.ReleasedAt),
                 DateTime.UtcNow);
 
-            if (outcome.NotCleanReason != null)
-            {
-                context.Logger.LogInformation(
-                    $"{CleanDeliveryNotCreditedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} reason={MoneyAlarmLog.LogId(outcome.NotCleanReason)}");
-                return;
-            }
-
-            foreach (var (userId, error) in outcome.Failed)
-            {
-                context.Logger.LogError(
-                    $"{CleanDeliveryCreditFailedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} userId={MoneyAlarmLog.LogId(userId)} error={MoneyAlarmLog.LogId(error)}");
-            }
-
-            context.Logger.LogInformation(
-                $"{CleanDeliveryCreditedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} credited={outcome.Credited.Count} alreadyCredited={outcome.AlreadyCredited} failed={outcome.Failed.Count}");
+            return CleanDeliveryCreditService.LogOutcome(
+                escrowId, outcome, context.Logger.LogInformation, context.Logger.LogError);
         }
         catch (Exception ex)
         {
             context.Logger.LogError(
                 $"{CleanDeliveryCreditFailedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} error={MoneyAlarmLog.LogId(ex.GetType().Name)}");
+            return false;
         }
+    }
+
+    /// <summary>FUP-137: adds the escrow to the journal. A failed or refused add only logs: the release goes on.</summary>
+    private async Task NoteCleanDeliveryPendingAsync(string escrowId, ILambdaContext context)
+    {
+        if (CleanDeliveryJournal == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!await CleanDeliveryJournal.AddAsync(escrowId))
+            {
+                context.Logger.LogWarning(
+                    $"{CleanDeliveryJournalFailedToken} op=add escrowId={MoneyAlarmLog.LogId(escrowId)} error=journal_full");
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"{CleanDeliveryJournalFailedToken} op=add escrowId={MoneyAlarmLog.LogId(escrowId)} error={MoneyAlarmLog.LogId(ex.GetType().Name)}");
+        }
+    }
+
+    /// <summary>FUP-137: removes the escrow from the journal. A failed remove only logs: the next run reads the row again.</summary>
+    private async Task ClearCleanDeliveryPendingAsync(string escrowId, ILambdaContext context)
+    {
+        if (CleanDeliveryJournal == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await CleanDeliveryJournal.RemoveAsync(escrowId);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"{CleanDeliveryJournalFailedToken} op=remove escrowId={MoneyAlarmLog.LogId(escrowId)} error={MoneyAlarmLog.LogId(ex.GetType().Name)}");
+        }
+    }
+
+    /// <summary>
+    /// FUP-137: the crash recovery of the clean-delivery credit. Reads the journal (one GetItem) and, for each
+    /// escrow an earlier run left there, its row (one consistent GetItem each, at most
+    /// <see cref="CleanDeliveryRecoveryMaxRows"/> per run):
+    /// <list type="bullet">
+    /// <item>released or completed: the credit is written through
+    /// <see cref="CleanDeliveryCreditService.CreditReleasedAsync"/> (only a row the auto-release marked, with
+    /// the same key as the first attempt, so nothing is credited twice), and the entry is cleared unless a
+    /// write failed;</item>
+    /// <item>waiting in the manual payout queue: cleared, the admin's close credits it;</item>
+    /// <item>under a settlement lock with no queue entry: kept, a release is in flight or about to be parked;</item>
+    /// <item>anything else (still escrowed after a refused release, refunded, disputed, held, gone): cleared,
+    /// no release happened and a later auto-release notes it again.</item>
+    /// </list>
+    /// It moves no money and never throws: a failure only leaves the entry for the next run.
+    /// </summary>
+    private async Task RecoverCleanDeliveryCreditsAsync(ILambdaContext context)
+    {
+        if (CleanDeliveryJournal == null || CleanDeliveryCredits == null)
+        {
+            return;
+        }
+
+        IReadOnlyList<string> pending;
+        try
+        {
+            pending = await CleanDeliveryJournal.ReadAsync();
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"{CleanDeliveryJournalFailedToken} op=read error={MoneyAlarmLog.LogId(ex.GetType().Name)}");
+            return;
+        }
+
+        if (pending.Count == 0)
+        {
+            return;
+        }
+
+        int credited = 0, cleared = 0, kept = 0;
+        foreach (var escrowId in pending.Take(CleanDeliveryRecoveryMaxRows))
+        {
+            try
+            {
+                var row = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+                var status = row != null ? GetStringOrNull(row, "status") : null;
+                if (row != null && status is "released" or "completed")
+                {
+                    var outcome = await CleanDeliveryCredits.CreditReleasedAsync(
+                        row, async escrow => (await _escrowService.ResolveTruckerIdAsync(escrow)).TruckerId, DateTime.UtcNow);
+                    if (!CleanDeliveryCreditService.LogOutcome(
+                            escrowId, outcome, context.Logger.LogInformation, context.Logger.LogError))
+                    {
+                        kept++;
+                        continue;
+                    }
+
+                    credited += outcome.Credited.Count;
+                }
+                else if (row != null && !EscrowService.IsManualPayoutOpen(row)
+                         && GetStringOrNull(row, SettlementLockFields.Lock) != null)
+                {
+                    kept++;
+                    continue;
+                }
+
+                await ClearCleanDeliveryPendingAsync(escrowId, context);
+                cleared++;
+            }
+            catch (Exception ex)
+            {
+                kept++;
+                context.Logger.LogError(
+                    $"{CleanDeliveryCreditFailedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} error={MoneyAlarmLog.LogId(ex.GetType().Name)}");
+            }
+        }
+
+        context.Logger.LogInformation(
+            $"{CleanDeliveryRecoveredToken} pending={pending.Count} read={Math.Min(pending.Count, CleanDeliveryRecoveryMaxRows)} creditsWritten={credited} cleared={cleared} kept={kept}");
     }
 
     /// <summary>

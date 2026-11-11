@@ -3254,6 +3254,27 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
+    public async Task DeliveryCreate_ListingDeletedByStatusOnly_ReturnsError()
+    {
+        // FUP-132: a row deleted by an update before the stamp was written has no deletedAt.
+        _mockCropRepo.GetByIdAsync(TestListingId).Returns(new Dictionary<string, object>
+        {
+            { "cropId", TestListingId },
+            { "farmerId", TestFarmerId },
+            { "status", "deleted" },
+            { "version", "1" }
+        });
+
+        var op = MakeDeliveryCreateOp();
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("DELIVERY_VALIDATION", response.Body);
+        Assert.Contains("listing has been deleted", response.Body);
+    }
+
+    [Fact]
     public async Task DeliveryCreate_BuyerNotFound_ReturnsError()
     {
         var unknownBuyer = "00000000-0000-0000-0000-000000000077";

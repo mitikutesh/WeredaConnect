@@ -848,7 +848,7 @@ public class EscrowServiceFraudHoldTests
         _gateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
             .Returns(new RefundFundsResponse { Success = false, ErrorCode = TelebirrGatewayErrors.PayoutNotSupported });
         _escrows.TryQueueManualPayoutAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<string>(), Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<string>(), Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(true);
 
         var result = await AdminRefund(Refund("escrow-initiate-1"));

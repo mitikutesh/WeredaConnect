@@ -82,6 +82,17 @@ public sealed class CropRepository : ICropRepository
         }
     }
 
+    private const string DeletedStatus = "deleted";
+
+    /// <summary>
+    /// FUP-132: a listing is deleted when it carries <c>deletedAt</c> or its status is
+    /// <c>deleted</c>. Rows deleted by an update before the stamp was written have only the status.
+    /// </summary>
+    public static bool IsDeleted(IReadOnlyDictionary<string, object> crop)
+        => (crop.TryGetValue("deletedAt", out var deletedAt) && !string.IsNullOrEmpty(deletedAt?.ToString()))
+           || (crop.TryGetValue("status", out var status)
+               && string.Equals(status?.ToString(), DeletedStatus, StringComparison.OrdinalIgnoreCase));
+
     /// <inheritdoc />
     public async Task<AuthResult<Dictionary<string, object>>> UpdateAsync(
         string cropId,
@@ -128,6 +139,15 @@ public sealed class CropRepository : ICropRepository
             attrValues[valueAlias] = ToAttributeValue(kvp.Value);
             updateParts.Add($"{nameAlias} = {valueAlias}");
             i++;
+        }
+
+        // FUP-132: an update to 'deleted' is a delete, so it carries the stamp DeleteAsync
+        // writes. Every list filters on deletedAt; without it the row stayed in the farmer's list.
+        if (data.TryGetValue("status", out var newStatus)
+            && string.Equals(newStatus?.ToString(), DeletedStatus, StringComparison.Ordinal))
+        {
+            attrNames["#deleted"] = "deletedAt";
+            updateParts.Add("#deleted = if_not_exists(#deleted, :updated)");
         }
 
         var request = new UpdateItemRequest
@@ -593,23 +613,30 @@ public sealed class CropRepository : ICropRepository
         // Priority: farmerId > status > cropType > fallback SCAN.
         // Each GSI path uses KeyConditionExpression for the partition key
         // and pushes remaining filters into FilterExpression.
+        (List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey) page;
         if (!string.IsNullOrEmpty(farmerId))
         {
-            return await QueryByFarmerIdAsync(farmerId, woreda, cropType, status, limit, exclusiveStartKey);
+            page = await QueryByFarmerIdAsync(farmerId, woreda, cropType, status, limit, exclusiveStartKey);
         }
-
-        if (!string.IsNullOrEmpty(status))
+        else if (!string.IsNullOrEmpty(status))
         {
-            return await QueryByStatusAsync(status, woreda, cropType, limit, exclusiveStartKey);
+            page = await QueryByStatusAsync(status, woreda, cropType, limit, exclusiveStartKey);
         }
-
-        if (!string.IsNullOrEmpty(cropType))
+        else if (!string.IsNullOrEmpty(cropType))
         {
-            return await QueryByCropTypeAsync(cropType, woreda, limit, exclusiveStartKey, maxPricePerKg);
+            page = await QueryByCropTypeAsync(cropType, woreda, limit, exclusiveStartKey, maxPricePerKg);
+        }
+        else
+        {
+            // Fallback: unfiltered browse, a SCAN
+            page = await ScanFallbackAsync(woreda, limit, exclusiveStartKey);
         }
 
-        // Fallback: unfiltered browse — SCAN (unchanged)
-        return await ScanFallbackAsync(woreda, limit, exclusiveStartKey);
+        // FUP-132: each path filters on deletedAt in DynamoDB; a row with status 'deleted' and no
+        // stamp (deleted by an update before the stamp was written) is dropped here, for every
+        // caller: the farmer's own list, the buyer browse and matching.
+        page.Items.RemoveAll(item => IsDeleted(item));
+        return page;
     }
 
     /// <summary>
