@@ -148,12 +148,12 @@ public class EscrowServiceSettlementRecoveryTests
     private void QueueWrites(bool result)
         => _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(result);
 
     private Task<bool> QueuedWith(string op, string reason, Func<IReadOnlyList<ManualPayoutLegSeed>, bool> legs)
         => _escrowRepo.Received(1).TryQueueManualPayoutAsync(
-            EscrowId, CreatedAt, op, reason, "escrowed", Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(l => legs(l)), Arg.Any<string>());
+            EscrowId, CreatedAt, op, reason, "escrowed", Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(l => legs(l)), Arg.Any<string>(), Arg.Any<string?>());
 
     private List<Dictionary<string, object>> AuditEntries()
         => _auditRepo.ReceivedCalls()
@@ -291,7 +291,7 @@ public class EscrowServiceSettlementRecoveryTests
         result.Error.Message.Should().Contain("not retried");
         await _escrowRepo.Received(4).TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>());
         await AssertLockKeptAndNothingSettled();
         _alarmLines.Should().Equal(
             "ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-5 action=release_failed outcome=unknown code=TELEBIRR_TIMEOUT",
@@ -316,7 +316,7 @@ public class EscrowServiceSettlementRecoveryTests
         result.Error!.HttpStatus.Should().Be(502);
         await _escrowRepo.Received(4).TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), ManualPayoutFields.ReasonGatewayRefMissing,
-            Arg.Any<string>(), Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>());
         await AssertLockKeptAndNothingSettled();
         _alarmLines.Should().Equal(
             "ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-5 action=release_failed outcome=unknown code=MANUAL_QUEUE_FAILED:GATEWAY_REF_MISSING");
@@ -350,7 +350,7 @@ public class EscrowServiceSettlementRecoveryTests
         result.Error!.HttpStatus.Should().Be(502);
         await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>());
         Received.InOrder(() =>
         {
             _escrowRepo.ReleaseSettlementLockAsync(EscrowId, CreatedAt);
