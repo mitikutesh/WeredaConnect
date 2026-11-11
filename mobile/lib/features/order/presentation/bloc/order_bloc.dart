@@ -276,6 +276,10 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     LoadOrderById event,
     Emitter<OrderState> emit,
   ) async {
+    if (event.quiet) {
+      await _onReloadOrderQuietly(event, emit);
+      return;
+    }
     emit(const OrderLoading());
     try {
       final order = await _repository.getOrderById(event.orderId);
@@ -291,6 +295,22 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       }
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  /// ESC-23: the quiet reload of [LoadOrderById]. The order on screen stays
+  /// when the read fails or finds nothing, and while an action or another
+  /// load runs (its own result settles the screen).
+  Future<void> _onReloadOrderQuietly(
+    LoadOrderById event,
+    Emitter<OrderState> emit,
+  ) async {
+    try {
+      final order = await _repository.getOrderById(event.orderId);
+      if (order == null || state is OrderLoading) return;
+      emit(SingleOrderLoaded(order: order));
+    } on Object {
+      // The order already shown stays.
     }
   }
 }

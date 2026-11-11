@@ -11,6 +11,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_l
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// No-op rating repository so the detail screen's farmer card can build in
 /// tests without hitting a backend ("no ratings yet" unless [summary] says).
@@ -192,21 +193,28 @@ void main() {
       expect(find.text('Premium quality grain'), findsOneWidget);
     });
 
-    testWidgets('trucker role shows Create Delivery button', (tester) async {
-      final listing = _makeListing();
+    // ESC-23: a delivery is created from its order, never from a listing.
+    for (final role in UserRole.values) {
+      testWidgets('${role.name} role has no Create Delivery button',
+          (tester) async {
+        await tester.pumpWidget(
+          _buildScreen(listing: _makeListing(), currentUserRole: role),
+        );
+        await tester.pumpAndSettle();
 
-      await tester.pumpWidget(
-        _buildScreen(
-          listing: listing,
-          currentUserRole: UserRole.trucker,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // ElevatedButton.icon renders the label and icon
-      expect(find.text('Create Delivery'), findsOneWidget);
-      expect(find.byIcon(Icons.local_shipping), findsOneWidget);
-    });
+        for (final locale in AppLocalizations.supportedLocales) {
+          expect(
+            find.text(lookupAppLocalizations(locale).createDelivery),
+            findsNothing,
+            reason: locale.languageCode,
+          );
+        }
+        expect(find.byIcon(Icons.local_shipping), findsNothing);
+        if (role != UserRole.buyer) {
+          expect(find.byType(FwBottomActions), findsNothing);
+        }
+      });
+    }
 
     testWidgets(
         'buyer role gets no contact before an order, only the escrow note '

@@ -231,8 +231,13 @@ class UpdateDeliveryLocation extends OrderEvent {
 class LoadOrderById extends OrderEvent {
   final String orderId;
 
-  const LoadOrderById({required this.orderId});
+  /// ESC-23: a reload behind an order already on screen (the server's copy
+  /// just reached the device). No loading state, and a failed or empty read
+  /// changes nothing, so the screen and its actions are never blocked.
+  final bool quiet;
+
+  const LoadOrderById({required this.orderId, this.quiet = false});
 
   @override
-  List<Object?> get props => [orderId];
+  List<Object?> get props => [orderId, quiet];
 }

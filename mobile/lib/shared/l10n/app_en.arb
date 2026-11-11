@@ -2020,34 +2020,6 @@
   "@filterMax": {
     "description": "Hint text for maximum price filter input"
   },
-  "selectTrip": "Select Trip",
-  "@selectTrip": {
-    "description": "Section header for trip selection in create delivery screen"
-  },
-  "buyerInformation": "Buyer Information",
-  "@buyerInformation": {
-    "description": "Section header for buyer info in create delivery screen"
-  },
-  "buyerNameLabel": "Buyer Name",
-  "@buyerNameLabel": {
-    "description": "Input label for buyer name field"
-  },
-  "buyerPhoneIdLabel": "Buyer Phone / ID",
-  "@buyerPhoneIdLabel": {
-    "description": "Input label for buyer phone or ID field"
-  },
-  "buyerNameRequired": "Buyer name is required",
-  "@buyerNameRequired": {
-    "description": "Validation error when buyer name is empty"
-  },
-  "buyerIdRequired": "Buyer phone or ID is required",
-  "@buyerIdRequired": {
-    "description": "Validation error when buyer phone/ID is empty"
-  },
-  "tripSelectionRequired": "Please select a trip",
-  "@tripSelectionRequired": {
-    "description": "Validation error when no trip is selected"
-  },
   "chooseTripHint": "Choose a trip",
   "@chooseTripHint": {
     "description": "Dropdown hint for trip selection"

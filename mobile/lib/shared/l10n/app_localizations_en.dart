@@ -1543,27 +1543,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get filterMax => 'Max';
 
   @override
-  String get selectTrip => 'Select Trip';
-
-  @override
-  String get buyerInformation => 'Buyer Information';
-
-  @override
-  String get buyerNameLabel => 'Buyer Name';
-
-  @override
-  String get buyerPhoneIdLabel => 'Buyer Phone / ID';
-
-  @override
-  String get buyerNameRequired => 'Buyer name is required';
-
-  @override
-  String get buyerIdRequired => 'Buyer phone or ID is required';
-
-  @override
-  String get tripSelectionRequired => 'Please select a trip';
-
-  @override
   String get chooseTripHint => 'Choose a trip';
 
   @override

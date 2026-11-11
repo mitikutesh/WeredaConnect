@@ -11,6 +11,7 @@ import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
@@ -22,6 +23,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
@@ -32,6 +34,8 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
+
+class MockOrderRepository extends Mock implements BaseOrderRepository {}
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -1025,16 +1029,52 @@ void main() {
       states.add(SingleOrderLoaded(order: order));
       await tester.pumpAndSettle();
 
+      // ESC-23: the read on open is that one read.
       verify(() => sync.pullOrder('order-001')).called(1);
       // initState's load, then the reload after the pull.
       verify(() => orderBloc.add(any(that: isA<LoadOrderById>()))).called(2);
     });
 
-    testWidgets('an open order with its numbers is not read again',
+    testWidgets(
+        'an open order without numbers is read again once an unsent change '
+        'that held the first read back is gone', (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      final order = openOrder(contactOpen: null, withPhones: false);
+      final sync = MockMarketplaceSync();
+      // The read on open sends nothing while a change waits (null).
+      final answers = <Order?>[null, openOrder()];
+      when(() => sync.pullOrder('order-001'))
+          .thenAnswer((_) async => answers.removeAt(0));
+      final states = StreamController<OrderState>.broadcast();
+      addTearDown(states.close);
+      when(() => orderBloc.stream).thenAnswer((_) => states.stream);
+      when(() => orderBloc.isClosed).thenReturn(false);
+
+      await tester.pumpWidget(
+        Provider<MarketplaceSync?>.value(
+          value: sync,
+          child: buildScreen(order),
+        ),
+      );
+      await tester.pumpAndSettle();
+      states.add(SingleOrderLoaded(order: order));
+      await tester.pumpAndSettle();
+      states.add(SingleOrderLoaded(order: order));
+      await tester.pumpAndSettle();
+
+      verify(() => sync.pullOrder('order-001')).called(2);
+      expect(answers, isEmpty);
+    });
+
+    testWidgets('an open order with its numbers is read once, on open (ESC-23)',
         (tester) async {
       tallView(tester);
       stubAuth(UserRole.buyer, _buyerId);
       final sync = MockMarketplaceSync();
+      when(() => sync.pullOrder('order-001'))
+          .thenAnswer((_) async => openOrder());
+      when(() => orderBloc.isClosed).thenReturn(false);
       final states = StreamController<OrderState>.broadcast();
       addTearDown(states.close);
       when(() => orderBloc.stream).thenAnswer((_) => states.stream);
@@ -1048,7 +1088,7 @@ void main() {
       states.add(SingleOrderLoaded(order: openOrder()));
       await tester.pumpAndSettle();
 
-      verifyNever(() => sync.pullOrder(any()));
+      verify(() => sync.pullOrder('order-001')).called(1);
     });
 
     testWidgets('an admin override refund closes an open status',
@@ -1278,6 +1318,234 @@ void main() {
 
       expect(find.byType(OrderDetailScreen), findsOneWidget);
       expect(find.text(en.savedOnPhoneWillSend), findsOneWidget);
+    });
+  });
+
+  // ESC-23: the order detail shows what the device holds at once and reads
+  // the server's copy once behind it (mobile; web has no MarketplaceSync and
+  // its order load is the server read).
+  group('ESC-23 server read on open', () {
+    late MockMarketplaceSync sync;
+
+    setUp(() {
+      sync = MockMarketplaceSync();
+      when(() => orderBloc.isClosed).thenReturn(false);
+    });
+
+    Widget withSync(Widget child) =>
+        Provider<MarketplaceSync?>.value(value: sync, child: child);
+
+    Order trucked({OrderStatus status = OrderStatus.funded, int version = 1}) =>
+        _makeOrder(
+          status: status,
+          tripId: _tripId,
+          truckerId: _truckerId,
+          truckerName: 'Trucker Tesfaye',
+        )..version = version;
+
+    List<LoadOrderById> loads() => verify(() => orderBloc.add(captureAny()))
+        .captured
+        .whereType<LoadOrderById>()
+        .toList();
+
+    for (final (role, userId) in [
+      (UserRole.buyer, _buyerId),
+      (UserRole.farmer, _farmerId),
+      (UserRole.trucker, _truckerId),
+    ]) {
+      testWidgets(
+          '${role.name}: the stored order shows while the read runs, then a '
+          'quiet reload follows it', (tester) async {
+        stubAuth(role, userId);
+        final answer = Completer<Order?>();
+        when(() => sync.pullOrder('order-001'))
+            .thenAnswer((_) => answer.future);
+
+        await tester.pumpWidget(withSync(buildScreen(trucked())));
+        await tester.pump();
+
+        // The read has not answered: the order is on screen, not a spinner,
+        // and nothing is marked busy.
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.byKey(const Key('order_detail_busy')), findsNothing);
+        expect(
+          find.byKey(const Key('order_detail_refresh')),
+          findsOneWidget,
+        );
+        verify(() => sync.pullOrder('order-001')).called(1);
+
+        answer.complete(trucked(status: OrderStatus.accepted, version: 2));
+        await tester.pumpAndSettle();
+
+        final added = loads();
+        expect(added, hasLength(2));
+        expect(added.first.quiet, isFalse, reason: 'the load on open');
+        expect(added.last.quiet, isTrue, reason: 'the reload after the read');
+        expect(added.last.orderId, 'order-001');
+      });
+    }
+
+    testWidgets('the server row replaces the stored one on screen',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      final en = lookupAppLocalizations(const Locale('en'));
+      final repo = MockOrderRepository();
+      var stored = trucked();
+      when(() => repo.getOrderById('order-001'))
+          .thenAnswer((_) async => stored);
+      final answer = Completer<Order?>();
+      when(() => sync.pullOrder('order-001')).thenAnswer((_) async {
+        final server = await answer.future;
+        if (server != null) stored = server;
+        return server;
+      });
+      final bloc = OrderBloc(repository: repo);
+      addTearDown(bloc.close);
+
+      await tester.pumpWidget(
+        withSync(
+          MultiBlocProvider(
+            providers: [
+              BlocProvider<OrderBloc>.value(value: bloc),
+              BlocProvider<AuthBloc>.value(value: authBloc),
+              BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
+              BlocProvider<RatingBloc>.value(value: ratingBloc),
+            ],
+            child: const MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: Locale('en'),
+              home: OrderDetailScreen(orderId: 'order-001'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('order_detail_refresh')),
+        findsOneWidget,
+      );
+      expect(find.text(en.statusInTransit), findsNothing);
+
+      answer.complete(trucked(status: OrderStatus.inTransit, version: 2));
+      await tester.pumpAndSettle();
+
+      expect(find.text(en.statusInTransit), findsWidgets);
+      verify(() => sync.pullOrder('order-001')).called(1);
+      // The load on open, then the quiet reload.
+      verify(() => repo.getOrderById('order-001')).called(2);
+    });
+
+    testWidgets('an unsent change of the order: nothing is reloaded over it',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      // The pull answers null, without a request, while a change waits.
+      when(() => sync.pullOrder('order-001')).thenAnswer((_) async => null);
+
+      await tester.pumpWidget(withSync(buildScreen(trucked())));
+      await tester.pumpAndSettle();
+
+      verify(() => sync.pullOrder('order-001')).called(1);
+      expect(loads().where((e) => e.quiet), isEmpty);
+      expect(
+        find.byKey(const Key('order_detail_refresh')),
+        findsOneWidget,
+      );
+    });
+
+    for (final (name, error) in <(String, Object)>[
+      ('offline', const NetworkException()),
+      ('a timeout', const TimeoutException()),
+      ('a server error', const ServerException('boom', 500)),
+      ('404, not on the server', const NotFoundException()),
+      ('403, not a party', const AuthException('Forbidden', 403)),
+    ]) {
+      testWidgets('$name: the stored order stays, nothing is said',
+          (tester) async {
+        stubAuth(UserRole.farmer, _farmerId);
+        when(() => sync.pullOrder('order-001')).thenThrow(error);
+
+        await tester.pumpWidget(withSync(buildScreen(trucked())));
+        await tester.pumpAndSettle();
+
+        verify(() => sync.pullOrder('order-001')).called(1);
+        expect(tester.takeException(), isNull);
+        expect(find.byType(SnackBar), findsNothing);
+        expect(find.byType(OrderDetailScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('order_detail_refresh')),
+          findsOneWidget,
+        );
+        expect(loads().where((e) => e.quiet), isEmpty);
+      });
+    }
+
+    testWidgets('one read per open, however often the order is loaded again',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      final order = trucked();
+      final states = StreamController<OrderState>.broadcast();
+      addTearDown(states.close);
+      when(() => orderBloc.stream).thenAnswer((_) => states.stream);
+      when(() => sync.pullOrder('order-001')).thenAnswer((_) async => order);
+
+      await tester.pumpWidget(withSync(buildScreen(order)));
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 3; i++) {
+        states.add(const OrderLoading());
+        await tester.pump();
+        states.add(SingleOrderLoaded(order: trucked()));
+        await tester.pumpAndSettle();
+      }
+
+      verify(() => sync.pullOrder('order-001')).called(1);
+    });
+
+    testWidgets('pull to refresh reads the server again', (tester) async {
+      stubAuth(UserRole.trucker, _truckerId);
+      when(() => sync.pullOrder('order-001'))
+          .thenAnswer((_) async => trucked());
+
+      await tester.pumpWidget(withSync(buildScreen(trucked())));
+      await tester.pumpAndSettle();
+      verify(() => sync.pullOrder('order-001')).called(1);
+
+      await tester.fling(
+        find.byKey(const Key('order_detail_refresh')),
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+
+      verify(() => sync.pullOrder('order-001')).called(1);
+      expect(loads().where((e) => e.quiet), hasLength(2));
+    });
+
+    testWidgets(
+        'web (no MarketplaceSync): no extra read on open, pull to refresh '
+        'loads the order again', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+
+      await tester.pumpWidget(
+        Provider<MarketplaceSync?>.value(
+          value: null,
+          child: buildScreen(trucked()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(loads(), hasLength(1));
+
+      await tester.fling(
+        find.byKey(const Key('order_detail_refresh')),
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+
+      final added = loads();
+      expect(added, hasLength(1));
+      expect(added.single.quiet, isTrue);
     });
   });
 }

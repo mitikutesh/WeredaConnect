@@ -1494,27 +1494,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get filterMax => 'ከፍተኛ';
 
   @override
-  String get selectTrip => 'ጉዞ ይምረጡ';
-
-  @override
-  String get buyerInformation => 'የገዢ መረጃ';
-
-  @override
-  String get buyerNameLabel => 'የገዢ ስም';
-
-  @override
-  String get buyerPhoneIdLabel => 'የገዢ ስልክ / መታወቂያ';
-
-  @override
-  String get buyerNameRequired => 'የገዢ ስም ያስፈልጋል';
-
-  @override
-  String get buyerIdRequired => 'የገዢ ስልክ ወይም መታወቂያ ያስፈልጋል';
-
-  @override
-  String get tripSelectionRequired => 'እባክዎ ጉዞ ይምረጡ';
-
-  @override
   String get chooseTripHint => 'ጉዞ ይምረጡ';
 
   @override
