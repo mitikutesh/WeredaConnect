@@ -22,7 +22,13 @@ signal's time or its previous decision, the verdict time, the hold time), so
 
 Ids only. The output carries the label, its case and the ids it links (signal
 ids, user ids, order, escrow and delivery ids), the amount and the hold or
-dispute context. It never carries the admin's free text (`labelReason`, which
+dispute context. A fraud_signal label written since FRD-20 P1 also carries the
+feature snapshot of its user just before the decision (`snapshotVersion` and
+the `snapshot*` columns: the counted signal units per type over the score
+window, the clean-delivery credits, whether the read was cut, the account age
+in days, the Fayda flag, the role and the completed escrows). Counts, codes and
+ages only; a label without `snapshotVersion` has no snapshot. In CSV the units
+are `TYPE:n` pairs joined by `;`. It never carries the admin's free text (`labelReason`, which
 can hold names or phone numbers), the request IP or the correlation id, and the
 export stops (exit 1) if any exported value looks like a phone number. Do not
 write the output inside a git checkout: the script refuses (exit 2).
@@ -113,8 +119,21 @@ FIELDS = [
     ("heldFromStatus", "heldFromStatus"),
     ("heldAt", "heldAt"),
     ("whitelistUntil", "whitelistUntil"),
+    # FRD-20 P1: the feature snapshot of a fraud_signal label (counts, codes and ages only).
+    ("snapshotVersion", "snapshotVersion"),
+    ("snapshotWindowDays", "snapshotWindowDays"),
+    ("snapshotSignalUnits", "snapshotSignalUnits"),
+    ("snapshotCreditUnits", "snapshotCreditUnits"),
+    ("snapshotCreditPoints", "snapshotCreditPoints"),
+    ("snapshotTruncated", "snapshotTruncated"),
+    ("snapshotAccountAgeDays", "snapshotAccountAgeDays"),
+    ("snapshotFaydaVerified", "snapshotFaydaVerified"),
+    ("snapshotRole", "snapshotRole"),
+    ("snapshotCompletedEscrows", "snapshotCompletedEscrows"),
+    ("snapshotCompletedEscrowsPartial", "snapshotCompletedEscrowsPartial"),
 ]
 COLUMNS = [name for name, _ in FIELDS] + ["hasReason", "final"]
+BOOLEAN_COLUMNS = ("snapshotTruncated", "snapshotFaydaVerified", "snapshotCompletedEscrowsPartial", "hasReason", "final")
 
 # An Ethiopian phone number as a whole value: +2519XXXXXXXX, 2519XXXXXXXX, 09XXXXXXXX or 07XXXXXXXX.
 PHONE = re.compile(r"^(\+?251|0)[79]\d{8}$")
@@ -157,6 +176,11 @@ def to_record(item):
         return None
     record = {name: plain.get(attr) for name, attr in FIELDS}
     record["hasReason"] = bool(plain.get("labelReason"))
+    units = record.get("snapshotSignalUnits")
+    if units is not None and not (isinstance(units, dict) and all(
+            re.fullmatch(r"[A-Z0-9_]{1,64}", str(k)) and isinstance(v, int) and not isinstance(v, bool)
+            for k, v in units.items())):
+        raise ExportError(f"snapshotSignalUnits of case {record.get('caseId')} is not a map of type codes to counts; nothing exported")
     for name, value in record.items():
         for part in value if isinstance(value, list) else [value]:
             if isinstance(part, str) and PHONE.match(part.strip()):
@@ -252,8 +276,11 @@ def render(records, fmt):
     for r in records:
         row = dict(r)
         row["signalIds"] = ";".join(r.get("signalIds") or [])
-        row["hasReason"] = "true" if r.get("hasReason") else "false"
-        row["final"] = "true" if r.get("final") else "false"
+        units = r.get("snapshotSignalUnits")
+        row["snapshotSignalUnits"] = None if units is None else ";".join(f"{k}:{units[k]}" for k in sorted(units))
+        for name in BOOLEAN_COLUMNS:
+            # A snapshot flag stays empty on a label without one; hasReason and final are always set.
+            row[name] = "" if r.get(name) is None else "true" if r.get(name) else "false"
         writer.writerow({k: "" if row.get(k) is None else row.get(k) for k in COLUMNS})
     return buf.getvalue()
 

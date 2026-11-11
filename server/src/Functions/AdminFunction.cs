@@ -757,11 +757,11 @@ public partial class AdminFunction
             Resolution = body.Resolution,
             ResolvedAt = now,
             Message = (body.Resolution switch
-                {
-                    "farmer_wins" => "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour.",
-                    "buyer_wins" => "Verdict recorded. The settlement sweep refunds the buyer within the hour.",
-                    _ => "Verdict recorded. The settlement sweep pays the split to each party within the hour."
-                })
+            {
+                "farmer_wins" => "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour.",
+                "buyer_wins" => "Verdict recorded. The settlement sweep refunds the buyer within the hour.",
+                _ => "Verdict recorded. The settlement sweep pays the split to each party within the hour."
+            })
                 + (dispositionIgnored ? " No disposition was needed: the order can follow the verdict." : ""),
             VerdictAmounts = split == null
                 ? null
@@ -909,7 +909,9 @@ public partial class AdminFunction
                 ? null
                 : new VerdictAmountsDto
                 {
-                    FarmerAmount = recordedSplit.FarmerAmount, TruckerAmount = recordedSplit.TruckerAmount, BuyerRefund = recordedSplit.BuyerRefund
+                    FarmerAmount = recordedSplit.FarmerAmount,
+                    TruckerAmount = recordedSplit.TruckerAmount,
+                    BuyerRefund = recordedSplit.BuyerRefund
                 }
         }, AppJsonContext.Default.ResolveDisputeResponse);
     }
@@ -1609,6 +1611,15 @@ public partial class AdminFunction
             return LambdaResponse.Error(404, "ADMIN_006", "Fraud signal not found.");
         }
 
+        // FRD-20 P1: the label's feature snapshot, read before the side effects below and the review stamp, so
+        // the decided signal still counts and a whitelist being granted silences nothing yet. Read only, and
+        // best effort: without one the decision goes on and its label carries no snapshot. A decision the
+        // signal already carries writes no label, so it reads none.
+        var snapshot = CarriesDecision(signalRow, body.Action) || string.IsNullOrEmpty(_transactionAuditTable)
+            ? null
+            : await new LabelFeatureSnapshotReader(_dynamoDb, _fraudSignalsTable, _usersTable, _escrowsTable)
+                .ReadAsync(signalUserId, nowUtc, context.Logger.LogWarning);
+
         // reject: the signal keeps counting, and the user is suspended through the one suspend path.
         // Nothing is held here: the next settlement sweep that would pay or refund one of the user's
         // escrows holds it as fraud_confirmed (section 18.1).
@@ -1693,7 +1704,7 @@ public partial class AdminFunction
             userId: adminUserId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "fraudSignal", entityId: signalId, detail: body.Action, outcome: "success");
         await LabelFraudDecisionAsync(signalId, signalUserId, signalKey, signalRow, body, adminUserId, now,
-            whitelistUntil, request, context);
+            whitelistUntil, snapshot, request, context);
 
         var response = new FraudActionResponse
         {
@@ -1779,12 +1790,12 @@ public partial class AdminFunction
     private async Task LabelFraudDecisionAsync(
         string signalId, string signalUserId, string signalKey, Dictionary<string, AttributeValue> signalRow,
         FraudActionRequest body, string adminUserId, string now, string? whitelistUntil,
-        APIGatewayProxyRequest request, ILambdaContext context)
+        LabelFeatureSnapshot? snapshot, APIGatewayProxyRequest request, ILambdaContext context)
     {
         string? Field(string name) => signalRow.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value.S) ? value.S : null;
 
         var reviewed = Field("status") == "reviewed";
-        if (reviewed && Field("resolution") == body.Action)
+        if (CarriesDecision(signalRow, body.Action))
         {
             context.Logger.LogInformation(
                 $"OUTCOME_LABEL_EXISTS case={OutcomeLabels.CaseFraudSignal} outcome={OutcomeLabels.FraudOutcome(body.Action)} caseId={MoneyAlarmLog.LogId(signalId)} reason=same_decision");
@@ -1815,9 +1826,15 @@ public partial class AdminFunction
             OrderId = orderId,
             EscrowId = entityType == "escrow" ? entityId : null,
             DeliveryId = entityType == "delivery" ? entityId : null,
-            WhitelistUntil = whitelistUntil
+            WhitelistUntil = whitelistUntil,
+            Snapshot = snapshot
         }, AuditContext.From(request, adminUserId, "admin"), context);
     }
+
+    /// <summary>The signal row is reviewed with this very action: a retry or the same verb again, which writes no label.</summary>
+    private static bool CarriesDecision(Dictionary<string, AttributeValue> signalRow, string action) =>
+        signalRow.TryGetValue("status", out var status) && status.S == "reviewed"
+        && signalRow.TryGetValue("resolution", out var resolution) && resolution.S == action;
 
     /// <summary>
     /// FRD-05: the user's one whitelist row (section 20) and its end (ISO 8601). A new whitelist replaces the
@@ -2922,8 +2939,15 @@ public partial class AdminFunction
         {
             var entity = GetString(e, "entityType");
             var action = GetString(e, "action");
-            if (entity == "order") hasUnifiedOrder = true;
-            if (entity == "delivery") hasUnifiedDelivery = true;
+            if (entity == "order")
+            {
+                hasUnifiedOrder = true;
+            }
+
+            if (entity == "delivery")
+            {
+                hasUnifiedDelivery = true;
+            }
 
             LatLngDto? location = null;
             if (entity == "delivery" && delivery != null)
@@ -3440,7 +3464,10 @@ public partial class AdminFunction
     {
         var distinct = userIds.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
         var result = new Dictionary<string, string>();
-        if (distinct.Count == 0) return result;
+        if (distinct.Count == 0)
+        {
+            return result;
+        }
 
         // BatchGetItem supports max 100 keys per request
         foreach (var batch in distinct.Chunk(100))
@@ -3480,7 +3507,9 @@ public partial class AdminFunction
                         var id = item.TryGetValue("userId", out var uid) ? uid.S : "";
                         var name = item.TryGetValue("displayName", out var dn) ? dn.S : "";
                         if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
+                        {
                             result[id] = name;
+                        }
                     }
                 }
 

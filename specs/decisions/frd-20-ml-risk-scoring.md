@@ -1,7 +1,7 @@
 # ADR: ML risk scoring from outcome labels (FRD-20)
 
 **Date**: 2026-11-07
-**Status**: Deferred until the dataset trigger below is met (prod: 250 fraud and 250 honest examples with feature snapshots for a fit of at most 10 parameters, from 40 users each, no user above 10 percent of a class, spanning at least 182 days, with 50 of each in the last 60 days). Nothing is built. Until then the hand weights of section 15 stay as they are, tuned by hand from the per-type table (approach 1).
+**Status**: Deferred until the dataset trigger below is met (prod: 250 fraud and 250 honest examples with feature snapshots for a fit of at most 10 parameters, from 40 users each, no user above 10 percent of a class, spanning at least 182 days, with 50 of each in the last 60 days). Prerequisite P1, the feature snapshot on the fraud label, is built (FUP-144, 2026-11-11), so examples accrue from its deploy; P2 and P3 are not built. Until then the hand weights of section 15 stay as they are, tuned by hand from the per-type table (approach 1).
 **Ticket**: FRD-20 (EPIC FRD, story S6, P3)
 **Spec**: `specs/architecture/fraud-detection-architecture.md` sections 14 (score), 15 (weights), 16 and 17 (tiers and enforcement), 20.1 (outcome labels), 21 (AI advisory boundary)
 
@@ -12,7 +12,7 @@ The signal weights of section 15 were set by hand. FRD-18 now records the admin'
 ## Where the data stands
 
 - A `fraud_signal` label (Fraud Review approve, reject, whitelist) carries the subject user, the one decided signal's type, entity and time, and `final` for the latest decision of the case. Labels start with FRD-18; earlier decisions have none.
-- **Missing: the features.** The label does not record the user's other signals at decision time, and signal rows expire after 30 days (TTL). A training row built later cannot see what the admin saw. Prerequisite P1 below adds a feature snapshot to the label; until it ships, no example for a model accrues, and only the per-type table (approach 1) can be computed.
+- **The features** (P1, built 2026-11-11, FUP-144). Signal rows expire after 30 days (TTL), so a training row built later cannot see what the admin saw; each fraud label now carries a feature snapshot of its user, read before the decision. Labels written before P1 was deployed have none and never count as examples; for them only the per-type table (approach 1) can be computed.
 - `held_escrow` and `dispute` labels are not training targets (decided below).
 
 ## Trigger to start
@@ -193,11 +193,13 @@ Configuration (P2): set per environment in `infra/lib/config/environments.ts` (a
 
 ## Prerequisites and follow-ups (not built here)
 
-- **P1, feature snapshot on the fraud label** (server, small). In `AdminFunction.HandleFraudActionAsync`, right after the signal row is read and before the side effects (the reject's suspension, the whitelist write) and the review stamp, so the decided signal still counts as pending and a whitelist being granted silences nothing yet:
+- **P1, feature snapshot on the fraud label** (server, small). **Built 2026-11-11 (FUP-144)**; the stored attributes, the reads and their bounds are in section 20.1 of the fraud spec. As decided here: in `AdminFunction.HandleFraudActionAsync`, right after the signal row is read and before the side effects (the reject's suspension, the whitelist write) and the review stamp, so the decided signal still counts as pending and a whitelist being granted silences nothing yet:
   - a full-window read of the user's signal partition (the section 14.3 key condition and page cap, without the score's early stop at CRITICAL, since the score read stops once the tier is certain and would undercount), turned by the calculator's rules into units per type, uncapped, plus the credits and a truncated flag;
   - the users row (`createdAt`, `faydaVerified`, `role`) and one Query of the role's escrow status index for its completed escrows (the read FRD-13 makes for a farmer or trucker; `BuyerStatusIndex` for a buyer).
 
   `OutcomeLabelWriter` stores them with `snapshotVersion` on the label (counts, codes and ages only), and the export adds the fields. A failed read leaves the label without a snapshot and never fails the decision. Every decision gets one; the fit uses the day's first.
+
+  Readings taken when it was built, each the smaller one: the units map keeps every counted type (the fit drops `AI_ADVISORY` and `SUSPENDED_TOKEN_USE`, as "Never used" says); the credits are stored as a row count and their points; the completed escrows are the count among the user's newest 50 in its role (FRD-13's read) with a flag when the user has more; the account age is stored in whole days, not `createdAt`; the rules' score and tier are not stored; the signal read is eventually consistent, like the score read; a failed read stores no partial snapshot.
 - **P2, shadow and priority** (server, infra, admin with en, am, om; at the trigger): the second weights table in `RiskScoreSettings` and `RiskScoreCalculator`, the settings `RISK_ML_MODE`, `RISK_ML_WEIGHTS` and `RISK_ML_WEIGHTS_VERSION`, the shadow line and its metric, the invalid-weights metric and alarm, the Fraud Review ordering and display.
 - **P3, the fit script** (`scripts/fit_risk_weights.py`, stdlib like the export, its tests offline) and the report template.
 - Optional: a random audit sample of unflagged trades; the pre-FRD-18 label backfill (section 20.1).
@@ -214,3 +216,4 @@ Configuration (P2): set per environment in `infra/lib/config/environments.ts` (a
 | Date | Fraud examples | Honest examples | Users (fraud, honest) | Largest user share (fraud, honest) | Span (days) | Last 60 days (fraud, honest) | Note |
 |------|----------------|-----------------|-----------------------|------------------------------------|-------------|------------------------------|------|
 | 2026-11-07 | 0 | 0 | 0, 0 | none | 0 | 0, 0 | No snapshot yet (P1 not built); FRD-18 labels merged the same day (#299) |
+| 2026-11-11 | not measured | not measured | | | | | P1 built (FUP-144); examples accrue from its deploy to prod. Next check due 2027-02-11, then quarterly (TASK.md, FUP-144) |

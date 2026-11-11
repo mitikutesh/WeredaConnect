@@ -167,6 +167,94 @@ class RecordTest(unittest.TestCase):
         self.assertEqual([r["final"] for r in records], [False, True, True])
 
 
+def snapshot_fields(units=None):
+    """The FRD-20 P1 snapshot attributes of a fraud label, as DynamoDB JSON."""
+    units = {"PRICE_ANOMALY": 2, "SELF_TRADE": 1} if units is None else units
+    return {
+        "snapshotVersion": {"N": "1"},
+        "snapshotWindowDays": {"N": "30"},
+        "snapshotSignalUnits": {"M": {k: {"N": str(v)} for k, v in units.items()}},
+        "snapshotCreditUnits": {"N": "3"},
+        "snapshotCreditPoints": {"N": "15"},
+        "snapshotTruncated": {"BOOL": False},
+        "snapshotAccountAgeDays": {"N": "412"},
+        "snapshotFaydaVerified": {"BOOL": True},
+        "snapshotRole": S("farmer"),
+        "snapshotCompletedEscrows": {"N": "9"},
+        "snapshotCompletedEscrowsPartial": {"BOOL": False},
+    }
+
+
+class SnapshotTest(unittest.TestCase):
+    def test_a_fraud_label_carries_its_feature_snapshot(self):
+        record = eol.to_record(label_row(case="fraud_signal", outcome="fraud_confirmed", **snapshot_fields()))
+        self.assertEqual(record["snapshotVersion"], 1)
+        self.assertEqual(record["snapshotWindowDays"], 30)
+        self.assertEqual(record["snapshotSignalUnits"], {"PRICE_ANOMALY": 2, "SELF_TRADE": 1})
+        self.assertEqual(record["snapshotCreditUnits"], 3)
+        self.assertEqual(record["snapshotCreditPoints"], 15)
+        self.assertIs(record["snapshotTruncated"], False)
+        self.assertEqual(record["snapshotAccountAgeDays"], 412)
+        self.assertIs(record["snapshotFaydaVerified"], True)
+        self.assertEqual(record["snapshotRole"], "farmer")
+        self.assertEqual(record["snapshotCompletedEscrows"], 9)
+        self.assertIs(record["snapshotCompletedEscrowsPartial"], False)
+
+    def test_a_label_without_a_snapshot_has_empty_snapshot_columns(self):
+        record = eol.to_record(label_row())
+        for name in eol.COLUMNS:
+            if name.startswith("snapshot"):
+                self.assertIsNone(record[name], name)
+        # What the trigger script of the FRD-20 record tests.
+        self.assertFalse(record.get("snapshotVersion"))
+
+    def test_units_that_are_not_type_codes_to_counts_stop_the_export(self):
+        for units in ({"+251911223344": 1}, {"call Abebe": 1}, {"PRICE_ANOMALY": "many"}):
+            row = label_row(case="fraud_signal", **snapshot_fields())
+            row["snapshotSignalUnits"] = {"M": {k: ({"N": str(v)} if isinstance(v, int) else S(v)) for k, v in units.items()}}
+            with self.assertRaises(eol.ExportError, msg=units):
+                eol.to_record(row)
+        row = label_row(case="fraud_signal", **snapshot_fields())
+        row["snapshotSignalUnits"] = S("PRICE_ANOMALY")
+        with self.assertRaises(eol.ExportError):
+            eol.to_record(row)
+
+    def test_a_phone_in_the_role_stops_the_export(self):
+        row = label_row(case="fraud_signal", **snapshot_fields())
+        row["snapshotRole"] = S("0911223344")
+        with self.assertRaises(eol.ExportError):
+            eol.to_record(row)
+
+    def test_jsonl_keeps_the_units_a_map_and_csv_joins_them(self):
+        with_snapshot = label_row(case="fraud_signal", case_id="sig-1", outcome="fraud_confirmed", **snapshot_fields())
+        without = label_row(case="fraud_signal", case_id="sig-2", outcome="false_positive",
+                            labelled_at="2026-11-03T08:00:00Z")
+        out, err = io.StringIO(), io.StringIO()
+        code = eol.main(["--env", "dev"], run=FakeAws({"Items": [with_snapshot, without]}), stdout=out, stderr=err)
+        self.assertEqual(code, 0)
+        first, second = [json.loads(line) for line in out.getvalue().splitlines()]
+        self.assertEqual(first["snapshotSignalUnits"], {"PRICE_ANOMALY": 2, "SELF_TRADE": 1})
+        self.assertEqual(first["snapshotVersion"], 1)
+        self.assertIsNone(second["snapshotVersion"])
+
+        out = io.StringIO()
+        code = eol.main(["--env", "dev", "--format", "csv"], run=FakeAws({"Items": [with_snapshot, without]}),
+                        stdout=out, stderr=io.StringIO())
+        self.assertEqual(code, 0)
+        rows = list(csv.DictReader(io.StringIO(out.getvalue())))
+        self.assertEqual(rows[0]["snapshotSignalUnits"], "PRICE_ANOMALY:2;SELF_TRADE:1")
+        self.assertEqual(rows[0]["snapshotVersion"], "1")
+        self.assertEqual(rows[0]["snapshotTruncated"], "false")
+        self.assertEqual(rows[0]["snapshotFaydaVerified"], "true")
+        self.assertEqual(rows[0]["snapshotAccountAgeDays"], "412")
+        self.assertEqual(rows[0]["snapshotRole"], "farmer")
+        for name in eol.COLUMNS:
+            if name.startswith("snapshot"):
+                self.assertEqual(rows[1][name], "", name)
+        self.assertEqual(rows[1]["hasReason"], "true")
+        self.assertEqual(rows[1]["final"], "true")
+
+
 class MainTest(unittest.TestCase):
     def run_main(self, argv, fake=None):
         out, err = io.StringIO(), io.StringIO()

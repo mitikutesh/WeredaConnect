@@ -154,4 +154,83 @@ public class OutcomeLabelWriterTests
     {
         OutcomeLabels.FraudOutcome(action).Should().Be(outcome);
     }
+
+    // FRD-20 P1: the feature snapshot attributes.
+
+    [Fact]
+    public void ASnapshot_IsStoredAsCountsCodesAndAges_UnderItsVersion()
+    {
+        var entry = OutcomeLabelWriter.BuildEntry(Label() with
+        {
+            Snapshot = new LabelFeatureSnapshot
+            {
+                SignalUnits = new Dictionary<string, int> { ["PRICE_ANOMALY"] = 3, ["SELF_TRADE"] = 1 },
+                CreditUnits = 2,
+                CreditPoints = 10,
+                Truncated = true,
+                WindowDays = 30,
+                AccountAgeDays = 12,
+                FaydaVerified = false,
+                Role = "buyer",
+                CompletedEscrows = 0,
+                CompletedEscrowsPartial = false
+            }
+        }, Admin);
+
+        entry["snapshotVersion"].Should().Be(OutcomeLabels.SnapshotVersion);
+        entry["snapshotWindowDays"].Should().Be(30);
+        entry["snapshotSignalUnits"].Should().BeAssignableTo<IDictionary<string, object>>()
+            .Which.Should().BeEquivalentTo(new Dictionary<string, object> { ["PRICE_ANOMALY"] = 3, ["SELF_TRADE"] = 1 });
+        entry["snapshotCreditUnits"].Should().Be(2);
+        entry["snapshotCreditPoints"].Should().Be(10);
+        entry["snapshotTruncated"].Should().Be(true);
+        entry["snapshotAccountAgeDays"].Should().Be(12);
+        entry["snapshotFaydaVerified"].Should().Be(false);
+        entry["snapshotRole"].Should().Be("buyer");
+        entry["snapshotCompletedEscrows"].Should().Be(0);
+        entry["snapshotCompletedEscrowsPartial"].Should().Be(false);
+        entry["labelVersion"].Should().Be(OutcomeLabels.SchemaVersion);
+
+        // The map reaches DynamoDB as a map of numbers.
+        var stored = WeredaConnect.Server.Data.DynamoDbHelper.ToAttributeValue(entry["snapshotSignalUnits"]);
+        stored.M["PRICE_ANOMALY"].N.Should().Be("3");
+    }
+
+    [Fact]
+    public void ASnapshotWithoutControls_LeavesThemOut_AndALabelWithoutASnapshotHasNoSnapshotField()
+    {
+        var entry = OutcomeLabelWriter.BuildEntry(Label() with
+        {
+            Snapshot = new LabelFeatureSnapshot { SignalUnits = new Dictionary<string, int>(), WindowDays = 30 }
+        }, Admin);
+
+        entry.Should().ContainKeys("snapshotVersion", "snapshotSignalUnits", "snapshotCreditUnits", "snapshotTruncated");
+        entry.Should().NotContainKeys("snapshotAccountAgeDays", "snapshotFaydaVerified", "snapshotRole",
+            "snapshotCompletedEscrows", "snapshotCompletedEscrowsPartial");
+
+        OutcomeLabelWriter.BuildEntry(Label(), Admin).Keys
+            .Should().NotContain(k => k.StartsWith("snapshot", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ASignalTypeThatIsNotAPlainCode_IsCountedAsOther_SoNoTextReachesTheRow()
+    {
+        var entry = OutcomeLabelWriter.BuildEntry(Label() with
+        {
+            Snapshot = new LabelFeatureSnapshot
+            {
+                SignalUnits = new Dictionary<string, int>
+                {
+                    ["PRICE_ANOMALY"] = 1,
+                    ["+251911000001"] = 2,
+                    ["call Abebe"] = 1,
+                    [""] = 1
+                },
+                WindowDays = 30
+            }
+        }, Admin);
+
+        entry["snapshotSignalUnits"].Should().BeAssignableTo<IDictionary<string, object>>()
+            .Which.Should().BeEquivalentTo(new Dictionary<string, object> { ["PRICE_ANOMALY"] = 1, ["OTHER"] = 4 });
+    }
 }
