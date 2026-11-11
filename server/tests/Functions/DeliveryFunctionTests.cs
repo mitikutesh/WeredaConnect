@@ -1444,6 +1444,21 @@ public class DeliveryFunctionTests
         Assert.Contains("type", response.Body, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("{\"sizeBytes\":120000}")]
+    [InlineData("{\"type\":null,\"sizeBytes\":120000}")]
+    public async Task HandleUploadPhoto_AbsentOrNullType_AnswersTheTypeField(string body)
+    {
+        // FUP-127 audit: UploadPhotoRequest.Type is required without an initializer; absent or null
+        // it is answered as the type field, not as a JSON error.
+        var response = await _function.FunctionHandler(
+            MakePhotoUploadRequest("trucker-001", "delivery-001", body), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"DELIVERY_VALIDATION\"", response.Body);
+        Assert.Contains("\"field\":\"type\"", response.Body);
+    }
+
     [Fact]
     public async Task HandleUploadPhoto_InvalidType_Returns400()
     {
