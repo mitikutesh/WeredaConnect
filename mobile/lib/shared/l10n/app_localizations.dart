@@ -5878,6 +5878,12 @@ abstract class AppLocalizations {
   /// **'Deleted user'**
   String get deletedUser;
 
+  /// A noun shown where a person's name belongs when the app has no name for them and cannot say their role (chat title, inbox row). Never a verb.
+  ///
+  /// In en, this message translates to:
+  /// **'User'**
+  String get unnamedUser;
+
   /// ESC-15 order status awaiting_transport: the trucker cannot carry a paid order and the buyer decides
   ///
   /// In en, this message translates to:

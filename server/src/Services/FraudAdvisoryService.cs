@@ -279,6 +279,7 @@ internal sealed class FraudAdvisoryService
 
         var dayKey = FraudAdvisory.DayKey(nowUtc);
         AdvisoryReviewRequest request;
+        IReadOnlyDictionary<string, string> labelMap;
         try
         {
             if (await HasAdvisoryAsync(userId, dayKey))
@@ -287,7 +288,7 @@ internal sealed class FraudAdvisoryService
                 return;
             }
 
-            request = await BuildRequestAsync(userId, score, riskSettings, nowUtc);
+            (request, labelMap) = await BuildRequestAsync(userId, score, riskSettings, nowUtc);
         }
         catch (Exception ex)
         {
@@ -325,7 +326,7 @@ internal sealed class FraudAdvisoryService
         try
         {
             var weight = FraudAdvisory.WeightFor(concern, riskSettings.AdvisoryCap);
-            if (await WriteAdvisoryAsync(userId, dayKey, weight, concern, explanation, reply!.Model, nowUtc))
+            if (await WriteAdvisoryAsync(userId, dayKey, weight, concern, explanation, reply!.Model, labelMap, nowUtc))
             {
                 summary.Written++;
                 Log($"{FraudAdvisory.WrittenToken} userId={MoneyAlarmLog.LogId(userId)} concern={concern} weight={weight} "
@@ -426,7 +427,11 @@ internal sealed class FraudAdvisoryService
         return response.Item is { Count: > 0 };
     }
 
-    private async Task<AdvisoryReviewRequest> BuildRequestAsync(
+    /// <summary>
+    /// The request for the reviewer and, apart from it, the label map for the advisory row (FUP-145). Only the
+    /// request is ever sent.
+    /// </summary>
+    private async Task<(AdvisoryReviewRequest Request, IReadOnlyDictionary<string, string> LabelMap)> BuildRequestAsync(
         string userId, RiskScoreResult score, RiskScoreSettings riskSettings, DateTime nowUtc)
     {
         var (signalRows, signalsTruncated) = await ReadSignalRowsAsync(userId, riskSettings, nowUtc);
@@ -441,8 +446,10 @@ internal sealed class FraudAdvisoryService
             eventsTruncated |= more;
         }
 
-        return FraudAdvisory.BuildTimeline(
-            userId, userRow, signalRows, signalsTruncated, events, eventsTruncated, score, riskSettings, nowUtc);
+        var request = FraudAdvisory.BuildTimeline(
+            userId, userRow, signalRows, signalsTruncated, events, eventsTruncated, score, riskSettings, nowUtc,
+            out var labelMap);
+        return (request, labelMap);
     }
 
     /// <summary>One page of the user's rows in the scoring window, newest first, only the attributes the timeline keeps.</summary>
@@ -547,11 +554,15 @@ internal sealed class FraudAdvisoryService
     /// <summary>
     /// The advisory row: a signal row (section 4.3 schema, <c>recordType</c> <c>signal</c>, <c>status</c>
     /// <c>pending</c>, so Fraud Review lists it and an admin can approve or reject it) of type <c>AI_ADVISORY</c>
-    /// with the capped weight, the explanation as its description, and <c>aiConcern</c> and <c>aiModel</c>. The put
-    /// is conditional on today's key; false when the row was already there.
+    /// with the capped weight, the explanation as its description, and <c>aiConcern</c> and <c>aiModel</c>. FUP-145:
+    /// <c>aiLabels</c> is the label map of the timeline the model saw (<c>order-1</c> to the real order id), written
+    /// here from server values only, so the admin can tell what the explanation cites; it is never logged and only
+    /// the admin Fraud Review list returns it. The put is conditional on today's key; false when the row was
+    /// already there.
     /// </summary>
     private async Task<bool> WriteAdvisoryAsync(
-        string userId, string dayKey, int weight, string concern, string explanation, string? model, DateTime nowUtc)
+        string userId, string dayKey, int weight, string concern, string explanation, string? model,
+        IReadOnlyDictionary<string, string> labelMap, DateTime nowUtc)
     {
         var item = new Dictionary<string, AttributeValue>
         {
@@ -578,6 +589,14 @@ internal sealed class FraudAdvisoryService
         if (FraudAdvisory.ModelLabel(model) is { } label)
         {
             item["aiModel"] = new AttributeValue { S = label };
+        }
+
+        if (labelMap.Count > 0)
+        {
+            item["aiLabels"] = new AttributeValue
+            {
+                M = labelMap.ToDictionary(entry => entry.Key, entry => new AttributeValue { S = entry.Value })
+            };
         }
 
         try

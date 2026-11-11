@@ -183,6 +183,26 @@ describe('FRD-19 AI advisory reviewer (ApiStack)', () => {
     });
   });
 
+  // FUP-145
+  test('aiReviewMaxPerRun unset leaves FRAUD_AI_REVIEW_MAX_PER_RUN off the cron (the server default of 5 stands)', () => {
+    for (const name of ['dev', 'staging', 'prod']) {
+      expect([name, environments[name].aiReviewMaxPerRun]).toEqual([name, undefined]);
+    }
+    expect(functionOf(template, CRON).props.Environment.Variables).not.toHaveProperty('FRAUD_AI_REVIEW_MAX_PER_RUN');
+  });
+
+  test('aiReviewMaxPerRun set reaches the cron as FRAUD_AI_REVIEW_MAX_PER_RUN, and never the reviewer', () => {
+    const capped = apiTemplate({ ...devConfig, aiReviewMaxPerRun: 12 });
+    expect(functionOf(capped, CRON).props.Environment.Variables.FRAUD_AI_REVIEW_MAX_PER_RUN).toBe('12');
+    expect(functionOf(capped, REVIEWER).props.Environment.Variables).not.toHaveProperty('FRAUD_AI_REVIEW_MAX_PER_RUN');
+  });
+
+  test.each([0, 21, 2.5, -1, Number.NaN])('aiReviewMaxPerRun %p fails the synth (outside 1 to 20)', (value) => {
+    expect(() => apiTemplate({ ...devConfig, aiReviewMaxPerRun: value })).toThrow(
+      /aiReviewMaxPerRun must be a whole number from 1 to 20/,
+    );
+  });
+
   test('the async invoke of the cron is never retried (a retry could call Bedrock again)', () => {
     template.hasResourceProperties('AWS::Lambda::EventInvokeConfig', {
       FunctionName: { Ref: functionOf(template, CRON).id },

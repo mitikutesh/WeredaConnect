@@ -2683,6 +2683,7 @@
   "deleteAccountBlockerOther": "Wantoota biroo hojii irra jiran: {count}",
   "deleteAccountBlockersMore": "Fi {count} dabalataa.",
   "deletedUser": "Fayyadamaa haqame",
+  "unnamedUser": "Fayyadamaa",
   "statusAwaitingTransport": "Geejjibni hin argamne",
   "statusAwaitingTransportInfo": "Konkolaataan fe'aa ajaja kana fe'uu hin danda'u. Maallaqni nageenyaan qabamee tura. Bitataan haquun maallaqa guutuu deebifachuu danda'a; yeroodhaan yoo hin murteessine ajajni ni haqama, maallaqni ni deebi'a.",
   "orderStatusUpdating": "Haaromfamaa jira",

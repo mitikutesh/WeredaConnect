@@ -68,6 +68,16 @@ internal static partial class FraudAdvisory
     internal const int MaxEventsPerEntity = 20;
     internal const int MaxEvents = 100;
 
+    /// <summary>
+    /// FUP-145: most entries of the label map kept on the advisory row (<c>aiLabels</c>). The timeline labels at
+    /// most <see cref="MaxSignals"/> signal entities and <see cref="MaxEntities"/> event entities, so the cap is
+    /// never reached; it bounds the row all the same.
+    /// </summary>
+    internal const int MaxLabels = 60;
+
+    /// <summary>FUP-145: the longest real id kept in the label map; a longer one is left out, never cut.</summary>
+    internal const int MaxLabelIdLength = 128;
+
     /// <summary>The entity kinds whose transaction audit events are read for the timeline.</summary>
     internal static readonly string[] EventEntityTypes = { "order", "delivery", "escrow" };
 
@@ -147,7 +157,27 @@ internal static partial class FraudAdvisory
         bool eventsTruncated,
         RiskScoreResult score,
         RiskScoreSettings riskSettings,
-        DateTime nowUtc)
+        DateTime nowUtc) =>
+        BuildTimeline(
+            userId, userRow, signalRows, signalsTruncated, events, eventsTruncated, score, riskSettings, nowUtc, out _);
+
+    /// <summary>
+    /// The redacted timeline, as the overload above builds it,
+    /// and, apart from the request, the label map (FUP-145): which real id each label of this timeline stands for
+    /// (<c>order-1</c> to the order id). The map is for the advisory row only, so an admin can tell what the
+    /// explanation cites. It is never part of the request, so it never reaches the reviewer or the model.
+    /// </summary>
+    internal static AdvisoryReviewRequest BuildTimeline(
+        string userId,
+        Dictionary<string, AttributeValue>? userRow,
+        IReadOnlyList<Dictionary<string, AttributeValue>> signalRows,
+        bool signalsTruncated,
+        IReadOnlyList<(string EntityType, string EntityId, IReadOnlyList<Dictionary<string, AttributeValue>> Events)> events,
+        bool eventsTruncated,
+        RiskScoreResult score,
+        RiskScoreSettings riskSettings,
+        DateTime nowUtc,
+        out IReadOnlyDictionary<string, string> labelMap)
     {
         var labels = new EntityLabels();
         var since = nowUtc.AddDays(-riskSettings.WindowDays).ToString("o", CultureInfo.InvariantCulture);
@@ -196,6 +226,7 @@ internal static partial class FraudAdvisory
             eventsTruncated = true;
         }
 
+        labelMap = labels.Map();
         return new AdvisoryReviewRequest
         {
             Subject = Subject(userRow, score, nowUtc),
@@ -289,6 +320,19 @@ internal static partial class FraudAdvisory
 
         return LongDigitRun().Replace(builder.ToString(), "[number]").Trim();
     }
+
+    /// <summary>
+    /// FUP-145: whether <paramref name="label"/> has the shape of a timeline label: a known kind, a hyphen and a
+    /// number of at most 4 digits (<c>order-1</c>). Checked when the map is read back from a row.
+    /// </summary>
+    internal static bool IsEntityLabel(string? label) => label != null && EntityLabel().IsMatch(label);
+
+    /// <summary>FUP-145: the kind in a timeline label (<c>order</c> of <c>order-1</c>).</summary>
+    internal static string LabelKind(string label) => label[..label.LastIndexOf('-')];
+
+    /// <summary>FUP-145: the number in a timeline label (1 of <c>order-1</c>), for the order of the list.</summary>
+    internal static int LabelNumber(string label) =>
+        int.Parse(label[(label.LastIndexOf('-') + 1)..], NumberStyles.None, CultureInfo.InvariantCulture);
 
     /// <summary>The model id kept on the row, as a server value.</summary>
     internal static string? ModelLabel(string? model) => string.IsNullOrEmpty(model) ? null : Token(model, 96);
@@ -405,6 +449,9 @@ internal static partial class FraudAdvisory
     [GeneratedRegex(@"\d{9,}")]
     private static partial Regex LongDigitRun();
 
+    [GeneratedRegex(@"^(order|delivery|escrow|crop|trip|user|entity)-[0-9]{1,4}$")]
+    private static partial Regex EntityLabel();
+
     /// <summary>Pseudonymous entity labels, numbered per kind in first-appearance order, for one request.</summary>
     private sealed class EntityLabels
     {
@@ -424,6 +471,29 @@ internal static partial class FraudAdvisory
             label = $"{kind}-{next.ToString(CultureInfo.InvariantCulture)}";
             _labels[entityId] = label;
             return label;
+        }
+
+        /// <summary>
+        /// FUP-145: label to real id, in first-appearance order, at most <see cref="MaxLabels"/> entries; an id
+        /// longer than <see cref="MaxLabelIdLength"/> is left out.
+        /// </summary>
+        public IReadOnlyDictionary<string, string> Map()
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var (entityId, label) in _labels)
+            {
+                if (map.Count == MaxLabels)
+                {
+                    break;
+                }
+
+                if (entityId.Length <= MaxLabelIdLength)
+                {
+                    map[label] = entityId;
+                }
+            }
+
+            return map;
         }
     }
 }

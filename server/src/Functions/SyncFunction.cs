@@ -4173,10 +4173,12 @@ public partial class SyncFunction
             return $"The {partyLabel} profile could not be read. Please try again later.";
         }
 
-        var orderName = order.TryGetValue(nameKey, out var on) ? on?.ToString() : null;
+        // FUP-130: an order written before the fix may hold the party's id where the name
+        // belongs; that is no name.
+        var orderName = PartyName.OrEmpty(order.TryGetValue(nameKey, out var on) ? on?.ToString() : null, partyId);
         var name = !string.IsNullOrWhiteSpace(party.DisplayName) ? party.DisplayName
             : !string.IsNullOrWhiteSpace(party.FullName) ? party.FullName
-            : !string.IsNullOrWhiteSpace(orderName) ? orderName
+            : orderName.Length > 0 ? orderName
             : null;
         if (name == null)
         {
@@ -8911,7 +8913,8 @@ public partial class SyncFunction
     /// <summary>
     /// SIM-05: bind an order create to the listing it references (existence is checked
     /// by the caller). Returns an error message without the code prefix, or null when
-    /// clean. Overwrites farmerName from the listing so the client cannot spoof it.
+    /// clean. Overwrites farmerName from the listing so the client cannot spoof it
+    /// (empty when the listing has no real name, FUP-130).
     /// </summary>
     private static string? BindOrderToListing(
         Dictionary<string, object> data, Dictionary<string, object> listing, string? buyerId)
@@ -8958,10 +8961,11 @@ public partial class SyncFunction
                 + $"the listing stock ({stockKg.ToString("0.##", CultureInfo.InvariantCulture)} kg).";
         }
 
-        if (listing.TryGetValue("farmerName", out var lfn) && !string.IsNullOrWhiteSpace(lfn?.ToString()))
-        {
-            data["farmerName"] = lfn.ToString()!;
-        }
+        // FUP-130: always the listing's name, never the client's copy (apps used to send the
+        // farmer's id when the listing had no name). A listing without a real name leaves the
+        // field empty and the apps show their own label; the field stays on the row because
+        // released apps read it as a string.
+        data["farmerName"] = PartyName.OrEmpty(listing.GetValueOrDefault("farmerName")?.ToString(), listingFarmerId);
 
         // The farm's place for the trip bookings row (order-lifecycle 2.2.0), from the read this
         // bind already makes; a listing without one leaves the field off the row.
@@ -9051,9 +9055,16 @@ public partial class SyncFunction
                 + $"({transportCost.ToString("0.00", CultureInfo.InvariantCulture)} ETB).";
         }
 
-        if (trip.TryGetValue("truckerName", out var tn) && !string.IsNullOrEmpty(tn.S))
+        // FUP-130: always the trip's name, never the client's copy. truckerName is optional on
+        // an order, so a trip without a real name leaves it off the row.
+        var tripTruckerName = PartyName.OrEmpty(AttrString(trip, "truckerName"), tripTruckerId);
+        if (tripTruckerName.Length > 0)
         {
-            data["truckerName"] = tn.S;
+            data["truckerName"] = tripTruckerName;
+        }
+        else
+        {
+            data.Remove("truckerName");
         }
 
         return null;

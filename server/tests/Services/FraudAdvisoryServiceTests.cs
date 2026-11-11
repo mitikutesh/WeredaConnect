@@ -283,12 +283,41 @@ public class FraudAdvisoryServiceTests
         item["description"].S.Should().Be("Probes other users' orders. Then pays just under the KYC line.");
         item["entityType"].S.Should().Be("user");
         item.Should().NotContainKey("entityId");
+
+        // FUP-145: the row keeps what each label stands for; the request, the reply and the logs never do.
+        var labels = item["aiLabels"].M;
+        labels.Should().HaveCount(2);
+        labels["order-1"].S.Should().Be("ord-of-buyer-1");
+        labels["delivery-1"].S.Should().Be("del-of-buyer-1");
+        sent.Should().NotContain("aiLabels");
+        _log.Should().NotContain(l => l.Contains("ord-of-") || l.Contains("del-of-"));
         item["createdAt"].S.Should().Be("2026-11-07T14:30:00.0000000Z");
         item["expiresAt"].N.Should().Be(new DateTimeOffset(Now).AddDays(30).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
 
         _log.Should().Contain("{\"event\":\"FRAUD_SIGNAL_RECORDED\",\"signalType\":\"AI_ADVISORY\",\"entityType\":\"user\"}");
         _log.Should().Contain(l => l.StartsWith("FRAUD_AI_REVIEW_WRITTEN userId=buyer-1 concern=high weight=10"));
         _log.Last().Should().StartWith("FRAUD_AI_REVIEW_RUN outcome=ok candidates=1");
+    }
+
+    [Fact]
+    public async Task ATimelineWithoutEntities_WritesNoLabelMap()
+    {
+        Candidates("buyer-1");
+        ScoreOf("buyer-1", 75, 75, RiskTier.High);
+        _ddb.QueryAsync(Arg.Is<QueryRequest>(q => q.TableName == FraudTable && q.IndexName == null), Arg.Any<CancellationToken>())
+            .Returns(Page(new[]
+            {
+                new Dictionary<string, AttributeValue>
+                {
+                    { "signalKey", new AttributeValue { S = $"{Now.AddHours(-1).ToString("o", CultureInfo.InvariantCulture)}#ROLE_FORBIDDEN" } },
+                    { "signalType", new AttributeValue { S = "ROLE_FORBIDDEN" } },
+                    { "status", new AttributeValue { S = "pending" } }
+                }
+            }));
+
+        await RunAsync(Service());
+
+        Puts.Should().ContainSingle().Which.Item.Should().NotContainKey("aiLabels");
     }
 
     [Fact]

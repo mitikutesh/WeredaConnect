@@ -3273,6 +3273,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deletedUser => 'Deleted user';
 
   @override
+  String get unnamedUser => 'User';
+
+  @override
   String get statusAwaitingTransport => 'Transport fell through';
 
   @override

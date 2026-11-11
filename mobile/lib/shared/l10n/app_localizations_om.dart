@@ -3303,6 +3303,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get deletedUser => 'Fayyadamaa haqame';
 
   @override
+  String get unnamedUser => 'Fayyadamaa';
+
+  @override
   String get statusAwaitingTransport => 'Geejjibni hin argamne';
 
   @override

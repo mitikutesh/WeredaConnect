@@ -155,6 +155,13 @@ export interface EnvironmentConfig {
    * timeline in EU Regions (the decision record's option 3; still off until the owner decides).
    */
   readonly aiReviewBedrockRegion?: string;
+  /**
+   * FRD-19 (FUP-145): the most reviews one hourly run may send to the model, FRAUD_AI_REVIEW_MAX_PER_RUN on the
+   * fraud-advisory cron. A whole number from 1 to 20 (the server's cap); synth fails on anything else. Unset, the
+   * variable is not set and the server keeps its default of 5. With one review per user and UTC day it bounds the
+   * spend: at most 24 times this many reviews a day.
+   */
+  readonly aiReviewMaxPerRun?: number;
 }
 
 export const environments: Record<string, EnvironmentConfig> = {

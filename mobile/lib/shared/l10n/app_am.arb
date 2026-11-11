@@ -2690,6 +2690,7 @@
   "deleteAccountBlockerOther": "ሌሎች በሂደት ላይ ያሉ ነገሮች፦ {count}",
   "deleteAccountBlockersMore": "እና {count} ተጨማሪ።",
   "deletedUser": "የተሰረዘ ተጠቃሚ",
+  "unnamedUser": "ተጠቃሚ",
   "statusAwaitingTransport": "ማጓጓዣ አልተገኘም",
   "statusAwaitingTransportInfo": "የጭነት መኪና ሹፌሩ ይህን ትዕዛዝ ማጓጓዝ አልቻለም። ገንዘቡ በጥንቃቄ ተይዞ ይቆያል። ገዢው ሰርዘው ገንዘቡን ሙሉ በሙሉ ማስመለስ ይችላሉ፤ በጊዜው ካልወሰኑ ትዕዛዙ ተሰርዞ ገንዘቡ ይመለሳል።",
   "orderStatusUpdating": "በመዘመን ላይ",

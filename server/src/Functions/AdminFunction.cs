@@ -3650,8 +3650,45 @@ public partial class AdminFunction
             CreatedAt = GetString(item, "createdAt"),
             OrderId = SignalOrderId(GetStringOrNull(item, "entityType"), GetStringOrNull(item, "entityId")),
             AiConcern = GetStringOrNull(item, "aiConcern"),
-            AiModel = GetStringOrNull(item, "aiModel")
+            AiModel = GetStringOrNull(item, "aiModel"),
+            AiLabels = AdvisoryLabels(item)
         };
+    }
+
+    /// <summary>
+    /// FUP-145: the label map of an <c>AI_ADVISORY</c> row (<c>aiLabels</c>), by kind and number. Only on an advisory
+    /// row, only entries shaped like a timeline label with a string id, at most
+    /// <see cref="FraudAdvisory.MaxLabels"/>. Null without a usable map (every row written before the map was kept).
+    /// </summary>
+    private static List<FraudAdvisoryLabelDto>? AdvisoryLabels(Dictionary<string, object> item)
+    {
+        if (GetStringOrNull(item, "signalType") != FraudDetectionService.AdvisorySignalType
+            || !item.TryGetValue("aiLabels", out var raw)
+            || raw is not Dictionary<string, object> map)
+        {
+            return null;
+        }
+
+        var labels = map
+            .Where(entry => FraudAdvisory.IsEntityLabel(entry.Key)
+                            && entry.Value is string { Length: > 0 and <= FraudAdvisory.MaxLabelIdLength })
+            .OrderBy(entry => FraudAdvisory.LabelKind(entry.Key), StringComparer.Ordinal)
+            .ThenBy(entry => FraudAdvisory.LabelNumber(entry.Key))
+            .Take(FraudAdvisory.MaxLabels)
+            .Select(entry =>
+            {
+                var kind = FraudAdvisory.LabelKind(entry.Key);
+                var id = (string)entry.Value;
+                return new FraudAdvisoryLabelDto
+                {
+                    Label = entry.Key,
+                    EntityType = kind,
+                    EntityId = id,
+                    OrderId = SignalOrderId(kind, id)
+                };
+            })
+            .ToList();
+        return labels.Count > 0 ? labels : null;
     }
 
     /// <summary>The key prefix of an order escrow (<c>escrow-order-{orderId}</c>, deterministic since ESC-01).</summary>

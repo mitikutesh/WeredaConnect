@@ -3541,6 +3541,73 @@ public partial class SyncFunctionTests
 
     // --- SIM-05: order create is bound to the server's listing and trip records ---
 
+    // FUP-130: older apps send the farmer's id as farmerName when the listing has no name.
+    // The order never stores it: the name is the listing's, or empty (the field stays, since
+    // released apps read it as a string).
+    [Theory]
+    [InlineData(null)]
+    [InlineData("  ")]
+    [InlineData("farmer-001")]
+    [InlineData("3f2c1a9e-7b44-4c1d-9a55-0d6e8f1b2c3d")]
+    public async Task OrderCreate_ListingWithoutRealFarmerName_StoresEmptyName_NotTheId(string? listingName)
+    {
+        var listing = new Dictionary<string, object>
+        {
+            { "cropId", "listing-001" }, { "listingId", "listing-001" }, { "farmerId", "farmer-001" },
+            { "cropType", "teff" }, { "quantity", 10.0 }, { "pricePerKg", 45.5 },
+            { "status", "available" }, { "version", "1" }
+        };
+        if (listingName != null)
+        {
+            listing["farmerName"] = listingName;
+        }
+
+        _mockCropRepo.GetByIdAsync("listing-001").Returns(listing);
+        SetupOrderCreateSucceeds();
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "farmerName", "farmer-001" }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        Assert.Equal(string.Empty, _createdOrder!["farmerName"]);
+    }
+
+    // FUP-130: the same for the trucker. truckerName is optional on an order, so a trip without
+    // a real name leaves it off the row instead of keeping the client's copy.
+    [Fact]
+    public async Task OrderCreate_TripNameIsTheTruckerId_DropsTruckerName()
+    {
+        SetupListing();
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>()).Returns(new QueryResponse
+        {
+            Items = new List<Dictionary<string, AttributeValue>>
+            {
+                new()
+                {
+                    { "tripId", new AttributeValue { S = "trip-001" } },
+                    { "truckerId", new AttributeValue { S = "trucker-001" } },
+                    { "truckerName", new AttributeValue { S = "trucker-001" } },
+                    { "status", new AttributeValue { S = "open" } },
+                    { "pricePerQuintal", new AttributeValue { N = "120" } },
+                    { "version", new AttributeValue { N = "1" } }
+                }
+            }
+        });
+        SetupOrderCreateSucceeds();
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "tripId", "trip-001" }, { "truckerId", "trucker-001" }, { "truckerName", "trucker-001" }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        Assert.False(_createdOrder!.ContainsKey("truckerName"));
+    }
+
     [Fact]
     public async Task OrderCreate_Valid_ComputesMoneyFromListingAndTrip()
     {
@@ -5183,6 +5250,28 @@ public partial class SyncFunctionTests
 
         await ReceivedDeliveryWrite(item =>
             item["farmerName"].S == "Abebe Kebede Lemma");
+    }
+
+    // FUP-130: an order written before the fix may hold the farmer's id as farmerName.
+    // That is no name, so the delivery never copies it.
+    [Fact]
+    public async Task DeliveryCreate_OrderNameIsThePartyId_IsNotUsedAsTheName()
+    {
+        _mockOrderRepo.GetByIdAsync(TestOrderId).Returns(new Dictionary<string, object>
+        {
+            { "orderId", TestOrderId }, { "buyerId", TestBuyerId }, { "farmerId", TestFarmerId },
+            { "farmerName", TestFarmerId }, { "truckerId", TestTruckerId },
+            { "listingId", TestListingId }, { "tripId", TestTripId },
+            { "status", "accepted" }, { "version", "1" }
+        });
+        SetupOrderTrip();
+        SetupDeliveryPartyProfiles(farmerDisplayName: null);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("farmer has no name", response.Body);
+        await DidNotWriteDelivery();
     }
 
     // SIM-46: no name anywhere must not fall back to the client value.

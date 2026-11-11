@@ -43,4 +43,8 @@ npm run build   # node --check of every file
 npm test        # node --test with a fake Bedrock; no AWS call
 ```
 
-CI does not run these (like `tools/fayda-mock`); the cron validates every answer again in C#, under CI.
+CI does not run these (like `tools/fayda-mock`); the cron validates every answer again in C#, under CI. Run them
+after every change in this folder (`.ai/testing.md`, section "AI Advisory Reviewer").
+
+The request never carries the label map (`aiLabels`, FUP-145): the cron keeps it for the advisory row, and the
+allow-list in `src/review.js` would drop such a field anyway.

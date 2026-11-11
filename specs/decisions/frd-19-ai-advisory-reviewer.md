@@ -96,6 +96,8 @@ Sent to the model (built by `FraudAdvisory.BuildTimeline`, checked again by the 
 - per signal row (at most 50): time, type, class (hard, soft), weight, review status and resolution, and a pseudonymous label of its entity (`order-1`);
 - per transaction audit event of the signals' orders, deliveries and escrows (at most 20 per entity, 8 entities, 100 in all): time, entity label and kind, action, from and to state, the actor's role, and whether the actor is the reviewed user (`self`), another user (`other`), an admin or the system.
 
+Kept on our side only (FUP-145): the map from each label to the real id (`aiLabels` on the advisory row), so the admin can tell which order the explanation means by `order-1`. The cron writes it to DynamoDB with the row; it is not part of the request, is never logged, and only the admin Fraud Review API returns it.
+
 Never sent, and never read into the timeline: user ids, names, phone numbers, Fayda FIN or FAN, counterparty ids, record ids, signal descriptions, audit metadata, IP addresses, correlation ids, GPS points, amounts, crop names, woreda names, or any free text. The Queries project only the attributes above (the users row read is projected to `role`, `createdAt`, `faydaVerified`). Every value is cut to `[A-Za-z0-9_.:-]`, so no text can carry instructions to the model. The reviewer refuses (`invalid_input`, no call) any timeline holding a run of 9 or more digits, a second check against a phone number or an id slipping through. The model's explanation is cleaned before it is stored: control and bidirectional characters dropped, at most 600 characters, runs of 9 or more digits replaced by `[number]`.
 
 Bedrock: model providers have no access to prompts and completions (AWS data protection page). Cross-Region inference may process the request in any destination Region of the profile, and prompts may be stored in opt-in destination Regions for abuse detection (AWS inference profiles page). Model invocation logging stays off in the account (it is off by default); turning it on would store the timelines in the logging destination. Logs: neither Lambda logs the timeline or the explanation; the reviewer logs the outcome, model and token counts, the cron the user id (as every fraud log line does), concern and weight.
@@ -120,7 +122,7 @@ A failed review is retried by the next hourly run while the user's new signal is
 
 - `aiReviewEnabled` in `environments.ts` (true in dev, false in staging and prod) sets `FRAUD_AI_REVIEW_ENABLED` on the cron, `AI_REVIEW_ENABLED` on the reviewer, and the hourly rule's state: off, the rule is disabled and nothing runs. Either Lambda's switch off stops every Bedrock call, also for a run invoked by hand.
 - Emergency stop without a deploy: set the reviewer's reserved concurrency to 0 in the console (every invocation is throttled, the cron logs the failures and writes nothing), or disable the EventBridge rule `wereda-connect-<env>-fraud-advisory-hourly`.
-- `FRAUD_AI_REVIEW_MAX_PER_RUN` (default 5, at most 20) and one review per user and UTC day bound the spend; `FRAUD_AI_REVIEW_LOOKBACK_HOURS` (default 2, at most 24).
+- `FRAUD_AI_REVIEW_MAX_PER_RUN` (default 5, at most 20; `aiReviewMaxPerRun` in `environments.ts` since FUP-145, unset in every environment, and a value outside 1 to 20 fails the synth) and one review per user and UTC day bound the spend; `FRAUD_AI_REVIEW_LOOKBACK_HOURS` (default 2, at most 24).
 
 ## Rollout
 
@@ -140,6 +142,6 @@ Turn `aiReviewEnabled` off and deploy (or the emergency stops above). Advisory r
 
 ## Accepted trade-offs
 
-- The reviewer's tests run with `node --test` locally (`cd server/fraud-ai-reviewer && npm test`); CI runs the C# side only, as for `tools/fayda-mock`. The C# side validates every answer again, so the checks that guard the stored row run in CI.
+- The reviewer's tests run with `node --test` locally (`cd server/fraud-ai-reviewer && npm test`, documented in `.ai/testing.md`); running them in CI is one workflow step that waits for the owner's approval (FUP-145). CI runs the C# side only, as for `tools/fayda-mock`. The C# side validates every answer again, so the checks that guard the stored row run in CI.
 - The day key leaves the scoring window up to a day before its TTL, as the hour key of other rows does by up to an hour.
 - The model's answer is advice in English only; the admin app labels it as AI advice in all three languages.

@@ -3171,6 +3171,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get deletedUser => 'የተሰረዘ ተጠቃሚ';
 
   @override
+  String get unnamedUser => 'ተጠቃሚ';
+
+  @override
   String get statusAwaitingTransport => 'ማጓጓዣ አልተገኘም';
 
   @override

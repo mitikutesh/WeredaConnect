@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/message.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/messaging/domain/conversation_context_resolver.dart';
@@ -210,13 +211,18 @@ class _ArrivalBanner extends StatelessWidget {
 
     final single = messages.map((m) => m.conversationId).toSet().length == 1;
     final last = messages.last;
-    final sender = last.senderName?.trim();
+    // Names as the other screens show them: never an id (FUP-130).
+    final sender = partyDisplayName(last.senderName, l10n).trim();
     final title = single
-        ? (sender != null && sender.isNotEmpty ? sender : l10n.newMessage)
+        ? (sender.isNotEmpty ? sender : l10n.newMessage)
         : l10n.newMessagesCount(messages.length);
     final preview = single
         ? last.body
-        : messages.map((m) => m.senderName ?? '').toSet().join(', ');
+        : messages
+            .map((m) => partyDisplayName(m.senderName, l10n).trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .join(', ');
 
     return Positioned(
       top: 0,

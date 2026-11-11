@@ -415,6 +415,7 @@
     "aiConcern_medium": "Medium",
     "aiConcern_high": "High",
     "aiModel": "Model: {model}",
+    "aiLabels": "What the labels stand for",
     "scoreBreakdown": "Rules {rules} + AI advice {ai}. Critical is decided by the rules alone.",
     "loadMore": "Load more",
     "loadFailed": "This list could not be loaded. Reload the page.",

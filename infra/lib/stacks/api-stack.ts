@@ -2211,6 +2211,15 @@ export class ApiStack extends cdk.Stack {
     const aiReviewEnabled = envConfig.aiReviewEnabled ? "true" : "false";
     const aiReviewModelId = envConfig.aiReviewModelId ?? "eu.anthropic.claude-opus-5-5";
     const aiReviewBedrockRegion = envConfig.aiReviewBedrockRegion ?? this.region;
+    // FUP-145: the per-run review cap, only when the environment names one (the server defaults to 5 and
+    // ignores a value outside 1 to 20, so a bad value fails here instead of silently meaning 5).
+    const aiReviewMaxPerRun = envConfig.aiReviewMaxPerRun;
+    if (
+      aiReviewMaxPerRun !== undefined &&
+      (!Number.isInteger(aiReviewMaxPerRun) || aiReviewMaxPerRun < 1 || aiReviewMaxPerRun > 20)
+    ) {
+      throw new Error(`aiReviewMaxPerRun must be a whole number from 1 to 20, got ${aiReviewMaxPerRun}`);
+    }
     const aiReviewerName = `${prefix}-fraud-ai-reviewer`;
 
     const aiReviewerLogGroup = new logs.LogGroup(this, "FraudAiReviewerLogGroup", {
@@ -2283,6 +2292,7 @@ export class ApiStack extends cdk.Stack {
         TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
         FRAUD_AI_REVIEW_ENABLED: aiReviewEnabled,
         FRAUD_AI_REVIEWER_FUNCTION: aiReviewerFn.functionName,
+        ...(aiReviewMaxPerRun !== undefined ? { FRAUD_AI_REVIEW_MAX_PER_RUN: String(aiReviewMaxPerRun) } : {}),
       },
       // Reviews start in the first two minutes; one more reviewer call (40 s at most) and the summary fit after.
       timeout: cdk.Duration.minutes(3),

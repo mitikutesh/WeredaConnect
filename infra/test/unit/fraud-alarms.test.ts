@@ -487,6 +487,10 @@ describe('FRD-16: risk alarms (FUP-62)', () => {
     expect(serverSource('Services/EscrowService.cs')).toContain('AlarmLog(MoneyAlarmLog.RiskHoldOrderMismatch(');
     const cron = serverSource('Functions/EscrowCronFunction.cs');
     expect(cron).toContain('MoneyAlarmLog.RiskTableUnconfigured(');
-    expect(cron).toContain('CleanDeliveryCreditFailedToken = "CLEAN_DELIVERY_CREDIT_FAILED"');
+    // FUP-137 moved the literal into the service; the cron aliases it and still writes it.
+    expect(serverSource('Services/CleanDeliveryCreditService.cs')).toContain(
+      'CreditFailedToken = "CLEAN_DELIVERY_CREDIT_FAILED"'
+    );
+    expect(cron).toContain('CleanDeliveryCreditFailedToken = CleanDeliveryCreditService.CreditFailedToken');
   });
 });

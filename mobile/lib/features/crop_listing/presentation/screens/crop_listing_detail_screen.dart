@@ -573,18 +573,16 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     }
   }
 
+  /// The farmer's name for the order: the listing's, else the cached
+  /// profile's (phone only), else empty. Never the id (FUP-130): the server
+  /// stamps the name it knows and the screens label an unnamed farmer.
   Future<String> _lookupFarmerName(String farmerId) async {
-    // Use farmerName from the listing if available
-    if (widget.listing.farmerName.isNotEmpty) {
-      return widget.listing.farmerName;
-    }
-    if (kIsWeb) {
-      return farmerId;
-    }
+    final listed = partyNameToStore(widget.listing.farmerName);
+    if (listed.isNotEmpty || kIsWeb) return listed;
     final isar = IsarService.instance.db;
     final farmer =
         await isar.users.filter().userIdEqualTo(farmerId).findFirst();
-    return farmer?.name ?? farmerId;
+    return partyNameToStore(farmer?.name);
   }
 }
 

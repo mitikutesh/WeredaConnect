@@ -257,6 +257,38 @@ void main() {
           .called(1);
     });
 
+    // FUP-130: an order without a real farmer name (empty, or an old row
+    // holding the id) never sends the id as the delivery's farmerName.
+    for (final stored in ['', '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b']) {
+      testWidgets(
+          'trucker create with farmerName "$stored" sends an empty name, '
+          'not an id', (tester) async {
+        stubAuth(UserRole.trucker, _truckerId);
+        await tester.pumpWidget(
+          buildScreen(
+            _makeOrder(
+              tripId: _tripId,
+              truckerId: _truckerId,
+              truckerName: 'Trucker Tesfaye',
+            )..farmerName = stored,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final button = find.text('Create Delivery');
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pump();
+
+        final sent = verify(() => deliveryBloc.add(captureAny()))
+            .captured
+            .whereType<CreateDelivery>()
+            .single;
+        expect(sent.farmerName, '');
+        expect(sent.farmerId, _farmerId);
+      });
+    }
+
     testWidgets(
         'buyer with no trucker sees "Collect it myself" once accepted '
         'and tapping dispatches CreateSelfPickupDelivery', (tester) async {

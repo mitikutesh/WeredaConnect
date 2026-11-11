@@ -193,7 +193,12 @@ class _ConversationViewState extends State<_ConversationView> {
             senderId: widget.me,
             senderName: widget.myName,
             recipientId: widget.counterpartId,
-            recipientName: widget.counterpartName,
+            // Stored on the local row until the server stamps the real
+            // name; an id is never kept as one (FUP-130).
+            recipientName: switch (partyNameToStore(widget.counterpartName)) {
+              '' => null,
+              final name => name,
+            },
             body: text,
           ),
         );
@@ -203,9 +208,9 @@ class _ConversationViewState extends State<_ConversationView> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final title = (widget.counterpartName?.trim().isNotEmpty ?? false)
-        ? partyDisplayName(widget.counterpartName!.trim(), l10n)
-        : widget.counterpartId;
+    // No name, or an id where one belongs: a neutral noun, never the id
+    // (FUP-130).
+    final title = partyNameOrUnnamed(widget.counterpartName, l10n);
 
     return Scaffold(
       appBar: AppBar(

@@ -1014,7 +1014,7 @@ class _OrderDetailBody extends StatelessWidget {
                 orderId: order.orderId,
                 listingId: order.listingId,
                 farmerId: order.farmerId,
-                farmerName: order.farmerName,
+                farmerName: partyNameToStore(order.farmerName),
                 buyerId: userId,
                 buyerName: order.buyerName,
               ),
@@ -1052,8 +1052,9 @@ class _OrderDetailBody extends StatelessWidget {
             orderId: order.orderId,
             listingId: order.listingId,
             farmerId: order.farmerId,
-            farmerName:
-                order.farmerName.isNotEmpty ? order.farmerName : order.farmerId,
+            // Never the id for a missing name (FUP-130); the server stamps
+            // the farmer's name from their profile.
+            farmerName: partyNameToStore(order.farmerName),
             truckerId: order.truckerId ?? userId,
             truckerName: truckerName,
             buyerId: order.buyerId,
@@ -2165,7 +2166,7 @@ class _OrderContactSection extends StatelessWidget {
           contextType: 'order',
           contextId: order.orderId,
           counterpartId: id,
-          counterpartName: name,
+          counterpartName: partyNameToStore(name),
         ),
       ),
     );
