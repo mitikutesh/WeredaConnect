@@ -375,6 +375,98 @@ public class FraudAdvisoryTests
         request.EventsTruncated.Should().BeTrue();
     }
 
+    // ── the label map (FUP-145) ────────────────────────────
+
+    private static IReadOnlyDictionary<string, string> LabelMap(
+        IReadOnlyList<Dictionary<string, AttributeValue>> rows,
+        IReadOnlyList<(string, string, IReadOnlyList<Dictionary<string, AttributeValue>>)>? events,
+        out AdvisoryReviewRequest request)
+    {
+        request = FraudAdvisory.BuildTimeline(
+            UserId, null, rows, false, events ?? [], false, Score(70, 70, RiskTier.High), RiskScoreSettings.Default,
+            Now, out var map);
+        return map;
+    }
+
+    [Fact]
+    public void LabelMap_NamesTheRealIdOfEveryLabelInTheTimeline_AndIsNotInTheRequest()
+    {
+        var rows = new[]
+        {
+            Row("AMOUNT_ANOMALY", Now.AddHours(-1), "order", "ord-aaa"),
+            Row("DISPUTE_RATE", Now.AddHours(-2), "escrow", "escrow-order-ord-bbb"),
+            Row("CANCEL_AFTER_FUND_RATE", Now.AddHours(-3), "order", "ord-ccc"),
+            Row("SELF_TRADE", Now.AddHours(-4), "order", "ord-aaa"),
+            Row("ROLE_FORBIDDEN", Now.AddHours(-5))
+        };
+        var events = new List<(string, string, IReadOnlyList<Dictionary<string, AttributeValue>>)>
+        {
+            ("delivery", "del-ddd", new[] { AuditEvent(Now.AddHours(-6), "status_change", "system", entityType: "delivery") })
+        };
+
+        var map = LabelMap(rows, events, out var request);
+
+        map.Should().BeEquivalentTo(new Dictionary<string, string>
+        {
+            { "order-1", "ord-aaa" },
+            { "escrow-1", "escrow-order-ord-bbb" },
+            { "order-2", "ord-ccc" },
+            { "delivery-1", "del-ddd" }
+        });
+        // Every label the model can cite is in the map, and no real id is in what is sent.
+        request.Signals.Select(s => s.Entity).Where(e => e != null)
+            .Concat(request.Events.Select(e => e.Entity))
+            .Should().OnlyContain(label => map.ContainsKey(label!));
+        Json(request).Should().NotContain("ord-aaa").And.NotContain("ord-bbb").And.NotContain("ord-ccc")
+            .And.NotContain("del-ddd").And.NotContain("aiLabels");
+    }
+
+    [Fact]
+    public void LabelMap_IsEmptyWithoutEntities_IsCapped_AndLeavesOutAnOverlongId()
+    {
+        LabelMap(new[] { Row("ROLE_FORBIDDEN", Now.AddHours(-1)) }, null, out _).Should().BeEmpty();
+
+        // More distinct entities than the timeline can label today cannot pass the cap either.
+        var many = Enumerable.Range(1, FraudAdvisory.MaxSignals)
+            .Select(i => Row("ROLE_FORBIDDEN", Now.AddMinutes(-i), "crop", $"crop-{i}")).ToList();
+        var events = Enumerable.Range(1, 20)
+            .Select(i => ("order", $"ord-{i}", (IReadOnlyList<Dictionary<string, AttributeValue>>)Array.Empty<Dictionary<string, AttributeValue>>()))
+            .ToList();
+        var capped = LabelMap(many, events, out _);
+        capped.Should().HaveCount(FraudAdvisory.MaxLabels);
+        capped["crop-1"].Should().Be("crop-1");
+
+        var longId = new string('x', FraudAdvisory.MaxLabelIdLength + 1);
+        var map = LabelMap(
+            new[] { Row("AMOUNT_ANOMALY", Now.AddHours(-1), "order", longId), Row("SELF_TRADE", Now.AddHours(-2), "order", "ord-1") },
+            null, out var request);
+        request.Signals.Select(s => s.Entity).Should().Equal("order-1", "order-2");
+        map.Should().BeEquivalentTo(new Dictionary<string, string> { { "order-2", "ord-1" } });
+    }
+
+    [Theory]
+    [InlineData("order-1", true)]
+    [InlineData("delivery-12", true)]
+    [InlineData("entity-9999", true)]
+    [InlineData("order-", false)]
+    [InlineData("order-12345", false)]
+    [InlineData("Order-1", false)]
+    [InlineData("phone-1", false)]
+    [InlineData("order-1 ", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void EntityLabel_IsAKnownKindAndAShortNumber(string? label, bool expected)
+    {
+        FraudAdvisory.IsEntityLabel(label).Should().Be(expected);
+    }
+
+    [Fact]
+    public void EntityLabel_KindAndNumber()
+    {
+        FraudAdvisory.LabelKind("delivery-12").Should().Be("delivery");
+        FraudAdvisory.LabelNumber("delivery-12").Should().Be(12);
+    }
+
     [Fact]
     public void EventEntities_AreOrdersDeliveriesAndEscrows_Distinct_AtMostEight()
     {

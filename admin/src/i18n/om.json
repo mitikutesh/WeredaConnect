@@ -415,6 +415,7 @@
     "aiConcern_medium": "Giddugaleessa",
     "aiConcern_high": "Ol'aanaa",
     "aiModel": "Moodeela: {model}",
+    "aiLabels": "Maqaaleen gabaabaan kun maal bakka bu'u",
     "scoreBreakdown": "Seerota {rules} + gorsa AI {ai}. Hamaan seerota qofaan murtaa'a.",
     "loadMore": "Dabalata fe'i",
     "loadFailed": "Tarreen kun fe'amuu hin dandeenye. Fuula irra deebi'ii fe'i.",

@@ -757,11 +757,11 @@ public partial class AdminFunction
             Resolution = body.Resolution,
             ResolvedAt = now,
             Message = (body.Resolution switch
-                {
-                    "farmer_wins" => "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour.",
-                    "buyer_wins" => "Verdict recorded. The settlement sweep refunds the buyer within the hour.",
-                    _ => "Verdict recorded. The settlement sweep pays the split to each party within the hour."
-                })
+            {
+                "farmer_wins" => "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour.",
+                "buyer_wins" => "Verdict recorded. The settlement sweep refunds the buyer within the hour.",
+                _ => "Verdict recorded. The settlement sweep pays the split to each party within the hour."
+            })
                 + (dispositionIgnored ? " No disposition was needed: the order can follow the verdict." : ""),
             VerdictAmounts = split == null
                 ? null
@@ -909,7 +909,9 @@ public partial class AdminFunction
                 ? null
                 : new VerdictAmountsDto
                 {
-                    FarmerAmount = recordedSplit.FarmerAmount, TruckerAmount = recordedSplit.TruckerAmount, BuyerRefund = recordedSplit.BuyerRefund
+                    FarmerAmount = recordedSplit.FarmerAmount,
+                    TruckerAmount = recordedSplit.TruckerAmount,
+                    BuyerRefund = recordedSplit.BuyerRefund
                 }
         }, AppJsonContext.Default.ResolveDisputeResponse);
     }
@@ -2922,8 +2924,15 @@ public partial class AdminFunction
         {
             var entity = GetString(e, "entityType");
             var action = GetString(e, "action");
-            if (entity == "order") hasUnifiedOrder = true;
-            if (entity == "delivery") hasUnifiedDelivery = true;
+            if (entity == "order")
+            {
+                hasUnifiedOrder = true;
+            }
+
+            if (entity == "delivery")
+            {
+                hasUnifiedDelivery = true;
+            }
 
             LatLngDto? location = null;
             if (entity == "delivery" && delivery != null)
@@ -3440,7 +3449,10 @@ public partial class AdminFunction
     {
         var distinct = userIds.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
         var result = new Dictionary<string, string>();
-        if (distinct.Count == 0) return result;
+        if (distinct.Count == 0)
+        {
+            return result;
+        }
 
         // BatchGetItem supports max 100 keys per request
         foreach (var batch in distinct.Chunk(100))
@@ -3480,7 +3492,9 @@ public partial class AdminFunction
                         var id = item.TryGetValue("userId", out var uid) ? uid.S : "";
                         var name = item.TryGetValue("displayName", out var dn) ? dn.S : "";
                         if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
+                        {
                             result[id] = name;
+                        }
                     }
                 }
 
@@ -3621,8 +3635,45 @@ public partial class AdminFunction
             CreatedAt = GetString(item, "createdAt"),
             OrderId = SignalOrderId(GetStringOrNull(item, "entityType"), GetStringOrNull(item, "entityId")),
             AiConcern = GetStringOrNull(item, "aiConcern"),
-            AiModel = GetStringOrNull(item, "aiModel")
+            AiModel = GetStringOrNull(item, "aiModel"),
+            AiLabels = AdvisoryLabels(item)
         };
+    }
+
+    /// <summary>
+    /// FUP-145: the label map of an <c>AI_ADVISORY</c> row (<c>aiLabels</c>), by kind and number. Only on an advisory
+    /// row, only entries shaped like a timeline label with a string id, at most
+    /// <see cref="FraudAdvisory.MaxLabels"/>. Null without a usable map (every row written before the map was kept).
+    /// </summary>
+    private static List<FraudAdvisoryLabelDto>? AdvisoryLabels(Dictionary<string, object> item)
+    {
+        if (GetStringOrNull(item, "signalType") != FraudDetectionService.AdvisorySignalType
+            || !item.TryGetValue("aiLabels", out var raw)
+            || raw is not Dictionary<string, object> map)
+        {
+            return null;
+        }
+
+        var labels = map
+            .Where(entry => FraudAdvisory.IsEntityLabel(entry.Key)
+                            && entry.Value is string { Length: > 0 and <= FraudAdvisory.MaxLabelIdLength })
+            .OrderBy(entry => FraudAdvisory.LabelKind(entry.Key), StringComparer.Ordinal)
+            .ThenBy(entry => FraudAdvisory.LabelNumber(entry.Key))
+            .Take(FraudAdvisory.MaxLabels)
+            .Select(entry =>
+            {
+                var kind = FraudAdvisory.LabelKind(entry.Key);
+                var id = (string)entry.Value;
+                return new FraudAdvisoryLabelDto
+                {
+                    Label = entry.Key,
+                    EntityType = kind,
+                    EntityId = id,
+                    OrderId = SignalOrderId(kind, id)
+                };
+            })
+            .ToList();
+        return labels.Count > 0 ? labels : null;
     }
 
     /// <summary>The key prefix of an order escrow (<c>escrow-order-{orderId}</c>, deterministic since ESC-01).</summary>

@@ -418,6 +418,88 @@ public class AdminFraudReviewQueueTests
         user.GetProperty("riskTier").GetString().Should().Be("high");
     }
 
+    // FUP-145: the label map of an advisory row.
+
+    private static Dictionary<string, AttributeValue> AdvisoryRow(DateTime now, Dictionary<string, AttributeValue>? labels)
+    {
+        var dayKey = FraudAdvisory.DayKey(now);
+        var row = new Dictionary<string, AttributeValue>
+        {
+            { "userId", new AttributeValue { S = "buyer-1" } },
+            { "signalKey", new AttributeValue { S = dayKey } },
+            { "signalId", new AttributeValue { S = FraudDetectionService.BuildSignalId("buyer-1", dayKey) } },
+            { "signalType", new AttributeValue { S = FraudDetectionService.AdvisorySignalType } },
+            { "recordType", new AttributeValue { S = "signal" } },
+            { "severity", new AttributeValue { S = "medium" } },
+            { "weight", new AttributeValue { N = "10" } },
+            { "description", new AttributeValue { S = "Probes order-1, then disputes escrow-1." } },
+            { "status", new AttributeValue { S = "pending" } },
+            { "entityType", new AttributeValue { S = "user" } },
+            { "aiConcern", new AttributeValue { S = "high" } },
+            { "createdAt", new AttributeValue { S = Iso(now.AddMinutes(-1)) } }
+        };
+        if (labels != null)
+        {
+            row["aiLabels"] = new AttributeValue { M = labels };
+        }
+
+        return row;
+    }
+
+    [Fact]
+    public async Task List_ReturnsTheLabelMapOfAnAdvisoryRow_ByKindAndNumber_WithTheOrderOfATimeline()
+    {
+        var now = DateTime.UtcNow;
+        var advisory = AdvisoryRow(now, new Dictionary<string, AttributeValue>
+        {
+            { "order-10", new AttributeValue { S = "ord-j" } },
+            { "order-2", new AttributeValue { S = "ord-b" } },
+            { "escrow-1", new AttributeValue { S = "escrow-order-ord-b" } },
+            { "delivery-1", new AttributeValue { S = "del-a" } },
+            // Not labels of a timeline, or not an id: left out.
+            { "phone-1", new AttributeValue { S = "0911000000" } },
+            { "order-3", new AttributeValue { BOOL = true } },
+            { "order-4", new AttributeValue { S = new string('x', FraudAdvisory.MaxLabelIdLength + 1) } }
+        });
+        IndexPages(FraudIndex, Page(null, advisory));
+        _scoreRows["buyer-1"] = new List<Dictionary<string, AttributeValue>> { advisory };
+
+        var response = await GetAsync("/admin/fraud-signals");
+
+        var labels = Json(response).GetProperty("signals")[0].GetProperty("aiLabels").EnumerateArray().ToList();
+        labels.Select(l => l.GetProperty("label").GetString()).Should().Equal("delivery-1", "escrow-1", "order-2", "order-10");
+        labels[0].GetProperty("entityType").GetString().Should().Be("delivery");
+        labels[0].GetProperty("entityId").GetString().Should().Be("del-a");
+        labels[0].TryGetProperty("orderId", out _).Should().BeFalse();
+        labels[1].GetProperty("entityId").GetString().Should().Be("escrow-order-ord-b");
+        labels[1].GetProperty("orderId").GetString().Should().Be("ord-b");
+        labels[2].GetProperty("orderId").GetString().Should().Be("ord-b");
+        labels[3].GetProperty("entityId").GetString().Should().Be("ord-j");
+    }
+
+    [Fact]
+    public async Task List_AnAdvisoryRowWithoutAMap_AndAnyOtherRow_CarryNoLabels()
+    {
+        var now = DateTime.UtcNow;
+        // A row written before FUP-145, and a rule's row that (wrongly) carries the attribute.
+        var old = AdvisoryRow(now, null);
+        var conflict = SignalRow("buyer-1", "IDOR_CREATE_CONFLICT", now.AddHours(-1));
+        conflict["aiLabels"] = new AttributeValue
+        {
+            M = new Dictionary<string, AttributeValue> { { "order-1", new AttributeValue { S = "ord-a" } } }
+        };
+        IndexPages(FraudIndex, Page(null, old, conflict));
+        _scoreRows["buyer-1"] = new List<Dictionary<string, AttributeValue>> { old, conflict };
+
+        var response = await GetAsync("/admin/fraud-signals");
+
+        response.StatusCode.Should().Be(200);
+        var signals = Json(response).GetProperty("signals");
+        signals[0].GetProperty("description").GetString().Should().Be("Probes order-1, then disputes escrow-1.");
+        signals[0].TryGetProperty("aiLabels", out _).Should().BeFalse();
+        signals[1].TryGetProperty("aiLabels", out _).Should().BeFalse();
+    }
+
     [Fact]
     public async Task List_WithoutTheTable_AnswersAnEmptyList()
     {
