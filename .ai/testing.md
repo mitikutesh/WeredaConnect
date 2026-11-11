@@ -66,6 +66,21 @@ override `admin/.env` for that build only; rebuild with the real values (`npm ru
 `webapp` project run against the deployed dev sites by default (`e2e/playwright.config.ts`):
 `cd e2e && npm run test:admin`.
 
+## AI Advisory Reviewer (FRD-19, local only)
+
+The reviewer Lambda (`server/fraud-ai-reviewer`, Node.js, no dependencies) has its own tests on Node's
+built-in runner, with a fake Bedrock client: no AWS call, no `npm ci`, under a second. No CI workflow
+runs them (the C# side, which validates every answer again, is under CI), so run them by hand after
+any change in that folder:
+
+```bash
+cd server/fraud-ai-reviewer
+npm run build   # node --check of every file
+npm test        # node --test test/*.test.js
+```
+
+Expected: 25 tests pass, 0 fail. Needs Node 20 or newer.
+
 ## Adversarial Fraud Personas (dev, FRD-17)
 
 `scripts/e2e_fraud_personas.py` drives six abusive users against the dev API (listing spammer,

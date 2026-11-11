@@ -100,6 +100,30 @@ interface SignalUser {
 
 type SignalRow = Record<string, unknown>;
 
+/** FUP-145: what one label of an AI advisory's timeline stands for (admin API only). */
+interface AdvisoryLabel {
+  label: string;
+  entityType: string;
+  entityId: string;
+  orderId?: string;
+}
+
+/** The label map of an advisory row; empty for a row written before the map was kept. */
+function advisoryLabels(row: SignalRow): AdvisoryLabel[] {
+  if (!Array.isArray(row.aiLabels)) return [];
+  return (row.aiLabels as Partial<AdvisoryLabel>[]).filter(
+    (l): l is AdvisoryLabel => typeof l?.label === "string" && typeof l?.entityId === "string" && l.entityId !== "",
+  );
+}
+
+/** Where the admin app shows the record behind a label, when it has such a page. */
+function advisoryLabelLink(l: AdvisoryLabel): string | null {
+  if (l.orderId) return `/transactions/${encodeURIComponent(l.orderId)}`;
+  if (l.entityType === "escrow") return `/escrows/${encodeURIComponent(l.entityId)}`;
+  if (l.entityType === "user") return `/users/${encodeURIComponent(l.entityId)}`;
+  return null;
+}
+
 interface UserGroup {
   userId: string;
   user?: SignalUser;
@@ -436,6 +460,7 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
     const row = group.signals.find((s) => s.signalType === AI_ADVISORY && s.description);
     if (!row) return null;
     const level = String(row.aiConcern ?? "");
+    const labels = advisoryLabels(row);
     return (
       <aside
         aria-label={t("fraud.aiAdvice")}
@@ -450,6 +475,29 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
           )}
         </div>
         <p>{String(row.description)}</p>
+        {labels.length > 0 && (
+          <div className="mt-2 text-xs">
+            <p className="font-medium">{t("fraud.aiLabels")}</p>
+            <ul aria-label={t("fraud.aiLabels")} className="mt-1 space-y-0.5">
+              {labels.map((l) => {
+                const to = advisoryLabelLink(l);
+                return (
+                  <li key={l.label} className="break-all">
+                    <span className="font-mono">{l.label}</span>
+                    {": "}
+                    {to ? (
+                      <Link to={to} className="text-primary hover:underline">
+                        {l.entityId}
+                      </Link>
+                    ) : (
+                      l.entityId
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
         <p className="mt-1 text-xs text-text-muted">
           {t("fraud.aiAdviceNote")}
           {row.aiModel ? ` ${fill(t("fraud.aiModel"), { model: String(row.aiModel) })}` : ""}

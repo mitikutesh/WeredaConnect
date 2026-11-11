@@ -412,6 +412,83 @@ describe("FraudReviewPage signals", () => {
     expect(within(rows[1]).getByText("IDOR_CREATE_CONFLICT")).toBeTruthy();
   });
 
+  /* FUP-145 */
+
+  it("lists what each label of the AI advice stands for, linked where the admin app has a page", () => {
+    setSignals(
+      [
+        signal({
+          signalId: "ai",
+          userId: "buyer-1",
+          signalType: "AI_ADVISORY",
+          entityType: "user",
+          description: "Probes order-1, then disputes escrow-1 after delivery-1.",
+          aiConcern: "high",
+          aiLabels: [
+            { label: "delivery-1", entityType: "delivery", entityId: "del-9" },
+            { label: "escrow-1", entityType: "escrow", entityId: "escrow-del-9" },
+            { label: "escrow-2", entityType: "escrow", entityId: "escrow-order-ord-7", orderId: "ord-7" },
+            { label: "order-1", entityType: "order", entityId: "ord-7", orderId: "ord-7" },
+            { label: "broken" },
+          ],
+        }),
+      ],
+      [scored({ userId: "buyer-1", riskScore: 70, enforcementScore: 60, riskTier: "high" })],
+    );
+    renderPage();
+
+    const advice = screen.getByRole("complementary", { name: "AI advice" });
+    const items = within(within(advice).getByRole("list", { name: "What the labels stand for" })).getAllByRole(
+      "listitem",
+    );
+    expect(items.map((i) => i.textContent)).toEqual([
+      "delivery-1: del-9",
+      "escrow-1: escrow-del-9",
+      "escrow-2: escrow-order-ord-7",
+      "order-1: ord-7",
+    ]);
+    // A delivery has no admin page; an escrow goes to the escrow, an order (or its escrow) to the timeline.
+    expect(within(items[0]).queryByRole("link")).toBeNull();
+    expect(within(items[1]).getByRole("link").getAttribute("href")).toBe("/escrows/escrow-del-9");
+    expect(within(items[2]).getByRole("link").getAttribute("href")).toBe("/transactions/ord-7");
+    expect(within(items[3]).getByRole("link").getAttribute("href")).toBe("/transactions/ord-7");
+  });
+
+  it("shows the AI advice of a row without a label map as before (rows written before the map was kept)", () => {
+    setSignals(
+      [
+        signal({
+          signalId: "ai",
+          userId: "buyer-1",
+          signalType: "AI_ADVISORY",
+          entityType: "user",
+          description: "Probes order-1.",
+          aiConcern: "low",
+        }),
+        signal({
+          signalId: "ai-empty",
+          userId: "buyer-2",
+          signalType: "AI_ADVISORY",
+          entityType: "user",
+          description: "Nothing unusual.",
+          aiConcern: "none",
+          aiLabels: [],
+        }),
+      ],
+      [scored({ userId: "buyer-1" }), scored({ userId: "buyer-2" })],
+    );
+    renderPage();
+
+    const panels = screen.getAllByRole("complementary", { name: "AI advice" });
+    expect(panels).toHaveLength(2);
+    expect(within(panels[0]).getByText("Probes order-1.")).toBeTruthy();
+    expect(within(panels[1]).getByText("Nothing unusual.")).toBeTruthy();
+    for (const panel of panels) {
+      expect(within(panel).queryByRole("list")).toBeNull();
+      expect(within(panel).queryByText("What the labels stand for")).toBeNull();
+    }
+  });
+
   it("shows no advice panel and no breakdown for a user without AI advice", () => {
     setSignals([signal()], [scored({ riskScore: 60, enforcementScore: 60, riskTier: "high" })]);
     renderPage();

@@ -415,6 +415,7 @@
     "aiConcern_medium": "መካከለኛ",
     "aiConcern_high": "ከፍተኛ",
     "aiModel": "ሞዴል፦ {model}",
+    "aiLabels": "መለያዎቹ የሚወክሉት",
     "scoreBreakdown": "ደንቦች {rules} + የAI ምክር {ai}። አሳሳቢ ደረጃ የሚወሰነው በደንቦቹ ብቻ ነው።",
     "loadMore": "ተጨማሪ ጫን",
     "loadFailed": "ይህ ዝርዝር ሊጫን አልቻለም። ገጹን እንደገና ይጫኑ።",

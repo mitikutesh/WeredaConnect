@@ -180,6 +180,30 @@ public sealed record FraudSignalDto
 
     /// <summary>FRD-19: the Bedrock model that wrote the advice, on an <c>AI_ADVISORY</c> row.</summary>
     public string? AiModel { get; init; }
+
+    /// <summary>
+    /// FUP-145: on an <c>AI_ADVISORY</c> row, what each label the explanation may cite stands for (<c>order-1</c>).
+    /// Null on a row written before the map was kept, or when the timeline named no entity. Admin only.
+    /// </summary>
+    public List<FraudAdvisoryLabelDto>? AiLabels { get; init; }
+}
+
+/// <summary>
+/// FUP-145: one label of an AI advisory's timeline and the record it stands for. The model saw only the label; the
+/// real id was kept on the row by the server and is returned to admins only.
+/// </summary>
+public sealed record FraudAdvisoryLabelDto
+{
+    /// <summary>The label as the explanation writes it: <c>order-1</c>, <c>delivery-2</c>, <c>escrow-1</c>.</summary>
+    public required string Label { get; init; }
+
+    /// <summary>The kind in the label: <c>order</c>, <c>delivery</c>, <c>escrow</c>, <c>crop</c>, <c>trip</c>, <c>user</c> or <c>entity</c>.</summary>
+    public required string EntityType { get; init; }
+
+    public required string EntityId { get; init; }
+
+    /// <summary>The order of the transaction timeline, when the entity names one (an order, or an order escrow).</summary>
+    public string? OrderId { get; init; }
 }
 
 /// <summary>
