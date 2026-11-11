@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
@@ -123,12 +124,49 @@ class EscrowSyncService {
         if (stepUp != null) {
           // The remaining intents would likely hit the same gate: stop, ask
           // the user once, and retry after they re-authenticate.
-          _securityEvents.emit(stepUp);
+          _securityEvents
+            ..holdStepUp(
+              _stepUpHolder(intent.id),
+              withFayda: stepUp.withFayda,
+            )
+            ..emit(stepUp);
           break;
         }
+        // Any other outcome: this intent no longer waits for a step-up.
+        _securityEvents.releaseStepUpHolds([_stepUpHolder(intent.id)]);
       }
     } finally {
+      await _releaseDepartedStepUpHolds();
       _isProcessing = false;
+    }
+  }
+
+  /// Holder key prefix of this service's intents in
+  /// [SecurityEvents.holdStepUp].
+  static const stepUpHolderPrefix = 'intent:';
+
+  static String _stepUpHolder(int intentId) => '$stepUpHolderPrefix$intentId';
+
+  /// Let go of the step-up holds whose intent no longer waits to be sent
+  /// (completed, failed, cancelled or deleted), so
+  /// [SecurityEvents.pendingStepUp] does not outlive it (FUP-24). Never
+  /// throws: a failed read keeps the holds for the next run.
+  Future<void> _releaseDepartedStepUpHolds() async {
+    final holders = _securityEvents.stepUpHolders(stepUpHolderPrefix);
+    if (holders.isEmpty) return;
+    try {
+      final departed = <String>[];
+      for (final holder in holders) {
+        final id = int.tryParse(holder.substring(stepUpHolderPrefix.length));
+        final intent = id == null ? null : await _isar.paymentIntents.get(id);
+        final waits = intent != null &&
+            (intent.status == IntentStatus.pendingSync ||
+                intent.status == IntentStatus.syncing);
+        if (!waits) departed.add(holder);
+      }
+      _securityEvents.releaseStepUpHolds(departed);
+    } on Object catch (e) {
+      debugPrint('[EscrowSync] step-up hold check failed: $e');
     }
   }
 

@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.46.0
+1.47.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -1209,10 +1209,26 @@ Client only, no server change. The mobile order detail no longer waits for a lis
 
 ---
 
+## Step-up leftovers on the clients (1.47.0, FUP-24, FUP-43)
+
+Client only, no server change.
+
+**The pending step-up follows the held operation (mobile, FUP-24).** An operation answered `AUTH_040:` or `AUTH_041:` stays pending as before, and the device remembers that a step-up is pending so the checkout can offer "Confirm it's you" after a cancelled prompt (ESC-44). That memory is now tied to the held operations (sync queue operations and queued escrow payment intents):
+
+- It is dropped once every operation held for it has left its queue or got any other answer: sent, `duplicate`, `conflict`, `deferred`, refused for good, failed, out of retries, rejected along with a refused `create`, or deleted. Each sync run also checks the held operations against the queue, so a removal that never got an answer is noticed on the next run.
+- While another held operation still waits it stays, and it asks for Fayda only if one of the operations still waiting was answered `AUTH_041:`.
+- A cancelled prompt releases nothing: the memory and the 10 minute quiet period are unchanged. A completed step-up and a logout drop it as before. It is kept in memory only, as before: after an app restart the next sync raises it again.
+- An operation the response left out keeps its hold (it is still unanswered).
+
+**Delivery dispute on web (FUP-43).** Web sends the dispute straight to `/sync`. An `AUTH_040:` answer (as the operation's error, or as a `403` on the request) now opens the password prompt the payment screens use, and after a confirmed password the dispute is sent once more as the same operation (same `operationId`, `timestamp` and `idempotencyKey`, a fresh `syncBatchId`). A cancelled prompt, or a second `AUTH_040:` after the resend, leaves the dispute unsent with `deliveryDisputeNotConfirmed` (en, am, om). A reason changed in between is a new operation. `AUTH_041:` and every other answer keep their handling. Any party of the delivery (buyer, farmer, trucker) can dispute, so this holds for all three roles. Mobile is unchanged: the queue holds the operation and prompts.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.47.0 | 2026-11-11 | Step-up leftovers, client only (FUP-24, FUP-43): on mobile the remembered pending step-up is tied to the held operations and dropped once they all left the queue or got another answer, kept across a cancelled prompt; on web a delivery dispute answered `AUTH_040:` opens the password prompt and is sent once more as the same operation, and a cancelled prompt leaves it unsent with its own text (en, am, om) |
 | 1.46.0 | 2026-11-11 | Order detail read (ESC-23), client only: the mobile order detail shows the stored order at once and reads `GET /orders/{id}` once per open and on pull to refresh, under the pull rules (not sent while an operation for the order is queued, never to an older `version`); a failed read, `404` and `403` included, is silent and removes nothing. No server change. |
 | 1.45.0 | 2026-11-11 | Changes to a finished delivery or trip (FUP-128, `delivery-verification-api.md` 2.2.0): a delivery update that reaches a cancelled (or legacy soft-deleted) delivery with a version behind the stored one answers `conflict` with the scrubbed row to a caller who may make that change (SIM-28's rule; the trucker or the farmer's `qrNonce` for an update without a status), instead of `DELIVERY_ALREADY_CANCELLED`; at the current version, without one or for anyone else the error stands. The trip side was built in `trip-listing-api.md` 2.4.0. Mobile: `DELIVERY_ALREADY_CANCELLED`, `TRIP_TERMINAL_STATE` and `TRIP_ALREADY_CANCELLED` errors are permanent and revert the delivery or trip (they were retried); the conflict resolver no longer fails on a crop row without `description`, a trip row without `truckerName` or `truckerPhone`, reads a crop's flat `latitude` and `longitude` and maps `available` to `active`. Web unchanged. New conflict resolution rule 7 |
 | 1.44.1 | 2026-11-11 | A JSON `null` inside `operations` (FUP-127 audit): the whole batch is refused with `400 SYNC_VALIDATION` `"Operations must not contain null."` and nothing is applied. Before, the request failed with an unhandled error (a `502` without a code from API Gateway), also for the valid operations sent with it. No client sends one; no app change |
@@ -1262,4 +1278,4 @@ Client only, no server change. The mobile order detail no longer waits for a lis
 ---
 
 **Last Updated**: 2026-11-11
-**Version**: 1.46.0
+**Version**: 1.47.0

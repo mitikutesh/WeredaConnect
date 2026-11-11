@@ -108,6 +108,66 @@ void main() {
     expect(emitted.whereType<StepUpRequired>().single.withFayda, isFalse);
   });
 
+  group('FUP-24: pendingStepUp follows the held intent', () {
+    void answerPost(Object error) {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          any(),
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenThrow(error);
+    }
+
+    Future<void> holdIntent() async {
+      await insertIntent('k-1', 'del-1');
+      answerPost(const StepUpRequiredException('step-up required'));
+      await service.processQueuedIntents();
+      expect(events.pendingStepUp, isNotNull);
+    }
+
+    test('kept while the intent waits, also after a cancelled prompt',
+        () async {
+      await holdIntent();
+
+      events.stepUpDeclined();
+      await service.processQueuedIntents();
+
+      expect(events.pendingStepUp, isNotNull);
+      expect(
+        events.stepUpHolders(EscrowSyncService.stepUpHolderPrefix),
+        hasLength(1),
+      );
+    });
+
+    test('cleared when the money turns out to be held already', () async {
+      await holdIntent();
+
+      answerPost(const ConflictException('ESCROW_009'));
+      await service.processQueuedIntents();
+
+      expect(events.pendingStepUp, isNull);
+    });
+
+    test('cleared when the intent was cancelled (logout of its buyer)',
+        () async {
+      await holdIntent();
+
+      await service.cancelPendingIntentsForUser('buyer-1');
+      await service.processQueuedIntents();
+
+      expect(events.pendingStepUp, isNull);
+    });
+
+    test('cleared when the intent was deleted', () async {
+      await holdIntent();
+
+      await isar.writeTxn(() => isar.paymentIntents.clear());
+      await service.processQueuedIntents();
+
+      expect(events.pendingStepUp, isNull);
+    });
+  });
+
   test('AUTH_041 keeps the intent pending and asks for a Fayda login',
       () async {
     await insertIntent('k-1', 'del-1');

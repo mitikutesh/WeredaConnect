@@ -144,6 +144,12 @@ class SyncOperationRejected extends SecurityEvent {
 /// (enqueue, connectivity, periodic) does not reopen the dialog. A step-up
 /// the user starts themselves (the pay button) still prompts, and a
 /// successful one ends the quiet period.
+///
+/// A worker that keeps an operation waiting for a step-up names it with
+/// [holdStepUp] and lets go with [releaseStepUpHolds] once the operation
+/// left its queue any other way (refused, dropped, removed), so
+/// [pendingStepUp] does not outlive the operation it was raised for
+/// (FUP-24).
 class SecurityEvents {
   SecurityEvents._({DateTime Function()? now}) : _now = now ?? DateTime.now;
 
@@ -160,6 +166,10 @@ class SecurityEvents {
   final DateTime Function() _now;
   DateTime? _stepUpDeclinedAt;
   StepUpRequired? _pendingStepUp;
+
+  /// The held operations behind [_pendingStepUp], by holder key, with
+  /// whether each needs a Fayda login.
+  final Map<String, bool> _stepUpHolds = <String, bool>{};
 
   /// How many undelivered [SyncOperationRejected] events are kept; the
   /// oldest is dropped beyond that.
@@ -242,13 +252,45 @@ class SecurityEvents {
   void clearKeptRejections() {
     _undeliveredRejections.clear();
     _pendingStepUp = null;
+    _stepUpHolds.clear();
   }
 
   /// The last step-up a queued payment asked for and nobody confirmed yet,
   /// also while the prompt is quiet after a cancel. The checkout screen
   /// offers "Confirm it's you" from it (ESC-44). Cleared by
-  /// [stepUpCompleted].
+  /// [stepUpCompleted], by a logout, and once every operation held for it
+  /// left its queue ([releaseStepUpHolds]).
   StepUpRequired? get pendingStepUp => _pendingStepUp;
+
+  /// Name an operation that waits for the step-up about to be raised with
+  /// [emit]. [holder] is unique per operation across workers (a prefix per
+  /// worker, then the operation's id).
+  void holdStepUp(String holder, {required bool withFayda}) =>
+      _stepUpHolds[holder] = withFayda;
+
+  /// The holder keys starting with [prefix], for a worker to check which of
+  /// its held operations still wait.
+  List<String> stepUpHolders(String prefix) => [
+        for (final key in _stepUpHolds.keys)
+          if (key.startsWith(prefix)) key,
+      ];
+
+  /// The operations named by [holders] no longer wait for a step-up: they
+  /// were sent, refused, dropped or removed. When the last held operation
+  /// is gone [pendingStepUp] clears; while others still wait it stays, and
+  /// asks for Fayda only if one of them does. A cancelled prompt releases
+  /// nothing, so the flag survives it (ESC-44). A step-up raised without a
+  /// named operation is left alone.
+  void releaseStepUpHolds(Iterable<String> holders) {
+    var released = false;
+    for (final holder in holders) {
+      released |= _stepUpHolds.remove(holder) != null;
+    }
+    if (!released || _pendingStepUp == null) return;
+    _pendingStepUp = _stepUpHolds.isEmpty
+        ? null
+        : StepUpRequired(withFayda: _stepUpHolds.values.any((fayda) => fayda));
+  }
 
   /// True while a cancelled step-up prompt keeps background re-prompts quiet.
   bool get stepUpSuppressed {
@@ -263,6 +305,8 @@ class SecurityEvents {
   void stepUpCompleted() {
     _stepUpDeclinedAt = null;
     _pendingStepUp = null;
+    // The held operations go again now; one still refused is held again.
+    _stepUpHolds.clear();
     if (!_stepUpCompleted.isClosed) _stepUpCompleted.add(null);
   }
 }

@@ -22,6 +22,7 @@ String localizeDeliveryError(AppLocalizations l10n, String? code) {
     DeliveryErrorCode.codeLocked => l10n.deliveryErrorCodeLocked,
     DeliveryErrorCode.codeLockedDropoff => l10n.deliveryErrorCodeLockedDropoff,
     DeliveryErrorCode.codeGpsRequired => l10n.deliveryErrorCodeGpsRequired,
+    DeliveryErrorCode.stepUpRequired => l10n.deliveryDisputeNotConfirmed,
     _ => l10n.deliveryErrorGeneric,
   };
 }

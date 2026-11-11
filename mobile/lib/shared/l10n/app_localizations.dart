@@ -8885,6 +8885,12 @@ abstract class AppLocalizations {
   /// **'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the farmer to show a new code.'**
   String get deliveryErrorCodeLocked;
 
+  /// Dispute screen on web (FUP-43): the server asked for the password again (AUTH_040) and the prompt was cancelled, so the dispute was not sent
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute not sent. Confirm it\'s you to send it.'**
+  String get deliveryDisputeNotConfirmed;
+
   /// Delivery error (T-1, DELIVERY_CODE_GPS_REQUIRED): a paid delivery's typed code came without GPS
   ///
   /// In en, this message translates to:

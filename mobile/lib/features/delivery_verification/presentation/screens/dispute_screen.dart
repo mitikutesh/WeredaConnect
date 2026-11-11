@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
@@ -19,13 +21,23 @@ import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 ///
 /// Shows delivery info, time remaining, reason input,
 /// and confirmation dialog before submitting.
+///
+/// On web the server may answer the dispute with `AUTH_040` (a fresh
+/// password is needed on a large order): the password prompt opens and the
+/// same dispute is sent once more after it (FUP-43). On mobile the dispute
+/// is queued and the sync queue prompts.
 class DisputeScreen extends StatefulWidget {
   final Delivery delivery;
   final String userId;
 
+  /// Asks for the password again (AUTH_040). Defaults to [showStepUpDialog];
+  /// tests inject one.
+  final Future<bool> Function(BuildContext context)? confirmPassword;
+
   const DisputeScreen({
     required this.delivery,
     required this.userId,
+    this.confirmPassword,
     super.key,
   });
 
@@ -37,6 +49,39 @@ class _DisputeScreenState extends State<DisputeScreen> {
   final _formKey = GlobalKey<FormState>();
   final _reasonController = TextEditingController();
   bool _isSubmitting = false;
+
+  /// The dispute last sent, sent again after the password step-up.
+  RaiseDispute? _lastDispute;
+
+  /// True once [_lastDispute] was sent again after a step-up: a second
+  /// AUTH_040 then ends in the message, not in another prompt.
+  bool _resentAfterStepUp = false;
+
+  /// AUTH_040: ask for the password, then send the same dispute again. A
+  /// cancelled prompt leaves it unsent and says so.
+  Future<void> _retryAfterStepUp() async {
+    final event = _lastDispute;
+    var confirmed = false;
+    if (event != null && !_resentAfterStepUp) {
+      confirmed = await (widget.confirmPassword ??
+          (BuildContext c) => showStepUpDialog(c))(context);
+    }
+    if (!mounted) return;
+    if (confirmed && event != null) {
+      _resentAfterStepUp = true;
+      context.read<DeliveryBloc>().add(event);
+      return;
+    }
+    setState(() => _isSubmitting = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          AppLocalizations.of(context)!.deliveryDisputeNotConfirmed,
+        ),
+        backgroundColor: AppTheme.statusError,
+      ),
+    );
+  }
 
   @override
   void dispose() {
@@ -78,14 +123,15 @@ class _DisputeScreenState extends State<DisputeScreen> {
               onPressed: () {
                 Navigator.of(dialogContext).pop();
                 setState(() => _isSubmitting = true);
-                context.read<DeliveryBloc>().add(
-                      RaiseDispute(
-                        deliveryId: widget.delivery.deliveryId,
-                        userId: widget.userId,
-                        reason: _reasonController.text.trim(),
-                        tripId: widget.delivery.tripId,
-                      ),
-                    );
+                final dispute = RaiseDispute(
+                  deliveryId: widget.delivery.deliveryId,
+                  userId: widget.userId,
+                  reason: _reasonController.text.trim(),
+                  tripId: widget.delivery.tripId,
+                );
+                _lastDispute = dispute;
+                _resentAfterStepUp = false;
+                context.read<DeliveryBloc>().add(dispute);
               },
               style:
                   TextButton.styleFrom(foregroundColor: AppTheme.statusError),
@@ -116,6 +162,9 @@ class _DisputeScreenState extends State<DisputeScreen> {
             ),
           );
           Navigator.of(context).pop();
+        } else if (state is DeliveryError &&
+            state.code == DeliveryErrorCode.stepUpRequired) {
+          _retryAfterStepUp();
         } else if (state is DeliveryError) {
           setState(() => _isSubmitting = false);
           ScaffoldMessenger.of(context).showSnackBar(
