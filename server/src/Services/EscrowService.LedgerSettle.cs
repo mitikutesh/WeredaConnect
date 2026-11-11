@@ -74,7 +74,15 @@ public sealed partial class EscrowService
         var reason = currentStatus == "dispute_resolved" ? $"verdict:{GetStringOrNull(escrowItem, "disputeResolution") ?? "farmer_wins"}" : trigger;
         var decided = await DecideLedgerAsync(escrowItem, currentStatus,
             s => EscrowLedgerBook.PlanRelease(s, farmerOk, truckerOk, reason), authenticatedUserId, callNow: true,
-            extraFields: new Dictionary<string, object> { ["releaseTrigger"] = trigger });
+            extraFields: new Dictionary<string, object>
+            {
+                ["releaseTrigger"] = trigger,
+                // FUP-137: a ledger escrow can be decided again (a leg the gate held back), so every release
+                // decision says who made it: the last one is the one a manual payout close reads.
+                [CleanDeliveryCreditService.OriginField] =
+                    CleanDeliveryCreditService.OriginOf(authenticatedUserId, trigger, currentStatus)
+                    ?? CleanDeliveryCreditService.OriginOther
+            });
 
         switch (decided.Outcome)
         {

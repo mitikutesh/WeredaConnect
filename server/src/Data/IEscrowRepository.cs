@@ -132,7 +132,7 @@ public interface IEscrowRepository
     /// </summary>
     Task<bool> TryQueueManualPayoutAsync(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
-        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt);
+        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string? releaseOrigin = null);
 
     /// <summary>
     /// ESC-02: record an admin-paid leg that is NOT the last pending one. Conditional on

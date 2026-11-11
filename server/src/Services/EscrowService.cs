@@ -1780,6 +1780,8 @@ public sealed partial class EscrowService
         var commission = GetDecimal(escrowItem, "commission");
         var holdRef = GetStringOrNull(escrowItem, "telebirrHoldRef") ?? "";
         var createdAt = GetString(escrowItem, "createdAt");
+        // FUP-137: set only for the hourly auto-release, and stored by the write that settles or queues it.
+        var releaseOrigin = CleanDeliveryCreditService.OriginOf(authenticatedUserId, request.Trigger, settleFrom);
 
         // 4b. Payout destination and identity. Money goes to the farmer's registered
         //     phone (immutable since registration), and only to a farmer whose phone
@@ -1908,7 +1910,7 @@ public sealed partial class EscrowService
             var nothingMoved = farmerManualReason == ManualPayoutFields.ReasonPayoutNotSupported;
             if (await QueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRelease,
                     farmerManualReason, currentStatus, legs, authenticatedUserId,
-                    nothingMoved ? 1 : MaxSettlementWriteAttempts))
+                    nothingMoved ? 1 : MaxSettlementWriteAttempts, releaseOrigin: releaseOrigin))
             {
                 await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "manual_payout");
                 // ESC-09: the release is committed (the queue owns it), so the order is disbursing.
@@ -2005,7 +2007,8 @@ public sealed partial class EscrowService
                         new(ManualPayoutFields.LegTrucker, ManualPayoutFields.LegPending, null, null, null)
                     };
                     if (await QueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRelease,
-                            truckerManualReason, currentStatus, legs, authenticatedUserId, MaxSettlementWriteAttempts))
+                            truckerManualReason, currentStatus, legs, authenticatedUserId, MaxSettlementWriteAttempts,
+                            releaseOrigin: releaseOrigin))
                     {
                         await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "manual_payout");
                         await FollowMoneyAsync(request.EscrowId, "release");
@@ -2043,6 +2046,11 @@ public sealed partial class EscrowService
             // FUP-147: the trigger is stored with the release it caused.
             { "releaseTrigger", request.Trigger }
         };
+        if (releaseOrigin != null)
+        {
+            releaseFields[CleanDeliveryCreditService.OriginField] = releaseOrigin;
+        }
+
         if (!string.IsNullOrEmpty(truckerReleaseRef))
         {
             releaseFields["truckerTelebirrRef"] = truckerReleaseRef;
@@ -4037,11 +4045,12 @@ public sealed partial class EscrowService
     /// </summary>
     private async Task<bool> QueueManualPayoutAsync(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
-        List<ManualPayoutLegSeed> legs, string actor, int attempts, Func<string, Task<bool>>? write = null)
+        List<ManualPayoutLegSeed> legs, string actor, int attempts, Func<string, Task<bool>>? write = null,
+        string? releaseOrigin = null)
     {
         for (var attempt = 1; ; attempt++)
         {
-            if (await TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, actor, write))
+            if (await TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, actor, write, releaseOrigin))
             {
                 return true;
             }
@@ -6055,7 +6064,8 @@ public sealed partial class EscrowService
     /// </summary>
     private async Task<bool> TryQueueManualPayoutAsync(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
-        List<ManualPayoutLegSeed> legs, string actor, Func<string, Task<bool>>? write = null)
+        List<ManualPayoutLegSeed> legs, string actor, Func<string, Task<bool>>? write = null,
+        string? releaseOrigin = null)
     {
         var queuedAt = DateTime.UtcNow.ToString("o");
         bool queued;
@@ -6063,7 +6073,8 @@ public sealed partial class EscrowService
         {
             queued = write != null
                 ? await write(queuedAt)
-                : await _escrowRepo.TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, queuedAt);
+                : await _escrowRepo.TryQueueManualPayoutAsync(
+                    escrowId, createdAt, op, reason, fromStatus, legs, queuedAt, releaseOrigin);
         }
         catch (Exception ex)
         {

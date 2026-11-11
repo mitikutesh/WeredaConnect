@@ -254,8 +254,8 @@ public class CropFunction
                 return LambdaResponse.Error(404, "CROP_NOT_FOUND", "Crop listing not found.");
             }
 
-            // Check if deleted
-            if (crop.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
+            // Check if deleted (FUP-132: by the stamp or by the status)
+            if (CropRepository.IsDeleted(crop))
             {
                 return LambdaResponse.Error(404, "CROP_NOT_FOUND", "Crop listing has been deleted.");
             }
