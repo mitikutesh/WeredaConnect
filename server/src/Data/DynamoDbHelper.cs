@@ -52,13 +52,17 @@ internal static class DynamoDbHelper
         {
             string s => new AttributeValue { S = s },
             // ESC-20: a map (the escrow's legStatus, a split verdict's amounts) becomes an M.
+            // FUP-144: IsMSet, so an empty map is sent as an empty M. Without it the SDK sends an attribute
+            // with no type and DynamoDB refuses the whole write.
             IDictionary<string, object> map => new AttributeValue
             {
-                M = map.Where(kv => kv.Value != null).ToDictionary(kv => kv.Key, kv => ToAttributeValue(kv.Value))
+                M = map.Where(kv => kv.Value != null).ToDictionary(kv => kv.Key, kv => ToAttributeValue(kv.Value)),
+                IsMSet = true
             },
             IDictionary<string, string> map => new AttributeValue
             {
-                M = map.ToDictionary(kv => kv.Key, kv => new AttributeValue { S = kv.Value })
+                M = map.ToDictionary(kv => kv.Key, kv => new AttributeValue { S = kv.Value }),
+                IsMSet = true
             },
             IEnumerable<string> list => new AttributeValue
             {

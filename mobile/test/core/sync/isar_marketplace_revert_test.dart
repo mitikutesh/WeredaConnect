@@ -1021,6 +1021,8 @@ void main() {
       'REPUTATION_RESTRICTED: restricted',
       // FUP-51
       'TRIP_CONTACT_IN_TEXT: Remove the phone number from vehiclePlate.',
+      // FUP-128
+      'TRIP_TERMINAL_STATE: Cannot update a terminal-state trip.',
     ]) {
       test(
           'a refused cancel goes back to the server trip and version '

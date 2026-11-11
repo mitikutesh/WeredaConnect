@@ -325,8 +325,102 @@ public class SyncFunctionDeliveryRulesTests
             { "status", "pickedUp" }, { "version", 1 }
         }), TruckerId);
 
+        result.GetProperty("status").GetString().Should().Be("error");
         result.GetProperty("message").GetString().Should().StartWith("DELIVERY_ALREADY_CANCELLED");
         await NothingChanged();
+    }
+
+    // ===== FUP-128: an update that lost the race to a cancel gets the cancelled row =====
+
+    public static TheoryData<string, string, string, string?> RaceLosers => new()
+    {
+        { TruckerId, "status", "pickedUp", null },
+        { TruckerId, "status", "inTransit", null },
+        { BuyerId, "status", "delivered", null },
+        { FarmerId, "status", "disputed", null },
+        { TruckerId, "gpsAnomalyFlag", "true", null },
+        { FarmerId, "qrNonce", "nonce-1", null },
+        { TruckerId, "status", "pickedUp", "2026-10-08T08:00:00Z" },
+    };
+
+    [Theory]
+    [MemberData(nameof(RaceLosers))]
+    public async Task Update_BehindACancelledDelivery_AnswersTheStoredRow(
+        string caller, string field, string value, string? deletedAt)
+    {
+        var row = Delivery("cancelled", version: 3);
+        if (deletedAt != null)
+        {
+            row["deletedAt"] = new AttributeValue { S = deletedAt };
+        }
+
+        SetupDelivery(row);
+
+        var result = await SendAsync(Op("update", new Dictionary<string, object>
+        {
+            { field, value }, { "version", 2 }
+        }), caller);
+
+        result.GetProperty("status").GetString().Should().Be("conflict");
+        result.GetProperty("message").GetString().Should().StartWith("DELIVERY_ALREADY_CANCELLED");
+        result.GetProperty("serverVersion").GetInt32().Should().Be(3);
+        result.GetProperty("serverData").GetProperty("status").GetString().Should().Be("cancelled");
+        NoPhones(result.GetProperty("serverData"));
+        await NothingChanged();
+    }
+
+    // Behind, but not a change this caller may make: the row is not handed out.
+    [Theory]
+    [InlineData(OutsiderId, "status", "pickedUp")]
+    [InlineData(OutsiderId, "status", "disputed")]
+    [InlineData(FarmerId, "status", "pickedUp")]
+    [InlineData(TruckerId, "status", "delivered")]
+    [InlineData(BuyerId, "gpsAnomalyFlag", "true")]
+    [InlineData(OutsiderId, "qrNonce", "nonce-1")]
+    public async Task Update_BehindACancelledDelivery_ByAnotherCaller_IsStillRefused(
+        string caller, string field, string value)
+    {
+        SetupDelivery(Delivery("cancelled", version: 3));
+
+        var result = await SendAsync(Op("update", new Dictionary<string, object>
+        {
+            { field, value }, { "version", 2 }
+        }), caller);
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().StartWith("DELIVERY_ALREADY_CANCELLED");
+        HasNoRow(result);
+        await NothingChanged();
+    }
+
+    // Not behind (the current version, a newer one or none): the request is wrong, not late.
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(null)]
+    public async Task Update_NotBehindACancelledDelivery_IsStillRefused(int? version)
+    {
+        SetupDelivery(Delivery("cancelled", version: 3));
+        var data = new Dictionary<string, object> { { "status", "pickedUp" } };
+        if (version is int sent)
+        {
+            data["version"] = sent;
+        }
+
+        var result = await SendAsync(Op("update", data), TruckerId);
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().StartWith("DELIVERY_ALREADY_CANCELLED");
+        HasNoRow(result);
+        await NothingChanged();
+    }
+
+    private static void HasNoRow(JsonElement result)
+    {
+        if (result.TryGetProperty("serverData", out var serverData))
+        {
+            serverData.ValueKind.Should().Be(JsonValueKind.Null);
+        }
     }
 
     // ===== Create: the trucker delivery is bound to the order's trip and listing =====

@@ -349,6 +349,88 @@ void main() {
     }
   });
 
+  // FUP-128: a change sent at the cancelled version (one queued behind the
+  // change that lost the race and got the conflict) is refused the same way
+  // every time, so it is never resent and the delivery goes back to the
+  // server's view. The same for a trip that is over.
+  group('a change to a cancelled delivery is permanent and reverted', () {
+    for (final (who, data) in [
+      ('trucker pickup', '{"status":"pickedUp","version":3}'),
+      ('buyer confirmation', '{"status":"delivered","version":3}'),
+      ('farmer dispute', '{"status":"disputed","version":3}'),
+    ]) {
+      test(who, () async {
+        const message =
+            'DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery.';
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          data: data,
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.operationId, 'op-1');
+        expect(reverts.single.$2, message);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        // A reconnect sends nothing.
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+  });
+
+  group('a change to a trip that is over is permanent and reverted', () {
+    for (final (action, data, message) in [
+      (
+        'update',
+        '{"status":"inTransit","version":4}',
+        'TRIP_TERMINAL_STATE: Cannot update a terminal-state trip.',
+      ),
+      (
+        'update',
+        '{"capacity":90,"version":4}',
+        'TRIP_ALREADY_CANCELLED: Cannot update a deleted trip.',
+      ),
+      (
+        'delete',
+        '{"tripId":"trip-1","version":4}',
+        'TRIP_TERMINAL_STATE: Cannot delete a terminal-state trip.',
+      ),
+    ]) {
+      test('$action: ${message.split(':').first}', () async {
+        await enqueue(
+          'op-1',
+          entityType: 'trip',
+          entityId: 'trip-1',
+          action: action,
+          data: data,
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.entityType, 'trip');
+        expect(reverts.single.$2, message);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+  });
+
   // FUP-138: a handoff without the farmer's QR nonce gets the same answer
   // every time (the op carries none, or the farmer's never reached the
   // server in 14 days), so it is never resent; the local pickup or delivery

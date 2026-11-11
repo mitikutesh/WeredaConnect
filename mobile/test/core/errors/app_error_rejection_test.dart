@@ -802,6 +802,48 @@ void main() {
       }
     });
 
+    // FUP-128: a party behind the cancel gets a conflict; the error is left
+    // for a change sent at the stored version, and no retry can pass it.
+    test('a cancelled delivery or a finished trip undoes the change', () {
+      const delivery =
+          'DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery.';
+      expect(isDeliveryAlreadyCancelledMessage(delivery), isTrue);
+      expect(isRevertableDeliveryRejectionMessage(delivery), isTrue);
+      expect(isRevertableTripRejectionMessage(delivery), isFalse);
+      for (final message in [
+        'TRIP_TERMINAL_STATE: Cannot update a terminal-state trip.',
+        'TRIP_TERMINAL_STATE: Cannot delete a terminal-state trip.',
+        'TRIP_ALREADY_CANCELLED: Cannot update a deleted trip.',
+        'TRIP_ALREADY_CANCELLED: Trip is already deleted.',
+      ]) {
+        expect(isTripOverMessage(message), isTrue, reason: message);
+        expect(
+          isRevertableTripRejectionMessage(message),
+          isTrue,
+          reason: message,
+        );
+        expect(isRevertableListingRejectionMessage(message), isFalse);
+        expect(isRevertableDeliveryRejectionMessage(message), isFalse);
+        // No text of its own: the generic one.
+        expect(
+          syncRejectionErrorCode(
+            entityType: 'trip',
+            action: 'update',
+            message: message,
+          ),
+          AppErrorCode.changeNotSaved,
+        );
+      }
+      for (final message in [
+        'TRIP_INVALID_TRANSITION: Cannot transition',
+        'DELIVERY_INVALID_TRANSITION: Cannot transition',
+        null,
+      ]) {
+        expect(isTripOverMessage(message), isFalse);
+        expect(isDeliveryAlreadyCancelledMessage(message), isFalse);
+      }
+    });
+
     test('DELIVERY_NONCE_MISSING undoes the delivery, the others do not', () {
       for (final message in [
         'DELIVERY_NONCE_MISSING: QR nonce verification required for this '

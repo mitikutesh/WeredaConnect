@@ -25,6 +25,17 @@ public static class OutcomeLabels
     /// <summary>Bumped when a field changes meaning; the export carries it.</summary>
     public const int SchemaVersion = 1;
 
+    /// <summary>
+    /// FRD-20 P1: the version of the feature snapshot on a fraud label (<c>snapshotVersion</c>). A label
+    /// without it has no snapshot. Bumped when a snapshot field changes meaning.
+    /// </summary>
+    public const int SnapshotVersion = 1;
+
+    /// <summary>
+    /// FRD-20 P1: warning line of a snapshot that could not be read or stored; the label is written without it.
+    /// </summary>
+    public const string SnapshotFailedToken = "LABEL_SNAPSHOT_FAILED";
+
     public const string CaseFraudSignal = "fraud_signal";
     public const string CaseDispute = "dispute";
     public const string CaseHeldEscrow = "held_escrow";
@@ -124,6 +135,44 @@ public sealed record OutcomeLabel
     public string? HeldFromStatus { get; init; }
     public string? HeldAt { get; init; }
     public string? WhitelistUntil { get; init; }
+
+    /// <summary>FRD-20 P1: the subject user's features before the decision; null when not read.</summary>
+    public LabelFeatureSnapshot? Snapshot { get; init; }
+}
+
+/// <summary>
+/// FRD-20 P1 (section 20.1, <c>specs/decisions/frd-20-ml-risk-scoring.md</c>): what the subject user of a fraud
+/// decision looked like just before it. Counts, codes and ages only: no id, phone, name, location or text.
+/// The signal part is the calculator's counted units over the whole score window, uncapped. The account
+/// part (the controls) is null when the users row is missing; the completed count is null for a role
+/// without an escrow index.
+/// </summary>
+public sealed record LabelFeatureSnapshot
+{
+    /// <summary>Counted units per signal type (a server code), after dedup and per-entity counting.</summary>
+    public required IReadOnlyDictionary<string, int> SignalUnits { get; init; }
+
+    /// <summary>Clean-delivery credit rows in the window.</summary>
+    public int CreditUnits { get; init; }
+
+    /// <summary>Their points, positive, before the credit cap.</summary>
+    public int CreditPoints { get; init; }
+
+    /// <summary>The signal read stopped at its page cap with rows left: the counts are a lower bound.</summary>
+    public bool Truncated { get; init; }
+
+    public int WindowDays { get; init; }
+    public int? AccountAgeDays { get; init; }
+    public bool? FaydaVerified { get; init; }
+
+    /// <summary><c>farmer</c>, <c>trucker</c>, <c>buyer</c> or <c>other</c>.</summary>
+    public string? Role { get; init; }
+
+    /// <summary>The <c>completed</c> escrows among the user's newest escrows in the user's role (one bounded Query).</summary>
+    public int? CompletedEscrows { get; init; }
+
+    /// <summary>The user has more escrows than that Query read, so the count may be low.</summary>
+    public bool? CompletedEscrowsPartial { get; init; }
 }
 
 /// <summary>What <see cref="OutcomeLabelWriter.WriteAsync"/> did.</summary>
@@ -158,7 +207,21 @@ public static class OutcomeLabelWriter
 
         try
         {
-            var written = await repo.AppendIfAbsentAsync(BuildEntry(label, ctx));
+            bool written;
+            try
+            {
+                written = await repo.AppendIfAbsentAsync(BuildEntry(label, ctx));
+            }
+            catch (Exception ex) when (label.Snapshot != null)
+            {
+                // FRD-20 P1: a snapshot must never cost a label. Whatever refused the row, write it once
+                // more without the snapshot; a second failure is the label's own (below).
+                Log(context,
+                    $"{OutcomeLabels.SnapshotFailedToken} caseId={MoneyAlarmLog.LogId(label.CaseId)} stage=write error={ex.GetType().Name}",
+                    warning: true);
+                written = await repo.AppendIfAbsentAsync(BuildEntry(label with { Snapshot = null }, ctx));
+            }
+
             Log(context, written
                 ? $"OUTCOME_LABEL_WRITTEN case={label.Case} outcome={label.Outcome} caseId={MoneyAlarmLog.LogId(label.CaseId)}"
                 : $"OUTCOME_LABEL_EXISTS case={label.Case} outcome={label.Outcome} caseId={MoneyAlarmLog.LogId(label.CaseId)}");
@@ -236,10 +299,59 @@ public static class OutcomeLabelWriter
         Put(entry, "heldFromStatus", label.HeldFromStatus);
         Put(entry, "heldAt", label.HeldAt);
         Put(entry, "whitelistUntil", label.WhitelistUntil);
+        if (label.Snapshot is { } snapshot)
+        {
+            PutSnapshot(entry, snapshot);
+        }
+
         Put(entry, "ipAddress", ctx.IpAddress);
         Put(entry, "correlationId", ctx.CorrelationId);
         return entry;
     }
+
+    /// <summary>
+    /// FRD-20 P1: the snapshot attributes. <c>snapshotVersion</c> marks a label that has one. A type that is
+    /// not a plain code is counted under <c>OTHER</c>, so no text reaches the row.
+    /// </summary>
+    private static void PutSnapshot(Dictionary<string, object> entry, LabelFeatureSnapshot snapshot)
+    {
+        var units = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (var (type, count) in snapshot.SignalUnits)
+        {
+            var key = IsCode(type) ? type : "OTHER";
+            units[key] = (units.TryGetValue(key, out var have) ? (int)have : 0) + count;
+        }
+
+        entry["snapshotVersion"] = OutcomeLabels.SnapshotVersion;
+        entry["snapshotWindowDays"] = snapshot.WindowDays;
+        entry["snapshotSignalUnits"] = units;
+        entry["snapshotCreditUnits"] = snapshot.CreditUnits;
+        entry["snapshotCreditPoints"] = snapshot.CreditPoints;
+        entry["snapshotTruncated"] = snapshot.Truncated;
+        if (snapshot.AccountAgeDays is { } age)
+        {
+            entry["snapshotAccountAgeDays"] = age;
+        }
+
+        if (snapshot.FaydaVerified is { } fayda)
+        {
+            entry["snapshotFaydaVerified"] = fayda;
+        }
+
+        Put(entry, "snapshotRole", snapshot.Role);
+        if (snapshot.CompletedEscrows is { } completed)
+        {
+            entry["snapshotCompletedEscrows"] = completed;
+        }
+
+        if (snapshot.CompletedEscrowsPartial is { } partial)
+        {
+            entry["snapshotCompletedEscrowsPartial"] = partial;
+        }
+    }
+
+    private static bool IsCode(string value) =>
+        value.Length is > 0 and <= 64 && value.All(c => c is (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '_');
 
     private static void Put(Dictionary<string, object> entry, string key, string? value)
     {

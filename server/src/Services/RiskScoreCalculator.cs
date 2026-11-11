@@ -123,6 +123,11 @@ internal sealed class RiskScoreCalculator
     private long _creditWeight;
     private bool _whitelistActive;
 
+    // FRD-20 P1: the counted units per signal type and the credit rows, for the label's feature snapshot.
+    // The score never reads them.
+    private readonly Dictionary<string, int> _units = new(StringComparer.Ordinal);
+    private int _creditUnits;
+
     public RiskScoreCalculator(RiskScoreSettings settings, DateTime nowUtc)
     {
         _settings = settings;
@@ -170,6 +175,7 @@ internal sealed class RiskScoreCalculator
                 if (InWindow(signalKey))
                 {
                     _creditWeight += Num(row, "weight") ?? 0;
+                    _creditUnits++;
                 }
 
                 return;
@@ -208,6 +214,7 @@ internal sealed class RiskScoreCalculator
                 && _entityBuckets.Remove(entityBucket, out var counted))
             {
                 Count(counted.Type, -counted.Weight, clearable: true);
+                _units[counted.Type] = _units.GetValueOrDefault(counted.Type) - 1;
             }
 
             return;
@@ -229,6 +236,8 @@ internal sealed class RiskScoreCalculator
         {
             return;
         }
+
+        _units[signalType] = _units.GetValueOrDefault(signalType) + 1;
 
         // Only credit rows may lower the score, and only within the cap.
         var weight = Math.Max(0, Num(row, "weight") ?? FraudDetectionService.SignalWeight(signalType));
@@ -292,6 +301,20 @@ internal sealed class RiskScoreCalculator
         };
     }
 
+    /// <summary>
+    /// FRD-20 P1 (section 20.1): what the rows fed so far count as, for the feature snapshot of a fraud label.
+    /// Units per signal type are the rows that count after the hour dedup, the per-entity counting, the
+    /// resolutions and the whitelist, the advisory type included. Uncapped: the caps of section 14.2 are in
+    /// points and stay in <see cref="Result"/>. Credits are the credit rows in the window and their points
+    /// (positive, before the credit cap).
+    /// </summary>
+    public RiskFeatureUnits FeatureUnits(bool truncated) => new(
+        _units.Where(entry => entry.Value > 0).ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal),
+        _creditUnits,
+        (int)Math.Clamp(-_creditWeight, 0, int.MaxValue),
+        truncated,
+        _settings.WindowDays);
+
     /// <summary>Section 16; bounds are inclusive lower bounds.</summary>
     internal static RiskTier TierFor(long score, long enforcementScore, bool truncated, RiskScoreSettings settings) =>
         truncated || enforcementScore >= settings.TierCritical ? RiskTier.Critical
@@ -339,3 +362,11 @@ internal sealed class RiskScoreCalculator
             ? number
             : null;
 }
+
+/// <summary>
+/// FRD-20 P1: the counted units of one user's window (see <see cref="RiskScoreCalculator.FeatureUnits"/>).
+/// <see cref="Truncated"/> is true when the read stopped at its page cap with rows left, so the counts are
+/// a lower bound.
+/// </summary>
+internal sealed record RiskFeatureUnits(
+    IReadOnlyDictionary<string, int> UnitsByType, int CreditUnits, int CreditPoints, bool Truncated, int WindowDays);
