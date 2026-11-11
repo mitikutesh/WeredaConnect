@@ -842,6 +842,41 @@ public class AdminFunctionTests
         return item;
     }
 
+    // FUP-127 audit: the admin request bodies mark their members required and carry no initializer.
+    // An absent one is ADMIN_005; an explicit null must be refused, never dereferenced.
+    [Theory]
+    [InlineData("/admin/disputes/escrow-9/resolve", "{\"action\":\"release\"}", "ADMIN_005")]
+    [InlineData("/admin/disputes/escrow-9/resolve", "{\"resolution\":\"farmer_wins\"}", "ADMIN_005")]
+    [InlineData("/admin/disputes/escrow-9/resolve", "{\"resolution\":null,\"action\":\"release\"}", "ADMIN_014")]
+    [InlineData("/admin/disputes/escrow-9/resolve", "{\"resolution\":\"farmer_wins\",\"action\":null}", "ADMIN_014")]
+    [InlineData("/admin/users/user-1/action", "{}", "ADMIN_005")]
+    [InlineData("/admin/users/user-1/action", "{\"action\":null}", "ADMIN_009")]
+    public async Task AdminBody_AbsentOrNullRequiredMember_Returns400(string path, string body, string code)
+    {
+        var response = await _function.FunctionHandler(AdminGroupRequest("POST", path, body), _context);
+
+        response.StatusCode.Should().Be(400, response.Body);
+        response.Body.Should().Contain($"\"code\":\"{code}\"");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("{}", "ADMIN_005")]
+    [InlineData("{\"action\":null}", "ADMIN_009")]
+    public async Task FraudActionBody_AbsentOrNullAction_Returns400(string body, string code)
+    {
+        var fn = new AdminFunction(_dynamoDb, UsersTable, FraudSignalsTable);
+        var signalId = WeredaConnect.Server.Services.FraudDetectionService
+            .BuildSignalId("farmer-1", "2026-07-11T10:00:00.0000000Z#PRICE_ANOMALY");
+
+        var response = await fn.FunctionHandler(
+            AdminGroupRequest("POST", $"/admin/fraud-signals/{signalId}/action", body), _context);
+
+        response.StatusCode.Should().Be(400, response.Body);
+        response.Body.Should().Contain($"\"code\":\"{code}\"");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
     private static APIGatewayProxyRequest ResolveRequest(object body)
         => AdminGroupRequest("POST", "/admin/disputes/escrow-9/resolve", JsonSerializer.Serialize(body));
 
