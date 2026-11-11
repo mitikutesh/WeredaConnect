@@ -103,6 +103,9 @@ public class SyncFunctionCommitmentTests
 
     private bool _fraudHoldEnabled;
 
+    // ESC-29: reputationPenalties for the accept gate; off keeps every other test as it was.
+    private bool _reputationGates;
+
     // FRD-09: set by the pattern rule tests only; null keeps every other test as it was.
     private IFraudDetectionService? _fraud;
     private TransactionPatternService? _patterns;
@@ -117,10 +120,97 @@ public class SyncFunctionCommitmentTests
             orderEscrowService: escrowService, deliveryRepo: _deliveries, tripRepo: _trips)
         {
             CommitmentsEnabled = enabled,
+            ReputationGatesEnabled = _reputationGates,
             FraudHoldEnabled = _fraudHoldEnabled,
             EscrowsTableName = "test-escrows",
             PatternRules = _patterns
         };
+    }
+
+    // ===== ESC-29: a restricted party takes no new commitment (reputation-api.md 8.1) =====
+
+    private void Restrict(string userId, string role) => _users.GetUserByIdAsync(userId, true).Returns(new UserDto
+    {
+        UserId = userId,
+        PhoneNumber = "+251900000000",
+        Role = role,
+        Woreda = "Jimma",
+        IsPhoneVerified = true,
+        CreatedAt = "2026-02-16T10:00:00Z",
+        UpdatedAt = "2026-02-16T10:00:00Z",
+        Version = 1,
+        Reputation = new ReputationSnapshot
+        {
+            Tier = ReputationTiers.Restricted,
+            ActivePoints = 10,
+            HasRestriction = true,
+            RestrictionCause = ReputationCauses.Points,
+            RestrictionSince = DateTime.UtcNow.AddDays(-1),
+            RestrictionUntil = DateTime.UtcNow.AddDays(13)
+        }
+    });
+
+    [Fact]
+    public async Task FarmerAccept_WhileRestricted_IsRefused_NothingWritten()
+    {
+        _reputationGates = true;
+        Restrict(FarmerId, "farmer");
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object> { { "farmerResponse", "accept" }, { "version", 2 } });
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        // No X-App-Build on this request: the permanent code every client knows.
+        result.GetProperty("message").GetString().Should().StartWith("ORDER_VALIDATION: Your account can't take new orders until ");
+        _written.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task FarmerDecline_WhileRestricted_IsStillAllowed()
+    {
+        _reputationGates = true;
+        Restrict(FarmerId, "farmer");
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object> { { "farmerResponse", "decline" }, { "version", 2 } });
+
+        result.GetProperty("status").GetString().Should().Be("success");
+    }
+
+    [Fact]
+    public async Task FarmerAccept_Replayed_WhileRestricted_IsStillTheNoOpSuccess()
+    {
+        _reputationGates = true;
+        Restrict(FarmerId, "farmer");
+        _order = Order("funded", version: 3, farmer: "accepted", trucker: "pending");
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object> { { "farmerResponse", "accept" }, { "version", 3 } });
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        _written.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task TruckerAccept_WhileRestricted_IsRefused_AndADeclineIsNot()
+    {
+        _reputationGates = true;
+        Restrict(TruckerId, "trucker");
+        _order = Order("funded", version: 3, farmer: "accepted", trucker: "pending");
+
+        var accept = await SendAsync(TruckerId, new Dictionary<string, object> { { "truckerResponse", "accept" }, { "version", 3 } });
+        accept.GetProperty("message").GetString().Should().StartWith("ORDER_VALIDATION: Your account can't take new orders until ");
+        _written.Should().BeNull();
+
+        var decline = await SendAsync(TruckerId, new Dictionary<string, object> { { "truckerResponse", "decline" }, { "version", 3 } });
+        decline.GetProperty("status").GetString().Should().Be("success");
+    }
+
+    [Fact]
+    public async Task FarmerAccept_WhileRestricted_FlagOff_GoesThrough()
+    {
+        Restrict(FarmerId, "farmer");
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object> { { "farmerResponse", "accept" }, { "version", 2 } });
+
+        result.GetProperty("status").GetString().Should().Be("success");
     }
 
     // ===== farmer first =====

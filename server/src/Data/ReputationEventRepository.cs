@@ -75,7 +75,42 @@ public sealed class ReputationEventRepository : IReputationEventRepository
             LastEventRecordedAt = map != null ? Time(map, "lastEventRecordedAt") : null,
             RatingSum = Long(item, "ratingSum") ?? 0,
             RatingCount = Long(item, "ratingCount") ?? 0,
-            RatingsAggregatedAt = Str(item, "ratingsAggregatedAt")
+            RatingsAggregatedAt = Str(item, "ratingsAggregatedAt"),
+            Snapshot = SnapshotFromMap(map)
+        };
+    }
+
+    /// <summary>ESC-29: the stored <c>reputation</c> map of a users row item, or null when it has none.</summary>
+    internal static ReputationSnapshot? SnapshotFromItem(Dictionary<string, AttributeValue> userItem)
+        => SnapshotFromMap(userItem.TryGetValue("reputation", out var rep) && rep.M is { Count: > 0 } m ? m : null);
+
+    private static ReputationSnapshot? SnapshotFromMap(Dictionary<string, AttributeValue>? map)
+    {
+        if (map == null)
+        {
+            return null;
+        }
+
+        var restriction = map.TryGetValue("restriction", out var r) && r.M is { Count: > 0 } rm ? rm : null;
+        var overrideMap = map.TryGetValue("override", out var o) && o.M is { Count: > 0 } om ? om : null;
+        return new ReputationSnapshot
+        {
+            Version = Int(map, "version") ?? 0,
+            Tier = Str(map, "tier") ?? ReputationTiers.Good,
+            ActivePoints = Int(map, "activePoints") ?? 0,
+            CompletedOrders90d = Int(map, "completedOrders90d") ?? 0,
+            FaultCancels90d = Int(map, "faultCancels90d") ?? 0,
+            NoShows90d = Int(map, "noShows90d") ?? 0,
+            ReliabilityPct = Int(map, "reliabilityPct"),
+            EffectiveRating = Dec(map, "effectiveRating"),
+            HasRestriction = restriction != null,
+            RestrictionCause = restriction != null ? Str(restriction, "cause") : null,
+            RestrictionSince = restriction != null ? Time(restriction, "since") : null,
+            RestrictionUntil = restriction != null ? Time(restriction, "until") : null,
+            OverrideTag = overrideMap != null ? Str(overrideMap, "tag") : null,
+            OverrideReason = overrideMap != null ? Str(overrideMap, "reason") : null,
+            OverrideUntil = overrideMap != null ? Time(overrideMap, "until") : null,
+            NextChangeAt = Time(map, "nextChangeAt")
         };
     }
 

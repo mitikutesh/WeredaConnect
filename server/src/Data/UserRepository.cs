@@ -374,6 +374,10 @@ public sealed class UserRepository : IUserRepository
             DeletionState = item.TryGetValue("deletionState", out var ds) && ds.S != null ? ds.S : null,
             DeletionRequestedAt = item.TryGetValue("deletionRequestedAt", out var dra) && dra.S != null ? dra.S : null,
             DeletedAt = item.TryGetValue("deletedAt", out var da) && da.S != null ? da.S : null,
+            Reputation = ReputationEventRepository.SnapshotFromItem(item),
+            RatingSum = item.TryGetValue("ratingSum", out var rs) && long.TryParse(rs.N, out var sum) ? sum : 0,
+            RatingCount = item.TryGetValue("ratingCount", out var rc) && long.TryParse(rc.N, out var count) ? count : 0,
+            RatingsAggregatedAt = item.TryGetValue("ratingsAggregatedAt", out var raa) && raa.S != null ? raa.S : null,
             CreatedAt = item["createdAt"].S,
             UpdatedAt = item["updatedAt"].S,
             Version = item.TryGetValue("version", out var ver) && ver.N != null ? int.Parse(ver.N) : 1

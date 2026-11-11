@@ -23,6 +23,9 @@ internal sealed class FakeReputationRepository : IReputationEventRepository
         public ReputationMapWrite? Map { get; set; }
         public long RatingSum { get; set; }
         public long RatingCount { get; set; }
+
+        /// <summary>Set like a registered or backfilled row; null is a row the backfill skipped.</summary>
+        public string? RatingsAggregatedAt { get; set; } = "2026-11-01T00:00:00.000Z";
     }
 
     public Dictionary<string, User> Users { get; } = new(StringComparer.Ordinal);
@@ -94,7 +97,29 @@ internal sealed class FakeReputationRepository : IReputationEventRepository
             LastEventId = map?.LastEventId,
             LastEventRecordedAt = map?.LastEventRecordedAt,
             RatingSum = user.RatingSum,
-            RatingCount = user.RatingCount
+            RatingCount = user.RatingCount,
+            RatingsAggregatedAt = user.RatingsAggregatedAt,
+            Snapshot = map == null
+                ? null
+                : new ReputationSnapshot
+                {
+                    Version = map.Version,
+                    Tier = map.Aggregate.Tier,
+                    ActivePoints = map.Aggregate.ActivePoints,
+                    CompletedOrders90d = map.Aggregate.CompletedOrders90d,
+                    FaultCancels90d = map.Aggregate.FaultCancels90d,
+                    NoShows90d = map.Aggregate.NoShows90d,
+                    ReliabilityPct = map.Aggregate.ReliabilityPct,
+                    EffectiveRating = map.Aggregate.EffectiveRating,
+                    HasRestriction = map.Aggregate.Restriction != null,
+                    RestrictionCause = map.Aggregate.Restriction?.Cause,
+                    RestrictionSince = map.Aggregate.Restriction?.Since,
+                    RestrictionUntil = map.Aggregate.Restriction?.Until,
+                    OverrideTag = map.Aggregate.Override?.Tag,
+                    OverrideReason = map.Aggregate.Override?.Reason,
+                    OverrideUntil = map.Aggregate.Override?.Until,
+                    NextChangeAt = map.Aggregate.NextChangeAt
+                }
         });
     }
 

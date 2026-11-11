@@ -91,6 +91,7 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
     public string Crops => $"crops-{_suffix}";
     public string Trips => $"trips-{_suffix}";
     public string FraudSignals => $"fraud-signals-{_suffix}";
+    public string ReputationEvents => $"reputation-events-{_suffix}";
 
     public async Task InitializeAsync()
     {
@@ -136,8 +137,12 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
             ("TruckerIdCreatedAtIndex", "truckerId", "createdAt"));
         await CreateAsync(TransactionAudit, ("transactionId", "timestamp"), ("EntityIndex", "entityId", "timestamp"));
         await CreateAsync(Users, ("userId", null));
-        await CreateAsync(Crops, ("cropId", "createdAt"));
-        await CreateAsync(Trips, ("tripId", "createdAt"));
+        // ESC-29: the owner indexes the reputation copy reads.
+        await CreateAsync(Crops, ("cropId", "createdAt"), ("FarmerIdCreatedAtIndex", "farmerId", "createdAt"));
+        await CreateAsync(Trips, ("tripId", "createdAt"), ("TruckerIdCreatedAtIndex", "truckerId", "createdAt"));
+        // ESC-28: the reputation events and their two sparse indexes.
+        await CreateAsync(ReputationEvents, ("userId", "eventId"),
+            ("AppealStatusIndex", "appealStatus", "appealedAt"), ("DueIndex", "dueDay", "dueAt"));
         // FRD-07: Fraud Review's sparse status index.
         await CreateAsync(FraudSignals, ("userId", "signalKey"), ("StatusCreatedAtIndex", "status", "createdAt"));
     }

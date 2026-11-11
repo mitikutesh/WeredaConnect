@@ -65,7 +65,7 @@ public sealed class ReputationDailyJob
 
         context.Logger.LogInformation(
             $"{SummaryToken} users={tally.Users} expired={tally.Expired} ended={tally.Ended} healed={tally.Healed} "
-            + $"copies=0 leftover={tally.Leftover} failed={tally.Failed}");
+            + $"copies={tally.Copied} leftover={tally.Leftover} failed={tally.Failed}");
         return tally.ToDictionary("reputation_daily", slice.StopReason == null ? "ok" : "partial");
     }
 
@@ -118,6 +118,7 @@ public sealed class ReputationDailyJob
                 tally.Expired += result.Expired;
                 tally.Ended += result.Ended;
                 tally.Healed += result.Healed;
+                tally.Copied += result.Copied;
                 tally.Written += result.Written ? 1 : 0;
             }
             catch (Exception ex)
@@ -160,6 +161,7 @@ public sealed class ReputationDailyJob
         public int Ended;
         public int Healed;
         public int Written;
+        public int Copied;
         public int Leftover;
         public int Failed;
 
