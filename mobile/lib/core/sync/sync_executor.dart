@@ -1215,7 +1215,10 @@ class SyncExecutor {
   /// holds a phone number (1.23.0, FUP-49), every `LOCATION_*` refusal
   /// of a check-in (1.31.0, LT-08), every `DELIVERY_PHOTO_*` refusal of a
   /// handoff photo (1.39.0, FRD-12), a handoff without the farmer's QR nonce
-  /// (`DELIVERY_NONCE_MISSING`, FUP-138), and the FRD-08 refusals no retry
+  /// (`DELIVERY_NONCE_MISSING`, FUP-138), a change to a delivery already
+  /// cancelled or a trip already over (`DELIVERY_ALREADY_CANCELLED`,
+  /// `TRIP_TERMINAL_STATE`, `TRIP_ALREADY_CANCELLED`, 1.45.0, FUP-128), and
+  /// the FRD-08 refusals no retry
   /// can pass: every `*_UNAUTHORIZED` code but a role gate, a rating of
   /// another user's order and a changed immutable field (1.27.0, FUP-110).
   /// A role gate also answers a token without the role claim, so it retries
@@ -1230,6 +1233,7 @@ class SyncExecutor {
         isContactLockedMessage(message) ||
         isReputationRestrictedMessage(message) ||
         isTripHasBookingsMessage(message) ||
+        isTripOverMessage(message) ||
         isTripCapacityExceededMessage(message) ||
         isCropHasActiveOrdersMessage(message) ||
         isAppUpdateRequiredMessage(message) ||

@@ -247,12 +247,44 @@ bool isDeliveryCodeRejectionMessage(String? message) =>
         message.startsWith(deliveryCodeLockedCode) ||
         message.startsWith(deliveryCodeGpsRequiredCode));
 
+/// Sync rejection prefix when a change reaches a delivery that is already
+/// cancelled (sync-protocol.md 1.45.0, FUP-128). A party who is behind the
+/// cancel gets a `conflict` with the row; the error is left for a change
+/// sent at the cancelled version (one queued behind the change that lost).
+const String deliveryAlreadyCancelledCode = 'DELIVERY_ALREADY_CANCELLED';
+
+/// Whether a /sync per-operation error message refuses a change to a
+/// cancelled delivery (`DELIVERY_ALREADY_CANCELLED: ...`). Permanent: a
+/// cancelled delivery never leaves that status, so the client puts the
+/// delivery back from the server instead of retrying.
+bool isDeliveryAlreadyCancelledMessage(String? message) =>
+    message != null && message.startsWith(deliveryAlreadyCancelledCode);
+
+/// Sync rejection prefixes when a change reaches a trip that is over
+/// (`cancelled`, `delivered` or deleted; trip-listing-api.md 2.4.0). A
+/// trucker who is behind gets a `conflict` with the row; the error is left
+/// for a change sent at the stored version.
+const String tripTerminalStateCode = 'TRIP_TERMINAL_STATE';
+const String tripAlreadyCancelledCode = 'TRIP_ALREADY_CANCELLED';
+
+/// Whether a /sync per-operation error message refuses a change to a trip
+/// that is over (`TRIP_TERMINAL_STATE: ...` or `TRIP_ALREADY_CANCELLED:
+/// ...`, sync-protocol.md 1.45.0). Permanent: a finished trip never changes
+/// again, so the client puts the trip back from the server instead of
+/// retrying.
+bool isTripOverMessage(String? message) =>
+    message != null &&
+    (message.startsWith(tripTerminalStateCode) ||
+        message.startsWith(tripAlreadyCancelledCode));
+
 /// Whether a /sync per-operation error message refuses a delivery change for
 /// good and the client must put the delivery back from the server: a cancel
 /// after pickup (ESC-08), a dispute that was refused or too late (ESC-07), a
-/// typed handoff code that was refused (T-1), or a handoff without the
-/// farmer's QR nonce (FUP-138).
+/// typed handoff code that was refused (T-1), a handoff without the
+/// farmer's QR nonce (FUP-138), or a change to a delivery that is already
+/// cancelled (FUP-128).
 bool isRevertableDeliveryRejectionMessage(String? message) =>
+    isDeliveryAlreadyCancelledMessage(message) ||
     isDeliveryCancelRefusalMessage(message) ||
     isDeliveryDisputeRefusalMessage(message) ||
     isDeliveryDisputeExpiredMessage(message) ||
@@ -368,10 +400,12 @@ bool isRevertableListingRejectionMessage(String? message) =>
 /// Whether a /sync per-operation error message refuses a trip change for
 /// good and the client must put the trip back from the server (or remove a
 /// refused create): the trucker is restricted or the trip has bookings
-/// (sync-protocol.md 1.17.0), its text holds a phone number, or the account
-/// is under review (FUP-51). Only these codes, for the same reasons as
+/// (sync-protocol.md 1.17.0), its text holds a phone number, the account
+/// is under review (FUP-51), or the trip is already over (FUP-128). Only
+/// these codes, for the same reasons as
 /// [isRevertableListingRejectionMessage].
 bool isRevertableTripRejectionMessage(String? message) =>
+    isTripOverMessage(message) ||
     isReputationRestrictedMessage(message) ||
     isTripHasBookingsMessage(message) ||
     (message != null && message.startsWith(tripContactInTextCode)) ||

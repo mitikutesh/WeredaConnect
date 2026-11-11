@@ -56,7 +56,7 @@ Each contract file follows this structure:
 
 | Contract | File | Version | Parties |
 |----------|------|---------|---------|
-| Sync Protocol | `sync-protocol.md` | 1.44.1 | Mobile, Backend |
+| Sync Protocol | `sync-protocol.md` | 1.45.0 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 2.14.0 | Mobile, Backend, Infrastructure |
 | User Entity | `user-entity.md` | 2.1.0 | Mobile, Web, Backend, Admin, Infrastructure |
 | Rating API | `rating-api.md` | 1.3.0 | Mobile, Web, Backend, Infrastructure, Admin |
