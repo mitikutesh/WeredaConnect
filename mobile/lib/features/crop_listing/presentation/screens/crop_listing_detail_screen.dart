@@ -23,7 +23,6 @@ import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_trip_card.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_photo_views.dart';
-import 'package:wereda_connect/features/delivery_verification/presentation/screens/create_delivery_screen.dart';
 import 'package:wereda_connect/features/listing_report/presentation/report_listing_sheet.dart';
 import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
@@ -519,34 +518,15 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     ];
   }
 
-  /// The role's actions pinned at the foot: the trucker creates a delivery,
-  /// the buyer places the order (with the chosen transport, or without).
-  /// The owner has none for now (editing is future work).
+  /// The role's actions pinned at the foot: the buyer places the order
+  /// (with the chosen transport, or without). The owner has none for now
+  /// (editing is future work), and neither has a trucker: a delivery is
+  /// created from its order, never from a listing (ESC-23).
   Widget? _bottomActions(BuildContext context, AppLocalizations l10n) {
     switch (widget.currentUserRole) {
       case UserRole.farmer:
-        return null;
       case UserRole.trucker:
-        return FwBottomActions(
-          children: [
-            FilledButton.icon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) =>
-                        CreateDeliveryScreen(listing: widget.listing),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.local_shipping),
-              label: Text(l10n.createDelivery),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(56),
-              ),
-            ),
-          ],
-        );
+        return null;
       case UserRole.buyer:
         final withTransport =
             widget.deliveryWoreda != null && _selectedTrip != null;

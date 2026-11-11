@@ -20,8 +20,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
   /// Trucker's own-scoped events never trigger a pull.
   final MarketplaceSync? _marketplaceSync;
 
-  /// Exposed for screens that need to query trips directly
-  /// (e.g., CreateDeliveryScreen loading trucker's open trips).
+  /// Exposed for screens that need to query trips directly.
   BaseTripListingRepository get repository => _repository;
 
   TripListingBloc({

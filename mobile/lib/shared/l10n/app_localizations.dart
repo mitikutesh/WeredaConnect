@@ -2920,48 +2920,6 @@ abstract class AppLocalizations {
   /// **'Max'**
   String get filterMax;
 
-  /// Section header for trip selection in create delivery screen
-  ///
-  /// In en, this message translates to:
-  /// **'Select Trip'**
-  String get selectTrip;
-
-  /// Section header for buyer info in create delivery screen
-  ///
-  /// In en, this message translates to:
-  /// **'Buyer Information'**
-  String get buyerInformation;
-
-  /// Input label for buyer name field
-  ///
-  /// In en, this message translates to:
-  /// **'Buyer Name'**
-  String get buyerNameLabel;
-
-  /// Input label for buyer phone or ID field
-  ///
-  /// In en, this message translates to:
-  /// **'Buyer Phone / ID'**
-  String get buyerPhoneIdLabel;
-
-  /// Validation error when buyer name is empty
-  ///
-  /// In en, this message translates to:
-  /// **'Buyer name is required'**
-  String get buyerNameRequired;
-
-  /// Validation error when buyer phone/ID is empty
-  ///
-  /// In en, this message translates to:
-  /// **'Buyer phone or ID is required'**
-  String get buyerIdRequired;
-
-  /// Validation error when no trip is selected
-  ///
-  /// In en, this message translates to:
-  /// **'Please select a trip'**
-  String get tripSelectionRequired;
-
   /// Dropdown hint for trip selection
   ///
   /// In en, this message translates to:

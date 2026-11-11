@@ -72,7 +72,12 @@ class OrderDetailScreen extends StatefulWidget {
 class _OrderDetailScreenState extends State<OrderDetailScreen> {
   /// ESC-48: the order is read from the server at most once per screen to
   /// fetch the parties' phones of an open order the device has none for.
+  /// The read on open (ESC-23) counts as that one read when it was sent.
   bool _contactPullTried = false;
+
+  /// ESC-23: a read of the server's copy is running; a second one waits for
+  /// the user to ask again (no request per rebuild or per reload).
+  bool _serverReadRunning = false;
 
   /// FRD-06: the order's escrow is held for review.
   bool _underReview = false;
@@ -95,6 +100,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   void initState() {
     super.initState();
     context.read<OrderBloc>().add(LoadOrderById(orderId: widget.orderId));
+    // ESC-23: what the device holds shows at once; the server's copy is read
+    // once behind it. Not awaited: it never blocks the screen.
+    _readFromServer().ignore();
     // A bloc that already holds this order may emit nothing new for the
     // listener: check that order once the first frame is up.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -118,23 +126,57 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         (order.buyerPhone != null || order.farmerPhone != null)) {
       return;
     }
-    _contactPullTried = true;
+    // Offline: Call and Copy wait for the next pull.
+    await _readFromServer();
+  }
+
+  /// ESC-23: read this order from the server into the device
+  /// (`GET /orders/{id}`), then show the stored row. Mobile only: web has no
+  /// [MarketplaceSync] and its order load is that request already. Best
+  /// effort and silent: offline, a server error, a 404 or a 403 leave the
+  /// order on the device and on screen as they were. The pull itself sends
+  /// nothing while a change of this order waits to upload, and never moves
+  /// the device to an older version.
+  ///
+  /// Returns whether a server read was possible here (false on web).
+  Future<bool> _readFromServer() async {
     final MarketplaceSync? sync;
     try {
       sync = context.read<MarketplaceSync?>();
     } on Object {
-      return;
+      return false;
     }
-    if (sync == null) return;
+    if (sync == null) return false;
+    if (_serverReadRunning) return true;
+    _serverReadRunning = true;
+    // The request is out (or held back by an unsent change, see below): the
+    // contact pull does not send a second one.
+    _contactPullTried = true;
     final bloc = context.read<OrderBloc>();
     try {
-      final server = await sync.pullOrder(order.orderId);
-      if (server != null && mounted && !bloc.isClosed) {
-        bloc.add(LoadOrderById(orderId: widget.orderId));
+      final server = await sync.pullOrder(widget.orderId);
+      if (server == null) {
+        // An unsent change of the order held the request back: the contact
+        // pull may still try once after it has uploaded.
+        _contactPullTried = false;
+      } else if (mounted && !bloc.isClosed) {
+        bloc.add(LoadOrderById(orderId: widget.orderId, quiet: true));
       }
     } on Object {
-      // Offline: Call and Copy wait for the next pull.
+      // Offline, or the server refused the read: the device's copy stays.
+    } finally {
+      _serverReadRunning = false;
     }
+    return true;
+  }
+
+  /// Pull to refresh. Mobile: the server's copy, then the stored row. Web:
+  /// the order load, which reads the server.
+  Future<void> _onPullToRefresh() async {
+    final bloc = context.read<OrderBloc>();
+    if (await _readFromServer()) return;
+    if (!mounted || bloc.isClosed) return;
+    bloc.add(LoadOrderById(orderId: widget.orderId, quiet: true));
   }
 
   /// FRD-06: read whether the order's escrow is held; the parties then see
@@ -232,6 +274,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               underReview: _underReview,
               holdChecked: _holdChecked,
               busy: state is OrderLoading,
+              onRefresh: _onPullToRefresh,
             );
           }
           return SafeArea(
@@ -263,6 +306,27 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   }
 }
 
+/// The order's scroll area with pull to refresh (ESC-23), clear of the
+/// status bar.
+class _OrderRefreshArea extends StatelessWidget {
+  final Future<void> Function() onRefresh;
+  final Widget child;
+
+  const _OrderRefreshArea({required this.onRefresh, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      bottom: false,
+      child: RefreshIndicator(
+        key: const Key('order_detail_refresh'),
+        onRefresh: onRefresh,
+        child: child,
+      ),
+    );
+  }
+}
+
 class _OrderDetailBody extends StatelessWidget {
   final Order order;
 
@@ -277,8 +341,12 @@ class _OrderDetailBody extends StatelessWidget {
   /// Back, is never blocked.
   final bool busy;
 
+  /// Pull to refresh (ESC-23): the server's copy of the order.
+  final Future<void> Function() onRefresh;
+
   const _OrderDetailBody({
     required this.order,
+    required this.onRefresh,
     this.underReview = false,
     this.holdChecked = true,
     this.busy = false,
@@ -325,9 +393,11 @@ class _OrderDetailBody extends StatelessWidget {
             order.status == OrderStatus.accepted);
 
     return Scaffold(
-      body: SafeArea(
-        bottom: false,
+      body: _OrderRefreshArea(
+        onRefresh: onRefresh,
         child: SingleChildScrollView(
+          // Always scrollable, so a short order can be pulled too.
+          physics: const AlwaysScrollableScrollPhysics(),
           child: FwContentWidth(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,

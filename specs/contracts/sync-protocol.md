@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.44.1
+1.46.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -1161,10 +1161,23 @@ New create-only entity `listing_report`: a buyer reports a crop listing or a tri
 
 ---
 
+## Order detail read (1.46.0, ESC-23)
+
+Client only, no server change. The mobile order detail no longer waits for a list pull to learn what the other parties did.
+
+- On open the screen shows the order the device holds at once, then reads `GET /orders/{id}` once behind it. Pull to refresh reads it again. There is no polling and no read per rebuild or per local reload.
+- The read follows the pull rules: it is not sent while an operation for that order is pending, syncing or failed but retryable (the queued change is newer than the server's copy), the server's order is stored only when its `version` is not lower than the local one, and a change queued while the read was in flight wins.
+- Best effort and silent: offline, a timeout, a 5xx, a `404` and a `403` leave the local order and the screen as they were. Unlike the revert of a refused update (1.10.0), a `404` or `403` here never removes the local order.
+- The screen and its actions are never blocked by the read: the stored row is shown again without a loading state.
+- Web has no local store; its order detail load is `GET /orders/{id}` already. Pull to refresh there loads the order again.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.46.0 | 2026-11-11 | Order detail read (ESC-23), client only: the mobile order detail shows the stored order at once and reads `GET /orders/{id}` once per open and on pull to refresh, under the pull rules (not sent while an operation for the order is queued, never to an older `version`); a failed read, `404` and `403` included, is silent and removes nothing. No server change. |
 | 1.44.1 | 2026-11-11 | A JSON `null` inside `operations` (FUP-127 audit): the whole batch is refused with `400 SYNC_VALIDATION` `"Operations must not contain null."` and nothing is applied. Before, the request failed with an unhandled error (a `502` without a code from API Gateway), also for the valid operations sent with it. No client sends one; no app change |
 | 1.44.0 | 2026-11-07 | Listing reports (FUP-67, `listing-report-api.md` 1.0.0): new create-only entity `listing_report` (`{listingType}#{listingId}`, `{listingType, listingId, reason}`), buyers only, one per buyer and listing (`duplicate` on a repeat), 10 a day; every refusal `SYNC_VALIDATION:`, already permanent on every client; nothing local to revert. New mobile and web report sheet, texts `errorReportNotSent` and `errorReportLimitReached` (en, am, om). The entityType list in Request Format now also names `delivery_photo` (1.39.0) |
 | 1.43.0 | 2026-11-07 | Mobile sync refusals (B1: FUP-08, FUP-25, FUP-51, FUP-74, FUP-110, FUP-138), client only: every `*_UNAUTHORIZED` but a role gate (a token without the role claim gets it too), `RATING_FORBIDDEN` for another user's order, the immutable-field `CROP_VALIDATION`, `TRIP_VALIDATION` and `DELIVERY_VALIDATION` texts and `DELIVERY_NONCE_MISSING` are permanent (see Refusals no retry can pass; `CROP_UNAUTHORIZED` and `TRIP_UNAUTHORIZED` no longer stay retryable, 1.17.0); `DELIVERY_NONCE_MISSING` is reverted like a refused typed code; `CROP_CONTACT_IN_TEXT`, `TRIP_CONTACT_IN_TEXT` and `FRAUD_ACCOUNT_HELD` revert a crop listing or trip (1.17.0 rules); a reverted delivery and a message removed for a closed thread leave the "Sync failed" count; the mobile queue leaves a `pickupPhotoRef` or `dropoffPhotoRef` that is not this delivery's upload key out of a `delivery` operation (an old build's file path); the old `ORDER_VALIDATION` total text is no longer read as `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` (1.24.0). No server change |
@@ -1212,4 +1225,4 @@ New create-only entity `listing_report`: a buyer reports a crop listing or a tri
 ---
 
 **Last Updated**: 2026-11-11
-**Version**: 1.44.0
+**Version**: 1.46.0

@@ -1546,27 +1546,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get filterMax => 'Guddaa';
 
   @override
-  String get selectTrip => 'Imala Filadhu';
-
-  @override
-  String get buyerInformation => 'Odeeffannoo Bitaa';
-
-  @override
-  String get buyerNameLabel => 'Maqaa Bitaa';
-
-  @override
-  String get buyerPhoneIdLabel => 'Bilbila / Eenyummaa Bitaa';
-
-  @override
-  String get buyerNameRequired => 'Maqaan bitaa barbaachisaadha';
-
-  @override
-  String get buyerIdRequired => 'Bilbilli ykn eenyummaan bitaa barbaachisaadha';
-
-  @override
-  String get tripSelectionRequired => 'Maaloo imala filadhaa';
-
-  @override
   String get chooseTripHint => 'Imala filadhaa';
 
   @override
