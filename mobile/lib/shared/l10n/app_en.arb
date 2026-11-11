@@ -4060,6 +4060,10 @@
   "@deletedUser": {
     "description": "Shown instead of the name of a party whose account was deleted (server sentinel 'Deleted user')"
   },
+  "unnamedUser": "User",
+  "@unnamedUser": {
+    "description": "A noun shown where a person's name belongs when the app has no name for them and cannot say their role (chat title, inbox row). Never a verb."
+  },
   "statusAwaitingTransport": "Transport fell through",
   "@statusAwaitingTransport": {"description": "ESC-15 order status awaiting_transport: the trucker cannot carry a paid order and the buyer decides"},
   "statusAwaitingTransportInfo": "The trucker can't carry this order. The money stays held safely. The buyer can cancel for a full refund; without a decision in time the order is cancelled and refunded.",

@@ -1,7 +1,7 @@
 # Data Models Contract
 
-**Version**: 1.8.0
-**Last Updated**: 2026-11-07
+**Version**: 1.9.0
+**Last Updated**: 2026-11-11
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
 
@@ -302,7 +302,7 @@ device; the admin reads the rows in the manual payout queue.
 | `orderId` | String | Yes | UUID v4 | client at create |
 | `listingId` | String | Yes | The crop listing | client; immutable |
 | `buyerId`, `buyerName` | String | Yes | The buyer | client; immutable |
-| `farmerId`, `farmerName` | String | Yes | The listing's farmer | client; `farmerName` overwritten from the listing; immutable |
+| `farmerId`, `farmerName` | String | Yes | The listing's farmer | client; `farmerName` always overwritten from the listing, empty when the listing has no real name, never an id (1.9.0); immutable |
 | `cropType` | String | Yes | Must match the listing | client; immutable |
 | `quantity` | double | Yes | Kilograms, 0.01 to 1,000,000 | client; immutable |
 | `pricePerUnit` | double | Yes | ETB per kg, equal to the listing's `pricePerKg` | client; immutable |
@@ -464,6 +464,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.6.0 | 2026-11-07 | Order gains the server-only `nextDeadlineAt`, `nextDeadlineKind` and `deadlineShard` (dropped from client payloads, not in the `OrderDto` answers, echoed only in a sync result's raw `serverData`), kept by every order write and read by the order cron through the sparse `DeadlineIndex` (order-lifecycle 2.8.0, ESC-16); no client change | @Server |
 | 1.7.0 | 2026-11-07 | Order gains `deliveryLatitude` and `deliveryLongitude`, the order's own drop-off point (order-lifecycle 2.9.0, LT-14): server DTO, Isar schema and web mirror; returned per caller | @Server @Mobile |
 | 1.8.0 | 2026-11-07 | Server escrow ledger (escrow-protocol 2.2.0, ESC-20): the escrow row's ledger fields (`settlementModel`, `legStatus`, `refundedTotal`, `releasedTotal`, `verdictAmounts`, `releaseTrigger`, `refundTrigger`) and the new server-only EscrowLedger row (5a). No Isar or web model change | @Server |
+| 1.9.0 | 2026-11-11 | Order `farmerName` is never an id (order-lifecycle 2.11.0, FUP-130): the server writes the listing's name or the empty string, whatever the client sent; `truckerName` is the trip's name or absent. No schema change. |
 
 ---
 

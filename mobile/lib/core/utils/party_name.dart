@@ -14,3 +14,19 @@ String partyDisplayName(String? name, AppLocalizations l10n) {
   if (name == null || looksLikeEntityId(name)) return '';
   return name;
 }
+
+/// [name] where the screen cannot say who the party is by role (a chat
+/// title, the inbox): the localized "User" when there is no real name
+/// (missing, or an id, FUP-130). Never an id.
+String partyNameOrUnnamed(String? name, AppLocalizations l10n) {
+  final shown = partyDisplayName(name, l10n).trim();
+  return shown.isEmpty ? l10n.unnamedUser : shown;
+}
+
+/// [name] as the app may store or send it as a party's name (FUP-130):
+/// trimmed, and empty when it is missing or an id. The server writes the
+/// real name where it knows one; an id is never a name.
+String partyNameToStore(String? name) {
+  final trimmed = name?.trim() ?? '';
+  return looksLikeEntityId(trimmed) ? '' : trimmed;
+}

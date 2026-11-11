@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.1.0
+2.3.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -953,7 +953,7 @@ phone under its key; offline and never cached, the tile says it shows when onlin
 4. **Farmer ID / Trucker ID / Buyer ID**:
    - Must reference existing users
    - Farmer must own the listing, trucker must own the trip
-   - On create the server stamps `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and (trucker flow only) `truckerName`/`truckerPhone` from the users table; values sent by the client are ignored. A party with no name on their profile keeps the order row's name. The create is rejected with `DELIVERY_VALIDATION` when a party's profile cannot be read or no name is known at all; a self-pickup stores no trucker contact (v1.6.1, SIM-46)
+   - On create the server stamps `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and (trucker flow only) `truckerName`/`truckerPhone` from the users table; values sent by the client are ignored. A party with no name on their profile keeps the order row's name, unless that is the party's id or any UUID (2.3.0, FUP-130: orders written before `order-lifecycle.md` 2.11.0 may hold the id where the name belongs), which is no name. The create is rejected with `DELIVERY_VALIDATION` when a party's profile cannot be read or no name is known at all; a self-pickup stores no trucker contact (v1.6.1, SIM-46)
 5. **QR Token**:
    - Must be valid Base64url encoding
    - Decoded payload must contain all required fields
@@ -1480,9 +1480,10 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 1.25.0 | 2026-11-07 | Handoff photos (FRD-12): `POST /deliveries/{id}/photos` takes `sizeBytes` (1 to 204800, required) and `contentType` (`image/webp` default or `image/jpeg`, `.jpg` keys), signs both into the `PUT`, answers only the photo's taker (the trucker for `pickup`, the buyer for `dropoff`; anyone else `403`) `409 DELIVERY_PHOTO_EXISTS` once the handoff has its photo and `409 DELIVERY_PHOTO_REFUSED` for a cancelled delivery (was `404`); new create-only sync entity `delivery_photo` (`{deliveryId}#{type}`, `{photoRef}`) attaches the key after a `HEAD` (present, at most 200 KiB, its key's type), first photo kept, its S3 version id recorded and signed by every read (a later `PUT` to the key cannot swap it), no version or `updatedAt` move, `DELIVERY_PHOTO_INVALID` / `_FORBIDDEN` / `_REFUSED` / `_EXISTS` / `_MISSING` / `_TOO_LARGE` final and `DELIVERY_PHOTO_PENDING` deferred; a photo ref in a delivery create or update is still shape-checked but no longer written; `GET /deliveries/{id}` and the admin transaction view carry `pickupPhotoUrl` / `dropoffPhotoUrl` (15-minute presigned GETs), lists never; the uploads bucket gets CORS for the web app and admin. Clients: the phone queues the photo behind the handoff and uploads it when online, the browser uploads at capture and attaches after the confirm; the three parties see the photos on the delivery detail, admins on the transaction detail |
 | 2.0.0 | 2026-11-07 | P3 evidence, PLANNED (ESC-14 for ESC-34, ESC-35, ESC-36): a new section "Planned in 2.0.0" (P.1 to P.5) puts what is built next to what is planned: the check-in operation (`handoff_check_in`, kinds `arrived_pickup`, `crops_ready`, `arrived_dropoff`, judged by server receipt, proposed `CHECKIN_*` refusals, a listing without coordinates accepted unchecked with an unchecked farmer no-show sent to the admin queue) and the T7 pickup judgement table with no-show outcomes and late evidence (ESC-34, flag `pickupClassification`); a trucker-issued drop-off nonce (`dropoffQrNonce`) with the 1.22.0 code derivation (ESC-35; spec 4.8's 6-digit code is superseded by the built 9-digit code); the order's `deliveryLatitude` and `deliveryLongitude`, the trucker's `arrival` photo, the T9 silent-buyer auto-confirm and the T8 `delivery_overdue` dispute (ESC-36). Major because the evidence model changes; nothing built changes. Doc fixes against the code (survey 9.1, 9.3, 4.7): the QR payload carries the nonce `n`, the HMAC secret includes the farmer's device key and nobody recomputes it (the scanner checks structure, the server checks the nonce and only the length of `qrToken`); the drop-off QR is the farmer's token kept on the trucker's phone (1.22.0); QR Expiration states the built 14 day nonce freshness and 14 day deferral limit instead of the never built 7 and 14 day windows; GPS Validation states the built rules (pickup and trucker drop-off checked only when sent, against the listing and the trip's destination point; self-pickup mandatory); the changelog is in version order (1.5.1, 1.8.0, 1.19.0 and 1.24.0 were out of place; 1.11.0 and 1.18.0 were never used). Already fixed before 2.0.0: the cancel rules (1.9.0) and the header drift (1.22.0) |
 | 2.1.0 | 2026-11-07 | The order's delivery location (LT-14, `order-lifecycle.md` 2.9.0; the first bullet of P.4 built): a trucker delivery's `gpsDropoff` passes within 5 km of either the trip's destination point or the order's own `deliveryLatitude` and `deliveryLongitude` (read strongly consistent, only when the trip's point did not pass); an unreadable order then answers the retryable internal error. The too-far text now reads `Dropoff GPS is <d>km from the drop-off point (max 5km).` (the `DELIVERY_GPS_PROXIMITY` prefix the clients key on is unchanged). The admin dispute evidence's planned drop-off is the nearer of the two points (`escrow-protocol.md` 2.1.1). |
+| 2.3.0 | 2026-11-11 | No id as a name (FUP-130): on create, the order row's name is the fallback for a party without a profile name only when it is a real name; the party's id or any UUID there is ignored, so the create is rejected with `DELIVERY_VALIDATION` (no name known) instead of storing the id. Clients send an empty `farmerName` rather than the id. (2.2.0 is taken by a change on another open branch.) |
 
 ---
 
-**Last Updated**: 2026-11-07
-**Version**: 2.0.0
+**Last Updated**: 2026-11-11
+**Version**: 2.3.0
 **Status**: Draft (Phase R4.2)
