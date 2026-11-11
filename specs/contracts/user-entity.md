@@ -1,7 +1,7 @@
 # User Entity Contract
 
 ## Version
-2.1.0
+2.1.1
 
 ## Parties
 - **Mobile** (client): caches the signed-in user in Isar (`core/database/schemas/user.dart`) for offline sign-in and display
@@ -51,7 +51,7 @@ value is left out (the serializer omits nulls).
 | `faydaAuthenticatedAt` | S | never | `/user/fayda-link` | The last Fayda sign-in; payments above 10,000 ETB need it recent (`AUTH_041`) |
 | `preferredLanguage` | S | yes | registration; the `/sync` `user` entity (section 9) | `en`, `am` or `om`; a row without it reads as `am` |
 | `isPhoneVerified` | BOOL | yes (`false` included) | registration, `POST /auth/verify-otp`, `/user/fayda-link` (when the Fayda record proves the phone) | SMS OTP or Fayda proved the phone |
-| `suspended` | BOOL | yes (`false` included) | admin `suspend`, `unsuspend` | Blocks login, OTP and refresh (`AUTH_025`); ESC-29 extends it to the write endpoints (`reputation-api.md` 8.4). A row without it reads as `false` |
+| `suspended` | BOOL | yes (`false` included) | admin `suspend`, `unsuspend` | Blocks login, OTP and refresh (`AUTH_025`) and, since 2.1.1 (ESC-29), `/sync` and the write endpoints of `reputation-api.md` 8.4. A row without it reads as `false` |
 | `suspendReason` | S | never (admin detail shows it beside the user) | admin `suspend` (removed by `unsuspend`) | `fraud_confirmed` is the Fraud Review reject (FRD-05). Since 2.0.1 a later `suspend` with another reason keeps `fraud_confirmed`; only `unsuspend` clears it (FUP-103) |
 | `knownDevices` | SS | yes (`[]` when none) | registration, login on a new install | Install ids (`X-Device-Id`), at most 10; a string set, so DynamoDB keeps no order; a new one triggers a sign-in notice; FRD-15 compares them |
 | `profilePhotoRef` | S | yes | nothing today | Read and written back by `UpdateUserAsync`; no upload path exists, so it is never set |
@@ -475,6 +475,7 @@ screened.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.1.1 | 2026-11-11 | ESC-29: `suspended` also refuses `/sync` and the write endpoints of `reputation-api.md` 8.4 (`403 AUTH_025`); the section 2 attributes are now read by `GET /reputation/*`, `GET /ratings`, the `/sync` gates and the owner stamps (`reputation-api.md` 1.2.0, `rating-api.md` 1.4.0), a row without `ratingsAggregatedAt` contributing no rating. Shape unchanged, never returned in the `user` object |
 | 2.1.0 | 2026-11-07 | Section 2 BUILT (ESC-28): `ReputationService` writes the `reputation` map (the stream, the daily job, the refresh after a rating), the rating create `ADD`s `ratingSum` and `ratingCount`, registration starts every new row at 0 with `ratingsAggregatedAt`, the backfill stamps older rows. The map gains `lastEventId` and `lastEventRecordedAt` (the read-lag check). Never returned in the `user` object; no wire change |
 | 2.0.1 | 2026-11-07 | `suspendReason`: an admin's `suspend` with a free-text reason no longer replaces a stored `fraud_confirmed` (FUP-103); the account stays held as confirmed fraud until `unsuspend`. Shape unchanged |
 | 2.0.0 | 2026-11-07 | Rewritten from the code (ESC-27): every attribute with its type, writer and whether the `user` object returns it; `passwordHash`, `drivingLicensePath` and the ID scan paths are not on the row; `profilePhotoRef` has no writer; the NULL-or-missing rule, with an open question on `UpdateUserAsync` writing `NULL` to the `FaydaIdIndex` key on rows without a Fayda ID; `knownDevices` is an unordered string set; table settings as built (default encryption, no stream, no TTL); access patterns; the writers table with version semantics (admin actions do not bump `version`) and the known `UpdateUserAsync` revert gap; the Isar schema and web model as built (field-level PII encryption; `preferredLanguage` not in Isar); sync is the `user` entity only; `UserJsonContext` and the embedded `MinimalUserDto` were never used. PLANNED (ESC-28): `reputation` map, top-level `ratingSum`, `ratingCount`, `ratingsAggregatedAt`, their write rules and invariants 11 to 13 (`reputation-api.md` 1.0.0, `rating-api.md` 1.2.0). No wire change for built clients |
@@ -487,5 +488,5 @@ screened.
 
 ---
 
-**Last Updated**: 2026-11-07
-**Version**: 2.1.0
+**Last Updated**: 2026-11-11
+**Version**: 2.1.1

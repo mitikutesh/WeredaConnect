@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.5.2
+2.6.0
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -245,6 +245,11 @@ GET /trips/trip-101
 | `matchedListings` | string[] | Yes | — | Crop listing IDs matched to this trip |
 | `bookedQuintals` | number | No | 0 to `capacity` | Quintals reserved by funded and accepted orders (2.0.0). Server-written; a client value is dropped |
 | `remainingQuintals` | number | No | 0 to `capacity` | `capacity - bookedQuintals` (2.0.0). Server-written. Null on a row from before 2.0.0, which clients read as `capacity` |
+| `ownerTier` | string | No | `good` or `low` | 2.6.0 (ESC-29, `reputation-api.md` section 7): the trucker's public reputation tier, copied onto the trip by the server. Returned only while `reputationPublicTags` is on; a client value is dropped |
+| `ownerEffectiveRating` | number | No | 1.0 to 5.0 | The trucker's rating after the reputation deduction, one decimal; absent with no ratings |
+| `ownerRatingCount` | number | No | 0 or more | How many ratings the trucker has |
+| `ownerReliabilityPct` | number | No | 0 to 100 | Completed orders out of completed, cancelled at fault and no-shows in 90 days; absent below 3 orders |
+| `ownerReputationAt` | string (ISO 8601) | No | | When the copy was written; the apps show "As of {date}" |
 | `createdAt` | string (ISO 8601) | Yes | — | Timestamp when trip was created |
 | `updatedAt` | string (ISO 8601) | Yes | — | Timestamp when trip was last updated |
 | `deletedAt` | string (ISO 8601) | No | ISO 8601 UTC | Timestamp when trip was soft-deleted (cancelled through the legacy `delete`) |
@@ -584,9 +589,10 @@ Common route patterns:
 | 2.5.0 | 2026-11-07 | Paging (FUP-126, as `crop-listing-api.md` 1.9.0 for crops): `GET /trips` set `hasMore` from DynamoDB's last key, so a full last page carried a `nextToken` that led to an empty page, and the trips dropped after DynamoDB's count (cancelled, `minCapacity`, `maxPrice`, the departure dates) left pages short. The server now fills each page through every filter (at most 5 reads) and looks one trip ahead, so a full last page no longer carries a `nextToken` and `hasMore` agrees with it. `total` is documented as what it always was, the trips on this page. A bad `minCapacity` or `maxPrice` is still `400`, now checked before any read. Docs: tokens are HMAC-signed and do not expire. No new field, role rules unchanged. Web: the farmer's My crops lists and the farmer and trucker home tiles follow every page (bounded) instead of the first one |
 | 2.5.1 | 2026-11-07 | Order deadlines (ESC-16, `order-lifecycle.md` 2.8.0): the order cron's catch-up of a trip-cancel cascade runs when each missed order is next due (its reminder, deadline or pickup deadline), no longer every hour, and `commitment_deadlines` (with the departed-trip close of 2.4.0) runs every 15 minutes instead of hourly; `orderLeadHours` and the order-create lead follow the SSM parameter `/{prefix}/orders/response-window-hours` (24 by default), which the trips Lambda now reads like the order writers. Server only, no wire change |
 | 2.5.2 | 2026-11-11 | Docs only, no behaviour change (FUP-132): the infrastructure claims corrected against the CDK code, as in `crop-listing-api.md` 1.10.0. No CloudFront cache in front of `GET /trips` (none exists, responses are `no-store`, and a shared cache on a role-filtered list would be a visibility risk), no 100 req/s per user or 200 req/s per IP limits; the real limits are the HTTP API stage throttle (25 req/s per route, burst 50, all callers together), 60 sync requests per minute per user (`SYNC_RATE_LIMITED`) and the Lambda reserved concurrency (staging and prod only; dev sets none) |
+| 2.6.0 | 2026-11-11 | Owner reputation and restricted truckers (ESC-29, `reputation-api.md` 1.2.0 sections 7 and 8.3), all off in every environment. With `reputationPublicTags` on, `GET /trips` and `GET /trips/{id}` return `ownerTier` (`good` or `low`), `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt`, copied onto the trip by the server (stamped at create, refreshed when the trucker's reputation changes, without a `version` or `updatedAt` change); a client value is dropped. With `reputationPenalties` on, a buyer's `GET /trips` leaves out the trips of a trucker whose stored tier is `restricted` (the page may be short, as for cancelled trips); the trucker's own list, `GET /trips/{id}` and an admin's browse are not filtered, and a restricted trucker's `trip` create is refused with `REPUTATION_RESTRICTED` (`sync-protocol.md` 1.47.0). Role visibility is unchanged: a trucker sees only their own trips, a buyer every trip on the market |
 
 ---
 
 **Last Updated**: 2026-11-11
-**Version**: 2.5.2
+**Version**: 2.6.0
 **Status**: Draft (Phase R4.1)

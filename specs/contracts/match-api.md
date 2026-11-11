@@ -1,7 +1,7 @@
 # Buyer Match API Contract
 
 ## Version
-1.2.0
+1.3.0
 
 ## Parties
 - **Mobile** (client) — buyers matching their purchase intents against crop listings
@@ -135,6 +135,7 @@ GET /match?cropType=wheat&maxPricePerKg=120&quantityNeeded=10&deliveryWoreda=Ada
 | `score` | number | Yes | Relevance score in `[0, 1]` (higher = better match) |
 | `isSubstitute` | boolean | Yes | `true` when matched via a substitute crop type, not the exact ask |
 | `farmerReliability` | number | No | Farmer's listing-conversion track record in `[0, 1]`; absent when the server has no history (clients default to the neutral 0.7 in scoring) |
+| `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct`, `ownerReputationAt` | string, number, number, number, string | No | 1.3.0 (ESC-29): the farmer's public reputation as copied onto the listing (`crop-listing-api.md` 1.11.0, `reputation-api.md` section 7); returned only while `reputationPublicTags` is on. They do not change the score (ESC-30 moves the reliability factor to `ownerReliabilityPct`) |
 
 ---
 
@@ -258,9 +259,10 @@ left is never suggested. No wire change.
 | 1.0.0 | 2026-06-19 | Initial contract: GET /match endpoint, MatchDto, shared scoring model, candidate-generation and invariants. |
 | 1.1.0 | 2026-10-06 | Woreda-string geo proxy compares normalised names (region suffix cut, diacritics folded, whole-word partial) on both server and mobile (SIM-52). No wire change. |
 | 1.2.0 | 2026-11-04 | Trips paired with the matches (L-7): the app-side pairing keeps only open trips departing today or later in Ethiopia, the same cutoff `GET /trips` applies since `trip-listing-api.md` 2.2.0. `/match` reads no trips and is unchanged. No wire change. |
+| 1.3.0 | 2026-11-11 | Restricted farmers and owner reputation (ESC-29, `reputation-api.md` 1.2.0 sections 7 and 8.3), off in every environment: with `reputationPenalties` on, a listing whose stored owner tier is `restricted` is no candidate for a buyer; with `reputationPublicTags` on, each match carries `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt`. The score is unchanged. |
 
 ---
 
-**Last Updated**: 2026-11-04
-**Version**: 1.2.0
+**Last Updated**: 2026-11-11
+**Version**: 1.3.0
 **Status**: Draft
