@@ -63,7 +63,7 @@ Each contract file follows this structure:
 | Reputation API (penalty events, tiers, appeals, gates; events and aggregate BUILT, reads and gates PLANNED) | `reputation-api.md` | 1.1.0 | Mobile, Web, Backend, Admin, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.10.0 | Mobile, Backend, Admin |
 | Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.5.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
-| Delivery Verification API | `delivery-verification-api.md` | 2.1.0 | Mobile, Web, Backend, Infrastructure, Admin |
+| Delivery Verification API | `delivery-verification-api.md` | 2.2.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Account Deletion | `account-deletion.md` | 1.6.0 | Mobile, Backend, Infrastructure, Admin |
 | Crop Listing API | `crop-listing-api.md` | 1.10.0 | Mobile, Backend, Infrastructure |
 | Trip Listing API | `trip-listing-api.md` | 2.5.2 | Mobile, Backend |

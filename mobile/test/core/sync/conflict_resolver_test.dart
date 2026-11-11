@@ -1153,6 +1153,257 @@ void main() {
       });
     });
 
+    // FUP-128: the rows `/sync` answers a conflict with are the stored rows,
+    // and those carry only what was written: no description on a crop, no
+    // trucker name or phone on an older trip, no trucker at all on a
+    // self-pickup. A hard cast on one of them failed the whole conflict.
+    group('server rows without the optional fields', () {
+      SyncOperation op(String entityType, String entityId) => SyncOperation()
+        ..operationId = 'op-$entityId'
+        ..idempotencyKey = 'user-1:$entityType:$entityId:update:1'
+        ..entityType = entityType
+        ..entityId = entityId
+        ..action = 'update'
+        ..data = '{}'
+        ..status = SyncStatus.syncing
+        ..retryCount = 0
+        ..createdAt = DateTime.now().toUtc();
+
+      Map<String, dynamic> cropRow() => {
+            'listingId': 'crop-min',
+            'farmerId': 'farmer-1',
+            'cropType': 'teff',
+            'quantity': 12,
+            'pricePerKg': 30,
+            'latitude': 8.75,
+            'longitude': 38.98,
+            'woreda': 'Bishoftu',
+            'status': 'available',
+            'createdAt': '2026-11-01T08:00:00Z',
+            'updatedAt': '2026-11-02T08:00:00Z',
+            'version': 4,
+          };
+
+      Map<String, dynamic> tripRow(String status) => {
+            'tripId': 'trip-min',
+            'truckerId': 'trucker-1',
+            'fromWoreda': 'Bishoftu',
+            'toWoreda': 'Adama',
+            'departureDate': '2026-11-12T06:00:00Z',
+            'capacity': 80,
+            'pricePerQuintal': 200,
+            'status': status,
+            'createdAt': '2026-11-01T08:00:00Z',
+            'updatedAt': '2026-11-10T08:00:00Z',
+            'version': 5,
+          };
+
+      test('a new crop listing takes the row, its flat point and status',
+          () async {
+        await resolver.resolve(
+          operation: op('crop_listing', 'crop-min'),
+          serverData: cropRow(),
+          serverVersion: 4,
+        );
+
+        final stored = await isar.cropListings
+            .filter()
+            .listingIdEqualTo('crop-min')
+            .findFirst();
+        expect(stored!.description, '');
+        expect(stored.locationName, '');
+        expect(stored.farmerName, '');
+        expect(stored.audioNoteRef, isNull);
+        expect(stored.location.latitude, 8.75);
+        expect(stored.location.longitude, 38.98);
+        // The server's live status is `available`, never a draft.
+        expect(stored.status, ListingStatus.active);
+        expect(stored.version, 4);
+      });
+
+      test('a known crop listing without a point keeps the local one',
+          () async {
+        await isar.writeTxn(
+          () => isar.cropListings.put(
+            CropListing()
+              ..listingId = 'crop-min'
+              ..farmerId = 'farmer-1'
+              ..cropType = 'teff'
+              ..quantity = 10
+              ..pricePerKg = 25
+              ..location = (LatLng()
+                ..latitude = 9.1
+                ..longitude = 38.2)
+              ..description = 'Local words'
+              ..locationName = 'Local place'
+              ..status = ListingStatus.active
+              ..createdAt = DateTime.parse('2026-11-01T08:00:00Z')
+              ..updatedAt = DateTime.parse('2026-11-01T08:00:00Z')
+              ..version = 2,
+          ),
+        );
+
+        await resolver.resolve(
+          operation: op('crop_listing', 'crop-min'),
+          serverData: cropRow()
+            ..remove('latitude')
+            ..remove('longitude')
+            ..['status'] = 'sold',
+          serverVersion: 4,
+        );
+
+        final stored = await isar.cropListings
+            .filter()
+            .listingIdEqualTo('crop-min')
+            .findFirst();
+        expect(stored!.location.latitude, 9.1);
+        expect(stored.location.longitude, 38.2);
+        // Server wins: the row has no description.
+        expect(stored.description, '');
+        expect(stored.status, ListingStatus.sold);
+        expect(stored.quantity, 12);
+        expect(stored.version, 4);
+      });
+
+      test('a new crop listing without a point starts at 0, 0', () async {
+        await resolver.resolve(
+          operation: op('crop_listing', 'crop-min'),
+          serverData: cropRow()
+            ..remove('latitude')
+            ..remove('longitude'),
+          serverVersion: 4,
+        );
+
+        final stored = await isar.cropListings
+            .filter()
+            .listingIdEqualTo('crop-min')
+            .findFirst();
+        expect(stored!.location.latitude, 0);
+        expect(stored.location.longitude, 0);
+      });
+
+      // The trucker's own trip, closed or finished by the server while the
+      // phone was offline (trip-listing-api.md 2.4.0).
+      for (final status in ['cancelled', 'delivered']) {
+        test('a known trip takes a $status row and keeps its name and phone',
+            () async {
+          await isar.writeTxn(
+            () => isar.trips.put(
+              Trip()
+                ..tripId = 'trip-min'
+                ..truckerId = 'trucker-1'
+                ..truckerName = 'Dawit'
+                ..truckerPhone = '+251912345678'
+                ..fromWoreda = 'Bishoftu'
+                ..toWoreda = 'Adama'
+                ..departureDate = DateTime.parse('2026-11-12T06:00:00Z')
+                ..capacity = 80
+                ..pricePerQuintal = 200
+                ..status = TripStatus.inTransit
+                ..matchedListings = <String>[]
+                ..createdAt = DateTime.parse('2026-11-01T08:00:00Z')
+                ..updatedAt = DateTime.parse('2026-11-01T08:00:00Z')
+                ..version = 3,
+            ),
+          );
+
+          await resolver.resolve(
+            operation: op('trip', 'trip-min'),
+            serverData: tripRow(status),
+            serverVersion: 5,
+          );
+
+          final stored =
+              await isar.trips.filter().tripIdEqualTo('trip-min').findFirst();
+          expect(stored!.status.name, status);
+          expect(stored.truckerName, 'Dawit');
+          expect(stored.truckerPhone, '+251912345678');
+          expect(stored.vehiclePlate, isNull);
+          expect(stored.matchedListings, isEmpty);
+          expect(stored.bookedQuintals, isNull);
+          expect(stored.version, 5);
+        });
+      }
+
+      test('a new trip without name and phone starts with empty ones',
+          () async {
+        await resolver.resolve(
+          operation: op('trip', 'trip-min'),
+          serverData: tripRow('cancelled'),
+          serverVersion: 5,
+        );
+
+        final stored =
+            await isar.trips.filter().tripIdEqualTo('trip-min').findFirst();
+        expect(stored!.truckerName, '');
+        expect(stored.truckerPhone, '');
+        expect(stored.status, TripStatus.cancelled);
+      });
+
+      // The row a pickup, a confirmation or a dispute gets when the delivery
+      // was cancelled under it: as the server scrubs it, with no phones, no
+      // QR token and no GPS. `del-self` has no trucker either.
+      for (final (id, selfPickup) in [('del-min', false), ('del-self', true)]) {
+        test('a cancelled delivery row ($id) puts the local delivery back',
+            () async {
+          await isar.writeTxn(
+            () => isar.deliverys.put(
+              Delivery()
+                ..deliveryId = id
+                ..tripId = selfPickup ? id : 'trip-1'
+                ..orderId = 'order-1'
+                ..listingId = 'crop-1'
+                ..farmerId = 'farmer-1'
+                ..farmerName = 'Kedir'
+                ..truckerId = selfPickup ? '' : 'trucker-1'
+                ..truckerName = selfPickup ? '' : 'Dawit'
+                ..buyerId = 'buyer-1'
+                ..buyerName = 'Sara'
+                ..qrToken = 'qr-1'
+                ..deliveryType = selfPickup ? 'self_pickup' : null
+                // The local optimistic handoff the server refused.
+                ..status = selfPickup
+                    ? DeliveryStatus.delivered
+                    : DeliveryStatus.pickedUp
+                ..pickedUpAt = DateTime.parse('2026-11-10T09:00:00Z')
+                ..createdAt = DateTime.parse('2026-11-01T08:00:00Z')
+                ..updatedAt = DateTime.parse('2026-11-10T09:00:00Z')
+                ..version = 2,
+            ),
+          );
+
+          await resolver.resolve(
+            operation: op('delivery', id),
+            serverData: {
+              'deliveryId': id,
+              'tripId': selfPickup ? id : 'trip-1',
+              'orderId': 'order-1',
+              'listingId': 'crop-1',
+              'farmerId': 'farmer-1',
+              'buyerId': 'buyer-1',
+              if (!selfPickup) 'truckerId': 'trucker-1',
+              if (selfPickup) 'deliveryType': 'self_pickup',
+              'status': 'cancelled',
+              'createdAt': '2026-11-01T08:00:00Z',
+              'updatedAt': '2026-11-10T08:30:00Z',
+              'version': 3,
+            },
+            serverVersion: 3,
+          );
+
+          final stored =
+              await isar.deliverys.filter().deliveryIdEqualTo(id).findFirst();
+          expect(stored!.status, DeliveryStatus.cancelled);
+          expect(stored.pickedUpAt, isNull);
+          expect(stored.confirmedAt, isNull);
+          expect(stored.truckerId, selfPickup ? '' : 'trucker-1');
+          expect(stored.orderId, 'order-1');
+          expect(stored.deliveryType, selfPickup ? 'self_pickup' : isNull);
+          expect(stored.version, 3);
+        });
+      }
+    });
+
     group('Unsupported entity types', () {
       test('throws exception for payment entity', () async {
         final operation = SyncOperation()

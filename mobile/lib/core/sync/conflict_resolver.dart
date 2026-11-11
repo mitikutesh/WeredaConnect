@@ -107,6 +107,8 @@ class ConflictResolver {
           .listingIdEqualTo(operation.entityId)
           .findFirst();
 
+      final isNewListing = listing == null;
+
       // Update or create local entity with server data
       await _isar.writeTxn(() async {
         listing ??= CropListing()..listingId = operation.entityId;
@@ -117,24 +119,40 @@ class ConflictResolver {
         listing!.quantity = (serverData['quantity'] as num).toDouble();
         listing!.pricePerKg = (serverData['pricePerKg'] as num).toDouble();
 
-        // Update location if present
+        // A server crop row holds the point as `latitude` and `longitude`
+        // (crop-listing-api.md); a `location` map is read too. A row with
+        // neither keeps the local point (a new row starts at 0, 0, as the
+        // crop pull does).
         final locationData = serverData['location'] as Map<String, dynamic>?;
-        if (locationData != null) {
+        final latitude =
+            (locationData?['latitude'] ?? serverData['latitude']) as num?;
+        final longitude =
+            (locationData?['longitude'] ?? serverData['longitude']) as num?;
+        if (latitude != null && longitude != null) {
           listing!.location = LatLng()
-            ..latitude = (locationData['latitude'] as num).toDouble()
-            ..longitude = (locationData['longitude'] as num).toDouble();
+            ..latitude = latitude.toDouble()
+            ..longitude = longitude.toDouble();
+        } else if (isNewListing) {
+          listing!.location = LatLng()
+            ..latitude = 0
+            ..longitude = 0;
         }
 
-        listing!.description = serverData['description'] as String;
+        // Optional on the server row: a hard `as String` failed the whole
+        // conflict for a listing without a description (FUP-128).
+        listing!.description = (serverData['description'] as String?) ?? '';
         listing!.locationName = (serverData['locationName'] as String?) ?? '';
         listing!.audioNoteRef = serverData['audioNoteRef'] as String?;
 
-        // Parse status enum
+        // Parse status enum. The server's live status is `available`, the
+        // app's `active`, as in the crop pull.
         final statusStr = serverData['status'] as String;
-        listing!.status = ListingStatus.values.firstWhere(
-          (e) => e.name == statusStr,
-          orElse: () => ListingStatus.draft,
-        );
+        listing!.status = statusStr == 'available'
+            ? ListingStatus.active
+            : ListingStatus.values.firstWhere(
+                (e) => e.name == statusStr,
+                orElse: () => ListingStatus.draft,
+              );
 
         // Update timestamps (ensure UTC)
         listing!.createdAt =
@@ -296,12 +314,20 @@ class ConflictResolver {
           .tripIdEqualTo(operation.entityId)
           .findFirst();
 
+      final isNewTrip = trip == null;
+
       await _isar.writeTxn(() async {
         trip ??= Trip()..tripId = operation.entityId;
 
         trip!.truckerId = serverData['truckerId'] as String;
-        trip!.truckerName = serverData['truckerName'] as String;
-        trip!.truckerPhone = serverData['truckerPhone'] as String;
+        // Optional on the server row (older trips carry neither): a hard
+        // `as String` failed the whole conflict (FUP-128). A row without
+        // them keeps the local values; a new row starts empty, as the trip
+        // pull does.
+        trip!.truckerName = (serverData['truckerName'] as String?) ??
+            (isNewTrip ? '' : trip!.truckerName);
+        trip!.truckerPhone = (serverData['truckerPhone'] as String?) ??
+            (isNewTrip ? '' : trip!.truckerPhone);
         trip!.fromWoreda = serverData['fromWoreda'] as String;
         trip!.toWoreda = serverData['toWoreda'] as String;
         trip!.departureDate =
