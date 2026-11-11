@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.5.1
+2.5.2
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -105,7 +105,7 @@ The Trip Listing API enables transport providers (truckers) to post available tr
 - `401 Unauthorized` — Invalid or expired JWT token
 - `409 Conflict` — Client version behind server version
 - `422 Unprocessable Entity` — Validation error (e.g., departure date in past, capacity > 1000)
-- `429 Too Many Requests` — Rate limit exceeded (100 req/s per user)
+- `429 Too Many Requests`: `SYNC_RATE_LIMITED` when the user sent more than 60 sync requests in 60 seconds (`Retry-After: 60`), or API Gateway's own throttle (25 req/s per route, burst 50, no `error.code`). See Rate Limiting
 - `500 Internal Server Error` — Server-side failure
 
 ---
@@ -478,7 +478,7 @@ pending delivery) does not move the trip yet.
 
 ### Caching
 - **Mobile**: All trips cached in Isar database (offline browsing)
-- **Server**: CloudFront CDN caches GET /trips responses for 60 seconds (reduce DynamoDB read costs)
+- **Server**: none. No CDN or cache sits in front of the API: clients call the API Gateway HTTP API directly, and the CloudFront distributions in `infra/lib/stacks/web-stack.ts` serve only the static sites from S3. Every API response carries `Cache-Control: no-store`. `GET /trips` is authenticated and filtered by role, so a shared cache in front of it would be a role-visibility risk and must not be added without a per-caller cache key
 
 ---
 
@@ -533,8 +533,10 @@ Common route patterns:
 - On create, `truckerName` and `truckerPhone` are set by the server from the trucker's profile; values sent by the client are ignored. The name is the profile display name, else the legal name received from Fayda. If the profile cannot be read, or has neither name, the create is rejected with `TRIP_VALIDATION`.
 
 ### Rate Limiting
-- **POST /sync**: 100 requests/second per user (API Gateway throttling)
-- **GET /trips**: 200 requests/second per IP (CloudFront caching reduces load)
+- **API Gateway (all routes)**: the HTTP API stage throttles each route at 25 requests/second steady with a burst of 50 (`DefaultRouteSettings` in `infra/lib/stacks/api-stack.ts`). The limit is shared by all callers, not counted per user or per IP. Over it, API Gateway answers `429` with its own body (`{"message":"Too Many Requests"}`), no `error.code` and no `Retry-After`
+- **POST /sync**: on top of that, 60 requests per 60 seconds per user, counted by the server in the rate-limits table: `429 SYNC_RATE_LIMITED` with `Retry-After: 60`
+- **GET /trips**: no per-user or per-IP limit of its own. The `trips` Lambda has a 10 second timeout (sync: 30 seconds) and, in staging and prod, a reserved concurrency of 10 (sync: 10); dev sets no reserved concurrency (`lambda-construct.ts` skips it there). A request beyond the reserved concurrency, or one that runs out of time, fails at API Gateway with a 5xx
+- **WAF**: none attached. AWS WAF cannot be put on an HTTP API directly; `infra/lib/constructs/waf-construct.ts` is not used by any stack
 
 ### Data Privacy
 - Phone numbers returned only to the owning trucker and admins, never to buyers (1.4.0, ESC-48: no contact before the money is held)
@@ -581,9 +583,10 @@ Common route patterns:
 | 2.3.1 | 2026-11-07 | Doc only (ESC-14, survey 9.2): Security Considerations said `GET /trips` and `GET /trips/{id}` are public; both sit behind the JWT authorizer and the F-36 role rules (buyers and admins any trip, a trucker their own, everyone else `403 TRIP_FORBIDDEN`). Browse and Get Single Trip now say that a caller without a valid token gets `401` from API Gateway (not `403`), list the `401` and `403` answers, show the `{"trip": {...}}` wrapper the server has always sent for `GET /trips/{id}`, and give that endpoint's error order (`404` before the role check). The status transition note that a matched cancel "re-opens matched listings" is left for ESC-17, which owns trip cancel. No wire change |
 | 2.5.0 | 2026-11-07 | Paging (FUP-126, as `crop-listing-api.md` 1.9.0 for crops): `GET /trips` set `hasMore` from DynamoDB's last key, so a full last page carried a `nextToken` that led to an empty page, and the trips dropped after DynamoDB's count (cancelled, `minCapacity`, `maxPrice`, the departure dates) left pages short. The server now fills each page through every filter (at most 5 reads) and looks one trip ahead, so a full last page no longer carries a `nextToken` and `hasMore` agrees with it. `total` is documented as what it always was, the trips on this page. A bad `minCapacity` or `maxPrice` is still `400`, now checked before any read. Docs: tokens are HMAC-signed and do not expire. No new field, role rules unchanged. Web: the farmer's My crops lists and the farmer and trucker home tiles follow every page (bounded) instead of the first one |
 | 2.5.1 | 2026-11-07 | Order deadlines (ESC-16, `order-lifecycle.md` 2.8.0): the order cron's catch-up of a trip-cancel cascade runs when each missed order is next due (its reminder, deadline or pickup deadline), no longer every hour, and `commitment_deadlines` (with the departed-trip close of 2.4.0) runs every 15 minutes instead of hourly; `orderLeadHours` and the order-create lead follow the SSM parameter `/{prefix}/orders/response-window-hours` (24 by default), which the trips Lambda now reads like the order writers. Server only, no wire change |
+| 2.5.2 | 2026-11-11 | Docs only, no behaviour change (FUP-132): the infrastructure claims corrected against the CDK code, as in `crop-listing-api.md` 1.10.0. No CloudFront cache in front of `GET /trips` (none exists, responses are `no-store`, and a shared cache on a role-filtered list would be a visibility risk), no 100 req/s per user or 200 req/s per IP limits; the real limits are the HTTP API stage throttle (25 req/s per route, burst 50, all callers together), 60 sync requests per minute per user (`SYNC_RATE_LIMITED`) and the Lambda reserved concurrency (staging and prod only; dev sets none) |
 
 ---
 
-**Last Updated**: 2026-11-07
-**Version**: 2.5.1
+**Last Updated**: 2026-11-11
+**Version**: 2.5.2
 **Status**: Draft (Phase R4.1)
