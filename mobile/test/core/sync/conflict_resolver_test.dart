@@ -87,6 +87,58 @@ void main() {
         expect(order.version, 5);
       });
 
+      // FUP-285: the conflict echo carries the pickup judgement and the
+      // check-ins as the parties read them (ESC-34).
+      test('takes the pickup judgement and the check-ins', () async {
+        final operation = SyncOperation()
+          ..operationId = 'op-order-2'
+          ..idempotencyKey = 'key-order-2'
+          ..entityType = 'order'
+          ..entityId = 'order-001'
+          ..action = 'update'
+          ..data = '{}'
+          ..status = SyncStatus.syncing
+          ..retryCount = 0
+          ..createdAt = DateTime.now().toUtc();
+
+        await resolver.resolve(
+          operation: operation,
+          serverData: {
+            'orderId': 'order-001',
+            'listingId': 'listing-001',
+            'buyerId': 'buyer-001',
+            'farmerId': 'farmer-001',
+            'buyerName': 'Buyer',
+            'farmerName': 'Farmer',
+            'cropType': 'teff',
+            'quantity': 500,
+            'pricePerUnit': 45.5,
+            'totalPrice': 22750,
+            'status': 'accepted',
+            'createdAt': '2026-10-01T08:00:00Z',
+            'pickupJudgement': 'pending',
+            'checkIns': {
+              'crops_ready': {
+                'receivedAt': '2026-10-11T07:00:00Z',
+                'distanceChecked': false,
+                'late': false,
+              },
+            },
+          },
+          serverVersion: 6,
+        );
+
+        final order =
+            await isar.orders.filter().orderIdEqualTo('order-001').findFirst();
+        expect(order!.pickupJudgement, 'pending');
+        expect(order.checkIns.single.kind, 'crops_ready');
+        expect(
+          order.checkIns.single.receivedAt!.toUtc(),
+          DateTime.utc(2026, 10, 11, 7),
+        );
+        expect(order.checkIns.single.distanceChecked, isFalse);
+      });
+
       // ESC-48: /sync rows carry no contact flag; a closed status, or an
       // admin override refund on an open status, drops the phones the last
       // pull left on the device.

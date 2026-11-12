@@ -97,6 +97,19 @@ class DeliveryLocationSaved extends OrderState {
   const DeliveryLocationSaved();
 }
 
+/// ESC-34 (FUP-285): state after an arrival check-in was sent (web) or
+/// queued on the phone, or, with [alreadyGiven], found already given (a
+/// repeat sends nothing).
+class CheckInSaved extends OrderState {
+  final String kind;
+  final bool alreadyGiven;
+
+  const CheckInSaved({required this.kind, this.alreadyGiven = false});
+
+  @override
+  List<Object?> get props => [kind, alreadyGiven];
+}
+
 /// State when a single order has been loaded.
 class SingleOrderLoaded extends OrderState {
   final Order order;

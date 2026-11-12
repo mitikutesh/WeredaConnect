@@ -15,6 +15,7 @@ import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
+import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/order_lead_store.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
@@ -215,11 +216,25 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// reputation, bookings or active orders (ESC-12 part B, 1.17.0), by a
   /// phone number in its text or by an account under review (FUP-51) is
   /// undone with the order rules; any other refusal of those,
-  /// `APP_UPDATE_REQUIRED` included, leaves the row alone. Other entity types
-  /// are left alone.
+  /// `APP_UPDATE_REQUIRED` included, leaves the row alone. A refused arrival
+  /// check-in (ESC-34, FUP-285) wrote nothing to the order, and its mark went
+  /// with the rejected operation: the order is read again ([pullOrder], best
+  /// effort), so a late one the server kept for review, or the judgement,
+  /// shows. Other entity types are left alone.
   Future<void> revertRejected(SyncOperation operation, String message) async {
     if (operation.entityType == 'delivery') {
       await _revertRejectedDelivery(operation);
+      return;
+    }
+    if (operation.entityType == handoffCheckInEntityType) {
+      final orderId = parseHandoffCheckInEntityId(operation.entityId)?.orderId;
+      if (orderId == null) return;
+      _lastOrderPull = null;
+      try {
+        await pullOrder(orderId);
+      } on Object {
+        // Offline or not readable: the next pull shows the server's view.
+      }
       return;
     }
     if (operation.entityType == 'crop_listing') {

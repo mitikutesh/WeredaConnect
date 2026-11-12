@@ -1,7 +1,7 @@
 # Data Models Contract
 
-**Version**: 1.14.0
-**Last Updated**: 2026-11-12
+**Version**: 1.15.0
+**Last Updated**: 2026-11-13
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
 
@@ -499,6 +499,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.10.0 | 2026-11-11 | Order `farmerName` is never an id (order-lifecycle 2.11.0, FUP-130): the server writes the listing's name or the empty string, whatever the client sent; `truckerName` is the trip's name or absent. No schema change. |
 | 1.11.0 | 2026-11-12 | CropListing and Trip gain `ownerReliabilityPct` on the client (Isar schema and web mirror), parsed from `GET /crops` and `GET /trips` for the offline matcher (ESC-30, `match-api.md` 1.4.0); CropListing `farmerReliability` is deprecated. The other owner fields come with ESC-31 | @Mobile |
 | 1.14.0 | 2026-11-12 | Order gains `pickupJudgement`, `pickupJudgedAt` and `checkIns` (ESC-34, order-lifecycle 2.15.0, behind `pickupClassification`), the stored-only `pickupLatitude` and `pickupLongitude`, the values `no_show` (`farmerResponse`, `truckerResponse`), `trucker_no_show` (`transportFailure`) and the server codes `farmer_no_show` and `buyer_no_show` (`cancelReason`). Server DTO only: the Isar schema and the web mirror get them with the client follow-up (FUP-285) | @Server |
+| 1.15.0 | 2026-11-13 | Order on the client (FUP-285): the Isar schema and the web mirror gain `pickupJudgement`, `pickupJudgedAt` and `checkIns` (a list of the embedded `OrderCheckIn`: `kind`, `receivedAt`, `capturedAt`, `distanceChecked`, `isLate` for the wire's `late`), read by the order pulls, the web repository and the conflict echo; and the not stored `queuedCheckIns` (the check-ins waiting in the phone's sync queue, read with the order). Isar builds the new fields on the next open | @Mobile |
 | 1.13.0 | 2026-11-12 | Server-only manual payout claim fields on the escrow row (`manual{Leg}ClaimedBy`, `ClaimedAt`, `ClaimExpiresAt`) and the ledger row (`claimedBy`, `claimedAt`, `claimExpiresAt`), and the `payout-ref#` reference item in escrow-idempotency (escrow-protocol 2.12.0, FUP-05). No client field changes. 1.12.0 is another branch's number | @Server |
 | 1.12.0 | 2026-11-12 | CropListing and Trip gain the rest of the owner's public reputation copy on the client (Isar schema and web mirror): `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReputationAt` (ESC-31, `reputation-api.md` 1.6.0 section 7). All nullable, server-written, never sent back; one parser reads them in the marketplace pull, the web repositories, the web matcher and the conflict echo, and a row without them clears the stored copy. The user's own reputation is not an Isar entity: it is kept in the key-value store (`reputation-api.md` section 13) | @Mobile |
 

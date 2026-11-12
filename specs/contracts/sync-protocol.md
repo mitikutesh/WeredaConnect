@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.58.0
+1.58.1
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -428,7 +428,7 @@ Mobile client (sync queue):
 | Refused order update | Re-read `GET /orders/{id}` and replace the local order with it (server wins), unless another operation for that order is still queued (its own outcome settles the row). A 404 or 403 on that read removes the local order. Any other failed read (offline, 401, 5xx) puts the local version back to the lowest version the order's refused operations sent, so the next pull overwrites the row. |
 | Any other permanent rejection of an order operation (`FRAUD_*`, `SYNC_VALIDATION`, a whole batch refused with HTTP 400 or 422) | Reverted the same way. FRD-06 adds the `FRAUD_ACCOUNT_HELD` wording. |
 | Any refused `create` (every entity type, every permanent code) | Also reject the operations queued behind it for that entity: they could only get a transient "not found" and would be resent forever. |
-| Permanent rejection of any other entity (listing, trip, delivery, rating, message) | Not reverted, except the cases in the later sections (delivery 1.11.0 and 1.12.0, message 1.15.0, listing and trip 1.17.0). Explained (the listing-form wording for `FRAUD_DUPLICATE_LISTING` and `FRAUD_VELOCITY_EXCEEDED`, otherwise "This change could not be saved on the server") and still counted as failed, because its local change never reached the server. Background match events are neither. |
+| Permanent rejection of any other entity (listing, trip, delivery, rating, message) | Not reverted, except the cases in the later sections (delivery 1.11.0 and 1.12.0, message 1.15.0, listing and trip 1.17.0, the arrival check-in 1.58.1). Explained (the listing-form wording for `FRAUD_DUPLICATE_LISTING` and `FRAUD_VELOCITY_EXCEEDED`, otherwise "This change could not be saved on the server") and still counted as failed, because its local change never reached the server. Background match events are neither. |
 | Pulls | A rejected operation no longer protects its row: `GET /orders` (and the crop, trip and delivery pulls) may overwrite it. Pending, syncing and retryable failed operations still do. |
 | Reason | A localized message (en, am, om) says the change was not allowed, that a refused order was removed, or that a change was not saved. Refusals from one batch share one message per distinct text. A rejection raised before the signed-in screen listens (the first sync after a launch) is kept, up to 10, and shown once it does; it is shown only to the user whose operation it was, and logout drops kept ones. |
 
@@ -1505,11 +1505,27 @@ check-ins and the pickup judgement"). A new create-only entity `handoff_check_in
   web keeps nothing local and shows the refusal text. A real QR scan (the farmer's nonce) also puts
   the order in the admin queue (`late_pickup_evidence`).
 
-Clients: the server side is built (1.55.0); the mobile and web screens that send check-ins, the
-`CHECKIN_*` refusal handling and texts, and hiding the buyer's deadline cancel on a stamped order are
-FUP-285. Until then no app sends the entity, and the flag must stay off: the server only stamps orders
-while it is on, and it goes on only once the app build that sends check-ins is the minimum
-(`MIN_ORDER_APP_BUILD`).
+Clients (BUILT in 1.58.1, FUP-285): the order detail of an `accepted` order stamped
+`pickupJudgement: pending` offers "I have arrived" to the trucker (the buyer on a self-pickup order)
+and "Crops are ready" to the farmer from `pickupDate` minus 24 hours (a self-pickup order from its
+acceptance) to `pickupDeadlineAt` by the device clock. The arrival takes a GPS fix and is not sent
+without one inside the box above; the farmer's waits at most 5 seconds for a fix and goes without it
+(a fix the server would refuse is left out). The data is exactly `orderId`, `kind`, `capturedAt` (the
+tap, UTC) and, with a fix, `latitude`, `longitude` and `accuracyM`; no `version`. Mobile queues it (the
+queued operation is the local mark, shown as "saved on this phone" until the order's next read brings
+`checkIns`; only the signed-in user's own queued check-ins show, and while one waits for the server's
+copy the order screen reads the order again after each sync, so a sent one says so and a refused one
+gives its button back at once); web sends it at once. A repeat tap sends nothing and says the check-in
+was already given; the buttons come and go at the window's edges while the screen is open, and the
+local guard refuses with the same texts as the server. Every `CHECKIN_*` refusal, and the unsupported-entity answer of a
+server with the flag off (`Unsupported entity type: 'handoff_check_in'.`), is permanent: mobile rejects
+the operation (never retried, so a stray check-in on a flag-off server cannot loop), takes the mark
+back, reads the order again (a late check-in kept for review shows on it) and says why with one text
+per code (`CHECKIN_TOO_LATE`: kept for review); web shows the same texts. An unprefixed error is
+retried. The order reads (`GET /orders`, `GET /orders/{id}`, the `/sync` order rows of a conflict)
+fill `pickupJudgement`, `pickupJudgedAt` and `checkIns`; the buyer's deadline cancel is not offered on
+an order with any `pickupJudgement`. The flag goes on only once the app build that sends check-ins is
+the minimum (`MIN_ORDER_APP_BUILD`).
 
 ---
 
@@ -1546,6 +1562,7 @@ The buyer's confirm:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.58.1 | 2026-11-13 | Arrival check-ins, the clients (FUP-285, no wire change): mobile and web send `handoff_check_in` from the order detail with exactly the server's fields; every `CHECKIN_*` refusal and the unsupported-entity answer to `handoff_check_in` (flag off) is a permanent refusal that takes the local mark back, reads the order again and is explained per code; the buyer's deadline cancel is hidden on a stamped order. See "Arrival check-ins", Clients. |
 | 1.58.0 | 2026-11-13 | The trucker's drop-off code (ESC-35, `delivery-verification-api.md` 2.7.0): a `delivery` update carrying only `dropoffQrNonce` from the delivery's trucker stores the trucker's drop-off nonce (nothing else, no version move; dropped from anyone else or with a `status`; `deferred` while the delivery is `pending`, refused `DELIVERY_VALIDATION` after 14 days); a registration never replaces a stored code, only `dropoffQrRenew: true` (the trucker's confirmed New drop-off code) does, and a code not stored answers `success` with the message `DROPOFF_CODE_SUPERSEDED` or `DROPOFF_CODE_NOT_STORED`; the buyer's `delivered` is checked against it once stored, with `DELIVERY_CODE_LOCKED` (renewable) for its lock and a new `deferred` text, without a signal, for a tagged scan whose nonce has not synced or that differs from the stored code but was scanned after it (`DELIVERY_NONCE_MISSING` after 14 days). Mobile queues the registration behind the pickup and on every open of the drop-off QR (never twice while waiting), and a renewal drops the drop-off codes still queued; web sends it at once and again on open and shows the `success` messages. Web names the trucker in the wait and lock texts when the server's text is the trucker's; the shared lock text no longer names the farmer. 1.57.0 is taken by another open branch. |
 | 1.57.0 | 2026-11-12 | Profile text on the `user` entity (SIM-56, `user-entity.md` 2.2.0): `displayName`, `woreda` and a company buyer's `companyName` beside `preferredLanguage`, at least one of the four; trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name (`USER_PROFILE_VALIDATION`), then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing. Every other key is still ignored. The read is `GET /user/profile` (not a sync pull) |
 | 1.56.0 | 2026-11-12 | `CROP_HAS_ACTIVE_ORDERS` whatever `COMMITMENTS_ENABLED` says (SIM-56, `crop-listing-api.md` 1.13.0 rule 10): a `crop_listing` delete, or an update to `status: deleted`, while an order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted` is refused in staging and prod too (the flag is off there), since a deleted listing refuses its delivery create and stranded such an order. An app without `X-App-Build` gets the `SYNC_VALIDATION:` sentence as before (FUP-241); an unreadable orders index is the same retryable unprefixed error. Clients already handle the code (1.17.0); the apps' own edit and delete now check first (SIM-56). `TRIP_HAS_BOOKINGS` stays behind the flag |
