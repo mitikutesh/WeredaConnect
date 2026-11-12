@@ -704,7 +704,8 @@ public copy the server puts on crop and trip rows for buyers.
    personas (flaky trucker, griefing buyer, happy path). Staging and prod only after
    `commitmentsEnabled` is on there.
 6. **Owner stamp (12.3), then `reputationPublicTags` on**: once `reputationPenalties` is on in the
-   environment, run `reputation_stamp_owner_copies` until a run ends `ok`, so listings created
+   environment, run `reputation_stamp_owner_copies` until a run ends `ok` (and once more without
+   `startAt` if any run in the chain had `failed` above 0, see 12.3), so listings created
    before the flag carry the owner fields too; then turn `reputationPublicTags` on once the ESC-31
    build is the minimum in use (older apps ignore the new fields, so this is about showing them,
    not about breaking anything).
@@ -751,15 +752,23 @@ How to run it (the body is wrapped the way the cron rules wrap theirs):
 
 ```bash
 aws lambda invoke --function-name {prefix}-order-cron --cli-binary-format raw-in-base64-out \
+  --cli-read-timeout 330 \
   --payload '{"body":"{\"action\":\"reputation_stamp_owner_copies\"}"}' out.json && cat out.json
 ```
 
-- `outcome: ok`: every owner was stamped. `rows` counts the listing rows written.
+`--cli-read-timeout 330` is needed: a run may take up to 4 minutes, and with the CLI's default of
+60 seconds the CLI gives up, invokes the function again (up to 3 copies at once, each taking one
+of the order cron's reserved slots) and never shows the result with its `next`. Avoid the top of
+the hour, when the scheduled cron rules use those slots too (a synchronous invoke can then get a
+`429`).
+
+- `outcome: ok`: every owner of this run was stamped. `rows` counts the listing rows written.
 - `outcome: partial` with `next`: the run ran out of time. Invoke again with
   `{"action":"reputation_stamp_owner_copies","startAt":"<next>"}` (owners from that user id on)
   until a run ends `ok`.
-- `failed` above 0: each failure is logged (`Owner stamp failed for user ...`); a run without
-  `startAt` retries every owner.
+- `failed` above 0 in any run of the chain: each failure is logged (`Owner stamp failed for user
+  ...`). After the chain ends `ok`, finish with one more run without `startAt`, which retries
+  every owner (it writes only rows whose values differ).
 - `outcome: disabled`: `reputationPenalties` is off; nothing was read or written. Turn the flag on
   first (the copies stay current only while it is on).
 
