@@ -8,7 +8,7 @@ import { type Verdict, useDisputeVerdict } from "@/components/disputes/verdictFl
 import { useLocale } from "@/hooks/useLocale";
 import { useDisputes, useEscrowPages } from "@/hooks/useQuery";
 import { formatETB, formatDate } from "@/lib/i18n";
-import { recordedSplit } from "@/lib/legs";
+import { heldLegs, recordedSplit } from "@/lib/legs";
 import { partyName } from "@/lib/user";
 
 type Row = Record<string, unknown>;
@@ -110,6 +110,17 @@ export function DisputesPage() {
             >
               {t("disputes.buyerWins")}
             </button>
+            {/* FUP-173: the per-leg verdict lives on the dispute page; this opens it with the form shown. Only where
+                the server takes a split (a ledger escrow, crop leg held), like the dispute page's own button. */}
+            {heldLegs(row) && (
+              <Link
+                to={`/disputes/${encodeURIComponent(id)}?decide=split`}
+                onClick={(e) => e.stopPropagation()}
+                className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
+              >
+                {t("legs.decidePerLeg")}
+              </Link>
+            )}
           </div>
         );
       },
