@@ -68,7 +68,8 @@ public sealed class PickupReopenDynamoDbTests
     /// An order the cron judged both present, nothing scanned, two days ago: accepted, in the admin queue, waiting in
     /// the watch partition; its delivery pending and its escrow escrowed. The index entry is derived by the repository.
     /// </summary>
-    private async Task<string> SeedJudgedAsync(string queueReason = "both_present_no_scan", string? refundReason = null)
+    private async Task<string> SeedJudgedAsync(
+        string queueReason = "both_present_no_scan", string? refundReason = null, string? holdCapReachedAt = null)
     {
         var orderId = Id("order");
         var deadline = DateTime.UtcNow.AddDays(-2);
@@ -157,6 +158,11 @@ public sealed class PickupReopenDynamoDbTests
         if (refundReason != null)
         {
             escrow["refundReason"] = S(refundReason);
+        }
+
+        if (holdCapReachedAt != null)
+        {
+            escrow[AdminQueueFields.HoldCapReachedAt] = S(holdCapReachedAt);
         }
 
         await Ddb.PutItemAsync(new PutItemRequest { TableName = _db.Escrows, Item = escrow });
@@ -291,16 +297,64 @@ public sealed class PickupReopenDynamoDbTests
         });
         var refused = await Repo.TryUpdateGuardedAsync(orderId, set, Array.Empty<string>(), 6,
             new Dictionary<string, string> { { PickupJudgement.Field, PickupJudgement.Outcome.BothPresentNoScan } },
-            new[] { OrderRepository.EscrowHoldsMoneyCheck(escrowKey) });
+            Array.Empty<string>(), new[] { OrderRepository.EscrowHoldsMoneyCheck(escrowKey) });
         refused.Outcome.Should().Be(OrderLinkedWriteOutcome.LinkedItemRefused);
 
         // A judgement that is not the one read (a field written without a version bump).
         var moved = await Repo.TryUpdateGuardedAsync(orderId, set, Array.Empty<string>(), 6,
             new Dictionary<string, string> { { PickupJudgement.Field, PickupJudgement.Outcome.UncheckedCheckIn } },
-            Array.Empty<TransactWriteItem>());
+            Array.Empty<string>(), Array.Empty<TransactWriteItem>());
         moved.Outcome.Should().Be(OrderLinkedWriteOutcome.OrderChanged);
 
         (await ReadAsync(orderId))["version"].Should().Be("6");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task TheTransaction_RefusesACapStampedSinceTheRead_AndAnEntryThatLandedOnAnUnqueuedOrder()
+    {
+        var orderId = await SeedJudgedAsync();
+        var escrowKey = new EscrowRowKey(_db.Escrows, $"escrow-order-{orderId}", CreatedAt);
+        var set = new Dictionary<string, object> { { PickupJudgement.Field, PickupJudgement.Outcome.Pending } };
+        var judged = new Dictionary<string, string> { { PickupJudgement.Field, PickupJudgement.Outcome.BothPresentNoScan } };
+
+        // The escrow cron stamped the cap on the judgement's entry after the admin's read: the entry must not go.
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Escrows,
+            Key = new Dictionary<string, AttributeValue> { ["escrowId"] = S(escrowKey.EscrowId), ["createdAt"] = S(CreatedAt) },
+            UpdateExpression = "SET holdCapReachedAt = :at",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":at"] = S(Iso(DateTime.UtcNow)) }
+        });
+        var capped = await Repo.TryUpdateGuardedAsync(orderId, set, AdminQueueFields.All, 6, judged, Array.Empty<string>(),
+            new[] { OrderRepository.EscrowHoldsMoneyCheck(escrowKey, notHoldCapped: true) });
+        capped.Outcome.Should().Be(OrderLinkedWriteOutcome.LinkedItemRefused);
+
+        // Read without an entry, but one landed since (a late check-in or the cron's queue entry).
+        var landed = await Repo.TryUpdateGuardedAsync(orderId, set, Array.Empty<string>(), 6, judged,
+            new[] { AdminQueueFields.Marker }, Array.Empty<TransactWriteItem>());
+        landed.Outcome.Should().Be(OrderLinkedWriteOutcome.OrderChanged);
+
+        var after = await ReadAsync(orderId);
+        after["version"].Should().Be("6");
+        after[AdminQueueFields.Reason].Should().Be(PickupJudgement.ReasonBothPresent);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task AHoldCapRidingOnTheJudgementsEntry_StaysQueued_AsHoldCap()
+    {
+        var orderId = await SeedJudgedAsync(holdCapReachedAt: Iso(DateTime.UtcNow.AddHours(-1)));
+        var queuedAt = (string)(await ReadAsync(orderId))[AdminQueueFields.QueuedAt];
+
+        var response = await Admin().FunctionHandler(
+            Post(orderId, new { exit = "handoff_confirmed", reason = Reason, expectedVersion = 6 }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var after = await ReadAsync(orderId);
+        after["status"].Should().Be("pickup_confirmed");
+        after[AdminQueueFields.Reason].Should().Be(AdminQueueFields.ReasonHoldCap);
+        after[AdminQueueFields.QueuedAt].Should().Be(queuedAt);
+        after[AdminQueueFields.EscrowId].Should().Be($"escrow-order-{orderId}");
+        (await InAdminQueueAsync(orderId)).Should().BeTrue("the capped money still waits on this entry");
     }
 
     [LocalDynamoDbFact]

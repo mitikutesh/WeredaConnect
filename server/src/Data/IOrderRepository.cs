@@ -52,9 +52,9 @@ public interface IOrderRepository
     /// can change without a version bump (the pickup judgement, the admin queue entry). <paramref name="set"/>
     /// is written (a <c>status</c> in it too) and <paramref name="remove"/> removed, the version checked and
     /// incremented, a new <c>updatedAt</c>, the next deadline derived from the row as it will be (ESC-16), and
-    /// the update lands only while every field of <paramref name="expectedStrings"/> still holds its value;
-    /// <paramref name="linkedItems"/> go in the same transaction. Same outcomes as
-    /// <see cref="TryUpdateWithAsync"/>.
+    /// the update lands only while every field of <paramref name="expectedStrings"/> still holds its value and
+    /// none of <paramref name="expectedAbsent"/> exists; <paramref name="linkedItems"/> go in the same
+    /// transaction. Same outcomes as <see cref="TryUpdateWithAsync"/>.
     /// </summary>
     Task<OrderLinkedWriteResult> TryUpdateGuardedAsync(
         string orderId,
@@ -62,6 +62,7 @@ public interface IOrderRepository
         IReadOnlyCollection<string> remove,
         int expectedVersion,
         IReadOnlyDictionary<string, string> expectedStrings,
+        IReadOnlyCollection<string> expectedAbsent,
         IReadOnlyList<TransactWriteItem> linkedItems);
 
     /// <summary>

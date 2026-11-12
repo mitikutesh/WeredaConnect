@@ -360,7 +360,7 @@
       "hint": "Waan dhugumatti ta'e hirmaattota waliin erga mirkaneessitee booda qofa itti fayyadami, fakkeenyaaf iskaanii sarvara irra turee ga'e. Maallaqni tokkollee hin sochoowu.",
       "exit": "Maaltu ta'e",
       "exitPendingHelp": "Hirmaattonni yeroo haaraa argatu: konkolaachisaan (ykn bitataan fudhatu) QR qonnaan bulaa iskaana, ajajnis yeroo xumuraa haaraatti irra deebiin murteeffama. Mirkaneessonni argamuu ni kuufamu.",
-      "exitHandoffHelp": "Midhaan harka jijjiireera: geejjibni akka fudhatametti galmeeffama, ajajnis akkuma iskaanii booda itti fufa. Geessuun ammas QR qonnaan bulaa bilbila konkolaachisaa irratti kuufame barbaada.",
+      "exitHandoffHelp": "Midhaan harka jijjiireera: geejjibni akka fudhatametti galmeeffama, ajajnis akkuma iskaanii booda itti fufa. Bitataan akkuma baramaa koodii buusuu konkolaachisaatiin buusuu mirkaneessa; konkolaachisaan bilbilli isaa koodii hin agarsiifne Koodii buusuu haaraa uuma.",
       "hours": "Yeroo xumuraa haaraa",
       "hoursOption": "Amma irraa sa'aatii {hours}",
       "reason": "Akkamitti akka mirkaneessite",

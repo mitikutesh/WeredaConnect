@@ -80,6 +80,56 @@ public static class PickupReopen
         PickupJudgement.ReasonBothPresent, PickupJudgement.ReasonUnchecked, PickupJudgement.ReasonLateEvidence
     };
 
+    /// <summary>What the re-open does with the order's admin queue entry (<see cref="QueuePlanOf"/>).</summary>
+    public enum QueuePlan
+    {
+        /// <summary>No entry at read: none may land before the write (an absence condition).</summary>
+        NotQueued,
+
+        /// <summary>The judgement's entry: removed, while its <c>adminQueuedAt</c> is the one read.</summary>
+        Remove,
+
+        /// <summary>
+        /// The judgement's entry also carries the order escrow's hold cap (the escrow cron stamped
+        /// <c>holdCapReachedAt</c> on the escrow instead of writing an entry of its own): kept, as <c>hold_cap</c>.
+        /// </summary>
+        ToHoldCap,
+
+        /// <summary>An entry for another reason (the hold cap), or one another escrow owns: left as it is.</summary>
+        Keep
+    }
+
+    /// <summary>
+    /// The plan for the order's admin queue entry. An escrow at its hold cap (<c>holdCapReachedAt</c>) has left the
+    /// sweep windows and waits on the queue entry that names it (<c>adminQueueEscrowId</c>, else the order escrow),
+    /// even when that entry was written for the judgement: removing it would hold the money for good with nothing
+    /// to show it. <paramref name="escrow"/> is the order's escrow as read, or null without one.
+    /// </summary>
+    public static QueuePlan QueuePlanOf(IReadOnlyDictionary<string, object> order, IReadOnlyDictionary<string, object>? escrow)
+    {
+        if (Str(order, AdminQueueFields.Marker).Length == 0)
+        {
+            return QueuePlan.NotQueued;
+        }
+
+        if (!JudgementQueueReasons.Contains(Str(order, AdminQueueFields.Reason)) || Str(order, AdminQueueFields.QueuedAt).Length == 0)
+        {
+            return QueuePlan.Keep;
+        }
+
+        if (escrow == null || !IsHoldCapped(escrow))
+        {
+            return QueuePlan.Remove;
+        }
+
+        var entryEscrow = Str(order, AdminQueueFields.EscrowId) is { Length: > 0 } named ? named : $"escrow-order-{Str(order, "orderId")}";
+        return entryEscrow == Str(escrow, "escrowId") ? QueuePlan.ToHoldCap : QueuePlan.Keep;
+    }
+
+    /// <summary>Whether the escrow reached its hold cap with its order in the admin queue (ESC-06).</summary>
+    public static bool IsHoldCapped(IReadOnlyDictionary<string, object> escrow)
+        => Str(escrow, AdminQueueFields.HoldCapReachedAt).Length > 0;
+
     /// <summary>The judged outcomes that left the order <c>accepted</c> with nothing moved.</summary>
     public static bool IsReopenableOutcome(string judgement)
         => judgement is PickupJudgement.Outcome.BothPresentNoScan or PickupJudgement.Outcome.UncheckedCheckIn;

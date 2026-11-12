@@ -360,7 +360,7 @@
       "hint": "Use this only after you have reconciled what really happened with the parties, for example a scan that reached the server too late. No money moves.",
       "exit": "What happened",
       "exitPendingHelp": "The parties get a new window: the trucker (or the buyer collecting) scans the farmer's QR, and the order is judged again at the new deadline. The check-ins are kept.",
-      "exitHandoffHelp": "The crops changed hands: the delivery is marked picked up and the order goes on as after a scan. The drop-off still needs the farmer's QR kept on the trucker's phone.",
+      "exitHandoffHelp": "The crops changed hands: the delivery is marked picked up and the order goes on as after a scan. The buyer confirms the drop-off with the trucker's drop-off code as usual; a trucker whose phone shows none makes a New drop-off code.",
       "hours": "New deadline",
       "hoursOption": "{hours} hours from now",
       "reason": "How you reconciled it",

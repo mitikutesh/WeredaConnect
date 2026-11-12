@@ -25,9 +25,11 @@ public partial class AdminFunction
     /// <item><c>handoff_confirmed</c>: the active delivery <c>pending → pickedUp</c> and the order
     /// <c>accepted → pickup_confirmed</c>, judged <c>scanned</c>, as a pickup scan leaves them.</item>
     /// </list>
-    /// Both remove the judgement's admin queue entry and stamp <c>pickupReopen</c>, in one transaction with the
-    /// order's version, status and judgement as read, the delivery's status and version, and the escrow still
-    /// holding the money. The same request again answers <c>alreadyApplied</c> and writes nothing.
+    /// Both remove the judgement's admin queue entry (or keep it as <c>hold_cap</c> when the escrow's hold cap rides
+    /// on it) and stamp <c>pickupReopen</c>, in one transaction with the order's version, status, judgement and queue
+    /// entry as read (no entry may land on an order read without one), the delivery's status and version, and the
+    /// escrow still holding the money (and not capped, when the entry goes). The same request again answers
+    /// <c>alreadyApplied</c> and writes nothing.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleOrderActionAsync(
         string orderId, string action, APIGatewayProxyRequest request, ILambdaContext context)
@@ -107,8 +109,8 @@ public partial class AdminFunction
             }
         }
 
-        var (escrowCheck, moneyHeld) = await EscrowHoldsMoneyAsync(orderId);
-        if (!moneyHeld)
+        var escrow = await ReadOrderEscrowAsync(orderId);
+        if (escrow != null && !PickupReopen.HoldsMoney(escrow))
         {
             LogReopen(adminUserId, correlationId, orderId, "failure", PickupReopen.MoneyNotHeldCode, exit);
             return LambdaResponse.Error(409, PickupReopen.MoneyNotHeldCode,
@@ -146,13 +148,24 @@ public partial class AdminFunction
             set[PickupJudgement.Field] = PickupJudgement.Outcome.Scanned;
         }
 
-        // The judgement's queue entry is answered by this action; one for another reason (the hold cap) stays.
-        var queueReason = GetString(order, AdminQueueFields.Reason);
+        // The judgement's queue entry is answered by this action, unless the escrow's hold cap rides on it; an entry
+        // for another reason stays; with none at read, none may land before the write (PickupReopen.QueuePlanOf).
+        var queuePlan = PickupReopen.QueuePlanOf(order, escrow);
         var queuedAt = GetString(order, AdminQueueFields.QueuedAt);
-        if (PickupReopen.JudgementQueueReasons.Contains(queueReason) && queuedAt.Length > 0)
+        var absent = new List<string>();
+        switch (queuePlan)
         {
-            remove.AddRange(new[] { AdminQueueFields.Marker, AdminQueueFields.QueuedAt, AdminQueueFields.Reason, AdminQueueFields.EscrowId });
-            expected[AdminQueueFields.QueuedAt] = queuedAt;
+            case PickupReopen.QueuePlan.NotQueued:
+                absent.Add(AdminQueueFields.Marker);
+                break;
+            case PickupReopen.QueuePlan.Remove:
+                remove.AddRange(new[] { AdminQueueFields.Marker, AdminQueueFields.QueuedAt, AdminQueueFields.Reason, AdminQueueFields.EscrowId });
+                expected[AdminQueueFields.QueuedAt] = queuedAt;
+                break;
+            case PickupReopen.QueuePlan.ToHoldCap:
+                set[AdminQueueFields.Reason] = AdminQueueFields.ReasonHoldCap;
+                expected[AdminQueueFields.QueuedAt] = queuedAt;
+                break;
         }
 
         var linked = new List<TransactWriteItem>();
@@ -162,12 +175,16 @@ public partial class AdminFunction
                 GetString(delivery, "deliveryId"), GetString(delivery, "tripId"), GetInt(delivery, "version"), nowIso));
         }
 
-        if (escrowCheck != null)
+        if (escrow != null)
         {
-            linked.Add(escrowCheck);
+            // Removing the entry: also only while the escrow's hold cap is not stamped (as read), since a capped
+            // escrow has left the sweep windows and waits on that entry.
+            linked.Add(OrderRepository.EscrowHoldsMoneyCheck(
+                new EscrowRowKey(_escrowsTable, GetString(escrow, "escrowId"), GetString(escrow, "createdAt")),
+                notHoldCapped: queuePlan == PickupReopen.QueuePlan.Remove));
         }
 
-        var write = await orders.TryUpdateGuardedAsync(orderId, set, remove, expectedVersion, expected, linked);
+        var write = await orders.TryUpdateGuardedAsync(orderId, set, remove, expectedVersion, expected, absent, linked);
         switch (write.Outcome)
         {
             case OrderLinkedWriteOutcome.Written:
@@ -195,7 +212,7 @@ public partial class AdminFunction
         var deadlineNote = deadlineAt != null ? $";deadlineAt={deadlineAt}" : "";
         await TransactionAuditWriter.EmitAsync(
             TxAuditRepo(), context, orderId, "order", orderId, PickupReopen.AuditAction, "accepted", status, auditContext,
-            metadata: $"exit={exit};judgement={fromJudgement}{deadlineNote}{deliveryNote};reason={reason}");
+            metadata: $"exit={exit};judgement={fromJudgement}{deadlineNote}{deliveryNote};queue={QueueNote(queuePlan)};reason={reason}");
         if (delivery != null)
         {
             // The delivery leg of the timeline, as a pickup scan writes it (handoff=qr or code there).
@@ -259,11 +276,9 @@ public partial class AdminFunction
 
     /// <summary>
     /// The order's money: its order escrow (<c>escrow-order-{orderId}</c>, else the newest escrow the order index
-    /// names), read strongly consistent. No escrow record: nothing to hold and no check. An escrow that still holds
-    /// the money gives the transaction's check (<see cref="OrderRepository.EscrowHoldsMoneyCheck"/>); one that does
-    /// not refuses the re-open.
+    /// names), read strongly consistent, or null when no escrow record holds it (nothing to check then).
     /// </summary>
-    private async Task<(TransactWriteItem? Check, bool Held)> EscrowHoldsMoneyAsync(string orderId)
+    private async Task<Dictionary<string, object>?> ReadOrderEscrowAsync(string orderId)
     {
         var escrows = new EscrowRepository(_dynamoDb, _escrowsTable);
         var escrow = await escrows.GetByIdAsync($"{OrderEscrowIdPrefix}{orderId}", consistentRead: true);
@@ -273,15 +288,17 @@ public partial class AdminFunction
             escrow = await escrows.GetByIdAsync(escrowId, consistentRead: true);
         }
 
-        if (escrow == null)
-        {
-            return (null, true);
-        }
-
-        return PickupReopen.HoldsMoney(escrow)
-            ? (OrderRepository.EscrowHoldsMoneyCheck(new EscrowRowKey(_escrowsTable, GetString(escrow, "escrowId"), GetString(escrow, "createdAt"))), true)
-            : (null, false);
+        return escrow;
     }
+
+    /// <summary>What the audit row says of the queue entry: <c>none</c>, <c>removed</c>, <c>hold_cap</c> or <c>kept</c>.</summary>
+    private static string QueueNote(PickupReopen.QueuePlan plan) => plan switch
+    {
+        PickupReopen.QueuePlan.Remove => "removed",
+        PickupReopen.QueuePlan.ToHoldCap => AdminQueueFields.ReasonHoldCap,
+        PickupReopen.QueuePlan.Keep => "kept",
+        _ => "none"
+    };
 
     private static APIGatewayProxyResponse ReopenOk(
         string orderId, string exit, Dictionary<string, object> order, bool alreadyApplied, string message)

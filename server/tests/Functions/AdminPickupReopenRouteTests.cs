@@ -224,7 +224,9 @@ public class AdminPickupReopenRouteTests
         var check = items[1].ConditionCheck;
         check.TableName.Should().Be(EscrowsTable);
         check.Key["escrowId"].S.Should().Be($"escrow-order-{OrderId}");
-        check.ConditionExpression.Should().Contain("#status = :escrowed").And.Contain("attribute_not_exists(#refundReason)");
+        check.ConditionExpression.Should().Contain("#status = :escrowed").And.Contain("attribute_not_exists(#refundReason)")
+            .And.Contain("attribute_not_exists(#holdCap)", "the entry goes, so the cap must not have been stamped since the read");
+        check.ExpressionAttributeNames["#holdCap"].Should().Be(AdminQueueFields.HoldCapReachedAt);
 
         var audit = TxAudits.Should().ContainSingle().Subject;
         audit.Item["action"].S.Should().Be(PickupReopen.AuditAction);
@@ -232,7 +234,7 @@ public class AdminPickupReopenRouteTests
         audit.Item["fromState"].S.Should().Be("accepted");
         audit.Item["toState"].S.Should().Be("accepted");
         audit.Item["metadata"].S.Should().Be(
-            $"exit=pending;judgement=both_present_no_scan;deadlineAt=2026-11-24T08:00:00.0000000Z;reason={Reason}");
+            $"exit=pending;judgement=both_present_no_scan;deadlineAt=2026-11-24T08:00:00.0000000Z;queue=removed;reason={Reason}");
         await _db.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
     }
 
@@ -269,7 +271,7 @@ public class AdminPickupReopenRouteTests
 
         TxAudits.Select(a => a.Item["action"].S).Should().Equal(PickupReopen.AuditAction, "picked_up");
         TxAudits[0].Item["toState"].S.Should().Be("pickup_confirmed");
-        TxAudits[0].Item["metadata"].S.Should().Be($"exit=handoff_confirmed;judgement=both_present_no_scan;deliveryId=del-9;reason={Reason}");
+        TxAudits[0].Item["metadata"].S.Should().Be($"exit=handoff_confirmed;judgement=both_present_no_scan;deliveryId=del-9;queue=removed;reason={Reason}");
         TxAudits[1].Item["entityType"].S.Should().Be("delivery");
         TxAudits[1].Item["metadata"].S.Should().Be("handoff=admin");
     }
@@ -435,6 +437,60 @@ public class AdminPickupReopenRouteTests
         var update = _transactions.Single().TransactItems[0].Update;
         update.ExpressionAttributeNames.Values.Should().NotContain(AdminQueueFields.Marker);
         update.ExpressionAttributeNames.Values.Should().NotContain(AdminQueueFields.QueuedAt);
+    }
+
+    [Fact]
+    public async Task AHoldCapRidingOnTheJudgementsEntry_KeepsTheEntryAsHoldCap()
+    {
+        // The escrow cron found the judgement's entry naming this escrow, so it stamped the cap instead of an entry.
+        _escrow![AdminQueueFields.HoldCapReachedAt] = S("2026-12-01T09:30:00.0000000Z");
+
+        var response = await Function().FunctionHandler(Post(Handoff()), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var items = _transactions.Single().TransactItems;
+        var update = items[0].Update;
+        update.ExpressionAttributeValues[":" + Name(update, AdminQueueFields.Reason)[1..]].S.Should().Be(AdminQueueFields.ReasonHoldCap);
+        update.ExpressionAttributeNames.Where(n => n.Key.StartsWith("#r", StringComparison.Ordinal)).Select(n => n.Value)
+            .Should().NotContain(new[] { AdminQueueFields.Marker, AdminQueueFields.QueuedAt, AdminQueueFields.EscrowId });
+        var conditioned = update.ExpressionAttributeNames.Where(n => n.Key.StartsWith("#c", StringComparison.Ordinal))
+            .ToDictionary(n => n.Value, n => update.ExpressionAttributeValues[":" + n.Key[1..]].S);
+        conditioned[AdminQueueFields.QueuedAt].Should().Be(QueuedAt, "the entry kept is the one read");
+        items[2].ConditionCheck.ConditionExpression.Should().NotContain("#holdCap");
+        TxAudits[0].Item["metadata"].S.Should().Contain(";queue=hold_cap;");
+    }
+
+    [Fact]
+    public async Task ACappedEscrowWhoseEntryAnotherEscrowOwns_LeavesTheEntryAlone()
+    {
+        _escrow![AdminQueueFields.HoldCapReachedAt] = S("2026-12-01T09:30:00.0000000Z");
+        _order[AdminQueueFields.EscrowId] = S("escrow-initiate-77");
+
+        var response = await Function().FunctionHandler(Post(), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var update = _transactions.Single().TransactItems[0].Update;
+        update.ExpressionAttributeNames.Values.Should().NotContain(new[] { AdminQueueFields.Marker, AdminQueueFields.Reason });
+        TxAudits[0].Item["metadata"].S.Should().Contain(";queue=kept;");
+    }
+
+    [Fact]
+    public async Task AnOrderNotQueuedAtRead_TakesNoEntryThatLandsBeforeTheWrite()
+    {
+        foreach (var field in AdminQueueFields.All)
+        {
+            _order.Remove(field);
+        }
+
+        var response = await Function().FunctionHandler(Post(), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var update = _transactions.Single().TransactItems[0].Update;
+        var absent = update.ExpressionAttributeNames.Single(n => n.Key.StartsWith("#a", StringComparison.Ordinal));
+        absent.Value.Should().Be(AdminQueueFields.Marker);
+        update.ConditionExpression.Should().Contain($"attribute_not_exists({absent.Key})");
+        update.ExpressionAttributeNames.Values.Should().NotContain(AdminQueueFields.QueuedAt);
+        TxAudits[0].Item["metadata"].S.Should().Contain(";queue=none;");
     }
 
     [Theory]

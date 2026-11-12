@@ -448,6 +448,7 @@ public sealed class OrderRepository : IOrderRepository
         IReadOnlyCollection<string> remove,
         int expectedVersion,
         IReadOnlyDictionary<string, string> expectedStrings,
+        IReadOnlyCollection<string> expectedAbsent,
         IReadOnlyList<TransactWriteItem> linkedItems)
     {
         var existing = await GetItemAsync(orderId, consistentRead: true);
@@ -513,6 +514,14 @@ public sealed class OrderRepository : IOrderRepository
             c++;
         }
 
+        var a = 0;
+        foreach (var key in expectedAbsent)
+        {
+            attrNames[$"#a{a}"] = key;
+            conditions.Add($"attribute_not_exists(#a{a})");
+            a++;
+        }
+
         // ESC-16: the read above is consistent and the write checks the version and the fields written without
         // a bump, so the deadline is derived from the row as written (as in TryUpdateWithAsync).
         var deadline = AppendDeadline(DynamoDbHelper.FromItem(written), updateParts, removeParts, attrNames, attrValues);
@@ -572,34 +581,47 @@ public sealed class OrderRepository : IOrderRepository
     /// FUP-287: the transaction item that lets the admin's re-open of a judged pickup land only while the order's
     /// escrow still holds the money as the judgement left it (<see cref="PickupReopen.HoldsMoney"/>): <c>escrowed</c>,
     /// no refund armed, no settlement lock, no delivery confirmed, never in the manual payout queue (the escrow
-    /// sweep's plain-hold condition, plus the delivery stamp).
+    /// sweep's plain-hold condition, plus the delivery stamp). With <paramref name="notHoldCapped"/> also while the
+    /// escrow has not reached its hold cap (<c>holdCapReachedAt</c>), the state read when the re-open removes the
+    /// queue entry the cap would wait on.
     /// </summary>
-    public static TransactWriteItem EscrowHoldsMoneyCheck(EscrowRowKey escrow) => new()
+    public static TransactWriteItem EscrowHoldsMoneyCheck(EscrowRowKey escrow, bool notHoldCapped = false)
     {
-        ConditionCheck = new ConditionCheck
+        var names = new Dictionary<string, string>
         {
-            TableName = escrow.TableName,
-            Key = new Dictionary<string, AttributeValue>
-            {
-                { "escrowId", new AttributeValue { S = escrow.EscrowId } },
-                { "createdAt", new AttributeValue { S = escrow.CreatedAt } }
-            },
-            ConditionExpression = "#status = :escrowed AND attribute_not_exists(#refundReason) AND attribute_not_exists(#lock) "
-                                  + "AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#confirmed)",
-            ExpressionAttributeNames = new Dictionary<string, string>
-            {
-                { "#status", "status" },
-                { "#refundReason", "refundReason" },
-                { "#lock", SettlementLockFields.Lock },
-                { "#manualPayout", ManualPayoutFields.Marker },
-                { "#confirmed", "deliveryConfirmedAt" }
-            },
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                { ":escrowed", new AttributeValue { S = "escrowed" } }
-            }
+            { "#status", "status" },
+            { "#refundReason", "refundReason" },
+            { "#lock", SettlementLockFields.Lock },
+            { "#manualPayout", ManualPayoutFields.Marker },
+            { "#confirmed", "deliveryConfirmedAt" }
+        };
+        var condition = "#status = :escrowed AND attribute_not_exists(#refundReason) AND attribute_not_exists(#lock) "
+                        + "AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#confirmed)";
+        if (notHoldCapped)
+        {
+            names["#holdCap"] = AdminQueueFields.HoldCapReachedAt;
+            condition += " AND attribute_not_exists(#holdCap)";
         }
-    };
+
+        return new TransactWriteItem
+        {
+            ConditionCheck = new ConditionCheck
+            {
+                TableName = escrow.TableName,
+                Key = new Dictionary<string, AttributeValue>
+                {
+                    { "escrowId", new AttributeValue { S = escrow.EscrowId } },
+                    { "createdAt", new AttributeValue { S = escrow.CreatedAt } }
+                },
+                ConditionExpression = condition,
+                ExpressionAttributeNames = names,
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":escrowed", new AttributeValue { S = "escrowed" } }
+                }
+            }
+        };
+    }
 
     /// <inheritdoc />
     public async Task<Dictionary<string, object>?> GetByIdAsync(string orderId)
