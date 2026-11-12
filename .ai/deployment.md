@@ -274,6 +274,64 @@ aws dynamodb delete-item --table-name wereda-connect-<env>-escrow-idempotency \
   --key '{"idempotencyKey":{"S":"migration:esc-04:park_legacy_trucker_legs"}}'
 ```
 
+### 3d. Manual, once per environment: payout reference backfill (FUP-215)
+
+Since escrow-protocol 2.12.0 (FUP-05) every admin record of a manual payout writes a
+`payout-ref#{REFERENCE}` item in escrow-idempotency, so one Telebirr portal reference
+records one leg (`409 ESCROW_047` for a second). References recorded before 2.12.0
+have no item. escrow-cron's `backfill_payout_references` action writes them (escrow-protocol
+2.14.0): every admin-recorded 1.x leg (`manual{Leg}Ref` with `manual{Leg}PaidBy` other than
+`gateway`) and every ledger row done by an admin. It is not scheduled and not in the
+deploy workflow: run it by hand once per environment (dev, staging, prod) after the
+deploy that ships it. It moves no money and changes no escrow, ledger row or audit
+row; every put is conditional, so a rerun is safe.
+
+Cost: one Scan of the escrows table (every row read once, about one read unit per 8 KB),
+one Query per ledger escrow and one put per recorded leg. A run stops after 4 minutes
+of the 5 minute Lambda, so pass `--cli-read-timeout 330` (the default 60 seconds would
+cut the answer off, and the CLI may send the invoke again). A throttled invoke means
+escrow-cron's reserved concurrency of 2 is busy with a scheduled run: wait a minute.
+
+```bash
+aws lambda invoke --function-name wereda-connect-<env>-escrow-cron \
+  --cli-binary-format raw-in-base64-out --cli-read-timeout 330 \
+  --payload '{"body":"{\"action\":\"backfill_payout_references\"}"}' out.json && cat out.json
+```
+
+Read the answer's body:
+
+- `outcome: ok`: done. `marker: done` (or `skipped: true` on a later run: the marker
+  in escrow-idempotency, `migration:fup-215:backfill_payout_references`, 30-day TTL,
+  stops further reads).
+- `scanCursor` present: the run stopped on time. Run again with it, until `outcome` is
+  `ok`: `--payload '{"body":"{\"action\":\"backfill_payout_references\",\"scanFrom\":\"<scanCursor>\"}"}'`.
+- `failed` above 0 (a throttled page or put): `marker: retry`. Run again without
+  `scanFrom` (a chain resumed after a failure cannot finish; the run from the start
+  writes `marker: pending`, and then it or its resumed runs can finish as above); the
+  log names each one (`PAYOUT_REF_BACKFILL_FAILED`).
+- `conflicts` above 0: one portal reference was recorded on two legs before 2.12.0. The
+  first leg the Scan met keeps the item; nothing is overwritten. List them:
+
+```bash
+aws logs filter-log-events --log-group-name /aws/lambda/wereda-connect-<env>-escrow-cron \
+  --filter-pattern '"PAYOUT_REF_BACKFILL_CONFLICT"' --query 'events[].message' --output text
+```
+
+  Each line names the reference, the leg that holds it (`heldBy=<escrowId>/<leg or ledger
+  ref>`) and the other one (`alsoOn=`), with the admins who recorded them (a ledger ref
+  shows `:` for `#`). Check both payments in the merchant portal and follow the
+  correction procedure of escrow-protocol 2.12.0 (known limits, FUP-218). Never delete or
+  edit the reference item by hand to make room.
+- `skippedLegs` above 0: a recorded leg without a readable `manual{Leg}PaidAt`
+  (`PAYOUT_REF_BACKFILL_SKIPPED`, bad data only); escalate it.
+
+Read again later (removes the marker):
+
+```bash
+aws dynamodb delete-item --table-name wereda-connect-<env>-escrow-idempotency \
+  --key '{"idempotencyKey":{"S":"migration:fup-215:backfill_payout_references"}}'
+```
+
 ### 4. Web App Deploys (CI/CD)
 
 Automatic on push to `main` when files change in the relevant directory:
