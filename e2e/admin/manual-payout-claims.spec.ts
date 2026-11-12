@@ -2,8 +2,9 @@ import { test, expect, type Page, type Route } from "@playwright/test";
 
 /**
  * Manual payout claims (FUP-05, escrow-protocol.md 2.12.0): an admin claims a leg before paying it in the
- * Telebirr portal, a leg another admin claimed shows who holds it and offers nothing to pay or record, and a
- * portal reference already recorded elsewhere is refused with the escrow and leg it is on.
+ * Telebirr portal (the reference field appears only then), a leg another admin claimed shows who holds it and
+ * offers nothing to pay or record, a lapsed claim of another admin warns to check the portal, and a portal
+ * reference already recorded elsewhere is refused with the escrow and leg it is on.
  *
  * Like reputation.spec.ts this spec does not sign in: it seeds a Cognito session for a fake admin in
  * localStorage and answers every API call the page makes with page.route, so it checks what the page sends
@@ -79,7 +80,12 @@ function leg(ref: string, name: string, phone: string, amount: number, claim?: C
     amount,
     status: "pending",
     ...(claim
-      ? { claimedBy: claim.claimedBy, claimExpiresAt: claim.claimExpiresAt, claimedByMe: claim.claimedBy === "admin-e2e" }
+      ? {
+          claimedBy: claim.claimedBy,
+          claimExpiresAt: claim.claimExpiresAt,
+          claimedByMe: claim.claimedBy === "admin-e2e",
+          claimLive: Date.parse(claim.claimExpiresAt) > Date.now(),
+        }
       : {}),
   };
 }
@@ -150,14 +156,17 @@ test.describe("Manual payout claims (FUP-05)", () => {
     await page.goto("/payouts");
 
     const row = page.getByRole("row").filter({ hasText: "Abebe Kebede" });
-    await row.getByRole("button", { name: "Claim" }).click();
+    // Claim first: no reference field before the claim.
+    await expect(row.getByLabel("Telebirr transaction ID")).toHaveCount(0);
+    await row.getByRole("button", { name: "Claim", exact: true }).click();
 
     await expect(page.getByRole("status")).toHaveText(
       "Leg claimed for 30 minutes. Pay it in the portal, then record the transaction ID.",
     );
     await expect(row.getByText(/^You are paying this leg \(claimed until .+\)\.$/)).toBeVisible();
+    await expect(row.getByLabel("Telebirr transaction ID")).toBeVisible();
     await row.getByRole("button", { name: "Release claim" }).click();
-    await expect(row.getByRole("button", { name: "Claim" })).toBeVisible();
+    await expect(row.getByRole("button", { name: "Claim", exact: true })).toBeVisible();
     expect(captured.posts.map((p) => p.path)).toEqual(["release#farmer/claim", "release#farmer/unclaim"]);
   });
 
@@ -171,13 +180,29 @@ test.describe("Manual payout claims (FUP-05)", () => {
     const row = page.getByRole("row").filter({ hasText: "Chala Tolosa" });
     await expect(row.getByText("Another admin is paying this")).toBeVisible();
     await expect(row.getByText(/^Claimed by admin-other until .+\. Do not pay it in the portal\.$/)).toBeVisible();
-    await expect(row.getByRole("button", { name: "Claim" })).toHaveCount(0);
+    await expect(row.getByRole("button", { name: "Claim", exact: true })).toHaveCount(0);
     await expect(row.getByLabel("Telebirr transaction ID")).toHaveCount(0);
+  });
+
+  test("another admin's lapsed claim stays on the leg with a check-the-portal warning", async ({ page }) => {
+    await seedAdminSession(page);
+    await mockApi(page, {
+      claims: { "release#farmer": { claimedBy: "admin-other", claimExpiresAt: inMinutes(-90) } },
+    });
+    await page.goto("/payouts");
+
+    const row = page.getByRole("row").filter({ hasText: "Abebe Kebede" });
+    await expect(
+      row.getByText(/^Last claimed by admin-other, lapsed at .+: they may have paid it\. Check the portal before you pay\.$/),
+    ).toBeVisible();
+    await expect(row.getByRole("button", { name: "Claim", exact: true })).toBeVisible();
   });
 
   test("a reference already recorded elsewhere is refused with where it is used", async ({ page }) => {
     await seedAdminSession(page);
-    const captured = await mockApi(page, { claims: {} });
+    const captured = await mockApi(page, {
+      claims: { "release#farmer": { claimedBy: "admin-e2e", claimExpiresAt: inMinutes(20) } },
+    });
     await page.goto("/payouts");
 
     const row = page.getByRole("row").filter({ hasText: "Abebe Kebede" });

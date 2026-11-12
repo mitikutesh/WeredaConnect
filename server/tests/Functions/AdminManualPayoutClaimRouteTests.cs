@@ -146,6 +146,25 @@ public class AdminManualPayoutClaimRouteTests
         _puts.Should().NotContain(p => p.TableName == TxAuditTable);
     }
 
+    [Theory]
+    [InlineData("claim")]
+    [InlineData("unclaim")]
+    public async Task AClaimWriteThatMeetsARecordInFlight_Is409ToRetry_Not500(string action)
+    {
+        // A record's transaction on the same row makes the claim's UpdateItem throw TransactionConflictException,
+        // which is not a failed condition: retried once per write, then answered as a changed leg.
+        _escrow["manualBuyerClaimedBy"] = S("admin-1");
+        _escrow["manualBuyerClaimExpiresAt"] = S(DateTime.UtcNow.AddMinutes(20).ToString("o"));
+        _db.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TransactionConflictException("in flight"));
+
+        var response = await Function().FunctionHandler(Post($"/admin/payouts/{EscrowId}/buyer/{action}"), _context);
+
+        response.StatusCode.Should().Be(409, response.Body);
+        response.Body.Should().Contain("ESCROW_035").And.Contain("Reload and try again");
+        _puts.Should().NotContain(p => p.TableName == TxAuditTable);
+    }
+
     [Fact]
     public async Task Unclaim_ByTheHolder_RemovesTheClaim_AndAnAdminAuditRow()
     {

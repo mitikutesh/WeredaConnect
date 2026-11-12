@@ -3,7 +3,14 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useFraudSignals, useHeldEscrows, useManualPayoutClaim, useSettleHeldEscrow } from "./useQuery";
+import {
+  MANUAL_PAYOUTS_REFRESH_MS,
+  useFraudSignals,
+  useHeldEscrows,
+  useManualPayoutClaim,
+  useManualPayouts,
+  useSettleHeldEscrow,
+} from "./useQuery";
 
 /* FRD-07: what the Fraud Review hooks send. The release and refund of a held escrow go through the
  * escrow routes (fraud-detection-architecture.md section 18.3), so their bodies must carry what those
@@ -98,6 +105,25 @@ describe("Manual payout claim hook (FUP-05)", () => {
   beforeEach(() => {
     api.post.mockReset();
     api.post.mockResolvedValue({ claimed: true });
+  });
+
+  it("reloads the queue every 30 seconds while the page is open, so other admins' claims show up", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      api.get.mockReset();
+      api.get.mockResolvedValue({ payouts: [] });
+      const { result } = renderHook(() => useManualPayouts(), { wrapper: wrapper() });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(MANUAL_PAYOUTS_REFRESH_MS).toBe(30_000);
+      expect(api.get).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(MANUAL_PAYOUTS_REFRESH_MS);
+
+      await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+      expect(api.get).toHaveBeenLastCalledWith("/admin/payouts/manual?limit=50");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each(["claim", "unclaim"] as const)("posts %s to the leg's route, a ledger ref URL-encoded, with no body", async (action) => {

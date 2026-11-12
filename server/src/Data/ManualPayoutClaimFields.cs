@@ -17,6 +17,12 @@ internal static class ManualPayoutClaimFields
     /// <summary>How long a claim lasts from its last claim or renewal; nobody can take a live claim over.</summary>
     public static readonly TimeSpan Ttl = TimeSpan.FromMinutes(30);
 
+    /// <summary>
+    /// How long the queue keeps showing a claim that lapsed (not released, not recorded), so other admins see
+    /// that someone may have paid the leg and check the portal first. The row keeps the attributes anyway.
+    /// </summary>
+    public static readonly TimeSpan ShownAfterExpiry = TimeSpan.FromHours(24);
+
     public const string LedgerClaimedBy = "claimedBy";
     public const string LedgerClaimedAt = "claimedAt";
     public const string LedgerClaimExpiresAt = "claimExpiresAt";

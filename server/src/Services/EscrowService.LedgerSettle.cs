@@ -630,7 +630,7 @@ public sealed partial class EscrowService
         var done = await CompleteLedgerRowAsync(row, externalRef, actorUserId, row.Attempts, actorUserId, guard);
         if (done.ClaimedByOther && done.Row != null)
         {
-            return (ClaimedByOther<CompleteManualPayoutResponse>(done.Row.ClaimedBy!, done.Row.ClaimExpiresAt!), null);
+            return (ClaimedByOther<CompleteManualPayoutResponse>(done.Row.ClaimedBy!, done.Row.ClaimExpiresAt!, onRecord: true), null);
         }
 
         if (done.ReferenceTaken)

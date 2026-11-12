@@ -310,15 +310,19 @@ public sealed record ManualPayoutLegDto
     public string? GatewayRef { get; init; }
 
     /// <summary>
-    /// FUP-05: the admin who holds a live claim on this pending leg (is paying it now), when the claim was
-    /// taken and when it ends. All null when nobody holds a live claim.
+    /// FUP-05: the admin who claimed this pending leg, when the claim was taken and when it ends. Shown while the
+    /// claim lives and for 24 hours after it lapsed (<see cref="ClaimLive"/> false: that admin may have paid). All
+    /// null when there is no claim, it was released, or it lapsed longer ago.
     /// </summary>
     public string? ClaimedBy { get; init; }
     public string? ClaimedAt { get; init; }
     public string? ClaimExpiresAt { get; init; }
 
-    /// <summary>FUP-05: true when the caller holds the claim; null when nobody does.</summary>
+    /// <summary>FUP-05: true when the caller is the admin of <see cref="ClaimedBy"/>; null when there is no claim shown.</summary>
     public bool? ClaimedByMe { get; init; }
+
+    /// <summary>FUP-05: true while the claim lives (at the time of the read), false once it lapsed; null without a claim.</summary>
+    public bool? ClaimLive { get; init; }
 }
 
 /// <summary>

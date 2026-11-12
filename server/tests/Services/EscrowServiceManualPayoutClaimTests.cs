@@ -231,6 +231,21 @@ public class EscrowServiceManualPayoutClaimTests
     }
 
     [Fact]
+    public async Task Release_WhoseWriteFails_AnswersReloadNotReleasedFalse()
+    {
+        // The holder's claim lapsed and another admin took it, or a record's transaction was in flight on the row.
+        ClaimedBy(AdminA, ExpiresIso);
+        _claims.FailNextRelease = true;
+
+        var result = await Service().ReleaseManualPayoutClaimAsync(EscrowId, "buyer", AdminA, adminGroupVerified: true);
+
+        result.Error!.HttpStatus.Should().Be(409);
+        result.Error.Code.Should().Be("ESCROW_035");
+        result.Error.Message.Should().Contain("Reload and try again");
+        _audits.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Release_ByTheHolder_RemovesTheClaim_AndAuditsIt()
     {
         ClaimedBy(AdminA, ExpiresIso);
@@ -278,6 +293,10 @@ public class EscrowServiceManualPayoutClaimTests
 
         result.Error!.HttpStatus.Should().Be(409);
         result.Error.Code.Should().Be("ESCROW_046");
+        // On a record the admin has usually paid already: do not pay again, contact the holder (named).
+        result.Error.Message.Should().Be(
+            $"Another admin ({AdminA}) has claimed this leg until {ExpiresIso}. Do not pay it again: if you already "
+            + "paid it in the portal, contact that admin so it is recorded once.");
         await RecordNothing();
         AuditMetadata("manual_payout_refused").Should().Be("leg=buyer;code=ESCROW_046;attemptedRef=TB-REF-0001");
     }
@@ -356,24 +375,37 @@ public class EscrowServiceManualPayoutClaimTests
     }
 
     [Fact]
-    public async Task List_ShowsALiveClaim_WithWhetherTheViewerHoldsIt_AndHidesAnExpiredOne()
+    public async Task List_ShowsALiveClaim_ALapsedOneFor24Hours_AndWhetherTheViewerHoldsIt()
     {
         ClaimedBy(AdminA, ExpiresIso);
         _escrowRepo.QueryOpenManualPayoutsAsync(Arg.Any<int>(), Arg.Any<Dictionary<string, Amazon.DynamoDBv2.Model.AttributeValue>?>())
             .Returns(_ => (new List<Dictionary<string, object>> { new(_escrow) }, (Dictionary<string, Amazon.DynamoDBv2.Model.AttributeValue>?)null));
 
-        var asHolder = (await Service().ListManualPayoutsAsync(20, null, AdminA)).Value!.Payouts.Single().Legs.Single();
-        var asOther = (await Service().ListManualPayoutsAsync(20, null, AdminB)).Value!.Payouts.Single().Legs.Single();
+        async Task<ManualPayoutLegDto> LegAs(string viewer)
+            => (await Service().ListManualPayoutsAsync(20, null, viewer)).Value!.Payouts.Single().Legs.Single();
+
+        var asHolder = await LegAs(AdminA);
+        var asOther = await LegAs(AdminB);
+        // Lapsed an hour ago: still shown, as lapsed, so other admins check the portal before paying.
         ClaimedBy(AdminA, "2026-11-12T09:00:00.0000000Z");
-        var expired = (await Service().ListManualPayoutsAsync(20, null, AdminB)).Value!.Payouts.Single().Legs.Single();
+        var lapsed = await LegAs(AdminB);
+        // Lapsed more than 24 hours ago: no longer shown.
+        ClaimedBy(AdminA, "2026-11-11T09:59:59.0000000Z");
+        var old = await LegAs(AdminB);
 
         asHolder.ClaimedBy.Should().Be(AdminA);
         asHolder.ClaimExpiresAt.Should().Be(ExpiresIso);
         asHolder.ClaimedByMe.Should().BeTrue();
+        asHolder.ClaimLive.Should().BeTrue();
         asOther.ClaimedBy.Should().Be(AdminA);
         asOther.ClaimedByMe.Should().BeFalse();
-        expired.ClaimedBy.Should().BeNull();
-        expired.ClaimedByMe.Should().BeNull();
+        asOther.ClaimLive.Should().BeTrue();
+        lapsed.ClaimedBy.Should().Be(AdminA);
+        lapsed.ClaimExpiresAt.Should().Be("2026-11-12T09:00:00.0000000Z");
+        lapsed.ClaimLive.Should().BeFalse();
+        old.ClaimedBy.Should().BeNull();
+        old.ClaimedByMe.Should().BeNull();
+        old.ClaimLive.Should().BeNull();
     }
 
     // ── Ledger rows ─────────────────────────────────────────────────────────
@@ -533,6 +565,7 @@ public class EscrowServiceManualPayoutClaimTests
         public Dictionary<string, PayoutReferenceHolder> References { get; } = new(StringComparer.Ordinal);
         public List<string> Writes { get; } = new();
         public Action? BeforeNextWrite { get; set; }
+        public bool FailNextRelease { get; set; }
 
         private void Hook()
         {
@@ -564,6 +597,12 @@ public class EscrowServiceManualPayoutClaimTests
 
         public Task<bool> TryReleaseLegAsync(string escrowId, string createdAt, string leg, string actor)
         {
+            if (FailNextRelease)
+            {
+                FailNextRelease = false;
+                return Task.FromResult(false);
+            }
+
             var e = Escrow();
             if (Str(e, ManualPayoutClaimFields.ClaimedByAttr(leg)) != actor)
             {

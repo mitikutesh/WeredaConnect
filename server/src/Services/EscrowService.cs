@@ -5722,7 +5722,7 @@ public sealed partial class EscrowService
             var (claimedBy, _, claimExpiresAt) = LegClaim(escrow, leg);
             if (ManualPayoutClaimFields.IsHeldByOther(claimedBy, claimExpiresAt, actorUserId, ClaimNowIso()))
             {
-                var claimed = ClaimedByOther<CompleteManualPayoutResponse>(claimedBy!, claimExpiresAt!).Error!;
+                var claimed = ClaimedByOther<CompleteManualPayoutResponse>(claimedBy!, claimExpiresAt!, onRecord: true).Error!;
                 return await RefuseAsync(currentStatus, claimed.HttpStatus, claimed.Code, claimed.Message);
             }
 

@@ -277,6 +277,10 @@ export function useUserAction() {
 
 // Manual payout queue (ESC-02): settlements the live gateway could not make.
 // Oldest first, 50 per page; the page loads the next page on demand.
+// FUP-05: reloaded every 30 seconds while the page is open and when the window gets focus, so a
+// leg another admin claims shows up before this admin pays it.
+export const MANUAL_PAYOUTS_REFRESH_MS = 30_000;
+
 export function useManualPayouts() {
   return useInfiniteQuery({
     queryKey: ["admin", "payouts"],
@@ -286,6 +290,8 @@ export function useManualPayouts() {
         `/admin/payouts/manual?limit=50${pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""}`,
       ),
     getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+    refetchInterval: MANUAL_PAYOUTS_REFRESH_MS,
+    refetchOnWindowFocus: true,
   });
 }
 

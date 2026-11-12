@@ -45,6 +45,24 @@ vi.mock("@/hooks/useLocale", async () => {
 });
 
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
+
+/* FUP-05: the page shows the reference field only on a leg the viewer holds a live claim on, so
+ * the recording tests start from a leg claimed by the viewer. */
+const mine = () => ({
+  claimedBy: "admin-1",
+  claimedAt: hoursAgo(0),
+  claimExpiresAt: inMinutes(20),
+  claimedByMe: true,
+  claimLive: true,
+});
+const UNCLAIMED = {
+  claimedBy: undefined,
+  claimedAt: undefined,
+  claimExpiresAt: undefined,
+  claimedByMe: undefined,
+  claimLive: undefined,
+};
 
 function releaseWithTwoLegs(overrides: Record<string, unknown> = {}) {
   return {
@@ -67,6 +85,7 @@ function releaseWithTwoLegs(overrides: Record<string, unknown> = {}) {
         payeeVerified: true,
         amount: 16500,
         status: "pending",
+        ...mine(),
       },
       {
         ref: "trucker",
@@ -105,6 +124,7 @@ function refundOverdue() {
         payeeVerified: true,
         amount: 20000,
         status: "pending",
+        ...mine(),
       },
     ],
   };
@@ -267,6 +287,7 @@ describe("ManualPayoutsPage", () => {
               payeeVerified: true,
               amount: 3000,
               status: "pending",
+              ...mine(),
             },
           ],
         }),
@@ -441,7 +462,8 @@ describe("ManualPayoutsPage", () => {
     return pages({ payouts: [{ ...payout, legs: [{ ...farmer, ...claim }, trucker] }], total: 1 });
   }
 
-  it("offers Claim on an unclaimed leg and posts the claim", async () => {
+  it("asks for the claim first on an unclaimed leg: no reference field until the viewer holds it", async () => {
+    mocks.payouts.data = withFarmerClaim(UNCLAIMED);
     mocks.claim.mockImplementation((_vars, opts) => {
       opts?.onSuccess?.();
       opts?.onSettled?.();
@@ -452,9 +474,11 @@ describe("ManualPayoutsPage", () => {
     const farmerRow = rowFor("Abebe Kebede");
     expect(
       within(farmerRow).getByText(
-        "Claim this leg before you pay it in the portal, so no other admin pays it too.",
+        "Claim this leg before you pay it in the portal. The transaction ID field appears once you hold the claim.",
       ),
     ).toBeTruthy();
+    expect(within(farmerRow).queryByLabelText("Telebirr transaction ID")).toBeNull();
+    expect(within(farmerRow).queryByRole("button", { name: "Mark as paid" })).toBeNull();
     await user.click(within(farmerRow).getByRole("button", { name: "Claim" }));
 
     expect(mocks.claim).toHaveBeenCalledTimes(1);
@@ -466,16 +490,12 @@ describe("ManualPayoutsPage", () => {
     expect(screen.getByRole("status").textContent).toBe(
       "Leg claimed for 30 minutes. Pay it in the portal, then record the transaction ID.",
     );
-    // Recording stays open on an unclaimed leg: the record claims it in the same write.
-    expect(within(farmerRow).getByLabelText("Telebirr transaction ID")).toBeTruthy();
   });
 
-  it("shows the viewer's own claim with Release claim, and keeps the record form", async () => {
-    mocks.payouts.data = withFarmerClaim({
-      claimedBy: "admin-1",
-      claimedAt: hoursAgo(0),
-      claimExpiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
-      claimedByMe: true,
+  it("shows the viewer's own claim with Renew and Release claim, and the record form", async () => {
+    mocks.claim.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.();
+      opts?.onSettled?.();
     });
     const user = userEvent.setup();
     renderPage();
@@ -484,21 +504,58 @@ describe("ManualPayoutsPage", () => {
     expect(within(farmerRow).getByText(/^You are paying this leg \(claimed until .+\)\.$/)).toBeTruthy();
     expect(within(farmerRow).queryByRole("button", { name: "Claim" })).toBeNull();
     expect(within(farmerRow).getByLabelText("Telebirr transaction ID")).toBeTruthy();
-    await user.click(within(farmerRow).getByRole("button", { name: "Release claim" }));
 
-    expect(mocks.claim.mock.calls[0][0]).toEqual({
-      escrowId: "escrow-order-ord-1",
-      ref: "farmer",
-      action: "unclaim",
+    await user.click(within(farmerRow).getByRole("button", { name: "Renew claim" }));
+    expect(mocks.claim.mock.calls[0][0]).toEqual({ escrowId: "escrow-order-ord-1", ref: "farmer", action: "claim" });
+    expect(screen.getByRole("status").textContent).toBe("Claim renewed for 30 minutes.");
+
+    await user.click(within(farmerRow).getByRole("button", { name: "Release claim" }));
+    expect(mocks.claim.mock.calls[1][0]).toEqual({ escrowId: "escrow-order-ord-1", ref: "farmer", action: "unclaim" });
+  });
+
+  it("treats the viewer's own lapsed claim as lost: no record controls, Claim again", () => {
+    // The server read it as live, but its end has passed on this clock since.
+    mocks.payouts.data = withFarmerClaim({ ...mine(), claimExpiresAt: hoursAgo(0.01), claimLive: true });
+    renderPage();
+
+    const farmerRow = rowFor("Abebe Kebede");
+    expect(
+      within(farmerRow).getByText(
+        /^Your claim lapsed at .+\. Check the portal, then claim it again before you pay or record anything\.$/,
+      ),
+    ).toBeTruthy();
+    expect(within(farmerRow).queryByText(/^You are paying this leg/)).toBeNull();
+    expect(within(farmerRow).queryByLabelText("Telebirr transaction ID")).toBeNull();
+    expect(within(farmerRow).getByRole("button", { name: "Claim" })).toBeTruthy();
+  });
+
+  it("keeps another admin's lapsed claim on the leg: check the portal before paying", () => {
+    mocks.payouts.data = withFarmerClaim({
+      claimedBy: "admin-2",
+      claimedAt: hoursAgo(2),
+      claimExpiresAt: hoursAgo(1.5),
+      claimedByMe: false,
+      claimLive: false,
     });
+    renderPage();
+
+    const farmerRow = rowFor("Abebe Kebede");
+    expect(
+      within(farmerRow).getByText(
+        /^Last claimed by admin-2, lapsed at .+: they may have paid it\. Check the portal before you pay\.$/,
+      ),
+    ).toBeTruthy();
+    expect(within(farmerRow).getByRole("button", { name: "Claim" })).toBeTruthy();
+    expect(within(farmerRow).queryByLabelText("Telebirr transaction ID")).toBeNull();
   });
 
   it("blocks a leg another admin has claimed: no claim, no record, and who holds it", () => {
     mocks.payouts.data = withFarmerClaim({
       claimedBy: "admin-2",
       claimedAt: hoursAgo(0),
-      claimExpiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
+      claimExpiresAt: inMinutes(20),
       claimedByMe: false,
+      claimLive: true,
     });
     renderPage();
 
@@ -513,6 +570,7 @@ describe("ManualPayoutsPage", () => {
   });
 
   it("shows a claim refused because another admin holds it", async () => {
+    mocks.payouts.data = withFarmerClaim(UNCLAIMED);
     mocks.claim.mockImplementation((_vars, opts) => {
       opts?.onError?.({ code: "ESCROW_046", message: "Another admin (admin-2) has claimed this leg." });
       opts?.onSettled?.();
@@ -524,6 +582,44 @@ describe("ManualPayoutsPage", () => {
 
     expect(screen.getByRole("alert").textContent).toBe(
       "Another admin has claimed this leg. Do not pay it. The list now shows who holds it.",
+    );
+  });
+
+  it("says the leg changed when a claim meets a record, a release or a busy row", async () => {
+    mocks.payouts.data = withFarmerClaim(UNCLAIMED);
+    mocks.claim.mockImplementation((_vars, opts) => {
+      opts?.onError?.({ code: "ESCROW_035", message: "The leg changed while it was being claimed. Reload and try again." });
+      opts?.onSettled?.();
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(within(rowFor("Abebe Kebede")).getByRole("button", { name: "Claim" }));
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "This leg changed while you claimed it (recorded, released or busy). The list is reloaded: check it and try again.",
+    );
+  });
+
+  it("on a record refused for another admin's claim, says not to pay again and names that admin", async () => {
+    mocks.mutate.mockImplementation((_vars, opts) => {
+      opts?.onError?.({
+        code: "ESCROW_046",
+        message:
+          "Another admin (admin-2) has claimed this leg until 2026-11-12T10:30:00.0000000Z. Do not pay it again: if you already paid it in the portal, contact that admin so it is recorded once.",
+      });
+      opts?.onSettled?.();
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const farmerRow = rowFor("Abebe Kebede");
+    await user.type(within(farmerRow).getByLabelText("Telebirr transaction ID"), "TB2026100600001");
+    await user.click(within(farmerRow).getByRole("button", { name: "Mark as paid" }));
+    await user.click(within(farmerRow).getByRole("button", { name: "Yes, recorded" }));
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "admin-2 holds the claim on this leg. Do not pay it again: if you already paid it in the portal, contact admin-2 so it is recorded once.",
     );
   });
 

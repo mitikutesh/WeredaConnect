@@ -203,9 +203,17 @@ public sealed partial class EscrowService
         }
 
         // The caller's own claim, live or expired, is removed; anything else holds nothing to release.
-        var released = claimedBy == actorUserId && await release();
-        if (released)
+        var released = false;
+        if (claimedBy == actorUserId)
         {
+            if (!await release())
+            {
+                // Taken over after it lapsed, ended by the record, or busy with a record in flight: reload.
+                return EscrowResult<ManualPayoutClaimResponse>.Failure(
+                    409, "ESCROW_035", "The claim changed while it was being released. Reload and try again.");
+            }
+
+            released = true;
             await AuditClaimAsync(escrowId, "manual_payout_claim_released", status, actorUserId,
                 ledgerRef.Contains('#', StringComparison.Ordinal) ? $"ref={reference}" : $"leg={reference}");
         }
@@ -258,10 +266,16 @@ public sealed partial class EscrowService
             GetStringOrNull(escrow, ManualPayoutClaimFields.ClaimedAtAttr(leg)),
             GetStringOrNull(escrow, ManualPayoutClaimFields.ClaimExpiresAtAttr(leg)));
 
-    /// <summary>409 ESCROW_046: another admin is paying this leg; their id and the claim's end are named.</summary>
-    private static EscrowResult<T> ClaimedByOther<T>(string claimedBy, string claimExpiresAt) => EscrowResult<T>.Failure(
-        409, ClaimedByOtherCode,
-        $"Another admin ({claimedBy}) has claimed this leg until {claimExpiresAt}. Do not pay it; reload the page.");
+    /// <summary>
+    /// 409 ESCROW_046: another admin is paying this leg. The message starts in a fixed form, <c>Another admin
+    /// ({id}) has claimed this leg until {time}.</c>, which the admin app reads to name them. On a record the admin
+    /// has usually paid already, so that text says not to pay again and to contact the holder.
+    /// </summary>
+    private static EscrowResult<T> ClaimedByOther<T>(string claimedBy, string claimExpiresAt, bool onRecord = false)
+        => EscrowResult<T>.Failure(409, ClaimedByOtherCode,
+            $"Another admin ({claimedBy}) has claimed this leg until {claimExpiresAt}. " + (onRecord
+                ? "Do not pay it again: if you already paid it in the portal, contact that admin so it is recorded once."
+                : "Do not pay it; reload the page."));
 
     /// <summary>
     /// The 409 ESCROW_047 text. It names the place in a fixed form, <c>on escrow {escrowId}, leg {ref}.</c>,
@@ -300,18 +314,35 @@ public sealed partial class EscrowService
         }
     }
 
-    /// <summary>The leg's live claim for the queue list, with whether the viewer holds it; expired claims are not shown.</summary>
+    /// <summary>
+    /// The leg's claim for the queue list, with whether the viewer holds it and whether it still lives. A claim
+    /// that lapsed (not released, not recorded) is shown for <see cref="ManualPayoutClaimFields.ShownAfterExpiry"/>
+    /// after its end, so other admins check the portal before paying; older ones are not shown.
+    /// </summary>
     private static ManualPayoutLegDto WithClaim(
         ManualPayoutLegDto dto, string? claimedBy, string? claimedAt, string? claimExpiresAt, string? viewerId, string nowIso)
-        => string.IsNullOrEmpty(claimedBy) || !ManualPayoutClaimFields.IsLive(claimExpiresAt, nowIso)
-            ? dto
-            : dto with
-            {
-                ClaimedBy = claimedBy,
-                ClaimedAt = claimedAt,
-                ClaimExpiresAt = claimExpiresAt,
-                ClaimedByMe = viewerId != null && string.Equals(claimedBy, viewerId, StringComparison.Ordinal)
-            };
+    {
+        if (string.IsNullOrEmpty(claimedBy) || string.IsNullOrEmpty(claimExpiresAt))
+        {
+            return dto;
+        }
+
+        var shownUntil = Iso(DateTime.Parse(claimExpiresAt, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime() + ManualPayoutClaimFields.ShownAfterExpiry);
+        if (string.CompareOrdinal(shownUntil, nowIso) <= 0)
+        {
+            return dto;
+        }
+
+        return dto with
+        {
+            ClaimedBy = claimedBy,
+            ClaimedAt = claimedAt,
+            ClaimExpiresAt = claimExpiresAt,
+            ClaimedByMe = viewerId != null && string.Equals(claimedBy, viewerId, StringComparison.Ordinal),
+            ClaimLive = ManualPayoutClaimFields.IsLive(claimExpiresAt, nowIso)
+        };
+    }
 
     /// <summary>A claim's escrow-audit row; a failed write never changes the answer (the claim is written).</summary>
     private async Task AuditClaimAsync(string escrowId, string action, string status, string actor, string metadata)

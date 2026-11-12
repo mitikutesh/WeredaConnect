@@ -6,7 +6,9 @@ namespace WeredaConnect.Server.Data;
 /// <summary>
 /// FUP-05: the claim writes of the manual payout queue and the read of a reference item. Every claim write
 /// is one conditional UpdateItem on the row that holds the leg (the escrow row for a 1.x leg, the ledger row
-/// for a ledger leg); the leg's money attributes are never touched here.
+/// for a ledger leg); the leg's money attributes are never touched here. Each write returns false when its
+/// condition failed or when the row stayed busy with a transaction (a record in flight) after one retry; the
+/// caller reads the row again and decides.
 /// </summary>
 internal interface IManualPayoutClaimRepository
 {
@@ -35,6 +37,9 @@ internal sealed class ManualPayoutClaimRepository : IManualPayoutClaimRepository
     private readonly string _escrowsTable;
     private readonly string? _ledgerTable;
     private readonly string _referenceTable;
+
+    /// <summary>The wait before the one retry of a write that met a transaction in flight on the row; tests set 0.</summary>
+    internal TimeSpan ConflictRetryDelay { get; init; } = TimeSpan.FromMilliseconds(100);
 
     public ManualPayoutClaimRepository(IAmazonDynamoDB dynamoDb, string escrowsTable, string? ledgerTable, string referenceTable)
     {
@@ -155,14 +160,26 @@ internal sealed class ManualPayoutClaimRepository : IManualPayoutClaimRepository
 
     private async Task<bool> TryUpdateAsync(UpdateItemRequest request)
     {
-        try
+        for (var attempt = 1; ; attempt++)
         {
-            await _dynamoDb.UpdateItemAsync(request);
-            return true;
-        }
-        catch (ConditionalCheckFailedException)
-        {
-            return false;
+            try
+            {
+                await _dynamoDb.UpdateItemAsync(request);
+                return true;
+            }
+            catch (ConditionalCheckFailedException)
+            {
+                return false;
+            }
+            catch (TransactionConflictException) when (attempt < 2)
+            {
+                // A record's transaction is in flight on the same row: wait once and try again.
+                await Task.Delay(ConflictRetryDelay);
+            }
+            catch (TransactionConflictException)
+            {
+                return false;
+            }
         }
     }
 
