@@ -52,15 +52,17 @@ void main() {
         deliveryId: any(named: 'deliveryId'),
         nonce: any(named: 'nonce'),
         truckerId: any(named: 'truckerId'),
+        renew: any(named: 'renew'),
       ),
-    ).thenAnswer((_) async {});
+    ).thenAnswer((_) async => DropoffCodeRegistration.sent);
   });
 
-  void verifyRegistered(String nonce) => verify(
+  void verifyRegistered(String nonce, {bool renew = false}) => verify(
         () => repository.persistDropoffQrNonce(
           deliveryId: 'delivery-12345678',
           nonce: nonce,
           truckerId: 'trucker-1',
+          renew: renew,
         ),
       ).called(1);
 
@@ -69,6 +71,7 @@ void main() {
           deliveryId: any(named: 'deliveryId'),
           nonce: any(named: 'nonce'),
           truckerId: any(named: 'truckerId'),
+          renew: any(named: 'renew'),
         ),
       );
 
@@ -121,15 +124,27 @@ void main() {
     verifyNever(() => qr.generateQrToken(any(), dropoff: true));
   });
 
-  testWidgets('none kept: a new code is made, kept and registered',
-      (tester) async {
+  testWidgets(
+      'none kept: no code is made on open; New drop-off code, once '
+      'confirmed, makes one that replaces any other', (tester) async {
     final store = MemoryDropoffHandoffStore();
 
     await open(tester, store);
 
+    // A second phone or browser must not void the code the buyer may hold.
     expect(find.byType(QrGenerateScreen), findsOneWidget);
+    expect(find.byKey(const Key('dropoff_none_here')), findsOneWidget);
+    verifyNever(() => qr.generateQrToken(any(), dropoff: true));
+    verifyNothingRegistered();
+
+    await tester.tap(find.byKey(const Key('dropoff_new_code')));
+    await tester.pumpAndSettle();
+    expect(find.text(l10n.deliveryDropoffNewCodeConfirmBody), findsOneWidget);
+    await tester.tap(find.byKey(const Key('dropoff_new_code_confirm')));
+    await tester.pumpAndSettle();
+
     expect(find.text(l10n.deliveryDropoffQrOwnNote), findsOneWidget);
-    verifyRegistered('d.new-nonce');
+    verifyRegistered('d.new-nonce', renew: true);
     final kept = await store.read('trucker-1', 'delivery-12345678');
     expect(kept?.nonce, 'd.new-nonce');
   });

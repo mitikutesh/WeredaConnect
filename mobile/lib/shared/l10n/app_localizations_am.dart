@@ -5161,8 +5161,23 @@ class AppLocalizationsAm extends AppLocalizations {
       'ለዚህ ማውረጃ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ የሹፌሩን የማውረጃ QR ይቃኙ፣ ወይም ሹፌሩ አዲስ ኮድ እንዲሰራ ይጠይቁ።';
 
   @override
+  String get deliveryDropoffNoCodeHere =>
+      'ይህ ስልክ ለዚህ ርክክብ የማውረጃ ኮድ የለውም። በሌላ ስልክ ወይም አሳሽ ላይ ሰርተው ከሆነ ያንን ያሳዩ። ወይም እዚህ አዲስ ኮድ ይስሩ።';
+
+  @override
+  String get deliveryDropoffQrSuperseded =>
+      'በሌላ ስልክ ወይም አሳሽ ላይ አዲስ የማውረጃ ኮድ ስለተሰራ ይህኛው አይሰራም። ያንን ያሳዩ፣ ወይም እዚህ አዲስ ኮድ ይስሩ።';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmTitle => 'አዲስ የማውረጃ ኮድ ይሰራ?';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmBody =>
+      'ከዚህ በፊት በዚህ ወይም በሌላ ስልክ የታየ ማንኛውም የማውረጃ ኮድ መስራት ያቆማል። ለገዢው አዲሱን ብቻ ያሳዩ።';
+
+  @override
   String get deliveryQrAlreadyPickedUp =>
-      'ይህ ርክክብ አስቀድሞ ተነስቷል፣ ስለዚህ አዲስ QR ኮድ አይፈጠርም። ሹፌሩ ከማንሳቱ የተገኘውን ኮድ ለገዢው ያሳያል።';
+      'ይህ ርክክብ አስቀድሞ ተነስቷል፣ ስለዚህ አዲስ QR ኮድ አይፈጠርም። ሹፌሩ አሁን የራሱን የማውረጃ ኮድ ለገዢው ያሳያል።';
 
   @override
   String get dropoffNoteLabel => 'የማውረጃ ምልክት (አማራጭ)';

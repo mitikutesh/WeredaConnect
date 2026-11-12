@@ -9077,10 +9077,34 @@ abstract class AppLocalizations {
   /// **'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR instead, or ask the trucker to make a new code.'**
   String get deliveryErrorDropoffCodeLocked;
 
-  /// Farmer QR screen (T-1): the delivery left pending meanwhile, so no new QR (nonce) is made; the trucker shows the pickup code at the drop-off
+  /// Trucker (ESC-35): drop-off QR screen when this phone keeps no drop-off code
   ///
   /// In en, this message translates to:
-  /// **'This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.'**
+  /// **'This phone has no drop-off code for this delivery. If you made one on another phone or browser, show that one. Or make a new code here.'**
+  String get deliveryDropoffNoCodeHere;
+
+  /// Trucker (ESC-35): the server keeps another drop-off code for this delivery (DROPOFF_CODE_SUPERSEDED)
+  ///
+  /// In en, this message translates to:
+  /// **'A newer drop-off code was made on another phone or browser, so this one does not work. Show that one, or make a new code here.'**
+  String get deliveryDropoffQrSuperseded;
+
+  /// Trucker (ESC-35): title of the confirmation before New drop-off code
+  ///
+  /// In en, this message translates to:
+  /// **'Make a new drop-off code?'**
+  String get deliveryDropoffNewCodeConfirmTitle;
+
+  /// Trucker (ESC-35): body of the confirmation before New drop-off code
+  ///
+  /// In en, this message translates to:
+  /// **'Any drop-off code shown before, on this or another phone, stops working. Show the buyer only the new one.'**
+  String get deliveryDropoffNewCodeConfirmBody;
+
+  /// Farmer QR screen (T-1): the delivery left pending meanwhile, so no new QR (nonce) is made; the trucker shows a drop-off code of their own (ESC-35)
+  ///
+  /// In en, this message translates to:
+  /// **'This delivery was already picked up, so no new QR code is made. The trucker now shows the buyer a drop-off code of their own.'**
   String get deliveryQrAlreadyPickedUp;
 
   /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Place order: label of the optional field where the buyer names a landmark for the driver

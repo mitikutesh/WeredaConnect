@@ -5,6 +5,7 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/web_delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -397,18 +398,70 @@ void main() {
         ],
       });
 
-      await repository.persistDropoffQrNonce(
+      final registration = await repository.persistDropoffQrNonce(
         deliveryId: 'del-1',
         nonce: 'd.trucker-nonce',
         truckerId: 'trucker-1',
       );
 
+      expect(registration, DropoffCodeRegistration.sent);
       final op = sentOp();
       expect(op['entityType'], 'delivery');
       expect(op['action'], 'update');
       expect(op['entityId'], 'del-1');
       expect(op['data'], {'dropoffQrNonce': 'd.trucker-nonce', 'version': 4});
     });
+
+    test('New drop-off code asks to renew', () async {
+      answerSync({
+        'results': [
+          {'status': 'success'},
+        ],
+      });
+
+      await repository.persistDropoffQrNonce(
+        deliveryId: 'del-1',
+        nonce: 'd.renewed',
+        truckerId: 'trucker-1',
+        renew: true,
+      );
+
+      expect(sentOp()['data'], {
+        'dropoffQrNonce': 'd.renewed',
+        'dropoffQrRenew': true,
+        'version': 4,
+      });
+    });
+
+    for (final (message, expected) in [
+      (
+        'DROPOFF_CODE_SUPERSEDED: Another drop-off code is on record for this '
+            'delivery. Show that one, or make a new code.',
+        DropoffCodeRegistration.superseded,
+      ),
+      (
+        'DROPOFF_CODE_NOT_STORED: This delivery has no pickup code on the '
+            'server, so its drop-off code is not kept.',
+        DropoffCodeRegistration.notStored,
+      ),
+    ]) {
+      test('a code the server did not keep reads as $expected', () async {
+        answerSync({
+          'results': [
+            {'status': 'success', 'message': message},
+          ],
+        });
+
+        expect(
+          await repository.persistDropoffQrNonce(
+            deliveryId: 'del-1',
+            nonce: 'd.trucker-nonce',
+            truckerId: 'trucker-1',
+          ),
+          expected,
+        );
+      });
+    }
 
     test(
         'a deferral (the pickup not on the server yet) throws, to be sent '

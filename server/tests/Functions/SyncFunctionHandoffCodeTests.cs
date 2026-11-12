@@ -550,7 +550,8 @@ public sealed class SyncFunctionHandoffCodeTests
 
         public Task PutNonceAsync(string deliveryId, string nonce) => Task.CompletedTask;
 
-        public Task<bool> PutDropoffNonceAsync(string deliveryId, string nonce) => Task.FromResult(false);
+        public Task<DropoffNonceOutcome> PutDropoffNonceAsync(string deliveryId, string nonce, bool renew) =>
+            Task.FromResult(DropoffNonceOutcome.NoPickupNonce);
 
         public Task<DeliveryQrSecret?> GetAsync(string deliveryId) =>
             Task.FromResult<DeliveryQrSecret?>(new DeliveryQrSecret

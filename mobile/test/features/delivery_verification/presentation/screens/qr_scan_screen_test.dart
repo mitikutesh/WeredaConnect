@@ -108,8 +108,9 @@ void main() {
         deliveryId: any(named: 'deliveryId'),
         nonce: any(named: 'nonce'),
         truckerId: any(named: 'truckerId'),
+        renew: any(named: 'renew'),
       ),
-    ).thenAnswer((_) async {});
+    ).thenAnswer((_) async => DropoffCodeRegistration.sent);
     qr = MockQrService();
     when(() => qr.generateQrToken(any(), dropoff: true))
         .thenAnswer((_) async => ('drop-token', 'd.trucker-nonce'));
@@ -485,6 +486,7 @@ void main() {
       deliveryId: delivery.deliveryId,
     );
 
+    // Made at pickup, it never replaces a code the server keeps (no renew).
     void verifyRegistered() => verify(
           () => repository.persistDropoffQrNonce(
             deliveryId: delivery.deliveryId,
@@ -568,37 +570,84 @@ void main() {
   });
 
   group('the buyer at a trucker\'s drop-off (ESC-35)', () {
-    Future<void> failWith(WidgetTester tester, String code) async {
-      await scanValidCode(tester, VerificationType.delivery);
-      await tapConfirm(tester, 'Confirm Delivery');
-      states.add(DeliveryError(message: 'refused', code: code));
+    Future<void> failWith(
+      WidgetTester tester,
+      String code,
+      String message, {
+      VerificationType type = VerificationType.delivery,
+    }) async {
+      await scanValidCode(tester, type);
+      await tapConfirm(
+        tester,
+        type == VerificationType.delivery
+            ? 'Confirm Delivery'
+            : 'Confirm Pickup',
+      );
+      states.add(DeliveryError(message: message, code: code));
       await tester.pumpAndSettle();
     }
 
-    testWidgets('a wait is for the trucker\'s code to sync', (tester) async {
-      await failWith(tester, DeliveryErrorCode.qrPending);
+    testWidgets('a wait for the trucker\'s code names the trucker',
+        (tester) async {
+      await failWith(
+        tester,
+        DeliveryErrorCode.qrPending,
+        "DELIVERY_NONCE_PENDING: Waiting for the trucker's drop-off QR code to "
+        'sync. Will retry automatically.',
+      );
 
       expect(find.text(l10n.deliveryErrorDropoffQrPending), findsOneWidget);
       expect(find.text(l10n.deliveryErrorQrPending), findsNothing);
     });
 
-    testWidgets('a locked code is renewed by the trucker', (tester) async {
-      await failWith(tester, DeliveryErrorCode.codeLocked);
+    for (final message in [
+      "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. "
+          'Will retry automatically.',
+      'DELIVERY_NONCE_PENDING: The payment check could not be completed. '
+          'Will retry automatically.',
+    ]) {
+      testWidgets('any other wait keeps its own text: $message',
+          (tester) async {
+        await failWith(tester, DeliveryErrorCode.qrPending, message);
+
+        expect(find.text(l10n.deliveryErrorQrPending), findsOneWidget);
+        expect(find.text(l10n.deliveryErrorDropoffQrPending), findsNothing);
+      });
+    }
+
+    testWidgets('the trucker\'s lock is renewed by the trucker',
+        (tester) async {
+      await failWith(
+        tester,
+        DeliveryErrorCode.codeLocked,
+        'DELIVERY_CODE_LOCKED: Too many wrong codes for this drop-off. Scan '
+        "the trucker's drop-off QR, or ask the trucker for a new code.",
+      );
 
       expect(find.text(l10n.deliveryErrorDropoffCodeLocked), findsOneWidget);
     });
 
-    testWidgets('the farmer\'s pickup keeps the farmer\'s wait text',
+    testWidgets('a store without typed codes keeps the shared lock text',
         (tester) async {
-      await scanValidCode(tester, VerificationType.pickup);
-      await tapConfirm(tester, 'Confirm Pickup');
-      states.add(
-        const DeliveryError(
-          message: 'deferred',
-          code: DeliveryErrorCode.qrPending,
-        ),
+      await failWith(
+        tester,
+        DeliveryErrorCode.codeLocked,
+        'DELIVERY_CODE_LOCKED: Typed codes cannot be checked for this '
+        'delivery. Scan the QR code.',
       );
-      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.deliveryErrorCodeLocked), findsOneWidget);
+      expect(find.text(l10n.deliveryErrorDropoffCodeLocked), findsNothing);
+    });
+
+    testWidgets('the pickup keeps the farmer\'s wait text', (tester) async {
+      await failWith(
+        tester,
+        DeliveryErrorCode.qrPending,
+        "DELIVERY_NONCE_PENDING: Waiting for the trucker's drop-off QR code to "
+        'sync. Will retry automatically.',
+        type: VerificationType.pickup,
+      );
 
       expect(find.text(l10n.deliveryErrorQrPending), findsOneWidget);
     });

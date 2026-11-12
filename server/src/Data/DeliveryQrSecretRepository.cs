@@ -93,7 +93,7 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
     }
 
     /// <inheritdoc />
-    public async Task<bool> PutDropoffNonceAsync(string deliveryId, string nonce)
+    public async Task<DropoffNonceOutcome> PutDropoffNonceAsync(string deliveryId, string nonce, bool renew)
     {
         var key = new Dictionary<string, AttributeValue>
         {
@@ -104,25 +104,38 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
             N = DateTimeOffset.UtcNow.AddDays(TtlDays).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)
         };
 
+        // Only next to the farmer's nonce: a row without one is no pickup this store proved. A
+        // registration (the code made at pickup, or sent again when the QR opens) takes the place
+        // only while no drop-off code is stored, so a stale or second device never replaces the
+        // code the buyer may already hold. Only the trucker's explicit renewal replaces it: its
+        // freshness starts again and the drop-off misses of the old code go (how a locked or
+        // expired drop-off code is renewed).
+        var names = new Dictionary<string, string>
+        {
+            { "#nonce", "nonce" },
+            { "#dn", "dropoffNonce" },
+            { "#dIssuedAt", "dropoffIssuedAt" },
+            { "#exp", "expiresAt" }
+        };
+        if (renew)
+        {
+            names["#missD"] = CodeMissesAttribute("delivered")!;
+        }
+
+        Dictionary<string, AttributeValue>? old;
         try
         {
-            // A new drop-off nonce: its freshness starts now, and the drop-off misses of the old
-            // one go (the trucker's new code is how a locked or expired drop-off code is renewed).
-            // Only next to the farmer's nonce: a row without one is no pickup this store proved.
             await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
             {
                 TableName = _tableName,
                 Key = key,
-                UpdateExpression = "SET #dn = :dn, #dIssuedAt = :now, #exp = :exp REMOVE #missD",
-                ConditionExpression = "attribute_exists(#nonce) AND (attribute_not_exists(#dn) OR #dn <> :dn)",
-                ExpressionAttributeNames = new Dictionary<string, string>
-                {
-                    { "#nonce", "nonce" },
-                    { "#dn", "dropoffNonce" },
-                    { "#dIssuedAt", "dropoffIssuedAt" },
-                    { "#exp", "expiresAt" },
-                    { "#missD", CodeMissesAttribute("delivered")! }
-                },
+                UpdateExpression = renew
+                    ? "SET #dn = :dn, #dIssuedAt = :now, #exp = :exp REMOVE #missD"
+                    : "SET #dn = :dn, #dIssuedAt = :now, #exp = :exp",
+                ConditionExpression = renew
+                    ? "attribute_exists(#nonce) AND (attribute_not_exists(#dn) OR #dn <> :dn)"
+                    : "attribute_exists(#nonce) AND attribute_not_exists(#dn)",
+                ExpressionAttributeNames = names,
                 ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                 {
                     { ":dn", new AttributeValue { S = nonce } },
@@ -131,15 +144,16 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
                 },
                 ReturnValuesOnConditionCheckFailure = ReturnValuesOnConditionCheckFailure.ALL_OLD
             });
-            return true;
+            return DropoffNonceOutcome.Stored;
         }
         catch (ConditionalCheckFailedException ex)
         {
-            if (ex.Item != null
-                && (!ex.Item.TryGetValue("nonce", out var farmerNonce) || string.IsNullOrEmpty(farmerNonce.S)))
-            {
-                return false;
-            }
+            old = ex.Item;
+        }
+
+        if (old != null && Refused(old) is { } refused)
+        {
+            return refused;
         }
 
         try
@@ -161,15 +175,28 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
                 {
                     { ":dn", new AttributeValue { S = nonce } },
                     { ":exp", expiresAt }
-                }
+                },
+                ReturnValuesOnConditionCheckFailure = ReturnValuesOnConditionCheckFailure.ALL_OLD
             });
-            return true;
+            return DropoffNonceOutcome.AlreadyStored;
         }
-        catch (ConditionalCheckFailedException)
+        catch (ConditionalCheckFailedException ex)
         {
-            // No row with the farmer's nonce (the first write could not say why), or another new
-            // code replaced this one in between: that one stands.
-            return false;
+            // Changed between the two writes: another code stands, or there is no row at all.
+            return (ex.Item != null ? Refused(ex.Item) : null) ?? DropoffNonceOutcome.OtherCodeStored;
+        }
+
+        // Why the row refused this nonce, or null when it holds this very nonce.
+        DropoffNonceOutcome? Refused(Dictionary<string, AttributeValue> row)
+        {
+            if (!row.TryGetValue("nonce", out var farmerNonce) || string.IsNullOrEmpty(farmerNonce.S))
+            {
+                return DropoffNonceOutcome.NoPickupNonce;
+            }
+
+            return row.TryGetValue("dropoffNonce", out var stored) && stored.S != nonce
+                ? DropoffNonceOutcome.OtherCodeStored
+                : null;
         }
     }
 

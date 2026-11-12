@@ -28,9 +28,11 @@ import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 /// (T-1) with the warning to show it only to the person there. The
 /// [QrGenerateScreen.dropoff] variant is the trucker's drop-off QR: the
 /// trucker's own code kept since the pickup (ESC-35), sent to the server
-/// again on open, or made here when none is kept; New drop-off code
-/// replaces a lost or locked one. A farmer's token an older version kept at
-/// pickup (T-3) is shown as it is until the trucker makes a new code.
+/// again on open (never replacing a code kept there). None is made on open:
+/// with none kept the screen says so, and New drop-off code, after the
+/// trucker confirmed that any other code stops working, makes one that
+/// replaces a lost, locked or other phone's code. A farmer's token an older
+/// version kept at pickup (T-3) is shown as it is until then.
 class QrGenerateScreen extends StatefulWidget {
   final Delivery delivery;
   final QrVerificationService? qrService;
@@ -38,7 +40,7 @@ class QrGenerateScreen extends StatefulWidget {
   final String userId;
 
   /// The trucker's kept drop-off handoff; null on the farmer's QR, and on
-  /// the drop-off QR when this phone keeps none (one is made).
+  /// the drop-off QR when this phone keeps none.
   final KeptHandoff? dropoff;
 
   /// Makes and registers the trucker's drop-off code; null on the farmer's
@@ -83,8 +85,9 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
   /// token kept by an older version.
   bool _ownDropoff = false;
 
-  /// The trucker's drop-off code did not reach the server (offline web).
-  bool _notSent = false;
+  /// What the server made of the trucker's drop-off code shown (web knows
+  /// at once; a phone's queue reads as sent).
+  DropoffCodeRegistration? _registration;
 
   bool get _isDropoff => widget.issuer != null;
 
@@ -92,13 +95,10 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
   void initState() {
     super.initState();
     if (_isDropoff) {
-      final dropoff = widget.dropoff;
-      if (dropoff == null) {
-        _issueDropoff();
-        return;
-      }
-      _showDropoff(dropoff);
       _isGenerating = false;
+      final dropoff = widget.dropoff;
+      if (dropoff == null) return;
+      _showDropoff(dropoff);
       if (dropoff.isTruckers) _registerDropoff(dropoff);
       return;
     }
@@ -115,22 +115,45 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
   }
 
   /// Sends the kept code to the server again; the same nonce changes
-  /// nothing there, and one that did not get through from web gets there.
+  /// nothing there, one that did not get through from web gets there, and a
+  /// code made since on another phone stays (this screen then says so).
   Future<void> _registerDropoff(KeptHandoff dropoff) async {
-    final sent = await widget.issuer!.register(widget.delivery, dropoff);
-    if (mounted) setState(() => _notSent = !sent);
+    final registration =
+        await widget.issuer!.register(widget.delivery, dropoff);
+    if (mounted) setState(() => _registration = registration);
   }
 
-  /// Makes the trucker's own drop-off code: none kept on this phone yet, or
-  /// New drop-off code (a lost or locked one).
-  Future<void> _issueDropoff() async {
+  /// New drop-off code: after the trucker confirmed that any code shown
+  /// before stops working, a new one replaces whatever the server keeps.
+  Future<void> _renewDropoff() async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.deliveryDropoffNewCodeConfirmTitle),
+        content: Text(l10n.deliveryDropoffNewCodeConfirmBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.cancel),
+          ),
+          TextButton(
+            key: const Key('dropoff_new_code_confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.deliveryDropoffNewCode),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     setState(() => _isGenerating = true);
     try {
-      final (kept, sent) = await widget.issuer!.issue(widget.delivery);
+      final (kept, registration) =
+          await widget.issuer!.issue(widget.delivery, renew: true);
       if (mounted) {
         setState(() {
           _showDropoff(kept);
-          _notSent = !sent;
+          _registration = registration;
           _isGenerating = false;
         });
       }
@@ -258,13 +281,17 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
                         )
                       else if (_isDropoff && !_isGenerating && _token == null)
                         // A code typed at pickup on an older version; or
-                        // no code could be made (New drop-off code retries).
+                        // none kept on this phone (New drop-off code).
                         code != null
                             ? FwNoteBox(
                                 icon: Icons.dialpad,
                                 child: Text(l10n.deliveryDropoffCodeOnly),
                               )
-                            : const SizedBox.shrink()
+                            : FwNoteBox(
+                                key: const Key('dropoff_none_here'),
+                                icon: Icons.qr_code_2,
+                                child: Text(l10n.deliveryDropoffNoCodeHere),
+                              )
                       else
                         Center(
                           child: Container(
@@ -338,18 +365,33 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      FwNoteBox(
-                        icon: Icons.qr_code_2,
-                        child: Text(
-                          !_isDropoff
-                              ? l10n.deliveryQrOfflineNote
-                              : _ownDropoff
-                                  ? l10n.deliveryDropoffQrOwnNote
-                                  : l10n.deliveryDropoffQrNote,
+                      // No note about a code while none is shown.
+                      if (!_isDropoff || _token != null || code != null) ...[
+                        const SizedBox(height: 12),
+                        FwNoteBox(
+                          icon: Icons.qr_code_2,
+                          child: Text(
+                            !_isDropoff
+                                ? l10n.deliveryQrOfflineNote
+                                : _ownDropoff
+                                    ? l10n.deliveryDropoffQrOwnNote
+                                    : l10n.deliveryDropoffQrNote,
+                          ),
                         ),
-                      ),
-                      if (_isDropoff && _notSent) ...[
+                      ],
+                      if (_isDropoff &&
+                          _registration ==
+                              DropoffCodeRegistration.superseded) ...[
+                        const SizedBox(height: 12),
+                        FwNoteBox(
+                          key: const Key('dropoff_superseded'),
+                          icon: Icons.warning_amber,
+                          child: Text(l10n.deliveryDropoffQrSuperseded),
+                        ),
+                      ] else if (_isDropoff &&
+                          (_registration == DropoffCodeRegistration.failed ||
+                              _registration ==
+                                  DropoffCodeRegistration.notStored)) ...[
                         const SizedBox(height: 12),
                         FwNoteBox(
                           key: const Key('dropoff_not_sent'),
@@ -377,7 +419,7 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
                   onPressed: _isGenerating
                       ? null
                       : _isDropoff
-                          ? _issueDropoff
+                          ? _renewDropoff
                           : _generateToken,
                   icon: const Icon(Icons.refresh),
                   label: Text(

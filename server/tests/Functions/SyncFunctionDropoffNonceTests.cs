@@ -55,7 +55,8 @@ public sealed class SyncFunctionDropoffNonceTests
     public SyncFunctionDropoffNonceTests()
     {
         _syncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
-        _qrSecrets.PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+        _qrSecrets.PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>())
+            .Returns(DropoffNonceOutcome.Stored);
         _qrSecrets.TryTakeCodeAttemptAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(),
                 Arg.Any<bool>())
@@ -76,7 +77,7 @@ public sealed class SyncFunctionDropoffNonceTests
 
         result.GetProperty("status").GetString().Should().Be("success", result.ToString());
         result.GetProperty("serverVersion").GetInt32().Should().Be(3);
-        await _qrSecrets.Received(1).PutDropoffNonceAsync(DeliveryId, DropoffNonce);
+        await _qrSecrets.Received(1).PutDropoffNonceAsync(DeliveryId, DropoffNonce, false);
         await _qrSecrets.DidNotReceive().PutNonceAsync(Arg.Any<string>(), Arg.Any<string>());
         await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
         // The secret never rides back to a client.
@@ -92,7 +93,7 @@ public sealed class SyncFunctionDropoffNonceTests
             ("dropoffQrNonce", DropoffNonce), ("gpsDropoff", Gps), ("notes", "late"));
 
         result.GetProperty("status").GetString().Should().Be("success", result.ToString());
-        await _qrSecrets.Received(1).PutDropoffNonceAsync(DeliveryId, DropoffNonce);
+        await _qrSecrets.Received(1).PutDropoffNonceAsync(DeliveryId, DropoffNonce, false);
         await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
     }
 
@@ -107,7 +108,7 @@ public sealed class SyncFunctionDropoffNonceTests
         result.GetProperty("status").GetString().Should().Be("deferred");
         result.GetProperty("message").GetString().Should()
             .Be("DELIVERY_NONCE_PENDING: Waiting for the pickup to sync. Will retry automatically.");
-        await _qrSecrets.DidNotReceive().PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _qrSecrets.DidNotReceive().PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>());
     }
 
     [Fact]
@@ -120,7 +121,7 @@ public sealed class SyncFunctionDropoffNonceTests
 
         result.GetProperty("status").GetString().Should().Be("error");
         result.GetProperty("message").GetString().Should().StartWith("DELIVERY_VALIDATION: ");
-        await _qrSecrets.DidNotReceive().PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _qrSecrets.DidNotReceive().PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>());
     }
 
     [Theory]
@@ -133,7 +134,7 @@ public sealed class SyncFunctionDropoffNonceTests
         var result = await SendAsync(TruckerId, "trucker", null, ("dropoffQrNonce", DropoffNonce));
 
         result.GetProperty("status").GetString().Should().Be("success", result.ToString());
-        await _qrSecrets.DidNotReceive().PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _qrSecrets.DidNotReceive().PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>());
         await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
     }
 
@@ -148,7 +149,7 @@ public sealed class SyncFunctionDropoffNonceTests
 
         result.GetProperty("status").GetString().Should().Be("error");
         result.GetProperty("message").GetString().Should().StartWith("DELIVERY_VALIDATION: dropoffQrNonce ");
-        await _qrSecrets.DidNotReceive().PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _qrSecrets.DidNotReceive().PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>());
     }
 
     [Fact]
@@ -173,7 +174,7 @@ public sealed class SyncFunctionDropoffNonceTests
 
         result.GetProperty("status").GetString().Should().Be("error");
         result.GetProperty("message").GetString().Should().StartWith("DELIVERY_UNAUTHORIZED: ");
-        await _qrSecrets.DidNotReceive().PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _qrSecrets.DidNotReceive().PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>());
     }
 
     [Fact]
@@ -184,19 +185,47 @@ public sealed class SyncFunctionDropoffNonceTests
         var result = await SendAsync(TruckerId, "trucker", "inTransit", ("dropoffQrNonce", DropoffNonce));
 
         result.GetProperty("status").GetString().Should().Be("success", result.ToString());
-        await _qrSecrets.DidNotReceive().PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _qrSecrets.DidNotReceive().PutDropoffNonceAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>());
     }
 
     [Fact]
-    public async Task ARowWithoutTheFarmersNonce_StoresNothing_AndAnswersSuccess()
+    public async Task ARowWithoutTheFarmersNonce_StoresNothing_AndSaysSo()
     {
         SetupDelivery(TruckDelivery("pickedUp"));
-        _qrSecrets.PutDropoffNonceAsync(DeliveryId, DropoffNonce).Returns(false);
+        _qrSecrets.PutDropoffNonceAsync(DeliveryId, DropoffNonce, false).Returns(DropoffNonceOutcome.NoPickupNonce);
+
+        var result = await SendAsync(TruckerId, "trucker", null, ("dropoffQrNonce", DropoffNonce));
+
+        // Nothing to retry; web reads the message and says the code is not on the server.
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        result.GetProperty("message").GetString().Should().StartWith("DROPOFF_CODE_NOT_STORED: ");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ARegistration_NeverReplacesAStoredCode_AndSaysSo()
+    {
+        // Phone B (or a queued registration landing late) brings another code.
+        SetupDelivery(TruckDelivery("inTransit"));
+        _qrSecrets.PutDropoffNonceAsync(DeliveryId, DropoffNonce, false).Returns(DropoffNonceOutcome.OtherCodeStored);
 
         var result = await SendAsync(TruckerId, "trucker", null, ("dropoffQrNonce", DropoffNonce));
 
         result.GetProperty("status").GetString().Should().Be("success", result.ToString());
-        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+        result.GetProperty("message").GetString().Should().StartWith("DROPOFF_CODE_SUPERSEDED: ");
+    }
+
+    [Fact]
+    public async Task OnlyTheRenewalFlag_AsksToReplace()
+    {
+        SetupDelivery(TruckDelivery("inTransit"));
+
+        var result = await SendAsync(TruckerId, "trucker", null,
+            ("dropoffQrNonce", DropoffNonce), ("dropoffQrRenew", true));
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        result.TryGetProperty("message", out var message).Should().BeFalse(message.ToString());
+        await _qrSecrets.Received(1).PutDropoffNonceAsync(DeliveryId, DropoffNonce, true);
     }
 
     [Fact]
@@ -400,6 +429,109 @@ public sealed class SyncFunctionDropoffNonceTests
         result.GetProperty("message").GetString().Should().StartWith("DELIVERY_NONCE_MISMATCH: ");
     }
 
+    // ---- a stored code and a different tagged scan (review: no silent replacement) ----
+
+    [Fact]
+    public async Task ADifferentTaggedScan_TakenAfterTheStoredCode_Waits_WithoutASignal()
+    {
+        // The trucker's New drop-off code made offline: the buyer scanned it and synced first.
+        SetupDelivery(TruckDelivery("inTransit"));
+        SetupSecret(dropoffNonce: DropoffNonce, dropoffIssuedAt: DateTime.UtcNow.AddHours(-2));
+
+        var result = await SendAsync(BuyerId, "buyer", "delivered", OperationId, DateTime.UtcNow.AddMinutes(-1),
+            ("scannedQrNonce", "d.renewed-offline"));
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        result.GetProperty("message").GetString().Should().StartWith("DELIVERY_NONCE_PENDING: Waiting for the trucker's");
+        await AssertNothingWrittenAsync();
+    }
+
+    [Fact]
+    public async Task ADifferentTaggedScan_TakenBeforeTheStoredCode_IsAReplacedCode()
+    {
+        SetupDelivery(TruckDelivery("inTransit"));
+        SetupSecret(dropoffNonce: DropoffNonce, dropoffIssuedAt: DateTime.UtcNow.AddMinutes(-10));
+
+        var result = await SendAsync(BuyerId, "buyer", "delivered", OperationId, DateTime.UtcNow.AddHours(-1),
+            ("scannedQrNonce", "d.replaced"));
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().StartWith("DELIVERY_NONCE_MISMATCH: ");
+    }
+
+    [Fact]
+    public async Task ATypedCodeMismatch_StillCounts_WhileACodeIsStored()
+    {
+        // Codes carry no tag: the brute-force cap stays meaningful.
+        SetupDelivery(TruckDelivery("inTransit"));
+        SetupSecret(dropoffNonce: DropoffNonce);
+        var other = HandoffCode.Derive("d.renewed-offline", DeliveryId);
+
+        var result = await SendAsync(BuyerId, "buyer", "delivered", ("scannedQrCode", other), ("gpsDropoff", Gps));
+
+        result.GetProperty("message").GetString().Should().StartWith("DELIVERY_CODE_MISMATCH: ");
+        await _qrSecrets.Received(1).TryTakeCodeAttemptAsync(
+            DeliveryId, "delivered", HandoffCode.AttemptId(OperationId, other), DropoffNonce, HandoffCode.MaxMisses, true);
+    }
+
+    [Fact]
+    public async Task SecondDevice_ItsRegistrationDoesNotReplaceTheFirst_AndTheBuyersScanOfTheFirstPasses()
+    {
+        var store = new ScenarioQrSecrets();
+        SetupDelivery(TruckDelivery("inTransit"));
+
+        // Phone A at pickup, then phone B (or web) opening the drop-off QR with a code of its own.
+        (await SendRawAsync(store, TruckerId, "trucker", "op-a", null, null, ("dropoffQrNonce", "d.phone-a")))
+            .GetProperty("status").GetString().Should().Be("success");
+        var second = await SendRawAsync(store, TruckerId, "trucker", "op-b", null, null, ("dropoffQrNonce", "d.phone-b"));
+        second.GetProperty("message").GetString().Should().StartWith("DROPOFF_CODE_SUPERSEDED: ");
+        store.Dropoff.Should().Be("d.phone-a");
+
+        var confirm = await SendRawAsync(store, BuyerId, "buyer", "op-buyer", "delivered", null,
+            ("scannedQrNonce", "d.phone-a"));
+
+        confirm.GetProperty("status").GetString().Should().Be("success", confirm.ToString());
+    }
+
+    [Fact]
+    public async Task ALateQueuedRegistration_DoesNotOverwriteARenewal()
+    {
+        var store = new ScenarioQrSecrets();
+        SetupDelivery(TruckDelivery("inTransit"));
+
+        await SendRawAsync(store, TruckerId, "trucker", "op-renew", null, null,
+            ("dropoffQrNonce", "d.renewed"), ("dropoffQrRenew", true));
+        // The first code's registration, queued behind a pickup that waited, lands now.
+        var late = await SendRawAsync(store, TruckerId, "trucker", "op-late", null, null, ("dropoffQrNonce", "d.first"));
+
+        late.GetProperty("message").GetString().Should().StartWith("DROPOFF_CODE_SUPERSEDED: ");
+        store.Dropoff.Should().Be("d.renewed");
+        (await SendRawAsync(store, BuyerId, "buyer", "op-buyer", "delivered", null, ("scannedQrNonce", "d.renewed")))
+            .GetProperty("status").GetString().Should().Be("success");
+    }
+
+    [Fact]
+    public async Task AnOfflineRenewal_TheBuyerSyncsFirst_WaitsThenPasses()
+    {
+        var store = new ScenarioQrSecrets();
+        SetupDelivery(TruckDelivery("inTransit"));
+        await SendRawAsync(store, TruckerId, "trucker", "op-a", null, null, ("dropoffQrNonce", "d.first"));
+
+        // The trucker pressed New drop-off code offline; the buyer scanned it and synced first.
+        var early = await SendRawAsync(store, BuyerId, "buyer", "op-buyer", "delivered", DateTime.UtcNow,
+            ("scannedQrNonce", "d.renewed"));
+        early.GetProperty("status").GetString().Should().Be("deferred");
+        store.ConsumedDelivered.Should().BeNull();
+
+        await SendRawAsync(store, TruckerId, "trucker", "op-renew", null, null,
+            ("dropoffQrNonce", "d.renewed"), ("dropoffQrRenew", true));
+        var retry = await SendRawAsync(store, BuyerId, "buyer", "op-buyer", "delivered", DateTime.UtcNow,
+            ("scannedQrNonce", "d.renewed"));
+
+        retry.GetProperty("status").GetString().Should().Be("success", retry.ToString());
+        store.ConsumedDelivered.Should().Be("op-buyer");
+    }
+
     // ---- legs and deliveries the trucker's nonce does not touch ----
 
     [Fact]
@@ -431,6 +563,66 @@ public sealed class SyncFunctionDropoffNonceTests
     }
 
     // ---- helpers ----
+
+    /// <summary>
+    /// The drop-off rules of <see cref="DeliveryQrSecretRepository"/> in memory: a registration is
+    /// stored only while no code is, a renewal replaces it, the same code again changes nothing.
+    /// </summary>
+    private sealed class ScenarioQrSecrets : IDeliveryQrSecretRepository
+    {
+        public string? Dropoff { get; private set; }
+        public DateTime? DropoffAt { get; private set; }
+        public string? ConsumedDelivered { get; private set; }
+
+        public Task PutNonceAsync(string deliveryId, string nonce) => Task.CompletedTask;
+
+        public Task<DropoffNonceOutcome> PutDropoffNonceAsync(string deliveryId, string nonce, bool renew)
+        {
+            if (Dropoff == nonce)
+            {
+                return Task.FromResult(DropoffNonceOutcome.AlreadyStored);
+            }
+
+            if (Dropoff != null && !renew)
+            {
+                return Task.FromResult(DropoffNonceOutcome.OtherCodeStored);
+            }
+
+            Dropoff = nonce;
+            DropoffAt = DateTime.UtcNow.AddSeconds(-1);
+            return Task.FromResult(DropoffNonceOutcome.Stored);
+        }
+
+        public Task<DeliveryQrSecret?> GetAsync(string deliveryId) =>
+            Task.FromResult<DeliveryQrSecret?>(new DeliveryQrSecret
+            {
+                DeliveryId = deliveryId,
+                Nonce = FarmerNonce,
+                IssuedAt = DateTime.UtcNow.AddDays(-1).ToString("o"),
+                ConsumedPickedUpOp = "op-pickup",
+                ConsumedDeliveredOp = ConsumedDelivered,
+                DropoffNonce = Dropoff,
+                DropoffIssuedAt = DropoffAt?.ToString("o")
+            });
+
+        public Task<CodeAttempt> TryTakeCodeAttemptAsync(
+            string deliveryId, string targetStatus, string attemptId, string nonce, int maxAttempts,
+            bool dropoffNonce = false) =>
+            Task.FromResult(new CodeAttempt(CodeAttemptOutcome.Taken, 1));
+
+        public Task ReturnCodeAttemptAsync(string deliveryId, string targetStatus, string attemptId) =>
+            Task.CompletedTask;
+
+        public Task MarkConsumedAsync(string deliveryId, string targetStatus, string operationId)
+        {
+            if (targetStatus == "delivered")
+            {
+                ConsumedDelivered = operationId;
+            }
+
+            return Task.CompletedTask;
+        }
+    }
 
     private void SetupSecret(
         string? dropoffNonce = null,

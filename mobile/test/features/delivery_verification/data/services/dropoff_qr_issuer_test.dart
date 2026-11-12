@@ -54,14 +54,25 @@ void main() {
         deliveryId: any(named: 'deliveryId'),
         nonce: any(named: 'nonce'),
         truckerId: any(named: 'truckerId'),
+        renew: any(named: 'renew'),
       ),
-    ).thenAnswer((_) async {});
+    ).thenAnswer((_) async => DropoffCodeRegistration.sent);
   });
 
-  test('a new code is kept for the trucker and registered', () async {
-    final (kept, sent) = await issuer.issue(delivery);
+  void verifySent(String nonce, {required bool renew}) => verify(
+        () => repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: nonce,
+          truckerId: 'trucker-1',
+          renew: renew,
+        ),
+      ).called(1);
 
-    expect(sent, isTrue);
+  test('a code made at pickup is kept and registered, never replacing one',
+      () async {
+    final (kept, registration) = await issuer.issue(delivery);
+
+    expect(registration, DropoffCodeRegistration.sent);
     expect(kept.token, 'drop-token');
     expect(kept.nonce, 'd.nonce-1');
     expect(
@@ -70,13 +81,33 @@ void main() {
     );
     final read = await store.read('trucker-1', delivery.deliveryId);
     expect(read?.nonce, 'd.nonce-1');
-    verify(
+    verifySent('d.nonce-1', renew: false);
+  });
+
+  test('New drop-off code asks the server to replace', () async {
+    await issuer.issue(delivery, renew: true);
+
+    verifySent('d.nonce-1', renew: true);
+  });
+
+  test('a kept code sent again never replaces; the answer is passed on',
+      () async {
+    when(
       () => repository.persistDropoffQrNonce(
-        deliveryId: delivery.deliveryId,
-        nonce: 'd.nonce-1',
-        truckerId: 'trucker-1',
+        deliveryId: any(named: 'deliveryId'),
+        nonce: any(named: 'nonce'),
+        truckerId: any(named: 'truckerId'),
+        renew: any(named: 'renew'),
       ),
-    ).called(1);
+    ).thenAnswer((_) async => DropoffCodeRegistration.superseded);
+
+    final registration = await issuer.register(
+      delivery,
+      const KeptHandoff(token: 'tok', code: '757555978', nonce: 'd.kept'),
+    );
+
+    expect(registration, DropoffCodeRegistration.superseded);
+    verifySent('d.kept', renew: false);
   });
 
   test('a registration that does not get through still keeps the code',
@@ -86,28 +117,30 @@ void main() {
         deliveryId: any(named: 'deliveryId'),
         nonce: any(named: 'nonce'),
         truckerId: any(named: 'truckerId'),
+        renew: any(named: 'renew'),
       ),
     ).thenThrow(const NetworkException('offline'));
 
-    final (kept, sent) = await issuer.issue(delivery);
+    final (kept, registration) = await issuer.issue(delivery);
 
-    expect(sent, isFalse);
+    expect(registration, DropoffCodeRegistration.failed);
     final read = await store.read('trucker-1', delivery.deliveryId);
     expect(read?.nonce, kept.nonce);
   });
 
   test('a farmer\'s token kept before has nothing to register', () async {
-    final sent = await issuer.register(
+    final registration = await issuer.register(
       delivery,
       const KeptHandoff(token: 'farmer-token', code: '757555978'),
     );
 
-    expect(sent, isFalse);
+    expect(registration, DropoffCodeRegistration.notStored);
     verifyNever(
       () => repository.persistDropoffQrNonce(
         deliveryId: any(named: 'deliveryId'),
         nonce: any(named: 'nonce'),
         truckerId: any(named: 'truckerId'),
+        renew: any(named: 'renew'),
       ),
     );
   });

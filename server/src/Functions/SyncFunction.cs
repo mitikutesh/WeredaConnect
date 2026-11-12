@@ -4992,7 +4992,11 @@ public partial class SyncFunction
                     // ESC-35: the drop-off nonce proves the trucker handed over the goods, so only
                     // the delivery's trucker may author it, on an update without a status. Anyone
                     // else's, or one riding on a status change, is dropped as qrNonce is above.
+                    // dropoffQrRenew (true) marks the trucker's New drop-off code, the only way a
+                    // stored drop-off code is replaced.
                     string? dropoffNonce = null;
+                    var dropoffRenew = operation.Data.Remove("dropoffQrRenew", out var dropoffRenewObj)
+                        && dropoffRenewObj is System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.True };
                     if (operation.Data.Remove("dropoffQrNonce", out var dropoffNonceObj)
                         && !operation.Data.ContainsKey("status")
                         && authenticatedUserId == (existing.TryGetValue("truckerId", out var dropoffTruckerAttr)
@@ -5240,7 +5244,7 @@ public partial class SyncFunction
                         // operation stores it and nothing else, never moving the delivery's version.
                         if (dropoffNonce != null)
                         {
-                            return await StoreDropoffNonceAsync(operation, existing, currentStatus, dropoffNonce, context);
+                            return await StoreDropoffNonceAsync(operation, existing, currentStatus, dropoffNonce, dropoffRenew, context);
                         }
                     }
 
@@ -5301,10 +5305,17 @@ public partial class SyncFunction
                                 // ESC-35: a scan of the trucker's drop-off QR whose nonce has not reached
                                 // the server yet (the trucker's phone was offline) waits for it, as a
                                 // pickup waits for the farmer's nonce, and is refused once it is clearly
-                                // never coming. Its tag says whose it is; a typed code carries none.
-                                if (truckerDropoff && !useDropoffNonce
+                                // never coming. Its tag says whose it is; a typed code carries none, so a
+                                // typed code is always compared (and a wrong one counted). With a code
+                                // stored, a tagged scan that differs and was taken after that code was
+                                // stored may be the trucker's renewal made offline: it waits too, with no
+                                // signal on an honest buyer. One taken before is a replaced code.
+                                if (truckerDropoff
                                     && scannedNonce != null
-                                    && scannedNonce.StartsWith(DropoffNoncePrefix, StringComparison.Ordinal))
+                                    && scannedNonce.StartsWith(DropoffNoncePrefix, StringComparison.Ordinal)
+                                    && (!useDropoffNonce
+                                        || (!NonceEquals(scannedNonce, effectiveNonce)
+                                            && ScannedAfter(operation, effectiveIssuedAt))))
                                 {
                                     return AwaitHandoffNonce(operation, existing,
                                         "DELIVERY_NONCE_MISSING: The trucker's drop-off QR code never reached the server. Ask the trucker for a new drop-off code, or contact support.",
@@ -8752,13 +8763,17 @@ public partial class SyncFunction
     /// not move, so the trucker's queued operations behind it never conflict (as the farmer's nonce,
     /// 1.6.0). Stored only while the delivery is <c>pickedUp</c> or <c>inTransit</c>; before the pickup
     /// reached the server it waits for it (the same batch can carry a pickup that is deferred for the
-    /// farmer's nonce); once delivered or disputed nothing is stored. The nonce is never logged.
+    /// farmer's nonce); once delivered or disputed nothing is stored. A registration never replaces a
+    /// stored code (a stale or second device); only <paramref name="renew"/> (New drop-off code) does.
+    /// A nonce that is not stored still answers <c>success</c> (nothing to retry), with a message that
+    /// says so, which web shows. The nonce is never logged.
     /// </summary>
     private async Task<SyncOperationResult> StoreDropoffNonceAsync(
         SyncOperationRequest operation,
         Dictionary<string, AttributeValue> existing,
         string currentStatus,
         string nonce,
+        bool renew,
         ILambdaContext context)
     {
         if (nonce.Length > DropoffNonceMaxLength
@@ -8780,16 +8795,27 @@ public partial class SyncFunction
                 "DELIVERY_NONCE_PENDING: Waiting for the pickup to sync. Will retry automatically.");
         }
 
+        string? notStored = null;
         if (currentStatus is "pickedUp" or "inTransit")
         {
-            var stored = _qrSecretRepo != null
-                && await _qrSecretRepo.PutDropoffNonceAsync(operation.EntityId, nonce);
-            if (!stored)
+            var outcome = _qrSecretRepo != null
+                ? await _qrSecretRepo.PutDropoffNonceAsync(operation.EntityId, nonce, renew)
+                : DropoffNonceOutcome.NoPickupNonce;
+            notStored = outcome switch
             {
+                // Another device's code, or a renewal, stands: this phone's code does not work.
+                DropoffNonceOutcome.OtherCodeStored =>
+                    DropoffCodeSupersededMessage,
                 // No farmer's nonce to stand next to (a delivery picked up before FRD-11, or no secret
                 // store): the drop-off keeps its old rule.
+                DropoffNonceOutcome.NoPickupNonce =>
+                    "DROPOFF_CODE_NOT_STORED: This delivery has no pickup code on the server, so its drop-off code is not kept.",
+                _ => null
+            };
+            if (notStored != null)
+            {
                 context.Logger.LogWarning(
-                    $"DROPOFF_NONCE_NOT_STORED deliveryId={MoneyAlarmLog.LogId(operation.EntityId)}");
+                    $"DROPOFF_NONCE_NOT_STORED deliveryId={MoneyAlarmLog.LogId(operation.EntityId)} reason={outcome}");
             }
         }
 
@@ -8798,8 +8824,25 @@ public partial class SyncFunction
             OperationId = operation.OperationId,
             Status = "success",
             ServerVersion = ItemVersion(existing),
-            ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing))
+            ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing)),
+            Message = notStored
         };
+    }
+
+    private const string DropoffCodeSupersededMessage =
+        "DROPOFF_CODE_SUPERSEDED: Another drop-off code is on record for this delivery. Show that one, or make a new code.";
+
+    /// <summary>
+    /// ESC-35: whether a scan was taken after <paramref name="issuedAt"/> (the stored drop-off code's
+    /// time): the operation's <c>timestamp</c> when plausible, else the time it reached the server.
+    /// A time that cannot be read counts as after (the scan then waits rather than fails).
+    /// </summary>
+    private static bool ScannedAfter(SyncOperationRequest operation, string? issuedAt)
+    {
+        var now = DateTime.UtcNow;
+        var scannedAt = TransactionPatternRules.PlausibleCaptureTime(operation.Timestamp, now) ?? now;
+        var stored = TransactionPatternRules.ParseUtc(issuedAt);
+        return stored is not { } storedAt || scannedAt > storedAt;
     }
 
     /// <summary>

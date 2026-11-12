@@ -80,6 +80,15 @@ void main() {
     late MemoryDropoffHandoffStore handoffs;
     final en = lookupAppLocalizations(const Locale('en'));
 
+    void answerDropoff(DropoffCodeRegistration registration) => when(
+          () => repository.persistDropoffQrNonce(
+            deliveryId: any(named: 'deliveryId'),
+            nonce: any(named: 'nonce'),
+            truckerId: any(named: 'truckerId'),
+            renew: any(named: 'renew'),
+          ),
+        ).thenAnswer((_) async => registration);
+
     setUp(() {
       qr = MockQrService();
       repository = MockDeliveryRepository();
@@ -97,13 +106,7 @@ void main() {
           userId: any(named: 'userId'),
         ),
       ).thenAnswer((_) async {});
-      when(
-        () => repository.persistDropoffQrNonce(
-          deliveryId: any(named: 'deliveryId'),
-          nonce: any(named: 'nonce'),
-          truckerId: any(named: 'truckerId'),
-        ),
-      ).thenAnswer((_) async {});
+      answerDropoff(DropoffCodeRegistration.sent);
     });
 
     DropoffQrIssuer issuer() => DropoffQrIssuer(
@@ -112,13 +115,23 @@ void main() {
           store: handoffs,
         );
 
-    void verifyDropoffSent(String nonce, int times) => verify(
+    void verifyDropoffSent(String nonce, int times, {bool renew = false}) =>
+        verify(
           () => repository.persistDropoffQrNonce(
             deliveryId: 'delivery-12345678',
             nonce: nonce,
             truckerId: 'tr1',
+            renew: renew,
           ),
         ).called(times);
+
+    /// New drop-off code, confirmed.
+    Future<void> newCode(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('dropoff_new_code')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('dropoff_new_code_confirm')));
+      await tester.pumpAndSettle();
+    }
 
     Future<void> pump(WidgetTester tester, Widget screen) async {
       await tester.pumpWidget(
@@ -190,6 +203,7 @@ void main() {
           deliveryId: any(named: 'deliveryId'),
           nonce: any(named: 'nonce'),
           truckerId: any(named: 'truckerId'),
+          renew: any(named: 'renew'),
         ),
       );
       expect(find.text(en.deliveryRegenerateQr), findsNothing);
@@ -199,11 +213,10 @@ void main() {
       expect(find.text('757 555 978'), findsOneWidget);
 
       // New drop-off code: the trucker's own replaces it.
-      await tester.tap(find.byKey(const Key('dropoff_new_code')));
-      await tester.pumpAndSettle();
+      await newCode(tester);
       expect(find.text(codeOf('d.nonce-1')), findsOneWidget);
       expect(find.text(en.deliveryDropoffQrOwnNote), findsOneWidget);
-      verifyDropoffSent('d.nonce-1', 1);
+      verifyDropoffSent('d.nonce-1', 1, renew: true);
       final kept = await handoffs.read('tr1', 'delivery-12345678');
       expect(kept?.nonce, 'd.nonce-1');
     });
@@ -237,11 +250,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(codeOf('d.kept')), findsOneWidget);
 
+      // Cancelled: nothing changes.
       await tester.tap(find.byKey(const Key('dropoff_new_code')));
       await tester.pumpAndSettle();
+      await tester.tap(find.text(en.cancel));
+      await tester.pumpAndSettle();
+      expect(find.text(codeOf('d.kept')), findsOneWidget);
+      verifyNever(() => qr.generateQrToken(any(), dropoff: true));
+
+      await newCode(tester);
       expect(find.text(codeOf('d.nonce-1')), findsOneWidget);
       expect(find.text(codeOf('d.kept')), findsNothing);
-      verifyDropoffSent('d.nonce-1', 1);
+      verifyDropoffSent('d.nonce-1', 1, renew: true);
     });
 
     testWidgets('a code the server did not get says so (offline web)',
@@ -251,6 +271,7 @@ void main() {
           deliveryId: any(named: 'deliveryId'),
           nonce: any(named: 'nonce'),
           truckerId: any(named: 'truckerId'),
+          renew: any(named: 'renew'),
         ),
       ).thenThrow(const NetworkException('offline'));
 
@@ -263,11 +284,51 @@ void main() {
           issuer: issuer(),
         ),
       );
+      await newCode(tester);
 
       // Made and shown anyway: the buyer's confirm waits for it.
       expect(find.byType(QrImageView), findsOneWidget);
       expect(find.byKey(const Key('dropoff_not_sent')), findsOneWidget);
       expect(find.text(en.deliveryDropoffQrNotSent), findsOneWidget);
+    });
+
+    testWidgets('a code the server did not keep says so (no pickup code)',
+        (tester) async {
+      answerDropoff(DropoffCodeRegistration.notStored);
+
+      await pump(
+        tester,
+        QrGenerateScreen.dropoff(
+          delivery: _delivery()..status = DeliveryStatus.pickedUp,
+          userId: 'tr1',
+          dropoff:
+              const KeptHandoff(token: 'own', code: '757555978', nonce: 'd.k'),
+          issuer: issuer(),
+        ),
+      );
+
+      expect(find.byKey(const Key('dropoff_not_sent')), findsOneWidget);
+    });
+
+    testWidgets(
+        'a code made since on another phone or browser: this one says it '
+        'does not work', (tester) async {
+      answerDropoff(DropoffCodeRegistration.superseded);
+
+      await pump(
+        tester,
+        QrGenerateScreen.dropoff(
+          delivery: _delivery()..status = DeliveryStatus.inTransit,
+          userId: 'tr1',
+          dropoff:
+              const KeptHandoff(token: 'own', code: '757555978', nonce: 'd.k'),
+          issuer: issuer(),
+        ),
+      );
+
+      expect(find.byKey(const Key('dropoff_superseded')), findsOneWidget);
+      expect(find.text(en.deliveryDropoffQrSuperseded), findsOneWidget);
+      verifyDropoffSent('d.k', 1);
     });
 
     // A phone whose copy said pending may open the QR after the pickup

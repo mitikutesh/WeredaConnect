@@ -5298,8 +5298,23 @@ class AppLocalizationsEn extends AppLocalizations {
       'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR instead, or ask the trucker to make a new code.';
 
   @override
+  String get deliveryDropoffNoCodeHere =>
+      'This phone has no drop-off code for this delivery. If you made one on another phone or browser, show that one. Or make a new code here.';
+
+  @override
+  String get deliveryDropoffQrSuperseded =>
+      'A newer drop-off code was made on another phone or browser, so this one does not work. Show that one, or make a new code here.';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmTitle => 'Make a new drop-off code?';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmBody =>
+      'Any drop-off code shown before, on this or another phone, stops working. Show the buyer only the new one.';
+
+  @override
   String get deliveryQrAlreadyPickedUp =>
-      'This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.';
+      'This delivery was already picked up, so no new QR code is made. The trucker now shows the buyer a drop-off code of their own.';
 
   @override
   String get dropoffNoteLabel => 'Drop-off landmark (optional)';

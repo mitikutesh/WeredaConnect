@@ -7,6 +7,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/local_auth_gate.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
@@ -214,18 +215,26 @@ class _QrScanScreenState extends State<QrScanScreen> {
     }
   }
 
-  /// The buyer at a trucker's drop-off: since ESC-35 a wait is for the
-  /// trucker's code to sync, and a locked typed code is renewed by the
-  /// trucker, so those two say so; everything else as anywhere.
-  String _errorText(AppLocalizations l10n, String? code) {
+  /// The buyer at a trucker's drop-off (ESC-35): a wait for the trucker's
+  /// code to sync, and the lock of the trucker's code (which the trucker
+  /// renews), name the trucker; everything else reads as anywhere.
+  String _errorText(AppLocalizations l10n, DeliveryError error) {
+    final code = error.code;
+    final message = error.message;
     final truckerDropoff =
         widget.verificationType == VerificationType.delivery &&
             widget.delivery.deliveryType !=
                 DeliveryConstants.selfPickupDeliveryType;
-    if (truckerDropoff && code == DeliveryErrorCode.qrPending) {
+    // The code alone also covers the farmer's QR, a payment check and a
+    // store without typed codes: the server's text says which.
+    if (truckerDropoff &&
+        code == DeliveryErrorCode.qrPending &&
+        message.startsWith(deliveryDropoffCodePendingText)) {
       return l10n.deliveryErrorDropoffQrPending;
     }
-    if (truckerDropoff && code == DeliveryErrorCode.codeLocked) {
+    if (truckerDropoff &&
+        code == DeliveryErrorCode.codeLocked &&
+        message.startsWith(deliveryDropoffCodeLockedText)) {
       return l10n.deliveryErrorDropoffCodeLocked;
     }
     return localizeDeliveryError(l10n, code);
@@ -416,7 +425,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                _errorText(AppLocalizations.of(context)!, state.code),
+                _errorText(AppLocalizations.of(context)!, state),
               ),
               backgroundColor: AppTheme.statusError,
             ),

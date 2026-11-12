@@ -39,12 +39,16 @@ abstract class BaseDeliveryRepository {
 
   /// Registers the trucker's drop-off nonce (ESC-35): a `/sync` delivery
   /// update carrying only `dropoffQrNonce`, which the server keeps in the QR
-  /// secret store and checks the buyer's confirm against. Sent again for the
-  /// same nonce it changes nothing. Only the delivery's trucker sends it.
-  Future<void> persistDropoffQrNonce({
+  /// secret store and checks the buyer's confirm against. A registration
+  /// never replaces a code already stored (another phone's, or one made
+  /// later); [renew] (the trucker's New drop-off code, `dropoffQrRenew`)
+  /// does. Sent again for the same nonce it changes nothing. Only the
+  /// delivery's trucker sends it.
+  Future<DropoffCodeRegistration> persistDropoffQrNonce({
     required String deliveryId,
     required String nonce,
     required String truckerId,
+    bool renew = false,
   });
 
   /// [scannedQrNonce] from a scan, or [scannedQrCode], the typed fallback
@@ -114,4 +118,20 @@ abstract class BaseDeliveryRepository {
     required String role,
     DateTime? orderCreatedAt,
   });
+}
+
+/// What became of a drop-off code sent to the server (ESC-35).
+enum DropoffCodeRegistration {
+  /// Stored, or queued on a phone (the queue gets it there).
+  sent,
+
+  /// The server keeps another drop-off code for the delivery (made on
+  /// another phone or browser): this one does not work.
+  superseded,
+
+  /// The server could not keep it (no pickup code on record).
+  notStored,
+
+  /// It did not get through (offline web, or refused).
+  failed,
 }

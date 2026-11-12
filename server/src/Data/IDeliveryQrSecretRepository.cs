@@ -26,11 +26,13 @@ public interface IDeliveryQrSecretRepository
     /// <summary>
     /// ESC-35: store the trucker's drop-off nonce next to the farmer's pickup nonce; the buyer's
     /// <c>delivered</c> is then checked against it. Only a row that holds the farmer's nonce takes
-    /// it (every delivery picked up since FRD-11 has one): returns false, nothing written, when
-    /// there is none. A different drop-off nonce (the trucker's new code) restarts its freshness
-    /// and clears the drop-off leg's typed-code misses; the same one again keeps both.
+    /// it (every delivery picked up since FRD-11 has one). A registration (<paramref name="renew"/>
+    /// false: the code made at pickup, or sent again when the drop-off QR opens) is stored only
+    /// while no drop-off code is; a different stored code stays. Only the trucker's renewal (New
+    /// drop-off code) replaces it, restarting its freshness and clearing the drop-off leg's
+    /// typed-code misses. The same nonce again keeps both either way.
     /// </summary>
-    Task<bool> PutDropoffNonceAsync(string deliveryId, string nonce);
+    Task<DropoffNonceOutcome> PutDropoffNonceAsync(string deliveryId, string nonce, bool renew);
 
     /// <summary>
     /// Take one typed-code attempt of <paramref name="targetStatus"/> ("pickedUp" or
@@ -59,6 +61,22 @@ public interface IDeliveryQrSecretRepository
     /// version CAS succeeds so a failed transition never burns the nonce.
     /// </summary>
     Task MarkConsumedAsync(string deliveryId, string targetStatus, string operationId);
+}
+
+/// <summary>What became of a trucker's drop-off nonce (<see cref="IDeliveryQrSecretRepository.PutDropoffNonceAsync"/>).</summary>
+public enum DropoffNonceOutcome
+{
+    /// <summary>Stored: the first drop-off code, or a renewal.</summary>
+    Stored,
+
+    /// <summary>This very code was stored already; only the row's TTL moved.</summary>
+    AlreadyStored,
+
+    /// <summary>Not stored: another drop-off code is stored and this was no renewal.</summary>
+    OtherCodeStored,
+
+    /// <summary>Not stored: the row holds no farmer's nonce (no pickup this store proved).</summary>
+    NoPickupNonce
 }
 
 /// <summary>How a typed-code attempt went (<see cref="IDeliveryQrSecretRepository.TryTakeCodeAttemptAsync"/>).</summary>

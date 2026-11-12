@@ -5348,8 +5348,24 @@ class AppLocalizationsOm extends AppLocalizations {
       'Buusuu kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa QR buusuu konkolaachisaa iskaanii godhi, yookaan konkolaachisaan koodii haaraa akka hojjetu gaafadhu.';
 
   @override
+  String get deliveryDropoffNoCodeHere =>
+      'Bilbilli kun geejjiba kanaaf koodii buusuu hin qabu. Yoo bilbila ykn browser biraa irratti hojjette, sana agarsiisi. Yookaan asitti koodii haaraa hojjedhu.';
+
+  @override
+  String get deliveryDropoffQrSuperseded =>
+      'Koodiin buusuu haaraan bilbila ykn browser biraa irratti waan hojjetameef, kun hin hojjetu. Sana agarsiisi, yookaan asitti koodii haaraa hojjedhu.';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmTitle =>
+      'Koodii buusuu haaraa haa hojjetamu?';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmBody =>
+      'Koodiin buusuu kamiyyuu kan duraan bilbila kana ykn kan biraa irratti agarsiifame hojii ni dhaaba. Bitaaf kan haaraa qofa agarsiisi.';
+
+  @override
   String get deliveryQrAlreadyPickedUp =>
-      'Geejjibni kun duraan fudhatameera, kanaaf koodiin QR haaraan hin uumamu. Konkolaachisaan koodii yeroo fudhachuu argame bitaaf agarsiisa.';
+      'Geejjibni kun duraan fudhatameera, kanaaf koodiin QR haaraan hin uumamu. Konkolaachisaan amma koodii buusuu kan mataa isaa bitaaf agarsiisa.';
 
   @override
   String get dropoffNoteLabel => 'Mallattoo bakka buusii (dirqama miti)';
