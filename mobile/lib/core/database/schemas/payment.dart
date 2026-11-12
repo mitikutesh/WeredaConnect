@@ -81,6 +81,10 @@ class Payment {
   /// Auto-refund deadline (createdAt + 7 days)
   DateTime? expiresAt;
 
+  /// When the delivery was confirmed; null before. A confirmed hold waits for
+  /// its release, never for the refund sweep (FUP-97).
+  DateTime? deliveryConfirmedAt;
+
   /// Dispute deadline (deliveryConfirmedAt + 48 hours)
   DateTime? disputeWindowEndsAt;
 
@@ -118,11 +122,14 @@ class Payment {
 
   @ignore
 
-  /// Refund on its way: the server flag, or (older servers) an escrowed hold
-  /// whose expiry has passed, which the refund sweep returns to the buyer.
+  /// Refund on its way: the server flag, or (older servers, or a cached row
+  /// whose expiry passed offline) an escrowed hold past its expiry, which the
+  /// refund sweep returns to the buyer. A confirmed delivery's hold is never
+  /// swept: it waits for its payout (FUP-97).
   bool get isRefundPending =>
       refundPending ||
       (status == PaymentStatus.escrowed &&
+          deliveryConfirmedAt == null &&
           expiresAt != null &&
           expiresAt!.isBefore(DateTime.now()));
 }

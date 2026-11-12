@@ -313,6 +313,9 @@ class WebEscrowRepository extends BaseEscrowRepository {
       ..updatedAt =
           DateTime.tryParse(m['updatedAt'] as String? ?? '') ?? DateTime.now()
       ..expiresAt = DateTime.tryParse(m['expiresAt'] as String? ?? '')
+      // FUP-97: a confirmed hold past its expiry waits for its payout.
+      ..deliveryConfirmedAt =
+          DateTime.tryParse(m['deliveryConfirmedAt'] as String? ?? '')
       ..disputeWindowEndsAt =
           DateTime.tryParse(m['disputeWindowEndsAt'] as String? ?? '')
       // FRD-13: sent to the farmer and the trucker only.
