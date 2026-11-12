@@ -33,7 +33,8 @@ namespace WeredaConnect.Server.Functions;
 ///   - reputation_recompute_all (by hand, ESC-28): recompute every user with an active row after a
 ///     policy change (8.3)
 ///   - reputation_backfill_ratings (by hand, once per environment, ESC-28): the rating aggregate
-///     backfill (12.2); not flagged
+///     backfill (12.2); not flagged. FUP-162: then a one-off users Scan for the rows without a woreda;
+///     <c>{"scanFrom": "..."}</c> resumes it from the <c>scanCursor</c> of a run that stopped
 ///   - reputation_stamp_owner_copies (by hand, once per environment, FUP-160): copy the owners'
 ///     reputation onto the active crop and trip rows created before <c>reputationPenalties</c> went on
 ///     (12.3); <c>{"startAt": next}</c> goes on after a partial run
@@ -259,10 +260,11 @@ public partial class OrderCronFunction
     {
         context.Logger.LogInformation("OrderCronFunction invoked.");
 
-        // Parse action (and ESC-28's optional catchUpDays, a number or a numeric string, and FUP-160's
-        // optional startAt, a user id) from the body.
+        // Parse action (and ESC-28's optional catchUpDays, a number or a numeric string, FUP-160's
+        // optional startAt and FUP-162's optional scanFrom, each a user id) from the body.
         string? action = null;
         int? catchUpDays = null;
+        string? scanFrom = null;
         string? startAt = null;
         if (!string.IsNullOrEmpty(request.Body))
         {
@@ -293,6 +295,19 @@ public partial class OrderCronFunction
                     }
 
                     catchUpDays = parsed;
+                }
+
+                // FUP-162: reputation_backfill_ratings resumes its users Scan from the scanCursor of a run
+                // that stopped (a user id, so FUP-160's startAt check).
+                if (payload.RootElement.TryGetProperty("scanFrom", out var from))
+                {
+                    if (from.ValueKind != JsonValueKind.String || !OwnerCopyStampJob.IsValidStartAt(from.GetString()))
+                    {
+                        return LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
+                            $"scanFrom must be the scanCursor of an earlier run, at most {OwnerCopyStampJob.MaxStartAtLength} characters.");
+                    }
+
+                    scanFrom = from.GetString();
                 }
 
                 if (payload.RootElement.TryGetProperty("startAt", out var start))
@@ -339,7 +354,7 @@ public partial class OrderCronFunction
                 ReputationDailyAction => await HandleReputationDailyAsync(catchUpDays, context),
                 ReputationUnparkAction => await HandleReputationUnparkAsync(context),
                 ReputationRecomputeAction => await HandleReputationRecomputeAsync(context),
-                RatingBackfillAction => await HandleRatingBackfillAsync(context),
+                RatingBackfillAction => await HandleRatingBackfillAsync(scanFrom, context),
                 OwnerStampAction => await HandleOwnerStampAsync(startAt, context),
                 _ => LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
                     $"Unknown action '{safeAction}'. Expected: {ExpectedActions}.")
@@ -769,8 +784,11 @@ public partial class OrderCronFunction
             DateTime.UtcNow, CronRunBudget.StartNew().Slice(ReputationRunTime), context));
     }
 
-    /// <summary>ESC-28: the one-time rating aggregate backfill (12.2). Not flagged; a rerun adds nothing twice.</summary>
-    private async Task<APIGatewayProxyResponse> HandleRatingBackfillAsync(ILambdaContext context)
+    /// <summary>
+    /// ESC-28: the one-time rating aggregate backfill (12.2). Not flagged; a rerun adds nothing twice.
+    /// FUP-162: <paramref name="scanFrom"/> resumes the users Scan where a stopped run left it.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleRatingBackfillAsync(string? scanFrom, ILambdaContext context)
     {
         if (RatingBackfill == null)
         {
@@ -778,7 +796,7 @@ public partial class OrderCronFunction
         }
 
         return JsonResponse(await RatingBackfill.RunAsync(
-            DateTime.UtcNow, CronRunBudget.StartNew().Slice(ReputationRunTime), context));
+            DateTime.UtcNow, CronRunBudget.StartNew().Slice(ReputationRunTime), context, scanFrom));
     }
 
     /// <summary>

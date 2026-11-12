@@ -724,10 +724,43 @@ public copy the server puts on crop and trip rows for buyers.
    ratingsAggregatedAt`.
 4. Log `REPUTATION_BACKFILL users=<n> ratings=<n>`. A rerun skips users already stamped and
    ratings already flagged.
+5. FUP-162: once the walk is done, one filtered `Scan` of the users table (`role` farmer or trucker,
+   no `ratingsAggregatedAt`, no `deletionState`) for the rows `RoleWaredaIndex` does not list (no
+   `woreda`); each found user gets steps 2 and 3. A user the walk already tried is not tried again.
+   One-off and manual only: it reads the whole table once (read capacity for every row, matching or
+   not; about one read unit per 8 KB, eventually consistent). The summary line adds
+   `unindexed=<n> scanDone=<true|false>`.
 
 Ratings created between step 1 and the backfill were added by their own transaction and carry
 `inAggregate: true`, so nothing is counted twice. Users who registered after step 1 already carry
-`ratingsAggregatedAt`.
+`ratingsAggregatedAt`. Since FUP-162 a rating for a still unstamped farmer or trucker also stamps
+them right after its create (at most 99 ratings to add, else left to this action), with the same
+conditions, so the create, that heal and this action never count a rating twice.
+
+Running it (dev shown; the handler reads the action from the request body):
+
+```bash
+aws lambda invoke --function-name wereda-connect-dev-order-cron \
+  --cli-binary-format raw-in-base64-out --cli-read-timeout 330 \
+  --payload '{"body":"{\"action\":\"reputation_backfill_ratings\"}"}' /dev/stdout
+```
+
+The answer's body has `outcome`, `users`, `ratings`, `skipped`, `leftover`, `failed` and
+`unindexed`. Rerun until `outcome` is `ok`. When it also has `scanCursor`, the Scan stopped on the
+time budget: pass it on as `"scanFrom":"<scanCursor>"` next to the action so the Scan resumes there
+instead of from the start (without it, the rerun reads the table again and still adds nothing
+twice). A `failed` user found by the index walk is retried by the next run; one found by the Scan is
+retried only by a run without `scanFrom` (the cursor moves past it). So after a chain of runs with
+`scanFrom` that had any `failed`, finish with one run without `scanFrom`.
+
+Check that none is left (expect `0`):
+
+```bash
+aws dynamodb scan --table-name wereda-connect-dev-users --select COUNT \
+  --filter-expression "#r IN (:f, :t) AND attribute_not_exists(ratingsAggregatedAt) AND attribute_not_exists(deletionState)" \
+  --expression-attribute-names '{"#r":"role"}' \
+  --expression-attribute-values '{":f":{"S":"farmer"},":t":{"S":"trucker"}}'
+```
 
 ### 12.3 Owner stamp (FUP-160)
 

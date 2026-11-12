@@ -1,10 +1,10 @@
 # Reputation API Contract
 
 ## Version
-1.7.0
+1.8.0
 
 ## Status
-PARTLY BUILT (1.7.0). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
+PARTLY BUILT (1.8.0). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
 the server side of the two notifications (section 10) and the flags and policy parameter
 (section 11). BUILT in ESC-29 (server): the reads (sections 2 to 4), the appeal photo and the appeal
 (5, 6), the copied owner fields (7) and the gates (8). BUILT in ESC-32: the admin endpoints
@@ -264,6 +264,12 @@ Query; the app calls it at most every 30 minutes). `ratingAverage`, `ratingDeduc
 farmer or trucker the rating backfill skipped, `rating-api.md` "Stored aggregate" step 4): its stored
 sum holds only the ratings created since the deploy. With `reputationPenalties` off the policy
 parameter is not read and the defaults give the thresholds.
+
+**As built (1.8.0, FUP-162)**: such rows are transitional. The backfill action also reaches the farmers
+and truckers without a `woreda` (a one-off Scan of the users table after the index walk), and a
+rating created for an unstamped ratee stamps their full aggregate right after the create
+(`rating-api.md` 1.5.0 "Stored aggregate" step 4). These reads stay read-only: they never stamp a
+row, so a user with no new rating keeps the rule above until the action runs in their environment.
 
 ---
 
@@ -1101,6 +1107,7 @@ platform pair).
 
 | Version | Date | Change |
 |---|---|---|
+| 1.8.0 | 2026-11-12 | FUP-162 (server, no wire change): the rows without `ratingsAggregatedAt` that section 2 "As built" describes get stamped: the order-cron `reputation_backfill_ratings` also Scans the users table once for the farmers and truckers without a `woreda` (resumable with `scanFrom`), and a rating for an unstamped ratee stamps their aggregate after the create (`rating-api.md` 1.5.0). The reads of sections 2 and 3 stay read-only. |
 | 1.7.0 | 2026-11-12 | FUP-160 BUILT (server, no endpoint or field change): the one-off stamp of the owner fields of section 7 on rows created before `reputationPenalties` went on, the order-cron action `reputation_stamp_owner_copies` (owners from the active partitions of the crop and trip status indexes, so owners without a `woreda` too; the reputation as read; behind `reputationPenalties`; a `startAt` cursor; a rerun writes nothing). Run it before `reputationPublicTags` goes on (architecture doc 12.1 step 6, 12.3). |
 | 1.6.0 | 2026-11-12 | ESC-31 BUILT (apps, no endpoint or field change): the owner fields on the cached crop and trip rows and on the cards (label for the public tier `low`, effective rating with its count, no per-card `GET /ratings` when the copy is present), the confirm before ordering from a party with the label, `until=` in the restricted error, My reputation (own standing, rating breakdown, events in pages of 20, appeal with optional photo and a kept draft), the Profile rating, the inbox texts and tap for `penalty_recorded` and `tier_changed`. "As built" notes under sections 7, 8.1, 10 and 13 (the read happens on Profile or My reputation, not at start-up; a draft is not sent by itself; a tapped push still opens the app). |
 | 1.5.0 | 2026-11-12 | ESC-33 BUILT (server): new section 1.7, the fraud hooks. A recorded `NO_SHOW` or `DELIVERY_OVERDUE` with points writes a fraud signal on the party; a recorded decline or expiry checks the buyer's paid orders and writes `BUYER_DECLINE_PATTERN` at 3 in 30 days from at least 2 different parties; the payout delay reads the tier (`low` as new, restricted as flagged); a GPS-inconsistent delivery also puts a capped `GPS_ANOMALY` row on the trucker. All behind `reputationPenalties`; no wire change. The repeat restriction signal of 1.5 is not built. (1.3.0 and 1.4.0 are other tickets' versions.) |
