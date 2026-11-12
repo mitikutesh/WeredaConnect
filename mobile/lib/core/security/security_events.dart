@@ -267,7 +267,7 @@ class SecurityEvents {
   Stream<SecurityEvent> get events => _events.stream;
 
   /// True once the server answered a change with `APP_UPDATE_REQUIRED`
-  /// (sync-protocol.md 1.17.0, 1.52.0): this build is below the server's
+  /// (sync-protocol.md 1.17.0, 1.53.0): this build is below the server's
   /// minimum and every further order command would be refused the same way.
   /// Raised by the mobile sync queue and by a web `/sync` refusal
   /// ([reportAppUpdateRequired]). Set even when nobody listens yet and never

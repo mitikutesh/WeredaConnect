@@ -47,6 +47,11 @@ public class OrderCronDeadlineSweepTests
         _orders.UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
             .Returns(ci => AuthResult<Dictionary<string, object>>.Success(
                 new Dictionary<string, object> { { "orderId", ci.Arg<string>() } }));
+        // FUP-210: a deadline cancel and its refund arm are one transaction.
+        _orders.TryUpdateWithAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .Returns(ci => new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written,
+                new Dictionary<string, object> { { "orderId", ci.ArgAt<string>(0) } }));
         _orders.TryStampAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(),
                 Arg.Any<IReadOnlyDictionary<string, string>>())
             .Returns(true);
@@ -63,15 +68,16 @@ public class OrderCronDeadlineSweepTests
         _trips.TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>()).Returns(true);
         _crops.TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>()).Returns(true);
         _escrows.QueryByOrderIdAsync(Arg.Any<string>(), Arg.Any<int>())
-            .Returns(ci => new List<Dictionary<string, object>>
-            {
-                new()
-                {
-                    { "escrowId", $"escrow-order-{ci.Arg<string>()}" }, { "orderId", ci.Arg<string>() },
-                    { "createdAt", CreatedAt }, { "status", "escrowed" }, { "buyerId", "buyer-1" }, { "amount", "1000" }
-                }
-            });
+            .Returns(ci => new List<Dictionary<string, object>> { EscrowedRow(ci.Arg<string>()) });
+        _escrows.GetByIdAsync(Arg.Any<string>(), true)
+            .Returns(ci => EscrowedRow(ci.ArgAt<string>(0)["escrow-order-".Length..]));
     }
+
+    private static Dictionary<string, object> EscrowedRow(string orderId) => new()
+    {
+        { "escrowId", $"escrow-order-{orderId}" }, { "orderId", orderId },
+        { "createdAt", CreatedAt }, { "status", "escrowed" }, { "buyerId", "buyer-1" }, { "amount", "1000" }
+    };
 
     // ===== fixture =====
 
@@ -157,9 +163,17 @@ public class OrderCronDeadlineSweepTests
 
     private static Dictionary<string, AttributeValue> Key(string id) => new() { { "orderId", new AttributeValue { S = id } } };
 
-    private Task AssertNoRefund()
-        => _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+    /// <summary>Nothing armed: no separate arm, and no transaction carrying one landed (no <c>refund_scheduled</c> row).</summary>
+    private async Task AssertNoRefund()
+    {
+        await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _escrowAudit.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            (string)e["action"] == "refund_scheduled"));
+    }
+
+    private Task AssertNoCancel()
+        => _orders.DidNotReceiveWithAnyArgs().TryUpdateWithAsync(default!, default!, default, default!, default!);
 
     // ===== reading the index =====
 
@@ -309,13 +323,14 @@ public class OrderCronDeadlineSweepTests
         var row = FarmerExpired();
         IndexServes(row);
         await RunAsync();
-        await _orders.Received(1).UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4);
-        await _escrows.Received(1).UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), "escrowed", "escrowed",
-            Arg.Any<Dictionary<string, object>?>());
+        await _orders.Received(1).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4, "funded",
+            Arg.Any<IReadOnlyList<TransactWriteItem>>());
+        _escrows.Received(1).BuildRefundArm(Arg.Any<string>(), Arg.Any<string>(), "order_cancelled", Arg.Any<string>(), false);
 
         // Second run: the index copy is still behind, the row read again is cancelled.
         _orders.ClearReceivedCalls();
         _escrows.ClearReceivedCalls();
+        _escrowAudit.ClearReceivedCalls();
         row["status"] = "cancelled";
         row["version"] = "5";
         row[OrderDeadlines.AtField] = Iso(HoursFromNow(-1));
@@ -325,6 +340,7 @@ public class OrderCronDeadlineSweepTests
 
         Assert.Contains("\"farmerExpired\":\"0\"", second.Body);
         await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await AssertNoCancel();
         await AssertNoRefund();
         var write = Assert.Single(_deadlineWrites);
         Assert.Equal(5, write.Version);
@@ -354,6 +370,7 @@ public class OrderCronDeadlineSweepTests
 
         Assert.Contains("\"farmerExpired\":\"0\"", actual.Body);
         await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await AssertNoCancel();
         await AssertNoRefund();
         var write = Assert.Single(_deadlineWrites);
         Assert.Equal(5, write.Version);
@@ -364,8 +381,9 @@ public class OrderCronDeadlineSweepTests
     public async Task SyncWritesBetweenTheReReadAndTheCancel_TheCronLoses_AndLeavesTheDeadlineToTheWinner()
     {
         IndexServes(FarmerExpired());
-        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4)
-            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "version moved"));
+        _orders.TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4, Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .Returns(new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged));
 
         var actual = await RunAsync();
 
@@ -443,7 +461,8 @@ public class OrderCronDeadlineSweepTests
         Assert.Contains("\"rowErrors\":\"1\"", actual.Body);
         Assert.Contains("\"farmerExpired\":\"1\"", actual.Body);
         Assert.Contains($"{OrderCronFunction.DeadlineRowFailedToken} orderId=ord-bad reason=[AmazonDynamoDBException]", Logs);
-        await _orders.Received(1).UpdateAsync("ord-2", Arg.Any<Dictionary<string, object>>(), 4);
+        await _orders.Received(1).TryUpdateWithAsync("ord-2", Arg.Any<Dictionary<string, object>>(), 4, "funded",
+            Arg.Any<IReadOnlyList<TransactWriteItem>>());
     }
 
     // ===== deadline_repair =====

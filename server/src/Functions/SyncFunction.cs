@@ -742,6 +742,8 @@ public partial class SyncFunction
         _ratingRepo = ratingsTable != null
             ? new RatingRepository(_dynamoDb, ratingsTable, usersTable, reputationEventsTable)
             : null;
+        // FUP-162: a rating for a ratee the backfill did not reach stamps their aggregate (not flagged).
+        RatingHeal = ratingsTable != null ? new RatingAggregateHeal(_dynamoDb, usersTable, ratingsTable) : null;
         Reputation = BuildReputationService(_dynamoDb, reputationEventsTable, usersTable, _fraudService);
 
         // Messages are optional in the same way: the message sync handler is only
@@ -1725,7 +1727,8 @@ public partial class SyncFunction
 
         // ACC-02: no rating for an account that is being or has been deleted (the deletion erased
         // the comments about it).
-        if (_userRepo != null && !string.IsNullOrEmpty((await _userRepo.GetUserByIdAsync(rateeId))?.DeletionState))
+        var ratee = _userRepo != null ? await _userRepo.GetUserByIdAsync(rateeId) : null;
+        if (!string.IsNullOrEmpty(ratee?.DeletionState))
         {
             return new SyncOperationResult
             {
@@ -1738,6 +1741,8 @@ public partial class SyncFunction
         var createResult = await _ratingRepo.CreateAsync(operation.EntityId, operation.Data);
         if (createResult.IsSuccess)
         {
+            // FUP-162: an unstamped ratee gets their full aggregate first, so the refresh reads it.
+            await HealRateeAggregateAsync(rateeId, ratee, rateeRole, context);
             await RefreshRateeReputationAsync(rateeId, context);
         }
 
@@ -3431,17 +3436,22 @@ public partial class SyncFunction
 
                     // ESC-17: a booked trip is frozen (date, price, route; capacity never below
                     // the bookings), `matched` is written by the server when the trip fills, and
-                    // a trip with bookings may start from `open`.
+                    // a trip with bookings may start from `open`. FUP-241: an app without
+                    // X-App-Build gets TRIP_HAS_BOOKINGS as SYNC_VALIDATION; the signal keeps the code.
                     var bookingError = CheckBookedTripUpdate(operation.Data, existing);
                     if (bookingError != null)
                     {
                         return bookingError.Value.Code == "TRIP_HAS_BOOKINGS"
-                            ? await RefuseWithSignalAsync(new SyncOperationResult
+                            ? (await RefuseWithSignalAsync(new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
                                 Status = "error",
                                 Message = bookingError.Value.Message
-                            }, FraudDetectionService.ImmutableFieldChangeSignal, operation, "trip", authenticatedUserId, context)
+                            }, FraudDetectionService.ImmutableFieldChangeSignal, operation, "trip", authenticatedUserId, context)) with
+                            {
+                                Message = OldClientRefusal.ForClient(
+                                    bookingError.Value.Message, _batchAppBuild, "TRIP_HAS_BOOKINGS", operation.EntityType)
+                            }
                             : new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
