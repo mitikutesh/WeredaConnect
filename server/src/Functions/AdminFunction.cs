@@ -39,6 +39,8 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/payments/unapplied      → captured payments the webhook did not apply (FUP-02)
 /// - POST /admin/payments/{orderId}/refund-manual → record their manual refund (admin group only)
 /// - GET  /admin/deliveries/{id}/trail → the trip trail of a delivery, dispute evidence (admin group only, LT-13)
+/// - GET  /admin/escrows/{id}/ledger   → the escrow's ledger rows, read only (ESC-24)
+/// - GET  /admin/orders/queue          → stuck orders: the admin queue or a passed deadline (ESC-24)
 /// </summary>
 public partial class AdminFunction
 {
@@ -190,6 +192,8 @@ public partial class AdminFunction
                 ("GET", ["admin", "dashboard", "stats"]) => await HandleDashboardStatsAsync(request, context),
                 ("GET", ["admin", "escrows"]) => await HandleListEscrowsAsync(request, context),
                 ("GET", ["admin", "escrows", _, "audit"]) => await HandleEscrowAuditAsync(segments[2], context),
+                ("GET", ["admin", "escrows", _, "ledger"]) => await HandleEscrowLedgerAsync(segments[2], request),
+                ("GET", ["admin", "orders", "queue"]) => await HandleListStuckOrdersAsync(request),
                 // FRD-07: before the {id} route, which would read "held" as an escrow id.
                 ("GET", ["admin", "escrows", "held"]) => await HandleListHeldEscrowsAsync(request, context),
                 ("GET", ["admin", "escrows", _]) => await HandleGetEscrowAsync(segments[2], context),
@@ -3527,12 +3531,16 @@ public partial class AdminFunction
     /// </summary>
     private async Task EnrichEscrowNamesAsync(List<EscrowDto> escrows)
     {
-        var userIds = escrows.SelectMany(e => new[] { e.BuyerId, e.FarmerId });
+        var userIds = escrows.SelectMany(e => new[] { e.BuyerId, e.FarmerId, e.TruckerId ?? "" });
         var names = await BatchGetUserNamesAsync(userIds);
         foreach (var e in escrows)
         {
             e.BuyerName ??= names.GetValueOrDefault(e.BuyerId);
             e.FarmerName ??= names.GetValueOrDefault(e.FarmerId);
+            if (e.TruckerId != null)
+            {
+                e.TruckerName ??= names.GetValueOrDefault(e.TruckerId);
+            }
         }
     }
 
@@ -3611,7 +3619,16 @@ public partial class AdminFunction
             HeldBy = GetStringOrNull(item, EscrowHoldFields.HeldBy),
             HeldFromStatus = GetStringOrNull(item, EscrowHoldFields.HeldFromStatus),
             HeldFor = GetStringOrNull(item, EscrowHoldFields.HeldFor),
-            Version = GetInt(item, "version", 1)
+            Version = GetInt(item, "version", 1),
+            // ESC-24: the transport leg and the ledger's view of the money (AdminFunction.Legs.cs).
+            TruckerPayout = GetDecimalOrNull(item, "truckerPayout"),
+            TruckerId = NullIfEmpty(GetStringOrNull(item, "truckerId")),
+            TruckerName = NullIfEmpty(GetStringOrNull(item, "truckerName")),
+            TruckerLeg = TruckerLegOf(item),
+            LegStatus = LegStatusOf(item),
+            RefundedTotal = LedgerEscrowFields.IsLedger(item) ? GetDecimal(item, LedgerEscrowFields.RefundedTotal) : null,
+            ReleasedTotal = LedgerEscrowFields.IsLedger(item) ? GetDecimal(item, LedgerEscrowFields.ReleasedTotal) : null,
+            VerdictAmounts = VerdictAmountsOf(item)
         };
     }
 

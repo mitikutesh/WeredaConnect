@@ -15,6 +15,13 @@ internal interface IEscrowLedgerRepository
     /// <summary>Every row of one escrow, strongly consistent.</summary>
     Task<List<LedgerRow>> GetRowsAsync(string escrowId);
 
+    /// <summary>
+    /// ESC-24: one page of an escrow's rows in ref order (a Query on the escrow's partition, strongly
+    /// consistent), at most <paramref name="limit"/> (1 to 100). Read only, for the admin ledger view.
+    /// </summary>
+    Task<(List<LedgerRow> Rows, Dictionary<string, AttributeValue>? Next)> GetRowsPageAsync(
+        string escrowId, int limit, Dictionary<string, AttributeValue>? startKey);
+
     /// <summary>One row, strongly consistent; null when it does not exist.</summary>
     Task<LedgerRow?> GetRowAsync(string escrowId, string reference);
 

@@ -159,6 +159,9 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(AdminEscrowListResponse))]
 [JsonSerializable(typeof(AdminEscrowDetailResponse))]
 [JsonSerializable(typeof(AdminEscrowAuditResponse))]
+// ESC-24: the escrow ledger view and the stuck orders page.
+[JsonSerializable(typeof(AdminEscrowLedgerResponse))]
+[JsonSerializable(typeof(AdminStuckOrderListResponse))]
 [JsonSerializable(typeof(AdminDisputeListResponse))]
 [JsonSerializable(typeof(AdminDeliveryTrailResponse))]
 // FRD-14: the dispute evidence package.
