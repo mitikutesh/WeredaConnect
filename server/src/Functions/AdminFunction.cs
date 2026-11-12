@@ -583,12 +583,10 @@ public partial class AdminFunction
                 {
                     return LambdaResponse.Error(400, "ADMIN_021", splitRefusal.Message, splitRefusal.Field);
                 }
-            }
 
-            // FUP-174: a split that can still be recorded carries the admin's reason (notes), kept in its
-            // escrow-audit row. A replay records nothing new, so it needs none.
-            if (status == "disputed")
-            {
+                // FUP-174: every split but the recorded one again carries the admin's reason (notes), kept in its
+                // escrow-audit row. Not keyed on the status read, which may be stale: a split recorded after a stale
+                // read would otherwise have no reason. The replay records nothing new, so it needs none.
                 splitReason = body.Notes?.Trim() ?? "";
                 if (splitReason.Length is < 10 or > 500)
                 {
