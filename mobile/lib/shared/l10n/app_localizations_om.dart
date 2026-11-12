@@ -5677,4 +5677,7 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get reputationHistoryNeedsConnection =>
       'Seenaa keessan ilaaluuf interneetiitti walqunnamaa.';
+
+  @override
+  String get profileRatingNone => 'Hin jiru';
 }

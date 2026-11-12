@@ -3307,5 +3307,6 @@
   "reputationOfflineNoCopy": "ተዓማኒነትዎን ለማየት ከበይነመረብ ጋር ይገናኙ።",
   "reputationShowingSaved": "ከመስመር ውጭ ነዎት። በ{date} የተቀመጠው እየታየ ነው።",
   "reputationLoadMore": "ተጨማሪ አሳይ",
-  "reputationHistoryNeedsConnection": "ታሪክዎን ለማየት ከበይነመረብ ጋር ይገናኙ።"
+  "reputationHistoryNeedsConnection": "ታሪክዎን ለማየት ከበይነመረብ ጋር ይገናኙ።",
+  "profileRatingNone": "ገና የለም"
 }

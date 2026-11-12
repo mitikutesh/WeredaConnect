@@ -5476,4 +5476,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get reputationHistoryNeedsConnection => 'ታሪክዎን ለማየት ከበይነመረብ ጋር ይገናኙ።';
+
+  @override
+  String get profileRatingNone => 'ገና የለም';
 }

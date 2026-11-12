@@ -3300,5 +3300,6 @@
   "reputationOfflineNoCopy": "Amanamummaa keessan ilaaluuf interneetiitti walqunnamaa.",
   "reputationShowingSaved": "Oflaayinii jirtu. Kan {date} olkaa'ame agarsiifamaa jira.",
   "reputationLoadMore": "Dabalata agarsiisi",
-  "reputationHistoryNeedsConnection": "Seenaa keessan ilaaluuf interneetiitti walqunnamaa."
+  "reputationHistoryNeedsConnection": "Seenaa keessan ilaaluuf interneetiitti walqunnamaa.",
+  "profileRatingNone": "Hin jiru"
 }

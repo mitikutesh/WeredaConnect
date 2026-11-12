@@ -5279,5 +5279,7 @@
   "reputationLoadMore": "Show more",
   "@reputationLoadMore": {"description": "ESC-31 reputation UI (reputation-api.md 1.5.0). Loads the next page of reputation events"},
   "reputationHistoryNeedsConnection": "Connect to the internet to see your history.",
-  "@reputationHistoryNeedsConnection": {"description": "ESC-31 reputation UI (reputation-api.md 1.5.0). The event list could not be loaded and nothing is saved"}
+  "@reputationHistoryNeedsConnection": {"description": "ESC-31 reputation UI (reputation-api.md 1.5.0). The event list could not be loaded and nothing is saved"},
+  "profileRatingNone": "None yet",
+  "@profileRatingNone": {"description": "ESC-31 reputation UI (reputation-api.md 1.5.0). The Profile Rating tile when the user has no ratings yet (also for buyers, who are not rated); short, it sits in a narrow tile above the word Rating"}
 }

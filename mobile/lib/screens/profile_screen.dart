@@ -33,6 +33,11 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/fayda/screens/fayda_verification_screen.dart';
 import 'package:wereda_connect/core/security/app_lock_service.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
+import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
+import 'package:wereda_connect/features/reputation/domain/own_rating.dart';
+import 'package:wereda_connect/features/reputation/presentation/screens/my_reputation_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
@@ -68,12 +73,24 @@ class ProfileScreen extends StatefulWidget {
   /// Defaults to the app's connectivity monitor; tests inject one.
   final Future<bool> Function()? isOnline;
 
+  /// ESC-31: reads the signed-in user's own rating for the Rating tile
+  /// (null: it could not be read). Defaults to [loadOwnRating] over the
+  /// app's repositories; tests inject one.
+  final Future<OwnRating?> Function(String userId, UserRole role)?
+      loadOwnRating;
+
+  /// ESC-31: the user's own reputation, for the default rating read and
+  /// the My reputation screen. Defaults to the app's; tests inject one.
+  final ReputationRepository? reputationRepository;
+
   /// How long the logout dialog's Sync now may run before the counts are
   /// read again (the sync itself goes on).
   static const logoutSyncTimeout = Duration(seconds: 20);
 
   const ProfileScreen({
     this.loadUser,
+    this.loadOwnRating,
+    this.reputationRepository,
     this.appLockService,
     this.loadUnsentWork,
     this.syncUnsentWork,
@@ -91,7 +108,73 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _statsUserId;
   UserRole? _statsRole;
 
+  /// ESC-31: the user's own rating; null while it is being read or when it
+  /// cannot be read (the tile then keeps the dash).
+  OwnRating? _ownRating;
+
   static const _fallbackStats = {'trades': '0', 'rating': '-', 'escrow': '0'};
+
+  /// The app's reputation repository, or null where none is provided (a
+  /// test that does not need it).
+  ReputationRepository? get _reputationRepository {
+    final injected = widget.reputationRepository;
+    if (injected != null) return injected;
+    try {
+      return context.read<ReputationRepository>();
+    } on Object {
+      return null;
+    }
+  }
+
+  BaseRatingRepository? get _ratingRepository {
+    try {
+      return context.read<RatingBloc>().repository;
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Reads the user's own rating once per user and role, beside the local
+  /// stats: a slow network never holds the rest of the profile back.
+  Future<void> _readOwnRating(String userId, UserRole role) async {
+    final load = widget.loadOwnRating ??
+        (String userId, UserRole role) => loadOwnRating(
+              userId: userId,
+              role: role,
+              reputation: _reputationRepository,
+              ratings: _ratingRepository,
+            );
+    OwnRating? rating;
+    try {
+      rating = await load(userId, role);
+    } on Object {
+      rating = null;
+    }
+    if (!mounted || _statsUserId != userId || _statsRole != role) return;
+    setState(() => _ownRating = rating);
+  }
+
+  /// The Rating tile: the user's own average, a neutral word when they
+  /// have no ratings yet, the dash while it is unknown.
+  String _ratingText(AppLocalizations l10n) {
+    final rating = _ownRating;
+    if (rating == null) return '-';
+    return rating.hasRating
+        ? rating.average!.toStringAsFixed(1)
+        : l10n.profileRatingNone;
+  }
+
+  void _openMyReputation(BuildContext context, String userId) {
+    final repository = _reputationRepository;
+    if (repository == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            MyReputationScreen(userId: userId, repository: repository),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -172,13 +255,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         isVerified: isVerified,
                       ),
                       const SizedBox(height: 12),
-                      _StatsCard(stats: stats),
+                      _StatsCard(stats: stats, rating: _ratingText(l10n)),
                       const SizedBox(height: 22),
                       ..._menuSections(
                         context,
                         l10n,
                         stats,
                         isVerified: isVerified,
+                        // ESC-31: a farmer's or trucker's own reputation,
+                        // once the server says penalties are switched on.
+                        // Buyers have none.
+                        myReputationUserId: authState.role != UserRole.buyer &&
+                                (_ownRating?.penaltiesEnabled ?? false) &&
+                                _reputationRepository != null
+                            ? authState.userId
+                            : null,
                       ),
                       const SizedBox(height: 24),
                       _buildLogoutButton(context, l10n),
@@ -206,6 +297,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     AppLocalizations l10n,
     Map<String, String> stats, {
     bool isVerified = false,
+    String? myReputationUserId,
   }) {
     final trades = stats['trades'] ?? '0';
     return [
@@ -225,6 +317,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               iconColor: AppTheme.money,
               iconBackground: AppTheme.actionCream,
               onTap: () => _openFaydaVerification(context),
+            ),
+          if (myReputationUserId != null)
+            _ProfileRow(
+              key: const Key('profile_my_reputation'),
+              icon: Icons.workspace_premium_outlined,
+              title: l10n.reputationMyTitle,
+              subtitle: l10n.reputationMySubtitle,
+              onTap: () => _openMyReputation(context, myReputationUserId),
             ),
           _ProfileRow(
             icon: Icons.description_outlined,
@@ -371,6 +471,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _statsUserId = userId;
       _statsRole = role;
       _statsFuture = _loadProfileStats(userId, role);
+      _ownRating = null;
+      _readOwnRating(userId, role);
     }
     return _statsFuture!;
   }
@@ -780,11 +882,13 @@ class _IdentityCard extends StatelessWidget {
   }
 }
 
-/// Trades, rating and ETB in escrow side by side.
+/// Trades, rating and ETB in escrow side by side. [rating] is the user's
+/// own (ESC-31).
 class _StatsCard extends StatelessWidget {
   final Map<String, String> stats;
+  final String rating;
 
-  const _StatsCard({required this.stats});
+  const _StatsCard({required this.stats, required this.rating});
 
   @override
   Widget build(BuildContext context) {
@@ -795,7 +899,11 @@ class _StatsCard extends StatelessWidget {
         children: [
           _StatColumn(value: stats['trades'] ?? '0', label: l10n.trades),
           _verticalDivider(),
-          _StatColumn(value: stats['rating'] ?? '-', label: l10n.rating),
+          _StatColumn(
+            key: const Key('profile_rating'),
+            value: rating,
+            label: l10n.rating,
+          ),
           _verticalDivider(),
           _StatColumn(value: stats['escrow'] ?? '0', label: l10n.inEscrowEtb),
         ],
@@ -817,7 +925,7 @@ class _StatColumn extends StatelessWidget {
   final String value;
   final String label;
 
-  const _StatColumn({required this.value, required this.label});
+  const _StatColumn({required this.value, required this.label, super.key});
 
   @override
   Widget build(BuildContext context) {

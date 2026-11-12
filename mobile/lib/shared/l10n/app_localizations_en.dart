@@ -5623,4 +5623,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get reputationHistoryNeedsConnection =>
       'Connect to the internet to see your history.';
+
+  @override
+  String get profileRatingNone => 'None yet';
 }

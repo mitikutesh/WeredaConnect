@@ -9586,6 +9586,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Connect to the internet to see your history.'**
   String get reputationHistoryNeedsConnection;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.5.0). The Profile Rating tile when the user has no ratings yet (also for buyers, who are not rated); short, it sits in a narrow tile above the word Rating
+  ///
+  /// In en, this message translates to:
+  /// **'None yet'**
+  String get profileRatingNone;
 }
 
 class _AppLocalizationsDelegate
