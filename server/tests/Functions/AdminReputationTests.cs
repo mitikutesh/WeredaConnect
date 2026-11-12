@@ -726,6 +726,46 @@ public class AdminReputationTests
         _auditRows.Should().ContainSingle();
     }
 
+    // ===== privacy: nothing admin-only reaches the party's own view =====
+
+    [Fact]
+    public async Task ThePartysOwnView_ShowsTheDecisionNote_ButNeverTheAdminsIdTheBuyerOrBasePoints()
+    {
+        await Penalty("farmer-1", "CANCEL#o1", T0.AddDays(-2), ReputationCodes.LateCancel, "buyer-secret");
+        await Penalty("farmer-1", "CANCEL#o2", T0.AddDays(-1), ReputationCodes.LateCancel, "buyer-secret-2");
+        await Appeal("farmer-1", "CANCEL#o1");
+        await Ok(Post(DecisionPath("farmer-1", "CANCEL#o1"), Decision("uphold", "The buyer confirmed the cancel.")));
+        _clock.Now = T0.AddMinutes(1);
+        await Ok(Post("/admin/users/farmer-1/reputation", Action("tag", until: T0.AddDays(30))));
+
+        var party = new ReputationFunction(_repo, Service()) { PenaltiesEnabled = true, Clock = () => _clock.Now };
+        APIGatewayProxyRequest Own(string path) => new()
+        {
+            HttpMethod = "GET",
+            Path = path,
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+            {
+                Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "farmer-1" }, { "custom:role", "farmer" } }
+            }
+        };
+
+        var me = await party.FunctionHandler(Own("/reputation/me"), _ctx);
+        var events = await party.FunctionHandler(Own("/reputation/me/events"), _ctx);
+
+        me.StatusCode.Should().Be(200, me.Body);
+        events.StatusCode.Should().Be(200, events.Body);
+        me.Body.Should().Contain("\"tag\":\"low\"").And.Contain("Repeated complaints from three buyers.");
+        events.Body.Should().Contain("The buyer confirmed the cancel.", "the party reads the admin's note");
+        foreach (var body in new[] { me.Body, events.Body })
+        {
+            body.Should().NotContain("admin-1").And.NotContain("decidedBy").And.NotContain("\"by\"")
+                .And.NotContain("buyer-secret").And.NotContain("basePoints").And.NotContain("OVERRIDE#");
+        }
+
+        // And the admin routes are not reachable with an app user's claims.
+        await Error(Request("GET", "/admin/users/farmer-1/reputation", null, groups: null, role: "farmer"), 403, "ADMIN_001");
+    }
+
     // ===== FUP-163: a suspend reaches the listings in the same request =====
 
     [Theory]
