@@ -121,16 +121,48 @@ public class SyncFunctionListingGuardTests
         await _crops.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<int>());
     }
 
-    [Fact]
-    public async Task Delete_FlagOff_IsNotGuarded()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Delete_WithAnActiveOrder_IsRefused_WhateverTheCommitmentsFlag(bool enabled)
     {
-        // Like TRIP_HAS_BOOKINGS, the code reaches clients only with COMMITMENTS_ENABLED (spec K1).
+        // SIM-56: with the flag off (staging, prod) a deleted listing still refused its delivery
+        // create, so the funded order below had no way to its truck. The guard no longer waits for
+        // the flag.
         OrderOnListing("funded");
 
-        var result = await DeleteAsync(enabled: false);
+        var result = await DeleteAsync(enabled: enabled);
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().StartWith("CROP_HAS_ACTIVE_ORDERS:");
+        await _crops.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Delete_WithOnlyFinishedOrders_GoesThrough_WhateverTheCommitmentsFlag(bool enabled)
+    {
+        OrderOnListing("settled");
+
+        var result = await DeleteAsync(enabled: enabled);
 
         result.GetProperty("status").GetString().Should().Be("success");
-        await _orders.DidNotReceive().QueryByListingAsync(Arg.Any<string>());
+        await _orders.Received(1).QueryByListingAsync(ListingId);
+        await _crops.Received(1).DeleteAsync(ListingId, 3);
+    }
+
+    [Fact]
+    public async Task Delete_FlagOff_NoAppBuild_GetsTheSentenceAsSyncValidation()
+    {
+        // FUP-241 holds with the flag off too: an app that predates the code gets a permanent one.
+        OrderOnListing("accepted");
+
+        var result = await DeleteAsync(enabled: false, appBuild: null);
+
+        result.GetProperty("message").GetString().Should().Be(
+            "SYNC_VALIDATION: This listing has 1 order(s) in progress. It cannot be deleted until they are completed or cancelled.");
+        await _crops.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<int>());
     }
 
     [Fact]
@@ -150,6 +182,18 @@ public class SyncFunctionListingGuardTests
         OrderOnListing("funded");
 
         var result = await UpdateAsync(new Dictionary<string, object> { { "status", "deleted" }, { "version", 3 } });
+
+        result.GetProperty("message").GetString().Should().StartWith("CROP_HAS_ACTIVE_ORDERS:");
+        await _crops.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task UpdateToDeleted_FlagOff_WithAnActiveOrder_IsRefusedToo()
+    {
+        OrderOnListing("payment_submitted");
+
+        var result = await UpdateAsync(
+            new Dictionary<string, object> { { "status", "deleted" }, { "version", 3 } }, enabled: false);
 
         result.GetProperty("message").GetString().Should().StartWith("CROP_HAS_ACTIVE_ORDERS:");
         await _crops.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
@@ -262,8 +306,9 @@ public class SyncFunctionListingGuardTests
     private Task<JsonElement> DeleteAsync(bool enabled = true, string? appBuild = CurrentAppBuild)
         => SendAsync(FarmerId, "farmer", Op("delete", new Dictionary<string, object> { { "version", 3 } }), enabled, appBuild);
 
-    private Task<JsonElement> UpdateAsync(Dictionary<string, object> data, string? appBuild = CurrentAppBuild)
-        => SendAsync(FarmerId, "farmer", Op("update", data), appBuild: appBuild);
+    private Task<JsonElement> UpdateAsync(
+        Dictionary<string, object> data, string? appBuild = CurrentAppBuild, bool enabled = true)
+        => SendAsync(FarmerId, "farmer", Op("update", data), enabled, appBuild);
 
     private static SyncOperationRequest Op(string action, Dictionary<string, object> data) => new()
     {

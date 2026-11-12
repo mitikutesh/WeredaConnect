@@ -405,7 +405,7 @@ platform pair of the Isar schema: a field added to one is added to the other.
   paths of section 6; the row reaches the device in the register, login and verify-otp
   responses.
 - The only profile change through `/sync` is the `user` entity (`sync-protocol.md` 1.28.0,
-  1.55.0): `action: update`, `entityId` = the caller, `data.preferredLanguage` in `en`, `am`,
+  1.57.0): `action: update`, `entityId` = the caller, `data.preferredLanguage` in `en`, `am`,
   `om` and, since 2.2.0, `displayName`, `woreda` and `companyName` (section 14); every other
   key is ignored. It is version-less for the client (the server reads the row and writes with
   its version); an unchanged value is a no-op `success`. The `profile` entity shown up to 1.3.2
@@ -530,7 +530,7 @@ never read from a client payload.
   device reaches this one; the device keeps its own copy while an edit of its own still waits in
   its queue.
 
-### Edit: the `/sync` `user` entity (`sync-protocol.md` 1.55.0)
+### Edit: the `/sync` `user` entity (`sync-protocol.md` 1.57.0)
 
 `action: update`, `entityId` = the caller, `data` with any of `displayName`, `woreda`,
 `companyName` and `preferredLanguage` (at least one). Offline-first: the phone queues the

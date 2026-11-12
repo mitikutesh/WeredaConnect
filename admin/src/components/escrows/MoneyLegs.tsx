@@ -14,8 +14,23 @@ import {
   recordedSplit,
 } from "@/lib/legs";
 import { partyName } from "@/lib/user";
+import { CorrectReference } from "./CorrectReference";
 
 type Row = Record<string, unknown>;
+
+/** FUP-218: a 1.x manual payout leg on the admin escrow DTO (escrow-protocol.md 1.8.0). */
+interface ManualLeg {
+  ref: string;
+  status: string;
+  externalRef?: string;
+  paidBy?: string;
+  paidAt?: string;
+}
+
+/** FUP-218: an admin recorded the leg (not the gateway), so its reference can be corrected. */
+function adminRecorded(status: string | undefined, paidBy: string | undefined, reference: string | undefined): boolean {
+  return (status === "paid" || status === "done") && !!paidBy && paidBy !== "gateway" && !!reference;
+}
 
 function LegRow({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -86,6 +101,61 @@ export function RecordedSplitRow({ escrow }: { escrow: Row }) {
         locale,
       )} · ${t("legs.buyerGets")} ${formatETB(split.buyerRefund, locale)}`}
     </LegRow>
+  );
+}
+
+/**
+ * FUP-218: the legs of a 1.x escrow's manual payout (1.8.0), open or closed: who was paid, under which Telebirr
+ * transaction ID and who recorded it. A leg an admin recorded can have its ID corrected here; one the gateway paid
+ * cannot. Renders nothing for an escrow that never entered the queue (and for a ledger escrow, whose rows are in the
+ * ledger card).
+ */
+export function ManualLegsCard({ escrow }: { escrow: Row }) {
+  const { t } = useLocale();
+  const legs = Array.isArray(escrow.manualLegs) ? (escrow.manualLegs as ManualLeg[]) : [];
+  if (legs.length === 0) return null;
+  const escrowId = String(escrow.escrowId || "");
+
+  return (
+    <Card className="lg:col-span-2">
+      <h3 className="mb-1 font-semibold">{t("legs.manualLegsTitle")}</h3>
+      <p className="mb-4 text-xs text-text-muted">{t("legs.manualLegsHint")}</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <caption className="sr-only">{t("legs.manualLegsTitle")}</caption>
+          <thead>
+            <tr className="border-b border-gray-200 text-xs text-text-muted">
+              <th scope="col" className="px-2 py-2 font-medium">{t("payouts.payee")}</th>
+              <th scope="col" className="px-2 py-2 font-medium">{t("legs.colStatus")}</th>
+              <th scope="col" className="px-2 py-2 font-medium">{t("payouts.externalRef")}</th>
+              <th scope="col" className="px-2 py-2 font-medium">{t("payouts.paidBy")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {legs.map((leg) => (
+              <tr key={leg.ref} className="border-b border-gray-100 align-top">
+                <td className="px-2 py-2">{labelOrRaw(t, `payouts.role_${leg.ref}`, leg.ref)}</td>
+                <td className="px-2 py-2">
+                  <Badge variant={leg.status === "paid" ? "success" : "warning"}>
+                    {labelOrRaw(t, `payouts.${leg.status}`, leg.status)}
+                  </Badge>
+                  {leg.paidAt && <span className="mt-1 block text-xs">{formatDateTime(leg.paidAt)}</span>}
+                </td>
+                <td className="px-2 py-2 font-mono text-xs">
+                  {leg.externalRef || ""}
+                  {adminRecorded(leg.status, leg.paidBy, leg.externalRef) && (
+                    <CorrectReference escrowId={escrowId} legRef={leg.ref} currentRef={leg.externalRef!} />
+                  )}
+                </td>
+                <td className="px-2 py-2 text-xs">
+                  {leg.paidBy === "gateway" ? t("legs.paidByGateway") : leg.paidBy || ""}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 
@@ -163,7 +233,7 @@ export function LedgerCard({ escrow }: { escrow: Row }) {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <LedgerTableRow key={row.ref} row={row} />
+                <LedgerTableRow key={row.ref} row={row} escrowId={escrowId} />
               ))}
             </tbody>
           </table>
@@ -185,7 +255,7 @@ export function LedgerCard({ escrow }: { escrow: Row }) {
   );
 }
 
-function LedgerTableRow({ row }: { row: LedgerRow }) {
+function LedgerTableRow({ row, escrowId }: { row: LedgerRow; escrowId: string }) {
   const { t, locale } = useLocale();
   return (
     <tr className="border-b border-gray-100 align-top">
@@ -217,6 +287,10 @@ function LedgerTableRow({ row }: { row: LedgerRow }) {
       <td className="px-2 py-2 font-mono text-xs">
         {row.telebirrRef || ""}
         <span className="block text-text-muted">{row.gatewayRef}</span>
+        {/* FUP-218: a row an admin recorded in Manual Payouts can have its reference corrected. */}
+        {adminRecorded(row.status, row.paidBy, row.telebirrRef) && (
+          <CorrectReference escrowId={escrowId} legRef={row.ref} currentRef={row.telebirrRef!} />
+        )}
       </td>
       <td className="px-2 py-2 text-xs">
         <span className="block">

@@ -390,10 +390,11 @@ describe('ApiStack', () => {
     // /reputation/appeals/photo-url and /reputation/events/{eventId}/appeal (ESC-29),
     // plus GET /admin/escrows/{id}/ledger and GET /admin/orders/queue (ESC-24) → 76,
     // plus GET and POST /admin/users/{id}/reputation, GET /admin/reputation/appeals and POST
-    // /admin/users/{id}/reputation/events/{eventId}/decision (ESC-32) → 80,
-    // plus GET /user/profile (SIM-56) → 81 total. FUP-05: the claim and
-    // unclaim actions share POST /admin/payouts/{escrowId}/{ref}/{action} with complete (no new route).
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 81);
+    // /admin/users/{id}/reputation/events/{eventId}/decision (ESC-32) → 80. FUP-05: the claim and
+    // unclaim actions share POST /admin/payouts/{escrowId}/{ref}/{action} with complete (no new route),
+    // and so does FUP-218's correct. Plus GET /intents (SIM-56, the buyer's own requests) → 81,
+    // plus GET /user/profile (SIM-56) → 82 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 82);
   });
 
   test('GET /user/profile is a JWT route on the sync Lambda\'s integration (SIM-56)', () => {
@@ -773,6 +774,39 @@ describe('ApiStack', () => {
     );
   });
 
+  test('SIM-56: GET /intents sits on the mobile JWT authorizer, on the match Lambda, which only queries intents', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const mobileAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'CognitoAuthorizer')?.[0];
+    expect(mobileAuthorizerId).toBeDefined();
+    const routes = Object.values(template.findResources('AWS::ApiGatewayV2::Route'));
+    const intents = routes.filter((r) => r.Properties.RouteKey === 'GET /intents');
+    expect(intents).toHaveLength(1);
+    expect([intents[0].Properties.AuthorizationType, intents[0].Properties.AuthorizerId]).toEqual([
+      'JWT',
+      { Ref: mobileAuthorizerId },
+    ]);
+
+    // The same integration as GET /match (FUP-217: one per Lambda), payload 1.0.
+    const match = routes.find((r) => r.Properties.RouteKey === 'GET /match');
+    expect(intents[0].Properties.Target).toEqual(match!.Properties.Target);
+    const fnId = lambdaId('wereda-connect-dev-match');
+    const integrations = Object.values(template.findResources('AWS::ApiGatewayV2::Integration')).filter((i) =>
+      JSON.stringify(i.Properties.IntegrationUri).includes(fnId),
+    );
+    expect(integrations).toHaveLength(1);
+    expect(integrations[0].Properties.PayloadFormatVersion).toBe('1.0');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-match',
+      Environment: {
+        Variables: Match.objectLike({ FUNCTION_HANDLER: 'MatchFunction', INTENTS_TABLE: Match.anyValue() }),
+      },
+    });
+    // One Query of the caller's partition; no write, no Scan, no other read.
+    expect(roleActions('MatchFunctionServiceRole', (r) => r.includes('IntentsTable'))).toEqual(['dynamodb:Query']);
+  });
+
   test('FUP-124: the messages Lambda has the orders and deliveries tables and only Query on them', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-messages',
@@ -972,7 +1006,7 @@ describe('ApiStack', () => {
     }
   });
 
-  test('admin Lambda can put its claim and reference rows and read them, nothing else, on escrow-idempotency (FUP-02, FUP-05)', () => {
+  test('admin Lambda can put its claim and reference rows, read them and delete a corrected reference, nothing else, on escrow-idempotency (FUP-02, FUP-05, FUP-218)', () => {
     // The role's statements overflow into a managed policy, so read both kinds.
     const policies = {
       ...template.findResources('AWS::IAM::Policy'),
@@ -990,8 +1024,9 @@ describe('ApiStack', () => {
       .filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'))
       .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
     // TransactWriteItems is authorized per item: a conditional Put needs PutItem only. FUP-05: a refused
-    // duplicate payout reference reads its item to name where the reference is used.
-    expect([...actions].sort()).toEqual(['dynamodb:GetItem', 'dynamodb:PutItem']);
+    // duplicate payout reference reads its item to name where the reference is used. FUP-218: a correction's
+    // transaction deletes the old reference item (a conditional Delete needs DeleteItem only).
+    expect([...actions].sort()).toEqual(['dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:PutItem']);
 
     const admin = Object.values(template.findResources('AWS::Lambda::Function')).find(
       (fn) => fn.Properties?.FunctionName === 'wereda-connect-dev-admin',
@@ -2278,6 +2313,22 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
         template.hasResourceProperties('AWS::Lambda::Function', {
           FunctionName: `wereda-connect-${envName}-${fn}`,
           Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'false' }) },
+        });
+      }
+    }
+  });
+
+  test('ESC-34: every environment keeps the pickup judgement off on sync and order-cron', () => {
+    const templates: [string, ReturnType<typeof liveTemplate>][] = [
+      ['dev', liveTemplate(environments['dev'])],
+      ['staging', liveTemplate(environments['staging'])],
+      ['prod', liveTemplate(environments['prod'])],
+    ];
+    for (const [envName, template] of templates) {
+      for (const fn of ['sync', 'order-cron']) {
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          FunctionName: `wereda-connect-${envName}-${fn}`,
+          Environment: { Variables: Match.objectLike({ PICKUP_CLASSIFICATION_ENABLED: 'false' }) },
         });
       }
     }

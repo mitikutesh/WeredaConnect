@@ -368,6 +368,10 @@ public partial class SyncFunction
         // Fieldway trip bookings (order-lifecycle 2.2.0): the farm and the drop-off place of the
         // order, stamped at create from the listing and the buyer's profile.
         "pickupPlace", "dropoffPlace",
+        // ESC-34: the pickup judgement, the check-ins (written only by handoff_check_in) and the
+        // pickup point stamped when the order became judgeable.
+        PickupJudgement.Field, PickupJudgement.JudgedAtField, PickupJudgement.CheckInsField,
+        PickupJudgement.PickupLatitudeField, PickupJudgement.PickupLongitudeField,
         // ESC-16: the order's next deadline (DeadlineIndex); every order write derives it itself.
         OrderDeadlines.AtField, OrderDeadlines.KindField, OrderDeadlines.ShardField
     };
@@ -1088,6 +1092,8 @@ public partial class SyncFunction
                 LocationPingRules.EntityType => await ProcessLocationPingAsync(operation, authenticatedUserId, context),
                 DeliveryPhotoKeys.EntityType => await ProcessDeliveryPhotoAsync(operation, authenticatedUserId, context),
                 ListingReportRules.EntityType => await ProcessListingReportAsync(operation, authenticatedUserId, authenticatedRole, context),
+                // ESC-34: with the flag off the entity does not exist (the unsupported answer below).
+                PickupJudgement.EntityType when PickupJudgementOn => await ProcessHandoffCheckInAsync(operation, authenticatedUserId, context),
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
@@ -2107,7 +2113,7 @@ public partial class SyncFunction
 
     /// <summary>
     /// SIM-37: update the caller's own user profile from a sync `update`. Allow-listed:
-    /// `preferredLanguage` (en, am, om) and, since SIM-56 (sync-protocol.md 1.55.0),
+    /// `preferredLanguage` (en, am, om) and, since SIM-56 (sync-protocol.md 1.57.0),
     /// `displayName`, `woreda` and a company buyer's `companyName` (<see cref="UserProfileEdit"/>).
     /// Every other key in the payload is ignored, so a client cannot change its role, phone,
     /// verification or any admin field through this path. The field rules run first, then the
@@ -4979,6 +4985,14 @@ public partial class SyncFunction
                     // as a conflict, like the loser of any status race (SIM-28).
                     var currentStatus = existing.TryGetValue("status", out var existingStatusAttr)
                         ? existingStatusAttr.S : "pending";
+
+                    // ESC-34: a pickup scan after the order's pickup was judged is late evidence,
+                    // whether the judgement cancelled the delivery or left it pending.
+                    if (await RefuseLatePickupAsync(operation, existing, currentStatus, authenticatedUserId, context) is { } latePickup)
+                    {
+                        return latePickup;
+                    }
+
                     if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
                         && !string.IsNullOrEmpty(deletedAtAttr.S))
                     {
@@ -6474,7 +6488,9 @@ public partial class SyncFunction
                 Message = $"ORDER_VALIDATION: Invalid action '{operation.Action}' for orders. Allowed: create, update."
             }
         };
-        return OrderDeliveryLocation.ForCaller(OrderDropoffNote.ForCaller(result, authenticatedUserId), authenticatedUserId);
+        // ESC-34: the check-ins as the parties read them, without the stamped pickup point.
+        return PickupJudgement.ForClient(
+            OrderDeliveryLocation.ForCaller(OrderDropoffNote.ForCaller(result, authenticatedUserId), authenticatedUserId));
     }
 
     /// <summary>
@@ -8006,6 +8022,15 @@ public partial class SyncFunction
             {
                 return CancelNotAllowed(operation,
                     $"The crops can still be collected until {PickupDeadline.Format(deadline.Value)}.");
+            }
+
+            // ESC-34: with pickupClassification on, the pickup judgement decides an order accepted under
+            // it (a trucker no-show reaches awaiting_transport, where the buyer cancels; a farmer no-show
+            // is refunded; the admin queue holds the money), so the buyer's deadline cancel is not taken.
+            if (PickupJudgementOn && PickupJudgement.IsStamped(order))
+            {
+                return CancelNotAllowed(operation,
+                    "The pickup is judged from the arrival check-ins; you will be told the outcome.");
             }
         }
 

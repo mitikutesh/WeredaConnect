@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useLocale } from "@/hooks/useLocale";
 import { useManualPayouts, useCompleteManualPayout, useManualPayoutClaim } from "@/hooks/useQuery";
 import { formatETB, formatDateTime } from "@/lib/i18n";
+import { referenceUsedOn } from "@/lib/payoutRef";
 import { partyName } from "@/lib/user";
 
 /* Manual payout queue (ESC-02). The live Telebirr gateway has no payout API, so a
@@ -92,15 +93,6 @@ function fill(template: string, values: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_, k: string) => values[k] ?? "");
 }
 
-/* FUP-05: the server names where a refused reference is used in a fixed form,
- * "... on escrow <escrowId>, leg <ref>.", so the page can say it in the admin's language. */
-const USED_ON = /on escrow (\S+), leg (\S+?)\.$/;
-
-function referenceUsedOn(message: string | undefined): { escrowId: string; ref: string } | null {
-  const match = USED_ON.exec(message ?? "");
-  return match ? { escrowId: match[1], ref: match[2] } : null;
-}
-
 /* FUP-05: an ESCROW_046 message starts "Another admin (<id>) has claimed this leg until <time>." */
 const CLAIM_HOLDER = /^Another admin \((.+?)\) has claimed this leg/;
 
@@ -141,6 +133,8 @@ export function ManualPayoutsPage() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  /* FUP-218: the escrow a refused reference is recorded on, so the admin can open it and correct it there. */
+  const [usedOn, setUsedOn] = useState<{ escrowId: string; ref: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const pages = (data?.pages ?? []) as { payouts?: ManualPayout[] }[];
@@ -169,6 +163,7 @@ export function ManualPayoutsPage() {
     if (!externalRef) return;
     setSubmitting(row.key);
     setErrorMsg(null);
+    setUsedOn(null);
     setNotice(null);
     complete.mutate(
       { escrowId: row.payout.escrowId, ref: row.leg.ref, externalRef },
@@ -184,6 +179,7 @@ export function ManualPayoutsPage() {
           const { code, message } = err as { code?: string; message?: string };
           const holder = code === "ESCROW_046" ? claimHolder(message) : null;
           setErrorMsg(holder ? fill(t("payouts.claimedOnRecord"), { admin: holder }) : errorText(err));
+          setUsedOn(code === "ESCROW_047" ? referenceUsedOn(message) : null);
           setConfirming(null);
         },
         onSettled: () => setSubmitting(null),
@@ -195,6 +191,7 @@ export function ManualPayoutsPage() {
   function changeClaim(row: Row, action: "claim" | "unclaim", renew = false) {
     setClaiming(row.key);
     setErrorMsg(null);
+    setUsedOn(null);
     setNotice(null);
     claim.mutate(
       { escrowId: row.payout.escrowId, ref: row.leg.ref, action },
@@ -519,6 +516,11 @@ export function ManualPayoutsPage() {
           className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger"
         >
           {errorMsg}
+          {usedOn && (
+            <Link to={`/escrows/${encodeURIComponent(usedOn.escrowId)}`} className="mt-1 block font-medium underline">
+              {fill(t("payouts.openToCorrect"), { escrowId: usedOn.escrowId })}
+            </Link>
+          )}
         </div>
       )}
       {isError && (

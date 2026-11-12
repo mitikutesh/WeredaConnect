@@ -71,6 +71,13 @@ public partial class OrderCronFunction
     public bool CommitmentsEnabled { get; init; } = OrderCommitment.IsEnabled;
 
     /// <summary>
+    /// ESC-34: <c>pickupClassification</c>. On, an order stamped <c>pickupJudgement: pending</c> is judged
+    /// by its check-ins at its pickup deadline; off, such an order gets the P1 marker and its stamp is
+    /// cleared (<see cref="EndPickupJudgementAsync"/>). Orders without the stamp never notice the flag.
+    /// </summary>
+    public bool PickupClassificationEnabled { get; init; } = PickupJudgement.IsEnabled;
+
+    /// <summary>
     /// FRD-15 (fraud-detection-architecture.md section 15.2): the relationship scan. The Lambda wires it when
     /// <c>FRAUD_SIGNALS_TABLE</c> and <c>USERS_TABLE</c> are set; without it (the test constructor) the action
     /// logs <c>FRAUD_RELATIONSHIP_UNCONFIGURED</c> and writes nothing.
@@ -620,6 +627,10 @@ public partial class OrderCronFunction
         public int TruckerReminders;
         public int BuyerReminders;
         public int PickupOverdue;
+
+        /// <summary>ESC-34: pickups judged by their check-ins (any outcome).</summary>
+        public int PickupJudged;
+
         public int Conflicts;
         public int TripReads;
         public int DepartedTripsClosed;
@@ -656,6 +667,7 @@ public partial class OrderCronFunction
             { "truckerReminders", TruckerReminders.ToString() },
             { "buyerReminders", BuyerReminders.ToString() },
             { "pickupOverdue", PickupOverdue.ToString() },
+            { "pickupJudged", PickupJudged.ToString() },
             { "conflicts", Conflicts.ToString() },
             { "tripReads", TripReads.ToString() },
             { "departedTripsClosed", DepartedTripsClosed.ToString() },
@@ -916,14 +928,23 @@ public partial class OrderCronFunction
 
     /// <summary>
     /// A due <c>accepted</c> order: (c) a trip that is gone parks the order with the buyer and
-    /// cancels its pending delivery; (f) a pickup past its deadline is marked overdue once.
+    /// cancels its pending delivery; (f) a pickup past its deadline is marked overdue once, or (ESC-34)
+    /// judged by the arrival check-ins when the order was accepted with <c>pickupClassification</c> on.
     /// </summary>
     private async Task<DeadlineOutcome> DecideAcceptedAsync(
-        Dictionary<string, object> order, string orderId, CommitmentRun run, ITripRepository trips)
+        Dictionary<string, object> order, string orderId, CommitmentRun run,
+        EscrowService escrow, ICropRepository crops, ITripRepository trips)
     {
         if (await TripIsGoneAsync(order, OrderCommitment.TruckerResponseOf(order), run, trips))
         {
             return await FailAcceptedForCancelledTripAsync(order, orderId, run);
+        }
+
+        if (PickupJudgement.IsPending(order))
+        {
+            return PickupClassificationEnabled
+                ? await JudgePickupAsync(order, orderId, run, escrow, crops, trips)
+                : await EndPickupJudgementAsync(order, orderId, run);
         }
 
         return await MarkPickupOverdueAsync(order, orderId, run);

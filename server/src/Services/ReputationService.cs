@@ -571,6 +571,7 @@ public sealed partial class ReputationService
             DueDay = ReputationPolicy.Day(expires),
             DueAt = ReputationPolicy.Iso(expires),
             SourceSeq = c.SourceSeq,
+            ReportedBy = c.ReportedBy,
             PurgeAt = Epoch(isCompletion ? c.OccurredAt + ReputationPolicy.CompletionRetention : now + ReputationPolicy.PenaltyRetention)
         };
     }

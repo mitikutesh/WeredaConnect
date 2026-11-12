@@ -345,6 +345,38 @@ export function useManualPayoutClaim() {
   });
 }
 
+// FUP-218: replace the portal reference of a leg an admin recorded by mistake (a 1.x leg name or a ledger
+// ref). Nothing is paid or refunded; the escrow page, its audit trail and its ledger reload either way, so a
+// refusal (the leg changed, the ID is recorded elsewhere) shows the leg as it is now.
+export function useCorrectPayoutReference() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      escrowId,
+      ref,
+      oldExternalRef,
+      externalRef,
+      reason,
+    }: {
+      escrowId: string;
+      ref: string;
+      oldExternalRef: string;
+      externalRef: string;
+      reason: string;
+    }) =>
+      api.post<{ alreadyCorrected?: boolean }>(
+        `/admin/payouts/${encodeURIComponent(escrowId)}/${encodeURIComponent(ref)}/correct`,
+        { oldExternalRef, externalRef, reason },
+      ),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+  });
+}
+
 // Unapplied payments (FUP-02): captured Telebirr payments the webhook did not apply.
 // The server pages through the escrow audit, so a page can be empty while more remain.
 export function useUnappliedPayments() {

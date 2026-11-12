@@ -182,6 +182,9 @@ public partial class SyncFunction
             }
 
             fields[PickupDeadline.Field] = PickupDeadline.Format(pickupDeadline.Value);
+
+            // ESC-34: with pickupClassification on, the pickup is judged by the arrival check-ins.
+            await StampPickupJudgementAsync(existingOrder, fields, context);
         }
         else if (actor == CommitmentActor.Farmer && command == OrderCommitment.AcceptCommand)
         {

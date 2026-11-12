@@ -4,7 +4,7 @@ import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/utils/contact_in_text.dart';
 
-/// The sync entity that carries a profile edit (sync-protocol.md 1.55.0).
+/// The sync entity that carries a profile edit (sync-protocol.md 1.57.0).
 const String userProfileEntityType = 'user';
 
 /// What a profile edit changes (SIM-56): only the fields whose trimmed value

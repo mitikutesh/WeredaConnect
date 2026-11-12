@@ -69,6 +69,10 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(MatchDto))]
 [JsonSerializable(typeof(List<MatchDto>))]
 [JsonSerializable(typeof(GetMatchesResponse))]
+// SIM-56: GET /intents, the buyer's own requests.
+[JsonSerializable(typeof(IntentDto))]
+[JsonSerializable(typeof(List<IntentDto>))]
+[JsonSerializable(typeof(ListIntentsResponse))]
 [JsonSerializable(typeof(RegisterDeviceTokenRequest))]
 [JsonSerializable(typeof(RegisterDeviceTokenResponse))]
 // DynamoDB stream partial-batch-response (CropMatchStreamFunction)
@@ -105,6 +109,11 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(CompleteManualPayoutRequest))]
 [JsonSerializable(typeof(CompleteManualPayoutResponse))]
 [JsonSerializable(typeof(ManualPayoutClaimResponse))]
+// Correction of a recorded payout reference (FUP-218, admin)
+[JsonSerializable(typeof(CorrectPayoutReferenceRequest))]
+[JsonSerializable(typeof(CorrectPayoutReferenceResponse))]
+[JsonSerializable(typeof(AdminManualLegDto))]
+[JsonSerializable(typeof(List<AdminManualLegDto>))]
 // Manual refund of an unapplied payment (FUP-02, admin)
 [JsonSerializable(typeof(UnappliedPaymentDto))]
 [JsonSerializable(typeof(List<UnappliedPaymentDto>))]
@@ -140,6 +149,9 @@ namespace WeredaConnect.Server;
 // Order DTOs
 [JsonSerializable(typeof(OrderDto))]
 [JsonSerializable(typeof(List<OrderDto>))]
+// ESC-34: the arrival check-ins on an order.
+[JsonSerializable(typeof(OrderCheckInDto))]
+[JsonSerializable(typeof(Dictionary<string, OrderCheckInDto>))]
 [JsonSerializable(typeof(GetOrdersResponse))]
 [JsonSerializable(typeof(GetOrderResponse))]
 // Rating DTOs

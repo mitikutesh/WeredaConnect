@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.17.0
+2.18.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -5039,6 +5039,9 @@ table, index, route resource or env var.
   reference (`manual{Leg}Ref` and the settlement reference fields, or the ledger row's `telebirrRef`) and the
   `payout-ref#` items, with an escrow-audit row naming the change and the admin who asked; then B is recorded
   in the app as usual. If A was never paid, the record of A itself is wrong and the same escalation applies.
+  Built in 2.18.0: an admin corrects A's reference from the escrow page (`POST
+  /admin/payouts/{escrowId}/{ref}/correct`), then records B. A record of A that was never paid still needs the
+  escalation (FUP-310).
 
 ---
 
@@ -5221,7 +5224,8 @@ conflicts=<n> failed=<n> skipped=<n> scanDone=<true|false> marker=<status|none> 
 
 - The backfill is built, not run: it needs AWS credentials, once per environment (dev, staging, prod).
 - A reference recorded on two legs before 2.12.0 stays on both rows; the backfill only names them. Its
-  correction is the engineer's procedure of 2.12.0 until FUP-218.
+  correction is the engineer's procedure of 2.12.0 until FUP-218. Since 2.18.0 an admin corrects the wrong leg
+  from the escrow page; the item stays with the leg that holds it.
 
 ---
 
@@ -5333,6 +5337,163 @@ money is held.
 No endpoint, status, amount, settlement or timing change. Apps built before 2.16.0 do not read
 `deliveryConfirmedAt` and keep the old fallback, so until they are updated they still read a confirmed
 hold past its `expiresAt` as "Refund pending" (the server flag they also read is now false).
+
+## Additions in 2.18.0 (correcting a recorded payout reference, FUP-218)
+
+Closes the 2.12.0 known limit "No correction of a reference recorded by mistake". When an admin records leg A
+with the portal id of the payment made for leg B, B's own record is refused (`409 ESCROW_047` names A). An admin
+now replaces A's reference from the admin app, then records B as usual. Both settlement models. Nothing about
+money changes: no amount, status, leg status, paid time, recorder, ledger decision, settlement lock or queue
+entry, and the gateway is never called. 2.16.0 and 2.17.0 are other changes' numbers.
+
+### POST /admin/payouts/{escrowId}/{ref}/correct
+
+Admin pool **and** the `admin` group (`403 ESCROW_015`), on the route of complete, claim and unclaim (2.12.0; no
+new route). `{ref}` is a 1.x leg name or a ledger ref (`release%23farmer`). Body:
+
+```json
+{
+  "oldExternalRef": "TB-B-PAYMENT",
+  "externalRef": "TB-A-PAYMENT",
+  "reason": "Recorded with the portal id of the other refund."
+}
+```
+
+- `externalRef`: the leg's real portal transaction id, trimmed, the rule of 1.8.0 (`400 ESCROW_037`, `field:
+  externalRef`). It must differ from the recorded one other than in case: the same id in another case is the
+  same `payout-ref#` key (`400 ESCROW_037` too).
+- `oldExternalRef`: the reference the page showed, trimmed, the same rule (`400 ESCROW_037`, `field:
+  oldExternalRef`). The leg must still carry it exactly.
+- `reason`: 10 to 500 characters after trimming (`400 ESCROW_048`, `field: reason`), the rule of the other admin
+  reasons (1.21.0, 2.15.0).
+
+The legs it corrects: a 1.x leg whose `manual{Leg}Status` is `paid`, or a ledger row that is `done`, recorded by
+an admin (`manual{Leg}PaidBy` or `paidBy` other than `gateway`), with the queue open or closed and the escrow in
+any status. The service reads the leg strongly consistent and writes one `TransactWriteItems`:
+
+| Item | Write | Condition |
+|---|---|---|
+| 1.x: the escrow row | `manual{Leg}Ref` = new, `updatedAt`, `version` + 1 (1.38.0: an escrow read returns the references); and the leg's settlement reference field (`telebirrReleaseRef` for the farmer, `truckerTelebirrRef` for the trucker, `telebirrRefundRef` for the buyer) when it holds the old reference | the leg `paid` with the old reference and the recorder read, the status read, the version read (`attribute_not_exists(version)` on a row without one), and the settlement field still the old reference when it is written |
+| ledger: the row | `telebirrRef` = new, `version` + 1; `updatedAt` and `doneAt` stay (they are the row's paid time) | the version read, `done`, the old reference, the recorder read |
+| ledger: the escrow row, for a row of `amount` whose settlement field (the same three, by the row's payee) holds the old reference | that field = new, `updatedAt`, `version` + 1 | the escrow version read (2.2.0) and the field still the old reference |
+| the old `payout-ref#` item, when it names this escrow and leg | Delete | `escrowId` and `ref` still this leg's |
+| the new `payout-ref#` item | Put: the record's item of 2.12.0, `recordedBy` the correcting admin, `recordedAt` the correction (400 day TTL from it) | `attribute_not_exists(idempotencyKey)` |
+| escrow-audit `manual_payout_ref_corrected` | Put at the correction's time | append-only |
+
+- An old item that names another leg (one portal reference recorded on two legs before 2.12.0, which the FUP-215
+  backfill gave to the other leg) or no old item at all is left alone. An old item that cannot be read stops the
+  call (`500`, nothing written): taking it as absent would leave it naming this leg and keep B refused.
+- A settlement field that holds anything else is left alone: on an open 1.x queue the close has not written it
+  yet, and on a ledger escrow a later row of the same payee may have written its own.
+- **The 1.x close (1.8.0) now guards what it copies.** Its write conditions each settlement reference it copies
+  from another paid leg on that leg still carrying it (`manual{Leg}Ref` = the value copied; nothing for an empty
+  value), so a correction that lands between the close's read and its write makes the close fail its condition,
+  read again and copy the corrected reference. A close with no correction in between is unchanged.
+- Any condition that fails, or a transaction conflict, writes nothing: the service reads the leg again and
+  decides again, at most 3 times, then answers `409 ESCROW_036`.
+
+`200`:
+
+```json
+{
+  "escrowId": "escrow-order-ord-1",
+  "orderId": "ord-1",
+  "ref": "buyer",
+  "oldExternalRef": "TB-B-PAYMENT",
+  "externalRef": "TB-A-PAYMENT",
+  "reason": "Recorded with the portal id of the other refund.",
+  "correctedBy": "<admin id>",
+  "correctedAt": "2026-11-12T10:00:00.0000000Z",
+  "alreadyCorrected": false,
+  "message": "Reference corrected."
+}
+```
+
+`alreadyCorrected: true` (with `correctedBy` and `correctedAt` absent) when the leg already carries `externalRef`:
+a replay (a double click, a retry after a lost answer) writes nothing, not even an audit row. A transaction that
+loses to the same correction finds the new item naming this leg, reads the leg again and answers the replay.
+
+| Status | Code | When |
+|---|---|---|
+| `200` | | corrected, or `alreadyCorrected` |
+| `400` | `ADMIN_005` | body missing or not JSON |
+| `400` | `ESCROW_037` | `externalRef` or `oldExternalRef` malformed, or the new reference is the recorded one (the field says which) |
+| `400` | `ESCROW_048` | `reason` missing, shorter than 10 or longer than 500 characters after trimming (`field: reason`) |
+| `403` | `ESCROW_015` | caller not in the admin group |
+| `404` | `ESCROW_016` | 1.x escrow not found |
+| `404` | `ESCROW_035` | unknown leg or ledger row, or the escrow has no manual payout leg of that name |
+| `409` | `ESCROW_035` | the leg is not recorded yet (record it in Manual Payouts), or the gateway paid it (its reference is Telebirr's, never an admin's mistake) |
+| `409` | `ESCROW_036` | the leg carries another reference than `oldExternalRef` (`field: oldExternalRef`), or it changed three times while being corrected |
+| `409` | `ESCROW_047` | the new reference is recorded on another leg, of another escrow or of the same 1.x escrow (`field: externalRef`), in the fixed form of 2.12.0: `This reference is already recorded on escrow {escrowId}, leg {ref}.` |
+| `503` | `ADMIN_004` | escrow tables or `ESCROW_IDEMPOTENCY_TABLE` not configured |
+| `503` | `ESCROW_012` | a ledger ref without the ledger table |
+
+### Audit
+
+- escrow-audit `manual_payout_ref_corrected`, written in the transaction: from = to = the escrow status (empty
+  for a ledger row outside `amount`), actor the correcting admin, `telebirrRef` the new reference, metadata
+  `leg={leg}` (1.x) or `ref={ledger ref}`, then `;oldRef=..;newRef=..;reason=..` (the reason last: free text). The
+  `manual_payout_paid` or `ledger_done` row and every row before it keep the old reference, so the trail shows both.
+- transaction-audit (the admin Audit Log) `admin_manual_payout_ref_corrected`, transaction id the order (else the
+  escrow), metadata `leg=..;oldRef=..;newRef=..;reason=..`, written after the transaction, once per correction
+  (none on a replay); a failed write never changes the answer.
+- Log line `ESCROW_PAYOUT_REF_CORRECTED escrowId=<id> ref=<leg>`, with no reference in it. No new alarm.
+
+### What follows the correction
+
+- A record of the corrected leg with the new reference is a replay (`alreadyRecorded: true`); with the old one it
+  is `409 ESCROW_036`. B's record with the freed reference lands and writes its own item.
+- The FUP-215 backfill finds the new item held by the same leg (`present`).
+- The escrow `version` goes up by one when the escrow row is written (always for a 1.x leg); a ledger row's own
+  `version` goes up by one.
+
+### Admin escrow DTO
+
+Every admin route that returns an escrow (2.7.0) gains `manualLegs` on a 1.x escrow that ever entered the manual
+payout queue (the leg attributes stay on the row after the close): one entry per leg with `ref`, `status`
+(`pending` or `paid`), `externalRef`, `paidBy` (an admin id, or `gateway`) and `paidAt`. Absent otherwise. Party
+routes never fill it.
+
+### Admin pages
+
+- **Escrow detail:** a 1.x escrow lists its manual payout legs (a "Manual payouts" card); a ledger escrow's done
+  rows are in its ledger table. A leg or row an admin recorded offers **Correct reference**: the recorded ID, the
+  correct ID and a reason of 10 to 500 characters, then a confirm step that shows the old and the new ID and the
+  reason before anything is sent. A leg the gateway paid or one not recorded yet offers nothing. `ESCROW_047`
+  names the escrow and leg from the server message, `ESCROW_036` asks to reload, `ESCROW_048` gives the reason
+  rule. en, am and om. The page still pays and marks nothing (2.7.0).
+- **Manual Payouts:** a record refused with `ESCROW_047` links to the escrow that holds the reference, where a
+  wrong record is corrected.
+- The audit trail and the Audit Log label both new rows.
+
+### Infrastructure
+
+The admin Lambda gains `dynamodb:DeleteItem` on escrow-idempotency (the old item's conditional Delete in the
+transaction). The writes on the escrows, ledger and escrow-audit tables use the existing grants. No new route,
+table, index or env var.
+
+### Not in 2.18.0 (known limits)
+
+- No undo of a record of a leg that was never paid (an admin recorded A, but nobody paid A): a correction changes
+  the reference, never the leg's status, so the escalation of 2.12.0 still applies to that case (FUP-310).
+- A portal reference recorded on two legs before 2.12.0, corrected on the leg the backfill gave its item to: the
+  item goes with the correction, and the other leg carries the reference without an item until the backfill reads
+  it again (delete the backfill marker and run it, `.ai/deployment.md` 3d).
+- The FUP-215 backfill's put checks only that the key is free, not that the leg still carries the reference: a
+  correction that lands while a backfill run is between its read of the leg and its put can leave an item naming
+  the corrected leg under its old reference, which then refuses the real leg's record. Correct legs after the
+  backfill run, not during it (FUP-311).
+- As for the record (1.8.0), the server cannot check a reference against Telebirr: the admin reads the portal.
+- A crosswise mistake (leg A recorded with B's reference and B with A's) cannot be corrected one leg at a time:
+  each correction is refused `ESCROW_047` by the other leg's item. Correct one leg to a placeholder the portal
+  never issues (for example `FIX-{escrowId}-A`, with the reason saying so), then the other leg to its real
+  reference, then the first leg to its real reference (FUP-313).
+- A stale item that names this leg under the new reference while the leg carries another one (the FUP-311
+  backfill race) makes the correction retry and answer `409 ESCROW_036`; delete the backfill marker, rerun the
+  backfill after the run in progress, or ask an engineer (FUP-311).
+- The transaction-audit row is written after the transaction; if the Lambda stops between the two, a replay
+  answers `alreadyCorrected` and does not write it. The escrow-audit row is part of the transaction, so the
+  correction is always on the escrow's trail.
 
 ---
 
@@ -5680,6 +5841,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.18.0 | 2026-11-12 | Correcting a recorded payout reference (FUP-218, closes the 2.12.0 known limit; §Additions in 2.18.0). `POST /admin/payouts/{escrowId}/{ref}/correct` (admin group, the existing `{action}` route) with `oldExternalRef`, `externalRef` and a `reason` of 10 to 500 characters (`400 ESCROW_048`): for a 1.x leg or ledger row an admin recorded, one transaction writes the new reference (`manual{Leg}Ref` and the escrow's settlement reference field when it holds the old one, or the ledger row's `telebirrRef` and its escrow's field), deletes the old `payout-ref#` item only while it names this leg, puts the new one only if no leg holds it (`409 ESCROW_047` naming where) and writes the escrow-audit row `manual_payout_ref_corrected`; every item conditioned on what was read (3 attempts, then `409 ESCROW_036`); a replay answers `alreadyCorrected` and writes nothing; transaction-audit `admin_manual_payout_ref_corrected`. No amount, status, paid time or recorder changes. The 1.x close now conditions each settlement reference it copies from another paid leg on that leg still carrying it. Admin escrow DTO: `manualLegs` on a 1.x escrow. Admin: Correct reference on the escrow page (1.x legs and ledger rows an admin recorded), the `ESCROW_047` refusal in Manual Payouts links to the holding escrow. The admin Lambda gains DeleteItem on escrow-idempotency. 2.16.0 and 2.17.0 are other changes' numbers |
 | 2.17.0 | 2026-11-12 | Stuck Orders lists the pickup waits (FUP-170, closes the 2.7.0 "Not listed" gap). `GET /admin/orders/queue?source=deadline` reads, after the sweep's partition of `DeadlineIndex`, its new `watch` partition (order-lifecycle.md 2.14.0): an `accepted` order whose pickup deadline passed more than 30 minutes ago and whose overdue notice went out is listed with `reason: pickup_waiting` and `stuckSince` its pickup deadline, until its pickup or cancel, with a Query, never a Scan. Each order is listed only from the partition its state gives; the `nextToken` names its partition, and a token of an unknown partition is `400 ADMIN_005`. The admin page labels the new reason in en, am and om. Read only: no notice, cancel, refund, amount or status follows from the list; the sweep never reads the `watch` partition. 2.15.0 is another change's number |
 | 2.16.0 | 2026-11-12 | A confirmed hold is never "Refund pending" (FUP-97, §Additions in 2.16.0): `refundPending` on `EscrowDto` and the history rows is false for an `escrowed` escrow with `deliveryConfirmedAt` whose `expiresAt` has passed (the refund sweep never takes it; it waits for the dispute window and the FRD-13 payout delay); a refund decided on it (`refundReason`, a refunded ledger crop leg, an admin refund parked in the manual payout queue) reads true. `GET /escrow/history` rows carry `deliveryConfirmedAt` (additive, optional). The mobile and web fallback (an escrowed row past its expiry) skips a confirmed row, so the payee's expected payout day shows again. No endpoint, status, amount or timing change. 2.14.0 and 2.15.0 are other changes' numbers |
 | 2.15.0 | 2026-11-12 | The split verdict's replay and its reason (FUP-174) and the Disputes list's per-leg link (FUP-173; §Additions in 2.15.0). `POST /admin/disputes/{id}/resolve` with `partial_refund`: the same split again (equal `verdictAmounts`) on a `dispute_resolved` escrow whose verdict is `partial_refund` is not checked against the legs held, so it reaches the replay after the sweep decided its legs (`200`, `422 ADMIN_015`, or the disposition recorded and applied; no ledger row, leg or total changes) instead of `400 ADMIN_021`. Every other split needs `notes`, 10 to 500 characters after trimming (`400 ADMIN_014`, `field: notes`, after the `ADMIN_021` checks), whatever the status read; the trimmed reason is appended to the `admin_dispute_resolved` escrow-audit row. Admin: "Decide per leg" link on open disputes of a ledger escrow whose crop leg is held (`/disputes/{id}?decide=split`), `ADMIN_014` text names the three verdicts. No app change |

@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.55.0
+1.57.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -34,7 +34,7 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
     {
       "operationId": "uuid-v4",
       "idempotencyKey": "farmer-123:crop_listing:crop-456:create:1707998400000",
-      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message | user | location_ping | delivery_photo | listing_report",
+      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message | user | location_ping | delivery_photo | listing_report | handoff_check_in",
       "entityId": "uuid-v4",
       "action": "create | update | delete",
       "clientVersion": 3,
@@ -290,9 +290,9 @@ Errors (all `status: "error"`): `USER_PROFILE_VALIDATION` (missing or invalid
 (`entityId` is not the caller), `USER_PROFILE_NOT_FOUND`, `USER_PROFILE_CONFLICT`
 (a rare concurrent write; the client retries) and `USER_PROFILE_UNAVAILABLE`.
 
-### Profile text (1.55.0, SIM-56)
+### Profile text (1.57.0, SIM-56)
 
-Since 1.55.0 the `user` entity also takes `displayName`, `woreda` and `companyName` (a company
+Since 1.57.0 the `user` entity also takes `displayName`, `woreda` and `companyName` (a company
 buyer's only), so every role edits their profile from the app (`user-entity.md` 2.2.0 section 14).
 `data` must carry at least one of these four keys; each is optional. Still ignored: every other
 key (role, phone, Fayda, verification, `buyerType`, `version`, admin fields).
@@ -585,7 +585,7 @@ their own text too.
 | `REPUTATION_RESTRICTED:` | `crop_listing` create, `trip` create, `order` update (the farmer's or trucker's accept), `order` create (the listing's or trip's owner is restricted, spec A7) | The account (or, on a buyer's create, the owner) may not do this for now. Existing orders continue. |
 | `TRIP_HAS_BOOKINGS:` | `trip` update or delete | Orders are booked on the trip, so this change is not allowed. |
 | `TRIP_CAPACITY_EXCEEDED:` | `order` create or update naming a trip | The trip has no room left for this order: an order refusal. |
-| `CROP_HAS_ACTIVE_ORDERS:` | `crop_listing` delete, or update to `status: deleted` (sent since 1.35.0 behind `COMMITMENTS_ENABLED`, ESC-18, `crop-listing-api.md` 1.7.0 rule 10). A quantity edit never gets it: `quantity` is the free stock, so it cannot reach what orders hold | Orders still depend on the listing: one is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`. |
+| `CROP_HAS_ACTIVE_ORDERS:` | `crop_listing` delete, or update to `status: deleted` (sent since 1.35.0 behind `COMMITMENTS_ENABLED`, ESC-18, `crop-listing-api.md` 1.7.0 rule 10; since 1.56.0 whatever the flag, SIM-56). A quantity edit never gets it: `quantity` is the free stock, so it cannot reach what orders hold | Orders still depend on the listing: one is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`. |
 | `APP_UPDATE_REQUIRED:` | `order` operations from an app below the server's minimum (the minimum-version gate, spec K1, ESC-25; sent since 1.41.0). Clients also handle it defensively on `crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent` and `match_event` operations: kept pending, never reverted. | This build must be updated. |
 | `ORDER_DEADLINE_PASSED:`, `ORDER_TRIP_NOT_ELIGIBLE:`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | `order` operations (permanent since 1.10.0; `ORDER_DEADLINE_PASSED` sent since 1.29.0; `ORDER_TRIP_NOT_ELIGIBLE` sent since 1.34.0 on an `order` create naming a trip that has left, `trip-listing-api.md` 2.2.0) | The deadline passed; the named truck cannot take the order; no more trucks may be tried. |
 
@@ -1404,7 +1404,7 @@ as permanent (Retry Logic): the code and any reason token before the sentence (`
 | Code | Sent on | To an app without `X-App-Build` |
 |---|---|---|
 | `TRIP_HAS_BOOKINGS` (new in 1.52.0) | `trip` update or delete, behind `COMMITMENTS_ENABLED` (1.29.0) | `SYNC_VALIDATION: <sentence>`, for example `SYNC_VALIDATION: capacity cannot drop below the 20 quintals already booked.` or `SYNC_VALIDATION: Crops from this trip are already on the way; it can no longer be cancelled.` |
-| `CROP_HAS_ACTIVE_ORDERS` (new in 1.52.0) | `crop_listing` delete or update to `status: deleted`, behind `COMMITMENTS_ENABLED` (1.35.0) | `SYNC_VALIDATION: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.` |
+| `CROP_HAS_ACTIVE_ORDERS` (new in 1.52.0) | `crop_listing` delete or update to `status: deleted`, behind `COMMITMENTS_ENABLED` (1.35.0), whatever the flag since 1.56.0 | `SYNC_VALIDATION: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.` |
 | `REPUTATION_RESTRICTED` (1.48.0, unchanged) | `crop_listing` and `trip` create, `order` accept and create, behind `reputationPenalties` | `ORDER_VALIDATION: <sentence>` on an order, `SYNC_VALIDATION: <sentence>` on anything else |
 | `APP_UPDATE_REQUIRED` (1.41.0, unchanged) | `order` operations below `MIN_ORDER_APP_BUILD` | `ORDER_VALIDATION: This version of the app is too old for orders. Update WeredaConnect to continue.` |
 | `TRIP_CAPACITY_EXCEEDED` (unchanged) | `order` create or update naming a trip | Never reaches such an app: the minimum app version gate (1.41.0) refuses every `order` operation without the header first, and an infra test keeps that gate on in every environment with `COMMITMENTS_ENABLED` on. |
@@ -1454,11 +1454,72 @@ is never stored.
 
 ---
 
+## Arrival check-ins (1.55.0, ESC-34)
+
+Behind `pickupClassification` (off everywhere; `delivery-verification-api.md` 2.6.0, "Arrival
+check-ins and the pickup judgement"). A new create-only entity `handoff_check_in`:
+
+```json
+{
+  "entityType": "handoff_check_in",
+  "entityId": "ord-101#arrived_pickup",
+  "action": "create",
+  "data": {
+    "orderId": "ord-101",
+    "kind": "arrived_pickup",
+    "capturedAt": "2026-11-20T06:40:00.000Z",
+    "latitude": 8.7523,
+    "longitude": 38.9785,
+    "accuracyM": 35
+  }
+}
+```
+
+- `kind`: `arrived_pickup` (the order's trucker; the buyer of a self-pickup order) with GPS, or
+  `crops_ready` (the order's farmer), GPS optional. `entityId` is `{orderId}#{kind}`. `version` may be
+  echoed and is ignored.
+- With the flag off the entity does not exist: the answer is the unsupported entity error every
+  unknown `entityType` gets (`Unsupported entity type: 'handoff_check_in'.`), with no order read and no
+  fraud signal, exactly as before 1.55.0.
+- Taken only on an order the server stamped `pickupJudgement: pending` at acceptance (the flag on),
+  while it is `accepted`, from `pickupDate` minus 24 hours (a self-pickup order from acceptance) to
+  `pickupDeadlineAt`, by the server clock. The phone's `capturedAt` never decides anything.
+- `success` (with the order's unchanged `version` as `serverVersion`, no `serverData`) when stored, or
+  when a check-in of that kind is already stored (the first one is kept). The write moves neither the
+  order's `version` nor its `updatedAt`, so no queued order operation conflicts with it.
+- Refusals, every one permanent (the client drops the check-in, takes back its local mark and says
+  why; nothing to revert on the server): `CHECKIN_VALIDATION` (payload, `entityId`, an action other
+  than `create`, `arrived_dropoff`, which comes with ESC-36), `CHECKIN_NOT_PARTY` (not the party of
+  that kind; a stranger also gets the `ROLE_FORBIDDEN` signal), `CHECKIN_NOT_OPEN` (an order accepted
+  without the stamp, an order no longer waiting for its pickup, or unknown), `CHECKIN_TOO_EARLY`,
+  `CHECKIN_TOO_FAR` (an arrival more than 5 km from the farm; a farmer's far fix is stored unmeasured
+  instead, the farmer's GPS being optional), `CHECKIN_TOO_LATE` (it reached the server after
+  the deadline: kept on the order as late evidence, never counted). An order or listing that cannot
+  be read answers an unprefixed error, which the phone retries.
+- **A pickup refused after the judgement** (FUP-147): a `delivery` update to `pickedUp` (the trucker)
+  or a self-pickup `delivered` (the buyer) on an order whose pickup was judged a no-show, or sent to
+  the admin queue, is refused `ORDER_DEADLINE_PASSED:` and nothing is written. It arrives on a
+  `delivery` operation, and the clients already treat every `ORDER_*` refusal of a delivery operation
+  as permanent: mobile marks it rejected and puts the delivery back from `GET /deliveries/{id}` (its
+  waiting pickup photo is rejected with it, and the live-trip check-ins of the trip stop waiting);
+  web keeps nothing local and shows the refusal text. A real QR scan (the farmer's nonce) also puts
+  the order in the admin queue (`late_pickup_evidence`).
+
+Clients: the server side is built (1.55.0); the mobile and web screens that send check-ins, the
+`CHECKIN_*` refusal handling and texts, and hiding the buyer's deadline cancel on a stamped order are
+FUP-285. Until then no app sends the entity, and the flag must stay off: the server only stamps orders
+while it is on, and it goes on only once the app build that sends check-ins is the minimum
+(`MIN_ORDER_APP_BUILD`).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.55.0 | 2026-11-12 | Profile text on the `user` entity (SIM-56, `user-entity.md` 2.2.0): `displayName`, `woreda` and a company buyer's `companyName` beside `preferredLanguage`, at least one of the four; trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name (`USER_PROFILE_VALIDATION`), then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing. Every other key is still ignored. The read is `GET /user/profile` (not a sync pull) |
+| 1.57.0 | 2026-11-12 | Profile text on the `user` entity (SIM-56, `user-entity.md` 2.2.0): `displayName`, `woreda` and a company buyer's `companyName` beside `preferredLanguage`, at least one of the four; trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name (`USER_PROFILE_VALIDATION`), then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing. Every other key is still ignored. The read is `GET /user/profile` (not a sync pull) |
+| 1.56.0 | 2026-11-12 | `CROP_HAS_ACTIVE_ORDERS` whatever `COMMITMENTS_ENABLED` says (SIM-56, `crop-listing-api.md` 1.13.0 rule 10): a `crop_listing` delete, or an update to `status: deleted`, while an order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted` is refused in staging and prod too (the flag is off there), since a deleted listing refuses its delivery create and stranded such an order. An app without `X-App-Build` gets the `SYNC_VALIDATION:` sentence as before (FUP-241); an unreadable orders index is the same retryable unprefixed error. Clients already handle the code (1.17.0); the apps' own edit and delete now check first (SIM-56). `TRIP_HAS_BOOKINGS` stays behind the flag |
+| 1.55.0 | 2026-11-12 | Arrival check-ins (ESC-34, `delivery-verification-api.md` 2.6.0, `order-lifecycle.md` 2.15.0), behind `pickupClassification` (off everywhere): new create-only entity `handoff_check_in` (`{orderId}#{arrived_pickup\|crops_ready}`), taken only on an order stamped `pickupJudgement: pending` (with the flag off the entity is unsupported, as before: no read, no signal), judged by the server's receipt time, first check-in kept, no version or `updatedAt` move; the `CHECKIN_*` refusals are permanent (`CHECKIN_TOO_LATE` keeps the check-in as late evidence). FUP-147: a pickup scan refused `ORDER_DEADLINE_PASSED` after the judgement arrives on a `delivery` operation and is a permanent delivery refusal that puts the delivery back, on mobile and web, under the existing `ORDER_*` rule. |
 | 1.54.0 | 2026-11-12 | Handoff fields by status (FUP-246, `delivery-verification-api.md` 2.5.0, `fraud-detection-architecture.md` 3.34.0): a `delivery` operation writes `gpsPickup` only with `status: pickedUp`, `gpsDropoff` only with `delivered` and `disputeReason` only with `disputed`; anywhere else (a create, `inTransit`, the other handoffs, a dispute, an update without a status) the field is dropped, not refused, and logged as `DELIVERY_FIELD_DROPPED`. A buyer's confirm can no longer move the trucker's pickup point, nor a dispute rewrite either point. Server only; every shipped client already sends each field only with its own status. |
 | 1.53.0 | 2026-11-12 | The "update the app" banner (FUP-75), client only: the shell shows it above every main screen while the "update required" flag is set, with a Play Store button and a hint on the phone, and on web a reload that first updates the caching service worker, then fetches `main.dart.js` past the browser cache, and does nothing offline; web now raises the flag on an `APP_UPDATE_REQUIRED` refusal; the flag is kept with the build number (survives a restart on the same build, forgotten by another build) and an accepted order operation clears it (see Minimum app version for order operations). No server change. |
 | 1.52.0 | 2026-11-12 | Codes older apps do not know (FUP-241, `crop-listing-api.md` 1.12.1, `trip-listing-api.md` 2.6.1): `TRIP_HAS_BOOKINGS` and `CROP_HAS_ACTIVE_ORDERS` go only to an app that sends `X-App-Build`; an app without it (build 1 or older) gets the same sentence as `SYNC_VALIDATION:`, permanent on every mobile build since March 2026, as `REPUTATION_RESTRICTED` already did (1.48.0, unchanged). Apps with the header get the codes as before. Server only |
@@ -1516,4 +1577,4 @@ is never stored.
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.55.0
+**Version**: 1.57.0

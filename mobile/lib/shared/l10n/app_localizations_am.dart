@@ -483,6 +483,31 @@ class AppLocalizationsAm extends AppLocalizations {
   String get listingDeleted => 'ዝርዝሩ ተሰርዟል';
 
   @override
+  String get editListing => 'ዝርዝሩን አርትዕ';
+
+  @override
+  String get editListingNote =>
+      'የቀረውን መጠን፣ ዋጋውን ወይም መግለጫውን ይቀይሩ። ሰብሉን፣ ፎቶዎቹን ወይም ቦታውን ለመቀየር ይህን ዝርዝር ሰርዘው እንደገና ይዘርዝሩ።';
+
+  @override
+  String get deleteListingTitle => 'ይህ ዝርዝር ይሰረዝ?';
+
+  @override
+  String get deleteListingBody => 'ገዢዎች ከእንግዲህ አያዩትም። መመለስ አይቻልም።';
+
+  @override
+  String get editListingChanged =>
+      'ይህ ዝርዝር ከከፈቱት በኋላ ተቀይሯል፤ ምናልባት ትዕዛዝ ከፊሉን ወስዶ ሊሆን ይችላል። ይመልከቱትና እንደገና ያስተካክሉ።';
+
+  @override
+  String get editListingWaiting =>
+      'በዚህ ዝርዝር ላይ ያደረጉት የመጨረሻ ለውጥ ገና አልተላከም። በይነመረብ ሲኖርዎትና ከተላከ በኋላ እንደገና ያስተካክሉት።';
+
+  @override
+  String get deleteListingOrdersUnreadable =>
+      'የዚህን ዝርዝር ትዕዛዞች ማረጋገጥ አልተቻለም። በይነመረብ ሲኖርዎት እንደገና ይሞክሩ።';
+
+  @override
   String get allCrops => 'ሁሉም';
 
   @override

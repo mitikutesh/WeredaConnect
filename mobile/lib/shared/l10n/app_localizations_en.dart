@@ -501,6 +501,32 @@ class AppLocalizationsEn extends AppLocalizations {
   String get listingDeleted => 'Listing deleted';
 
   @override
+  String get editListing => 'Edit listing';
+
+  @override
+  String get editListingNote =>
+      'Change how much is left, the price or the description. To change the crop, the photos or the place, delete this listing and list it again.';
+
+  @override
+  String get deleteListingTitle => 'Delete this listing?';
+
+  @override
+  String get deleteListingBody =>
+      'Buyers will no longer see it. This cannot be undone.';
+
+  @override
+  String get editListingChanged =>
+      'This listing changed since you opened it, maybe an order took some. Check it and edit again.';
+
+  @override
+  String get editListingWaiting =>
+      'Your last change to this listing has not been sent yet. Edit it again once you are online and it has gone out.';
+
+  @override
+  String get deleteListingOrdersUnreadable =>
+      'Could not check this listing\'s orders. Try again when you are online.';
+
+  @override
   String get allCrops => 'All';
 
   @override

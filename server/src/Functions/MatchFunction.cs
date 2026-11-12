@@ -34,11 +34,20 @@ namespace WeredaConnect.Server.Functions;
 /// - 403: MATCH_FORBIDDEN — caller is not a buyer or admin
 /// - 500: MATCH_SERVER_ERROR — unexpected server failure
 ///
+/// SIM-56: the same Lambda answers GET /intents, the buyer's own requests
+/// (MatchFunction.Intents.cs, push-alerts-api.md 1.5.0).
+///
 /// See: specs/contracts/match-api.md
 /// </summary>
-public class MatchFunction
+public partial class MatchFunction
 {
     private readonly ICropRepository _cropRepo;
+
+    /// <summary>
+    /// SIM-56: the intents table for GET /intents. Null when <c>INTENTS_TABLE</c> is not set
+    /// (the route then answers 503 INTENT_UNAVAILABLE); matching never reads it.
+    /// </summary>
+    private readonly IIntentRepository? _intentRepo;
 
     /// <summary>
     /// ESC-29 (reputation-api.md 8.3), <c>reputationPenalties</c>: a buyer's read leaves out rows
@@ -70,12 +79,16 @@ public class MatchFunction
 
         var dynamoDb = new AmazonDynamoDBClient();
         _cropRepo = new CropRepository(dynamoDb, cropsTable);
+
+        var intentsTable = Environment.GetEnvironmentVariable("INTENTS_TABLE");
+        _intentRepo = string.IsNullOrEmpty(intentsTable) ? null : new IntentRepository(dynamoDb, intentsTable);
     }
 
-    /// <summary>Constructor for testing with a mocked repository.</summary>
-    public MatchFunction(ICropRepository cropRepo)
+    /// <summary>Constructor for testing with mocked repositories.</summary>
+    public MatchFunction(ICropRepository cropRepo, IIntentRepository? intentRepo = null)
     {
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
+        _intentRepo = intentRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -83,6 +96,13 @@ public class MatchFunction
         ILambdaContext context)
     {
         context.Logger.LogInformation($"MatchFunction invoked: {request.HttpMethod} {request.Path}");
+
+        if (IsIntentsRoute(request))
+        {
+            return request.HttpMethod == "GET"
+                ? await HandleListIntentsAsync(request, context)
+                : LambdaResponse.Error(405, "INTENT_VALIDATION", "Method not allowed.");
+        }
 
         return request.HttpMethod switch
         {

@@ -64,6 +64,8 @@ const ESCROW_AUDIT_ACTIONS = [
   // FUP-05: an admin's claim on a leg
   "manual_payout_claimed",
   "manual_payout_claim_released",
+  // FUP-218: a recorded reference corrected by an admin
+  "manual_payout_ref_corrected",
   // Disputes (ESC-03, ESC-07)
   "dispute",
   "dispute_propagation_failed",
@@ -101,6 +103,7 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "admin_manual_payout_claimed",
   "admin_manual_payout_claim_released",
   "admin_manual_payout_refused",
+  "admin_manual_payout_ref_corrected",
   "admin_queue_entered",
   "admin_queue_cleared",
   // AdminFunction writes fraud_<action> and user_<action> for the actions the admin UI sends
@@ -121,6 +124,10 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "reputation_lifted",
   // FRD-18: the outcome label of a resolved case (Fraud Review decision, dispute verdict, held exit)
   "outcome_label",
+  // ESC-34: an arrival check-in, the pickup judgement, and late pickup evidence on a queued order
+  "handoff_check_in",
+  "pickup_judged",
+  "late_pickup_evidence",
 ];
 
 /** Written by an open PR that has no admin change of its own; labelled here ahead of the merge. */

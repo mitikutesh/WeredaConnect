@@ -5,7 +5,7 @@ using WeredaConnect.Server.Validation;
 namespace WeredaConnect.Server.Helpers;
 
 /// <summary>
-/// SIM-56 (sync-protocol.md 1.55.0, user-entity.md 2.2.0): the profile text a user changes through
+/// SIM-56 (sync-protocol.md 1.57.0, user-entity.md 2.2.0): the profile text a user changes through
 /// the <c>/sync</c> <c>user</c> entity: <c>displayName</c>, <c>woreda</c> and a company buyer's
 /// <c>companyName</c>. Only these keys are read from the payload, so role, phone, Fayda identity,
 /// verification, reputation, suspension and the deletion attributes can never change here.

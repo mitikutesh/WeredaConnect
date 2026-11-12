@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     fetchNextPage: vi.fn(),
   },
   ledgerCalls: [] as { escrowId: string; enabled: boolean }[],
+  correct: vi.fn(),
 }));
 
 vi.mock("@/hooks/useQuery", () => ({
@@ -27,6 +28,7 @@ vi.mock("@/hooks/useQuery", () => ({
     mocks.ledgerCalls.push({ escrowId, enabled });
     return mocks.ledger;
   },
+  useCorrectPayoutReference: () => ({ mutate: mocks.correct, isPending: false }),
 }));
 
 vi.mock("@/hooks/useLocale", async () => {
@@ -186,5 +188,96 @@ describe("EscrowDetailPage legs and ledger (ESC-24)", () => {
       screen.getByText("Farmer receives 9,000.00 Birr · Trucker receives 1,500.00 Birr · Buyer is refunded 6,000.00 Birr"),
     ).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toBe("The ledger could not be loaded. Reload the page.");
+  });
+});
+
+/* FUP-218: where a reference recorded by mistake is corrected: a legacy escrow's manual payout legs, and a
+ * ledger row an admin recorded. Never a leg the gateway paid or one not recorded yet. */
+describe("EscrowDetailPage reference correction (FUP-218)", () => {
+  function renderPage() {
+    return render(
+      <MemoryRouter>
+        <EscrowDetailPage />
+      </MemoryRouter>,
+    );
+  }
+
+  beforeEach(() => {
+    mocks.audit.data = { auditEntries: [] };
+    mocks.ledger.data = undefined;
+    mocks.ledger.isError = false;
+    mocks.ledgerCalls.length = 0;
+  });
+
+  it("lists a legacy escrow's manual payout legs and offers the correction on the admin-recorded one only", () => {
+    mocks.escrow.data = {
+      escrow: {
+        escrowId: "escrow-old",
+        status: "released",
+        amount: 17250,
+        manualLegs: [
+          { ref: "farmer", status: "paid", externalRef: "GW-FARMER-1", paidBy: "gateway", paidAt: "2026-11-05T10:00:00Z" },
+          { ref: "trucker", status: "paid", externalRef: "TB-WRONG-1", paidBy: "admin-2", paidAt: "2026-11-05T11:00:00Z" },
+        ],
+      },
+    };
+
+    renderPage();
+
+    const table = screen.getByRole("table", { name: "Manual payouts" });
+    const rows = within(table).getAllByRole("row");
+    expect(rows).toHaveLength(3);
+    expect(within(rows[1]).getByText("GW-FARMER-1")).toBeTruthy();
+    expect(within(rows[1]).getByText("Paid by the gateway")).toBeTruthy();
+    expect(within(rows[1]).queryByRole("button")).toBeNull();
+    expect(within(rows[2]).getByText("TB-WRONG-1")).toBeTruthy();
+    expect(within(rows[2]).getByText("admin-2")).toBeTruthy();
+    expect(within(rows[2]).getByRole("button", { name: "Correct reference" })).toBeTruthy();
+  });
+
+  it("offers nothing on a pending leg, and shows no card for an escrow that never entered the queue", () => {
+    mocks.escrow.data = {
+      escrow: { escrowId: "escrow-old", status: "escrowed", amount: 1000, manualLegs: [{ ref: "buyer", status: "pending" }] },
+    };
+    const { unmount } = renderPage();
+    expect(within(screen.getByRole("table", { name: "Manual payouts" })).queryByRole("button")).toBeNull();
+    unmount();
+
+    mocks.escrow.data = { escrow: { escrowId: "escrow-old", status: "escrowed", amount: 1000 } };
+    renderPage();
+    expect(screen.queryByRole("table", { name: "Manual payouts" })).toBeNull();
+  });
+
+  it("offers the correction on a ledger row an admin recorded, not on one the gateway paid", () => {
+    mocks.escrow.data = {
+      escrow: {
+        escrowId: "escrow-order-ord-2",
+        status: "completed",
+        amount: 17250,
+        legStatus: { crop: "released", transport: "released", commission: "kept" },
+      },
+    };
+    const row = {
+      kind: "release", legs: ["crop"], amount: 15000, status: "done", attempts: 1, reason: "auto_release",
+      actor: "system", createdAt: "2026-11-05T10:00:00Z", updatedAt: "2026-11-05T10:05:00Z",
+    };
+    mocks.ledger.data = {
+      pages: [
+        {
+          escrowId: "escrow-order-ord-2",
+          settlementModel: "ledger",
+          rows: [
+            { ...row, ref: "release#farmer", payeeRole: "farmer", gatewayRef: "WCLA", telebirrRef: "TB-WRONG-2", paidBy: "admin-2" },
+            { ...row, ref: "release#trucker#t1", payeeRole: "trucker", gatewayRef: "WCLB", telebirrRef: "GW-T-1", paidBy: "gateway" },
+          ],
+        },
+      ],
+    };
+
+    renderPage();
+
+    const rows = within(screen.getByRole("table", { name: "Ledger" })).getAllByRole("row");
+    expect(within(rows[1]).getByRole("button", { name: "Correct reference" })).toBeTruthy();
+    expect(within(rows[2]).queryByRole("button")).toBeNull();
   });
 });

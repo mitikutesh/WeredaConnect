@@ -205,6 +205,35 @@ public class OrderDeadlinesTests
     }
 
     [Fact]
+    public void ESC34_AJudgeableOrder_IsSweptAtItsJudgement_AndWaitsInTheWatchPartitionOnlyAfterIt()
+    {
+        // FUP-170 and ESC-34 together: the judgement is the sweep's (shard 0) even with a notice on the row;
+        // the judgement stamps the notice, so an order still accepted after it waits like any notified order.
+        var pickupBy = Funded.AddDays(3);
+        var row = Row("accepted",
+            (PickupDeadline.Field, PickupDeadline.Format(pickupBy)),
+            (PickupJudgement.Field, PickupJudgement.Outcome.Pending));
+
+        var judgement = OrderDeadlines.Next(row, OrderTimings.Defaults);
+        judgement.Should().Be(new OrderDeadline(pickupBy + PickupJudgement.SettleMargin, OrderDeadlines.Kind.PickupJudgement));
+        judgement!.Value.Shard.Should().Be(OrderDeadlines.Shard);
+        OrderDeadlines.IsSwept(OrderDeadlines.Kind.PickupJudgement).Should().BeTrue();
+
+        row[OrderCommitment.PickupOverdueNotifiedAtField] = Iso(pickupBy.AddMinutes(10));
+        OrderDeadlines.Next(row, OrderTimings.Defaults)!.Value.Kind
+            .Should().Be(OrderDeadlines.Kind.PickupJudgement, "a pending judgement is never parked in watch");
+
+        row[PickupJudgement.Field] = PickupJudgement.Outcome.BothPresentNoScan;
+        var waiting = OrderDeadlines.Next(row, OrderTimings.Defaults);
+        waiting.Should().Be(new OrderDeadline(pickupBy, OrderDeadlines.Kind.PickupWaiting));
+        waiting!.Value.Shard.Should().Be(OrderDeadlines.WatchShard);
+
+        // The flag turned off: the stamp is cleared with the notice, and the order waits as in FUP-170.
+        row.Remove(PickupJudgement.Field);
+        OrderDeadlines.Next(row, OrderTimings.Defaults).Should().Be(new OrderDeadline(pickupBy, OrderDeadlines.Kind.PickupWaiting));
+    }
+
+    [Fact]
     public void OnlyThePickupWait_IsKeptOutOfTheSweepsPartition()
     {
         OrderDeadlines.ShardOf(OrderDeadlines.Kind.PickupWaiting).Should().Be(OrderDeadlines.WatchShard);

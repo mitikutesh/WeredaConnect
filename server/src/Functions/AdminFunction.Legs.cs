@@ -103,6 +103,26 @@ public partial class AdminFunction
             ? new VerdictAmountsDto { FarmerAmount = split.FarmerAmount, TruckerAmount = split.TruckerAmount, BuyerRefund = split.BuyerRefund }
             : null;
 
+    /// <summary>
+    /// FUP-218: the legs of a 1.x escrow's manual payout, open or closed (the leg attributes stay on the row after
+    /// the close), for the escrow page's reference correction; null when the escrow never entered the queue.
+    /// </summary>
+    internal static List<AdminManualLegDto>? ManualLegsOf(Dictionary<string, object> item)
+    {
+        var legs = ManualPayoutFields.AllLegs
+            .Where(leg => !string.IsNullOrEmpty(GetStringOrNull(item, ManualPayoutFields.StatusAttr(leg))))
+            .Select(leg => new AdminManualLegDto
+            {
+                Ref = leg,
+                Status = GetString(item, ManualPayoutFields.StatusAttr(leg)),
+                ExternalRef = NullIfEmpty(GetStringOrNull(item, ManualPayoutFields.RefAttr(leg))),
+                PaidBy = NullIfEmpty(GetStringOrNull(item, ManualPayoutFields.PaidByAttr(leg))),
+                PaidAt = NullIfEmpty(GetStringOrNull(item, ManualPayoutFields.PaidAtAttr(leg)))
+            })
+            .ToList();
+        return legs.Count == 0 ? null : legs;
+    }
+
     /// <summary>ESC-24: a ledger escrow's legs for the admin DTO, or null on a 1.x escrow.</summary>
     private static Dictionary<string, string>? LegStatusOf(Dictionary<string, object> item)
         => LedgerEscrowFields.IsLedger(item)

@@ -613,6 +613,34 @@
   "@listingDeleted": {
     "description": "Message after deleting listing"
   },
+  "editListing": "ዝርዝሩን አርትዕ",
+  "@editListing": {
+    "description": "SIM-56: title of the screen where a farmer edits their own crop listing"
+  },
+  "editListingNote": "የቀረውን መጠን፣ ዋጋውን ወይም መግለጫውን ይቀይሩ። ሰብሉን፣ ፎቶዎቹን ወይም ቦታውን ለመቀየር ይህን ዝርዝር ሰርዘው እንደገና ይዘርዝሩ።",
+  "@editListingNote": {
+    "description": "SIM-56: note at the top of the edit listing screen: what can change, and what needs a new listing"
+  },
+  "deleteListingTitle": "ይህ ዝርዝር ይሰረዝ?",
+  "@deleteListingTitle": {
+    "description": "SIM-56: title of the dialog that confirms deleting the farmer's own crop listing"
+  },
+  "deleteListingBody": "ገዢዎች ከእንግዲህ አያዩትም። መመለስ አይቻልም።",
+  "@deleteListingBody": {
+    "description": "SIM-56: body of the dialog that confirms deleting the farmer's own crop listing"
+  },
+  "editListingChanged": "ይህ ዝርዝር ከከፈቱት በኋላ ተቀይሯል፤ ምናልባት ትዕዛዝ ከፊሉን ወስዶ ሊሆን ይችላል። ይመልከቱትና እንደገና ያስተካክሉ።",
+  "@editListingChanged": {
+    "description": "SIM-56: snackbar on the listing detail when the farmer's edit was not saved because the listing changed since the edit form opened (version conflict); the detail now shows the listing as it is"
+  },
+  "editListingWaiting": "በዚህ ዝርዝር ላይ ያደረጉት የመጨረሻ ለውጥ ገና አልተላከም። በይነመረብ ሲኖርዎትና ከተላከ በኋላ እንደገና ያስተካክሉት።",
+  "@editListingWaiting": {
+    "description": "SIM-56: snackbar when the farmer tries to edit a listing while an earlier change of it is still waiting in the phone's sync queue (a second edit on top could undo stock an order took)"
+  },
+  "deleteListingOrdersUnreadable": "የዚህን ዝርዝር ትዕዛዞች ማረጋገጥ አልተቻለም። በይነመረብ ሲኖርዎት እንደገና ይሞክሩ።",
+  "@deleteListingOrdersUnreadable": {
+    "description": "SIM-56: snackbar when the farmer's delete is stopped because the listing's orders could not be read to check none is in progress"
+  },
   "allCrops": "ሁሉም",
   "@allCrops": {
     "description": "Filter label for all crop types"

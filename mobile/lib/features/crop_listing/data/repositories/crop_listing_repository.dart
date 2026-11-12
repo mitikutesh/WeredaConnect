@@ -5,6 +5,7 @@ import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_file_store.dart';
 import 'package:wereda_connect/features/crop_listing/domain/crop_photos.dart';
@@ -257,4 +258,93 @@ class CropListingRepository extends BaseCropListingRepository {
       operationId: _uuid.v4(),
     );
   }
+
+  /// SIM-56: saved on the phone first, then sent as a `crop_listing` update
+  /// of the changed fields at the form's base version, the one the server
+  /// held when this phone last saw the listing (as [deleteListing] sends).
+  ///
+  /// Refused, with nothing written, in two cases where the phone's version
+  /// alone could not tell a stale base: while an earlier change of the
+  /// listing still waits in the queue ([ListingChangeWaitingException]; a
+  /// second edit at the bumped version could land after an order took stock
+  /// and the first one conflicted), and when the phone's copy moved on since
+  /// the form read it (`SyncConflictException`): its version, stock, price,
+  /// description or update time differ (a conflict resolved to the server's
+  /// copy can carry the same version number as the local bump). A server
+  /// refusal puts the listing back from the server (sync-protocol.md 1.17.0);
+  /// a version conflict takes the server's copy.
+  @override
+  Future<CropListing> updateListing({
+    required CropListing listing,
+    required String farmerId,
+    double? quantity,
+    double? pricePerKg,
+    String? description,
+  }) async {
+    final stored = await _isar.cropListings
+        .filter()
+        .listingIdEqualTo(listing.listingId)
+        .findFirst();
+    if (stored == null ||
+        stored.farmerId != farmerId ||
+        listing.farmerId != farmerId) {
+      throw StateError(
+        'Crop listing ${listing.listingId} is not this farmer\'s.',
+      );
+    }
+    if (await hasChangeWaiting(listing.listingId)) {
+      throw const ListingChangeWaitingException();
+    }
+    if (!_sameCopy(stored, listing)) {
+      throw const SyncConflictException(
+        'The crop listing changed since the form read it.',
+      );
+    }
+
+    final baseVersion = stored.version;
+    final data = BaseCropListingRepository.editPayload(
+      listingId: listing.listingId,
+      version: baseVersion,
+      quantity: quantity,
+      pricePerKg: pricePerKg,
+      description: description,
+    );
+
+    // Queued first: when the queue refuses it (full), nothing changed here
+    // and the farmer is told, rather than a local edit the server never
+    // gets, whose bumped version would then make the next change conflict.
+    await _syncQueue.enqueue(
+      userId: farmerId,
+      entityType: 'crop_listing',
+      entityId: listing.listingId,
+      action: 'update',
+      data: jsonEncode(data),
+      operationId: _uuid.v4(),
+    );
+
+    await _isar.writeTxn(() async {
+      if (quantity != null) stored.quantity = quantity;
+      if (pricePerKg != null) stored.pricePerKg = pricePerKg;
+      if (description != null) stored.description = description;
+      stored
+        ..updatedAt = DateTime.now().toUtc()
+        ..version = baseVersion + 1;
+      await _isar.cropListings.put(stored);
+    });
+
+    return stored;
+  }
+
+  @override
+  Future<bool> hasChangeWaiting(String listingId) =>
+      _syncQueue.hasWaitingOperationsFor('crop_listing', listingId);
+
+  /// Whether the form's [base] is still the phone's copy: the version and
+  /// every field an edit or an order changes.
+  static bool _sameCopy(CropListing stored, CropListing base) =>
+      stored.version == base.version &&
+      stored.quantity == base.quantity &&
+      stored.pricePerKg == base.pricePerKg &&
+      stored.description == base.description &&
+      stored.updatedAt.isAtSameMomentAs(base.updatedAt);
 }

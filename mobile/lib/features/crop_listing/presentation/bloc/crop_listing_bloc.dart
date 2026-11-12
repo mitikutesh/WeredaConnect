@@ -9,7 +9,8 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 
 /// BLoC for managing crop listing state.
 ///
-/// Handles creating, loading, filtering, and deleting crop listings.
+/// Handles creating, loading, filtering, editing (SIM-56) and deleting crop
+/// listings.
 /// All operations go through the BaseCropListingRepository (mobile or web).
 class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
   final BaseCropListingRepository _repository;
@@ -32,6 +33,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
     on<LoadCropListings>(_onLoadCropListings);
     on<LoadActiveListings>(_onLoadActiveListings);
     on<CreateCropListing>(_onCreateCropListing);
+    on<UpdateCropListing>(_onUpdateCropListing);
     on<DeleteCropListing>(_onDeleteCropListing);
     on<FilterCropListings>(_onFilterCropListings);
   }
@@ -107,21 +109,49 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
     }
   }
 
+  Future<void> _onUpdateCropListing(
+    UpdateCropListing event,
+    Emitter<CropListingState> emit,
+  ) async {
+    emit(const CropListingLoading());
+
+    try {
+      final listing = await _repository.updateListing(
+        listing: event.listing,
+        farmerId: event.farmerId,
+        quantity: event.quantity,
+        pricePerKg: event.pricePerKg,
+        description: event.description,
+      );
+      event.done?.complete(listing);
+      emit(CropListingUpdated(listing: listing));
+    } on Object catch (e) {
+      event.done?.completeError(e);
+      emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
   Future<void> _onDeleteCropListing(
     DeleteCropListing event,
     Emitter<CropListingState> emit,
   ) async {
     emit(const CropListingLoading());
 
+    var deleted = false;
     try {
       await _repository.deleteListing(
         listingId: event.listingId,
         farmerId: event.farmerId,
       );
+      deleted = true;
+      event.done?.complete();
       // Reload listings after delete
       final listings = await _repository.getListingsByFarmer(event.farmerId);
       emit(CropListingsLoaded(listings: listings));
     } on Object catch (e) {
+      // A reload that fails after the delete was saved is not the delete's
+      // failure.
+      if (!deleted) event.done?.completeError(e);
       emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }

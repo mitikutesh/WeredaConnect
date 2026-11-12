@@ -32,7 +32,8 @@ namespace WeredaConnect.Server.Helpers;
 /// its pickup deadline whose notice went out) is kept in its own partition, <see cref="WatchShard"/>,
 /// which the sweep never reads, so the admin's Stuck Orders can list the order with a Query until its
 /// pickup or its cancel, and the sweep's oldest-first read is never held up by orders that only wait.
-/// The partition of an entry follows from its kind (<see cref="ShardOf"/>).
+/// The partition of an entry follows from its kind (<see cref="ShardOf"/>). ESC-34's
+/// <see cref="Kind.PickupJudgement"/> is swept: a judgeable order is never parked in the watch partition.
 /// </para>
 /// </summary>
 public static class OrderDeadlines
@@ -82,8 +83,18 @@ public static class OrderDeadlines
         public const string PickupOverdue = "pickup_overdue";
 
         /// <summary>
+        /// ESC-34, T7 on an order stamped <c>pickupJudgement: pending</c>: <c>pickupDeadlineAt</c> plus
+        /// <see cref="Helpers.PickupJudgement.SettleMargin"/>; the pickup is judged by the check-ins. Swept
+        /// (<see cref="Shard"/>) whether or not a notice was stamped, so a judgeable order is never parked
+        /// in the watch partition before its judgement.
+        /// </summary>
+        public const string PickupJudgement = "pickup_judgement";
+
+        /// <summary>
         /// FUP-170: after T7, <c>pickupDeadlineAt</c> with <c>pickupOverdueNotifiedAt</c> stamped: the order
         /// waits for its pickup or its cancel. Listed for the admin, never acted on (<see cref="WatchShard"/>).
+        /// ESC-34: also an order still <c>accepted</c> after its judgement (both present, an unmeasured
+        /// arrival, a delivery the order lagged), and one whose judgement the flag turned off.
         /// </summary>
         public const string PickupWaiting = "pickup_waiting";
     }
@@ -115,9 +126,13 @@ public static class OrderDeadlines
             case "accepted":
                 if (OrderCommitment.TryParseUtc(Str(order, PickupDeadline.Field), out var pickupBy))
                 {
-                    // T7 until the marker is stamped; after it the order waits in the watch partition (FUP-170).
-                    candidates.Add(new OrderDeadline(pickupBy,
-                        Str(order, OrderCommitment.PickupOverdueNotifiedAtField).Length == 0 ? Kind.PickupOverdue : Kind.PickupWaiting));
+                    // ESC-34: a judgeable order is judged a moment after its deadline, in the sweep's partition.
+                    // Otherwise T7 until the marker is stamped; after it the order waits in the watch partition
+                    // (FUP-170). The judgement stamps the marker, so a judged order still accepted waits there.
+                    candidates.Add(Helpers.PickupJudgement.IsPending(order)
+                        ? new OrderDeadline(pickupBy + Helpers.PickupJudgement.SettleMargin, Kind.PickupJudgement)
+                        : new OrderDeadline(pickupBy,
+                            Str(order, OrderCommitment.PickupOverdueNotifiedAtField).Length == 0 ? Kind.PickupOverdue : Kind.PickupWaiting));
                 }
 
                 break;

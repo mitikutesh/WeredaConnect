@@ -391,6 +391,26 @@ public sealed partial class EscrowService
     }
 
     /// <summary>
+    /// The escrow field a row of <c>amount</c> copies its reference into when it becomes done: a farmer payout the
+    /// <c>telebirrReleaseRef</c>, a trucker row the <c>truckerTelebirrRef</c>, a buyer row the <c>telebirrRefundRef</c>;
+    /// null for any other row. FUP-218: a correction of the row's reference writes the same field.
+    /// </summary>
+    internal static string? LedgerSettlementRefField(LedgerRow row)
+    {
+        if (LedgerRefs.IsFarmerPayout(row.Ref))
+        {
+            return ManualPayoutFields.SettlementRefAttr(ManualPayoutFields.LegFarmer);
+        }
+
+        return row.PayeeRole switch
+        {
+            LedgerFields.PayeeTrucker => ManualPayoutFields.SettlementRefAttr(ManualPayoutFields.LegTrucker),
+            LedgerFields.PayeeBuyer => ManualPayoutFields.SettlementRefAttr(ManualPayoutFields.LegBuyer),
+            _ => null
+        };
+    }
+
+    /// <summary>
     /// The result of making a row done. FUP-05: <paramref name="ClaimedByOther"/> (the row read, another admin's live
     /// claim on it) and <paramref name="ReferenceTaken"/> (the reference is recorded on another leg) refuse an
     /// admin's manual record; nothing was written.
@@ -493,18 +513,14 @@ public sealed partial class EscrowService
 
                 newStatus = EscrowLedgerBook.StatusFor(escrow, rows);
                 var fields = new Dictionary<string, object>();
+                if (LedgerSettlementRefField(row) is { } settlementRef)
+                {
+                    fields[settlementRef] = telebirrRef;
+                }
+
                 if (LedgerRefs.IsFarmerPayout(row.Ref))
                 {
-                    fields["telebirrReleaseRef"] = telebirrRef;
                     fields["releasedAt"] = doneAt;
-                }
-                else if (row.PayeeRole == LedgerFields.PayeeTrucker)
-                {
-                    fields["truckerTelebirrRef"] = telebirrRef;
-                }
-                else if (row.PayeeRole == LedgerFields.PayeeBuyer)
-                {
-                    fields["telebirrRefundRef"] = telebirrRef;
                 }
 
                 if (newStatus == "completed")

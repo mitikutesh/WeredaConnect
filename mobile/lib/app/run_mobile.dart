@@ -478,6 +478,8 @@ class WeredaConnectApp extends StatelessWidget {
               repository: BuyerIntentRepository(
                 isar: IsarService.instance.db,
                 syncQueue: syncQueue,
+                // SIM-56: My Requests reads the server's copy back.
+                api: ApiClient(),
               ),
               matchingService: MatchingService(
                 isar: IsarService.instance.db,

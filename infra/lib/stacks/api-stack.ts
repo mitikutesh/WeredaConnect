@@ -503,6 +503,9 @@ export class ApiStack extends cdk.Stack {
     const timeoutPenalties = envConfig.timeoutPenalties ? "true" : "false";
     // ESC-29: buyers get the public tier, the effective rating and the reliability (off everywhere).
     const reputationPublicTags = envConfig.reputationPublicTags ? "true" : "false";
+    // ESC-34: the pickup judgement by arrival check-ins (sync takes the check-ins, order-cron judges); off
+    // everywhere until its app build is the minimum. It only works with COMMITMENTS_ENABLED.
+    const pickupClassification = envConfig.pickupClassification ? "true" : "false";
 
     // ESC-28: the reputation policy (points, caps, tiers, windows; reputation-architecture.md 5.9),
     // read once per container by every Lambda that recomputes a reputation: reputation-stream,
@@ -561,6 +564,8 @@ export class ApiStack extends cdk.Stack {
         COMMITMENTS_ENABLED: commitmentsEnabled,
         // ESC-25: order operations from an app below this build are refused (0: off).
         MIN_ORDER_APP_BUILD: minOrderAppBuild,
+        // ESC-34: on, an order accepted under it takes handoff_check_in and is judged at its pickup deadline.
+        PICKUP_CLASSIFICATION_ENABLED: pickupClassification,
         // ESC-28 (rating-api 1.2.0 stored aggregate): a rating create is one transaction with the
         // ratee's ratingSum and ratingCount, then a best-effort reputation refresh that reads the
         // ratee's events and writes the reputation map, the heal marker and the copies.
@@ -797,10 +802,12 @@ export class ApiStack extends cdk.Stack {
 
     const matchFn = new WeredaLambda(this, "MatchFunction", {
       functionName: `${prefix}-match`,
-      description: "GET /match — buyer intent matching (ranked crop listings)",
+      description: "GET /match (buyer intent matching, ranked crop listings) and GET /intents (the buyer's own requests)",
       handlerName: "MatchFunction",
       environment: {
         CROPS_TABLE: props.cropsTable.tableName,
+        // SIM-56: GET /intents reads the caller's own partition (push-alerts-api.md 1.5.0).
+        INTENTS_TABLE: props.intentsTable.tableName,
         // ESC-29 (reputation-api.md 8.3 and section 7): off, nothing is hidden and no owner field is returned.
         REPUTATION_PENALTIES_ENABLED: reputationPenalties,
         REPUTATION_PUBLIC_TAGS_ENABLED: reputationPublicTags,
@@ -811,6 +818,8 @@ export class ApiStack extends cdk.Stack {
     });
     // Match function reads crops to score them against the buyer's criteria
     props.cropsTable.grantReadData(matchFn.function);
+    // SIM-56: GET /intents is one Query of the caller's partition, nothing else.
+    props.intentsTable.grant(matchFn.function, "dynamodb:Query");
 
     // ─── Push Alerts: SNS Platform Application (FCM) ───────────────────
     // FCM is the only delivery path to Android; SNS wraps it. CloudFormation
@@ -2100,6 +2109,9 @@ export class ApiStack extends cdk.Stack {
         // due (DeadlineIndex, Query) every 15 minutes; deadline_repair walks the funded,
         // awaiting_transport and accepted partitions daily to stamp rows without a deadline.
         COMMITMENTS_ENABLED: commitmentsEnabled,
+        // ESC-34: commitment_deadlines judges a pickup by its arrival check-ins (no-show outcomes, the
+        // admin queue); off, such an order gets the P1 marker and its stamp is cleared.
+        PICKUP_CLASSIFICATION_ENABLED: pickupClassification,
         // FRD-15: the relationship_patterns scan writes SELF_TRADE, SHARED_DEVICE_TRADE and
         // REPEATED_PAIR signals (fraud-detection-architecture.md 15.2). Without it, or without
         // USERS_TABLE, the action logs FRAUD_RELATIONSHIP_UNCONFIGURED and writes nothing.
@@ -2837,6 +2849,16 @@ export class ApiStack extends cdk.Stack {
       integration: matchInt,
     });
 
+    // SIM-56 (push-alerts-api.md 1.5.0): the buyer's own requests, read back after a reload or
+    // on a new phone. Keyed by the JWT sub, never a parameter. Added after /match so the
+    // shared integration keeps the logical id it has under that route.
+    httpApi.addRoutes({
+      path: "/intents",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: matchInt,
+    });
+
     httpApi.addRoutes({
       path: "/device-tokens",
       methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.DELETE],
@@ -3200,8 +3222,10 @@ export class ApiStack extends cdk.Stack {
     // items, which this transaction has none of).
     // FUP-05: a manual payout record writes its reference item (payout-ref#...) the same way, in the
     // record's transaction, and a refused duplicate reads that item (GetItem, strongly consistent) to
-    // name where the reference is used. No update, delete, Query or Scan.
-    props.escrowIdempotencyTable.grant(adminFn.function, "dynamodb:PutItem", "dynamodb:GetItem");
+    // name where the reference is used. FUP-218: the correction of a recorded reference deletes the old
+    // reference item in its transaction (a conditional Delete: DeleteItem), only while the item names the
+    // corrected leg. No update, Query or Scan.
+    props.escrowIdempotencyTable.grant(adminFn.function, "dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:DeleteItem");
     // FRD-07: the read grant covers the table's indexes too, so Fraud Review and the dashboard
     // count Query the sparse StatusCreatedAtIndex instead of scanning the table.
     props.fraudSignalsTable.grantReadWriteData(adminFn.function);
@@ -3310,7 +3334,8 @@ export class ApiStack extends cdk.Stack {
       "/admin/users/{id}/action",
       // ESC-02: record an admin-paid manual payout leg ({action} = complete). FUP-05: claim a leg before
       // paying it (claim) and give it back (unclaim); a claim is a conditional UpdateItem on the escrow row
-      // or the ledger row (existing grants). One route for the three: with Telebirr live on, this stack
+      // or the ledger row (existing grants). FUP-218: correct, the reference of a recorded leg (the
+      // escrow-idempotency DeleteItem grant above). One route for them all: with Telebirr live on, this stack
       // then held 497 of CloudFormation's 500 resources (FUP-217 has since freed room). The Lambda
       // answers 404 ADMIN_002 for any other action; admin group checked there.
       "/admin/payouts/{escrowId}/{ref}/{action}",
