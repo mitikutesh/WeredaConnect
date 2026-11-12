@@ -2798,6 +2798,16 @@ export class ApiStack extends cdk.Stack {
       integration: syncInt,
     });
 
+    // SIM-56 (user-entity.md 2.2.0): the caller reads their own profile. The sync Lambda serves it:
+    // it owns the profile edit (the /sync user entity) and already reads the users table, so no new
+    // grant or integration. After /sync, so the shared integration keeps its logical id.
+    httpApi.addRoutes({
+      path: "/user/profile",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: syncInt,
+    });
+
     httpApi.addRoutes({
       path: "/crops",
       methods: [apigateway.HttpMethod.GET],

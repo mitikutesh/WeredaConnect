@@ -21,6 +21,7 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(FaydaLinkResponse))]
 [JsonSerializable(typeof(LoginRequest))]
 [JsonSerializable(typeof(LoginResponse))]
+[JsonSerializable(typeof(UserProfileResponse))]
 [JsonSerializable(typeof(VerifyOtpRequest))]
 [JsonSerializable(typeof(ResendOtpRequest))]
 [JsonSerializable(typeof(ResendOtpResponse))]

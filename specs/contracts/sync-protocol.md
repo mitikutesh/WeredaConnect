@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.54.0
+1.55.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -289,6 +289,43 @@ Errors (all `status: "error"`): `USER_PROFILE_VALIDATION` (missing or invalid
 `preferredLanguage`, or a non-update action), `USER_PROFILE_UNAUTHORIZED`
 (`entityId` is not the caller), `USER_PROFILE_NOT_FOUND`, `USER_PROFILE_CONFLICT`
 (a rare concurrent write; the client retries) and `USER_PROFILE_UNAVAILABLE`.
+
+### Profile text (1.55.0, SIM-56)
+
+Since 1.55.0 the `user` entity also takes `displayName`, `woreda` and `companyName` (a company
+buyer's only), so every role edits their profile from the app (`user-entity.md` 2.2.0 section 14).
+`data` must carry at least one of these four keys; each is optional. Still ignored: every other
+key (role, phone, Fayda, verification, `buyerType`, `version`, admin fields).
+
+- Values are trimmed; a JSON `null` is not sent; a non-string is `USER_PROFILE_VALIDATION`.
+- A value equal to the stored one is an unchanged echo: not checked, not written.
+- Changed fields must not be empty, must be at most 100 characters, the name must not be the
+  deleted-account name, and `companyName` is refused unless the caller is a company buyer:
+  `USER_PROFILE_VALIDATION: <reasons>`.
+- Then a phone number in a changed field is refused with the registration's code and text
+  (FUP-52): `AUTH_027: Remove the phone number from displayName, woreda. Contact opens after
+  payment is held in escrow.` (the fields that hold one, in the order `displayName`, `woreda`,
+  `companyName`).
+- A refusal writes nothing, the language included; nothing changed is a no-op `success`.
+
+Example:
+
+```json
+{
+  "operationId": "7c2d...",
+  "idempotencyKey": "user-1:user:user-1:update:1762941600000",
+  "entityType": "user",
+  "entityId": "user-1",
+  "action": "update",
+  "data": { "displayName": "Abebe K.", "woreda": "Meki" },
+  "timestamp": "2026-11-12T10:00:00Z"
+}
+```
+
+Clients: the phone queues the operation (it works offline) after the form ran the same rules;
+web sends it alone to `/sync` and marks the fields an `AUTH_027` names. On the phone,
+`USER_PROFILE_VALIDATION` and `AUTH_027` stay retryable like before (only `USER_PROFILE_UNAUTHORIZED`
+is permanent, 1.43.0): the form never sends what they refuse.
 
 ## Create-conflict echo (1.4.0)
 
@@ -1421,6 +1458,7 @@ is never stored.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.55.0 | 2026-11-12 | Profile text on the `user` entity (SIM-56, `user-entity.md` 2.2.0): `displayName`, `woreda` and a company buyer's `companyName` beside `preferredLanguage`, at least one of the four; trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name (`USER_PROFILE_VALIDATION`), then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing. Every other key is still ignored. The read is `GET /user/profile` (not a sync pull) |
 | 1.54.0 | 2026-11-12 | Handoff fields by status (FUP-246, `delivery-verification-api.md` 2.5.0, `fraud-detection-architecture.md` 3.34.0): a `delivery` operation writes `gpsPickup` only with `status: pickedUp`, `gpsDropoff` only with `delivered` and `disputeReason` only with `disputed`; anywhere else (a create, `inTransit`, the other handoffs, a dispute, an update without a status) the field is dropped, not refused, and logged as `DELIVERY_FIELD_DROPPED`. A buyer's confirm can no longer move the trucker's pickup point, nor a dispute rewrite either point. Server only; every shipped client already sends each field only with its own status. |
 | 1.53.0 | 2026-11-12 | The "update the app" banner (FUP-75), client only: the shell shows it above every main screen while the "update required" flag is set, with a Play Store button and a hint on the phone, and on web a reload that first updates the caching service worker, then fetches `main.dart.js` past the browser cache, and does nothing offline; web now raises the flag on an `APP_UPDATE_REQUIRED` refusal; the flag is kept with the build number (survives a restart on the same build, forgotten by another build) and an accepted order operation clears it (see Minimum app version for order operations). No server change. |
 | 1.52.0 | 2026-11-12 | Codes older apps do not know (FUP-241, `crop-listing-api.md` 1.12.1, `trip-listing-api.md` 2.6.1): `TRIP_HAS_BOOKINGS` and `CROP_HAS_ACTIVE_ORDERS` go only to an app that sends `X-App-Build`; an app without it (build 1 or older) gets the same sentence as `SYNC_VALIDATION:`, permanent on every mobile build since March 2026, as `REPUTATION_RESTRICTED` already did (1.48.0, unchanged). Apps with the header get the codes as before. Server only |
@@ -1478,4 +1516,4 @@ is never stored.
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.54.0
+**Version**: 1.55.0

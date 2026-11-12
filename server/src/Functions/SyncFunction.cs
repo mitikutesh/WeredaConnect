@@ -819,6 +819,12 @@ public partial class SyncFunction
         APIGatewayProxyRequest request,
         ILambdaContext context)
     {
+        // SIM-56: GET /user/profile shares this Lambda (it owns the profile write).
+        if (IsProfileRead(request))
+        {
+            return await HandleProfileReadAsync(request, context);
+        }
+
         context.Logger.LogInformation("Sync invoked");
 
         // Parse request
@@ -2100,10 +2106,13 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// SIM-37: update the caller's own user profile from a sync `update`. Only
-    /// `preferredLanguage` is allow-listed (en, am, om); every other field in the
-    /// payload is ignored, so a client cannot change its role, woreda or phone
-    /// through this path. Lets the language chosen in Settings follow the user to
+    /// SIM-37: update the caller's own user profile from a sync `update`. Allow-listed:
+    /// `preferredLanguage` (en, am, om) and, since SIM-56 (sync-protocol.md 1.55.0),
+    /// `displayName`, `woreda` and a company buyer's `companyName` (<see cref="UserProfileEdit"/>).
+    /// Every other key in the payload is ignored, so a client cannot change its role, phone,
+    /// verification or any admin field through this path. The field rules run first, then the
+    /// FUP-52 phone screen with the registration's `AUTH_027` code and text; a refusal writes
+    /// nothing, the language included. Lets the language chosen in Settings follow the user to
     /// other devices and gives ESC-21 the right language for order notifications.
     /// </summary>
     private async Task<SyncOperationResult> ProcessUserAsync(
@@ -2142,25 +2151,23 @@ public partial class SyncFunction
             };
         }
 
-        var language = operation.Data?.GetValueOrDefault("preferredLanguage")?.ToString();
-        if (string.IsNullOrEmpty(language))
+        var data = operation.Data ?? new Dictionary<string, object>();
+        var language = data.GetValueOrDefault("preferredLanguage")?.ToString();
+        var payloadErrors = new List<string>();
+        var sentText = UserProfileEdit.ReadText(data, payloadErrors);
+        if (payloadErrors.Count == 0 && string.IsNullOrEmpty(language) && sentText.Count == 0)
         {
-            return new SyncOperationResult
-            {
-                OperationId = operation.OperationId,
-                Status = "error",
-                Message = "USER_PROFILE_VALIDATION: preferredLanguage is required."
-            };
+            payloadErrors.Add("Send preferredLanguage, displayName, woreda or companyName.");
         }
 
-        if (!Validation.RequestValidator.ValidLanguages.Contains(language))
+        if (!string.IsNullOrEmpty(language) && !Validation.RequestValidator.ValidLanguages.Contains(language))
         {
-            return new SyncOperationResult
-            {
-                OperationId = operation.OperationId,
-                Status = "error",
-                Message = "USER_PROFILE_VALIDATION: preferredLanguage must be en, am or om."
-            };
+            payloadErrors.Add("preferredLanguage must be en, am or om.");
+        }
+
+        if (payloadErrors.Count > 0)
+        {
+            return UserProfileError(operation, "USER_PROFILE_VALIDATION", string.Join(" ", payloadErrors));
         }
 
         var user = await _userRepo.GetUserByIdAsync(authenticatedUserId, consistentRead: true);
@@ -2174,10 +2181,33 @@ public partial class SyncFunction
             };
         }
 
-        // Store the canonical lowercase code and no-op when unchanged, so a repeated
+        // SIM-56: only the fields that change are checked and written.
+        var changed = UserProfileEdit.Changed(sentText, user);
+        var ruleErrors = UserProfileEdit.Validate(changed, user);
+        if (ruleErrors.Count > 0)
+        {
+            return UserProfileError(operation, "USER_PROFILE_VALIDATION", string.Join(" ", ruleErrors));
+        }
+
+        // FUP-52: the name goes onto every new listing, trip, order and delivery, and the woreda onto
+        // each new order as its drop-off place, before escrow opens contact.
+        var phoneFields = UserProfileEdit.FieldsWithPhoneNumber(changed);
+        if (phoneFields.Count > 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = ContactInTextRefusal("AUTH_027", phoneFields)
+            };
+        }
+
+        // Store the canonical lowercase code and no-op when nothing changes, so a repeated
         // choice does not churn the version.
-        var canonical = language.ToLowerInvariant();
-        if (string.Equals(user.PreferredLanguage, canonical, StringComparison.OrdinalIgnoreCase))
+        var canonical = string.IsNullOrEmpty(language) ? null : language.ToLowerInvariant();
+        var languageChanged = canonical != null
+            && !string.Equals(user.PreferredLanguage, canonical, StringComparison.OrdinalIgnoreCase);
+        if (!languageChanged && changed.Count == 0)
         {
             return new SyncOperationResult
             {
@@ -2187,7 +2217,13 @@ public partial class SyncFunction
             };
         }
 
-        var updated = await _userRepo.UpdateUserAsync(user with { PreferredLanguage = canonical }, user.Version);
+        var edited = UserProfileEdit.Apply(user, changed);
+        if (languageChanged)
+        {
+            edited = edited with { PreferredLanguage = canonical! };
+        }
+
+        var updated = await _userRepo.UpdateUserAsync(edited, user.Version);
         if (!updated.IsSuccess)
         {
             // A rare concurrent write bumped the version; the client retries the op.
@@ -2195,12 +2231,19 @@ public partial class SyncFunction
             {
                 OperationId = operation.OperationId,
                 Status = "error",
-                Message = $"USER_PROFILE_CONFLICT: {updated.Error?.Message ?? "Could not save the language."}"
+                Message = $"USER_PROFILE_CONFLICT: {updated.Error?.Message ?? "Could not save the profile."}"
             };
         }
 
+        // Field names only: the values are personal data.
+        var fields = changed.Keys.ToList();
+        if (languageChanged)
+        {
+            fields.Add("preferredLanguage");
+        }
+
         context.Logger.LogInformation(
-            $"SIM-37: preferredLanguage updated for {MoneyAlarmLog.LogId(authenticatedUserId)}.");
+            $"SIM-56: profile updated for {MoneyAlarmLog.LogId(authenticatedUserId)}: {string.Join(", ", fields)}.");
 
         return new SyncOperationResult
         {

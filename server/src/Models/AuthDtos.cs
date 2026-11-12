@@ -99,6 +99,15 @@ public sealed record LoginResponse
 }
 
 /// <summary>
+/// GET /user/profile success response (200 OK, SIM-56, user-entity.md 2.2.0): the caller's own
+/// <c>user</c> object, the same shape sign-in returns.
+/// </summary>
+public sealed record UserProfileResponse
+{
+    public required UserDto User { get; init; }
+}
+
+/// <summary>
 /// Token set returned by auth endpoints.
 /// </summary>
 public sealed record TokenResponse
