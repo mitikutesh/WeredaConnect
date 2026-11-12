@@ -613,6 +613,34 @@
   "@listingDeleted": {
     "description": "Message after deleting listing"
   },
+  "editListing": "ዝርዝሩን አርትዕ",
+  "@editListing": {
+    "description": "SIM-56: title of the screen where a farmer edits their own crop listing"
+  },
+  "editListingNote": "የቀረውን መጠን፣ ዋጋውን ወይም መግለጫውን ይቀይሩ። ሰብሉን፣ ፎቶዎቹን ወይም ቦታውን ለመቀየር ይህን ዝርዝር ሰርዘው እንደገና ይዘርዝሩ።",
+  "@editListingNote": {
+    "description": "SIM-56: note at the top of the edit listing screen: what can change, and what needs a new listing"
+  },
+  "deleteListingTitle": "ይህ ዝርዝር ይሰረዝ?",
+  "@deleteListingTitle": {
+    "description": "SIM-56: title of the dialog that confirms deleting the farmer's own crop listing"
+  },
+  "deleteListingBody": "ገዢዎች ከእንግዲህ አያዩትም። መመለስ አይቻልም።",
+  "@deleteListingBody": {
+    "description": "SIM-56: body of the dialog that confirms deleting the farmer's own crop listing"
+  },
+  "editListingChanged": "ይህ ዝርዝር ከከፈቱት በኋላ ተቀይሯል፤ ምናልባት ትዕዛዝ ከፊሉን ወስዶ ሊሆን ይችላል። ይመልከቱትና እንደገና ያስተካክሉ።",
+  "@editListingChanged": {
+    "description": "SIM-56: snackbar on the listing detail when the farmer's edit was not saved because the listing changed since the edit form opened (version conflict); the detail now shows the listing as it is"
+  },
+  "editListingWaiting": "በዚህ ዝርዝር ላይ ያደረጉት የመጨረሻ ለውጥ ገና አልተላከም። በይነመረብ ሲኖርዎትና ከተላከ በኋላ እንደገና ያስተካክሉት።",
+  "@editListingWaiting": {
+    "description": "SIM-56: snackbar when the farmer tries to edit a listing while an earlier change of it is still waiting in the phone's sync queue (a second edit on top could undo stock an order took)"
+  },
+  "deleteListingOrdersUnreadable": "የዚህን ዝርዝር ትዕዛዞች ማረጋገጥ አልተቻለም። በይነመረብ ሲኖርዎት እንደገና ይሞክሩ።",
+  "@deleteListingOrdersUnreadable": {
+    "description": "SIM-56: snackbar when the farmer's delete is stopped because the listing's orders could not be read to check none is in progress"
+  },
   "allCrops": "ሁሉም",
   "@allCrops": {
     "description": "Filter label for all crop types"
@@ -3198,9 +3226,8 @@
   "deliveryDropoffQrInstruction": "ሰብሉን ሲያስረክቡ ይህን QR ኮድ ለገዢው ያሳዩ",
   "deliveryDropoffQrNote": "ከማንሳት ቅኝትዎ በዚህ ስልክ ላይ የተቀመጠ ነው። ያለ ኢንተርኔት ይሰራል፣ የገዢው ቅኝትም ርክክቡን ያረጋግጣል።",
   "deliveryDropoffCodeOnly": "ማንሳቱን በተተየበ ኮድ ስላረጋገጡ የሚታይ QR የለም። ገዢው በምትኩ ይህን ኮድ ይተይባል።",
-  "deliveryDropoffQrMissing": "ይህ ስልክ ለዚህ ርክክብ የማውረጃ ኮድ የለውም። በማንሳት ጊዜ የገበሬውን QR በዚህ ስልክ ሲቃኙ ይቀመጣል።",
   "deliveryErrorCodeMismatch": "የተተየበው ኮድ ከዚህ ርክክብ ጋር አይዛመድም፣ ስለዚህ አልተረጋገጠም። ኮዱን አረጋግጠው እንደገና ይሞክሩ።",
-  "deliveryErrorCodeLocked": "ለዚህ ርክክብ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ QR ኮዱን ይቃኙ፣ ወይም ገበሬው አዲስ ኮድ እንዲያሳይ ይጠይቁ።",
+  "deliveryErrorCodeLocked": "ለዚህ ርክክብ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ QR ኮዱን ይቃኙ፣ ወይም ኮዱን የሚያሳየው ሰው አዲስ ኮድ እንዲሰራ ይጠይቁ።",
   "deliveryDisputeNotConfirmed": "ክርክሩ አልተላከም። ለመላክ እርስዎ መሆንዎን ያረጋግጡ።",
   "deliveryErrorCodeGpsRequired": "የተተየበ ኮድ አካባቢዎን ይፈልጋል። የቦታ አገልግሎትን አብርተው እንደገና ይሞክሩ።",
   "tripModeStopSharing": "ማጋራት አቁም",
@@ -3212,7 +3239,16 @@
   "homeTripLoadFailed": "ጉዞዎን መጫን አልተቻለም። ግንኙነትዎን አረጋግጠው እንደገና ይሞክሩ።",
   "tripScanPickupQrFor": "የማንሳት QR ቃኝ: {name}",
   "deliveryErrorCodeLockedDropoff": "ለዚህ ማውረጃ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። ሹፌሩ የማውረጃ QR ካለው ይቃኙት። ከሌለው ድጋፍ ሰጪን ያግኙ፤ ርክክቡን ከእርስዎና ከሹፌሩ ጋር ማረጋገጥ ይችላሉ።",
-  "deliveryQrAlreadyPickedUp": "ይህ ርክክብ አስቀድሞ ተነስቷል፣ ስለዚህ አዲስ QR ኮድ አይፈጠርም። ሹፌሩ ከማንሳቱ የተገኘውን ኮድ ለገዢው ያሳያል።",
+  "deliveryDropoffQrOwnNote": "ለዚህ ርክክብ በዚህ ስልክ የተሰራ ነው። ያለ ኢንተርኔት ይሰራል፣ የገዢው ቅኝት ወይም የተተየበ ኮድ ርክክቡን ያረጋግጣል። ከጠፋ ወይም ከተቆለፈ አዲስ ኮድ ይስሩ።",
+  "deliveryDropoffNewCode": "አዲስ የማውረጃ ኮድ",
+  "deliveryDropoffQrNotSent": "ገና ወደ አገልጋዩ አልደረሰም። ይህን QR በኢንተርኔት ላይ ሆነው በከፈቱ ቁጥር እንደገና ይላካል፤ የገዢው ማረጋገጫም እስኪደርስ ይጠብቃል።",
+  "deliveryErrorDropoffQrPending": "የሹፌሩ የማውረጃ ኮድ ገና ወደ አገልጋዩ አልደረሰም። ሹፌሩ በኢንተርኔት ላይ ሆኖ የማውረጃ QR እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።",
+  "deliveryErrorDropoffCodeLocked": "ለዚህ ማውረጃ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ የሹፌሩን የማውረጃ QR ይቃኙ፣ ወይም ሹፌሩ አዲስ ኮድ እንዲሰራ ይጠይቁ።",
+  "deliveryDropoffNoCodeHere": "ይህ ስልክ ለዚህ ርክክብ የማውረጃ ኮድ የለውም። በሌላ ስልክ ወይም አሳሽ ላይ ሰርተው ከሆነ ያንን ያሳዩ። ወይም እዚህ አዲስ ኮድ ይስሩ።",
+  "deliveryDropoffQrSuperseded": "በሌላ ስልክ ወይም አሳሽ ላይ አዲስ የማውረጃ ኮድ ስለተሰራ ይህኛው አይሰራም። ያንን ያሳዩ፣ ወይም እዚህ አዲስ ኮድ ይስሩ።",
+  "deliveryDropoffNewCodeConfirmTitle": "አዲስ የማውረጃ ኮድ ይሰራ?",
+  "deliveryDropoffNewCodeConfirmBody": "ከዚህ በፊት በዚህ ወይም በሌላ ስልክ የታየ ማንኛውም የማውረጃ ኮድ መስራት ያቆማል። ለገዢው አዲሱን ብቻ ያሳዩ።",
+  "deliveryQrAlreadyPickedUp": "ይህ ርክክብ አስቀድሞ ተነስቷል፣ ስለዚህ አዲስ QR ኮድ አይፈጠርም። ሹፌሩ አሁን የራሱን የማውረጃ ኮድ ለገዢው ያሳያል።",
   "dropoffNoteLabel": "የማውረጃ ምልክት (አማራጭ)",
   "dropoffNoteHint": "ለምሳሌ፦ መርካቶ፣ አንዋር መስጊድ አጠገብ",
   "dropoffNoteHelper": "ሹፌሩ እንዲያገኝዎ ይረዳል። ገበሬውና ሹፌሩ ያዩታል። እስኪነሳ ድረስ መቀየር ይችላሉ።",
@@ -3319,6 +3355,15 @@
   "notifTierChangedTitle": "ተዓማኒነትዎ ተቀይሯል",
   "notifTierGoodBody": "ወደ ጥሩ አቋም ተመልሰዋል።",
   "notifTierWarningBody": "የቅጣት ነጥቦች አሉዎት። ገዢዎች እስካሁን ምንም አያዩም። ለዝርዝሩ \"የእኔ ተዓማኒነት\"ን ይክፈቱ።",
+  "profileEditTitle": "መገለጫ አርትዕ",
+  "profileEditSubtitle": "ስም እና ወረዳ",
+  "profileEditNote": "ከአሁን በኋላ የሚፈጥሯቸው ዝርዝሮች፣ ጉዞዎች እና ትዕዛዞች አዲሱን ስምዎን እና ወረዳዎን ያሳያሉ። ቀደም ብለው የፈጠሯቸው የቀድሞውን መረጃ ይይዛሉ።",
+  "profileEditSaved": "መገለጫው ተቀምጧል።",
+  "profileEditSavedQueued": "መገለጫው በዚህ ስልክ ላይ ተቀምጧል። በይነመረብ ሲኖር ይላካል።",
+  "profileEditFailed": "መገለጫዎን ማስቀመጥ አልተቻለም። ግንኙነትዎን ያረጋግጡ እና እንደገና ይሞክሩ።",
+  "profileEditTooLong": "ከ100 ቁምፊዎች ያልበለጠ ይጠቀሙ።",
+  "profileEditNameUnavailable": "ይህ ስም አይገኝም። ሌላ ይምረጡ።",
+  "profileEditRefused": "እነዚህ መረጃዎች ተቀባይነት አላገኙም። እያንዳንዱን መስክ ያረጋግጡ እና እንደገና ይሞክሩ።",
   "checkInTitle": "የመድረስ ማረጋገጫዎች",
   "checkInPartyTrucker": "ሹፌሩ እርሻው ላይ",
   "checkInPartyBuyer": "ገዢው እርሻው ላይ",

@@ -504,6 +504,32 @@ class AppLocalizationsOm extends AppLocalizations {
   String get listingDeleted => 'Tarreen haqameera';
 
   @override
+  String get editListing => 'Tarree Gulaali';
+
+  @override
+  String get editListingNote =>
+      'Hamma hafe, gatii ykn ibsa jijjiiri. Midhaan, suuraawwan ykn bakka jijjiiruuf tarree kana haqiitii irra deebi\'ii galchi.';
+
+  @override
+  String get deleteListingTitle => 'Tarree kana haquu?';
+
+  @override
+  String get deleteListingBody =>
+      'Bittoonni kana booda hin argan. Deebisuun hin danda\'amu.';
+
+  @override
+  String get editListingChanged =>
+      'Tarreen kun erga banattee jijjiirameera, tarii ajajni tokko gariisaa fudhatee jira. Ilaaliitii irra deebi\'ii gulaali.';
+
+  @override
+  String get editListingWaiting =>
+      'Jijjiirama dhumaa tarree kana irratti gootan ammallee hin ergamne. Yeroo interneetii qabdanii erga ergamee booda irra deebi\'aa gulaalaa.';
+
+  @override
+  String get deleteListingOrdersUnreadable =>
+      'Ajajoota tarree kanaa mirkaneessuun hin danda\'amne. Yeroo interneetii qabdan irra deebi\'aa yaalaa.';
+
+  @override
   String get allCrops => 'Hunda';
 
   @override
@@ -5253,16 +5279,12 @@ class AppLocalizationsOm extends AppLocalizations {
       'Fudhachuu koodii barreeffameen waan mirkaneessiteef QR agarsiifamu hin jiru. Bitaan bakka isaa koodii kana barreessa.';
 
   @override
-  String get deliveryDropoffQrMissing =>
-      'Bilbilli kun geejjiba kanaaf koodii buusuu hin qabu. Yeroo fudhachuu QR qonnaan bulaa bilbila kanaan iskaanii gootu kuufama.';
-
-  @override
   String get deliveryErrorCodeMismatch =>
       'Koodiin barreeffame geejjiba kana waliin wal hin simu, kanaaf hin mirkanoofne. Koodii mirkaneessiitii irra deebi\'ii yaali.';
 
   @override
   String get deliveryErrorCodeLocked =>
-      'Geejjiba kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa koodii QR iskaanii godhi, yookaan qonnaan bulaan koodii haaraa akka agarsiisu gaafadhu.';
+      'Geejjiba kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa koodii QR iskaanii godhi, yookaan namni koodii agarsiisu koodii haaraa akka hojjetu gaafadhu.';
 
   @override
   String get deliveryDisputeNotConfirmed =>
@@ -5307,8 +5329,43 @@ class AppLocalizationsOm extends AppLocalizations {
       'Buusuu kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Konkolaachisaan QR buusuu yoo qabaate iskaanii godhi. Yoo hin qabne, deeggarsa qunnami: isaan si fi konkolaachisaa waliin dabarsuu ni mirkaneessu.';
 
   @override
+  String get deliveryDropoffQrOwnNote =>
+      'Geejjiba kanaaf bilbila kana irratti hojjetame. Interneetii malee hojjata, iskaaniin ykn koodiin barreeffame bitaa geejjiba ni mirkaneessa. Yoo bade ykn cufame, koodii haaraa hojjedhu.';
+
+  @override
+  String get deliveryDropoffNewCode => 'Koodii buusuu haaraa';
+
+  @override
+  String get deliveryDropoffQrNotSent =>
+      'Ammaaf sarvarii hin geenye. Yeroo QR kana interneetii irratti banattu hundaa irra deebi\'ee ergama, mirkaneessi bitaas hanga inni ga\'utti eeggata.';
+
+  @override
+  String get deliveryErrorDropoffQrPending =>
+      'Koodiin buusuu konkolaachisaa hanga ammaatti sarvarii hin geenye. Konkolaachisaan interneetii irratti QR buusuu akka banu gaafadhaa, achiis irra deebi\'aa yaalaa.';
+
+  @override
+  String get deliveryErrorDropoffCodeLocked =>
+      'Buusuu kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa QR buusuu konkolaachisaa iskaanii godhi, yookaan konkolaachisaan koodii haaraa akka hojjetu gaafadhu.';
+
+  @override
+  String get deliveryDropoffNoCodeHere =>
+      'Bilbilli kun geejjiba kanaaf koodii buusuu hin qabu. Yoo bilbila ykn browser biraa irratti hojjette, sana agarsiisi. Yookaan asitti koodii haaraa hojjedhu.';
+
+  @override
+  String get deliveryDropoffQrSuperseded =>
+      'Koodiin buusuu haaraan bilbila ykn browser biraa irratti waan hojjetameef, kun hin hojjetu. Sana agarsiisi, yookaan asitti koodii haaraa hojjedhu.';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmTitle =>
+      'Koodii buusuu haaraa haa hojjetamu?';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmBody =>
+      'Koodiin buusuu kamiyyuu kan duraan bilbila kana ykn kan biraa irratti agarsiifame hojii ni dhaaba. Bitaaf kan haaraa qofa agarsiisi.';
+
+  @override
   String get deliveryQrAlreadyPickedUp =>
-      'Geejjibni kun duraan fudhatameera, kanaaf koodiin QR haaraan hin uumamu. Konkolaachisaan koodii yeroo fudhachuu argame bitaaf agarsiisa.';
+      'Geejjibni kun duraan fudhatameera, kanaaf koodiin QR haaraan hin uumamu. Konkolaachisaan amma koodii buusuu kan mataa isaa bitaaf agarsiisa.';
 
   @override
   String get dropoffNoteLabel => 'Mallattoo bakka buusii (dirqama miti)';
@@ -5716,6 +5773,38 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get notifTierWarningBody =>
       'Qabxii adabbii qabdu. Bitattoonni hanga ammaatti homaa hin argan. Bal\'inaaf \"Amanamummaa koo\" banaa.';
+
+  @override
+  String get profileEditTitle => 'Piroofaayilii gulaali';
+
+  @override
+  String get profileEditSubtitle => 'Maqaa fi aanaa';
+
+  @override
+  String get profileEditNote =>
+      'Tarreeffamni, imalli fi ajajni amma booda uumtan maqaa fi aanaa keessan haaraa agarsiisu. Kanneen duraan uumtan odeeffannoo duraanii qabatu.';
+
+  @override
+  String get profileEditSaved => 'Piroofaayiliin olkaa\'ameera.';
+
+  @override
+  String get profileEditSavedQueued =>
+      'Piroofaayiliin bilbila kana irratti olkaa\'ameera. Yeroo interneetiin jiru ni ergama.';
+
+  @override
+  String get profileEditFailed =>
+      'Piroofaayilii keessan olkaa\'uun hin danda\'amne. Walqunnamtii keessan mirkaneessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get profileEditTooLong => 'Arfiilee 100 ykn isaa gadi fayyadamaa.';
+
+  @override
+  String get profileEditNameUnavailable =>
+      'Maqaan kun hin argamu. Kan biraa filadhaa.';
+
+  @override
+  String get profileEditRefused =>
+      'Odeeffannoon kun hin fudhatamne. Dirree tokkoon tokkoon isaa mirkaneessaatii irra deebi\'aa yaalaa.';
 
   @override
   String get checkInTitle => 'Mirkaneessa ga\'umsaa';

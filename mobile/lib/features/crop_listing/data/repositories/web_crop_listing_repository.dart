@@ -251,6 +251,65 @@ class WebCropListingRepository extends BaseCropListingRepository {
     return _parseListingMap(map).version;
   }
 
+  /// SIM-56: straight to the server, the changed fields only, at the version
+  /// of the listing the form showed (never one read at save time: an order
+  /// that took stock since makes the server answer conflict, thrown as
+  /// `SyncConflictException`, instead of the edit putting the stock back).
+  /// A refusal throws too ([ensureSyncSucceeded]) and nothing changed. On
+  /// success [listing] itself takes the changes and the next version.
+  @override
+  Future<CropListing> updateListing({
+    required CropListing listing,
+    required String farmerId,
+    double? quantity,
+    double? pricePerKg,
+    String? description,
+  }) async {
+    if (listing.farmerId != farmerId) {
+      throw StateError(
+        'Crop listing ${listing.listingId} is not this farmer\'s.',
+      );
+    }
+    final data = BaseCropListingRepository.editPayload(
+      listingId: listing.listingId,
+      version: listing.version,
+      quantity: quantity,
+      pricePerKg: pricePerKg,
+      description: description,
+    );
+    final now = DateTime.now().toUtc();
+    final response = await _api.post<Map<String, dynamic>>(
+      '/sync',
+      data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
+        'operations': [
+          {
+            'operationId': _uuid.v4(),
+            'entityType': 'crop_listing',
+            'action': 'update',
+            'entityId': listing.listingId,
+            'timestamp': now.toIso8601String(),
+            'idempotencyKey': '$farmerId:crop_listing:${listing.listingId}'
+                ':update:${now.millisecondsSinceEpoch}',
+            'data': data,
+          },
+        ],
+      },
+    );
+    ensureSyncSucceeded(response);
+    if (quantity != null) listing.quantity = quantity;
+    if (pricePerKg != null) listing.pricePerKg = pricePerKg;
+    if (description != null) listing.description = description;
+    return listing
+      ..updatedAt = now
+      ..version = listing.version + 1;
+  }
+
+  /// No queue on web: an edit goes out at once or fails (SIM-56).
+  @override
+  Future<bool> hasChangeWaiting(String listingId) async => false;
+
   @override
   Future<CropListing?> getListingById(String listingId) async {
     try {

@@ -14,6 +14,8 @@ namespace WeredaConnect.Server.Data;
 ///   codeMissesPickedUp / codeMissesDelivered (STRING SET of attempt ids, "{operationId}:{first
 ///   16 hex of SHA-256 of the code}", taken before the comparison and removed again for a right
 ///   code, so it holds the wrong codes; optional, cleared when the nonce changes),
+///   dropoffNonce (STRING, ESC-35: the trucker's drop-off nonce, optional), dropoffIssuedAt
+///   (STRING ISO 8601, when the current drop-off nonce was stored),
 ///   TTL: expiresAt (NUMBER — Unix epoch seconds; cleanup only, freshness is code-enforced)
 ///
 /// The secret is NEVER returned to any client — it lives here precisely so it cannot
@@ -91,14 +93,126 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
     }
 
     /// <inheritdoc />
+    public async Task<DropoffNonceOutcome> PutDropoffNonceAsync(string deliveryId, string nonce, bool renew)
+    {
+        var key = new Dictionary<string, AttributeValue>
+        {
+            { "deliveryId", new AttributeValue { S = deliveryId } }
+        };
+        var expiresAt = new AttributeValue
+        {
+            N = DateTimeOffset.UtcNow.AddDays(TtlDays).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)
+        };
+
+        // Only next to the farmer's nonce: a row without one is no pickup this store proved. A
+        // registration (the code made at pickup, or sent again when the QR opens) takes the place
+        // only while no drop-off code is stored, so a stale or second device never replaces the
+        // code the buyer may already hold. Only the trucker's explicit renewal replaces it: its
+        // freshness starts again and the drop-off misses of the old code go (how a locked or
+        // expired drop-off code is renewed).
+        var names = new Dictionary<string, string>
+        {
+            { "#nonce", "nonce" },
+            { "#dn", "dropoffNonce" },
+            { "#dIssuedAt", "dropoffIssuedAt" },
+            { "#exp", "expiresAt" }
+        };
+        if (renew)
+        {
+            names["#missD"] = CodeMissesAttribute("delivered")!;
+        }
+
+        Dictionary<string, AttributeValue>? old;
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = key,
+                UpdateExpression = renew
+                    ? "SET #dn = :dn, #dIssuedAt = :now, #exp = :exp REMOVE #missD"
+                    : "SET #dn = :dn, #dIssuedAt = :now, #exp = :exp",
+                ConditionExpression = renew
+                    ? "attribute_exists(#nonce) AND (attribute_not_exists(#dn) OR #dn <> :dn)"
+                    : "attribute_exists(#nonce) AND attribute_not_exists(#dn)",
+                ExpressionAttributeNames = names,
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":dn", new AttributeValue { S = nonce } },
+                    { ":now", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                    { ":exp", expiresAt }
+                },
+                ReturnValuesOnConditionCheckFailure = ReturnValuesOnConditionCheckFailure.ALL_OLD
+            });
+            return DropoffNonceOutcome.Stored;
+        }
+        catch (ConditionalCheckFailedException ex)
+        {
+            old = ex.Item;
+        }
+
+        if (old != null && Refused(old) is { } refused)
+        {
+            return refused;
+        }
+
+        try
+        {
+            // The same drop-off nonce again (the trucker opened the code again): refresh the TTL,
+            // keep its freshness and its misses.
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = key,
+                UpdateExpression = "SET #exp = :exp",
+                ConditionExpression = "#dn = :dn",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#dn", "dropoffNonce" },
+                    { "#exp", "expiresAt" }
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":dn", new AttributeValue { S = nonce } },
+                    { ":exp", expiresAt }
+                },
+                ReturnValuesOnConditionCheckFailure = ReturnValuesOnConditionCheckFailure.ALL_OLD
+            });
+            return DropoffNonceOutcome.AlreadyStored;
+        }
+        catch (ConditionalCheckFailedException ex)
+        {
+            // Changed between the two writes: another code stands, or there is no row at all.
+            return (ex.Item != null ? Refused(ex.Item) : null) ?? DropoffNonceOutcome.OtherCodeStored;
+        }
+
+        // Why the row refused this nonce, or null when it holds this very nonce.
+        DropoffNonceOutcome? Refused(Dictionary<string, AttributeValue> row)
+        {
+            if (!row.TryGetValue("nonce", out var farmerNonce) || string.IsNullOrEmpty(farmerNonce.S))
+            {
+                return DropoffNonceOutcome.NoPickupNonce;
+            }
+
+            return row.TryGetValue("dropoffNonce", out var stored) && stored.S != nonce
+                ? DropoffNonceOutcome.OtherCodeStored
+                : null;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<CodeAttempt> TryTakeCodeAttemptAsync(
-        string deliveryId, string targetStatus, string attemptId, string nonce, int maxAttempts)
+        string deliveryId, string targetStatus, string attemptId, string nonce, int maxAttempts,
+        bool dropoffNonce = false)
     {
         var attr = CodeMissesAttribute(targetStatus);
         if (attr == null)
         {
             return new CodeAttempt(CodeAttemptOutcome.Locked, 0);
         }
+
+        // ESC-35: a drop-off code typed for the trucker's nonce counts only while that nonce is stored.
+        var nonceAttr = dropoffNonce ? "dropoffNonce" : "nonce";
 
         try
         {
@@ -119,7 +233,7 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
                 ExpressionAttributeNames = new Dictionary<string, string>
                 {
                     { "#m", attr },
-                    { "#nonce", "nonce" }
+                    { "#nonce", nonceAttr }
                 },
                 ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                 {
@@ -142,7 +256,7 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
         {
             // Regenerated meanwhile (or the row is gone): the code was typed for a nonce that
             // is no longer stored. Otherwise the leg's attempts are used up.
-            var stored = ex.Item != null && ex.Item.TryGetValue("nonce", out var n) ? n.S : null;
+            var stored = ex.Item != null && ex.Item.TryGetValue(nonceAttr, out var n) ? n.S : null;
             return stored == nonce
                 ? new CodeAttempt(CodeAttemptOutcome.Locked, maxAttempts)
                 : new CodeAttempt(CodeAttemptOutcome.NonceChanged, 0);
@@ -214,6 +328,8 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
             DeliveryId = deliveryId,
             Nonce = nonce,
             IssuedAt = item.TryGetValue("issuedAt", out var ia) ? ia.S : null,
+            DropoffNonce = item.TryGetValue("dropoffNonce", out var dn) && !string.IsNullOrEmpty(dn.S) ? dn.S : null,
+            DropoffIssuedAt = item.TryGetValue("dropoffIssuedAt", out var dia) ? dia.S : null,
             ConsumedPickedUpOp = item.TryGetValue("consumedPickedUp", out var cp) ? cp.S : null,
             ConsumedDeliveredOp = item.TryGetValue("consumedDelivered", out var cd) ? cd.S : null,
             CodeMissesPickedUp = item.TryGetValue("codeMissesPickedUp", out var mp) ? mp.SS?.Count ?? 0 : 0,

@@ -64,6 +64,12 @@ abstract final class DeliveryConstants {
   /// server's `SelfPickupDeliveryType` value.
   static const String selfPickupDeliveryType = 'self_pickup';
 
+  /// The tag the trucker's drop-off nonce starts with (ESC-35). A farmer's
+  /// nonce is plain base64url, which never holds a dot, so the server can
+  /// tell a drop-off QR whose nonce has not synced yet from a wrong one.
+  /// Must match the server's `DropoffNoncePrefix`.
+  static const String dropoffNoncePrefix = 'd.';
+
   /// Maximum dispute reason length.
   static const int maxDisputeReasonLength = 500;
 

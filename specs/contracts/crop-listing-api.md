@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.12.1
+1.13.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -443,7 +443,7 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
 10. **Listings that orders depend on** (1.7.0, ESC-18; `order-lifecycle.md` 2.4.0 Stock at funding):
    - `quantity` is the free stock. Funding an order takes its quintals out of `quantity` in one conditional write that requires `quantity >= q`, and writes the remainder exactly (orders are kilograms with 2 decimals, so the stock can carry up to 4 after a funding; a restore adds back the same amount); a funding that finds less takes nothing and the order is cancelled with a full refund (`listing_out_of_stock`). So stock that funded and later orders hold is never part of `quantity`, and a farmer's quantity edit cannot drop below it: any value from 0.01 is accepted (rule 2), and an edit made before a funding fails the version check (`SYNC_CONFLICT`) instead of putting the taken stock back.
    - A `delete`, or an `update` with `status: deleted`, is refused while any order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`: `CROP_HAS_ACTIVE_ORDERS: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.`, nothing written. An `update` to `status: deleted` that passes is a delete: it writes `deletedAt` as the `delete` action does (1.10.0). Orders in any other status (unpaid, failed, cancelled, rejected, or past pickup) do not block. The orders are read through the orders table's `ListingIdIndex` (one query, every page). When they cannot be read the answer is the unprefixed `The listing's orders could not be checked. Please try again later.` (retryable, nothing written).
-   - Behind `COMMITMENTS_ENABLED` (on in dev, off in staging and prod), like `TRIP_HAS_BOOKINGS`: clients handle the code since `sync-protocol.md` 1.17.0, and the flag goes on in staging and prod only after the minimum app version gate (spec K1). Ownership is checked first (`CROP_UNAUTHORIZED`).
+   - In every environment since 1.13.0 (SIM-56), whatever `COMMITMENTS_ENABLED` says (it was behind the flag, like `TRIP_HAS_BOOKINGS`, so off in staging and prod). A deleted listing refuses its delivery create, so with the flag off a delete stranded a funded order on its way to a truck. Clients handle the code since `sync-protocol.md` 1.17.0, and an app that predates it gets the `SYNC_VALIDATION` sentence (FUP-241, below). Ownership is checked first (`CROP_UNAUTHORIZED`).
    - Permanent on clients: the mobile queue reverts the listing from `GET /crops/{id}` and shows `errorCropHasActiveOrders`; web shows the same text (`sync-protocol.md` 1.17.0).
    - Only to an app that sends `X-App-Build` (1.12.1, FUP-241): an app that sends none (build 1 or older, which may predate the 1.17.0 client) gets the same sentence as `SYNC_VALIDATION: This listing has N order(s) in progress. ...`, permanent on every client (`sync-protocol.md` 1.52.0).
 
@@ -452,6 +452,50 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
 - Same as server-side, plus:
 - Show localized error messages in user's preferred language
 - Validate before enqueueing sync operation (prevent invalid operations from clogging queue)
+
+### The farmer's edit and delete (1.13.0, SIM-56)
+
+The apps let a farmer change and delete their own listing, from its detail screen, with the
+operations of section 1 (no new endpoint). Only the owner sees the two actions, and only on an
+`active` (`available`) listing: a reserved, sold or expired listing has neither. Buyers and
+truckers never see them.
+
+- **Edit** changes `quantity` (the free stock, quintals), `pricePerKg` and `description`, and
+  nothing else (the crop, the photos and the place stay; the form says to delete and list
+  again for those). The operation is a `crop_listing` `update` whose `data` holds `listingId`,
+  only the fields the farmer changed, and `version`: the version of the copy the form showed
+  (the pre-increment value, like the delete), never one read at save time. The update takes
+  partial data (rules 1 to 3 are optional on update), so an untouched `quantity` is not sent.
+  Together these keep an edit from putting back stock an order took after the form opened:
+  the server's version check answers `conflict` (rule 10), and nothing is written. An edit
+  that changes nothing sends nothing. The form allows what the server accepts (rules 1 to 3
+  and 6b): above 0 and at most 9,999.99 quintals, above 0 and at most 999.99 ETB per kg (two
+  decimals), 500 characters and no phone number in the description.
+  - Mobile: the phone's local version bump can carry the same number as the server's stock
+    write, so the version alone cannot tell a stale base there. The edit is therefore refused
+    on the phone, with nothing queued, while an earlier operation of the listing still waits
+    in the queue (pending, on its way, or failed and to be resent; one refused for good does
+    not count): `editListingWaiting`, and the detail does not open the form. It is refused
+    with the same conflict when the phone's copy moved on since the form read it: its
+    version, `quantity`, `pricePerKg`, `description` or `updatedAt` differ (a pull, a revert,
+    a conflict resolved to the server's copy). The detail reads the listing again before it
+    opens the form. Otherwise the edit is queued first, then saved in Isar (offline-first; a
+    full queue changes nothing and says so). A server conflict takes the server's copy; a
+    refusal (`CROP_CONTACT_IN_TEXT`, a restricted account) reverts the listing from
+    `GET /crops/{id}` (`sync-protocol.md` 1.17.0).
+  - Web: sends the update straight to the server; a conflict or a refusal fails the save with
+    nothing changed.
+  - On a conflict the detail reads the listing again and tells the farmer it changed
+    (`editListingChanged`), so the next edit starts from what is there now. When that read
+    fails (offline on web) it says there is no connection instead.
+- **Delete** asks first, then checks the farmer's orders the device knows: an order of the
+  listing in `payment_submitted`, `funded`, `awaiting_transport` or `accepted` (the rule 10
+  set) stops it on the device with `errorCropHasActiveOrders`. When the orders cannot be read
+  (offline on web) the delete stops too (`deleteListingOrdersUnreadable`): the server would
+  refuse it anyway now, but the device says why in plain words, and on the phone a server
+  refusal only comes back after the listing left My Crops. Then the existing `delete`
+  (mobile: the listing turns `expired` locally and the operation is queued; web: straight to
+  the server). The server's rule 10 check runs in every environment since 1.13.0.
 
 ---
 
@@ -572,9 +616,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 
 | 1.12.0 | 2026-11-12 | `farmerReliability` retired (ESC-30, `match-api.md` 1.4.0): the server no longer computes it at create (one query on the farmer's listings less) and drops a client value; matching reads `ownerReliabilityPct`. Listings that still store it keep returning it. |
 | 1.12.1 | 2026-11-12 | `CROP_HAS_ACTIVE_ORDERS` only to an app that sends `X-App-Build` (FUP-241, rule 10, `sync-protocol.md` 1.52.0): an app without the header gets the same sentence as `SYNC_VALIDATION:`, which it treats as permanent. Apps that send the header get the code as before. Server only |
+| 1.13.0 | 2026-11-12 | Listing removal guarded everywhere, and the farmer's edit and delete in the apps (SIM-56). Server: the rule 10 check (`CROP_HAS_ACTIVE_ORDERS` on a `delete` or an update to `status: deleted` while an order is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`) runs whatever `COMMITMENTS_ENABLED` says, so staging and prod too; an app without `X-App-Build` still gets the `SYNC_VALIDATION` sentence (FUP-241). Apps ("The farmer's edit and delete" under Validation Rules): the owner of an `active` listing edits `quantity`, `pricePerKg` and `description` with a `crop_listing` `update` of the changed fields at the version the form showed (a conflict, not an overwrite, when an order took stock meanwhile), and deletes it after a device-side check of the rule 10 order statuses that fails closed when the orders cannot be read. No wire change |
 
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.12.1
+**Version**: 1.13.0
 **Status**: Implemented (Phase R3)

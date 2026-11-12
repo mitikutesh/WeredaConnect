@@ -613,6 +613,34 @@
   "@listingDeleted": {
     "description": "Message after deleting listing"
   },
+  "editListing": "Edit listing",
+  "@editListing": {
+    "description": "SIM-56: title of the screen where a farmer edits their own crop listing"
+  },
+  "editListingNote": "Change how much is left, the price or the description. To change the crop, the photos or the place, delete this listing and list it again.",
+  "@editListingNote": {
+    "description": "SIM-56: note at the top of the edit listing screen: what can change, and what needs a new listing"
+  },
+  "deleteListingTitle": "Delete this listing?",
+  "@deleteListingTitle": {
+    "description": "SIM-56: title of the dialog that confirms deleting the farmer's own crop listing"
+  },
+  "deleteListingBody": "Buyers will no longer see it. This cannot be undone.",
+  "@deleteListingBody": {
+    "description": "SIM-56: body of the dialog that confirms deleting the farmer's own crop listing"
+  },
+  "editListingChanged": "This listing changed since you opened it, maybe an order took some. Check it and edit again.",
+  "@editListingChanged": {
+    "description": "SIM-56: snackbar on the listing detail when the farmer's edit was not saved because the listing changed since the edit form opened (version conflict); the detail now shows the listing as it is"
+  },
+  "editListingWaiting": "Your last change to this listing has not been sent yet. Edit it again once you are online and it has gone out.",
+  "@editListingWaiting": {
+    "description": "SIM-56: snackbar when the farmer tries to edit a listing while an earlier change of it is still waiting in the phone's sync queue (a second edit on top could undo stock an order took)"
+  },
+  "deleteListingOrdersUnreadable": "Could not check this listing's orders. Try again when you are online.",
+  "@deleteListingOrdersUnreadable": {
+    "description": "SIM-56: snackbar when the farmer's delete is stopped because the listing's orders could not be read to check none is in progress"
+  },
   "allCrops": "All",
   "@allCrops": {
     "description": "Filter label for all crop types"
@@ -5070,11 +5098,9 @@
   "@deliveryDropoffQrNote": {"description": "Trucker (T-3): note on the drop-off QR screen"},
   "deliveryDropoffCodeOnly": "You confirmed the pickup with a typed code, so there is no QR to show. The buyer types this code instead.",
   "@deliveryDropoffCodeOnly": {"description": "Trucker (T-3): drop-off screen when the pickup was confirmed with a typed code"},
-  "deliveryDropoffQrMissing": "This phone has no drop-off code for this delivery. It is kept when you scan the farmer's QR at pickup on this phone.",
-  "@deliveryDropoffQrMissing": {"description": "Trucker (T-3): snackbar when no pickup handoff is kept on this phone"},
   "deliveryErrorCodeMismatch": "The typed code does not match this delivery, so it was not confirmed. Check the code and try again.",
   "@deliveryErrorCodeMismatch": {"description": "Delivery error (T-1, DELIVERY_CODE_MISMATCH): the server refused a typed handoff code"},
-  "deliveryErrorCodeLocked": "Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the farmer to show a new code.",
+  "deliveryErrorCodeLocked": "Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the person showing it to make a new code.",
   "@deliveryErrorCodeLocked": {"description": "Delivery error (T-1, DELIVERY_CODE_LOCKED): five wrong typed codes"},
   "deliveryDisputeNotConfirmed": "Dispute not sent. Confirm it's you to send it.",
   "@deliveryDisputeNotConfirmed": {"description": "Dispute screen on web (FUP-43): the server asked for the password again (AUTH_040) and the prompt was cancelled, so the dispute was not sent"},
@@ -5098,8 +5124,26 @@
   "@tripScanPickupQrFor": {"description": "Trip detail, owner (T-2): button per pickup still waiting; name is the farmer", "placeholders": {"name": {"type": "String"}}},
   "deliveryErrorCodeLockedDropoff": "Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker's drop-off QR if they have one. If not, contact support: they can confirm the handoff with you and the trucker.",
   "@deliveryErrorCodeLockedDropoff": {"description": "Delivery error (T-1, DELIVERY_CODE_LOCKED_DROPOFF): five wrong typed codes at a trucker's drop-off, whose code cannot be renewed; the way out is the trucker's QR or support"},
-  "deliveryQrAlreadyPickedUp": "This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.",
-  "@deliveryQrAlreadyPickedUp": {"description": "Farmer QR screen (T-1): the delivery left pending meanwhile, so no new QR (nonce) is made; the trucker shows the pickup code at the drop-off"},
+  "deliveryDropoffQrOwnNote": "Made on this phone for this delivery. It works offline, and the buyer's scan or typed code confirms the delivery. Lost or locked? Make a new code.",
+  "@deliveryDropoffQrOwnNote": {"description": "Trucker (ESC-35): note on the drop-off QR screen for the trucker's own code"},
+  "deliveryDropoffNewCode": "New drop-off code",
+  "@deliveryDropoffNewCode": {"description": "Trucker (ESC-35): button on the drop-off QR screen that makes a new code (replaces a lost or locked one)"},
+  "deliveryDropoffQrNotSent": "Not on the server yet. It is sent again each time you open this QR while online, and the buyer's confirm waits for it.",
+  "@deliveryDropoffQrNotSent": {"description": "Trucker (ESC-35): the drop-off code could not be registered with the server (offline web)"},
+  "deliveryErrorDropoffQrPending": "The trucker's drop-off code has not reached the server yet. Ask the trucker to open the drop-off QR while online, then try again.",
+  "@deliveryErrorDropoffQrPending": {"description": "Buyer at a trucker's drop-off (ESC-35): the server waits for the trucker's drop-off code to sync"},
+  "deliveryErrorDropoffCodeLocked": "Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker's drop-off QR instead, or ask the trucker to make a new code.",
+  "@deliveryErrorDropoffCodeLocked": {"description": "Buyer at a trucker's drop-off (ESC-35, DELIVERY_CODE_LOCKED): five wrong codes for the trucker's own code, which the trucker can renew"},
+  "deliveryDropoffNoCodeHere": "This phone has no drop-off code for this delivery. If you made one on another phone or browser, show that one. Or make a new code here.",
+  "@deliveryDropoffNoCodeHere": {"description": "Trucker (ESC-35): drop-off QR screen when this phone keeps no drop-off code"},
+  "deliveryDropoffQrSuperseded": "A newer drop-off code was made on another phone or browser, so this one does not work. Show that one, or make a new code here.",
+  "@deliveryDropoffQrSuperseded": {"description": "Trucker (ESC-35): the server keeps another drop-off code for this delivery (DROPOFF_CODE_SUPERSEDED)"},
+  "deliveryDropoffNewCodeConfirmTitle": "Make a new drop-off code?",
+  "@deliveryDropoffNewCodeConfirmTitle": {"description": "Trucker (ESC-35): title of the confirmation before New drop-off code"},
+  "deliveryDropoffNewCodeConfirmBody": "Any drop-off code shown before, on this or another phone, stops working. Show the buyer only the new one.",
+  "@deliveryDropoffNewCodeConfirmBody": {"description": "Trucker (ESC-35): body of the confirmation before New drop-off code"},
+  "deliveryQrAlreadyPickedUp": "This delivery was already picked up, so no new QR code is made. The trucker now shows the buyer a drop-off code of their own.",
+  "@deliveryQrAlreadyPickedUp": {"description": "Farmer QR screen (T-1): the delivery left pending meanwhile, so no new QR (nonce) is made; the trucker shows a drop-off code of their own (ESC-35)"},
   "dropoffNoteLabel": "Drop-off landmark (optional)",
   "@dropoffNoteLabel": {"description": "LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Place order: label of the optional field where the buyer names a landmark for the driver"},
   "dropoffNoteHint": "e.g. Merkato, near Anwar Mosque",
@@ -5312,6 +5356,24 @@
   "@notifTierGoodBody": {"description": "ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to good"},
   "notifTierWarningBody": "You have penalty points. Buyers see nothing yet. Open My reputation for the details.",
   "@notifTierWarningBody": {"description": "ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to warning: the private warning"},
+  "profileEditTitle": "Edit profile",
+  "@profileEditTitle": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Title of the edit screen and the Profile row that opens it"},
+  "profileEditSubtitle": "Name and woreda",
+  "@profileEditSubtitle": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Subtitle of the Profile row that opens the edit screen"},
+  "profileEditNote": "Listings, trips and orders you create from now on show your new name and woreda. The ones you already made keep the old details.",
+  "@profileEditNote": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Note above the form: existing listings, trips and orders keep the name they were made with"},
+  "profileEditSaved": "Profile saved.",
+  "@profileEditSaved": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Snackbar after the web app saved the edit on the server"},
+  "profileEditSavedQueued": "Profile saved on this phone. It is sent when you are online.",
+  "@profileEditSavedQueued": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Snackbar after the phone app saved the edit and queued it for the server"},
+  "profileEditFailed": "Your profile could not be saved. Check your connection and try again.",
+  "@profileEditFailed": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Snackbar when nothing was saved (no connection, a full queue, a refusal)"},
+  "profileEditTooLong": "Use 100 characters or fewer.",
+  "@profileEditTooLong": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name, woreda or company name is over 100 characters"},
+  "profileEditNameUnavailable": "This name is not available. Choose another.",
+  "@profileEditNameUnavailable": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name is the one deleted accounts carry"},
+  "profileEditRefused": "These details were not accepted. Check each field and try again.",
+  "@profileEditRefused": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Snackbar when the server refused the edit for a reason the form did not catch (web): not a connection problem"},
   "checkInTitle": "Arrival check-ins",
   "@checkInTitle": {"description": "ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Order detail: title of the card with the check-ins at the farm"},
   "checkInPartyTrucker": "Trucker at the farm",

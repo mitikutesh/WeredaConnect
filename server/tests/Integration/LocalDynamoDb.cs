@@ -104,6 +104,8 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
     public string ReputationEvents => $"reputation-events-{_suffix}";
     public string Ratings => $"ratings-{_suffix}";
     public string TripLocations => $"trip-locations-{_suffix}";
+    public string Intents => $"intents-{_suffix}";
+    public string QrSecrets => $"delivery-qr-secrets-{_suffix}";
 
     public async Task InitializeAsync()
     {
@@ -163,6 +165,10 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
         await CreateAsync(FraudSignals, ("userId", "signalKey"), ("StatusCreatedAtIndex", "status", "createdAt"));
         // FUP-203: the trucker's check-ins (LT-05), read for the trucker's GPS_ANOMALY row.
         await CreateAsync(TripLocations, ("tripId", "sortKey"));
+        // SIM-56: the buyers' requests, read back per buyer by GET /intents.
+        await CreateAsync(Intents, ("buyerId", "intentId"), ("CropTypeStatusIndex", "cropType", "intentId"));
+        // ESC-35: the QR handoff secrets (the farmer's and the trucker's nonces, the typed-code misses).
+        await CreateAsync(QrSecrets, ("deliveryId", null));
     }
 
     public async Task DisposeAsync()

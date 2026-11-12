@@ -501,6 +501,32 @@ class AppLocalizationsEn extends AppLocalizations {
   String get listingDeleted => 'Listing deleted';
 
   @override
+  String get editListing => 'Edit listing';
+
+  @override
+  String get editListingNote =>
+      'Change how much is left, the price or the description. To change the crop, the photos or the place, delete this listing and list it again.';
+
+  @override
+  String get deleteListingTitle => 'Delete this listing?';
+
+  @override
+  String get deleteListingBody =>
+      'Buyers will no longer see it. This cannot be undone.';
+
+  @override
+  String get editListingChanged =>
+      'This listing changed since you opened it, maybe an order took some. Check it and edit again.';
+
+  @override
+  String get editListingWaiting =>
+      'Your last change to this listing has not been sent yet. Edit it again once you are online and it has gone out.';
+
+  @override
+  String get deleteListingOrdersUnreadable =>
+      'Could not check this listing\'s orders. Try again when you are online.';
+
+  @override
   String get allCrops => 'All';
 
   @override
@@ -5203,16 +5229,12 @@ class AppLocalizationsEn extends AppLocalizations {
       'You confirmed the pickup with a typed code, so there is no QR to show. The buyer types this code instead.';
 
   @override
-  String get deliveryDropoffQrMissing =>
-      'This phone has no drop-off code for this delivery. It is kept when you scan the farmer\'s QR at pickup on this phone.';
-
-  @override
   String get deliveryErrorCodeMismatch =>
       'The typed code does not match this delivery, so it was not confirmed. Check the code and try again.';
 
   @override
   String get deliveryErrorCodeLocked =>
-      'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the farmer to show a new code.';
+      'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the person showing it to make a new code.';
 
   @override
   String get deliveryDisputeNotConfirmed =>
@@ -5257,8 +5279,42 @@ class AppLocalizationsEn extends AppLocalizations {
       'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR if they have one. If not, contact support: they can confirm the handoff with you and the trucker.';
 
   @override
+  String get deliveryDropoffQrOwnNote =>
+      'Made on this phone for this delivery. It works offline, and the buyer\'s scan or typed code confirms the delivery. Lost or locked? Make a new code.';
+
+  @override
+  String get deliveryDropoffNewCode => 'New drop-off code';
+
+  @override
+  String get deliveryDropoffQrNotSent =>
+      'Not on the server yet. It is sent again each time you open this QR while online, and the buyer\'s confirm waits for it.';
+
+  @override
+  String get deliveryErrorDropoffQrPending =>
+      'The trucker\'s drop-off code has not reached the server yet. Ask the trucker to open the drop-off QR while online, then try again.';
+
+  @override
+  String get deliveryErrorDropoffCodeLocked =>
+      'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR instead, or ask the trucker to make a new code.';
+
+  @override
+  String get deliveryDropoffNoCodeHere =>
+      'This phone has no drop-off code for this delivery. If you made one on another phone or browser, show that one. Or make a new code here.';
+
+  @override
+  String get deliveryDropoffQrSuperseded =>
+      'A newer drop-off code was made on another phone or browser, so this one does not work. Show that one, or make a new code here.';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmTitle => 'Make a new drop-off code?';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmBody =>
+      'Any drop-off code shown before, on this or another phone, stops working. Show the buyer only the new one.';
+
+  @override
   String get deliveryQrAlreadyPickedUp =>
-      'This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.';
+      'This delivery was already picked up, so no new QR code is made. The trucker now shows the buyer a drop-off code of their own.';
 
   @override
   String get dropoffNoteLabel => 'Drop-off landmark (optional)';
@@ -5662,6 +5718,38 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get notifTierWarningBody =>
       'You have penalty points. Buyers see nothing yet. Open My reputation for the details.';
+
+  @override
+  String get profileEditTitle => 'Edit profile';
+
+  @override
+  String get profileEditSubtitle => 'Name and woreda';
+
+  @override
+  String get profileEditNote =>
+      'Listings, trips and orders you create from now on show your new name and woreda. The ones you already made keep the old details.';
+
+  @override
+  String get profileEditSaved => 'Profile saved.';
+
+  @override
+  String get profileEditSavedQueued =>
+      'Profile saved on this phone. It is sent when you are online.';
+
+  @override
+  String get profileEditFailed =>
+      'Your profile could not be saved. Check your connection and try again.';
+
+  @override
+  String get profileEditTooLong => 'Use 100 characters or fewer.';
+
+  @override
+  String get profileEditNameUnavailable =>
+      'This name is not available. Choose another.';
+
+  @override
+  String get profileEditRefused =>
+      'These details were not accepted. Check each field and try again.';
 
   @override
   String get checkInTitle => 'Arrival check-ins';

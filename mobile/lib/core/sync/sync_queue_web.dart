@@ -57,6 +57,23 @@ class SyncQueue {
   }) async =>
       const [];
 
+  /// No queue on web, so nothing waits (SIM-56).
+  Future<bool> hasWaitingOperationsFor(
+    String entityType,
+    String entityId,
+  ) async =>
+      false;
+
+  /// No queue on web, so nothing waits (ESC-35).
+  Future<List<SyncOperation>> waitingOperationsFor(
+    String entityType,
+    String entityId,
+  ) async =>
+      const [];
+
+  /// No queue on web, so nothing to drop.
+  Future<int> dropWaiting(Iterable<String> operationIds) async => 0;
+
   Future<void> markFailed(String operationId) async {}
 
   Future<void> incrementRetry(String operationId) async {}

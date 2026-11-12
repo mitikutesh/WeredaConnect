@@ -802,10 +802,12 @@ export class ApiStack extends cdk.Stack {
 
     const matchFn = new WeredaLambda(this, "MatchFunction", {
       functionName: `${prefix}-match`,
-      description: "GET /match — buyer intent matching (ranked crop listings)",
+      description: "GET /match (buyer intent matching, ranked crop listings) and GET /intents (the buyer's own requests)",
       handlerName: "MatchFunction",
       environment: {
         CROPS_TABLE: props.cropsTable.tableName,
+        // SIM-56: GET /intents reads the caller's own partition (push-alerts-api.md 1.5.0).
+        INTENTS_TABLE: props.intentsTable.tableName,
         // ESC-29 (reputation-api.md 8.3 and section 7): off, nothing is hidden and no owner field is returned.
         REPUTATION_PENALTIES_ENABLED: reputationPenalties,
         REPUTATION_PUBLIC_TAGS_ENABLED: reputationPublicTags,
@@ -816,6 +818,8 @@ export class ApiStack extends cdk.Stack {
     });
     // Match function reads crops to score them against the buyer's criteria
     props.cropsTable.grantReadData(matchFn.function);
+    // SIM-56: GET /intents is one Query of the caller's partition, nothing else.
+    props.intentsTable.grant(matchFn.function, "dynamodb:Query");
 
     // ─── Push Alerts: SNS Platform Application (FCM) ───────────────────
     // FCM is the only delivery path to Android; SNS wraps it. CloudFormation
@@ -2806,6 +2810,16 @@ export class ApiStack extends cdk.Stack {
       integration: syncInt,
     });
 
+    // SIM-56 (user-entity.md 2.2.0): the caller reads their own profile. The sync Lambda serves it:
+    // it owns the profile edit (the /sync user entity) and already reads the users table, so no new
+    // grant or integration. After /sync, so the shared integration keeps its logical id.
+    httpApi.addRoutes({
+      path: "/user/profile",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: syncInt,
+    });
+
     httpApi.addRoutes({
       path: "/crops",
       methods: [apigateway.HttpMethod.GET],
@@ -2830,6 +2844,16 @@ export class ApiStack extends cdk.Stack {
 
     httpApi.addRoutes({
       path: "/match",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: matchInt,
+    });
+
+    // SIM-56 (push-alerts-api.md 1.5.0): the buyer's own requests, read back after a reload or
+    // on a new phone. Keyed by the JWT sub, never a parameter. Added after /match so the
+    // shared integration keeps the logical id it has under that route.
+    httpApi.addRoutes({
+      path: "/intents",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
       integration: matchInt,

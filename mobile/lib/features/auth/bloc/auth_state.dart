@@ -58,6 +58,22 @@ class AuthAuthenticated extends AuthState {
         isRestoredSession: isRestoredSession,
       );
 
+  /// Same session with a new name and woreda (a profile edit, SIM-56).
+  AuthAuthenticated withProfile({
+    required String userName,
+    required String woreda,
+  }) =>
+      AuthAuthenticated(
+        userId: userId,
+        tokens: tokens,
+        role: role,
+        isOfflineAuth: isOfflineAuth,
+        userName: userName,
+        phoneNumber: phoneNumber,
+        woreda: woreda,
+        isRestoredSession: isRestoredSession,
+      );
+
   @override
   List<Object?> get props => [
         userId,

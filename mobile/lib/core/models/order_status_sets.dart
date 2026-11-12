@@ -29,6 +29,18 @@ const Set<OrderStatus> listingStockTakenOrderStatuses = {
   OrderStatus.disputeResolved,
 };
 
+/// Statuses of an order that still needs its crop listing: the server refuses
+/// to delete a listing while one of its orders is in one (crop-listing-api.md
+/// 1.7.0 rule 10, `CROP_HAS_ACTIVE_ORDERS`). The farmer's Delete checks the
+/// orders this device knows against them first (SIM-56), so a listing is not
+/// removed from under a paid order where the server's check is off.
+const Set<OrderStatus> listingRemovalBlockingOrderStatuses = {
+  OrderStatus.paymentSubmitted,
+  OrderStatus.funded,
+  OrderStatus.awaitingTransport,
+  OrderStatus.accepted,
+};
+
 /// Buyer-facing "active" orders: in flight from creation through acceptance.
 const Set<OrderStatus> activeOrderStatuses = {
   OrderStatus.created,

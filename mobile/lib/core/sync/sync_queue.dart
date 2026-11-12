@@ -533,6 +533,78 @@ class SyncQueue {
     return ops.where((op) => !isRejected(op)).toList();
   }
 
+  /// Whether an operation of the entity still waits to reach the server:
+  /// pending, on its way, or failed out of retries (a reconnect sends it
+  /// again, [retryFailed]). One the server refused for good ([isRejected])
+  /// never goes out again, so it does not count. SIM-56: a buyer request
+  /// deleted or fulfilled on this phone is not brought back from the server
+  /// meanwhile, and a crop listing edit is not queued on top of one.
+  Future<bool> hasWaitingOperationsFor(
+    String entityType,
+    String entityId,
+  ) async {
+    final waiting = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(entityType)
+        .entityIdEqualTo(entityId)
+        .group(
+          (q) => q
+              .statusEqualTo(SyncStatus.pending)
+              .or()
+              .statusEqualTo(SyncStatus.syncing)
+              .or()
+              .group(
+                (failed) => failed
+                    .statusEqualTo(SyncStatus.failed)
+                    .retryCountLessThan(maxRetries, include: true),
+              ),
+        )
+        .count();
+    return waiting > 0;
+  }
+
+  /// The operations of one entity still waiting to be sent (pending, or
+  /// failed with retries left), oldest first. One on its way is not among
+  /// them. Used to find a queued drop-off code registration (ESC-35).
+  Future<List<SyncOperation>> waitingOperationsFor(
+    String entityType,
+    String entityId,
+  ) async {
+    final found = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(entityType)
+        .entityIdEqualTo(entityId)
+        .group(
+          (q) => q.statusEqualTo(SyncStatus.pending).or().group(
+                (r) => r
+                    .statusEqualTo(SyncStatus.failed)
+                    .retryCountLessThan(maxRetries, include: true),
+              ),
+        )
+        .findAll();
+    found.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return found;
+  }
+
+  /// Delete operations that are no longer wanted while they still wait
+  /// (a drop-off code replaced by a new one, ESC-35). One on its way, sent
+  /// or refused is left alone. Returns how many were deleted.
+  Future<int> dropWaiting(Iterable<String> operationIds) async {
+    final drop = <int>[];
+    for (final id in operationIds.toSet()) {
+      final op = await _findByOperationId(id);
+      if (op == null) continue;
+      final waiting = op.status == SyncStatus.pending ||
+          (op.status == SyncStatus.failed && op.retryCount <= maxRetries);
+      if (waiting) drop.add(op.id);
+    }
+    if (drop.isEmpty) return 0;
+    await _isar.writeTxn(() async {
+      await _isar.syncOperations.deleteAll(drop);
+    });
+    return drop.length;
+  }
+
   /// Replace the payload of a waiting operation, keeping its place in the
   /// queue, its idempotency key and its retries. Used by a preflight that
   /// readied the operation (a handoff photo's upload key, FRD-12), so a

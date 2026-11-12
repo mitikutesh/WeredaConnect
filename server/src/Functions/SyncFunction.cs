@@ -500,9 +500,15 @@ public partial class SyncFunction
     // handoffs sync late; the point is to stop indefinitely-stale codes and to give up
     // deferring a QR-gated handoff (every pickup since FRD-11, a paid drop-off) whose
     // nonce is clearly never going to arrive. The defer window counts from the later of
-    // the delivery's creation and the scan (AwaitFarmerNonce).
+    // the delivery's creation and the scan (AwaitHandoffNonce).
     private const int QrNonceFreshnessDays = 14;
     private const int QrNonceMaxDeferDays = 14;
+
+    // ESC-35: the trucker's drop-off nonce starts with this tag (a farmer's nonce is plain
+    // base64url, which never holds a dot), so a buyer's scan of a drop-off QR whose nonce has not
+    // synced yet waits for it instead of failing as a wrong code. Shared with the apps.
+    private const string DropoffNoncePrefix = "d.";
+    private const int DropoffNonceMaxLength = 100;
 
     /// <summary>
     /// Scrub secret fields from ANY entity item before it is echoed to a client as sync
@@ -823,6 +829,12 @@ public partial class SyncFunction
         APIGatewayProxyRequest request,
         ILambdaContext context)
     {
+        // SIM-56: GET /user/profile shares this Lambda (it owns the profile write).
+        if (IsProfileRead(request))
+        {
+            return await HandleProfileReadAsync(request, context);
+        }
+
         context.Logger.LogInformation("Sync invoked");
 
         // Parse request
@@ -2106,10 +2118,13 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// SIM-37: update the caller's own user profile from a sync `update`. Only
-    /// `preferredLanguage` is allow-listed (en, am, om); every other field in the
-    /// payload is ignored, so a client cannot change its role, woreda or phone
-    /// through this path. Lets the language chosen in Settings follow the user to
+    /// SIM-37: update the caller's own user profile from a sync `update`. Allow-listed:
+    /// `preferredLanguage` (en, am, om) and, since SIM-56 (sync-protocol.md 1.57.0),
+    /// `displayName`, `woreda` and a company buyer's `companyName` (<see cref="UserProfileEdit"/>).
+    /// Every other key in the payload is ignored, so a client cannot change its role, phone,
+    /// verification or any admin field through this path. The field rules run first, then the
+    /// FUP-52 phone screen with the registration's `AUTH_027` code and text; a refusal writes
+    /// nothing, the language included. Lets the language chosen in Settings follow the user to
     /// other devices and gives ESC-21 the right language for order notifications.
     /// </summary>
     private async Task<SyncOperationResult> ProcessUserAsync(
@@ -2148,25 +2163,23 @@ public partial class SyncFunction
             };
         }
 
-        var language = operation.Data?.GetValueOrDefault("preferredLanguage")?.ToString();
-        if (string.IsNullOrEmpty(language))
+        var data = operation.Data ?? new Dictionary<string, object>();
+        var language = data.GetValueOrDefault("preferredLanguage")?.ToString();
+        var payloadErrors = new List<string>();
+        var sentText = UserProfileEdit.ReadText(data, payloadErrors);
+        if (payloadErrors.Count == 0 && string.IsNullOrEmpty(language) && sentText.Count == 0)
         {
-            return new SyncOperationResult
-            {
-                OperationId = operation.OperationId,
-                Status = "error",
-                Message = "USER_PROFILE_VALIDATION: preferredLanguage is required."
-            };
+            payloadErrors.Add("Send preferredLanguage, displayName, woreda or companyName.");
         }
 
-        if (!Validation.RequestValidator.ValidLanguages.Contains(language))
+        if (!string.IsNullOrEmpty(language) && !Validation.RequestValidator.ValidLanguages.Contains(language))
         {
-            return new SyncOperationResult
-            {
-                OperationId = operation.OperationId,
-                Status = "error",
-                Message = "USER_PROFILE_VALIDATION: preferredLanguage must be en, am or om."
-            };
+            payloadErrors.Add("preferredLanguage must be en, am or om.");
+        }
+
+        if (payloadErrors.Count > 0)
+        {
+            return UserProfileError(operation, "USER_PROFILE_VALIDATION", string.Join(" ", payloadErrors));
         }
 
         var user = await _userRepo.GetUserByIdAsync(authenticatedUserId, consistentRead: true);
@@ -2180,10 +2193,33 @@ public partial class SyncFunction
             };
         }
 
-        // Store the canonical lowercase code and no-op when unchanged, so a repeated
+        // SIM-56: only the fields that change are checked and written.
+        var changed = UserProfileEdit.Changed(sentText, user);
+        var ruleErrors = UserProfileEdit.Validate(changed, user);
+        if (ruleErrors.Count > 0)
+        {
+            return UserProfileError(operation, "USER_PROFILE_VALIDATION", string.Join(" ", ruleErrors));
+        }
+
+        // FUP-52: the name goes onto every new listing, trip, order and delivery, and the woreda onto
+        // each new order as its drop-off place, before escrow opens contact.
+        var phoneFields = UserProfileEdit.FieldsWithPhoneNumber(changed);
+        if (phoneFields.Count > 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = ContactInTextRefusal("AUTH_027", phoneFields)
+            };
+        }
+
+        // Store the canonical lowercase code and no-op when nothing changes, so a repeated
         // choice does not churn the version.
-        var canonical = language.ToLowerInvariant();
-        if (string.Equals(user.PreferredLanguage, canonical, StringComparison.OrdinalIgnoreCase))
+        var canonical = string.IsNullOrEmpty(language) ? null : language.ToLowerInvariant();
+        var languageChanged = canonical != null
+            && !string.Equals(user.PreferredLanguage, canonical, StringComparison.OrdinalIgnoreCase);
+        if (!languageChanged && changed.Count == 0)
         {
             return new SyncOperationResult
             {
@@ -2193,7 +2229,13 @@ public partial class SyncFunction
             };
         }
 
-        var updated = await _userRepo.UpdateUserAsync(user with { PreferredLanguage = canonical }, user.Version);
+        var edited = UserProfileEdit.Apply(user, changed);
+        if (languageChanged)
+        {
+            edited = edited with { PreferredLanguage = canonical! };
+        }
+
+        var updated = await _userRepo.UpdateUserAsync(edited, user.Version);
         if (!updated.IsSuccess)
         {
             // A rare concurrent write bumped the version; the client retries the op.
@@ -2201,12 +2243,19 @@ public partial class SyncFunction
             {
                 OperationId = operation.OperationId,
                 Status = "error",
-                Message = $"USER_PROFILE_CONFLICT: {updated.Error?.Message ?? "Could not save the language."}"
+                Message = $"USER_PROFILE_CONFLICT: {updated.Error?.Message ?? "Could not save the profile."}"
             };
         }
 
+        // Field names only: the values are personal data.
+        var fields = changed.Keys.ToList();
+        if (languageChanged)
+        {
+            fields.Add("preferredLanguage");
+        }
+
         context.Logger.LogInformation(
-            $"SIM-37: preferredLanguage updated for {MoneyAlarmLog.LogId(authenticatedUserId)}.");
+            $"SIM-56: profile updated for {MoneyAlarmLog.LogId(authenticatedUserId)}: {string.Join(", ", fields)}.");
 
         return new SyncOperationResult
         {
@@ -4983,6 +5032,22 @@ public partial class SyncFunction
                         operation.Data.Remove("qrNonce");
                     }
 
+                    // ESC-35: the drop-off nonce proves the trucker handed over the goods, so only
+                    // the delivery's trucker may author it, on an update without a status. Anyone
+                    // else's, or one riding on a status change, is dropped as qrNonce is above.
+                    // dropoffQrRenew (true) marks the trucker's New drop-off code, the only way a
+                    // stored drop-off code is replaced.
+                    string? dropoffNonce = null;
+                    var dropoffRenew = operation.Data.Remove("dropoffQrRenew", out var dropoffRenewObj)
+                        && dropoffRenewObj is System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.True };
+                    if (operation.Data.Remove("dropoffQrNonce", out var dropoffNonceObj)
+                        && !operation.Data.ContainsKey("status")
+                        && authenticatedUserId == (existing.TryGetValue("truckerId", out var dropoffTruckerAttr)
+                            ? dropoffTruckerAttr.S : null))
+                    {
+                        dropoffNonce = dropoffNonceObj?.ToString() ?? string.Empty;
+                    }
+
                     // Role-based authorization for status transitions
                     if (operation.Data.TryGetValue("status", out var newStatusObj))
                     {
@@ -5217,6 +5282,13 @@ public partial class SyncFunction
                                 };
                             }
                         }
+
+                        // ESC-35: the trucker's drop-off nonce goes to the secret store too. The
+                        // operation stores it and nothing else, never moving the delivery's version.
+                        if (dropoffNonce != null)
+                        {
+                            return await StoreDropoffNonceAsync(operation, existing, currentStatus, dropoffNonce, dropoffRenew, context);
+                        }
                     }
 
                     // QR nonce cross-validation for pickedUp/delivered transitions.
@@ -5241,7 +5313,15 @@ public partial class SyncFunction
                             var legacyNonce = _qrSecretRepo == null
                                 && existing.TryGetValue("qrNonce", out var qnAttr)
                                 ? qnAttr.S : null;
-                            var effectiveNonce = secret?.Nonce ?? legacyNonce;
+                            // ESC-35: a trucker delivery's drop-off is checked against the trucker's own
+                            // nonce once one is stored, else against the farmer's (1.22.0: the farmer's
+                            // token kept on the trucker's phone, for apps that issue none).
+                            var truckerDropoff = nStatus == "delivered" && !string.Equals(
+                                existing.TryGetValue("deliveryType", out var dropoffTypeAttr) ? dropoffTypeAttr.S : null,
+                                SelfPickupDeliveryType, StringComparison.Ordinal);
+                            var useDropoffNonce = truckerDropoff && !string.IsNullOrEmpty(secret?.DropoffNonce);
+                            var effectiveNonce = useDropoffNonce ? secret!.DropoffNonce : secret?.Nonce ?? legacyNonce;
+                            var effectiveIssuedAt = useDropoffNonce ? secret!.DropoffIssuedAt : secret?.IssuedAt;
 
                             if (!string.IsNullOrEmpty(effectiveNonce))
                             {
@@ -5265,11 +5345,31 @@ public partial class SyncFunction
                                     }, FraudDetectionService.QrHandoffFailureSignal, operation, "delivery", authenticatedUserId, context);
                                 }
 
+                                // ESC-35: a scan of the trucker's drop-off QR whose nonce has not reached
+                                // the server yet (the trucker's phone was offline) waits for it, as a
+                                // pickup waits for the farmer's nonce, and is refused once it is clearly
+                                // never coming. Its tag says whose it is; a typed code carries none, so a
+                                // typed code is always compared (and a wrong one counted). With a code
+                                // stored, a tagged scan that differs and was taken after that code was
+                                // stored may be the trucker's renewal made offline: it waits too, with no
+                                // signal on an honest buyer. One taken before is a replaced code.
+                                if (truckerDropoff
+                                    && scannedNonce != null
+                                    && scannedNonce.StartsWith(DropoffNoncePrefix, StringComparison.Ordinal)
+                                    && (!useDropoffNonce
+                                        || (!NonceEquals(scannedNonce, effectiveNonce)
+                                            && ScannedAfter(operation, effectiveIssuedAt))))
+                                {
+                                    return AwaitHandoffNonce(operation, existing,
+                                        "DELIVERY_NONCE_MISSING: The trucker's drop-off QR code never reached the server. Ask the trucker for a new drop-off code, or contact support.",
+                                        "DELIVERY_NONCE_PENDING: Waiting for the trucker's drop-off QR code to sync. Will retry automatically.");
+                                }
+
                                 if (!string.IsNullOrEmpty(typedCode))
                                 {
                                     var codeRefusal = await CheckTypedHandoffCodeAsync(
                                         operation, existing, secret, effectiveNonce, typedCode, nStatus,
-                                        authenticatedUserId, context);
+                                        authenticatedUserId, context, useDropoffNonce);
                                     if (codeRefusal != null)
                                     {
                                         return codeRefusal;
@@ -5295,8 +5395,8 @@ public partial class SyncFunction
                                 // (legacy on-record nonces lack issuance/consumption metadata).
                                 if (secret != null)
                                 {
-                                    if (!string.IsNullOrEmpty(secret.IssuedAt)
-                                        && DateTime.TryParse(secret.IssuedAt, CultureInfo.InvariantCulture,
+                                    if (!string.IsNullOrEmpty(effectiveIssuedAt)
+                                        && DateTime.TryParse(effectiveIssuedAt, CultureInfo.InvariantCulture,
                                             DateTimeStyles.RoundtripKind, out var issuedAt)
                                         && DateTime.UtcNow - issuedAt.ToUniversalTime()
                                             > TimeSpan.FromDays(QrNonceFreshnessDays))
@@ -5305,7 +5405,9 @@ public partial class SyncFunction
                                         {
                                             OperationId = operation.OperationId,
                                             Status = "error",
-                                            Message = "DELIVERY_NONCE_EXPIRED: QR code has expired. Ask the farmer to show a fresh code."
+                                            Message = useDropoffNonce
+                                                ? "DELIVERY_NONCE_EXPIRED: QR code has expired. Ask the trucker for a new drop-off code."
+                                                : "DELIVERY_NONCE_EXPIRED: QR code has expired. Ask the farmer to show a fresh code."
                                         };
                                     }
 
@@ -5338,7 +5440,7 @@ public partial class SyncFunction
                                 // money, so no escrow is read. Without the farmer's nonce it waits for
                                 // it to sync (offline first: the op stays queued) and is refused once
                                 // it is clearly never coming.
-                                return AwaitFarmerNonce(operation, existing,
+                                return AwaitHandoffNonce(operation, existing,
                                     "DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server for this pickup. Contact support.");
                             }
                             else
@@ -5375,7 +5477,7 @@ public partial class SyncFunction
 
                                 if (hasEscrow)
                                 {
-                                    return AwaitFarmerNonce(operation, existing,
+                                    return AwaitHandoffNonce(operation, existing,
                                         "DELIVERY_NONCE_MISSING: QR verification could not be completed for this payment. Contact support.");
                                 }
                             }
@@ -8663,14 +8765,17 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// A QR-gated handoff with no farmer's nonce on record: <c>deferred</c> while the nonce may still
-    /// sync (nothing written, the op stays queued without using a retry), <paramref name="refusal"/>
-    /// once <see cref="QrNonceMaxDeferDays"/> have passed since the later of the delivery's creation
-    /// and the scan (the operation's <c>timestamp</c>, when plausible). From creation alone, a delivery
-    /// made weeks before its trip was refused at the first sync of an honest offline scan.
+    /// A QR-gated handoff with no farmer's nonce on record (ESC-35: also a scanned drop-off QR whose
+    /// trucker's nonce is not on record yet, and the trucker's drop-off nonce sent before the pickup
+    /// synced): <c>deferred</c> with <paramref name="pending"/> while it may still sync (nothing
+    /// written, the op stays queued without using a retry), <paramref name="refusal"/> once
+    /// <see cref="QrNonceMaxDeferDays"/> have passed since the later of the delivery's creation and the
+    /// scan (the operation's <c>timestamp</c>, when plausible). From creation alone, a delivery made
+    /// weeks before its trip was refused at the first sync of an honest offline scan.
     /// </summary>
-    private static SyncOperationResult AwaitFarmerNonce(
-        SyncOperationRequest operation, Dictionary<string, AttributeValue> delivery, string refusal)
+    private static SyncOperationResult AwaitHandoffNonce(
+        SyncOperationRequest operation, Dictionary<string, AttributeValue> delivery, string refusal,
+        string pending = "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. Will retry automatically.")
     {
         var now = DateTime.UtcNow;
         var createdAt = TransactionPatternRules.ParseUtc(
@@ -8691,8 +8796,96 @@ public partial class SyncFunction
             {
                 OperationId = operation.OperationId,
                 Status = "deferred",
-                Message = "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. Will retry automatically."
+                Message = pending
             };
+    }
+
+    /// <summary>
+    /// ESC-35: the trucker's update storing its drop-off nonce (<c>dropoffQrNonce</c>) in the secret
+    /// store. It stores the nonce and nothing else: the delivery is not written and its version does
+    /// not move, so the trucker's queued operations behind it never conflict (as the farmer's nonce,
+    /// 1.6.0). Stored only while the delivery is <c>pickedUp</c> or <c>inTransit</c>; before the pickup
+    /// reached the server it waits for it (the same batch can carry a pickup that is deferred for the
+    /// farmer's nonce); once delivered or disputed nothing is stored. A registration never replaces a
+    /// stored code (a stale or second device); only <paramref name="renew"/> (New drop-off code) does.
+    /// A nonce that is not stored still answers <c>success</c> (nothing to retry), with a message that
+    /// says so, which web shows. The nonce is never logged.
+    /// </summary>
+    private async Task<SyncOperationResult> StoreDropoffNonceAsync(
+        SyncOperationRequest operation,
+        Dictionary<string, AttributeValue> existing,
+        string currentStatus,
+        string nonce,
+        bool renew,
+        ILambdaContext context)
+    {
+        if (nonce.Length > DropoffNonceMaxLength
+            || nonce.Length <= DropoffNoncePrefix.Length
+            || !nonce.StartsWith(DropoffNoncePrefix, StringComparison.Ordinal))
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"DELIVERY_VALIDATION: dropoffQrNonce must start with '{DropoffNoncePrefix}' and be at most {DropoffNonceMaxLength} characters."
+            };
+        }
+
+        if (currentStatus == "pending")
+        {
+            return AwaitHandoffNonce(operation, existing,
+                "DELIVERY_VALIDATION: The drop-off QR code can only be registered after the pickup.",
+                "DELIVERY_NONCE_PENDING: Waiting for the pickup to sync. Will retry automatically.");
+        }
+
+        string? notStored = null;
+        if (currentStatus is "pickedUp" or "inTransit")
+        {
+            var outcome = _qrSecretRepo != null
+                ? await _qrSecretRepo.PutDropoffNonceAsync(operation.EntityId, nonce, renew)
+                : DropoffNonceOutcome.NoPickupNonce;
+            notStored = outcome switch
+            {
+                // Another device's code, or a renewal, stands: this phone's code does not work.
+                DropoffNonceOutcome.OtherCodeStored =>
+                    DropoffCodeSupersededMessage,
+                // No farmer's nonce to stand next to (a delivery picked up before FRD-11, or no secret
+                // store): the drop-off keeps its old rule.
+                DropoffNonceOutcome.NoPickupNonce =>
+                    "DROPOFF_CODE_NOT_STORED: This delivery has no pickup code on the server, so its drop-off code is not kept.",
+                _ => null
+            };
+            if (notStored != null)
+            {
+                context.Logger.LogWarning(
+                    $"DROPOFF_NONCE_NOT_STORED deliveryId={MoneyAlarmLog.LogId(operation.EntityId)} reason={outcome}");
+            }
+        }
+
+        return new SyncOperationResult
+        {
+            OperationId = operation.OperationId,
+            Status = "success",
+            ServerVersion = ItemVersion(existing),
+            ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing)),
+            Message = notStored
+        };
+    }
+
+    private const string DropoffCodeSupersededMessage =
+        "DROPOFF_CODE_SUPERSEDED: Another drop-off code is on record for this delivery. Show that one, or make a new code.";
+
+    /// <summary>
+    /// ESC-35: whether a scan was taken after <paramref name="issuedAt"/> (the stored drop-off code's
+    /// time): the operation's <c>timestamp</c> when plausible, else the time it reached the server.
+    /// A time that cannot be read counts as after (the scan then waits rather than fails).
+    /// </summary>
+    private static bool ScannedAfter(SyncOperationRequest operation, string? issuedAt)
+    {
+        var now = DateTime.UtcNow;
+        var scannedAt = TransactionPatternRules.PlausibleCaptureTime(operation.Timestamp, now) ?? now;
+        var stored = TransactionPatternRules.ParseUtc(issuedAt);
+        return stored is not { } storedAt || scannedAt > storedAt;
     }
 
     /// <summary>
@@ -8749,7 +8942,8 @@ public partial class SyncFunction
     /// leg until the farmer's Regenerate stores a new nonce, while a scanned QR still works.
     /// Without the secret store (legacy rows) nothing can be counted, so typed codes are not taken.
     /// On a delivery that carries money a typed code needs the leg's GPS, as the scan screen always
-    /// captures it.
+    /// captures it. ESC-35: with <paramref name="dropoffNonce"/> the code is the trucker's drop-off
+    /// code, whose lock the trucker's new code clears.
     /// </summary>
     private async Task<SyncOperationResult?> CheckTypedHandoffCodeAsync(
         SyncOperationRequest operation,
@@ -8759,7 +8953,8 @@ public partial class SyncFunction
         string code,
         string targetStatus,
         string? callerId,
-        ILambdaContext context)
+        ILambdaContext context,
+        bool dropoffNonce = false)
     {
         SyncOperationResult Error(string message) => new()
         {
@@ -8778,15 +8973,18 @@ public partial class SyncFunction
             return Error("DELIVERY_CODE_LOCKED: Typed codes cannot be checked for this delivery. Scan the QR code.");
         }
 
-        // The trucker's drop-off code cannot be renewed (the farmer's Regenerate only works before
-        // pickup), so a locked drop-off of a trucker delivery has its own code and way out.
+        // The farmer's code cannot be renewed after pickup (the farmer's Regenerate only works before
+        // it), so a locked drop-off of a trucker delivery checked against it has its own code and way
+        // out. ESC-35: the trucker's own drop-off code is renewed by the trucker's new code.
         var lockedDropoff = targetStatus == "delivered"
             && !string.Equals(
                 existing.TryGetValue("deliveryType", out var lockTypeAttr) ? lockTypeAttr.S : null,
                 SelfPickupDeliveryType, StringComparison.Ordinal);
-        var locked = lockedDropoff
-            ? "DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this drop-off. Scan the trucker's drop-off QR, or contact support."
-            : "DELIVERY_CODE_LOCKED: Too many wrong codes for this delivery. Scan the QR code, or ask the farmer for a new code.";
+        var locked = dropoffNonce
+            ? "DELIVERY_CODE_LOCKED: Too many wrong codes for this drop-off. Scan the trucker's drop-off QR, or ask the trucker for a new code."
+            : lockedDropoff
+                ? "DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this drop-off. Scan the trucker's drop-off QR, or contact support."
+                : "DELIVERY_CODE_LOCKED: Too many wrong codes for this delivery. Scan the QR code, or ask the farmer for a new code.";
         const string mismatch = "DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.";
         // One attempt per operation AND code: a true retry is free, a new code under the same
         // operation id (which errors never store) always counts.
@@ -8802,7 +9000,7 @@ public partial class SyncFunction
         // The attempt is taken before the comparison, in one conditional write, so guesses sent in
         // parallel cannot get past the cap; a right code gives it back below.
         var attempt = await _qrSecretRepo.TryTakeCodeAttemptAsync(
-            operation.EntityId, targetStatus, attemptId, nonce, HandoffCode.MaxMisses);
+            operation.EntityId, targetStatus, attemptId, nonce, HandoffCode.MaxMisses, dropoffNonce);
         if (attempt.Outcome == CodeAttemptOutcome.Locked)
         {
             return await Refuse(locked);

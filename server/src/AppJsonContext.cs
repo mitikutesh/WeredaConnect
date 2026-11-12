@@ -21,6 +21,8 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(FaydaLinkResponse))]
 [JsonSerializable(typeof(LoginRequest))]
 [JsonSerializable(typeof(LoginResponse))]
+[JsonSerializable(typeof(UserProfileResponse))]
+[JsonSerializable(typeof(UserProfileDto))]
 [JsonSerializable(typeof(VerifyOtpRequest))]
 [JsonSerializable(typeof(ResendOtpRequest))]
 [JsonSerializable(typeof(ResendOtpResponse))]
@@ -67,6 +69,10 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(MatchDto))]
 [JsonSerializable(typeof(List<MatchDto>))]
 [JsonSerializable(typeof(GetMatchesResponse))]
+// SIM-56: GET /intents, the buyer's own requests.
+[JsonSerializable(typeof(IntentDto))]
+[JsonSerializable(typeof(List<IntentDto>))]
+[JsonSerializable(typeof(ListIntentsResponse))]
 [JsonSerializable(typeof(RegisterDeviceTokenRequest))]
 [JsonSerializable(typeof(RegisterDeviceTokenResponse))]
 // DynamoDB stream partial-batch-response (CropMatchStreamFunction)

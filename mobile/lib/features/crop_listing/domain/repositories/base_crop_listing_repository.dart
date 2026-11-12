@@ -66,6 +66,56 @@ abstract class BaseCropListingRepository {
     required String farmerId,
   });
 
+  /// SIM-56: the farmer's edit of [listing], their own, as the form showed
+  /// it: how much is left ([quantity], quintals), the price ([pricePerKg],
+  /// ETB) and the [description]. Only the non-null fields are sent (the
+  /// `crop_listing` update takes partial data), at [listing]'s version: the
+  /// form's base, never a version read at save time, so an edit made before
+  /// an order took stock conflicts instead of putting that stock back
+  /// (crop-listing-api.md 1.13.0). Returns the listing as saved.
+  ///
+  /// Throws [ListingChangeWaitingException] while an earlier change of the
+  /// listing has not reached the server ([hasChangeWaiting]): a second edit
+  /// queued on top could land after an order took stock. Throws
+  /// `SyncConflictException` when the listing changed since the form read it
+  /// (its version, stock, price, description or update time differ),
+  /// [StateError] when it is not [farmerId]'s or not found, and
+  /// [ArgumentError] when nothing changes.
+  Future<CropListing> updateListing({
+    required CropListing listing,
+    required String farmerId,
+    double? quantity,
+    double? pricePerKg,
+    String? description,
+  });
+
+  /// SIM-56: whether a change of the listing made on this device still waits
+  /// to reach the server (the phone's sync queue: pending, on its way, or
+  /// failed and to be sent again). The farmer edits again once it went out.
+  /// Always false on web, which keeps no queue.
+  Future<bool> hasChangeWaiting(String listingId);
+
+  /// The `data` of a SIM-56 edit: the listing id, the changed fields only,
+  /// and the base [version]. Shared by the Isar and web repositories.
+  static Map<String, dynamic> editPayload({
+    required String listingId,
+    required int version,
+    double? quantity,
+    double? pricePerKg,
+    String? description,
+  }) {
+    if (quantity == null && pricePerKg == null && description == null) {
+      throw ArgumentError('A listing edit must change something.');
+    }
+    return {
+      'listingId': listingId,
+      if (quantity != null) 'quantity': quantity,
+      if (pricePerKg != null) 'pricePerKg': pricePerKg,
+      if (description != null) 'description': description,
+      'version': version,
+    };
+  }
+
   /// A single listing by id, or null when it isn't reachable (not synced
   /// locally / not visible to the caller / offline on web). Used by chat
   /// threads to open the crop they're linked to.
@@ -107,4 +157,15 @@ abstract class BaseCropListingRepository {
       return true;
     }).toList();
   }
+}
+
+/// SIM-56: an edit refused because an earlier change of the same listing has
+/// not reached the server yet (see [BaseCropListingRepository.updateListing]).
+class ListingChangeWaitingException implements Exception {
+  const ListingChangeWaitingException();
+
+  @override
+  String toString() =>
+      'ListingChangeWaitingException: an earlier change of this listing '
+      'has not reached the server yet.';
 }
