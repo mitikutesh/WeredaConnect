@@ -17,6 +17,8 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/notifications/presentation/notification_text.dart';
 import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
+import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
+import 'package:wereda_connect/features/reputation/presentation/screens/my_reputation_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
@@ -210,7 +212,11 @@ class _NotificationBellState extends State<NotificationBell> {
               detail: notificationDetailLine(widget.l10n, clock, entry),
               color: style.color,
               time: entry.createdAt,
-              action: _NotifAction.openOrder,
+              // ESC-31: an entry about the user's own reputation opens
+              // My reputation; every other entry opens its order.
+              action: reputationNotificationTypes.contains(entry.type)
+                  ? _NotifAction.openReputation
+                  : _NotifAction.openOrder,
               key: 'inbox_${entry.notificationId}',
               orderId: entry.orderId,
               unread: !entry.read,
@@ -255,7 +261,29 @@ class _NotificationBellState extends State<NotificationBell> {
       case _NotifAction.openOrder:
         final orderId = item.orderId;
         if (orderId != null) openOrderDetail(context, orderId);
+      case _NotifAction.openReputation:
+        _openMyReputation();
     }
+  }
+
+  /// ESC-31: the signed-in user's own reputation (the bell's own user id;
+  /// the server only ever sends these entries to the party themselves).
+  void _openMyReputation() {
+    final ReputationRepository repository;
+    try {
+      repository = context.read<ReputationRepository>();
+    } on ProviderNotFoundException {
+      return;
+    }
+    if (widget.userId.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MyReputationScreen(
+          userId: widget.userId,
+          repository: repository,
+        ),
+      ),
+    );
   }
 
   void _openSyncStatusSheet() {
@@ -515,7 +543,7 @@ class _NotificationBellState extends State<NotificationBell> {
 /// The notification sheet's tallest size, a share of the window height.
 const double _notifSheetMax = 0.9;
 
-enum _NotifAction { syncStatus, openOrder }
+enum _NotifAction { syncStatus, openOrder, openReputation }
 
 class _NotifItem {
   final IconData icon;

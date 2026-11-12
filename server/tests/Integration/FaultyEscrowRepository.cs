@@ -24,11 +24,27 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
         return _inner.UpdateStatusAsync(escrowId, createdAt, newStatus, expectedCurrentStatus, additionalFields);
     }
 
+    public Task<EscrowLinkedWriteOutcome> TryUpdateStatusWithAsync(string escrowId, string createdAt, string newStatus,
+        string expectedCurrentStatus, Dictionary<string, object>? additionalFields, IReadOnlyList<TransactWriteItem> linkedItems)
+    {
+        OnUpdateStatus?.Invoke(escrowId, newStatus);
+        return _inner.TryUpdateStatusWithAsync(escrowId, createdAt, newStatus, expectedCurrentStatus, additionalFields, linkedItems);
+    }
+
+    public TransactWriteItem BuildStatusCheck(string escrowId, string createdAt, string status)
+        => _inner.BuildStatusCheck(escrowId, createdAt, status);
+
     public Task<bool> TryExtendExpiryAsync(string escrowId, string createdAt, string expiresAt)
         => _inner.TryExtendExpiryAsync(escrowId, createdAt, expiresAt);
 
-    public TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt)
-        => _inner.BuildRefundArm(escrowId, createdAt, reason, scheduledAt);
+    /// <summary>FUP-53: called with the escrowId when a refund arm is built, right before the transaction that carries it.</summary>
+    public Action<string>? OnBuildRefundArm { get; init; }
+
+    public TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt, bool allowConfirmedDelivery = false)
+    {
+        OnBuildRefundArm?.Invoke(escrowId);
+        return _inner.BuildRefundArm(escrowId, createdAt, reason, scheduledAt, allowConfirmedDelivery);
+    }
 
     /// <summary>Called with the escrowId before each trucker leg record write; may throw.</summary>
     public Action<string>? OnRecordTruckerPayout { get; init; }
@@ -60,8 +76,14 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
     public Task CreateAsync(Dictionary<string, object> escrow) => _inner.CreateAsync(escrow);
     public Task<Dictionary<string, object>?> GetByIdAsync(string escrowId) => _inner.GetByIdAsync(escrowId);
     public Task<Dictionary<string, object>?> GetByIdAsync(string escrowId, bool consistentRead) => _inner.GetByIdAsync(escrowId, consistentRead);
+    /// <summary>FUP-53: called with the escrowId before each settlement lock attempt (a writer racing the settlement).</summary>
+    public Action<string>? OnAcquireSettlementLock { get; init; }
+
     public Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op, string expectedStatus, bool allowHeld = false)
-        => _inner.TryAcquireSettlementLockAsync(escrowId, createdAt, op, expectedStatus, allowHeld);
+    {
+        OnAcquireSettlementLock?.Invoke(escrowId);
+        return _inner.TryAcquireSettlementLockAsync(escrowId, createdAt, op, expectedStatus, allowHeld);
+    }
     /// <summary>FRD-03: called with the escrowId before each hold write; may change another row first (an accept racing the hold).</summary>
     public Func<string, Task>? OnHold { get; init; }
 

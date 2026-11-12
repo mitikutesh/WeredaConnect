@@ -1,3 +1,4 @@
+using Amazon.DynamoDBv2.Model;
 using FluentAssertions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -47,6 +48,10 @@ public class EscrowServiceOrderMoneyTests
     private int _orderVersion = 5;
     private string _deliveryStatus = "delivered";
     private readonly List<(string From, string To)> _hops = new();
+    private readonly TransactWriteItem _arm = new();
+    private string? _armReason;
+    private bool _armAllowsConfirmedDelivery;
+    private bool _armRefused;
 
     public EscrowServiceOrderMoneyTests()
     {
@@ -94,6 +99,35 @@ public class EscrowServiceOrderMoneyTests
 
             _orderVersion++;
             return AuthResult<Dictionary<string, object>>.Success(Order());
+        });
+        // FUP-53: the admin refund's cancel carries the refund arm in the order's transaction.
+        _escrowRepo.BuildRefundArm(EscrowId, CreatedAt, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>()).Returns(call =>
+        {
+            _armReason = call.ArgAt<string>(2);
+            _armAllowsConfirmedDelivery = call.ArgAt<bool>(4);
+            return _arm;
+        });
+        _orders.TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyList<TransactWriteItem>>()).Returns(call =>
+        {
+            if (call.ArgAt<string>(3) != _orderStatus || call.ArgAt<int>(2) != _orderVersion)
+            {
+                return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged);
+            }
+
+            if (call.ArgAt<IReadOnlyList<TransactWriteItem>>(4).Contains(_arm))
+            {
+                if (_armRefused)
+                {
+                    return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.LinkedItemRefused);
+                }
+
+                _escrow["refundReason"] = _armReason!;
+            }
+
+            _orderStatus = call.ArgAt<Dictionary<string, object>>(1)["status"].ToString()!;
+            _orderVersion++;
+            return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written, Order());
         });
         _deliveries.GetByIdAsync(DeliveryId, Arg.Any<bool>()).Returns(_ => new Dictionary<string, object>
         {
@@ -284,11 +318,85 @@ public class EscrowServiceOrderMoneyTests
         result.IsSuccess.Should().BeTrue();
         _orderStatus.Should().Be("cancelled");
         _escrow["status"].Should().Be("refunded");
+        // FUP-53: the cancel and the refund arm are one write, conditioned on the status the order had.
+        await _orders.Received(1).TryUpdateWithAsync(OrderId,
+            Arg.Is<Dictionary<string, object>>(f => f["status"].ToString() == "cancelled" && f["cancelReason"].ToString() == "escrow_refunded"),
+            Arg.Any<int>(), status, Arg.Is<IReadOnlyList<TransactWriteItem>>(l => l.Count == 1 && l[0] == _arm));
+        _armReason.Should().Be("admin_refund");
+        // An admin refunds a confirmed escrow as the separate arm did before: that condition is dropped.
+        _armAllowsConfirmedDelivery.Should().BeTrue();
+        _escrow["refundReason"].Should().Be("admin_refund");
+        await _orders.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(EscrowId, CreatedAt, "escrowed", "escrowed", Arg.Any<Dictionary<string, object>?>());
+        await _auditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(a =>
+            a["action"].ToString() == "refund_scheduled" && a["actor"].ToString() == AdminId && a["metadata"].ToString() == "admin_refund"));
+    }
+
+    [Theory]
+    [InlineData("funded")]
+    [InlineData("accepted")]
+    public async Task AnAdminRefund_BeforePickup_WhoseEscrowChangedSinceItWasRead_LeavesTheOrder_AndRefundsNothing(string status)
+    {
+        // FUP-53: a dispute froze the money after the admin's read. The arm refuses the transaction.
+        _orderStatus = status;
+        _deliveryStatus = "pending";
+        _armRefused = true;
+
+        var result = await _service.RefundAsync(Refund(), AdminId, "admin", adminGroupVerified: true);
+
+        result.Error!.HttpStatus.Should().Be(409);
+        result.Error.Code.Should().Be("ESCROW_INVALID_TRANSITION");
+        result.Error.Message.Should().StartWith("The escrow changed while its order was being cancelled");
+        _orderStatus.Should().Be(status);
+        _escrow.Should().NotContainKey("refundReason");
+        await _orders.Received(1).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(), status,
+            Arg.Any<IReadOnlyList<TransactWriteItem>>());
+        await _orders.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
+        await _escrowRepo.DidNotReceiveWithAnyArgs().TryAcquireSettlementLockAsync(default!, default!, default!, default!);
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(EscrowId, CreatedAt, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await _crops.DidNotReceiveWithAnyArgs().RestoreStockAsync(default!, default!, default);
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(a => a["action"].ToString() == "refund_scheduled"));
+    }
+
+    [Fact]
+    public async Task AnAdminRefund_BeforePickup_WhoseTransactionThrows_IsA503_AndNothingIsArmedOrRefunded()
+    {
+        // FUP-53: a conflicting transaction (TransactionCanceledException) wrote nothing.
+        _orderStatus = "funded";
+        _deliveryStatus = "pending";
+        _orders.Configure().TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyList<TransactWriteItem>>()).ThrowsAsync(new TransactionCanceledException("conflict"));
+
+        var result = await _service.RefundAsync(Refund(), AdminId, "admin", adminGroupVerified: true);
+
+        result.Error!.HttpStatus.Should().Be(503);
+        _orderStatus.Should().Be("funded");
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(a => a["action"].ToString() == "refund_scheduled"));
+    }
+
+    [Fact]
+    public async Task AnAdminRefund_OfAnOrderAnotherWriterClosed_StillArmsOnItsOwn()
+    {
+        // FUP-53: the transaction arms only this call's own cancel. An order found closed by a
+        // concurrent cancel keeps the separate, best-effort arm.
+        _orderStatus = "accepted";
+        _deliveryStatus = "pending";
+        _orders.Configure().TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyList<TransactWriteItem>>()).Returns(_ =>
+        {
+            _orderStatus = "cancelled";
+            _orderExtra["cancelReason"] = "farmer_cancelled";
+            return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged);
+        });
+
+        var result = await _service.RefundAsync(Refund(), AdminId, "admin", adminGroupVerified: true);
+
+        result.IsSuccess.Should().BeTrue();
         await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "escrowed", "escrowed",
             Arg.Is<Dictionary<string, object>?>(f => f != null && f["refundReason"].ToString() == "admin_refund"));
-        await _orders.Received(1).UpdateAsync(OrderId,
-            Arg.Is<Dictionary<string, object>>(f => f["status"].ToString() == "cancelled" && f["cancelReason"].ToString() == "escrow_refunded"),
-            Arg.Any<int>());
+        await _auditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(a => a["action"].ToString() == "refund_scheduled"));
     }
 
     [Fact]
@@ -533,14 +641,15 @@ public class EscrowServiceOrderMoneyTests
     {
         _orderStatus = "funded";
         _deliveryStatus = "pending";
-        _orders.Configure().UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
-            .Returns(AuthResult<Dictionary<string, object>>.Failure(500, "SYNC_ERROR", "down"));
+        _orders.Configure().TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyList<TransactWriteItem>>()).ThrowsAsync(new InternalServerErrorException("down"));
 
         var result = await _service.RefundAsync(Refund(), AdminId, "admin", adminGroupVerified: true);
 
         result.Error!.HttpStatus.Should().Be(503);
         await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
         _escrow.Should().NotContainKey("refundReason");
+        _orderStatus.Should().Be("funded");
     }
 
     [Theory]
@@ -778,11 +887,12 @@ public class EscrowServiceOrderMoneyTests
         _orderExtra["listingId"] = "crop-1";
         _orderExtra["quantity"] = "500";
         _crops.Configure().RestoreStockAsync("crop-1", OrderId, 5.0).Returns(StockRestoreResult.Failed);
-        _orders.Configure().UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>()).Returns(_ =>
+        _orders.Configure().TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyList<TransactWriteItem>>()).Returns(_ =>
         {
             _orderStatus = "cancelled";
             _orderExtra["cancelReason"] = "transport_failed_buyer_cancelled";
-            return AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "version");
+            return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged);
         });
 
         var refused = await _service.RefundAsync(Refund(), AdminId, "admin", adminGroupVerified: true);

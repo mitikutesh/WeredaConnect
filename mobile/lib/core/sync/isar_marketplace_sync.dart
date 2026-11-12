@@ -14,6 +14,7 @@ import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/models/trip_departure.dart';
+import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/order_lead_store.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
@@ -686,7 +687,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
           m['locationName'] as String? ?? m['woreda'] as String? ?? ''
       ..description = m['description'] as String? ?? ''
       ..farmerReliability = (m['farmerReliability'] as num?)?.toDouble()
-      ..ownerReliabilityPct = (m['ownerReliabilityPct'] as num?)?.toInt()
+      ..readOwnerReputation(m)
       ..audioNoteRef = m['audioNoteRef'] as String?
       ..photos = parseCropPhotos(m['photos'])
       ..status = _parseListingStatus(m['status'] as String?)
@@ -723,7 +724,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ..pricePerQuintal = (m['pricePerQuintal'] as num?)?.toDouble() ?? 0
       ..bookedQuintals = quintalsFromWire(m['bookedQuintals'])
       ..remainingQuintals = quintalsFromWire(m['remainingQuintals'])
-      ..ownerReliabilityPct = (m['ownerReliabilityPct'] as num?)?.toInt()
+      ..readOwnerReputation(m)
       ..status = TripStatus.values.firstWhere(
         (e) => e.name == (m['status'] as String? ?? 'open'),
         orElse: () => TripStatus.open,

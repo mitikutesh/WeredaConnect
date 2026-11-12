@@ -1541,7 +1541,19 @@ public sealed partial class EscrowService
             return write;
         }
 
-        foreach (var escrow in held)
+        await AuditRefundArmsAsync(orderId, held, reason, actor);
+        return write;
+    }
+
+    /// <summary>
+    /// One <c>refund_scheduled</c> audit row per escrow a transaction armed. Best-effort: the refund is
+    /// armed and the sweep writes its own rows, so a failed row is logged as
+    /// <c>ORDER_ESCROW_REFUND_AUDIT_FAILED</c> and nothing else changes.
+    /// </summary>
+    private async Task AuditRefundArmsAsync(
+        string orderId, IReadOnlyList<Dictionary<string, object>> armed, string reason, string actor)
+    {
+        foreach (var escrow in armed)
         {
             var escrowId = GetString(escrow, "escrowId");
             try
@@ -1554,7 +1566,126 @@ public sealed partial class EscrowService
                     $"ORDER_ESCROW_REFUND_AUDIT_FAILED orderId={MoneyAlarmLog.LogId(orderId)} escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
             }
         }
+    }
 
+    /// <summary>
+    /// FUP-53: what a funded order's reject or cancel finds for its money, read strongly consistent and
+    /// with nothing written (unlike <see cref="PrepareOrderEscrowForCancelAsync"/>, a missing record is
+    /// not created: such a close keeps its separate, best-effort refund scheduling). Every escrow the
+    /// order index lists as active and the order's own <c>escrow-order-{orderId}</c> is read:
+    /// <list type="bullet">
+    /// <item>a plain hold (<c>escrowed</c>, no settlement lock, no open manual payout, no confirmed
+    /// delivery, a ledger escrow's crop leg still held) is armed in the close's transaction;</item>
+    /// <item><c>held</c> for review (FRD-03) is left to its admin, and the close is fenced on it still
+    /// being held;</item>
+    /// <item><c>disputed</c>, <c>dispute_resolved</c>, or <c>escrowed</c> under a settlement, in the
+    /// manual payout queue or with a confirmed delivery: the money is frozen or moving, so the plan is
+    /// <see cref="OrderRefundReadiness.Busy"/> and the order must not be closed;</item>
+    /// <item>anything else (no record, <c>initiated</c>, an already settled record) holds nothing this
+    /// close could refund and is ignored, as before.</item>
+    /// </list>
+    /// </summary>
+    public async Task<OrderRefundPlan> PlanOrderRefundAsync(string orderId)
+    {
+        if (string.IsNullOrEmpty(orderId))
+        {
+            return OrderRefundPlan.Nothing;
+        }
+
+        var orderEscrowId = $"escrow-order-{orderId}";
+        var candidates = new List<string>();
+        foreach (var row in await _escrowRepo.QueryByOrderIdAsync(orderId) ?? new List<Dictionary<string, object>>())
+        {
+            var id = GetString(row, "escrowId");
+            if (id.Length > 0 && ActiveEscrowStatuses.Contains(GetString(row, "status")) && !candidates.Contains(id))
+            {
+                candidates.Add(id);
+            }
+        }
+
+        if (!candidates.Contains(orderEscrowId))
+        {
+            candidates.Add(orderEscrowId);
+        }
+
+        var held = new List<Dictionary<string, object>>();
+        var underReview = new List<Dictionary<string, object>>();
+        foreach (var escrowId in candidates)
+        {
+            var current = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+            if (current == null)
+            {
+                continue;
+            }
+
+            var status = GetString(current, "status");
+            if (status == EscrowHoldFields.Status)
+            {
+                underReview.Add(current);
+            }
+            else if (status is "disputed" or "dispute_resolved")
+            {
+                return OrderRefundPlan.Busy;
+            }
+            else if (status == "escrowed")
+            {
+                if (!IsPlainEscrowed(current) || !IsLedgerCropHeld(current))
+                {
+                    return OrderRefundPlan.Busy;
+                }
+
+                held.Add(current);
+            }
+        }
+
+        return held.Count == 0 && underReview.Count == 0
+            ? OrderRefundPlan.Nothing
+            : new OrderRefundPlan(OrderRefundReadiness.Ready, held, underReview);
+    }
+
+    /// <summary>ESC-20: a 1.x escrow, or a ledger escrow whose crop leg is still held (the arm's condition).</summary>
+    private static bool IsLedgerCropHeld(Dictionary<string, object> escrow)
+        => !IsLedgerEscrow(escrow)
+           || LedgerEscrow.From(escrow).LegState(LedgerEscrowFields.LegCrop) is not { } crop
+           || crop == LedgerEscrowFields.Held;
+
+    /// <summary>
+    /// FUP-53: close a funded order (reject or cancel) and schedule the refund of the money
+    /// <see cref="PlanOrderRefundAsync"/> found, in one DynamoDB transaction, as
+    /// <see cref="CancelOrderWithRefundAsync"/> does for the transport cancel: the order write (version
+    /// and <paramref name="expectedStatus"/> checked), the refund arm on each plain hold
+    /// (<see cref="IEscrowRepository.BuildRefundArm"/>) and a check that each escrow held for review is
+    /// still held. A dispute, a settlement, a hold or a hold's release that reached an escrow since the
+    /// plan refuses all of it (<see cref="OrderLinkedWriteOutcome.LinkedItemRefused"/>, nothing
+    /// written; the caller plans again). Once written, one <c>refund_scheduled</c> audit row per armed
+    /// escrow, best-effort. Throws when the transaction failed for another reason (nothing written).
+    /// </summary>
+    public async Task<OrderLinkedWriteResult> CloseOrderWithRefundAsync(
+        string orderId, Dictionary<string, object> closeFields, int expectedVersion, string expectedStatus,
+        OrderRefundPlan plan, string reason, string actor, AuditContext? auditContext = null)
+    {
+        _auditContext = auditContext;
+
+        if (_orderRepo == null || plan.Readiness != OrderRefundReadiness.Ready)
+        {
+            // Fail closed: this write exists to keep the order and its money together.
+            throw new InvalidOperationException("An order close that refunds needs the order repository and a ready plan.");
+        }
+
+        var scheduledAt = DateTime.UtcNow.ToString("o");
+        var linked = plan.Held
+            .Select(escrow => _escrowRepo.BuildRefundArm(
+                GetString(escrow, "escrowId"), GetString(escrow, "createdAt"), reason, scheduledAt))
+            .Concat(plan.UnderReview.Select(escrow => _escrowRepo.BuildStatusCheck(
+                GetString(escrow, "escrowId"), GetString(escrow, "createdAt"), EscrowHoldFields.Status)))
+            .ToList();
+        var write = await _orderRepo.TryUpdateWithAsync(orderId, closeFields, expectedVersion, expectedStatus, linked);
+        if (write.Outcome != OrderLinkedWriteOutcome.Written)
+        {
+            return write;
+        }
+
+        await AuditRefundArmsAsync(orderId, plan.Held, reason, actor);
         return write;
     }
 
@@ -2413,9 +2544,17 @@ public sealed partial class EscrowService
         // 11. FUP-16: a dispute needs the goods picked up → ESCROW_041. Before pickup nothing has
         //     moved and the order has its own exits (the farmer's reject, the buyer's cancel, the
         //     transport-failure cancel, ESC-06). A confirmed delivery needs no read.
-        if (deliveryConfirmedAt == null && await RefuseDisputeBeforePickupAsync(escrowItem) is { } beforePickup)
+        //     FUP-53: the order that read judged is checked again inside the freeze's transaction.
+        Dictionary<string, object>? judgedOrder = null;
+        if (deliveryConfirmedAt == null)
         {
-            return beforePickup;
+            var pickup = await RefuseDisputeBeforePickupAsync(escrowItem);
+            if (pickup.Refusal != null)
+            {
+                return pickup.Refusal;
+            }
+
+            judgedOrder = pickup.Order;
         }
 
         var now = DateTime.UtcNow;
@@ -2461,9 +2600,43 @@ public sealed partial class EscrowService
 
         try
         {
-            await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "disputed", "escrowed", additionalFields);
+            // FUP-53: with an order behind the escrow, the freeze and a check that the order is not
+            // closed (cancelled or rejected) are one transaction. A writer that closed the order since
+            // step 11 read it wins, also in the instant before it arms its refund.
+            var orderCheck = judgedOrder != null && _orderRepo != null
+                && GetString(judgedOrder, "orderId") is { Length: > 0 } judgedOrderId
+                && GetString(judgedOrder, "createdAt") is { Length: > 0 } judgedCreatedAt
+                ? _orderRepo.BuildNotClosedCheck(judgedOrderId, judgedCreatedAt)
+                : null;
+            if (orderCheck == null)
+            {
+                await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "disputed", "escrowed", additionalFields);
+            }
+            else
+            {
+                var frozen = await _escrowRepo.TryUpdateStatusWithAsync(
+                    request.EscrowId, createdAt, "disputed", "escrowed", additionalFields, new[] { orderCheck });
+                if (frozen == EscrowLinkedWriteOutcome.LinkedItemRefused)
+                {
+                    // Nothing was written. The order was closed in between: its money goes back to
+                    // the buyer, so the answer is the existing scheduled-refund refusal (the clients
+                    // read its wording, FUP-77), key freed. An escrow that moved on as well keeps
+                    // the answer of a lost race.
+                    await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
+                    Console.WriteLine($"ESCROW_DISPUTE_REFUSED_ORDER_CLOSED escrowId={MoneyAlarmLog.LogId(request.EscrowId)}");
+                    var afterClose = await _escrowRepo.GetByIdAsync(request.EscrowId, consistentRead: true);
+                    return afterClose != null && IsPlainEscrowed(afterClose)
+                        ? DisputeRefusedRefundScheduled()
+                        : DisputeRaceRefusal(afterClose);
+                }
+
+                if (frozen != EscrowLinkedWriteOutcome.Written)
+                {
+                    throw new ConditionalCheckFailedException("The escrow no longer takes a dispute.");
+                }
+            }
         }
-        catch (Exception ex) when (ex is ConditionalCheckFailedException or TransactionConflictException)
+        catch (Exception ex) when (ex is ConditionalCheckFailedException or TransactionConflictException or TransactionCanceledException)
         {
             // Lost a race: the escrow moved, or it was queued for a manual payout meanwhile.
             // ESC-07: every outcome frees the idempotency key (a retry is answered from the
@@ -2572,18 +2745,20 @@ public sealed partial class EscrowService
     /// no delivery that can be read has nothing to judge by and is allowed, as before 1.21.0. Null when
     /// the dispute may go ahead.
     /// </summary>
-    private async Task<EscrowResult<DisputeEscrowResponse>?> RefuseDisputeBeforePickupAsync(Dictionary<string, object> escrow)
+    private async Task<(EscrowResult<DisputeEscrowResponse>? Refusal, Dictionary<string, object>? Order)> RefuseDisputeBeforePickupAsync(
+        Dictionary<string, object> escrow)
     {
         var escrowId = GetString(escrow, "escrowId");
         string? orderStatus = null;
         string? deliveryStatus = null;
+        Dictionary<string, object>? order = null;
         try
         {
             var orderId = GetStringOrNull(escrow, "orderId");
             var deliveryId = GetStringOrNull(escrow, "deliveryId");
             if (_orderRepo != null && !string.IsNullOrEmpty(orderId))
             {
-                var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+                order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
                 orderStatus = order != null ? GetStringOrNull(order, "status") : null;
                 var activeDeliveryId = order != null ? GetStringOrNull(order, "activeDeliveryId") : null;
                 deliveryId = string.IsNullOrEmpty(activeDeliveryId) ? deliveryId : activeDeliveryId;
@@ -2598,23 +2773,23 @@ public sealed partial class EscrowService
         catch (Exception ex)
         {
             Console.WriteLine($"ESCROW_DISPUTE_PICKUP_UNREAD escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
-            return EscrowResult<DisputeEscrowResponse>.Failure(503, "ESCROW_012",
-                "The order behind this escrow could not be read. Nothing was disputed; try again.");
+            return (EscrowResult<DisputeEscrowResponse>.Failure(503, "ESCROW_012",
+                "The order behind this escrow could not be read. Nothing was disputed; try again."), null);
         }
 
         if (orderStatus == null && deliveryStatus == null)
         {
-            return null;
+            return (null, order);
         }
 
         if ((orderStatus != null && PickedUpOrderStatuses.Contains(orderStatus))
             || (deliveryStatus != null && PickedUpDeliveryStatuses.Contains(deliveryStatus)))
         {
-            return null;
+            return (null, order);
         }
 
-        return EscrowResult<DisputeEscrowResponse>.Failure(422, "ESCROW_041",
-            "A dispute can be opened only after the goods are picked up. Before pickup, cancel or reject the order instead.");
+        return (EscrowResult<DisputeEscrowResponse>.Failure(422, "ESCROW_041",
+            "A dispute can be opened only after the goods are picked up. Before pickup, cancel or reject the order instead."), null);
     }
 
     /// <summary>
@@ -5344,7 +5519,25 @@ public sealed partial class EscrowService
                 return await EnsureRefundRestockAsync(order, escrowId);
 
             case "funded" or "accepted":
-                var cancel = await _verdictMirror.CancelBeforeRefundAsync(escrow);
+                // FUP-53: the order cancel and the refund arm (expiresAt = now, refundReason:
+                // admin_refund) are one transaction, conditioned on the escrow still being escrowed
+                // with no settlement lock and no manual payout. A dispute or a settlement that reached
+                // it since it was read refuses both. A confirmed delivery does not: the admin refund
+                // armed such an escrow before, too.
+                var arm = _escrowRepo.BuildRefundArm(
+                    escrowId, GetString(escrow, "createdAt"), AdminRefundReason, DateTime.UtcNow.ToString("o"),
+                    allowConfirmedDelivery: true);
+                var cancel = await _verdictMirror.CancelBeforeRefundAsync(escrow, refundArm: new[] { arm });
+                if (cancel.RefundArmed)
+                {
+                    await AuditRefundArmsAsync(orderId, new[] { escrow }, AdminRefundReason, actor);
+                }
+
+                if (cancel.RefundArmRefused)
+                {
+                    return await AdminRefundArmRefusedAsync(escrowId);
+                }
+
                 if (cancel.Order is VerdictLegOutcome.Cancelled or VerdictLegOutcome.Closed)
                 {
                     // Closed: a concurrent cancel won the race (the buyer's transport-failure cancel, say),
@@ -5356,7 +5549,12 @@ public sealed partial class EscrowService
                         return restockBlock;
                     }
 
-                    await ScheduleAdminRefundAsync(escrow, actor);
+                    // An order someone else closed is armed here, on its own; this call's cancel armed with its write.
+                    if (!cancel.RefundArmed)
+                    {
+                        await ScheduleAdminRefundAsync(escrow, actor);
+                    }
+
                     return null;
                 }
 
@@ -5442,10 +5640,38 @@ public sealed partial class EscrowService
         return null;
     }
 
+    /// <summary>The <c>refundReason</c> of an admin refund before pickup (ESC-09).</summary>
+    private const string AdminRefundReason = "admin_refund";
+
+    /// <summary>
+    /// FUP-53: the admin refund's cancel was refused because the escrow is no longer a plain hold (a
+    /// dispute froze it, a settlement or a manual payout took it). The order is as it was and
+    /// nothing was armed; a pending delivery the cancel had already cancelled stays cancelled, as on
+    /// every refusal after that step. 409: the admin reads the escrow again.
+    /// </summary>
+    private async Task<SettlementBlock> AdminRefundArmRefusedAsync(string escrowId)
+    {
+        string status;
+        try
+        {
+            var latest = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+            status = latest == null ? "missing" : GetString(latest, "status");
+        }
+        catch (Exception ex)
+        {
+            status = $"unread:{ex.GetType().Name}";
+        }
+
+        Console.WriteLine($"ESCROW_ADMIN_REFUND_ARM_REFUSED escrowId={MoneyAlarmLog.LogId(escrowId)} status={status}");
+        return new SettlementBlock(409, "ESCROW_INVALID_TRANSITION",
+            $"The escrow changed while its order was being cancelled (it is '{status}' now). The order was left as it was and nothing was refunded; read the escrow again.");
+    }
+
     /// <summary>
     /// The refund is armed on the escrow before the lock (as <see cref="ScheduleRefundForOrderAsync"/> does),
     /// so a gateway refusal leaves it for the hourly sweep. Best-effort: the order is already cancelled and
-    /// the refund this call makes goes ahead either way.
+    /// the refund this call makes goes ahead either way. FUP-53: only for an order another writer
+    /// closed; this call's own cancel arms in its transaction.
     /// </summary>
     private async Task ScheduleAdminRefundAsync(Dictionary<string, object> escrow, string actor)
     {
@@ -5456,9 +5682,9 @@ public sealed partial class EscrowService
                 new Dictionary<string, object>
                 {
                     { "expiresAt", DateTime.UtcNow.ToString("o") },
-                    { "refundReason", "admin_refund" }
+                    { "refundReason", AdminRefundReason }
                 });
-            await AppendAuditAsync(escrowId, "refund_scheduled", "escrowed", "escrowed", actor, metadata: "admin_refund");
+            await AppendAuditAsync(escrowId, "refund_scheduled", "escrowed", "escrowed", actor, metadata: AdminRefundReason);
         }
         catch (Exception ex)
         {
@@ -7151,6 +7377,36 @@ public sealed record OrderEscrowCancelPlan(OrderEscrowCancelReadiness Readiness,
 
     public static OrderEscrowCancelPlan Unavailable { get; } =
         new(OrderEscrowCancelReadiness.Unavailable, Array.Empty<Dictionary<string, object>>());
+}
+
+/// <summary>What <see cref="EscrowService.PlanOrderRefundAsync"/> found for a funded order's money (FUP-53).</summary>
+public enum OrderRefundReadiness
+{
+    /// <summary>No record holds money this close could refund: the order closes as before, with nothing armed here.</summary>
+    Nothing,
+
+    /// <summary>Close the order in one transaction with the arms and the review checks of the plan.</summary>
+    Ready,
+
+    /// <summary>A dispute froze the money, or a settlement or a confirmed delivery owns it: refuse the close.</summary>
+    Busy
+}
+
+/// <summary>
+/// FUP-53: what <see cref="EscrowService.PlanOrderRefundAsync"/> decided. <see cref="Held"/> are the
+/// plain <c>escrowed</c> rows <see cref="EscrowService.CloseOrderWithRefundAsync"/> arms;
+/// <see cref="UnderReview"/> are the <c>held</c> rows it only fences (their admin refunds them).
+/// </summary>
+public sealed record OrderRefundPlan(
+    OrderRefundReadiness Readiness,
+    IReadOnlyList<Dictionary<string, object>> Held,
+    IReadOnlyList<Dictionary<string, object>> UnderReview)
+{
+    public static OrderRefundPlan Nothing { get; } = new(
+        OrderRefundReadiness.Nothing, Array.Empty<Dictionary<string, object>>(), Array.Empty<Dictionary<string, object>>());
+
+    public static OrderRefundPlan Busy { get; } = new(
+        OrderRefundReadiness.Busy, Array.Empty<Dictionary<string, object>>(), Array.Empty<Dictionary<string, object>>());
 }
 
 /// <summary>What <see cref="EscrowService.ReconcileOrderMoneyAsync"/> did with one order (ESC-09).</summary>

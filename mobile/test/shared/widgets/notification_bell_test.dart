@@ -15,9 +15,13 @@ import 'package:wereda_connect/core/models/app_notification.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
+import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
+import 'package:wereda_connect/features/reputation/presentation/screens/my_reputation_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/notification_bell.dart';
+
+import '../../features/reputation/reputation_fixtures.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -145,6 +149,65 @@ void main() {
     expect(find.text(en.notifications), findsOneWidget);
     expect(find.text(en.messages), findsNothing);
     expect(find.text(en.profile), findsNothing);
+  });
+
+  // ESC-31: an entry about the user's own reputation names no order;
+  // tapping it opens My reputation for the signed-in user.
+  testWidgets('a reputation entry opens My reputation', (tester) async {
+    when(() => authBloc.state).thenReturn(
+      const AuthAuthenticated(
+        userId: 'farmer-001',
+        tokens: _tokens,
+        role: UserRole.farmer,
+      ),
+    );
+    final reputation = MockReputationRepository();
+    when(() => reputation.loadOwn('farmer-001', force: any(named: 'force')))
+        .thenAnswer(
+      (_) async => snapshot(ownReputation(tier: 'warning', points: 4)),
+    );
+    when(() => reputation.loadEvents('farmer-001'))
+        .thenAnswer((_) async => eventsResult(const []));
+    final inbox = _FakeInbox([
+      AppNotification()
+        ..notificationId = 'n-rep'
+        ..userId = 'farmer-001'
+        ..type = 'penalty_recorded'
+        ..entity = 'user'
+        ..entityId = 'farmer-001'
+        ..params = jsonEncode({'code': 'LATE_CANCEL', 'points': 4})
+        ..createdAt = DateTime.now().toUtc(),
+    ]);
+    addTearDown(inbox.close);
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<BaseNotificationRepository>.value(value: inbox),
+          Provider<ReputationRepository>.value(value: reputation),
+        ],
+        child: BlocProvider<AuthBloc>.value(
+          value: authBloc,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(body: Center(child: HeaderBell())),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.notifications_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Penalty points added'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MyReputationScreen), findsOneWidget);
+    expect(
+      tester.widget<MyReputationScreen>(find.byType(MyReputationScreen)).userId,
+      'farmer-001',
+    );
+    expect(find.text('4 penalty points'), findsOneWidget);
   });
 
   double sheetHeight(WidgetTester tester) =>

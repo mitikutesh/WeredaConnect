@@ -70,6 +70,74 @@ public sealed class EscrowRepository : IEscrowRepository
 
     /// <inheritdoc />
     public async Task UpdateStatusAsync(string escrowId, string createdAt, string newStatus, string? expectedCurrentStatus = null, Dictionary<string, object>? additionalFields = null)
+        => await _dynamoDb.UpdateItemAsync(BuildStatusUpdate(escrowId, createdAt, newStatus, expectedCurrentStatus, additionalFields));
+
+    /// <inheritdoc />
+    public async Task<EscrowLinkedWriteOutcome> TryUpdateStatusWithAsync(
+        string escrowId, string createdAt, string newStatus, string expectedCurrentStatus,
+        Dictionary<string, object>? additionalFields, IReadOnlyList<TransactWriteItem> linkedItems)
+    {
+        var update = BuildStatusUpdate(escrowId, createdAt, newStatus, expectedCurrentStatus, additionalFields);
+        var items = new List<TransactWriteItem>
+        {
+            new()
+            {
+                Update = new Update
+                {
+                    TableName = update.TableName,
+                    Key = update.Key,
+                    UpdateExpression = update.UpdateExpression,
+                    ConditionExpression = update.ConditionExpression,
+                    ExpressionAttributeNames = update.ExpressionAttributeNames,
+                    ExpressionAttributeValues = update.ExpressionAttributeValues
+                }
+            }
+        };
+        items.AddRange(linkedItems);
+
+        try
+        {
+            await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest { TransactItems = items });
+            return EscrowLinkedWriteOutcome.Written;
+        }
+        catch (TransactionCanceledException ex)
+        {
+            // Reasons are per item, in request order: 0 is the escrow. The escrow's own refusal
+            // decides (its answers are the existing ones); a linked item's alone is reported as such.
+            if (IsConditionFailure(ex.CancellationReasons, 0))
+            {
+                return EscrowLinkedWriteOutcome.EscrowRefused;
+            }
+
+            for (var index = 1; index < items.Count; index++)
+            {
+                if (IsConditionFailure(ex.CancellationReasons, index))
+                {
+                    return EscrowLinkedWriteOutcome.LinkedItemRefused;
+                }
+            }
+
+            // A conflicting transaction or throttling: nothing was written.
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public TransactWriteItem BuildStatusCheck(string escrowId, string createdAt, string status) => new()
+    {
+        ConditionCheck = new ConditionCheck
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            ConditionExpression = "#status = :status",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#status", "status" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":status", new AttributeValue { S = status } } }
+        }
+    };
+
+    /// <summary>The status write of <see cref="UpdateStatusAsync"/>, shared with <see cref="TryUpdateStatusWithAsync"/>.</summary>
+    private UpdateItemRequest BuildStatusUpdate(
+        string escrowId, string createdAt, string newStatus, string? expectedCurrentStatus, Dictionary<string, object>? additionalFields)
     {
         var now = DateTime.UtcNow.ToString("o");
 
@@ -185,7 +253,7 @@ public sealed class EscrowRepository : IEscrowRepository
             request.ConditionExpression = string.Join(" AND ", conditions);
         }
 
-        await _dynamoDb.UpdateItemAsync(request);
+        return request;
     }
 
 
@@ -205,7 +273,24 @@ public sealed class EscrowRepository : IEscrowRepository
     }
 
     /// <inheritdoc />
-    public TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt) => new()
+    public TransactWriteItem BuildRefundArm(
+        string escrowId, string createdAt, string reason, string scheduledAt, bool allowConfirmedDelivery = false)
+    {
+        var item = BuildPlainHoldRefundArm(escrowId, createdAt, reason, scheduledAt);
+        if (allowConfirmedDelivery)
+        {
+            // FUP-53: the admin refund's arm. DynamoDB refuses names and values the expression does not use.
+            var update = item.Update;
+            update.ConditionExpression = "#status = :escrowed AND attribute_not_exists(#lock) "
+                + "AND attribute_not_exists(#manualPayout) AND " + LedgerCropHeldCondition;
+            update.ExpressionAttributeNames.Remove("#confirmed");
+            update.ExpressionAttributeValues.Remove(":zero");
+        }
+
+        return item;
+    }
+
+    private TransactWriteItem BuildPlainHoldRefundArm(string escrowId, string createdAt, string reason, string scheduledAt) => new()
     {
         Update = new Update
         {
@@ -244,6 +329,34 @@ public sealed class EscrowRepository : IEscrowRepository
         }
     };
 
+    /// <summary>FUP-53: writes per call when a transaction is in flight on the row (the first one and two retries).</summary>
+    internal const int TransactionConflictAttempts = 3;
+
+    /// <summary>
+    /// FUP-53: a conditional single-row write that meets a transaction in flight on its row (an order
+    /// cancel arming the refund, a dispute checking its order) is rejected with
+    /// <see cref="TransactionConflictException"/>, which the SDK does not retry. Nothing was written,
+    /// so the same request is sent again after a short pause, at most
+    /// <see cref="TransactionConflictAttempts"/> times in all: its condition is evaluated against the row
+    /// as the transaction left it, which is the re-read. Only for requests whose condition makes a
+    /// repeat safe. The last conflict is thrown, as before.
+    /// </summary>
+    private async Task UpdateRetryingTransactionConflictAsync(UpdateItemRequest request)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _dynamoDb.UpdateItemAsync(request);
+                return;
+            }
+            catch (TransactionConflictException) when (attempt < TransactionConflictAttempts)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(40 * attempt));
+            }
+        }
+    }
+
     /// <inheritdoc />
     public async Task<bool> TryExtendExpiryAsync(string escrowId, string createdAt, string expiresAt)
     {
@@ -276,7 +389,7 @@ public sealed class EscrowRepository : IEscrowRepository
 
         try
         {
-            await _dynamoDb.UpdateItemAsync(request);
+            await UpdateRetryingTransactionConflictAsync(request);
             return true;
         }
         catch (ConditionalCheckFailedException)
@@ -345,7 +458,7 @@ public sealed class EscrowRepository : IEscrowRepository
 
         try
         {
-            await _dynamoDb.UpdateItemAsync(request);
+            await UpdateRetryingTransactionConflictAsync(request);
             return true;
         }
         catch (ConditionalCheckFailedException)
@@ -400,7 +513,8 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             if (fence == null)
             {
-                await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+                // FUP-53: a cancel's transaction in flight on the row is retried, then transient below.
+                await UpdateRetryingTransactionConflictAsync(new UpdateItemRequest
                 {
                     TableName = _tableName,
                     Key = EscrowKey(escrowId, createdAt),
@@ -468,9 +582,11 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             // The plain write lost its condition; the re-read below decides.
         }
-        catch (Exception ex) when (ex is ProvisionedThroughputExceededException or RequestLimitExceededException)
+        catch (Exception ex) when (ex is ProvisionedThroughputExceededException or RequestLimitExceededException
+                                       or TransactionConflictException)
         {
-            // A throttle that outlived the SDK's retries: nothing was written, the next run retries.
+            // A throttle that outlived the SDK's retries, or a transaction still in flight on the row
+            // after our retries (FUP-53): nothing was written, the next run retries.
             return EscrowHoldWrite.Conflict;
         }
         catch (TransactionCanceledException ex)

@@ -20,6 +20,10 @@ class _FakeRatingRepository implements BaseRatingRepository {
 
   final RatingSummary summary;
 
+  /// How many times the aggregate was asked for (ESC-31: never for a
+  /// listing that carries the owner's reputation copy).
+  int summaryReads = 0;
+
   @override
   Future<Rating> createRating({
     required String orderId,
@@ -42,7 +46,10 @@ class _FakeRatingRepository implements BaseRatingRepository {
   Future<List<Rating>> getRatingsForRatee(String rateeId) async => const [];
 
   @override
-  Future<RatingSummary> getRatingSummary(String rateeId) async => summary;
+  Future<RatingSummary> getRatingSummary(String rateeId) async {
+    summaryReads++;
+    return summary;
+  }
 }
 
 CropListing _makeListing({
@@ -78,13 +85,16 @@ Widget _buildScreen({
   String currentUserId = 'user-001',
   UserRole currentUserRole = UserRole.farmer,
   RatingSummary rating = RatingSummary.empty,
+  _FakeRatingRepository? ratingRepository,
 }) {
   return MaterialApp(
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     locale: const Locale('en'),
     home: BlocProvider<RatingBloc>(
-      create: (_) => RatingBloc(repository: _FakeRatingRepository(rating)),
+      create: (_) => RatingBloc(
+        repository: ratingRepository ?? _FakeRatingRepository(rating),
+      ),
       child: CropListingDetailScreen(
         listing: listing,
         currentUserId: currentUserId,
@@ -284,6 +294,111 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Farmer Rating 4.8 · 12 ratings'), findsOneWidget);
+    });
+
+    group('ESC-31: the owner reputation copy on the farmer card', () {
+      CropListing withCopy({
+        String tier = 'good',
+        double? rating = 4.4,
+        int count = 12,
+        int? reliability = 83,
+      }) =>
+          _makeListing(farmerName: 'Abebe Kebede')
+            ..ownerTier = tier
+            ..ownerEffectiveRating = rating
+            ..ownerRatingCount = count
+            ..ownerReliabilityPct = reliability
+            ..ownerReputationAt = DateTime.utc(2026, 11, 7, 9);
+
+      testWidgets('without the copy the aggregate is read as before',
+          (tester) async {
+        final repository = _FakeRatingRepository(
+          const RatingSummary(average: 4.8, count: 12),
+        );
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: _makeListing(farmerName: 'Abebe Kebede'),
+            currentUserRole: UserRole.buyer,
+            ratingRepository: repository,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(repository.summaryReads, 1);
+        expect(find.text('Farmer Rating 4.8 · 12 ratings'), findsOneWidget);
+        expect(find.text('Low reputation'), findsNothing);
+        expect(find.textContaining('orders completed'), findsNothing);
+        expect(find.textContaining('As of'), findsNothing);
+      });
+
+      testWidgets(
+          'with the copy a buyer sees the effective rating, the '
+          'reliability and the date, with no rating call', (tester) async {
+        final repository = _FakeRatingRepository(
+          const RatingSummary(average: 4.8, count: 12),
+        );
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: withCopy(),
+            currentUserRole: UserRole.buyer,
+            ratingRepository: repository,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(repository.summaryReads, 0);
+        expect(find.text('Farmer Rating 4.4 · 12 ratings'), findsOneWidget);
+        expect(find.text('83% of orders completed'), findsOneWidget);
+        expect(find.text('As of Nov 7, 2026'), findsOneWidget);
+        expect(find.text('Low reputation'), findsNothing);
+      });
+
+      testWidgets('a buyer sees the Low reputation label with its line',
+          (tester) async {
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: withCopy(tier: 'low', rating: 3.8),
+            currentUserRole: UserRole.buyer,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Farmer Rating 3.8 · 12 ratings'), findsOneWidget);
+        expect(find.text('Low reputation'), findsOneWidget);
+        expect(
+          find.text('Recently cancelled or missed several paid orders.'),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('with the copy and no ratings: no ratings yet',
+          (tester) async {
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: withCopy(rating: null, count: 0, reliability: null),
+            currentUserRole: UserRole.buyer,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Farmer Rating: No ratings yet'), findsOneWidget);
+        expect(find.textContaining('orders completed'), findsNothing);
+      });
+
+      testWidgets(
+          'the farmer on their own listing sees their rating, not the '
+          'label', (tester) async {
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: withCopy(tier: 'low', rating: 3.8),
+            currentUserId: 'farmer-001',
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Farmer Rating 3.8 · 12 ratings'), findsOneWidget);
+        expect(find.text('Low reputation'), findsNothing);
+      });
     });
 
     testWidgets('no farmer card without a farmer name', (tester) async {

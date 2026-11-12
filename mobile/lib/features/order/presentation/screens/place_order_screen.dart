@@ -28,6 +28,8 @@ import 'package:wereda_connect/features/order/presentation/screens/payment_instr
 import 'package:wereda_connect/features/order/presentation/widgets/delivery_place.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/dropoff_note.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/reputation/domain/owner_reputation.dart';
+import 'package:wereda_connect/features/reputation/presentation/widgets/low_reputation_order_dialog.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_normalizer.dart';
@@ -184,6 +186,13 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   Future<void> _loadTruckerRating() async {
     final truckerId = widget.selectedTrip?.truckerId;
     if (truckerId == null || truckerId.isEmpty) return;
+    // ESC-31: a trip that carries the trucker's reputation copy shows it
+    // from the row, with no call.
+    final reputation = OwnerReputation.ofTrip(widget.selectedTrip!);
+    if (reputation.isPresent) {
+      _truckerRating = reputation.rating;
+      return;
+    }
     try {
       final summary = await context
           .read<RatingBloc>()
@@ -264,8 +273,11 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
         );
   }
 
-  void _placeOrder() {
-    if (_placed) return;
+  /// ESC-31: the confirm is open. Place Order does nothing meanwhile.
+  bool _confirming = false;
+
+  Future<void> _placeOrder() async {
+    if (_placed || _confirming) return;
     final authState = context.read<AuthBloc>().state;
     if (authState is! AuthAuthenticated) return;
 
@@ -292,6 +304,23 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
         return;
       }
     }
+
+    // ESC-31: the farmer or the chosen trucker carries the Low reputation
+    // label (from the cached row, so it works offline): ask before ordering.
+    // No label, no dialog. The server still refuses a restricted party when
+    // the order reaches it (reputation-api.md 8.2).
+    _confirming = true;
+    final bool confirmed;
+    try {
+      confirmed = await confirmLowReputationOrder(
+        context,
+        farmerLow: OwnerReputation.ofListing(widget.listing).isLow,
+        truckerLow: trip != null && OwnerReputation.ofTrip(trip).isLow,
+      );
+    } finally {
+      _confirming = false;
+    }
+    if (!confirmed || !mounted || _placed) return;
 
     context.read<OrderBloc>().add(
           CreateOrder(

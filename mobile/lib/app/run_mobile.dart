@@ -69,6 +69,7 @@ import 'package:wereda_connect/features/messaging/presentation/open_notified_con
 import 'package:wereda_connect/features/messaging/presentation/widgets/message_arrival_listener.dart';
 import 'package:wereda_connect/features/rating/data/repositories/rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -412,6 +413,11 @@ class WeredaConnectApp extends StatelessWidget {
         // queue, so a report made offline goes out later.
         Provider<BaseListingReportRepository>(
           create: (_) => ListingReportRepository(syncQueue: syncQueue),
+        ),
+        // ESC-31: the signed-in farmer's or trucker's own reputation (HTTP,
+        // with the last answer kept on the phone for offline reading).
+        Provider<ReputationRepository>(
+          create: (_) => ReputationRepository(api: ApiClient()),
         ),
       ],
       child: MultiBlocProvider(

@@ -1,6 +1,9 @@
+import 'package:intl/intl.dart';
+
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/listing_report_rules.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Stable, localizable error categories surfaced by BLoCs to the UI.
@@ -355,7 +358,24 @@ bool isKycErrorCode(AppErrorCode code) =>
 /// Codes are collapsed onto a small set of phrased messages: connectivity and
 /// auth/conflict get their own actionable text; everything else falls back to
 /// the generic [AppLocalizations.errorOccurred].
-String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
+///
+/// [message] is the raw refusal text when the caller has it (a bloc's error
+/// state, a sync rejection). It is never shown; it only fills in a detail a
+/// code alone cannot carry: the end date of a reputation restriction
+/// (`REPUTATION_RESTRICTED: until=...`, ESC-31).
+String localizeErrorCode(
+  AppErrorCode code,
+  AppLocalizations l10n, {
+  String? message,
+}) {
+  if (code == AppErrorCode.reputationRestricted) {
+    final until = reputationRestrictedUntil(message);
+    if (until != null) {
+      return l10n.errorReputationRestrictedUntil(
+        DateFormat.yMMMd().format(dayInEthiopia(until)),
+      );
+    }
+  }
   return switch (code) {
     AppErrorCode.network || AppErrorCode.timeout => l10n.noInternetConnection,
     AppErrorCode.auth => l10n.errorSessionExpired,

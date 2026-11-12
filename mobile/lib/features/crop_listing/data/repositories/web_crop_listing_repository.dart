@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_uploader.dart';
@@ -297,6 +298,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
       ..locationName =
           m['locationName'] as String? ?? m['woreda'] as String? ?? ''
       ..description = m['description'] as String? ?? ''
+      ..readOwnerReputation(m)
       ..audioNoteRef = m['audioNoteRef'] as String?
       ..photos = parseCropPhotos(m['photos'])
       ..status = _parseListingStatus(m['status'] as String?)

@@ -48,6 +48,13 @@ public interface IOrderRepository
         IReadOnlyList<TransactWriteItem> linkedItems);
 
     /// <summary>
+    /// FUP-53: a transaction item that lets a write on another table land only while this order exists
+    /// and is not closed (<c>cancelled</c> or <c>rejected</c>): the dispute freeze carries it, so a
+    /// dispute never lands on the money of an order that was closed since it was read. No I/O.
+    /// </summary>
+    TransactWriteItem BuildNotClosedCheck(string orderId, string createdAt);
+
+    /// <summary>
     /// FRD-03: <see cref="UpdateAsync"/> in one <c>TransactWriteItems</c> with a <c>ConditionCheck</c> that
     /// the order's escrow (<paramref name="escrow"/>) is not <c>held</c>, so a settlement sweep that holds it
     /// between the caller's read and this write wins. Fails with <c>409</c>

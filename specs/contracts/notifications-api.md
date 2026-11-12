@@ -1,7 +1,7 @@
 # Notifications API Contract
 
 ## Version
-1.5.0
+1.5.1
 
 ## Parties
 - **Mobile** (client): pulls the inbox, renders the entries and the Action-needed cards, receives the Android push, opens the order on tap
@@ -154,7 +154,8 @@ Rules:
 - A tap opens the order (`orderId`), from the background and after a cold start; the app reads an
   order the device has not pulled yet from `GET /orders/{orderId}` first. A push without `orderId`
   opens the app. The reputation types (1.5.0) carry no `orderId` and `data.entity: reputation`:
-  ESC-31 opens My reputation on them; until then they open the app. The foreground handler pulls the inbox with `since` (and the order) instead of
+  since ESC-31 (1.5.1) the inbox entry of either type opens My reputation on the phone and the
+  web; a tapped push still opens the app (TASK FUP-205). The foreground handler pulls the inbox with `since` (and the order) instead of
   showing a tray entry, with one follow-up pull 3 seconds later.
 - Inbox-only events send no push: `dispute_received` (the disputer's own receipt) and
   `under_review` (an escrow frozen for fraud review).
@@ -381,6 +382,7 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.5.1 | 2026-11-12 | Clients (ESC-31, `reputation-api.md` 1.6.0): `penalty_recorded` and `tier_changed` have their own inbox title and body in en, am and om, and the inbox entry opens My reputation on the phone and the web. A tapped push still opens the app (TASK FUP-205). No server or wire change. |
 | 1.5.0 | 2026-11-07 | Two reputation types (ESC-28, `reputation-api.md` section 10): `penalty_recorded` and `tier_changed`, to the party only, from a fourth source, the reputation-events table stream (`INSERT`, filtered on `code`); params `eventId`, `code`, `points`, `activePoints`, `fromTier`, `toTier`, `restrictedUntil`; entity `reputation` with no `orderId`; push text in en, am and om (am and om await native review). Behind `reputationPenalties` (no row is written while it is off). Client inbox text and the My reputation tap: ESC-31 |
 | 1.4.1 | 2026-11-07 | Doc only (ESC-14 drift pass): the footer said Last Updated 2026-10-28, before 1.3.0's day and 1.4.0; it now carries the date and the version like the other contracts. No wire change |
 | 1.4.0 | 2026-11-04 | `amountEtb` is the recipient's own money on every order and escrow event (F-1): the farmer reads the crop leg and the trucker the transport leg, never the buyer's total (the farmer's `order_request` said "Buyer paid" with the buyer's total). A legacy order without `cropCost` gives the farmer no amount. The `order_request` push says the amount is the farmer's ("Buyer {buyer} paid 40,000 ETB for you, held safely until delivery.", the same in am and om). No new param, type or endpoint. |
@@ -391,6 +393,6 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 ---
 
-**Last Updated**: 2026-11-07
-**Version**: 1.5.0
+**Last Updated**: 2026-11-12
+**Version**: 1.5.1
 **Status**: Draft

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/low_reputation_pill.dart';
 
 /// A crop listing card as the Fieldway boards draw it (Market.dc.html and
 /// MyCrops.dc.html): a crop tile, the title, one muted line with the seller
@@ -21,6 +22,10 @@ class ListingCard extends StatelessWidget {
 
   /// Number of ratings behind [rating]; rendered as "4.6 (12)" when set.
   final int? ratingCount;
+
+  /// ESC-31: shows the "Low reputation" label under the seller line (the
+  /// seller's public tier is low). Off by default: no label, as before.
+  final bool lowReputation;
 
   /// The crop's stored key ("wheat"), for the tile's colours
   /// ([cropTileColors]). Falls back to the title when null.
@@ -66,6 +71,7 @@ class ListingCard extends StatelessWidget {
     this.hasEscrow = false,
     this.rating,
     this.ratingCount,
+    this.lowReputation = false,
     this.cropKey,
     this.onTap,
     this.detail,
@@ -153,6 +159,13 @@ class ListingCard extends StatelessWidget {
                         ],
                       ],
                     ),
+                    if (lowReputation) ...[
+                      const SizedBox(height: 6),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: LowReputationPill(),
+                      ),
+                    ],
                     if (hasEscrow) ...[
                       const SizedBox(height: 6),
                       Align(
