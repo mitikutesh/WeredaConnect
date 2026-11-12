@@ -37,8 +37,9 @@ public sealed class ReputationCopyRepository : IReputationCopyWriter
     private const int BatchGetSize = 100;
     private const int BatchGetAttempts = 4;
 
-    private static readonly string[] ActiveCropStatuses = { "available", "reserved" };
-    private static readonly string[] ActiveTripStatuses = { "open", "matched" };
+    // FUP-160: the one-off owner stamp walks the same statuses on the listing status indexes.
+    internal static readonly string[] ActiveCropStatuses = { "available", "reserved" };
+    internal static readonly string[] ActiveTripStatuses = { "open", "matched" };
 
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _cropsTable;

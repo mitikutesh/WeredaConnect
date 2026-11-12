@@ -2280,7 +2280,9 @@ export class ApiStack extends cdk.Stack {
     // marker asks for, log the overdue reviews and appeals (reputation-architecture.md section 8).
     // A no-op while REPUTATION_PENALTIES_ENABLED is false (the handler logs and returns). The other
     // reputation actions are invoked by hand, with no rule: reputation_backfill_ratings (once per
-    // environment, section 12.2) and reputation_recompute_all (after a policy change, section 8.3).
+    // environment, section 12.2), reputation_recompute_all (after a policy change, section 8.3) and
+    // reputation_stamp_owner_copies (FUP-160, once per environment before reputationPublicTags, section
+    // 12.3; it reads the crop and trip status indexes and updates rows under the grants above).
     new events.Rule(this, "OrderCronReputationDaily", {
       ruleName: `${prefix}-order-cron-reputation-daily`,
       description: "Expire reputation points, end restrictions and retry copies once a day at 03:00 Ethiopia time (ESC-28)",
