@@ -25,6 +25,7 @@ public class AdminManualPayoutCleanDeliveryCreditTests
     private const string AuditTable = "test-escrow-audit";
     private const string TxAuditTable = "test-transaction-audit";
     private const string SignalsTable = "test-fraud-signals";
+    private const string IdempotencyTable = "test-escrow-idempotency";
     private const string EscrowId = "escrow-live-1";
     private const string BuyerId = "buyer-1";
     private const string FarmerId = "farmer-1";
@@ -39,6 +40,9 @@ public class AdminManualPayoutCleanDeliveryCreditTests
     private readonly HashSet<string> _creditRows = new();
     private readonly List<QueryRequest> _signalQueries = new();
     private readonly Dictionary<string, QueryResponse> _signalPartitions = new();
+
+    // FUP-05: the reference items the record transactions wrote.
+    private readonly HashSet<string> _references = new();
     private Exception? _signalReadFailure;
 
     public AdminManualPayoutCleanDeliveryCreditTests()
@@ -83,6 +87,30 @@ public class AdminManualPayoutCleanDeliveryCreditTests
             }
 
             return new UpdateItemResponse();
+        });
+        // FUP-05: a record is one transaction: the escrow update and its reference item.
+        _db.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>()).Returns(ci =>
+        {
+            var items = ci.Arg<TransactWriteItemsRequest>().TransactItems;
+            var key = items[1].Put.Item["idempotencyKey"].S;
+            if (_references.Contains(key))
+            {
+                return Task.FromException<TransactWriteItemsResponse>(new TransactionCanceledException("canceled")
+                {
+                    CancellationReasons = new() { new() { Code = "None" }, new() { Code = "ConditionalCheckFailed" } }
+                });
+            }
+
+            _references.Add(key);
+            var update = items[0].Update;
+            Apply(new UpdateItemRequest
+            {
+                TableName = update.TableName,
+                UpdateExpression = update.UpdateExpression,
+                ExpressionAttributeNames = update.ExpressionAttributeNames,
+                ExpressionAttributeValues = update.ExpressionAttributeValues
+            });
+            return Task.FromResult(new TransactWriteItemsResponse());
         });
         _db.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>()).Returns(ci =>
         {
@@ -170,7 +198,7 @@ public class AdminManualPayoutCleanDeliveryCreditTests
         token.StartsWith('#') ? request.ExpressionAttributeNames[token] : token;
 
     private AdminFunction Function(bool withSignalsTable = true) =>
-        new(_db, UsersTable, "", EscrowsTable, "", AuditTable, TxAuditTable,
+        new(_db, UsersTable, "", EscrowsTable, "", AuditTable, TxAuditTable, escrowIdempotencyTable: IdempotencyTable,
             fraudSignalsTable: withSignalsTable ? SignalsTable : "");
 
     private Task<APIGatewayProxyResponse> CompleteAsync(

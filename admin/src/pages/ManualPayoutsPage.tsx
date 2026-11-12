@@ -1,17 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Badge } from "@/components/ui/Badge";
 import { useLocale } from "@/hooks/useLocale";
-import { useManualPayouts, useCompleteManualPayout } from "@/hooks/useQuery";
+import { useManualPayouts, useCompleteManualPayout, useManualPayoutClaim } from "@/hooks/useQuery";
 import { formatETB, formatDateTime } from "@/lib/i18n";
 import { partyName } from "@/lib/user";
 
 /* Manual payout queue (ESC-02). The live Telebirr gateway has no payout API, so a
  * release or refund it cannot make waits here. One table row per payee leg: the
  * admin pays the shown amount to the shown phone in the merchant portal, pastes the
- * portal transaction id and confirms. The last leg of an escrow settles it. */
+ * portal transaction id and confirms. The last leg of an escrow settles it.
+ * FUP-05: an admin claims a leg before paying it, so every other admin sees that it
+ * is being paid and cannot record it; one portal transaction id records one leg. The
+ * page asks for the claim first: the reference field and the record button appear only
+ * on a leg the viewer holds a live claim on. The queue reloads every 30 seconds and when
+ * the window gets focus, so other admins' claims show up. */
 
 interface PayoutLeg {
   ref: string;
@@ -28,6 +33,13 @@ interface PayoutLeg {
   paidAt?: string;
   /* ESC-05: the reference the server sent Telebirr for this leg (release:<id>, release:<id>:trucker, refund:<id>). */
   gatewayRef?: string;
+  /* FUP-05: the admin who claimed this leg (30 minutes), whether that is the viewer, and whether the
+   * claim still lived when the queue was read. A lapsed claim is shown for 24 hours. */
+  claimedBy?: string;
+  claimedAt?: string;
+  claimExpiresAt?: string;
+  claimedByMe?: boolean;
+  claimLive?: boolean;
 }
 
 interface ManualPayout {
@@ -80,11 +92,52 @@ function fill(template: string, values: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_, k: string) => values[k] ?? "");
 }
 
+/* FUP-05: the server names where a refused reference is used in a fixed form,
+ * "... on escrow <escrowId>, leg <ref>.", so the page can say it in the admin's language. */
+const USED_ON = /on escrow (\S+), leg (\S+?)\.$/;
+
+function referenceUsedOn(message: string | undefined): { escrowId: string; ref: string } | null {
+  const match = USED_ON.exec(message ?? "");
+  return match ? { escrowId: match[1], ref: match[2] } : null;
+}
+
+/* FUP-05: an ESCROW_046 message starts "Another admin (<id>) has claimed this leg until <time>." */
+const CLAIM_HOLDER = /^Another admin \((.+?)\) has claimed this leg/;
+
+function claimHolder(message: string | undefined): string | null {
+  return CLAIM_HOLDER.exec(message ?? "")?.[1] ?? null;
+}
+
+type ClaimState = "mine" | "mineLapsed" | "other" | "otherLapsed" | "none";
+
+/* FUP-05: a claim lives while the server said so and its end is still ahead on this clock; the
+ * page treats its own claim as lost the moment it lapses, without waiting for the next reload. */
+function claimState(leg: PayoutLeg, now: number): ClaimState {
+  if (!leg.claimedBy) return "none";
+  const end = leg.claimExpiresAt ? Date.parse(leg.claimExpiresAt) : NaN;
+  const live = leg.claimLive !== false && Number.isFinite(end) && end > now;
+  if (leg.claimedByMe) return live ? "mine" : "mineLapsed";
+  return live ? "other" : "otherLapsed";
+}
+
+/* The current time, moved on every 15 seconds so a claim that lapses changes the row. */
+function useNow(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
 export function ManualPayoutsPage() {
   const { t, locale } = useLocale();
   const { data, isLoading, isError, hasNextPage, fetchNextPage, isFetchingNextPage } = useManualPayouts();
   const complete = useCompleteManualPayout();
+  const claim = useManualPayoutClaim();
+  const now = useNow(15_000);
   const [refs, setRefs] = useState<Record<string, string>>({});
+  const [claiming, setClaiming] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -103,6 +156,14 @@ export function ManualPayoutsPage() {
     return text === key ? fallback : text;
   }
 
+  function errorText(err: unknown): string {
+    const { code, message } = err as { code?: string; message?: string };
+    // FUP-05: a reference already recorded elsewhere names the escrow and leg it is on.
+    const usedOn = code === "ESCROW_047" ? referenceUsedOn(message) : null;
+    if (usedOn) return fill(t("payouts.duplicateRef"), usedOn);
+    return code ? label(`errors.${code}`, t("errors.actionFailed")) : t("errors.actionFailed");
+  }
+
   function submit(row: Row) {
     const externalRef = (refs[row.key] ?? "").trim();
     if (!externalRef) return;
@@ -118,11 +179,34 @@ export function ManualPayoutsPage() {
           setConfirming(null);
         },
         onError: (err: unknown) => {
-          const code = (err as { code?: string }).code;
-          setErrorMsg(code ? label(`errors.${code}`, t("errors.actionFailed")) : t("errors.actionFailed"));
+          // FUP-05: refused because another admin holds the claim. The admin has usually paid
+          // already: do not pay again, and talk to the holder so the leg is recorded once.
+          const { code, message } = err as { code?: string; message?: string };
+          const holder = code === "ESCROW_046" ? claimHolder(message) : null;
+          setErrorMsg(holder ? fill(t("payouts.claimedOnRecord"), { admin: holder }) : errorText(err));
           setConfirming(null);
         },
         onSettled: () => setSubmitting(null),
+      },
+    );
+  }
+
+  /* FUP-05: claim the leg before paying it in the portal, renew the claim, or give it back. */
+  function changeClaim(row: Row, action: "claim" | "unclaim", renew = false) {
+    setClaiming(row.key);
+    setErrorMsg(null);
+    setNotice(null);
+    claim.mutate(
+      { escrowId: row.payout.escrowId, ref: row.leg.ref, action },
+      {
+        onSuccess: () =>
+          setNotice(t(action === "unclaim" ? "payouts.unclaimDone" : renew ? "payouts.renewDone" : "payouts.claimDone")),
+        onError: (err: unknown) => {
+          const code = (err as { code?: string }).code;
+          // The leg was recorded, released or busy in between: the queue reloads with what it is now.
+          setErrorMsg(code === "ESCROW_035" ? t("payouts.claimChanged") : errorText(err));
+        },
+        onSettled: () => setClaiming(null),
       },
     );
   }
@@ -282,9 +366,83 @@ export function ManualPayoutsPage() {
           );
         }
 
+        const state = claimState(row.leg, now);
+        const claimTime = row.leg.claimExpiresAt ? formatDateTime(row.leg.claimExpiresAt) : "";
+
+        // FUP-05: another admin is paying this leg; it cannot be paid or recorded here until the
+        // claim ends (30 minutes after it was taken or renewed) or its holder gives it back.
+        if (state === "other") {
+          return (
+            <div className="space-y-1 md:max-w-56">
+              <Badge variant="warning">{t("payouts.claimedByOther")}</Badge>
+              <p className="text-xs text-text-muted">
+                {fill(t("payouts.claimedByOtherHint"), { admin: row.leg.claimedBy ?? "", time: claimTime })}
+              </p>
+            </div>
+          );
+        }
+
         const value = refs[row.key] ?? "";
-        const busy = submitting === row.key;
+        const busy = submitting === row.key || claiming === row.key;
         const checkPortalFirst = CHECK_PORTAL_FIRST.has(row.payout.reason);
+        const claimButton = (
+          <button
+            type="button"
+            onClick={() => changeClaim(row, "claim")}
+            disabled={busy}
+            className="rounded border border-primary px-2 py-1 text-xs text-primary hover:bg-primary/10 disabled:opacity-50"
+          >
+            {t("payouts.claim")}
+          </button>
+        );
+
+        // Claim is the first step: without a live claim of the viewer's own there is nothing to
+        // pay or record here. A lapsed claim (the viewer's or another admin's) says that the
+        // payment may already have been made.
+        if (state !== "mine") {
+          const lapsedText =
+            state === "mineLapsed"
+              ? fill(t("payouts.claimLapsedMine"), { time: claimTime })
+              : state === "otherLapsed"
+                ? fill(t("payouts.claimLapsedOther"), { admin: row.leg.claimedBy ?? "", time: claimTime })
+                : null;
+          return (
+            <div className="space-y-1 md:max-w-56">
+              {lapsedText ? (
+                <p role="note" className="text-xs text-warning">
+                  {lapsedText}
+                </p>
+              ) : (
+                <p className="text-xs text-text-muted">{t("payouts.claimHint")}</p>
+              )}
+              {claimButton}
+            </div>
+          );
+        }
+
+        const claimLine = (
+          <div className="space-y-1">
+            <p className="text-xs text-success">{fill(t("payouts.claimedByYou"), { time: claimTime })}</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => changeClaim(row, "claim", true)}
+                disabled={busy}
+                className="rounded border border-primary px-2 py-1 text-xs text-primary hover:bg-primary/10 disabled:opacity-50"
+              >
+                {t("payouts.renew")}
+              </button>
+              <button
+                type="button"
+                onClick={() => changeClaim(row, "unclaim")}
+                disabled={busy}
+                className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
+              >
+                {t("payouts.unclaim")}
+              </button>
+            </div>
+          </div>
+        );
         if (confirming === row.key) {
           return (
             <div className="space-y-2">
@@ -318,6 +476,7 @@ export function ManualPayoutsPage() {
 
         return (
           <div className="flex flex-col gap-2 md:min-w-56">
+            {claimLine}
             <input
               type="text"
               value={value}

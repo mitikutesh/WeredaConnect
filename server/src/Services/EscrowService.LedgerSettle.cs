@@ -519,7 +519,8 @@ public sealed partial class EscrowService
     // ──────────────────────────────────────────────
 
     /// <summary>The ledger's manual rows grouped per escrow, oldest first, in the 1.8.0 response shape.</summary>
-    private async Task<List<ManualPayoutDto>> ListLedgerManualPayoutsAsync(Dictionary<string, UserDto?> userCache)
+    private async Task<List<ManualPayoutDto>> ListLedgerManualPayoutsAsync(
+        Dictionary<string, UserDto?> userCache, string? viewerId, string nowIso)
     {
         var result = new List<ManualPayoutDto>();
         if (LedgerRepo == null)
@@ -547,7 +548,8 @@ public sealed partial class EscrowService
                 var blockReason = row.PayeeRole == LedgerFields.PayeeBuyer
                     ? payee is { IsPhoneVerified: true } ? null : TruckerPayoutFields.BlockPhoneUnverified
                     : PayoutBlockReason(payee, row.Amount);
-                legs.Add(new ManualPayoutLegDto
+                // FUP-05: the row's live claim, and whether the viewer holds it.
+                legs.Add(WithClaim(new ManualPayoutLegDto
                 {
                     Ref = row.Ref,
                     PayeeRole = row.PayeeRole ?? "",
@@ -559,7 +561,7 @@ public sealed partial class EscrowService
                     Amount = row.Amount,
                     Status = ManualPayoutFields.LegPending,
                     GatewayRef = row.GatewayRef
-                });
+                }, row.ClaimedBy, row.ClaimedAt, row.ClaimExpiresAt, viewerId, nowIso));
             }
 
             var first = group.OrderBy(r => r.DueAt, StringComparer.Ordinal).First();
@@ -588,54 +590,70 @@ public sealed partial class EscrowService
     /// <summary>
     /// P.8: an admin paid a ledger row in the merchant portal and records its reference: the row (only a
     /// <c>manual</c> one) becomes <c>done</c> with <c>paidBy</c> the admin, and the escrow follows its rows. A
-    /// replay with the same reference answers the recorded row; another reference is refused.
+    /// replay with the same reference answers the recorded row; another reference is refused. FUP-05: a row
+    /// another admin has claimed is refused (<c>ESCROW_046</c>), the record ends the claim, and a reference
+    /// recorded on another leg is refused (<c>ESCROW_047</c>); the second value is the refusal's audit detail.
     /// </summary>
-    private async Task<EscrowResult<CompleteManualPayoutResponse>> CompleteLedgerManualPayoutAsync(
+    private async Task<(EscrowResult<CompleteManualPayoutResponse> Result, string? RefusalDetail)> CompleteLedgerManualPayoutAsync(
         string escrowId, string reference, string externalRef, string actorUserId)
     {
         if (LedgerRepo == null)
         {
-            return LedgerUnavailable<CompleteManualPayoutResponse>();
+            return (LedgerUnavailable<CompleteManualPayoutResponse>(), null);
         }
 
         var row = await LedgerRepo.GetRowAsync(escrowId, reference);
         if (row == null)
         {
-            return EscrowResult<CompleteManualPayoutResponse>.Failure(404, "ESCROW_035", "No such payout leg.");
+            return (EscrowResult<CompleteManualPayoutResponse>.Failure(404, "ESCROW_035", "No such payout leg."), null);
         }
 
         if (row.Status == LedgerFields.StatusDone)
         {
             if (!string.Equals(row.TelebirrRef, externalRef, StringComparison.Ordinal))
             {
-                return EscrowResult<CompleteManualPayoutResponse>.Failure(409, "ESCROW_036",
-                    "This leg is already recorded with a different reference.");
+                return (EscrowResult<CompleteManualPayoutResponse>.Failure(409, "ESCROW_036",
+                    "This leg is already recorded with a different reference."), null);
             }
 
-            return EscrowResult<CompleteManualPayoutResponse>.Success(await LedgerCompleteResponseAsync(row, alreadyRecorded: true));
+            return (EscrowResult<CompleteManualPayoutResponse>.Success(await LedgerCompleteResponseAsync(row, alreadyRecorded: true)), null);
         }
 
         if (row.Status != LedgerFields.StatusManual)
         {
-            return EscrowResult<CompleteManualPayoutResponse>.Failure(409, "ESCROW_035",
-                "This leg is not waiting in the manual payout queue.");
+            return (EscrowResult<CompleteManualPayoutResponse>.Failure(409, "ESCROW_035",
+                "This leg is not waiting in the manual payout queue."), null);
         }
 
-        var done = await CompleteLedgerRowAsync(row, externalRef, actorUserId, row.Attempts, actorUserId);
+        var guard = new ManualRecordGuard(actorUserId, ClaimNowIso(),
+            BuildReferenceRecord(externalRef, escrowId, reference, actorUserId, Iso(LedgerClock())));
+        var done = await CompleteLedgerRowAsync(row, externalRef, actorUserId, row.Attempts, actorUserId, guard);
+        if (done.ClaimedByOther && done.Row != null)
+        {
+            return (ClaimedByOther<CompleteManualPayoutResponse>(done.Row.ClaimedBy!, done.Row.ClaimExpiresAt!, onRecord: true), null);
+        }
+
+        if (done.ReferenceTaken)
+        {
+            var holder = await ReadReferenceHolderAsync(externalRef);
+            return (EscrowResult<CompleteManualPayoutResponse>.Failure(409, ReferenceTakenCode,
+                ReferenceTakenMessage(holder), "externalRef"), ReferenceTakenDetail(holder));
+        }
+
         if (done.Row == null)
         {
-            return EscrowResult<CompleteManualPayoutResponse>.Failure(409, "ESCROW_035",
-                "The leg changed while it was being recorded. Reload and try again.");
+            return (EscrowResult<CompleteManualPayoutResponse>.Failure(409, "ESCROW_035",
+                "The leg changed while it was being recorded. Reload and try again."), null);
         }
 
         if (done.AlreadyDone && !string.Equals(done.Row.TelebirrRef, externalRef, StringComparison.Ordinal))
         {
-            return EscrowResult<CompleteManualPayoutResponse>.Failure(409, "ESCROW_036",
-                "This leg is already recorded with a different reference.");
+            return (EscrowResult<CompleteManualPayoutResponse>.Failure(409, "ESCROW_036",
+                "This leg is already recorded with a different reference."), null);
         }
 
-        return EscrowResult<CompleteManualPayoutResponse>.Success(
-            await LedgerCompleteResponseAsync(done.Row, alreadyRecorded: done.AlreadyDone));
+        return (EscrowResult<CompleteManualPayoutResponse>.Success(
+            await LedgerCompleteResponseAsync(done.Row, alreadyRecorded: done.AlreadyDone)), null);
     }
 
     private async Task<CompleteManualPayoutResponse> LedgerCompleteResponseAsync(LedgerRow row, bool alreadyRecorded)

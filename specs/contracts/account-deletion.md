@@ -1,7 +1,7 @@
 # Account Deletion Contract
 
 ## Version
-1.7.0
+1.7.1
 
 ## Parties
 - **Mobile / Web** (client, ACC-03): Profile > "Delete account" flow, step-up re-auth, local wipe. Mobile and web are a platform pair and ship together.
@@ -295,7 +295,7 @@ Every DynamoDB table in `infra/lib/stacks/database-stack.ts` and `infra/lib/cons
 | `fraud-signals` | Retain until TTL | Fraud prevention. PK `userId`, SK `signalKey`, weight and rule text; `expiresAt` 30 days after the signal. The one `~whitelist` row per user (FRD-05, fraud spec section 20) carries no rule text and expires at its `whitelistUntil`, up to `FRAUD_WHITELIST_DAYS` days (at most 365) after the admin's whitelist, inside the 400-day bound of the TTL rows. Not rewritten |
 | `rate-limits` | Retain until TTL | Counters and auth state keyed by phone or `userId` (`LOGIN#`, `REGISTER#`, `OTP#`, `OTPSEND#`, `SYNC#`, `IP#`, `AUTHSTATE#OTP#`, `AUTHSTATE#OIDC#`, `AUTHSTATE#JTI#`, and since 1.5.0 `LISTING_REPORT#{buyerId}#{day}`). `expiresAt` within 24 hours (48 hours for `LISTING_REPORT#`). Kept so abuse limits still apply to a phone that re-registers; the OIDC state rows are the only Fayda-related rows outside the users row and hold no identity data |
 | `sync-metadata` | Retain until TTL | Idempotency keys `{userId}:{entityType}:{entityId}:{action}:{timestamp}` plus a result string; `expiresAt` 7 days. Deleted-account syncs are refused before this table is touched |
-| `escrow-idempotency` | Retain until TTL | Money idempotency rows (30 days); ESC-01 checkout slot and mapping rows (`buyerId`, amount, ids only) 400 days; webhook inbox rows 30 days; FUP-02 refund claim rows (order, payment and refund ids, admin id; no buyer data) 400 days. Read by the blocker check, never written by deletion |
+| `escrow-idempotency` | Retain until TTL | Money idempotency rows (30 days); ESC-01 checkout slot and mapping rows (`buyerId`, amount, ids only) 400 days; webhook inbox rows 30 days; FUP-02 refund claim rows (order, payment and refund ids, admin id; no buyer data) 400 days; FUP-05 manual payout reference rows (`payout-ref#`: the portal reference, escrow id, leg, admin id; no party data) 400 days. Read by the blocker check, never written by deletion |
 | `delivery-qr-secrets` | Retain until TTL | Per-delivery nonce and consumption flags, no personal data; `expiresAt` 30 days |
 | `fayda-mock-codes` | Retain until TTL | Dev and staging only (`infra/lib/constructs/fayda-mock-construct.ts`). Short-lived mock authorization codes with `expiresAt`. Not deployed in prod |
 
@@ -446,6 +446,7 @@ Not built yet (follow-ups):
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.7.1 | 2026-11-12 | The escrow-idempotency retention row lists the FUP-05 manual payout reference rows (`payout-ref#`, 400 days, no party data; escrow-protocol 2.12.0). No behaviour change |
 | 1.7.0 | 2026-11-11 | Appeal photos (ESC-29, `reputation-api.md` 1.2.0 section 5): before the user's `reputation-events` partition is deleted, every object version and delete marker under `uploads/appeals/{userId}/` in the private uploads bucket is deleted (the bucket is versioned), counted as `appealPhotos` in the `account_deleted` audit metadata. The step runs only while `reputationPenalties` is on: with the flag off no appeal photo can exist, the deletion makes no S3 call and cannot stick on this step (`appealPhotos=0`). A failed delete fails the step and the deletion job runs it again. Photos uploaded while the flag was on need the step, so the flag must not be turned off again without it having run for them (TASK FUP-166). Both deletion Lambdas may list versions and delete objects under `uploads/appeals/` only. No wire change |
 | 1.6.0 | 2026-11-07 | Per-table policy: `reputation-events` (ESC-28) is Delete: step 10 deletes the user's partition (penalties, appeals, restrictions, overrides, tier and heal rows) after the inbox; Lookups row; both deletion Lambdas get Query and DeleteItem on the table; the `account_deleted` metadata counts `reputationEvents`. The reputation writers already refuse a deleting account. No wire change |
 | 1.5.0 | 2026-11-07 | Per-table policy: `listing-reports` (FUP-67, `listing-report-api.md` 1.0.0) retained until its 180 day TTL: ids, a reason code and the admin review fields, no free text from the buyer; no deletion step. No wire change |
