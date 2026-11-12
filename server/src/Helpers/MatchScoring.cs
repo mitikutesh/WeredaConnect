@@ -158,6 +158,9 @@ public static class MatchScoring
 
     private const double EarthRadiusKm = 6371.0;
 
+    /// <summary>MATCH-01: the Dart <c>GpsDistanceService.earthRadiusMeters</c>, for <see cref="TripEndKm"/>.</summary>
+    private const double EarthRadiusMeters = 6371000.0;
+
     /// <summary>
     /// Accepted-substitute map (lowercase English crop names). Mirror of the
     /// Dart scorer's map — keep the two identical.
@@ -378,18 +381,44 @@ public static class MatchScoring
     /// <summary>
     /// MATCH-01: how well the trip's route serves the query, in 0..1: the mean of
     /// <see cref="TripEndScore"/> for the trip's start against the crop's woreda and for its end
-    /// against the delivery woreda. Null when either end does not serve. 1.0 is the exact route.
+    /// against the delivery woreda. 1.0 is the exact route. Null (not suggested) when either end
+    /// does not serve, or when the trip runs the other way: scored with the crop's and the
+    /// delivery woreda swapped it fits better than forward (Bishoftu to Adama for a crop in Adama
+    /// going to Bishoftu). Equal scores (the crop and the delivery in one woreda) stay. The Dart
+    /// <c>tripRouteScore</c> is the same rule.
     /// </summary>
     public static double? TripRouteScore(TripRouteQuery query, TripCandidate trip)
     {
+        if (MeanRouteScore(trip,
+                query.ListingWoreda, query.ListingLatitude, query.ListingLongitude,
+                query.DeliveryWoreda, query.DeliveryLatitude, query.DeliveryLongitude) is not double forward)
+        {
+            return null;
+        }
+
+        var reversed = MeanRouteScore(trip,
+            query.DeliveryWoreda, query.DeliveryLatitude, query.DeliveryLongitude,
+            query.ListingWoreda, query.ListingLatitude, query.ListingLongitude);
+        return reversed is double r && r > forward ? null : forward;
+    }
+
+    /// <summary>
+    /// The mean of the trip's start against the start place and its end against the end place,
+    /// or null when either end does not serve.
+    /// </summary>
+    private static double? MeanRouteScore(
+        TripCandidate trip,
+        string? startWoreda, double? startLatitude, double? startLongitude,
+        string? endWoreda, double? endLatitude, double? endLongitude)
+    {
         if (TripEndScore(trip.FromWoreda, trip.FromLatitude, trip.FromLongitude,
-                query.ListingWoreda, query.ListingLatitude, query.ListingLongitude) is not double from)
+                startWoreda, startLatitude, startLongitude) is not double from)
         {
             return null;
         }
 
         if (TripEndScore(trip.ToWoreda, trip.ToLatitude, trip.ToLongitude,
-                query.DeliveryWoreda, query.DeliveryLatitude, query.DeliveryLongitude) is not double to)
+                endWoreda, endLatitude, endLongitude) is not double to)
         {
             return null;
         }
@@ -399,11 +428,12 @@ public static class MatchScoring
 
     /// <summary>
     /// MATCH-01: how well one end of a trip serves the place the buyer wants it at, in 0..1, or
-    /// null when it does not. The best of what applies: 1.0 for the same place after
-    /// <see cref="WoredaNames.Normalize"/>; <c>1 / (1 + km / GeoHalfScoreKm)</c> when both
-    /// centroids are known and at most <see cref="TripNearRadiusKm"/> apart
-    /// (<see cref="TripEndKm"/>); <see cref="GeoPartial"/> for a whole-word name match (the
-    /// fallback for a woreda without a centroid). A blank name never serves.
+    /// null when it does not. The best of what applies, whether or not the centroids are known:
+    /// 1.0 for the same place after <see cref="WoredaNames.Normalize"/>;
+    /// <c>1 / (1 + km / GeoHalfScoreKm)</c> when both centroids are known and at most
+    /// <see cref="TripNearRadiusKm"/> apart (<see cref="TripEndKm"/>); <see cref="GeoPartial"/>
+    /// for a whole-word name match. For a woreda without a centroid only the name rules can
+    /// apply. A blank name never serves.
     /// </summary>
     public static double? TripEndScore(
         string? tripWoreda, double? tripLatitude, double? tripLongitude,
@@ -440,7 +470,9 @@ public static class MatchScoring
     /// MATCH-01: the great-circle distance between two centroids in km, rounded half away from
     /// zero to 0.1 km (as Dart's <c>round()</c>), or null when either point is unknown or not a
     /// real position. The rounding keeps the platforms on the same number whatever the last
-    /// digit of their sin and cos.
+    /// digit of their sin and cos. Computed as metres (radius 6371000) over 1000, the same
+    /// expression as the Dart <c>GpsDistanceService.haversineDistance / 1000.0</c>, so a
+    /// distance on a 0.05 km boundary rounds the same way on both.
     /// </summary>
     public static double? TripEndKm(double? lat1, double? lon1, double? lat2, double? lon2)
     {
@@ -449,7 +481,7 @@ public static class MatchScoring
             return null;
         }
 
-        var km = HaversineKm(lat1!.Value, lon1!.Value, lat2!.Value, lon2!.Value);
+        var km = EarthRadiusMeters * CentralAngle(lat1!.Value, lon1!.Value, lat2!.Value, lon2!.Value) / 1000.0;
         return Math.Round(km * 10, MidpointRounding.AwayFromZero) / 10;
     }
 
@@ -483,14 +515,20 @@ public static class MatchScoring
 
     /// <summary>Great-circle distance in kilometres (Haversine, WGS-84 mean radius).</summary>
     private static double HaversineKm(double lat1, double lon1, double lat2, double lon2)
+        => EarthRadiusKm * CentralAngle(lat1, lon1, lat2, lon2);
+
+    /// <summary>
+    /// The haversine central angle in radians, operation for operation the Dart
+    /// <c>GpsDistanceService.haversineDistance</c> before its radius.
+    /// </summary>
+    private static double CentralAngle(double lat1, double lon1, double lat2, double lon2)
     {
         var dLat = ToRadians(lat2 - lat1);
         var dLon = ToRadians(lon2 - lon1);
         var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
               + Math.Cos(ToRadians(lat1)) * Math.Cos(ToRadians(lat2))
               * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
-        var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-        return EarthRadiusKm * c;
+        return 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
     }
 
     private static double ToRadians(double degrees) => degrees * Math.PI / 180.0;

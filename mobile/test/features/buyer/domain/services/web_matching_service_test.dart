@@ -670,5 +670,22 @@ void main() {
 
       expect(results.single.suggestedTrips.map((t) => t.tripId), ['fits']);
     });
+
+    test('a trip running the other way is not suggested, even when cheapest',
+        () async {
+      // The same vector as the Isar MatchingService test of this name.
+      stubCrops([cropDto(cropId: 'crop-hawassa', woreda: 'Hawassa')]);
+      stubTrips([
+        trip('forward', 'Hawassa', 'Shashemene', 12),
+        trip('reverse', 'Shashemene', 'Hawassa', 9),
+      ]);
+
+      final results = await clocked.matchListingsForIntent(
+        intent(deliveryWoreda: 'Shashemene'),
+      );
+
+      expect(results.single.suggestedTrips.map((t) => t.tripId), ['forward']);
+      expect(results.single.estimatedTotalMin, 52560);
+    });
   });
 }

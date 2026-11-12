@@ -242,16 +242,24 @@ the phone uses its cached trips and the centroid table it ships (`WoredaCentroid
 
 **Route.** Each end of the trip is scored against the place it should serve: the trip's
 `fromWoreda` against the crop's woreda (`locationName`), its `toWoreda` against the intent's
-`deliveryWoreda`. An end scores the best of:
+`deliveryWoreda`. An end scores the best of these, whether or not the centroids are known:
 
 - 1.0 when the two names are the same place after the shared woreda normalisation;
 - `1 / (1 + km / 50)` (the crop geo decay) when both woredas have a centroid and they are at most
-  **40 km** apart, the distance being the haversine between centroids rounded half away from zero
-  to 0.1 km (so every platform gets the same number);
-- 0.6 for a whole-word name match (the fallback when a centroid is unknown, as for `Hawassa Zuria`).
+  **40 km** apart, the distance being the haversine between centroids (radius 6371000 m, divided
+  by 1000) rounded half away from zero to 0.1 km (so every platform gets the same number);
+- 0.6 for a whole-word name match. For a woreda without a centroid (as `Hawassa Zuria`) only the
+  name rules can apply.
 
 An end that scores none of these (no centroid and no name match, or more than 40 km away), or a
 blank name, drops the trip. The route score is the mean of the two ends; 1.0 is the exact route.
+
+**Direction.** When the crop's and the delivery woredas are close, a trip running the other way
+can have each end within 40 km of a wanted place (crop in Adama going to Bishoftu, trip Bishoftu
+to Adama: both ends 39.5 km off). The route is therefore also scored with the crop's and the
+delivery woreda swapped, and the trip is dropped when the swapped score is higher than the
+forward one. Equal scores stay (the crop and the delivery in one woreda, or a trip that stays in
+one place).
 The crop's woreda centroid is used, not its GPS fix, because `GET /crops` may omit the fix and
 both apps must see the same input. Examples: Shashemene to Hawassa is 22.0 km (end 0.694, route
 0.847 with an exact destination); Adama to Bishoftu 39.5 km (kept); Addis Ababa to Bishoftu
@@ -265,8 +273,8 @@ price; then the more reliable trucker (ESC-30); then the earlier departure; then
 cache and the web's API pages give the same list.
 
 **Parity.** `match_scorer_test.dart` ("trip pairing (MATCH-01)") and `MatchScoringTests.cs`
-(`TripEndScore_GoldenVectors`, `SuggestTrips_GoldenOrder_IsStableAcrossPlatforms` and the tests
-next to them) carry the same literal coordinates and the same trip set, and assert the same
+(`TripEndScore_GoldenVectors`, `SuggestTrips_GoldenOrder_IsStableAcrossPlatforms`,
+`TripRouteScore_Reverse`, `SuggestTrips_Reverse` and the tests next to them) carry the same literal coordinates and the same trip set, and assert the same
 distances, scores and order. The two matching services run the same scenario
 (`MATCH-01: trips by centroid distance`).
 
@@ -340,7 +348,7 @@ distances, scores and order. The two matching services run the same scenario
 | 1.3.0 | 2026-11-11 | Restricted farmers and owner reputation (ESC-29, `reputation-api.md` 1.2.0 sections 7 and 8.3), off in every environment: with `reputationPenalties` on, a listing whose stored owner tier is `restricted` is no candidate for a buyer; with `reputationPublicTags` on, each match carries `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt`. The score is unchanged. |
 
 | 1.4.0 | 2026-11-12 | Reliability from reputation (ESC-30, `reputation-api.md` 1.3.0 section 7): the score's reliability input is the listing's `ownerReliabilityPct / 100` as the caller is given it, the neutral 0.7 when absent (flag off, under 3 orders, no copy), identical in `MatchScoring` and `MatchScorer`; `farmerReliability` is no longer written or scored (deprecated in `MatchDto`); the app-side trip suggestions order equal prices by the trucker's `ownerReliabilityPct`. No new field on the wire. |
-| 1.5.0 | 2026-11-12 | Trip pairing by distance (MATCH-01): a trip is suggested when each end is the same woreda or within 40 km of it by centroid distance (rounded to 0.1 km), the whole-word name match as the fallback when a centroid is unknown; room left must cover the quantity less 0.01 quintal (now also on web), 1 quintal when no quantity; order is price, route score (exact above a neighbouring woreda), trucker reliability, earlier departure, `tripId`, so ties no longer depend on input order. One pure rule, `MatchScorer.suggestTrips`, on phone and web, mirrored in `MatchScoring.SuggestTrips` with shared golden vectors. `/match` unchanged. No wire change. |
+| 1.5.0 | 2026-11-12 | Trip pairing by distance (MATCH-01): a trip is suggested when each end is the same woreda, within 40 km of it by centroid distance (rounded to 0.1 km), or a whole-word name match (the best of the three counts), and it does not run the other way (the route with crop and delivery swapped must not score higher); room left must cover the quantity less 0.01 quintal (now also on web), 1 quintal when no quantity; order is price, route score (exact above a neighbouring woreda), trucker reliability, earlier departure, `tripId`, so ties no longer depend on input order. One pure rule, `MatchScorer.suggestTrips`, on phone and web, mirrored in `MatchScoring.SuggestTrips` with shared golden vectors. `/match` unchanged. No wire change. |
 
 ---
 

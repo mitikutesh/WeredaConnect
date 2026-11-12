@@ -507,6 +507,48 @@ public class MatchScoringTests
             9);
     }
 
+    // A trip running the other way fits each end within 40 km when the crop and the delivery
+    // woredas are close; it is dropped when the swapped route scores higher. Equal scores stay.
+    // Rows: crop woreda, delivery woreda, trip from, trip to, route (null: not suggested).
+    // Duplicated verbatim in match_scorer_test.dart ("reverse golden vectors").
+    [Theory]
+    [InlineData("Adama", "Bishoftu", "Adama", "Bishoftu", 1.0)]                 // forward
+    [InlineData("Adama", "Bishoftu", "Bishoftu", "Adama", null)]                // reverse
+    [InlineData("Adama", "Bishoftu", "Adama", "Adama", 0.779329609)]            // tie stays
+    [InlineData("Hawassa", "Shashemene", "Shashemene", "Hawassa", null)]        // reverse
+    [InlineData("Hawassa", "Shashemene", "Hawassa", "Shashemene", 1.0)]         // forward
+    [InlineData("Hawassa", "Hawassa", "Hawassa", "Hawassa", 1.0)]               // one woreda
+    [InlineData("Hawassa", "Hawassa", "Shashemene", "Hawassa", 0.847222222)]    // tie
+    public void TripRouteScore_Reverse(string listing, string delivery, string from, string to, double? route)
+    {
+        var actual = MatchScoring.TripRouteScore(
+            TripQuery(listing: listing, delivery: delivery), Pt("r", from, to, 12));
+        if (route is double expected)
+        {
+            Assert.NotNull(actual);
+            Assert.Equal(expected, actual!.Value, 9);
+        }
+        else
+        {
+            Assert.Null(actual);
+        }
+    }
+
+    [Fact]
+    public void SuggestTrips_Reverse()
+    {
+        // Duplicated verbatim in match_scorer_test.dart ("reverse golden order"): the cheapest
+        // trip runs the wrong way and is dropped.
+        Assert.Equal(
+            new[] { "local", "forward" },
+            SuggestedIds(TripQuery(listing: "Adama", delivery: "Bishoftu"), new[]
+            {
+                Pt("forward", "Adama", "Bishoftu", 12),
+                Pt("reverse", "Bishoftu", "Adama", 9),
+                Pt("local", "Adama", "Adama", 11),
+            }));
+    }
+
     [Fact]
     public void SuggestTrips_WithTheOrderLead_DropsTheTripLeavingToday()
     {

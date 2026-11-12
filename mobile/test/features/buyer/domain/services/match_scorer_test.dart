@@ -843,6 +843,58 @@ void main() {
       );
     });
 
+    test('reverse golden vectors (same table as the C# side)', () {
+      // A trip running the other way fits each end within 40 km when the
+      // crop and the delivery woredas are close; it is dropped when the
+      // swapped route scores higher. Equal scores stay. Rows: crop woreda,
+      // delivery woreda, trip from, trip to, route (null: not suggested).
+      // Duplicated verbatim in MatchScoringTests.TripRouteScore_Reverse.
+      const vectors = <(String, String, String, String, double?)>[
+        ('Adama', 'Bishoftu', 'Adama', 'Bishoftu', 1.0), // forward
+        ('Adama', 'Bishoftu', 'Bishoftu', 'Adama', null), // reverse
+        ('Adama', 'Bishoftu', 'Adama', 'Adama', 0.779329609), // tie stays
+        ('Hawassa', 'Shashemene', 'Shashemene', 'Hawassa', null), // reverse
+        ('Hawassa', 'Shashemene', 'Hawassa', 'Shashemene', 1.0), // forward
+        ('Hawassa', 'Hawassa', 'Hawassa', 'Hawassa', 1.0), // one woreda
+        ('Hawassa', 'Hawassa', 'Shashemene', 'Hawassa', 0.847222222), // tie
+      ];
+      for (final (listing, delivery, from, to, route) in vectors) {
+        final actual = scorer.tripRouteScore(
+          pt('r', from, to, 12),
+          listingWoreda: listing,
+          deliveryWoreda: delivery,
+          locate: at,
+        );
+        final reason = '$from -> $to for $listing -> $delivery';
+        if (route == null) {
+          expect(actual, isNull, reason: reason);
+        } else {
+          expect(actual, closeTo(route, 1e-9), reason: reason);
+        }
+      }
+    });
+
+    test('reverse golden order: the cheapest trip runs the wrong way', () {
+      // Duplicated verbatim in MatchScoringTests.SuggestTrips_Reverse.
+      final ids = scorer
+          .suggestTrips(
+            [
+              pt('forward', 'Adama', 'Bishoftu', 12),
+              pt('reverse', 'Bishoftu', 'Adama', 9),
+              pt('local', 'Adama', 'Adama', 11),
+            ],
+            listingWoreda: 'Adama',
+            deliveryWoreda: 'Bishoftu',
+            quantityNeeded: 10,
+            now: goldenNow,
+            neededByDate: deadline,
+            locate: at,
+          )
+          .map((t) => t.tripId)
+          .toList();
+      expect(ids, ['local', 'forward']);
+    });
+
     test('with the 24 hour order lead the trip leaving today is dropped', () {
       expect(suggested(orderLeadHours: 24), [
         'adjacent-cheap',

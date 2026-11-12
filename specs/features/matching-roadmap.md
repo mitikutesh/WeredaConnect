@@ -92,8 +92,10 @@ Built: the trips suggested with a matched crop are no longer a woreda-name hard
 filter. Each end of a trip (start against the crop's woreda, end against the
 delivery woreda) is the same place, or within 40 km by centroid distance
 (`WoredaCentroids`, haversine rounded to 0.1 km) with the crop geo decay
-`1 / (1 + km / 50)`, or a whole-word name match (0.6) when a centroid is
-unknown; the route score is the mean of the two ends. Room left must cover the
+`1 / (1 + km / 50)`, or a whole-word name match (0.6), the best of these; the
+route score is the mean of the two ends, and a trip that scores higher with
+the crop's and the delivery woreda swapped (it runs the other way) is
+dropped. Room left must cover the
 quantity (less the order create's 0.01 quintal tolerance) and the departure must
 fit the buyer's window (today or later, outside the order lead, by
 `neededByDate`), else the trip is dropped. Price stays the first ordering key

@@ -319,26 +319,71 @@ class MatchScorer {
   /// MATCH-01: how well [trip]'s route serves a crop at [listingWoreda]
   /// going to [deliveryWoreda], in 0..1: the mean of [tripEndScore] for the
   /// trip's start against the crop's woreda and for its end against the
-  /// delivery woreda. Null when either end does not serve (the trip is then
-  /// not suggested). 1.0 is the exact route.
+  /// delivery woreda. 1.0 is the exact route.
+  ///
+  /// Null (the trip is not suggested) when either end does not serve, or
+  /// when the trip runs the other way: scored with the crop's and the
+  /// delivery woreda swapped it fits better than forward (a truck from
+  /// Bishoftu to Adama for a crop in Adama going to Bishoftu). Each end alone
+  /// would pass when the two woredas are close, so the direction is checked
+  /// on the pair. A route whose two scores are equal (the crop and the
+  /// delivery in one woreda) stays.
   double? tripRouteScore(
     Trip trip, {
     required String listingWoreda,
     required String deliveryWoreda,
     WoredaLocator locate = WoredaCentroids.lookup,
   }) {
+    final fromPoint = locate(trip.fromWoreda);
+    final toPoint = locate(trip.toWoreda);
+    final listingPoint = locate(listingWoreda);
+    final deliveryPoint = locate(deliveryWoreda);
+    final forward = _meanRouteScore(
+      trip,
+      fromPoint,
+      toPoint,
+      startWoreda: listingWoreda,
+      startPoint: listingPoint,
+      endWoreda: deliveryWoreda,
+      endPoint: deliveryPoint,
+    );
+    if (forward == null) return null;
+    final reversed = _meanRouteScore(
+      trip,
+      fromPoint,
+      toPoint,
+      startWoreda: deliveryWoreda,
+      startPoint: deliveryPoint,
+      endWoreda: listingWoreda,
+      endPoint: listingPoint,
+    );
+    if (reversed != null && reversed > forward) return null;
+    return forward;
+  }
+
+  /// The mean of the trip's start against [startWoreda] and its end against
+  /// [endWoreda], or null when either end does not serve.
+  double? _meanRouteScore(
+    Trip trip,
+    LatLng? fromPoint,
+    LatLng? toPoint, {
+    required String startWoreda,
+    required LatLng? startPoint,
+    required String endWoreda,
+    required LatLng? endPoint,
+  }) {
     final from = tripEndScore(
       trip.fromWoreda,
-      listingWoreda,
-      tripPoint: locate(trip.fromWoreda),
-      wantedPoint: locate(listingWoreda),
+      startWoreda,
+      tripPoint: fromPoint,
+      wantedPoint: startPoint,
     );
     if (from == null) return null;
     final to = tripEndScore(
       trip.toWoreda,
-      deliveryWoreda,
-      tripPoint: locate(trip.toWoreda),
-      wantedPoint: locate(deliveryWoreda),
+      endWoreda,
+      tripPoint: toPoint,
+      wantedPoint: endPoint,
     );
     if (to == null) return null;
     return (from + to) / 2;
@@ -347,12 +392,13 @@ class MatchScorer {
   /// MATCH-01: how well one end of a trip, [tripWoreda], serves the place the
   /// buyer wants it at, [wantedWoreda], in 0..1, or null when it does not.
   ///
-  /// The best of what applies: 1.0 when the two names are the same place
-  /// after [normalizeWoreda]; `1 / (1 + km / geoHalfScoreKm)` (the [geoScore]
-  /// decay) when both centroids are known and at most [tripNearRadiusKm]
-  /// apart ([tripEndKm]); [geoPartial] for a whole-word name match. The name
-  /// match is the fallback for a woreda the centroid table does not know. A
-  /// blank name never serves.
+  /// The best of what applies, whether or not the centroids are known: 1.0
+  /// when the two names are the same place after [normalizeWoreda];
+  /// `1 / (1 + km / geoHalfScoreKm)` (the [geoScore] decay) when both
+  /// centroids are known and at most [tripNearRadiusKm] apart ([tripEndKm]);
+  /// [geoPartial] for a whole-word name match. For a woreda the centroid
+  /// table does not know, only the name rules can apply. A blank name never
+  /// serves.
   double? tripEndScore(
     String tripWoreda,
     String wantedWoreda, {
@@ -377,7 +423,8 @@ class MatchScorer {
   /// rounded half away from zero to 0.1 km, or null when either point is
   /// unknown or not a real position. The rounding keeps the phone, the web
   /// and the server on the same number whatever the platform's last digit
-  /// of sin and cos.
+  /// of sin and cos. Computed as metres (radius 6371000) over 1000, the same
+  /// expression as the server's `TripEndKm`.
   double? tripEndKm(LatLng? a, LatLng? b) {
     if (a == null || b == null || !_hasRealFix(a) || !_hasRealFix(b)) {
       return null;

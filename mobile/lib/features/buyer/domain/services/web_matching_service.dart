@@ -33,7 +33,7 @@ import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart'
 ///   same as mobile.
 /// - Trip pairing is [MatchScorer.suggestTrips] (MATCH-01), identical to the
 ///   mobile [MatchingService]: the exact route or a neighbouring woreda by
-///   centroid distance, the woreda names as the fallback.
+///   centroid distance or by a whole-word name match, never the reverse way.
 class WebMatchingService extends BaseMatchingService {
   final ApiClient _api;
 
@@ -239,8 +239,8 @@ class WebMatchingService extends BaseMatchingService {
   ///   less the server's 0.01 quintal tolerance (ESC-15)
   /// - departing on or before the buyer's deadline when one is set
   /// - starting at [fromLocation] or within 40 km of it, ending at
-  ///   [toLocation] or within 40 km of it (centroid distance); the woreda
-  ///   names decide when a centroid is unknown
+  ///   [toLocation] or within 40 km of it (centroid distance), the whole-word
+  ///   name match also counting; a trip running the other way is dropped
   /// - cheapest first, then the exact route before a neighbouring woreda,
   ///   then the more reliable trucker, the earlier departure, the trip id
   List<Trip> _filterTripsForRoute(

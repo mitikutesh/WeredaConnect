@@ -661,6 +661,37 @@ void main() {
 
         expect(trips.map((t) => t.tripId), expected);
       });
+
+      test('a trip running the other way is not suggested, even when cheapest',
+          () async {
+        // Hawassa and Shashemene are 22 km apart, so each end of the reverse
+        // trip is near a wanted place; the swapped route fits better, so it
+        // is dropped and does not set the estimated total.
+        await putCrop(id: 'crop-hawassa', locationName: 'Hawassa');
+        await putTrip(
+          id: 'forward',
+          fromWoreda: 'Hawassa',
+          toWoreda: 'Shashemene',
+          pricePerQuintal: 12,
+          departureDate: departs,
+        );
+        await putTrip(
+          id: 'reverse',
+          fromWoreda: 'Shashemene',
+          toWoreda: 'Hawassa',
+          pricePerQuintal: 9,
+          departureDate: departs,
+        );
+
+        final results = await clocked().matchListingsForIntent(
+          buildIntent(deliveryWoreda: 'Shashemene'),
+        );
+
+        expect(results.single.suggestedTrips.map((t) => t.tripId), [
+          'forward',
+        ]);
+        expect(results.single.estimatedTotalMin, 52560);
+      });
     });
   });
 }

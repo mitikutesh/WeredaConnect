@@ -21,8 +21,8 @@ import 'package:wereda_connect/shared/services/place_normalizer.dart';
 /// - Works 100% offline on cached Isar data and the bundled woreda
 ///   centroids
 /// - Trip pairing is [MatchScorer.suggestTrips] (MATCH-01): the exact route
-///   or a neighbouring woreda by centroid distance, the woreda names as the
-///   fallback, the same rule as on web
+///   or a neighbouring woreda by centroid distance or by a whole-word name
+///   match, never the reverse way, the same rule as on web
 /// - Commission rate is 5% of the crop cost (platform fee, [OrderPricing])
 class MatchingService extends BaseMatchingService {
   final Isar _isar;
@@ -75,21 +75,30 @@ class MatchingService extends BaseMatchingService {
         )
         .findAll();
 
+    // Drop listings outside the near-miss tolerance bands.
+    final candidates =
+        listings.where((l) => _scorer.isCandidate(intent, l)).toList();
+
+    // One read of the cached open trips per intent, shared by every
+    // candidate. A blank destination can never name a route.
+    final openTrips =
+        candidates.isEmpty || normalizeWoreda(intent.deliveryWoreda).isEmpty
+            ? const <Trip>[]
+            : await _openTripsNotLeft(now);
+
     final results = <CropMatchResult>[];
 
-    for (final listing in listings) {
-      // Drop listings outside the near-miss tolerance bands.
-      if (!_scorer.isCandidate(intent, listing)) continue;
-
+    for (final listing in candidates) {
       // Find trips for this listing → buyer's delivery destination, honouring
       // the buyer's delivery deadline (trips that depart too late are dropped).
-      final trips = await _tripsForListing(
-        listing,
-        intent.deliveryWoreda,
-        intent.quantityNeeded,
-        neededByDate: intent.neededByDate,
+      final trips = _scorer.suggestTrips(
+        openTrips,
+        listingWoreda: listing.locationName,
+        deliveryWoreda: intent.deliveryWoreda,
+        quantityNeeded: intent.quantityNeeded,
         now: now,
         orderLeadHours: orderLeadHours,
+        neededByDate: intent.neededByDate,
       );
 
       // Compute estimated total with cheapest trip
@@ -132,8 +141,9 @@ class MatchingService extends BaseMatchingService {
   /// - room left for [quantityNeeded] (ESC-15), so a full trip never shows
   /// - departing on or before [neededByDate] when the buyer set a deadline
   /// - starting at the listing's woreda or within 40 km of it, and ending at
-  ///   the delivery woreda or within 40 km of it (centroid distance); the
-  ///   woreda names decide when a centroid is unknown
+  ///   the delivery woreda or within 40 km of it (centroid distance), the
+  ///   whole-word name match also counting; a trip running the other way is
+  ///   dropped
   ///
   /// Cheapest first; at the same price the exact route before a neighbouring
   /// woreda, then the more reliable trucker (ESC-30), then the earlier
@@ -144,46 +154,16 @@ class MatchingService extends BaseMatchingService {
     double quantityNeeded, {
     DateTime? neededByDate,
   }) async {
-    return _tripsForListing(
-      listing,
-      deliveryWoreda,
-      quantityNeeded,
-      neededByDate: neededByDate,
-      now: _clock().toUtc(),
-      orderLeadHours: await _orderLeadHours(),
-    );
-  }
-
-  Future<List<Trip>> _tripsForListing(
-    CropListing listing,
-    String deliveryWoreda,
-    double quantityNeeded, {
-    required DateTime now,
-    required int? orderLeadHours,
-    DateTime? neededByDate,
-  }) async {
     // A blank origin or destination can never name a route; bail out before
     // touching Isar (suggestTrips would reject every trip anyway).
     if (normalizeWoreda(listing.locationName).isEmpty ||
         normalizeWoreda(deliveryWoreda).isEmpty) {
       return const <Trip>[];
     }
-
-    // The index narrows to open trips whose departure day is not over
-    // (FUP-85: departureDate >= the start of today in Ethiopia, the same
-    // cutoff suggestTrips applies). Isar string filters know nothing about
-    // the woreda normalisation or centroids, so the route, the room and the
-    // order are decided in memory by the rule web shares (MATCH-01).
-    final candidates = await _isar.trips
-        .filter()
-        .statusEqualTo(TripStatus.open)
-        .departureDateGreaterThan(
-          tripListingCutoff(now).subtract(const Duration(microseconds: 1)),
-        )
-        .findAll();
-
+    final now = _clock().toUtc();
+    final orderLeadHours = await _orderLeadHours();
     return _scorer.suggestTrips(
-      candidates,
+      await _openTripsNotLeft(now),
       listingWoreda: listing.locationName,
       deliveryWoreda: deliveryWoreda,
       quantityNeeded: quantityNeeded,
@@ -192,6 +172,19 @@ class MatchingService extends BaseMatchingService {
       neededByDate: neededByDate,
     );
   }
+
+  /// The cached open trips whose departure day is not over (FUP-85:
+  /// departureDate >= the start of today in Ethiopia, the same cutoff
+  /// [MatchScorer.suggestTrips] applies). Isar string filters know nothing
+  /// about the woreda normalisation or centroids, so the route, the room and
+  /// the order are decided in memory by the rule web shares (MATCH-01).
+  Future<List<Trip>> _openTripsNotLeft(DateTime now) => _isar.trips
+      .filter()
+      .statusEqualTo(TripStatus.open)
+      .departureDateGreaterThan(
+        tripListingCutoff(now).subtract(const Duration(microseconds: 1)),
+      )
+      .findAll();
 
   /// Compute estimated total cost for a crop purchase with optional transport.
   ///
