@@ -45,6 +45,8 @@ import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/listing_report/data/listing_report_repository.dart';
 import 'package:wereda_connect/features/listing_report/domain/base_listing_report_repository.dart';
+import 'package:wereda_connect/features/account/data/repositories/profile_repository.dart';
+import 'package:wereda_connect/features/account/domain/profile_edit.dart';
 import 'package:wereda_connect/features/live_trip/check_in_engine_binding.dart';
 import 'package:wereda_connect/features/live_trip/check_in_notice.dart';
 import 'package:wereda_connect/features/live_trip/data/geolocator_location_source.dart';
@@ -418,6 +420,12 @@ class WeredaConnectApp extends StatelessWidget {
         // with the last answer kept on the phone for offline reading).
         Provider<ReputationRepository>(
           create: (_) => ReputationRepository(api: ApiClient()),
+        ),
+        // SIM-56: a profile edit is queued and sent by the sync queue, so an
+        // edit made offline goes out later.
+        Provider<BaseProfileRepository>(
+          create: (_) =>
+              ProfileRepository(syncQueue: syncQueue, api: ApiClient()),
         ),
       ],
       child: MultiBlocProvider(

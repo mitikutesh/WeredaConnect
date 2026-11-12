@@ -1,7 +1,7 @@
 # User Entity Contract
 
 ## Version
-2.1.2
+2.2.0
 
 ## Parties
 - **Mobile** (client): caches the signed-in user in Isar (`core/database/schemas/user.dart`) for offline sign-in and display
@@ -26,6 +26,7 @@ built. 2.0.0 also adds the reputation attributes of EPIC ESC P2, marked PLANNED.
 | Part | State |
 |---|---|
 | Sections 1, 3 to 11 | as built on `main` (2026-11-07) |
+| Section 14 (profile read and edit) | BUILT (2.2.0, SIM-56) |
 | Section 2 (`reputation`, `ratingSum`, `ratingCount`, `ratingsAggregatedAt`) | BUILT (2.1.0, ESC-28): written by the reputation stream, the order-cron's daily job and backfill, the rating create and registration; ESC-29 reads them (`reputation-api.md` 1.1.0, `rating-api.md` 1.3.0) |
 
 ---
@@ -41,10 +42,10 @@ value is left out (the serializer omits nulls).
 |---|---|---|---|---|
 | `userId` | S | yes | registration | Primary key. The Cognito `sub` (a UUID), set at registration, never changed |
 | `phoneNumber` | S | yes | registration | E.164 `+251XXXXXXXXX`, unique (`PhoneIndex`); never changed by any path (`UpdateUserAsync` rewrites the stored value) |
-| `displayName` | S | yes | registration | The marketplace name, copied onto new listings as `farmerName` / `truckerName`; max 100 characters, no phone number (section 11) |
+| `displayName` | S | yes | registration; the profile edit (section 14) | The marketplace name, copied onto new listings as `farmerName` / `truckerName`; max 100 characters, no phone number (section 11) |
 | `fullName` | S | yes | registration (from the Fayda token), `/user/fayda-link` (only when empty) | The Fayda legal name; never screened (section 11) |
 | `role` | S | yes | registration; an admin's `change_role` | `farmer`, `trucker` or `buyer` (section 3) |
-| `woreda` | S | yes | registration | The district, max 100 characters, no phone number |
+| `woreda` | S | yes | registration; the profile edit (section 14) | The district, max 100 characters, no phone number |
 | `faydaId` | S | yes | registration, `/user/fayda-link` | The Fayda national ID; unique in practice (`FaydaIdIndex` duplicate check) |
 | `faydaVerified` | BOOL | yes (`false` included) | registration, `/user/fayda-link`, admin `verify` | The account's Fayda identity is verified |
 | `faydaVerifiedAt` | S | yes | registration, `/user/fayda-link` | When it was first verified (admin `verify` does not stamp it) |
@@ -56,7 +57,7 @@ value is left out (the serializer omits nulls).
 | `knownDevices` | SS | yes (`[]` when none) | registration, login on a new install | Install ids (`X-Device-Id`), at most 10; a string set, so DynamoDB keeps no order; a new one triggers a sign-in notice; FRD-15 compares them |
 | `profilePhotoRef` | S | yes | nothing today | Read and written back by `UpdateUserAsync`; no upload path exists, so it is never set |
 | `buyerType` | S | yes | registration | Buyer only: `private` or `company` (F-32) |
-| `companyName` | S | yes | registration | Buyer only, required for a company buyer, max 100 characters, no phone number |
+| `companyName` | S | yes | registration; the profile edit of a company buyer (section 14) | Buyer only, required for a company buyer, max 100 characters, no phone number |
 | `deletionState` | S | never | `DELETE /user/account` | `in_progress`, `cognito_pending`, `completed`; absent on a live account (section 7) |
 | `deletionRequestedAt` | S | never | `DELETE /user/account` | When the deletion started |
 | `deletedAt` | S | never | the tombstone write | When the personal data was erased |
@@ -73,14 +74,21 @@ it) or as a DynamoDB `NULL` (`UpdateUserAsync` writes `NULL` for an empty `displ
 `fullName`, `profilePhotoRef`, `faydaId`, `faydaVerifiedAt`, `faydaAuthenticatedAt` and
 `knownDevices`). Readers treat both the same.
 
-**Open question (found in 2.0.0).** `faydaId` is the partition key of `FaydaIdIndex`, and
-DynamoDB refuses a write that gives an index key attribute a type other than the index's (`S`
-here), `NULL` included. Registration allows a null `faydaId` (`RegisterFunction` simply omits
-it), but `UpdateUserAsync` always sets `faydaId`, as `NULL` when the user has none. On a row
-without a Fayda ID every `UpdateUserAsync` (verify-otp, the login device write, the language
-change) may therefore be refused with a validation error. Follow-up: test `UpdateUserAsync` on
-a row without `faydaId` against DynamoDB Local and, if refused, `REMOVE` the attribute instead
-of setting `NULL` (the same for any other index key).
+**`faydaId` and `FaydaIdIndex` (answered in 2.2.0).** `faydaId` is the partition key of
+`FaydaIdIndex`, and DynamoDB refuses a write that gives an index key attribute a type other than
+the index's (`S` here), `NULL` included ("Invalid attribute value type", reproduced against
+LocalStack with the deployed indexes in SIM-56). Up to 2.1.2 `UpdateUserAsync` set `faydaId` to
+`NULL` on a row without a Fayda ID, so every such write (verify-otp, the login device write, the
+language change) was refused there. Since 2.2.0 it `REMOVE`s the attribute instead (a no-op when
+absent) and sets it only when the row has one.
+
+**`woreda` and `RoleWaredaIndex` (2.2.0).** `woreda` is the sort key of `RoleWaredaIndex`, and
+DynamoDB refuses an empty string there. Rows without a `woreda` exist (FUP-162: farmers and
+truckers the backfill found only through a `Scan`), and `FromItem` reads the missing value as
+`""`, so up to 2.1.2 every `UpdateUserAsync` on such a row was refused too. Since 2.2.0 an
+empty `woreda` is `REMOVE`d (a no-op when absent) and only a non-empty one is set. `phoneNumber`
+and `role` are present on every live row (a tombstone has no phone, but no profile write reaches
+it).
 
 ---
 
@@ -138,7 +146,8 @@ Write rules (invariants 11 to 13):
 
 ### role
 - `farmer`, `trucker` or `buyer`, lowercase.
-- The user cannot change it: the `/sync` `user` entity ignores every key but `preferredLanguage`.
+- The user cannot change it: the `/sync` `user` entity ignores every key but `preferredLanguage`,
+  `displayName`, `woreda` and `companyName` (section 14).
 - An admin's `POST /admin/users/{id}/action` with `change_role` and `newRole` rewrites it, only to
   one of the three marketplace roles (`ADMIN_011` otherwise, never `admin`), together with the
   Cognito `custom:role` claim, and signs the user out (`auth-api.md`). Spec H5 says a role change
@@ -148,6 +157,8 @@ Write rules (invariants 11 to 13):
 ### woreda, displayName, companyName
 - Non-empty (`woreda`), at most 100 characters, Amharic and Afan Oromo scripts allowed.
 - No Ethiopian mobile number (section 11).
+- The user changes them through the profile edit (section 14), where none may be empty and
+  only a company buyer has a `companyName`.
 
 ### faydaId
 - Set at registration or by `/user/fayda-link`; the duplicate check reads `FaydaIdIndex`.
@@ -297,18 +308,21 @@ ESC-28 additions on the same row (built in 2.1.0):
 | `VerifyOtpFunction` | `isPhoneVerified` | `UpdateUserAsync` (one retry on a conflict) | +1 |
 | `LoginFunction`, a new install | `knownDevices` | `UpdateUserAsync`; a failure is logged and the login goes on | +1 |
 | `FaydaVerifyFunction` (`/user/fayda-link`) | `faydaId`, `faydaVerified`, `faydaVerifiedAt`, `faydaAuthenticatedAt`, `fullName` when empty, `isPhoneVerified` | `UpdateUserAsync` (one retry) | +1 |
-| `SyncFunction`, `user` entity | `preferredLanguage` (no write when unchanged) | `UpdateUserAsync` | +1 |
+| `SyncFunction`, `user` entity | `preferredLanguage`; since 2.2.0 `displayName`, `woreda` and a company buyer's `companyName` (only the fields that change; no write when nothing does) | `UpdateUserAsync` | +1 |
 | `AdminFunction` user action | `suspend`: `suspended`, `suspendReason`; `unsuspend`: `suspended: false`, removes `suspendReason`; `verify`: `faydaVerified`; `change_role`: `role`; each with `updatedAt` | `UpdateItem`, `attribute_exists(userId)`; audited (transaction-audit `user_{action}`) | not bumped |
 | Account deletion | section 7 | `UpdateItem` | +1 on the tombstone |
 | `ReputationService` (ESC-28) | `reputation` | section 2 | not bumped |
 | Rating create, backfill (ESC-28); the create's heal of an unstamped ratee and the backfill's users Scan (FUP-162); role-change rebuild (PLANNED, ESC-32) | `ratingSum`, `ratingCount`, `ratingsAggregatedAt` | `rating-api.md` 1.5.0 | not bumped |
 
 `UpdateUserAsync` is a read-modify-write: it `SET`s `phoneNumber`, `displayName`, `fullName`,
-`role`, `woreda`, `preferredLanguage`, `isPhoneVerified`, `profilePhotoRef`, `faydaId`,
+`role`, `preferredLanguage`, `isPhoneVerified`, `profilePhotoRef`,
 `faydaVerified`, `faydaVerifiedAt`, `faydaAuthenticatedAt`, `knownDevices`, `updatedAt` and
 `version` from the copy its caller read, under `version = expected AND
-attribute_not_exists(deletionState)`. It never touches `suspended`, `suspendReason`,
-`buyerType`, `companyName` or the deletion attributes.
+attribute_not_exists(deletionState)`. Since 2.2.0 it `SET`s `faydaId`, `woreda` and
+`companyName` when the copy has them, and `REMOVE`s `faydaId` and `woreda` when it has none
+(section 1). It never touches
+`suspended`, `suspendReason`, `buyerType` or the deletion attributes, and never clears
+`companyName`.
 
 **Known gap (found in 2.0.0).** The admin `verify` and `change_role` actions do not bump
 `version`. An `UpdateUserAsync` whose copy was read just before such an action passes its
@@ -390,11 +404,14 @@ platform pair of the Isar schema: a field added to one is added to the other.
 - The device never pushes a user row. Profile fields come from registration and the server
   paths of section 6; the row reaches the device in the register, login and verify-otp
   responses.
-- The only profile change through `/sync` is the `user` entity (`sync-protocol.md` 1.28.0):
-  `action: update`, `entityId` = the caller, `data.preferredLanguage` in `en`, `am`, `om`; every
-  other key is ignored. It is version-less for the client (the server reads the row and writes
-  with its version); an unchanged value is a no-op `success`. The `profile` entity shown up to
-  1.3.2 was never served.
+- The only profile change through `/sync` is the `user` entity (`sync-protocol.md` 1.28.0,
+  1.57.0): `action: update`, `entityId` = the caller, `data.preferredLanguage` in `en`, `am`,
+  `om` and, since 2.2.0, `displayName`, `woreda` and `companyName` (section 14); every other
+  key is ignored. It is version-less for the client (the server reads the row and writes with
+  its version); an unchanged value is a no-op `success`. The `profile` entity shown up to 1.3.2
+  was never served.
+- The device reads the row back with `GET /user/profile` (section 14) besides the sign-in
+  responses.
 - Deletion is `DELETE /user/account`, online only, never through `/sync` (section 7).
 
 ---
@@ -429,10 +446,10 @@ platform pair of the Isar schema: a field added to one is added to the other.
 `truckerName` of every new listing, and `woreda` as the listing's `woreda`, before contact opens
 at escrow. Registration refuses a value holding an Ethiopian mobile number (the listing text
 detector, `crop-listing-api.md` 1.4.0 rule 6b) with `400 AUTH_027` and writes nothing
-(`auth-api.md` 2.12.0). No profile edit path exists for these fields; any later one must run the
-same check on the fields it changes and treat a value equal to the stored one as an unchanged
-echo. Values stored before 1.2.0 are kept. `fullName` comes only from Fayda and is never
-screened.
+(`auth-api.md` 2.12.0). The profile edit (section 14, 2.2.0) runs the same check on the fields
+it changes, with the same code and text, and treats a value equal to the stored one as an
+unchanged echo. Values stored before 1.2.0 are kept. `fullName` comes only from Fayda and is
+never screened.
 
 ---
 
@@ -444,7 +461,8 @@ screened.
 4. **`version` only increases**, and only on the profile write path and the tombstone.
 5. **No password data is stored on the row** or sent in any response.
 6. **The server is authoritative.** Clients never write a user row; the only client-driven
-   profile change is `preferredLanguage` through `/sync`.
+   profile changes are `preferredLanguage`, `displayName`, `woreda` and a company buyer's
+   `companyName` through the `/sync` `user` entity, checked by the server.
 7. **Server-only attributes never leave the server**: `faydaAuthenticatedAt`, `suspendReason`,
    the deletion attributes and the section 2 attributes.
 8. **A deleting or deleted account takes no profile write** (`attribute_not_exists
@@ -463,7 +481,7 @@ screened.
 ## 13. Data transfer
 
 1. The `user` object is sent only by the auth endpoints and the admin endpoints, never in sync
-   pulls.
+   pulls. `GET /user/profile` sends the caller a smaller profile view of it (section 14).
 2. Other entities carry copied names, not user objects (section 4).
 3. PLANNED: reputation reaches buyers as about 60 bytes of owner fields per listing or trip
    (`reputation-api.md` section 7), and the party's own view as one small `GET /reputation/me`
@@ -471,10 +489,107 @@ screened.
 
 ---
 
+## 14. Profile read and edit (BUILT: SIM-56, 2.2.0)
+
+Every role edits the same profile text: `displayName`, `woreda` and, for a company buyer
+(`role = buyer`, `buyerType = company`), `companyName`. Nothing else on the row is reachable:
+role, phone, Fayda identity, verification, reputation, suspension and the deletion attributes are
+never read from a client payload.
+
+### Read: `GET /user/profile`
+
+- JWT authorizer (the ID token, like every app route). The sync Lambda serves it: it owns the edit
+  and already reads the users table, so the route adds no Lambda, grant or integration.
+- `200 { "user": { ... } }` for the caller, read strongly consistent. Not the sign-in `user`
+  object: a profile view (`UserProfileDto`) with only what the profile and edit screens read:
+  `userId`, `displayName`, `fullName`, `role`, `woreda`, `preferredLanguage`, `buyerType`,
+  `companyName` and `version` (a property with no value is left out). `faydaId` (the Fayda
+  subject, the `FaydaIdIndex` key), `knownDevices` (install ids), `phoneNumber`, the
+  verification, suspension and photo fields are never in it, so a leaked ID token reads no more
+  than the profile text with one call.
+
+  ```json
+  {
+    "user": {
+      "userId": "550e8400-e29b-41d4-a716-446655440000",
+      "displayName": "Almaz",
+      "fullName": "Almaz Tesfaye Bekele",
+      "role": "buyer",
+      "woreda": "Meki",
+      "preferredLanguage": "am",
+      "buyerType": "company",
+      "companyName": "Meki Grain Traders",
+      "version": 5
+    }
+  }
+  ```
+- `401 UNAUTHORIZED` without a caller, `404 AUTH_013` without a row, `410 ACCOUNT_004` for a
+  deleting or deleted account and `403 AUTH_025` for a suspended one (the refusals `/sync`
+  answers), `503 USER_PROFILE_UNAVAILABLE` when the row cannot be read.
+- About 300 bytes. The app reads it when the edit screen opens online, so a change made on another
+  device reaches this one; the device keeps its own copy while an edit of its own still waits in
+  its queue.
+
+### Edit: the `/sync` `user` entity (`sync-protocol.md` 1.57.0)
+
+`action: update`, `entityId` = the caller, `data` with any of `displayName`, `woreda`,
+`companyName` and `preferredLanguage` (at least one). Offline-first: the phone queues the
+operation like any other change; web sends it straight to `/sync`.
+
+1. A missing key or a JSON `null` is not sent; a value that is not a string is
+   `USER_PROFILE_VALIDATION`. Values are trimmed.
+2. A field whose trimmed value equals the stored one (trimmed) is an unchanged echo: neither
+   checked nor written, so a value stored before 1.2.0 can be sent back.
+3. Field rules on the fields that change, in the order `displayName`, `woreda`, `companyName`:
+   not empty (a listing, trip or order takes the name from the profile, and the woreda is the
+   `RoleWaredaIndex` sort key), at most 100 characters, the name not the deleted-account name, and
+   `companyName` only for a company buyer. A failure is `USER_PROFILE_VALIDATION: <reasons>`.
+4. Then the FUP-52 phone screen on the fields that change, with the registration's code and text:
+   `AUTH_027: Remove the phone number from <fields>. Contact opens after payment is held in
+   escrow.` (`<fields>` in the order above, comma separated).
+5. Any refusal writes nothing, the language included. Otherwise one `UpdateUserAsync` writes the
+   changed fields (and the language), `version` + 1; nothing changed is a no-op `success` with the
+   stored version. A version race is `USER_PROFILE_CONFLICT` (retried).
+
+### Copies on other rows
+
+The name and the woreda are copied when a row is written, not read live:
+
+| Row | Copy | After an edit |
+|---|---|---|
+| Crop listing | `farmerName` (and the listing's own `woreda`, which the farmer types) | new listings carry the new name; existing ones keep theirs |
+| Trip | `truckerName` | the same |
+| Order | `buyerName`, `dropoffPlace` (the buyer's woreda), `farmerName` and `truckerName` from the listing and trip | the same |
+| Delivery | the party names and phones | the same |
+| Message | `senderName`, `recipientName` | the same |
+| Admin payout queue | the payee name | read live, shows the new name |
+
+Existing copies are not rewritten (no backfill): a listing, trip or order already seen by a
+buyer keeps the name it was made with. Rewriting every row a user ever wrote on each edit would
+cost writes and make every device pull those rows again. The app says so on the edit screen.
+Whether open listings and trips should take the new name is follow-up FUP-316.
+
+### Clients
+
+- Profile > Edit profile, the same row for farmer, trucker and buyer, on the phone (reached from
+  the account sheet's Profile) and on the web (the sidebar's Profile).
+- The form checks rules 3 and 4 with the same detector before anything is sent, on the fields
+  that change only (an unchanged value is not checked, as on the server); en, am and om texts.
+  It shows the company name field only when the role is `buyer` and `buyerType` is `company`
+  (an account an admin moved to another role keeps its `buyerType`). A web refusal naming fields
+  marks those fields; any other refusal says the details were not accepted, not that the
+  connection failed.
+- On save the device's copy (Isar on the phone, browser storage on web) and the signed-in session
+  take the new values, so the account sheet and the profile show them at once. A server read that
+  comes back after a save started is not applied.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.2.0 | 2026-11-12 | Profile read and edit (SIM-56, section 14): `GET /user/profile` returns the caller's profile view (`userId`, `displayName`, `fullName`, `role`, `woreda`, `preferredLanguage`, `buyerType`, `companyName`, `version`; never `faydaId`, `knownDevices` or the phone) (`401`, `404 AUTH_013`, `410 ACCOUNT_004`, `403 AUTH_025`, `503 USER_PROFILE_UNAVAILABLE`); the `/sync` `user` entity also edits `displayName`, `woreda` and a company buyer's `companyName` (trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name, then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing); copies on listings, trips, orders, deliveries and messages are not rewritten. `UpdateUserAsync` writes `companyName` from the copy when present and `REMOVE`s `faydaId` and an empty `woreda` when the row has none (a `NULL` `FaydaIdIndex` key and an empty `RoleWaredaIndex` key were refused, answering the 2.0.0 open question) |
 | 2.1.2 | 2026-11-12 | FUP-162: two more writers of `ratingSum`, `ratingCount` and `ratingsAggregatedAt` for the farmers and truckers the ESC-28 backfill skipped (no `woreda`): the rating create's heal of an unstamped ratee and the backfill's one-off users `Scan` (`rating-api.md` 1.5.0). Shape unchanged |
 | 2.1.1 | 2026-11-11 | ESC-29: `suspended` also refuses `/sync` and the write endpoints of `reputation-api.md` 8.4 (`403 AUTH_025`); the section 2 attributes are now read by `GET /reputation/*`, `GET /ratings`, the `/sync` gates and the owner stamps (`reputation-api.md` 1.2.0, `rating-api.md` 1.4.0), a row without `ratingsAggregatedAt` contributing no rating. Shape unchanged, never returned in the `user` object |
 | 2.1.0 | 2026-11-07 | Section 2 BUILT (ESC-28): `ReputationService` writes the `reputation` map (the stream, the daily job, the refresh after a rating), the rating create `ADD`s `ratingSum` and `ratingCount`, registration starts every new row at 0 with `ratingsAggregatedAt`, the backfill stamps older rows. The map gains `lastEventId` and `lastEventRecordedAt` (the read-lag check). Never returned in the `user` object; no wire change |
@@ -489,5 +604,5 @@ screened.
 
 ---
 
-**Last Updated**: 2026-11-11
-**Version**: 2.1.1
+**Last Updated**: 2026-11-12
+**Version**: 2.2.0

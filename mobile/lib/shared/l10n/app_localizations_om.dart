@@ -5742,4 +5742,36 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get notifTierWarningBody =>
       'Qabxii adabbii qabdu. Bitattoonni hanga ammaatti homaa hin argan. Bal\'inaaf \"Amanamummaa koo\" banaa.';
+
+  @override
+  String get profileEditTitle => 'Piroofaayilii gulaali';
+
+  @override
+  String get profileEditSubtitle => 'Maqaa fi aanaa';
+
+  @override
+  String get profileEditNote =>
+      'Tarreeffamni, imalli fi ajajni amma booda uumtan maqaa fi aanaa keessan haaraa agarsiisu. Kanneen duraan uumtan odeeffannoo duraanii qabatu.';
+
+  @override
+  String get profileEditSaved => 'Piroofaayiliin olkaa\'ameera.';
+
+  @override
+  String get profileEditSavedQueued =>
+      'Piroofaayiliin bilbila kana irratti olkaa\'ameera. Yeroo interneetiin jiru ni ergama.';
+
+  @override
+  String get profileEditFailed =>
+      'Piroofaayilii keessan olkaa\'uun hin danda\'amne. Walqunnamtii keessan mirkaneessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get profileEditTooLong => 'Arfiilee 100 ykn isaa gadi fayyadamaa.';
+
+  @override
+  String get profileEditNameUnavailable =>
+      'Maqaan kun hin argamu. Kan biraa filadhaa.';
+
+  @override
+  String get profileEditRefused =>
+      'Odeeffannoon kun hin fudhatamne. Dirree tokkoon tokkoon isaa mirkaneessaatii irra deebi\'aa yaalaa.';
 }

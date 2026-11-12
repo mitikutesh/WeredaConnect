@@ -5540,4 +5540,35 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get notifTierWarningBody =>
       'የቅጣት ነጥቦች አሉዎት። ገዢዎች እስካሁን ምንም አያዩም። ለዝርዝሩ \"የእኔ ተዓማኒነት\"ን ይክፈቱ።';
+
+  @override
+  String get profileEditTitle => 'መገለጫ አርትዕ';
+
+  @override
+  String get profileEditSubtitle => 'ስም እና ወረዳ';
+
+  @override
+  String get profileEditNote =>
+      'ከአሁን በኋላ የሚፈጥሯቸው ዝርዝሮች፣ ጉዞዎች እና ትዕዛዞች አዲሱን ስምዎን እና ወረዳዎን ያሳያሉ። ቀደም ብለው የፈጠሯቸው የቀድሞውን መረጃ ይይዛሉ።';
+
+  @override
+  String get profileEditSaved => 'መገለጫው ተቀምጧል።';
+
+  @override
+  String get profileEditSavedQueued =>
+      'መገለጫው በዚህ ስልክ ላይ ተቀምጧል። በይነመረብ ሲኖር ይላካል።';
+
+  @override
+  String get profileEditFailed =>
+      'መገለጫዎን ማስቀመጥ አልተቻለም። ግንኙነትዎን ያረጋግጡ እና እንደገና ይሞክሩ።';
+
+  @override
+  String get profileEditTooLong => 'ከ100 ቁምፊዎች ያልበለጠ ይጠቀሙ።';
+
+  @override
+  String get profileEditNameUnavailable => 'ይህ ስም አይገኝም። ሌላ ይምረጡ።';
+
+  @override
+  String get profileEditRefused =>
+      'እነዚህ መረጃዎች ተቀባይነት አላገኙም። እያንዳንዱን መስክ ያረጋግጡ እና እንደገና ይሞክሩ።';
 }

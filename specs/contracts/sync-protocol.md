@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.56.0
+1.57.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -289,6 +289,43 @@ Errors (all `status: "error"`): `USER_PROFILE_VALIDATION` (missing or invalid
 `preferredLanguage`, or a non-update action), `USER_PROFILE_UNAUTHORIZED`
 (`entityId` is not the caller), `USER_PROFILE_NOT_FOUND`, `USER_PROFILE_CONFLICT`
 (a rare concurrent write; the client retries) and `USER_PROFILE_UNAVAILABLE`.
+
+### Profile text (1.57.0, SIM-56)
+
+Since 1.57.0 the `user` entity also takes `displayName`, `woreda` and `companyName` (a company
+buyer's only), so every role edits their profile from the app (`user-entity.md` 2.2.0 section 14).
+`data` must carry at least one of these four keys; each is optional. Still ignored: every other
+key (role, phone, Fayda, verification, `buyerType`, `version`, admin fields).
+
+- Values are trimmed; a JSON `null` is not sent; a non-string is `USER_PROFILE_VALIDATION`.
+- A value equal to the stored one is an unchanged echo: not checked, not written.
+- Changed fields must not be empty, must be at most 100 characters, the name must not be the
+  deleted-account name, and `companyName` is refused unless the caller is a company buyer:
+  `USER_PROFILE_VALIDATION: <reasons>`.
+- Then a phone number in a changed field is refused with the registration's code and text
+  (FUP-52): `AUTH_027: Remove the phone number from displayName, woreda. Contact opens after
+  payment is held in escrow.` (the fields that hold one, in the order `displayName`, `woreda`,
+  `companyName`).
+- A refusal writes nothing, the language included; nothing changed is a no-op `success`.
+
+Example:
+
+```json
+{
+  "operationId": "7c2d...",
+  "idempotencyKey": "user-1:user:user-1:update:1762941600000",
+  "entityType": "user",
+  "entityId": "user-1",
+  "action": "update",
+  "data": { "displayName": "Abebe K.", "woreda": "Meki" },
+  "timestamp": "2026-11-12T10:00:00Z"
+}
+```
+
+Clients: the phone queues the operation (it works offline) after the form ran the same rules;
+web sends it alone to `/sync` and marks the fields an `AUTH_027` names. On the phone,
+`USER_PROFILE_VALIDATION` and `AUTH_027` stay retryable like before (only `USER_PROFILE_UNAUTHORIZED`
+is permanent, 1.43.0): the form never sends what they refuse.
 
 ## Create-conflict echo (1.4.0)
 
@@ -1480,6 +1517,7 @@ while it is on, and it goes on only once the app build that sends check-ins is t
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.57.0 | 2026-11-12 | Profile text on the `user` entity (SIM-56, `user-entity.md` 2.2.0): `displayName`, `woreda` and a company buyer's `companyName` beside `preferredLanguage`, at least one of the four; trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name (`USER_PROFILE_VALIDATION`), then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing. Every other key is still ignored. The read is `GET /user/profile` (not a sync pull) |
 | 1.56.0 | 2026-11-12 | `CROP_HAS_ACTIVE_ORDERS` whatever `COMMITMENTS_ENABLED` says (SIM-56, `crop-listing-api.md` 1.13.0 rule 10): a `crop_listing` delete, or an update to `status: deleted`, while an order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted` is refused in staging and prod too (the flag is off there), since a deleted listing refuses its delivery create and stranded such an order. An app without `X-App-Build` gets the `SYNC_VALIDATION:` sentence as before (FUP-241); an unreadable orders index is the same retryable unprefixed error. Clients already handle the code (1.17.0); the apps' own edit and delete now check first (SIM-56). `TRIP_HAS_BOOKINGS` stays behind the flag |
 | 1.55.0 | 2026-11-12 | Arrival check-ins (ESC-34, `delivery-verification-api.md` 2.6.0, `order-lifecycle.md` 2.15.0), behind `pickupClassification` (off everywhere): new create-only entity `handoff_check_in` (`{orderId}#{arrived_pickup\|crops_ready}`), taken only on an order stamped `pickupJudgement: pending` (with the flag off the entity is unsupported, as before: no read, no signal), judged by the server's receipt time, first check-in kept, no version or `updatedAt` move; the `CHECKIN_*` refusals are permanent (`CHECKIN_TOO_LATE` keeps the check-in as late evidence). FUP-147: a pickup scan refused `ORDER_DEADLINE_PASSED` after the judgement arrives on a `delivery` operation and is a permanent delivery refusal that puts the delivery back, on mobile and web, under the existing `ORDER_*` rule. |
 | 1.54.0 | 2026-11-12 | Handoff fields by status (FUP-246, `delivery-verification-api.md` 2.5.0, `fraud-detection-architecture.md` 3.34.0): a `delivery` operation writes `gpsPickup` only with `status: pickedUp`, `gpsDropoff` only with `delivered` and `disputeReason` only with `disputed`; anywhere else (a create, `inTransit`, the other handoffs, a dispute, an update without a status) the field is dropped, not refused, and logged as `DELIVERY_FIELD_DROPPED`. A buyer's confirm can no longer move the trucker's pickup point, nor a dispute rewrite either point. Server only; every shipped client already sends each field only with its own status. |
@@ -1539,4 +1577,4 @@ while it is on, and it goes on only once the app build that sends check-ins is t
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.56.0
+**Version**: 1.57.0
