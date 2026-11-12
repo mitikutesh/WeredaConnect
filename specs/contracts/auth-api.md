@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.15.0
+2.16.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -544,7 +544,7 @@ After a successful online login or registration, the mobile client stores the fo
 | `AUTH_006` | 429 | Rate limit exceeded | Back off, retry with exponential delay |
 | `AUTH_007` | 400, 500 | 400: the body is not JSON or is empty, or a field without a code of its own is wrong and `field` names it (2.13.0 documents the 400s); 500: internal server error | 400: show the form error (the app validates first, so it should not happen); 500: show generic error, retry |
 | `AUTH_008` | 503 | Cognito service unavailable | Show connectivity error, suggest offline login |
-| `AUTH_013` | 404 | User/registration not found | Suggest re-registration |
+| `AUTH_013` | 404 | User/registration not found; since 2.16.0 also `GET /user/profile` without a users row (`user-entity.md` 2.2.0) | Suggest re-registration; the profile edit keeps the device's copy |
 | `AUTH_014` | 401 | Invalid credentials; also login or refresh of a deleted account (2.11.0) | Show generic "incorrect phone or password" |
 | `AUTH_015` | 403 | Account locked (15-min lockout) | Show lockout timer |
 | `AUTH_016` | 403 | Phone not verified | Resend the SMS code (`POST /auth/resend-otp`) and open the OTP screen (2.1.0) |
@@ -556,10 +556,10 @@ After a successful online login or registration, the mobile client stores the fo
 | `AUTH_022` | 400 | reset-password: confirmation code wrong, or missing (2.13.0) | Show "check the code" |
 | `AUTH_023` | 400 | reset-password: confirmation code expired | Offer a new code |
 | `AUTH_024` | 400 | reset-password: new password refused by the password policy, or missing (2.13.0) | Show password requirements |
-| `AUTH_025` | 403 | Account suspended (login, verify-otp, refresh; since 2.15.0 also `POST /sync` and the write routes of `reputation-api.md` 8.4) | Show "contact support", clear the session |
+| `AUTH_025` | 403 | Account suspended (login, verify-otp, refresh; since 2.15.0 also `POST /sync` and the write routes of `reputation-api.md` 8.4; since 2.16.0 `GET /user/profile`) | Show "contact support", clear the session |
 | `AUTH_026` | 403 | Refresh token belongs to another user (logout, 2.7.0) | Retry the logout once with a bearer minted from the refresh token (2.9.0), then clear the local session anyway |
-| `AUTH_027` | 400 | Register: `displayName`, `woreda` or `companyName` holds a phone number; `field` is the first of them (2.12.0) | Show "remove the phone number" on the registration screen; the Fayda proof is still valid, so resend after the fix |
-| `ACCOUNT_004` | 410 | `/user/fayda-start` or `/user/fayda-link` by an account that is being or has been deleted; carries `error.deletionState` (2.11.0, `account-deletion.md`) | `in_progress`: offer "Finish deleting"; otherwise wipe local data and go to login |
+| `AUTH_027` | 400 | Register: `displayName`, `woreda` or `companyName` holds a phone number; `field` is the first of them (2.12.0). Since 2.16.0 the same code and text refuse a profile edit through the `/sync` `user` entity, as an operation error `AUTH_027: Remove the phone number from <fields>. ...` (`sync-protocol.md` 1.55.0) | Show "remove the phone number" on the registration screen; the Fayda proof is still valid, so resend after the fix |
+| `ACCOUNT_004` | 410 | `/user/fayda-start`, `/user/fayda-link` or, since 2.16.0, `GET /user/profile` by an account that is being or has been deleted; carries `error.deletionState` (2.11.0, `account-deletion.md`) | `in_progress`: offer "Finish deleting"; otherwise wipe local data and go to login |
 | `AUTH_009` | 400 | OTP code missing (2.1.0) | Show validation error on the code field |
 | `AUTH_011` | 400 | OTP code format invalid, not 6 digits (2.1.0) | Show validation error on the code field |
 | `AUTH_012` | 400 | OTP code invalid, expired or attempts exhausted (2.1.0) | Offer resend |
@@ -1066,6 +1066,7 @@ The refresh token lifetime is 7 days, not 30.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.16.0 | 2026-11-12 | Profile read and edit (SIM-56, `user-entity.md` 2.2.0 section 14): `GET /user/profile` (JWT) answers `404 AUTH_013` without a users row, `410 ACCOUNT_004` for a deleting or deleted account and `403 AUTH_025` for a suspended one; a profile edit through the `/sync` `user` entity refuses a phone number in `displayName`, `woreda` or `companyName` with the registration's `AUTH_027` code and text. No change to the auth routes |
 | 2.15.0 | 2026-11-11 | Suspension blocks marketplace writes (ESC-29, `reputation-api.md` 1.2.0 section 8.4, closes the FRD-08 gap): a suspended caller's ID token no longer works on `POST /sync` (whole request `403 AUTH_025`, nothing applied), `POST /escrow/initiate`, `/escrow/order-checkout`, `/escrow/dispute`, `POST /user/fayda-start`, `POST /user/fayda-link`, `POST /device-tokens` and the two reputation POSTs, each from the caller row it already read for the deletion guard. Reads, `/escrow/release` and `/escrow/refund` are unchanged (the token dies with the Cognito sign-out). Clients: a `403 AUTH_025` from a route outside `/auth/` ends the session like a rejected refresh and keeps the sync queue; on `/auth/` routes it is still the sign-in answer. No new code |
 | 2.14.0 | 2026-11-07 | Client session rules (FUP-82, FUP-96): a token refresh that answers after its session was cleared or replaced writes nothing and signs nobody out (logout step 5); on web a tab clears the shared stored session only while it holds that tab's account (logout step 6); a web tab never sends, refreshes or retries with another account's bearer and signs itself out instead (invariant 11). Server unchanged |
 | 2.13.1 | 2026-11-07 | Doc only (ESC-14 drift pass): the changelog is newest first throughout; the 1.0.0 and 2.0.0 rows sat above 2.13.0. 2.5.0 was never used. No wire change |
@@ -1089,5 +1090,5 @@ The refresh token lifetime is 7 days, not 30.
 
 ---
 
-**Last Updated**: 2026-11-07
-**Version**: 2.15.0
+**Last Updated**: 2026-11-12
+**Version**: 2.16.0

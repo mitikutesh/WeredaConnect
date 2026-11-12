@@ -100,11 +100,43 @@ public sealed record LoginResponse
 
 /// <summary>
 /// GET /user/profile success response (200 OK, SIM-56, user-entity.md 2.2.0): the caller's own
-/// <c>user</c> object, the same shape sign-in returns.
+/// profile, as <see cref="UserProfileDto"/>.
 /// </summary>
 public sealed record UserProfileResponse
 {
-    public required UserDto User { get; init; }
+    public required UserProfileDto User { get; init; }
+}
+
+/// <summary>
+/// The profile view GET /user/profile returns (user-entity.md 2.2.0 section 14): what the app's
+/// profile and edit screens read, nothing more. Not the sign-in <see cref="UserDto"/>: the Fayda ID
+/// (the FaydaIdIndex key), the install ids, the phone and the verification and suspension flags stay
+/// off this read, so a leaked ID token learns no more than the profile text.
+/// </summary>
+public sealed record UserProfileDto
+{
+    public required string UserId { get; init; }
+    public string? DisplayName { get; init; }
+    public string? FullName { get; init; }
+    public required string Role { get; init; }
+    public required string Woreda { get; init; }
+    public required string PreferredLanguage { get; init; }
+    public string? BuyerType { get; init; }
+    public string? CompanyName { get; init; }
+    public required int Version { get; init; }
+
+    public static UserProfileDto From(UserDto user) => new()
+    {
+        UserId = user.UserId,
+        DisplayName = user.DisplayName,
+        FullName = user.FullName,
+        Role = user.Role,
+        Woreda = user.Woreda,
+        PreferredLanguage = user.PreferredLanguage,
+        BuyerType = user.BuyerType,
+        CompanyName = user.CompanyName,
+        Version = user.Version
+    };
 }
 
 /// <summary>

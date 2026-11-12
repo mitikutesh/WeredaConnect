@@ -23,7 +23,8 @@ public partial class SyncFunction
 
     /// <summary>
     /// <c>GET /user/profile</c>: 200 <c>{ "user": ... }</c> for the caller, read strongly
-    /// consistent. 401 without a caller, 404 <c>AUTH_013</c> without a row, 410 <c>ACCOUNT_004</c>
+    /// consistent, as the <see cref="UserProfileDto"/> view (no Fayda ID, install ids, phone or
+    /// flags). 401 without a caller, 404 <c>AUTH_013</c> without a row, 410 <c>ACCOUNT_004</c>
     /// for a deleting or deleted account and 403 <c>AUTH_025</c> for a suspended one (the refusals
     /// <c>/sync</c> answers), 503 <c>USER_PROFILE_UNAVAILABLE</c> when the row cannot be read.
     /// </summary>
@@ -64,7 +65,9 @@ public partial class SyncFunction
             return refused;
         }
 
-        return LambdaResponse.Ok(new UserProfileResponse { User = user }, AppJsonContext.Default.UserProfileResponse);
+        return LambdaResponse.Ok(
+            new UserProfileResponse { User = UserProfileDto.From(user) },
+            AppJsonContext.Default.UserProfileResponse);
     }
 
     /// <summary>A refused <c>user</c> operation: <c>{code}: {message}</c>, nothing written.</summary>

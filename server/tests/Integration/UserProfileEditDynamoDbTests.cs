@@ -239,6 +239,43 @@ public sealed class UserProfileEditDynamoDbTests : IAsyncLifetime
         var user = doc.RootElement.GetProperty("user");
         user.GetProperty("companyName").GetString().Should().Be("Meki Grain Traders");
         user.GetProperty("version").GetInt32().Should().Be(2);
+        // The profile view: never the Fayda ID, the install ids or the phone.
+        user.TryGetProperty("faydaId", out _).Should().BeFalse();
+        user.TryGetProperty("knownDevices", out _).Should().BeFalse();
+        user.TryGetProperty("phoneNumber", out _).Should().BeFalse();
+        response.Body.Should().NotContain($"FAYDA-{_run}");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task RowWithoutWoreda_NameOnlyEdit_IsSaved_AndStaysOutOfTheRoleIndex()
+    {
+        // FUP-162: farmers and truckers without a woreda exist. FromItem reads the missing woreda as "",
+        // and DynamoDB refuses an empty RoleWaredaIndex sort key, so the write removes it instead.
+        var userId = Id("no-woreda");
+        await Ddb.PutItemAsync(new PutItemRequest
+        {
+            TableName = Table,
+            Item = new Dictionary<string, AttributeValue>
+            {
+                ["userId"] = new() { S = userId },
+                ["phoneNumber"] = new() { S = $"+2519{Math.Abs(userId.GetHashCode()) % 100000000:D8}" },
+                ["displayName"] = new() { S = "Abebe" },
+                ["role"] = new() { S = "farmer" },
+                ["preferredLanguage"] = new() { S = "am" },
+                ["isPhoneVerified"] = new() { BOOL = true },
+                ["createdAt"] = new() { S = "2026-01-01T00:00:00.000Z" },
+                ["updatedAt"] = new() { S = "2026-01-01T00:00:00.000Z" },
+                ["version"] = new() { N = "1" }
+            }
+        });
+
+        var body = await EditAsync(userId, "farmer", new Dictionary<string, object> { ["displayName"] = "Abebe K." });
+
+        body.Should().Contain("\"status\":\"success\"", ((TestLambdaLogger)_ctx.Logger).Buffer.ToString());
+        var row = await RowAsync(userId);
+        row["displayName"].S.Should().Be("Abebe K.");
+        row.ContainsKey("woreda").Should().BeFalse();
+        row["version"].N.Should().Be("2");
     }
 
     [LocalDynamoDbFact]

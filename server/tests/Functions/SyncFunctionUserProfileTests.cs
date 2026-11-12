@@ -233,6 +233,36 @@ public class SyncFunctionUserProfileTests
     }
 
     [Fact]
+    public async Task CaseVariantKeys_AreNotFieldsEither()
+    {
+        // Keys match exactly: "Role", "DisplayName" and the like are unknown keys, so ignored.
+        StubUser(User("farmer-1", "am") with { FaydaId = "F-1" });
+
+        var body = await EditAsync("farmer-1", Data(
+            ("woreda", "Meki"),
+            ("Role", "buyer"),
+            ("ROLE", "admin"),
+            ("PhoneNumber", "+251911000000"),
+            ("FaydaId", "F-2"),
+            ("Suspended", true),
+            ("BuyerType", "company"),
+            ("CompanyName", "Acme"),
+            ("DisplayName", "Call 0911223344")));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _users.Received(1).UpdateUserAsync(
+            Arg.Is<UserDto>(u => u.Woreda == "Meki"
+                && u.DisplayName == null
+                && u.Role == "farmer"
+                && u.PhoneNumber == "+251900100001"
+                && u.FaydaId == "F-1"
+                && !u.Suspended
+                && u.BuyerType == null
+                && u.CompanyName == null),
+            3);
+    }
+
+    [Fact]
     public async Task PhoneNumberInTheName_IsRefused_WithTheRegistrationCodeAndText()
     {
         StubUser(User("farmer-1", "am"));
@@ -372,12 +402,18 @@ public class SyncFunctionUserProfileTests
     }
 
     [Fact]
-    public async Task ProfileRead_ReturnsTheCallersUserObject_WithoutServerOnlyFields()
+    public async Task ProfileRead_ReturnsOnlyTheProfileView()
     {
         _users.GetUserByIdAsync("buyer-1", true).Returns(Buyer("buyer-1", "company", "Meki Traders") with
         {
             DisplayName = "Almaz",
+            FullName = "Almaz Tesfaye Bekele",
+            FaydaId = "FAYDA-SUB-1",
+            FaydaVerified = true,
+            FaydaVerifiedAt = "2026-10-01T00:00:00Z",
             FaydaAuthenticatedAt = "2026-11-01T00:00:00Z",
+            KnownDevices = ["install-1", "install-2"],
+            ProfilePhotoRef = "photo-1",
             SuspendReason = "x",
         });
 
@@ -386,12 +422,22 @@ public class SyncFunctionUserProfileTests
         Assert.Equal(200, response.StatusCode);
         using var doc = JsonDocument.Parse(response.Body);
         var user = doc.RootElement.GetProperty("user");
+        var keys = user.EnumerateObject().Select(p => p.Name).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        Assert.Equal(
+            new[]
+            {
+                "buyerType", "companyName", "displayName", "fullName", "preferredLanguage", "role",
+                "userId", "version", "woreda",
+            },
+            keys);
         Assert.Equal("buyer-1", user.GetProperty("userId").GetString());
         Assert.Equal("Almaz", user.GetProperty("displayName").GetString());
         Assert.Equal("Meki Traders", user.GetProperty("companyName").GetString());
+        Assert.Equal("buyer", user.GetProperty("role").GetString());
         Assert.Equal(3, user.GetProperty("version").GetInt32());
-        Assert.False(user.TryGetProperty("faydaAuthenticatedAt", out _));
-        Assert.False(user.TryGetProperty("suspendReason", out _));
+        Assert.DoesNotContain("FAYDA-SUB-1", response.Body);
+        Assert.DoesNotContain("install-1", response.Body);
+        Assert.DoesNotContain("+251900100001", response.Body);
         await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
     }
 

@@ -191,8 +191,27 @@ public class UserRepositoryTests
         await _repository.UpdateUserAsync(CreateTestUser() with { FaydaId = "1234567890123456" }, 1);
 
         Assert.Contains("#fayda = :fayda", sent!.UpdateExpression);
+        Assert.Contains("#woreda = :woreda", sent.UpdateExpression);
         Assert.DoesNotContain("REMOVE", sent.UpdateExpression);
         Assert.Equal("1234567890123456", sent.ExpressionAttributeValues[":fayda"].S);
+        Assert.Equal("Adama", sent.ExpressionAttributeValues[":woreda"].S);
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_WithoutWoreda_RemovesTheIndexKeyInsteadOfWritingEmpty()
+    {
+        // SIM-56: FromItem reads a missing woreda as "" (FUP-162 rows), and DynamoDB refuses an empty
+        // RoleWaredaIndex sort key.
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(CreateTestUser() with { Woreda = "" }, 1);
+
+        Assert.EndsWith(" REMOVE #fayda, #woreda", sent!.UpdateExpression);
+        Assert.DoesNotContain("#woreda = :woreda", sent.UpdateExpression);
+        Assert.False(sent.ExpressionAttributeValues.ContainsKey(":woreda"));
+        Assert.Equal("woreda", sent.ExpressionAttributeNames["#woreda"]);
     }
 
     [Fact]

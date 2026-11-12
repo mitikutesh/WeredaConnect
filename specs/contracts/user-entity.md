@@ -80,8 +80,15 @@ the index's (`S` here), `NULL` included ("Invalid attribute value type", reprodu
 LocalStack with the deployed indexes in SIM-56). Up to 2.1.2 `UpdateUserAsync` set `faydaId` to
 `NULL` on a row without a Fayda ID, so every such write (verify-otp, the login device write, the
 language change) was refused there. Since 2.2.0 it `REMOVE`s the attribute instead (a no-op when
-absent) and sets it only when the row has one. The other index keys (`phoneNumber`, `role`,
-`woreda`) are always written as non-empty strings.
+absent) and sets it only when the row has one.
+
+**`woreda` and `RoleWaredaIndex` (2.2.0).** `woreda` is the sort key of `RoleWaredaIndex`, and
+DynamoDB refuses an empty string there. Rows without a `woreda` exist (FUP-162: farmers and
+truckers the backfill found only through a `Scan`), and `FromItem` reads the missing value as
+`""`, so up to 2.1.2 every `UpdateUserAsync` on such a row was refused too. Since 2.2.0 an
+empty `woreda` is `REMOVE`d (a no-op when absent) and only a non-empty one is set. `phoneNumber`
+and `role` are present on every live row (a tombstone has no phone, but no profile write reaches
+it).
 
 ---
 
@@ -308,11 +315,12 @@ ESC-28 additions on the same row (built in 2.1.0):
 | Rating create, backfill (ESC-28); the create's heal of an unstamped ratee and the backfill's users Scan (FUP-162); role-change rebuild (PLANNED, ESC-32) | `ratingSum`, `ratingCount`, `ratingsAggregatedAt` | `rating-api.md` 1.5.0 | not bumped |
 
 `UpdateUserAsync` is a read-modify-write: it `SET`s `phoneNumber`, `displayName`, `fullName`,
-`role`, `woreda`, `preferredLanguage`, `isPhoneVerified`, `profilePhotoRef`,
+`role`, `preferredLanguage`, `isPhoneVerified`, `profilePhotoRef`,
 `faydaVerified`, `faydaVerifiedAt`, `faydaAuthenticatedAt`, `knownDevices`, `updatedAt` and
 `version` from the copy its caller read, under `version = expected AND
-attribute_not_exists(deletionState)`. Since 2.2.0 it also `SET`s `faydaId` and `companyName`
-when the copy has them, and `REMOVE`s `faydaId` when it has none (section 1). It never touches
+attribute_not_exists(deletionState)`. Since 2.2.0 it `SET`s `faydaId`, `woreda` and
+`companyName` when the copy has them, and `REMOVE`s `faydaId` and `woreda` when it has none
+(section 1). It never touches
 `suspended`, `suspendReason`, `buyerType` or the deletion attributes, and never clears
 `companyName`.
 
@@ -472,8 +480,8 @@ never screened.
 
 ## 13. Data transfer
 
-1. The `user` object is sent only by the auth endpoints, `GET /user/profile` (to the caller) and
-   the admin endpoints, never in sync pulls.
+1. The `user` object is sent only by the auth endpoints and the admin endpoints, never in sync
+   pulls. `GET /user/profile` sends the caller a smaller profile view of it (section 14).
 2. Other entities carry copied names, not user objects (section 4).
 3. PLANNED: reputation reaches buyers as about 60 bytes of owner fields per listing or trip
    (`reputation-api.md` section 7), and the party's own view as one small `GET /reputation/me`
@@ -492,12 +500,33 @@ never read from a client payload.
 
 - JWT authorizer (the ID token, like every app route). The sync Lambda serves it: it owns the edit
   and already reads the users table, so the route adds no Lambda, grant or integration.
-- `200 { "user": <the user object of section 4> }` for the caller, read strongly consistent: the
-  same shape and the same omissions as the sign-in responses.
+- `200 { "user": { ... } }` for the caller, read strongly consistent. Not the sign-in `user`
+  object: a profile view (`UserProfileDto`) with only what the profile and edit screens read:
+  `userId`, `displayName`, `fullName`, `role`, `woreda`, `preferredLanguage`, `buyerType`,
+  `companyName` and `version` (a property with no value is left out). `faydaId` (the Fayda
+  subject, the `FaydaIdIndex` key), `knownDevices` (install ids), `phoneNumber`, the
+  verification, suspension and photo fields are never in it, so a leaked ID token reads no more
+  than the profile text with one call.
+
+  ```json
+  {
+    "user": {
+      "userId": "550e8400-e29b-41d4-a716-446655440000",
+      "displayName": "Almaz",
+      "fullName": "Almaz Tesfaye Bekele",
+      "role": "buyer",
+      "woreda": "Meki",
+      "preferredLanguage": "am",
+      "buyerType": "company",
+      "companyName": "Meki Grain Traders",
+      "version": 5
+    }
+  }
+  ```
 - `401 UNAUTHORIZED` without a caller, `404 AUTH_013` without a row, `410 ACCOUNT_004` for a
   deleting or deleted account and `403 AUTH_025` for a suspended one (the refusals `/sync`
   answers), `503 USER_PROFILE_UNAVAILABLE` when the row cannot be read.
-- About 600 bytes. The app reads it when the edit screen opens online, so a change made on another
+- About 300 bytes. The app reads it when the edit screen opens online, so a change made on another
   device reaches this one; the device keeps its own copy while an edit of its own still waits in
   its queue.
 
@@ -544,10 +573,15 @@ Whether open listings and trips should take the new name is follow-up FUP-316.
 
 - Profile > Edit profile, the same row for farmer, trucker and buyer, on the phone (reached from
   the account sheet's Profile) and on the web (the sidebar's Profile).
-- The form checks rules 3 and 4 with the same detector before anything is sent; en, am and om
-  texts. A web refusal naming fields marks those fields.
+- The form checks rules 3 and 4 with the same detector before anything is sent, on the fields
+  that change only (an unchanged value is not checked, as on the server); en, am and om texts.
+  It shows the company name field only when the role is `buyer` and `buyerType` is `company`
+  (an account an admin moved to another role keeps its `buyerType`). A web refusal naming fields
+  marks those fields; any other refusal says the details were not accepted, not that the
+  connection failed.
 - On save the device's copy (Isar on the phone, browser storage on web) and the signed-in session
-  take the new values, so the account sheet and the profile show them at once.
+  take the new values, so the account sheet and the profile show them at once. A server read that
+  comes back after a save started is not applied.
 
 ---
 
@@ -555,7 +589,7 @@ Whether open listings and trips should take the new name is follow-up FUP-316.
 
 | Version | Date | Change |
 |---------|------|--------|
-| 2.2.0 | 2026-11-12 | Profile read and edit (SIM-56, section 14): `GET /user/profile` returns the caller's `user` object (`401`, `404 AUTH_013`, `410 ACCOUNT_004`, `403 AUTH_025`, `503 USER_PROFILE_UNAVAILABLE`); the `/sync` `user` entity also edits `displayName`, `woreda` and a company buyer's `companyName` (trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name, then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing); copies on listings, trips, orders, deliveries and messages are not rewritten. `UpdateUserAsync` writes `companyName` from the copy when present and `REMOVE`s `faydaId` when the row has none (a `NULL` `FaydaIdIndex` key was refused, answering the 2.0.0 open question) |
+| 2.2.0 | 2026-11-12 | Profile read and edit (SIM-56, section 14): `GET /user/profile` returns the caller's profile view (`userId`, `displayName`, `fullName`, `role`, `woreda`, `preferredLanguage`, `buyerType`, `companyName`, `version`; never `faydaId`, `knownDevices` or the phone) (`401`, `404 AUTH_013`, `410 ACCOUNT_004`, `403 AUTH_025`, `503 USER_PROFILE_UNAVAILABLE`); the `/sync` `user` entity also edits `displayName`, `woreda` and a company buyer's `companyName` (trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name, then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing); copies on listings, trips, orders, deliveries and messages are not rewritten. `UpdateUserAsync` writes `companyName` from the copy when present and `REMOVE`s `faydaId` and an empty `woreda` when the row has none (a `NULL` `FaydaIdIndex` key and an empty `RoleWaredaIndex` key were refused, answering the 2.0.0 open question) |
 | 2.1.2 | 2026-11-12 | FUP-162: two more writers of `ratingSum`, `ratingCount` and `ratingsAggregatedAt` for the farmers and truckers the ESC-28 backfill skipped (no `woreda`): the rating create's heal of an unstamped ratee and the backfill's one-off users `Scan` (`rating-api.md` 1.5.0). Shape unchanged |
 | 2.1.1 | 2026-11-11 | ESC-29: `suspended` also refuses `/sync` and the write endpoints of `reputation-api.md` 8.4 (`403 AUTH_025`); the section 2 attributes are now read by `GET /reputation/*`, `GET /ratings`, the `/sync` gates and the owner stamps (`reputation-api.md` 1.2.0, `rating-api.md` 1.4.0), a row without `ratingsAggregatedAt` contributing no rating. Shape unchanged, never returned in the `user` object |
 | 2.1.0 | 2026-11-07 | Section 2 BUILT (ESC-28): `ReputationService` writes the `reputation` map (the stream, the daily job, the refresh after a rating), the rating create `ADD`s `ratingSum` and `ratingCount`, registration starts every new row at 0 with `ratingsAggregatedAt`, the backfill stamps older rows. The map gains `lastEventId` and `lastEventRecordedAt` (the read-lag check). Never returned in the `user` object; no wire change |
