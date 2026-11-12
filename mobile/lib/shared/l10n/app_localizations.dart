@@ -9700,6 +9700,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This name is not available. Choose another.'**
   String get profileEditNameUnavailable;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar when the server refused the edit for a reason the form did not catch (web): not a connection problem
+  ///
+  /// In en, this message translates to:
+  /// **'These details were not accepted. Check each field and try again.'**
+  String get profileEditRefused;
 }
 
 class _AppLocalizationsDelegate

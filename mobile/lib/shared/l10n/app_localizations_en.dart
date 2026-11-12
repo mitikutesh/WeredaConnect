@@ -5690,4 +5690,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get profileEditNameUnavailable =>
       'This name is not available. Choose another.';
+
+  @override
+  String get profileEditRefused =>
+      'These details were not accepted. Check each field and try again.';
 }

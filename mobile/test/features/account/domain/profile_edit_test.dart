@@ -8,6 +8,7 @@ void main() {
   const current = ProfileValues(
     displayName: 'Abebe',
     woreda: 'Adama',
+    role: 'buyer',
     buyerType: 'company',
     companyName: 'Adama Traders',
   );
@@ -52,6 +53,7 @@ void main() {
       final saved = current.apply(const ProfileChanges(companyName: 'Meki'));
 
       expect(saved.companyName, 'Meki');
+      expect(saved.role, 'buyer');
       expect(saved.buyerType, 'company');
       expect(saved.displayName, 'Abebe');
     });
@@ -59,7 +61,28 @@ void main() {
     test('isCompanyBuyer only for a company buyer', () {
       expect(current.isCompanyBuyer, isTrue);
       expect(
-        const ProfileValues(displayName: 'A', woreda: 'B', buyerType: 'private')
+        const ProfileValues(
+          displayName: 'A',
+          woreda: 'B',
+          role: 'buyer',
+          buyerType: 'private',
+        ).isCompanyBuyer,
+        isFalse,
+      );
+      // An admin changed the role away from buyer: the buyer type stays on
+      // the row, but the server takes no company name from a farmer.
+      expect(
+        const ProfileValues(
+          displayName: 'A',
+          woreda: 'B',
+          role: 'farmer',
+          buyerType: 'company',
+          companyName: 'Acme',
+        ).isCompanyBuyer,
+        isFalse,
+      );
+      expect(
+        const ProfileValues(displayName: 'A', woreda: 'B', buyerType: 'company')
             .isCompanyBuyer,
         isFalse,
       );
@@ -84,6 +107,7 @@ void main() {
         const ProfileValues(
           displayName: 'Almaz',
           woreda: 'Meki',
+          role: 'buyer',
           buyerType: 'company',
           companyName: 'Meki Traders',
         ),

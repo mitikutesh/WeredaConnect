@@ -25,9 +25,16 @@ class _FakeRepository implements BaseProfileRepository {
   final saved = <ProfileChanges>[];
   int fetches = 0;
 
+  /// When set, the read waits for it (a slow network).
+  Completer<void>? fetchGate;
+
+  /// When set, the save waits for it (a slow web save).
+  Completer<void>? saveGate;
+
   @override
   Future<ProfileValues?> fetch(String userId) async {
     fetches++;
+    await fetchGate?.future;
     return server;
   }
 
@@ -39,6 +46,7 @@ class _FakeRepository implements BaseProfileRepository {
     required String userId,
     required ProfileChanges changes,
   }) async {
+    await saveGate?.future;
     final error = saveError;
     if (error != null) throw error;
     saved.add(changes);
@@ -146,6 +154,7 @@ void main() {
   const companyBuyer = ProfileValues(
     displayName: 'Almaz',
     woreda: 'Meki',
+    role: 'buyer',
     buyerType: 'company',
     companyName: 'Meki Traders',
   );
@@ -328,5 +337,102 @@ void main() {
     expect(fieldText(tester, name), 'Abebe');
     expect(written, isEmpty);
     verifyNever(() => bloc.add(any(that: isA<AuthProfileChanged>())));
+  });
+
+  testWidgets('an account an admin moved away from buyer has no company field',
+      (tester) async {
+    await open(
+      tester,
+      role: UserRole.farmer,
+      current: const ProfileValues(
+        displayName: 'Almaz',
+        woreda: 'Meki',
+        role: 'farmer',
+        buyerType: 'company',
+        companyName: 'Meki Traders',
+      ),
+    );
+
+    expect(company, findsNothing);
+    await tester.enterText(name, 'Almaz T.');
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    expect(repository.saved, [const ProfileChanges(displayName: 'Almaz T.')]);
+  });
+
+  testWidgets('a server read that ends after a save started is not applied',
+      (tester) async {
+    repository
+      ..server = const ProfileValues(displayName: 'Old name', woreda: 'Adama')
+      ..fetchGate = Completer<void>()
+      ..saveGate = Completer<void>()
+      ..outcome = ProfileSaveOutcome.saved;
+    await open(tester, role: UserRole.trucker);
+
+    // The save is in flight when the old read comes back.
+    await tester.enterText(name, 'New name');
+    await tester.tap(save);
+    await tester.pump();
+    repository.fetchGate!.complete();
+    await tester.pump();
+    repository.saveGate!.complete();
+    await tester.pumpAndSettle();
+
+    // Only the save reached the device's copy.
+    expect(
+      written,
+      [const ProfileValues(displayName: 'New name', woreda: 'Adama')],
+    );
+    verifyNever(
+      () => bloc.add(
+        const AuthProfileChanged(
+          userId: 'trucker-1',
+          userName: 'Old name',
+          woreda: 'Adama',
+        ),
+      ),
+    );
+  });
+
+  testWidgets('an unchanged field is not checked, like on the server',
+      (tester) async {
+    // A woreda stored before FUP-52 still lets the name change.
+    await open(
+      tester,
+      role: UserRole.farmer,
+      current: const ProfileValues(
+        displayName: 'Abebe',
+        woreda: 'Adama 0911223344',
+      ),
+    );
+
+    await tester.enterText(name, 'Abebe K.');
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    expect(repository.saved, [const ProfileChanges(displayName: 'Abebe K.')]);
+  });
+
+  testWidgets('a refusal naming no field says the details were not accepted',
+      (tester) async {
+    repository.saveError = const SyncRejectedException(
+      'USER_PROFILE_VALIDATION: companyName can only be changed by a company '
+      'buyer.',
+    );
+    await open(tester, role: UserRole.buyer);
+
+    await tester.enterText(name, 'Almaz');
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'These details were not accepted. Check each field and try again.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Check your connection'), findsNothing);
+    expect(written, isEmpty);
   });
 }

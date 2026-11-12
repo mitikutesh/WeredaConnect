@@ -62,6 +62,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _edited = false;
   bool _isSubmitting = false;
 
+  /// Set once a save is sent: a server copy read before it is older than
+  /// the save, so it is never applied after that.
+  bool _saveStarted = false;
+
   /// Fields the server refused for a phone number (web), by wire name.
   Set<String> _refusedFields = const {};
 
@@ -101,6 +105,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       return ProfileValues(
         displayName: user.effectiveDisplayName,
         woreda: user.woreda,
+        role: user.role.name,
         buyerType: user.buyerType,
         companyName: user.companyName,
       );
@@ -146,21 +151,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final cached = await (widget.loadCurrent ?? _cachedValues)(auth);
     if (!mounted) return;
     final current = cached ??
-        ProfileValues(displayName: auth.userName, woreda: auth.woreda ?? '');
+        ProfileValues(
+          displayName: auth.userName,
+          woreda: auth.woreda ?? '',
+          role: auth.role.name,
+        );
     setState(() {
       _current = current;
       _fill(current);
     });
 
-    // The server's copy is newer than the device's unless an edit waits here.
+    // The server's copy is newer than the device's unless an edit waits here
+    // or a save started while it was read (checked after every wait).
     final repository = _repository;
     if (repository == null) return;
     final server = await repository.fetch(auth.userId);
-    if (!mounted || server == null || server == _current) return;
+    if (!mounted || _saveStarted || server == null || server == _current) {
+      return;
+    }
     if (await repository.hasUnsentEdit(auth.userId)) return;
-    if (!mounted) return;
+    if (!mounted || _saveStarted) return;
     await _writeLocal(auth, server);
-    if (!mounted) return;
+    if (!mounted || _saveStarted) return;
     context.read<AuthBloc>().add(
           AuthProfileChanged(
             userId: auth.userId,
@@ -186,10 +198,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     String? value,
     AppLocalizations l10n, {
     required String field,
+    required String? current,
     bool isName = false,
     String? requiredText,
   }) {
     if (_refusedFields.contains(field)) return l10n.errorContactInText;
+    // Like the server: an unchanged value is not sent, so not checked (a
+    // value stored before a rule, or a row without a woreda, still saves
+    // a change to another field).
+    if ((value ?? '').trim() == (current ?? '').trim()) return null;
     return switch (profileFieldError(value, isName: isName)) {
       null => null,
       ProfileFieldError.required => requiredText ?? l10n.fieldRequired,
@@ -226,6 +243,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       return;
     }
 
+    _saveStarted = true;
     setState(() => _isSubmitting = true);
     ProfileSaveOutcome outcome;
     try {
@@ -240,7 +258,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (fields.isNotEmpty) {
         _formKey.currentState?.validate();
       } else {
-        messenger.showSnackBar(SnackBar(content: Text(l10n.profileEditFailed)));
+        // The server answered: not a connection problem.
+        messenger
+            .showSnackBar(SnackBar(content: Text(l10n.profileEditRefused)));
       }
       return;
     } on Object catch (e) {
@@ -322,6 +342,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           value,
                           l10n,
                           field: 'displayName',
+                          current: current.displayName,
                           isName: true,
                         ),
                         onChanged: (_) => _onEdited(),
@@ -339,8 +360,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         labelAbove: true,
                         showSearchIcon: false,
                         maxLength: profileFieldMaxLength,
-                        validator: (value) =>
-                            _fieldError(value, l10n, field: 'woreda'),
+                        validator: (value) => _fieldError(
+                          value,
+                          l10n,
+                          field: 'woreda',
+                          current: current.woreda,
+                        ),
                         onChanged: (_) => _onEdited(),
                         onPlaceSelected: (_) => _onEdited(),
                       ),
@@ -361,6 +386,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             value,
                             l10n,
                             field: 'companyName',
+                            current: current.companyName,
                             requiredText: l10n.companyNameRequired,
                           ),
                           onChanged: (_) => _onEdited(),

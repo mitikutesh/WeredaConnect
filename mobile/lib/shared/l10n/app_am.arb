@@ -3326,5 +3326,6 @@
   "profileEditSavedQueued": "መገለጫው በዚህ ስልክ ላይ ተቀምጧል። በይነመረብ ሲኖር ይላካል።",
   "profileEditFailed": "መገለጫዎን ማስቀመጥ አልተቻለም። ግንኙነትዎን ያረጋግጡ እና እንደገና ይሞክሩ።",
   "profileEditTooLong": "ከ100 ቁምፊዎች ያልበለጠ ይጠቀሙ።",
-  "profileEditNameUnavailable": "ይህ ስም አይገኝም። ሌላ ይምረጡ።"
+  "profileEditNameUnavailable": "ይህ ስም አይገኝም። ሌላ ይምረጡ።",
+  "profileEditRefused": "እነዚህ መረጃዎች ተቀባይነት አላገኙም። እያንዳንዱን መስክ ያረጋግጡ እና እንደገና ይሞክሩ።"
 }

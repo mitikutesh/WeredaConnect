@@ -60,28 +60,37 @@ class ProfileChanges {
   int get hashCode => Object.hash(displayName, woreda, companyName);
 }
 
-/// The editable profile fields as the device or the server holds them.
+/// The editable profile fields as the device or the server holds them,
+/// with the role and buyer type that decide whether a company name exists.
 @immutable
 class ProfileValues {
   final String displayName;
   final String woreda;
+
+  /// `farmer`, `trucker` or `buyer` (lowercase, as the server writes it).
+  final String? role;
   final String? buyerType;
   final String? companyName;
 
   const ProfileValues({
     required this.displayName,
     required this.woreda,
+    this.role,
     this.buyerType,
     this.companyName,
   });
 
   /// A buyer registered as a company: the only account with a company name.
-  bool get isCompanyBuyer => buyerType?.toLowerCase() == 'company';
+  /// The role counts too, as on the server: an account whose role an admin
+  /// changed away from buyer keeps its buyer type but has no company name.
+  bool get isCompanyBuyer =>
+      role?.toLowerCase() == 'buyer' && buyerType?.toLowerCase() == 'company';
 
   /// [this] with [changes] applied.
   ProfileValues apply(ProfileChanges changes) => ProfileValues(
         displayName: changes.displayName ?? displayName,
         woreda: changes.woreda ?? woreda,
+        role: role,
         buyerType: buyerType,
         companyName: changes.companyName ?? companyName,
       );
@@ -101,6 +110,7 @@ class ProfileValues {
       // The marketplace name, else the Fayda name, as listings take it.
       displayName: text('displayName') ?? text('fullName') ?? '',
       woreda: woreda,
+      role: text('role'),
       buyerType: text('buyerType'),
       companyName: text('companyName'),
     );
@@ -111,11 +121,13 @@ class ProfileValues {
       other is ProfileValues &&
       other.displayName == displayName &&
       other.woreda == woreda &&
+      other.role == role &&
       other.buyerType == buyerType &&
       other.companyName == companyName;
 
   @override
-  int get hashCode => Object.hash(displayName, woreda, buyerType, companyName);
+  int get hashCode =>
+      Object.hash(displayName, woreda, role, buyerType, companyName);
 }
 
 /// Why a field of the profile form is refused. The server's rules

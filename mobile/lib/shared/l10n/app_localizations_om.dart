@@ -5744,4 +5744,8 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get profileEditNameUnavailable =>
       'Maqaan kun hin argamu. Kan biraa filadhaa.';
+
+  @override
+  String get profileEditRefused =>
+      'Odeeffannoon kun hin fudhatamne. Dirree tokkoon tokkoon isaa mirkaneessaatii irra deebi\'aa yaalaa.';
 }

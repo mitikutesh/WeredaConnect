@@ -5542,4 +5542,8 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get profileEditNameUnavailable => 'ይህ ስም አይገኝም። ሌላ ይምረጡ።';
+
+  @override
+  String get profileEditRefused =>
+      'እነዚህ መረጃዎች ተቀባይነት አላገኙም። እያንዳንዱን መስክ ያረጋግጡ እና እንደገና ይሞክሩ።';
 }

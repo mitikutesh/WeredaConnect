@@ -5327,5 +5327,7 @@
   "profileEditTooLong": "Use 100 characters or fewer.",
   "@profileEditTooLong": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name, woreda or company name is over 100 characters"},
   "profileEditNameUnavailable": "This name is not available. Choose another.",
-  "@profileEditNameUnavailable": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name is the one deleted accounts carry"}
+  "@profileEditNameUnavailable": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name is the one deleted accounts carry"},
+  "profileEditRefused": "These details were not accepted. Check each field and try again.",
+  "@profileEditRefused": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Snackbar when the server refused the edit for a reason the form did not catch (web): not a connection problem"}
 }
