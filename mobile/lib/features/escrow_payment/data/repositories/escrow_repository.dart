@@ -722,6 +722,15 @@ class EscrowRepository extends BaseEscrowRepository {
       );
     }
     if (e is ServerException) {
+      // FUP-36: a status the client does not type (422 ESCROW_039, ESCROW_010)
+      // still carries the server's own code; keep it so the screen localizes
+      // it. FUP-70: also on 502 and 503, where a `503 ESCROW_012` is a failed
+      // read and not Telebirr. Only an answer without a code falls back to
+      // the gateway texts.
+      final serverCode = escrowCodeOf(e, '');
+      if (serverCode.isNotEmpty) {
+        return EscrowError(serverCode, e.message);
+      }
       final statusCode = e.statusCode;
       if (statusCode == 502) {
         return const EscrowError(
@@ -734,12 +743,6 @@ class EscrowRepository extends BaseEscrowRepository {
           'ESCROW_014',
           'Telebirr is currently unavailable. Please try later.',
         );
-      }
-      // FUP-36: a status the client does not type (422 ESCROW_039, ESCROW_010)
-      // still carries the server's own code; keep it so the screen localizes it.
-      final serverCode = escrowCodeOf(e, '');
-      if (serverCode.isNotEmpty) {
-        return EscrowError(serverCode, e.message);
       }
     }
     return const EscrowError(

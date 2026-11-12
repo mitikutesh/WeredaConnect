@@ -34,10 +34,19 @@ enum AppErrorCode {
   /// above 10,000 ETB or at HIGH risk (FRD-04). A password prompt may follow.
   faydaStepUpRequired,
 
-  /// The payment needs the buyer's own Fayda KYC or verified phone
-  /// (ORDER_KYC_REQUIRED `buyer_fayda`, `buyer_phone`), so the buyer can fix
-  /// it by verifying with Fayda.
+  /// The payment needs the buyer's own Fayda KYC (ORDER_KYC_REQUIRED
+  /// `buyer_fayda`), so the buyer can fix it by verifying with Fayda.
   kycRequired,
+
+  /// The payment needs the buyer's own phone verified (ORDER_KYC_REQUIRED
+  /// `buyer_phone`). Fixed with Fayda like [kycRequired], but the text names
+  /// the phone, not the 10,000 ETB Fayda rule (FUP-83).
+  kycPhoneRequired,
+
+  /// A KYC refusal with a reason token this build does not know
+  /// (ORDER_KYC_REQUIRED `<new token>`). Explained only: nobody is sent to
+  /// verify, because it may be another party's check (FUP-83).
+  kycUnknownReason,
 
   /// The payment needs the farmer's verified phone or Fayda ID
   /// (ORDER_KYC_REQUIRED `farmer_phone`, `farmer_fayda`). The buyer cannot
@@ -96,6 +105,10 @@ enum AppErrorCode {
   /// ESC-06: an accepted order may be cancelled only after a transport
   /// failure (`ORDER_CANCEL_NOT_ALLOWED`, or the local guard); nothing changed.
   orderCancelNotAllowed,
+
+  /// A cancel refused because of the order's money: a dispute froze the
+  /// payment, or it is being settled or reviewed (FUP-77). Nothing changed.
+  orderCancelPaymentBusy,
 
   /// ESC-48: a message went into a thread whose contact is not open
   /// (`MESSAGE_CONTACT_LOCKED`); it was not sent.
@@ -266,6 +279,9 @@ AppErrorCode mapErrorToCode(Object error) {
         when isOrderTransportAttemptsExceededMessage(message) =>
       AppErrorCode.transportAttemptsExceeded,
     SyncRejectedException(:final message)
+        when isOrderCancelPaymentBusyMessage(message) =>
+      AppErrorCode.orderCancelPaymentBusy,
+    SyncRejectedException(:final message)
         when isOrderCancelNotAllowedMessage(message) =>
       AppErrorCode.orderCancelNotAllowed,
     // LT-12: the drop-off note codes are ORDER_* too, with their own text.
@@ -315,7 +331,9 @@ AppErrorCode mapErrorToCode(Object error) {
 /// only a buyer-side reason may tell the buyer to verify (SIM-49).
 AppErrorCode _kycErrorCode(String message) =>
     switch (KycReason.fromMessage(message)) {
-      KycReason.buyerPhone || KycReason.buyerFayda => AppErrorCode.kycRequired,
+      KycReason.buyerFayda => AppErrorCode.kycRequired,
+      KycReason.buyerPhone => AppErrorCode.kycPhoneRequired,
+      KycReason.unknown => AppErrorCode.kycUnknownReason,
       KycReason.farmerPhone ||
       KycReason.farmerFayda =>
         AppErrorCode.kycFarmerRequired,
@@ -327,6 +345,8 @@ AppErrorCode _kycErrorCode(String message) =>
 /// reason from the message.
 bool isKycErrorCode(AppErrorCode code) =>
     code == AppErrorCode.kycRequired ||
+    code == AppErrorCode.kycPhoneRequired ||
+    code == AppErrorCode.kycUnknownReason ||
     code == AppErrorCode.kycFarmerRequired ||
     code == AppErrorCode.kycUnavailable;
 
@@ -345,6 +365,8 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.stepUpRequired => l10n.stepUpRequiredMessage,
     AppErrorCode.faydaStepUpRequired => l10n.faydaStepUpMessage,
     AppErrorCode.kycRequired => l10n.kycRequiredFaydaMessage,
+    AppErrorCode.kycPhoneRequired => l10n.kycRequiredPhoneMessage,
+    AppErrorCode.kycUnknownReason => l10n.kycUnknownReasonMessage,
     AppErrorCode.kycFarmerRequired => l10n.kycFarmerNotVerifiedMessage,
     AppErrorCode.kycUnavailable => l10n.kycUnavailableMessage,
     AppErrorCode.accountHeld => l10n.fraudAccountHeld,
@@ -362,6 +384,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
       l10n.deliveryErrorCodeLockedDropoff,
     AppErrorCode.deliveryCodeGpsRequired => l10n.deliveryErrorCodeGpsRequired,
     AppErrorCode.orderCancelNotAllowed => l10n.errorOrderCancelNotAllowed,
+    AppErrorCode.orderCancelPaymentBusy => l10n.errorOrderCancelPaymentBusy,
     AppErrorCode.contactLocked => l10n.contactClosedNote,
     AppErrorCode.deadlinePassed => l10n.errorDeadlinePassed,
     AppErrorCode.responseNotPending => l10n.errorResponseNotPending,
@@ -437,6 +460,9 @@ AppErrorCode syncRejectionErrorCode({
       return AppErrorCode.tripNotEligible;
     }
     if (action == 'create') return AppErrorCode.orderNotPlaced;
+    if (isOrderCancelPaymentBusyMessage(message)) {
+      return AppErrorCode.orderCancelPaymentBusy;
+    }
     if (isOrderCancelNotAllowedMessage(message)) {
       return AppErrorCode.orderCancelNotAllowed;
     }

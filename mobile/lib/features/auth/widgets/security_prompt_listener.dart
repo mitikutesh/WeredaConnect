@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/widgets/kyc_required_dialog.dart';
 import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -157,6 +159,12 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
     if (message.startsWith('FRAUD_VELOCITY_EXCEEDED')) {
       // The server's listing limit resets at the next UTC hour.
       return l10n.fraudVelocityExceeded(60 - DateTime.now().toUtc().minute);
+    }
+    if (event.entityType == paymentIntentEntityType &&
+        !isFraudAccountHeldMessage(message)) {
+      // A queued delivery payment that failed for good (FUP-70): the
+      // message is an escrow error code, shown with the escrow texts.
+      return localizeEscrowError(l10n, message.split(':').first.trim(), '');
     }
     return localizeErrorCode(
       syncRejectionErrorCode(

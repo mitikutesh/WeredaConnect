@@ -1617,6 +1617,10 @@
   "@escrowErrorDisputeBeforePickup": {
     "description": "Error when a dispute is raised before the goods are picked up (ESCROW_041)"
   },
+  "escrowErrorDisputeRefundScheduled": "A refund to the buyer is already scheduled for this payment, so it can no longer be disputed. Contact support if you disagree.",
+  "@escrowErrorDisputeRefundScheduled": {
+    "description": "A dispute was refused because the refund to the buyer is already scheduled for this payment (409 ESCROW_INVALID_TRANSITION with that reason, FUP-77)"
+  },
   "escrowErrorInvalidTransition": "This action is not allowed in the current payment state.",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"
@@ -3530,6 +3534,14 @@
       }
     }
   },
+  "stepUpDisputeMessage": "For your safety, confirm it's you before this dispute is sent.",
+  "@stepUpDisputeMessage": {
+    "description": "Password step-up dialog (AUTH_040) when the action is a dispute, not a payment (FUP-77)"
+  },
+  "faydaStepUpDisputeMessage": "Confirm it's you with Fayda to send this dispute. You may also be asked for your password.",
+  "@faydaStepUpDisputeMessage": {
+    "description": "Fayda step-up dialog (AUTH_041) when the action is a dispute, not a payment (FUP-77)"
+  },
   "faydaStepUpMessage": "Confirm it's you with Fayda to continue with this payment. You may also be asked for your password.",
   "@faydaStepUpMessage": {
     "description": "Fayda step-up dialog (AUTH_041): this payment needs a fresh Fayda login instead of the password. No amount: the server asks for it above 10,000 ETB and may ask at any amount"
@@ -3642,6 +3654,10 @@
   "kycFarmerNotVerifiedMessage": "The farmer's identity is not verified yet, so this payment was not sent. You can pay once the farmer verifies.",
   "@kycFarmerNotVerifiedMessage": {
     "description": "Error text when the KYC gate refused a payment because the farmer (not the buyer) must verify their phone or Fayda ID first (ORDER_KYC_REQUIRED farmer_phone or farmer_fayda); offers no Fayda action to the buyer"
+  },
+  "kycUnknownReasonMessage": "This payment was not sent because an identity check is still missing. Update the app or contact support to see what is needed.",
+  "@kycUnknownReasonMessage": {
+    "description": "KYC dialog and error text when the server names a verification reason this app version does not know. Explains only, no Fayda action (FUP-83)"
   },
   "kycUnavailableMessage": "We could not check identity verification right now, so this payment was not sent. Please try again later.",
   "@kycUnavailableMessage": {
@@ -3804,6 +3820,10 @@
   "cancelOrderTransportFailedBody": "You get back everything you paid, including transport and the platform commission.",
   "@cancelOrderTransportFailedBody": {
     "description": "Cancel dialog body when the buyer cancels an accepted order after a transport failure (ESC-06)"
+  },
+  "errorOrderCancelPaymentBusy": "This order can't be cancelled now because its payment is under dispute or being settled. Wait for the outcome or contact support.",
+  "@errorOrderCancelPaymentBusy": {
+    "description": "The server refused to cancel an accepted order (ORDER_CANCEL_NOT_ALLOWED) because its payment is frozen by a dispute, being settled or under review (FUP-77)"
   },
   "errorOrderCancelNotAllowed": "This order can't be cancelled now. It can be cancelled only when the crops were not collected in time and nothing was picked up.",
   "@errorOrderCancelNotAllowed": {
