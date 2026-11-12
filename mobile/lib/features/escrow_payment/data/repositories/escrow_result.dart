@@ -130,7 +130,7 @@ String escrowCodeOf(ApiException e, String fallback) {
 /// Client-side code for `409 ESCROW_INVALID_TRANSITION` on
 /// `POST /escrow/dispute` when the refusal is "a refund to the buyer is
 /// scheduled" (FUP-32). The server has no code of its own for it
-/// (escrow-protocol.md 2.7.0 pins the wording).
+/// (escrow-protocol.md 2.8.0 pins the wording).
 const String escrowDisputeRefundScheduledCode =
     'ESCROW_INVALID_TRANSITION_REFUND_SCHEDULED';
 

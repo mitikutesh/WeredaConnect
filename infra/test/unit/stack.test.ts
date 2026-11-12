@@ -350,8 +350,9 @@ describe('ApiStack', () => {
     // + the crop photo processor and the two CDK helpers its buckets bring
     // (bucket notifications, dev auto-delete) (crop-listing-api 1.6.0) = 31,
     // + the AI advisory cron and its Bedrock reviewer (FRD-19) = 33,
-    // + reputation-stream (ESC-28) = 34.
-    template.resourceCountIs('AWS::Lambda::Function', 34);
+    // + reputation-stream (ESC-28) = 34,
+    // + reputation, the GET /reputation/* reads and the appeal (ESC-29) = 35.
+    template.resourceCountIs('AWS::Lambda::Function', 35);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -384,8 +385,52 @@ describe('ApiStack', () => {
     // plus POST /crops/{id}/photos (crop-listing-api 1.6.0) → 65,
     // plus GET /admin/escrows/held (FRD-07, the held queue) → 66,
     // plus GET /admin/disputes/{id}/evidence (FRD-14, the dispute evidence package) → 67,
-    // plus GET /admin/listing-reports and POST /admin/listing-reports/{listingId}/review (FUP-67) → 69 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 69);
+    // plus GET /admin/listing-reports and POST /admin/listing-reports/{listingId}/review (FUP-67) → 69,
+    // plus GET /reputation/me, /reputation/me/events and /reputation/{userId}, POST
+    // /reputation/appeals/photo-url and /reputation/events/{eventId}/appeal (ESC-29),
+    // plus GET /admin/escrows/{id}/ledger and GET /admin/orders/queue (ESC-24) → 76 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 76);
+  });
+
+  test('the ledger view and the stuck orders sit on the admin authorizer, on grants the admin Lambda already has (ESC-24)', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    for (const routeKey of ['GET /admin/escrows/{id}/ledger', 'GET /admin/orders/queue']) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: routeKey,
+        AuthorizationType: 'JWT',
+        AuthorizerId: { Ref: adminAuthorizerId },
+      });
+    }
+
+    // The admin Lambda knows the ledger table and may Query it and the indexes of the orders table.
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-admin',
+      Environment: { Variables: Match.objectLike({ ESCROW_LEDGER_TABLE: Match.anyValue(), ORDERS_TABLE: Match.anyValue() }) },
+    });
+    // A role whose inline policy is full spills into CDK overflow managed policies; both carry Roles.
+    const fns = template.findResources('AWS::Lambda::Function');
+    const adminFn = Object.values(fns).find((f) => (f as { Properties: { FunctionName?: string } }).Properties.FunctionName === 'wereda-connect-dev-admin') as
+      { Properties: { Role: { 'Fn::GetAtt': [string, string] } } };
+    const roleId = adminFn.Properties.Role['Fn::GetAtt'][0];
+    type Statement = { Action: string | string[]; Resource: unknown };
+    const adminStatements = [
+      ...Object.values(template.findResources('AWS::IAM::Policy')),
+      ...Object.values(template.findResources('AWS::IAM::ManagedPolicy')),
+    ]
+      .filter((p) => JSON.stringify((p as { Properties: { Roles: unknown } }).Properties.Roles).includes(`"${roleId}"`))
+      .flatMap((p) => (p as { Properties: { PolicyDocument: { Statement: Statement[] } } }).Properties.PolicyDocument.Statement);
+    const actionsOn = (table: string) => adminStatements
+      .filter((s) => JSON.stringify(s.Resource).includes(table))
+      .flatMap((s) => ([] as string[]).concat(s.Action));
+    // AdminQueueIndex and DeadlineIndex are read with a Query on the orders table's indexes.
+    expect(actionsOn('OrdersTable')).toContain('dynamodb:Query');
+    // Read only: the ledger view adds nothing to ESC-20's grant (escrow-ledger.test.ts pins the exact list).
+    expect(actionsOn('EscrowLedgerTable')).toContain('dynamodb:Query');
+    expect(actionsOn('EscrowLedgerTable')).not.toContain('dynamodb:PutItem');
+    expect(actionsOn('EscrowLedgerTable')).not.toContain('dynamodb:DeleteItem');
   });
 
   // ─── Crop photos (crop-listing-api 1.6.0) ───
@@ -1177,7 +1222,12 @@ describe('ApiStack', () => {
   test('a dispute verdict can move its order and delivery (ESC-03)', () => {
     // The admin verdict, and the escrow and escrow-cron settlement of it, move the order
     // and delivery to the verdict and audit each hop in transaction-audit.
-    const policies = template.findResources('AWS::IAM::Policy');
+    // The admin role's statements pass the inline policy size in this unminimized test app, so CDK
+    // moves the rest to an overflow managed policy (same id prefix): both kinds are read.
+    const policies = {
+      ...template.findResources('AWS::IAM::Policy'),
+      ...template.findResources('AWS::IAM::ManagedPolicy'),
+    };
     const actionsOn = (rolePrefix: string, tableId: string) => {
       const ids = Object.keys(policies).filter((key) => key.startsWith(rolePrefix));
       expect(ids.length).toBeGreaterThan(0);

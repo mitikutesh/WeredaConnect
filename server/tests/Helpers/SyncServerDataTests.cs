@@ -176,6 +176,8 @@ public class SyncServerDataTests
         var numeric = new[] { typeof(int), typeof(long), typeof(decimal), typeof(double), typeof(float) };
         var names = dto.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => numeric.Contains(Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType))
+            // A [JsonIgnore] property is server-side only: it is in no read model.
+            .Where(p => p.GetCustomAttribute<System.Text.Json.Serialization.JsonIgnoreAttribute>() == null)
             .Select(p => JsonNamingPolicy.CamelCase.ConvertName(p.Name));
 
         SyncServerData.NumericFields.Should().Contain(names);

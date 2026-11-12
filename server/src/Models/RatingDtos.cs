@@ -11,6 +11,12 @@ public sealed record GetRatingsResponse
     /// <summary>Aggregate average + count across the ratee's ratings.</summary>
     public required RatingSummaryDto Summary { get; init; }
 
+    /// <summary>
+    /// 1.2.0: the ratee's public reputation (reputation-api.md section 3), for the current role
+    /// with <c>reputationPublicTags</c> on; saves the detail screens a second call.
+    /// </summary>
+    public ReputationDto? Reputation { get; init; }
+
     /// <summary>Pagination token for the next page (null if none).</summary>
     public string? NextToken { get; init; }
 }
@@ -34,6 +40,16 @@ public sealed record RatingSummaryDto
 
     /// <summary>Number of ratings.</summary>
     public required int Count { get; init; }
+
+    /// <summary>1.2.0: the role the list and the summary are for; absent when the ratee's row was not read.</summary>
+    public string? RateeRole { get; init; }
+
+    /// <summary>
+    /// 1.2.0: the average minus the reputation deduction (reputation-api.md 1.4), one decimal.
+    /// Absent with no ratings, with <c>reputationPublicTags</c> off, or for a role that is not the
+    /// ratee's current one.
+    /// </summary>
+    public decimal? EffectiveRating { get; init; }
 }
 
 /// <summary>

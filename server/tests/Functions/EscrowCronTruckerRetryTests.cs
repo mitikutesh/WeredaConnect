@@ -140,6 +140,49 @@ public class EscrowCronTruckerRetryTests
         await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task FUP29_ASuspendedTruckersLeg_IsNeverPaidByTheRetry_FlagOnOrOff(bool fraudHoldEnabled)
+    {
+        // A leg on a released escrow cannot be held (only a sweep holds, from escrowed or dispute_resolved),
+        // so FRAUD_HOLD_ENABLED changes nothing here: the leg is skipped, alarmed and stays owed.
+        AddPending("escrow-t29", hoursAgo: 30);
+        _userRepo.GetUserByIdAsync(TruckerId).Returns(new UserDto
+        {
+            UserId = TruckerId,
+            PhoneNumber = "+251911000077",
+            Role = "trucker",
+            Woreda = "test-woreda",
+            IsPhoneVerified = true,
+            FaydaVerified = true,
+            Suspended = true,
+            CreatedAt = CreatedAt,
+            UpdatedAt = CreatedAt,
+            Version = 1
+        });
+        var service = new EscrowService(_escrowRepo, _auditRepo, Substitute.For<IEscrowIdempotencyRepository>(), _gateway, _userRepo)
+        {
+            AlarmLog = _alarmLines.Add
+        };
+        var function = new EscrowCronFunction(service, _escrowRepo, _auditRepo, _gateway, idempotencyRepo: _idempotencyRepo)
+        {
+            FraudHoldEnabled = fraudHoldEnabled
+        };
+
+        var response = await function.FunctionHandler(Cron("auto_release_and_refund"), _context);
+
+        response.Body.Should().Contain("\"truckerLegsBlocked\":\"1\"").And.Contain("\"truckerLegsPaid\":\"0\"");
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _escrowRepo.DidNotReceiveWithAnyArgs().TryAcquireTruckerPayoutLockAsync(default!, default!);
+        await _escrowRepo.DidNotReceiveWithAnyArgs().TryHoldAsync(default!, default!, default!, default);
+        await _escrowRepo.DidNotReceiveWithAnyArgs().TrySetTruckerBlockReasonAsync(default!, default!, default!, default!);
+        _alarmLines.Should().ContainSingle(l => l.StartsWith("RISK_SETTLEMENT_SKIPPED")).Which.Should().Be(
+            "RISK_SETTLEMENT_SKIPPED escrowId=escrow-t29 sweep=payout-trucker reason=payee_flagged holdReason=account_suspended");
+        // Owed for more than 24 hours: the overdue line names the reason, so the leg never waits silently.
+        Logs.Should().Contain("TRUCKER_PAYOUT_OVERDUE escrowId=escrow-t29 reason=account_suspended ageHours=30");
+    }
+
     [Fact]
     public async Task BlockedLeg_YoungerThan24Hours_IsNotOverdueYet()
     {

@@ -73,6 +73,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final SessionSignals _signals;
   StreamSubscription<void>? _sessionExpiredSub;
   StreamSubscription<String>? _accountGoneSub;
+  StreamSubscription<void>? _suspendedSub;
   StreamSubscription<void>? _otherAccountSub;
   String? _currentPhoneNumber;
   String? _sessionSubject;
@@ -187,6 +188,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         .listen((state) => add(AuthAccountGone(deletionState: state)));
     _otherAccountSub = _signals.onOtherAccountSignedIn
         .listen((_) => add(const AuthOtherAccountSignedIn()));
+    _suspendedSub = _signals.onAccountSuspended
+        .listen((_) => add(const AuthSessionExpired(suspended: true)));
   }
 
   /// The account this app instance is signed in as, as the `sub` of its
@@ -244,6 +247,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   Future<void> close() async {
     await _sessionExpiredSub?.cancel();
     await _accountGoneSub?.cancel();
+    await _suspendedSub?.cancel();
     await _otherAccountSub?.cancel();
     return super.close();
   }
@@ -1239,7 +1243,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
     }
     await _clearSession(current.userId, subject: _subjectOf(current));
-    emit(const AuthUnauthenticated());
+    emit(
+      event.suspended
+          ? const AuthSuspendedSignedOut()
+          : const AuthUnauthenticated(),
+    );
   }
 
   /// FUP-96: a request was refused because the stored session is another

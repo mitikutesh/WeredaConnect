@@ -54,6 +54,15 @@ public class TripFunction
     /// </summary>
     public bool CommitmentsEnabled { get; init; } = OrderCommitment.IsEnabled;
 
+    /// <summary>
+    /// ESC-29 (reputation-api.md 8.3), <c>reputationPenalties</c>: a buyer's read leaves out rows
+    /// whose owner is restricted. Off by default.
+    /// </summary>
+    internal bool HideRestrictedOwners { get; init; } = ReputationFlags.PenaltiesEnabled;
+
+    /// <summary>ESC-29 (reputation-api.md section 7), <c>reputationPublicTags</c>: the owner fields are returned. Off by default.</summary>
+    internal bool ReputationPublicTags { get; init; } = ReputationFlags.PublicTagsEnabled;
+
     public async Task<APIGatewayProxyResponse> FunctionHandler(
         APIGatewayProxyRequest request,
         ILambdaContext context)
@@ -184,8 +193,12 @@ public class TripFunction
         // SIM-31: drop every trip the detail endpoint hides (404), so list and detail agree.
         // The repository only excludes deletedAt; a trip cancelled through a status update
         // has no deletedAt and would otherwise still be listed.
+        // ESC-29 (reputation-api.md 8.3): a buyer's browse leaves out trips of a restricted trucker.
+        // Never for the trucker's own list or an admin.
+        var hideRestricted = HideRestrictedOwners && string.Equals(role, "buyer", StringComparison.OrdinalIgnoreCase);
         bool Keep(Dictionary<string, object> i) =>
             !IsCancelledOrDeleted(i)
+            && !(hideRestricted && OwnerReputationView.IsRestrictedOwner(i))
             && (minCapacity == null || GetDouble(i, "capacity") >= minCapacity)
             && (maxPrice == null || GetDouble(i, "pricePerQuintal") <= maxPrice)
             && (string.IsNullOrEmpty(departureDateFrom)
@@ -231,7 +244,7 @@ public class TripFunction
             // could otherwise call the trucker and agree to trade off the platform.
             var isAdmin = AdminAuthHelper.IsAdmin(request);
             var trips = items
-                .Select(i => MapToTripDto(i, includePhone: isAdmin || IsOwner(i, authenticatedUserId)))
+                .Select(i => MapToTripDto(i, includePhone: isAdmin || IsOwner(i, authenticatedUserId), ReputationPublicTags))
                 .ToList();
 
             var response = new GetTripsResponse
@@ -308,7 +321,8 @@ public class TripFunction
             }
 
             var tripDto = MapToTripDto(trip,
-                includePhone: AdminAuthHelper.IsAdmin(request) || IsOwner(trip, AuthHelper.GetUserId(request)));
+                includePhone: AdminAuthHelper.IsAdmin(request) || IsOwner(trip, AuthHelper.GetUserId(request)),
+                ReputationPublicTags);
             var response = new GetTripResponse { Trip = tripDto };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetTripResponse);
@@ -337,10 +351,16 @@ public class TripFunction
     /// Handles type conversions from string/number representations.
     /// <paramref name="includePhone"/> is true only for the owning trucker and admins (ESC-48).
     /// </summary>
-    internal static TripDto MapToTripDto(Dictionary<string, object> item, bool includePhone)
+    internal static TripDto MapToTripDto(Dictionary<string, object> item, bool includePhone, bool publicTags = false)
     {
+        var owner = OwnerReputationView.Of(item, publicTags);
         return new TripDto
         {
+            OwnerTier = owner.Tier,
+            OwnerEffectiveRating = owner.EffectiveRating,
+            OwnerRatingCount = owner.RatingCount,
+            OwnerReliabilityPct = owner.ReliabilityPct,
+            OwnerReputationAt = owner.At,
             TripId = GetString(item, "tripId"),
             TruckerId = GetString(item, "truckerId"),
             TruckerName = GetString(item, "truckerName"),

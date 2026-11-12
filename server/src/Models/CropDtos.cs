@@ -171,6 +171,17 @@ public sealed record CropDto
     public double? FarmerReliability { get; init; }
 
     /// <summary>
+    /// ESC-29 (reputation-api.md section 7): the owner's public reputation copied onto the row:
+    /// the public tier (<c>good</c> or <c>low</c>), the effective rating, the rating count, the
+    /// reliability and when the copy was written. All absent while <c>reputationPublicTags</c> is off.
+    /// </summary>
+    public string? OwnerTier { get; init; }
+    public decimal? OwnerEffectiveRating { get; init; }
+    public int? OwnerRatingCount { get; init; }
+    public int? OwnerReliabilityPct { get; init; }
+    public string? OwnerReputationAt { get; init; }
+
+    /// <summary>
     /// Crop's GPS latitude (WGS84), captured when the farmer created the
     /// listing with a location fix. Absent when no GPS was recorded — the
     /// on-device matcher (mobile AND web) then falls back to a woreda-string

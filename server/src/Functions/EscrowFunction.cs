@@ -151,13 +151,14 @@ public class EscrowFunction
         var action = ExtractAction(request);
 
         // ACC-02: an account that is being or has been deleted starts no payment and no dispute.
+        // ESC-29 (reputation-api.md 8.4): neither does a suspended one (403 AUTH_025), from the same read.
         if (request.HttpMethod == "POST" && (action is "initiate" or "order-checkout" or "dispute")
             && _userRepo != null && GetAuthenticatedUserId(request) is { Length: > 0 } callerId)
         {
             APIGatewayProxyResponse? gone;
             try
             {
-                gone = await AccountDeletionGuard.RefuseIfDeletingAsync(_userRepo, callerId);
+                gone = await AccountDeletionGuard.RefuseIfDeletingOrSuspendedAsync(_userRepo, callerId);
             }
             catch (Exception ex)
             {

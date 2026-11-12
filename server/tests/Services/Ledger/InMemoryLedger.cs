@@ -80,6 +80,11 @@ internal sealed class InMemoryLedger : IEscrowLedgerRepository
 
     public Task<List<LedgerRow>> GetRowsAsync(string escrowId) => Task.FromResult(RowsOf(escrowId));
 
+    public Task<(List<LedgerRow> Rows, Dictionary<string, AttributeValue>? Next)> GetRowsPageAsync(
+        string escrowId, int limit, Dictionary<string, AttributeValue>? startKey)
+        => Task.FromResult<(List<LedgerRow>, Dictionary<string, AttributeValue>?)>(
+            (RowsOf(escrowId).OrderBy(r => r.Ref, StringComparer.Ordinal).Take(limit).ToList(), null));
+
     public Task<LedgerRow?> GetRowAsync(string escrowId, string reference)
         => Task.FromResult(Rows.TryGetValue((escrowId, reference), out var row) ? row : null);
 
@@ -160,7 +165,10 @@ internal sealed class InMemoryLedger : IEscrowLedgerRepository
 
         Rows[(row.EscrowId, row.Ref)] = current with
         {
-            CallingSince = now, DueAt = dueAt, UpdatedAt = now, Version = current.Version + 1
+            CallingSince = now,
+            DueAt = dueAt,
+            UpdatedAt = now,
+            Version = current.Version + 1
         };
         return Task.FromResult(true);
     }

@@ -71,6 +71,35 @@ public sealed class EscrowFunctionAccountDeletionTests
         _gateway.ReceivedCalls().Should().BeEmpty();
     }
 
+    // ESC-29 (reputation-api.md 8.4): the same read refuses a suspended caller.
+    [Theory]
+    [InlineData("/escrow/initiate")]
+    [InlineData("/escrow/order-checkout")]
+    [InlineData("/escrow/dispute")]
+    public async Task MoneyAndDisputeWrites_ByASuspendedAccount_Return403Auth025_AndTouchNothing(string path)
+    {
+        _users.GetUserByIdAsync(UserId, true).Returns(new UserDto
+        {
+            UserId = UserId,
+            PhoneNumber = "+251911000003",
+            Role = "buyer",
+            Woreda = "Adama",
+            IsPhoneVerified = true,
+            Suspended = true,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+
+        var response = await Function().FunctionHandler(Request("POST", path), _context);
+
+        response.StatusCode.Should().Be(403);
+        using var body = JsonDocument.Parse(response.Body);
+        body.RootElement.GetProperty("error").GetProperty("code").GetString().Should().Be("AUTH_025");
+        _escrowRepo.ReceivedCalls().Should().BeEmpty();
+        _gateway.ReceivedCalls().Should().BeEmpty();
+    }
+
     [Fact]
     public async Task TheAccountCannotBeRead_Returns503Escrow012()
     {

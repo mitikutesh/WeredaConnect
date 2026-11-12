@@ -197,7 +197,7 @@ public partial class DeviceTokenFunction
 
         try
         {
-            if (_users != null && await AccountDeletionGuard.RefuseIfDeletingAsync(_users, userId) is { } gone)
+            if (_users != null && await AccountDeletionGuard.RefuseIfDeletingOrSuspendedAsync(_users, userId) is { } gone)
             {
                 return gone;
             }

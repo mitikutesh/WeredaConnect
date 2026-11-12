@@ -501,6 +501,8 @@ export class ApiStack extends cdk.Stack {
     // penalties on the two that derive RESPONSE_EXPIRED (reputation-stream, and order-cron's unpark).
     const reputationPenalties = envConfig.reputationPenalties ? "true" : "false";
     const timeoutPenalties = envConfig.timeoutPenalties ? "true" : "false";
+    // ESC-29: buyers get the public tier, the effective rating and the reliability (off everywhere).
+    const reputationPublicTags = envConfig.reputationPublicTags ? "true" : "false";
 
     // ESC-28: the reputation policy (points, caps, tiers, windows; reputation-architecture.md 5.9),
     // read once per container by every Lambda that recomputes a reputation: reputation-stream,
@@ -565,6 +567,8 @@ export class ApiStack extends cdk.Stack {
         REPUTATION_EVENTS_TABLE: props.reputationEventsTable.tableName,
         REPUTATION_POLICY_PARAM: reputationPolicyParam.parameterName,
         REPUTATION_PENALTIES_ENABLED: reputationPenalties,
+        // ESC-29: a crop or trip row in a sync answer carries the owner fields only when on.
+        REPUTATION_PUBLIC_TAGS_ENABLED: reputationPublicTags,
         ...(syncTelebirrMock ? { TELEBIRR_MOCK: "true" } : {}),
       },
       timeout: cdk.Duration.seconds(30),
@@ -749,6 +753,9 @@ export class ApiStack extends cdk.Stack {
         PAGINATION_SECRET_ARN: paginationSecret.reference,
         CROP_PHOTO_INCOMING_BUCKET: cropPhotoIncomingBucket.bucketName,
         CROP_PHOTOS_BUCKET: cropPhotosBucket.bucketName,
+        // ESC-29 (reputation-api.md 8.3 and section 7): off, nothing is hidden and no owner field is returned.
+        REPUTATION_PENALTIES_ENABLED: reputationPenalties,
+        REPUTATION_PUBLIC_TAGS_ENABLED: reputationPublicTags,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -774,6 +781,9 @@ export class ApiStack extends cdk.Stack {
         // FUP-122: the browse reports orderLeadHours (24 on, 0 off) so the apps drop from the
         // match suggestions the trips the sync order create refuses. Same value as on sync.
         COMMITMENTS_ENABLED: commitmentsEnabled,
+        // ESC-29 (reputation-api.md 8.3 and section 7): off, nothing is hidden and no owner field is returned.
+        REPUTATION_PENALTIES_ENABLED: reputationPenalties,
+        REPUTATION_PUBLIC_TAGS_ENABLED: reputationPublicTags,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -791,6 +801,9 @@ export class ApiStack extends cdk.Stack {
       handlerName: "MatchFunction",
       environment: {
         CROPS_TABLE: props.cropsTable.tableName,
+        // ESC-29 (reputation-api.md 8.3 and section 7): off, nothing is hidden and no owner field is returned.
+        REPUTATION_PENALTIES_ENABLED: reputationPenalties,
+        REPUTATION_PUBLIC_TAGS_ENABLED: reputationPublicTags,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -1083,6 +1096,9 @@ export class ApiStack extends cdk.Stack {
         REPUTATION_PENALTIES_ENABLED: reputationPenalties,
         // Off: RESPONSE_EXPIRED is recorded with 0 points (timeout_penalties_off).
         REPUTATION_TIMEOUT_PENALTIES_ENABLED: timeoutPenalties,
+        // ESC-29 (reputation-architecture.md 6.3): the owner fields copied onto the party's active rows.
+        CROPS_TABLE: props.cropsTable.tableName,
+        TRIPS_TABLE: props.tripsTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
@@ -1110,6 +1126,30 @@ export class ApiStack extends cdk.Stack {
       new iam.PolicyStatement({
         actions: ["dynamodb:Query"],
         resources: [props.deviceTokensTable.tableArn, props.fraudSignalsTable.tableArn],
+      }),
+    );
+    // ESC-29, the copy refresh: the owner's rows through their owner index (Query), the crop
+    // statuses by key (BatchGetItem; the farmer index does not project status) and the conditional
+    // UpdateItem of the five owner fields. No Scan, no put, no delete.
+    reputationStreamFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [
+          `${props.cropsTable.tableArn}/index/FarmerIdCreatedAtIndex`,
+          `${props.tripsTable.tableArn}/index/TruckerIdCreatedAtIndex`,
+        ],
+      }),
+    );
+    reputationStreamFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:BatchGetItem", "dynamodb:UpdateItem"],
+        resources: [props.cropsTable.tableArn],
+      }),
+    );
+    reputationStreamFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:UpdateItem"],
+        resources: [props.tripsTable.tableArn],
       }),
     );
     reputationParkedQueue.grantSendMessages(reputationStreamFn.function);
@@ -1911,6 +1951,13 @@ export class ApiStack extends cdk.Stack {
       environment: {
         RATINGS_TABLE: props.ratingsTable.tableName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
+        // ESC-29 (rating-api.md 1.2.0 read rules): the ratee's row gives their role, the stored
+        // rating sum and count and the reputation; the events are read only past nextChangeAt.
+        USERS_TABLE: props.usersTable.tableName,
+        REPUTATION_EVENTS_TABLE: props.reputationEventsTable.tableName,
+        REPUTATION_POLICY_PARAM: reputationPolicyParam.parameterName,
+        REPUTATION_PENALTIES_ENABLED: reputationPenalties,
+        REPUTATION_PUBLIC_TAGS_ENABLED: reputationPublicTags,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -1918,6 +1965,50 @@ export class ApiStack extends cdk.Stack {
     });
     props.ratingsTable.grantReadData(ratingFn.function);
     paginationSecret.grantRead(ratingFn.function);
+    // ESC-29: one GetItem on the ratee's row and, past nextChangeAt, one Query of their events.
+    props.usersTable.grant(ratingFn.function, "dynamodb:GetItem");
+    props.reputationEventsTable.grant(ratingFn.function, "dynamodb:Query");
+    reputationPolicyParam.grantRead(ratingFn.function);
+
+    // ─── Reputation Function (ESC-29, reputation-api.md sections 2 to 6) ─────────
+    // The party's own reputation and events, the public summary for buyers, the appeal photo URL
+    // and the appeal. Reads only, except the appeal: one conditional UpdateItem on the caller's
+    // own event row, one transaction-audit row and a pre-signed PUT under uploads/appeals/.
+    const reputationFn = new WeredaLambda(this, "ReputationFunction", {
+      functionName: `${prefix}-reputation`,
+      description:
+        "GET /reputation/me, /reputation/me/events, /reputation/{userId}; POST appeal photo URL and appeal (ESC-29)",
+      handlerName: "ReputationFunction",
+      environment: {
+        REPUTATION_EVENTS_TABLE: props.reputationEventsTable.tableName,
+        USERS_TABLE: props.usersTable.tableName,
+        TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
+        UPLOADS_BUCKET: props.uploadsBucket.bucketName,
+        PAGINATION_SECRET_ARN: paginationSecret.reference,
+        REPUTATION_POLICY_PARAM: reputationPolicyParam.parameterName,
+        // Off: the two POSTs answer 503 REPUTATION_UNAVAILABLE; the reads show the stored state.
+        REPUTATION_PENALTIES_ENABLED: reputationPenalties,
+        // Off: the public summary carries only the raw rating average and count.
+        REPUTATION_PUBLIC_TAGS_ENABLED: reputationPublicTags,
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+      reservedConcurrentExecutions: 5,
+    });
+    props.usersTable.grant(reputationFn.function, "dynamodb:GetItem");
+    props.reputationEventsTable.grant(
+      reputationFn.function,
+      "dynamodb:Query",
+      "dynamodb:GetItem",
+      "dynamodb:UpdateItem",
+    );
+    props.transactionAuditTable.grantWriteData(reputationFn.function);
+    // The pre-signed PUT carries the signer's rights, and the appeal checks its photo exists
+    // (HeadObject): both only under the appeal prefix.
+    props.uploadsBucket.grantPut(reputationFn.function, "uploads/appeals/*");
+    props.uploadsBucket.grantRead(reputationFn.function, "uploads/appeals/*");
+    paginationSecret.grantRead(reputationFn.function);
+    reputationPolicyParam.grantRead(reputationFn.function);
 
     // ─── Message Function ────────────────────────────────────────────
 
@@ -2376,6 +2467,11 @@ export class ApiStack extends cdk.Stack {
       DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
       NOTIFICATIONS_TABLE: props.notificationsTable.tableName,
       REPUTATION_EVENTS_TABLE: props.reputationEventsTable.tableName,
+      // ESC-29: the user's appeal photos (uploads/appeals/{userId}/) are deleted with the events,
+      // only while reputationPenalties is on: off, no appeal photo can exist and the deletion
+      // makes no S3 call, so a live erasure can never stick on this step.
+      UPLOADS_BUCKET: props.uploadsBucket.bucketName,
+      REPUTATION_PENALTIES_ENABLED: reputationPenalties,
       COGNITO_USER_POOL_ID: this.userPool.userPoolId,
       COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
     };
@@ -2401,6 +2497,20 @@ export class ApiStack extends cdk.Stack {
     });
 
     for (const fn of [accountDeletionFn.function, accountDeletionSweepFn.function]) {
+      // ESC-29: list and delete every version under the appeal prefix, nothing else in the bucket.
+      fn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["s3:ListBucketVersions"],
+          resources: [props.uploadsBucket.bucketArn],
+          conditions: { StringLike: { "s3:prefix": ["uploads/appeals/*"] } },
+        }),
+      );
+      fn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["s3:DeleteObject", "s3:DeleteObjectVersion"],
+          resources: [props.uploadsBucket.arnForObjects("uploads/appeals/*")],
+        }),
+      );
       props.usersTable.grant(fn, "dynamodb:GetItem", "dynamodb:UpdateItem");
       props.cropsTable.grant(fn, "dynamodb:Query", "dynamodb:GetItem", "dynamodb:UpdateItem");
       props.tripsTable.grant(fn, "dynamodb:Query", "dynamodb:GetItem", "dynamodb:UpdateItem");
@@ -2863,6 +2973,27 @@ export class ApiStack extends cdk.Stack {
       ),
     });
 
+    // ─── Reputation Routes (authenticated, ESC-29) ───────────────────
+    // App user pool only: an admin pool token gets 401 here (admins use the /admin routes, ESC-32).
+    // The static /reputation/me wins over /reputation/{userId}.
+    const reputationRoutes: [string, apigateway.HttpMethod, string][] = [
+      ["/reputation/me", apigateway.HttpMethod.GET, "ReputationMeInt"],
+      ["/reputation/me/events", apigateway.HttpMethod.GET, "ReputationEventsInt"],
+      ["/reputation/{userId}", apigateway.HttpMethod.GET, "ReputationPublicInt"],
+      ["/reputation/appeals/photo-url", apigateway.HttpMethod.POST, "ReputationAppealPhotoInt"],
+      ["/reputation/events/{eventId}/appeal", apigateway.HttpMethod.POST, "ReputationAppealInt"],
+    ];
+    for (const [path, method, id] of reputationRoutes) {
+      httpApi.addRoutes({
+        path,
+        methods: [method],
+        authorizer: jwtAuthorizer,
+        integration: new integrations.HttpLambdaIntegration(id, reputationFn.function, {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        }),
+      });
+    }
+
     // ─── Message Routes (authenticated) ──────────────────────────────
     // Creates go through /sync; these are read-only (thread load + pull).
 
@@ -3151,11 +3282,17 @@ export class ApiStack extends cdk.Stack {
         // FUP-67: the queue of buyers' listing reports.
         LISTING_REPORTS_TABLE: props.listingReportsTable.tableName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
+        // ESC-29 (reputation-api.md 8.4): a suspend or unsuspend leaves the day's heal marker, so
+        // the daily job rewrites the owner fields copied onto the user's listings. Off: no marker.
+        REPUTATION_EVENTS_TABLE: props.reputationEventsTable.tableName,
+        REPUTATION_PENALTIES_ENABLED: reputationPenalties,
       },
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       reservedConcurrentExecutions: 10,
     });
+    // ESC-29: the heal marker is one UpdateItem on the user's reputation events.
+    props.reputationEventsTable.grant(adminFn.function, "dynamodb:UpdateItem");
 
     // Pagination secret access
     paginationSecret.grantRead(adminFn.function);
@@ -3267,6 +3404,10 @@ export class ApiStack extends cdk.Stack {
       "/admin/escrows/held",
       "/admin/escrows/{id}",
       "/admin/escrows/{id}/audit",
+      // ESC-24: the escrow's ledger rows, read only (a Query on the ledger table; the grant is ESC-20's).
+      "/admin/escrows/{id}/ledger",
+      // ESC-24: stuck orders, from AdminQueueIndex or DeadlineIndex of the orders table (the read grant covers both).
+      "/admin/orders/queue",
       "/admin/disputes",
       // FRD-14: a dispute's evidence package (admin group checked in the Lambda; messages only
       // with include=messages, each read audited).

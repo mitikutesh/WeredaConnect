@@ -128,6 +128,14 @@ export interface EnvironmentConfig {
    */
   readonly timeoutPenalties?: boolean;
   /**
+   * REPUTATION_PUBLIC_TAGS_ENABLED on the Lambdas that return a farmer's or trucker's reputation to
+   * other users (ESC-29, reputation-api.md section 11): crops, trips, match, ratings, reputation and
+   * sync. On, buyers get the public tier, the effective rating and the reliability; off, those fields
+   * are left out of every answer. Default false. Turned on after `reputationPenalties` and the client
+   * screens of ESC-31 (reputation-architecture.md 12.1).
+   */
+  readonly reputationPublicTags?: boolean;
+  /**
    * ESC-20: ESCROW_LEDGER_ENABLED on the sync and telebirr-webhook Lambdas (escrow-protocol.md 2.2.0, P.12).
    * On, a new order escrow is born on the escrow ledger (settlementModel ledger: per-leg write-ahead rows
    * instead of the whole-escrow settlement lock) and a duplicate payment gets its ledger refund row. Off, new
@@ -189,6 +197,7 @@ export const environments: Record<string, EnvironmentConfig> = {
     // ESC-28: reputation penalties and timeout penalties stay off until the rollout (reputation-architecture.md 12.1).
     reputationPenalties: false,
     timeoutPenalties: false,
+    reputationPublicTags: false,
     // ESC-20: new order escrows settle through the escrow ledger; staging and prod stay off.
     escrowLedgerEnabled: true,
     // FRD-19: the AI advisory reviewer is on in dev only (owner's decision, 2026-11-11), on Haiku 5.5; the EU
@@ -220,6 +229,7 @@ export const environments: Record<string, EnvironmentConfig> = {
     // ESC-28: reputation penalties and timeout penalties stay off until the rollout (reputation-architecture.md 12.1).
     reputationPenalties: false,
     timeoutPenalties: false,
+    reputationPublicTags: false,
     // FRD-19: off. me-south-1 has no EU or ME geo profile for current Claude models; if turned on, the reviewer
     // calls the EU profile from eu-central-1 (decision record, option 3).
     aiReviewEnabled: false,
@@ -247,6 +257,7 @@ export const environments: Record<string, EnvironmentConfig> = {
     // ESC-28: reputation penalties and timeout penalties stay off until the rollout (reputation-architecture.md 12.1).
     reputationPenalties: false,
     timeoutPenalties: false,
+    reputationPublicTags: false,
     // FRD-19: off. me-south-1 has no EU or ME geo profile for current Claude models; if turned on, the reviewer
     // calls the EU profile from eu-central-1 (decision record, option 3).
     aiReviewEnabled: false,

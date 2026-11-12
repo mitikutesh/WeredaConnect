@@ -26,11 +26,12 @@ public interface IRatingRepository
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByRateeAsync(
         string rateeId,
         int limit = 20,
-        Dictionary<string, AttributeValue>? exclusiveStartKey = null);
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null,
+        string? rateeRole = null);
 
     /// <summary>
     /// Compute the aggregate (average + count) of all ratings for a ratee by
     /// walking every page. Used for the summary figure.
     /// </summary>
-    Task<(double Average, int Count)> GetSummaryAsync(string rateeId);
+    Task<(double Average, int Count)> GetSummaryAsync(string rateeId, string? rateeRole = null);
 }

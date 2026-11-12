@@ -449,7 +449,10 @@ public partial class SyncFunction
     // Stripped from client data early in processing; server injects them after fraud checks.
     private static readonly HashSet<string> ServerOnlyFields = new()
     {
-        "isFlagged", "flagReason", "gpsAnomalyFlag"
+        "isFlagged", "flagReason", "gpsAnomalyFlag",
+        // ESC-29 (reputation-api.md section 7): the owner's copied reputation, written by the server only.
+        OwnerReputationFields.TierField, OwnerReputationFields.EffectiveRatingField, OwnerReputationFields.RatingCountField,
+        OwnerReputationFields.ReliabilityPctField, OwnerReputationFields.AtField
     };
 
     // FIX-007: Identity fields are immutable after delivery creation
@@ -880,13 +883,16 @@ public partial class SyncFunction
         }
 
         // ACC-02: nothing in the batch is applied once the caller's account is being or has been
-        // deleted (410 ACCOUNT_004, terminal for the client).
+        // deleted (410 ACCOUNT_004, terminal for the client). ESC-29 (reputation-api.md 8.4): the
+        // same strongly consistent read refuses a suspended caller (403 AUTH_025, no operation
+        // applied, no idempotency key recorded) and gives the reputation gates and the owner stamps
+        // the caller's row, at no extra read.
+        _batchCaller = null;
         if (_userRepo != null)
         {
-            APIGatewayProxyResponse? gone;
             try
             {
-                gone = await AccountDeletionGuard.RefuseIfDeletingAsync(_userRepo, authenticatedUserId);
+                _batchCaller = await _userRepo.GetUserByIdAsync(authenticatedUserId, consistentRead: true);
             }
             catch (Exception ex)
             {
@@ -894,9 +900,9 @@ public partial class SyncFunction
                 return LambdaResponse.Error(503, "SYNC_SERVER_ERROR", "Sync is temporarily unavailable. Please retry.");
             }
 
-            if (gone != null)
+            if (AccountDeletionGuard.RefusalFor(_batchCaller) is { } refused)
             {
-                return gone;
+                return refused;
             }
         }
 
@@ -918,7 +924,7 @@ public partial class SyncFunction
             context.Logger.LogInformation(
                 $"Op {MoneyAlarmLog.LogId(result.OperationId)}: status={result.Status}, msg={MoneyAlarmLog.LogText(result.Message ?? "none")}");
             // SIM-25: numbers and matchedListings in serverData go out typed, as GET returns them.
-            results.Add(SyncServerData.Typed(result));
+            results.Add(SyncServerData.Typed(result, ReputationPublicTags));
         }
 
         var successCount = results.Count(r => r.Status == "SYNC_SUCCESS" || r.Status == "SYNC_DUPLICATE");
@@ -2639,6 +2645,12 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "crop", authenticatedUserId, context);
                     }
 
+                    // ESC-29 (reputation-api.md 8.1): a restricted farmer lists nothing new.
+                    if (RefuseIfRestricted(operation) is { } cropRestricted)
+                    {
+                        return cropRestricted;
+                    }
+
                     // FUP-98: the same profile read gives the woreda the screen below exempts.
                     string? farmerProfileWoreda = null;
                     var cropContactError = await StampOwnerContactAsync(
@@ -2760,6 +2772,7 @@ public partial class SyncFunction
                     }
 
                     NormalizeCropPhotoIds(operation.Data);
+                    StampOwnerReputation(operation.Data);
 
                     var createResult = await _cropRepo.CreateAsync(operation.EntityId, operation.Data);
 
@@ -3123,6 +3136,12 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "trip", authenticatedUserId, context);
                     }
 
+                    // ESC-29 (reputation-api.md 8.1): a restricted trucker posts no new trip.
+                    if (RefuseIfRestricted(operation) is { } tripRestricted)
+                    {
+                        return tripRestricted;
+                    }
+
                     var tripContactError = await StampOwnerContactAsync(
                         operation.Data, authenticatedUserId!, "truckerName", "truckerPhone", context);
                     if (tripContactError != null)
@@ -3215,6 +3234,14 @@ public partial class SyncFunction
 
                     // Force status to "open" for create (C3)
                     item["status"] = new AttributeValue { S = "open" };
+
+                    // ESC-29 (reputation-api.md section 7): the owner's reputation at create.
+                    var tripOwnerFields = new Dictionary<string, object>();
+                    StampOwnerReputation(tripOwnerFields);
+                    foreach (var (ownerField, ownerValue) in tripOwnerFields)
+                    {
+                        item[ownerField] = CropRepository.ToAttributeValue(ownerValue);
+                    }
 
                     // Handle matchedListings
                     if (operation.Data.TryGetValue("matchedListings", out var ml))
@@ -6627,6 +6654,13 @@ public partial class SyncFunction
 
         // Force initial status
         operation.Data["status"] = "created";
+
+        // ESC-29 (reputation-api.md 8.2): no new order with a restricted or suspended farmer or trucker.
+        if (await RefuseRestrictedCounterpartyAsync(
+                operation, context, ItemString(listing, "farmerId"), truckerId) is { } counterpartyRestricted)
+        {
+            return counterpartyRestricted;
+        }
 
         var createResult = await _orderRepo.CreateAsync(operation.EntityId, operation.Data);
 

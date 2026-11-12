@@ -40,6 +40,15 @@ public class MatchFunction
 {
     private readonly ICropRepository _cropRepo;
 
+    /// <summary>
+    /// ESC-29 (reputation-api.md 8.3), <c>reputationPenalties</c>: a buyer's read leaves out rows
+    /// whose owner is restricted. Off by default.
+    /// </summary>
+    internal bool HideRestrictedOwners { get; init; } = ReputationFlags.PenaltiesEnabled;
+
+    /// <summary>ESC-29 (reputation-api.md section 7), <c>reputationPublicTags</c>: the owner fields are returned. Off by default.</summary>
+    internal bool ReputationPublicTags { get; init; } = ReputationFlags.PublicTagsEnabled;
+
     /// <summary>Candidates fetched per page from each crop type before scoring.</summary>
     private const int CandidateLimitPerType = 100;
 
@@ -141,6 +150,7 @@ public class MatchFunction
             // substitutes). De-dupe by cropId across types.
             var seen = new HashSet<string>();
             var scored = new List<MatchDto>();
+            var hideRestricted = HideRestrictedOwners && string.Equals(role, "buyer", StringComparison.OrdinalIgnoreCase);
 
             // Push the price ceiling (budget + near-miss band) into the GSI
             // query: over-budget crops are skipped before the full-item fetch
@@ -177,6 +187,13 @@ public class MatchFunction
                             continue;
                         }
 
+                        // ESC-29 (reputation-api.md 8.3): a restricted farmer's listing is no
+                        // candidate for a buyer.
+                        if (hideRestricted && OwnerReputationView.IsRestrictedOwner(item))
+                        {
+                            continue;
+                        }
+
                         var candidate = ToCandidate(item, criteria.NowUtc);
                         if (!MatchScoring.IsCandidate(criteria, candidate))
                         {
@@ -185,7 +202,7 @@ public class MatchFunction
 
                         var score = MatchScoring.ScoreListing(criteria, candidate);
                         scored.Add(ToMatchDto(item, candidate, score,
-                            MatchScoring.IsSubstitute(cropType, candidate.CropType)));
+                            MatchScoring.IsSubstitute(cropType, candidate.CropType), ReputationPublicTags));
                     }
 
                     startKey = lastKey;
@@ -244,10 +261,16 @@ public class MatchFunction
     }
 
     private static MatchDto ToMatchDto(
-        Dictionary<string, object> item, CropCandidate candidate, double score, bool isSubstitute)
+        Dictionary<string, object> item, CropCandidate candidate, double score, bool isSubstitute, bool publicTags)
     {
+        var owner = OwnerReputationView.Of(item, publicTags);
         return new MatchDto
         {
+            OwnerTier = owner.Tier,
+            OwnerEffectiveRating = owner.EffectiveRating,
+            OwnerRatingCount = owner.RatingCount,
+            OwnerReliabilityPct = owner.ReliabilityPct,
+            OwnerReputationAt = owner.At,
             CropId = GetString(item, "cropId"),
             FarmerId = GetString(item, "farmerId"),
             FarmerName = GetStringOrNull(item, "farmerName"),

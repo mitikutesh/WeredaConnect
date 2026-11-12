@@ -60,6 +60,20 @@ public sealed record ReputationEvent
 
     public string? AppealedAt { get; init; }
 
+    /// <summary>ESC-29: the party's appeal (reputation-api.md section 6); the text is never logged.</summary>
+    public string? AppealText { get; init; }
+
+    public string? AppealPhotoRef { get; init; }
+
+    /// <summary>When the party's appeal text was received (on a review row <c>appealedAt</c> stays the queue key).</summary>
+    public string? AppealTextAt { get; init; }
+
+    /// <summary>The admin's decision (<c>excused</c> or <c>upheld</c>), when and the note to the party (ESC-32 writes them).</summary>
+    public string? AppealDecision { get; init; }
+
+    public string? DecidedAt { get; init; }
+    public string? DecisionNote { get; init; }
+
     /// <summary>The <c>DueIndex</c> keys while the row will still change state.</summary>
     public string? DueDay { get; init; }
 
@@ -201,6 +215,9 @@ public sealed record ReputationUserState
     public long RatingSum { get; init; }
     public long RatingCount { get; init; }
     public string? RatingsAggregatedAt { get; init; }
+
+    /// <summary>ESC-29: the whole stored map, for the reads (null when the user has no map yet).</summary>
+    public ReputationSnapshot? Snapshot { get; init; }
 }
 
 /// <summary>Event codes (reputation-api.md 1.1) and system row codes (architecture doc 3.2).</summary>
@@ -314,4 +331,66 @@ public static class ReputationCauses
 
     public const string TagLow = "low";
     public const string TagClear = "clear";
+}
+
+/// <summary>
+/// ESC-29: the stored <c>reputation</c> map of a users row (user-entity.md section 2) as the gates,
+/// the owner stamps and the reads see it. Stored values only: whether a restriction still holds at
+/// a given moment is decided by <see cref="IsRestrictedAt"/>, never by the stored tier.
+/// </summary>
+public sealed record ReputationSnapshot
+{
+    public int Version { get; init; }
+    public string Tier { get; init; } = ReputationTiers.Good;
+    public int ActivePoints { get; init; }
+    public int CompletedOrders90d { get; init; }
+    public int FaultCancels90d { get; init; }
+    public int NoShows90d { get; init; }
+    public int? ReliabilityPct { get; init; }
+    public decimal? EffectiveRating { get; init; }
+
+    /// <summary>True when the map carries a <c>restriction</c> (it may have ended since it was written).</summary>
+    public bool HasRestriction { get; init; }
+
+    public string? RestrictionCause { get; init; }
+    public DateTime? RestrictionSince { get; init; }
+
+    /// <summary>Absent while an admin review is open (no end date yet).</summary>
+    public DateTime? RestrictionUntil { get; init; }
+
+    public string? OverrideTag { get; init; }
+    public string? OverrideReason { get; init; }
+    public DateTime? OverrideUntil { get; init; }
+
+    /// <summary>The earliest time a stored value changes with no new event (a read past it recomputes).</summary>
+    public DateTime? NextChangeAt { get; init; }
+
+    /// <summary>A stored restriction that has started and not ended at <paramref name="now"/>.</summary>
+    public bool IsRestrictedAt(DateTime now)
+        => HasRestriction && (RestrictionUntil == null || RestrictionUntil > now);
+}
+
+/// <summary>
+/// ESC-29 (reputation-api.md section 7): the owner's public reputation as copied onto their crop
+/// and trip rows. <see cref="Tier"/> is the internal tier (stored); reads map it to the public one.
+/// </summary>
+public sealed record OwnerReputationFields
+{
+    public const string TierField = "ownerTier";
+    public const string EffectiveRatingField = "ownerEffectiveRating";
+    public const string RatingCountField = "ownerRatingCount";
+    public const string ReliabilityPctField = "ownerReliabilityPct";
+    public const string AtField = "ownerReputationAt";
+
+    /// <summary>The five attribute names, never taken from a client.</summary>
+    public static readonly IReadOnlyList<string> Names = new[]
+    {
+        TierField, EffectiveRatingField, RatingCountField, ReliabilityPctField, AtField
+    };
+
+    public required string Tier { get; init; }
+    public decimal? EffectiveRating { get; init; }
+    public long RatingCount { get; init; }
+    public int? ReliabilityPct { get; init; }
+    public required DateTime At { get; init; }
 }

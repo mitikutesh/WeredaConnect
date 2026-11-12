@@ -562,6 +562,18 @@ public sealed record EscrowDto
 
     /// <summary>ESC-20: the part of <see cref="Amount"/> decided for the farmer and the trucker so far. Null on a 1.x escrow.</summary>
     public decimal? ReleasedTotal { get; init; }
+
+    /// <summary>ESC-24, admin responses only: the trucker's display name. Party reads never fill it.</summary>
+    public string? TruckerName { get; set; }
+
+    /// <summary>
+    /// ESC-24, admin responses only: where the transport leg stands (owed, blocked by the payout gate, waiting in
+    /// Manual Payouts, paid). Null when the escrow carries no transport leg. Party reads never fill it.
+    /// </summary>
+    public AdminTruckerLegDto? TruckerLeg { get; init; }
+
+    /// <summary>ESC-24, admin responses only: the split an admin recorded with a <c>partial_refund</c> verdict (ESC-20).</summary>
+    public VerdictAmountsDto? VerdictAmounts { get; init; }
 }
 
 /// <summary>

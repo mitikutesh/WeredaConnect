@@ -75,7 +75,42 @@ public sealed class ReputationEventRepository : IReputationEventRepository
             LastEventRecordedAt = map != null ? Time(map, "lastEventRecordedAt") : null,
             RatingSum = Long(item, "ratingSum") ?? 0,
             RatingCount = Long(item, "ratingCount") ?? 0,
-            RatingsAggregatedAt = Str(item, "ratingsAggregatedAt")
+            RatingsAggregatedAt = Str(item, "ratingsAggregatedAt"),
+            Snapshot = SnapshotFromMap(map)
+        };
+    }
+
+    /// <summary>ESC-29: the stored <c>reputation</c> map of a users row item, or null when it has none.</summary>
+    internal static ReputationSnapshot? SnapshotFromItem(Dictionary<string, AttributeValue> userItem)
+        => SnapshotFromMap(userItem.TryGetValue("reputation", out var rep) && rep.M is { Count: > 0 } m ? m : null);
+
+    private static ReputationSnapshot? SnapshotFromMap(Dictionary<string, AttributeValue>? map)
+    {
+        if (map == null)
+        {
+            return null;
+        }
+
+        var restriction = map.TryGetValue("restriction", out var r) && r.M is { Count: > 0 } rm ? rm : null;
+        var overrideMap = map.TryGetValue("override", out var o) && o.M is { Count: > 0 } om ? om : null;
+        return new ReputationSnapshot
+        {
+            Version = Int(map, "version") ?? 0,
+            Tier = Str(map, "tier") ?? ReputationTiers.Good,
+            ActivePoints = Int(map, "activePoints") ?? 0,
+            CompletedOrders90d = Int(map, "completedOrders90d") ?? 0,
+            FaultCancels90d = Int(map, "faultCancels90d") ?? 0,
+            NoShows90d = Int(map, "noShows90d") ?? 0,
+            ReliabilityPct = Int(map, "reliabilityPct"),
+            EffectiveRating = Dec(map, "effectiveRating"),
+            HasRestriction = restriction != null,
+            RestrictionCause = restriction != null ? Str(restriction, "cause") : null,
+            RestrictionSince = restriction != null ? Time(restriction, "since") : null,
+            RestrictionUntil = restriction != null ? Time(restriction, "until") : null,
+            OverrideTag = overrideMap != null ? Str(overrideMap, "tag") : null,
+            OverrideReason = overrideMap != null ? Str(overrideMap, "reason") : null,
+            OverrideUntil = overrideMap != null ? Time(overrideMap, "until") : null,
+            NextChangeAt = Time(map, "nextChangeAt")
         };
     }
 
@@ -384,6 +419,82 @@ public sealed class ReputationEventRepository : IReputationEventRepository
         return count;
     }
 
+    /// <inheritdoc />
+    public async Task<ReputationEvent?> GetEventAsync(string userId, string eventId)
+    {
+        var response = await _dynamoDb.GetItemAsync(new GetItemRequest
+        {
+            TableName = _eventsTable,
+            Key = EventKey(userId, eventId),
+            ConsistentRead = true
+        });
+        return response.Item is { Count: > 0 } item ? FromItem(item) : null;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryAppealAsync(string userId, string eventId, string text, string? photoRef, DateTime at, bool openReview)
+    {
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(BuildAppeal(userId, eventId, text, photoRef, at, openReview));
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The appeal of one event (reputation-api.md section 6): the text, the optional photo and,
+    /// unless the row is already in an admin review, <c>appealStatus: pending</c> with
+    /// <c>appealedAt</c> (the row joins <c>AppealStatusIndex</c>). One appeal per event: the row
+    /// must exist, be active and have no appeal text. No counted attribute changes, so neither the
+    /// row's nor the users map's version moves.
+    /// </summary>
+    internal UpdateItemRequest BuildAppeal(string userId, string eventId, string text, string? photoRef, DateTime at, bool openReview)
+    {
+        var iso = ReputationPolicy.Iso(at);
+        var names = new Dictionary<string, string>
+        {
+            ["#text"] = "appealText",
+            ["#textAt"] = "appealTextAt",
+            ["#st"] = "status"
+        };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            [":text"] = S(text),
+            [":at"] = S(iso),
+            [":active"] = S(ReputationStatuses.Active)
+        };
+        var set = new List<string> { "#text = :text", "#textAt = :at" };
+        if (!string.IsNullOrEmpty(photoRef))
+        {
+            names["#photo"] = "appealPhotoRef";
+            values[":photo"] = S(photoRef);
+            set.Add("#photo = :photo");
+        }
+
+        if (!openReview)
+        {
+            names["#as"] = "appealStatus";
+            names["#aa"] = "appealedAt";
+            values[":pending"] = S("pending");
+            set.Add("#as = :pending");
+            set.Add("#aa = :at");
+        }
+
+        return new UpdateItemRequest
+        {
+            TableName = _eventsTable,
+            Key = EventKey(userId, eventId),
+            UpdateExpression = "SET " + string.Join(", ", set),
+            ConditionExpression = "attribute_exists(eventId) AND attribute_not_exists(#text) AND #st = :active",
+            ExpressionAttributeNames = names,
+            ExpressionAttributeValues = values
+        };
+    }
+
     // ===== marshalling =====
 
     /// <summary>The <c>reputation</c> map item (user-entity.md 2.0.0 section 2). Absent values are left out.</summary>
@@ -505,6 +616,12 @@ public sealed class ReputationEventRepository : IReputationEventRepository
         Put(item, "earnBackEventId", e.EarnBackEventId);
         Put(item, "appealStatus", e.AppealStatus);
         Put(item, "appealedAt", e.AppealedAt);
+        Put(item, "appealText", e.AppealText);
+        Put(item, "appealPhotoRef", e.AppealPhotoRef);
+        Put(item, "appealTextAt", e.AppealTextAt);
+        Put(item, "appealDecision", e.AppealDecision);
+        Put(item, "decidedAt", e.DecidedAt);
+        Put(item, "decisionNote", e.DecisionNote);
         Put(item, "dueDay", e.DueDay);
         Put(item, "dueAt", e.DueAt);
         Put(item, "sourceSeq", e.SourceSeq);
@@ -555,6 +672,12 @@ public sealed class ReputationEventRepository : IReputationEventRepository
         EarnBackEventId = Str(item, "earnBackEventId"),
         AppealStatus = Str(item, "appealStatus"),
         AppealedAt = Str(item, "appealedAt"),
+        AppealText = Str(item, "appealText"),
+        AppealPhotoRef = Str(item, "appealPhotoRef"),
+        AppealTextAt = Str(item, "appealTextAt"),
+        AppealDecision = Str(item, "appealDecision"),
+        DecidedAt = Str(item, "decidedAt"),
+        DecisionNote = Str(item, "decisionNote"),
         DueDay = Str(item, "dueDay"),
         DueAt = Str(item, "dueAt"),
         Version = Int(item, "version") ?? 1,

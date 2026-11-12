@@ -104,6 +104,7 @@ function actionsOn(template: Template, functionName: string, hint: string): stri
 const STREAM_FN = 'wereda-connect-dev-reputation-stream';
 const ORDER_CRON_FN = 'wereda-connect-dev-order-cron';
 const SYNC_FN = 'wereda-connect-dev-sync';
+const REPUTATION_FN = 'wereda-connect-dev-reputation';
 const NOTIFY_FN = 'wereda-connect-dev-order-notify-stream';
 const DELETION_FNS = ['wereda-connect-dev-account-deletion', 'wereda-connect-dev-account-deletion-sweep'];
 
@@ -325,12 +326,120 @@ describe('ESC-28 reputation core (ApiStack)', () => {
     expect(actionsOn(api, STREAM_FN, 'ReputationParkedQueue')).not.toContain('sqs:ReceiveMessage');
     // The failure destination: the stream mapping sends batch metadata to the reputation DLQ.
     expect(actionsOn(api, STREAM_FN, 'ReputationDlq')).toContain('sqs:SendMessage');
-    // On the orders table, only the stream reads; nothing on the crops or trips tables.
+    // On the orders table, only the stream reads.
     for (const s of statementsOn(api, STREAM_FN, 'OrdersTable')) {
       expect(JSON.stringify(s.Resource)).toContain('StreamArn');
     }
-    expect(statementsOn(api, STREAM_FN, 'CropsTable')).toEqual([]);
-    expect(statementsOn(api, STREAM_FN, 'TripsTable')).toEqual([]);
+  });
+
+  test('ESC-29 copy refresh: reputation-stream reads the owner indexes and updates crop and trip rows, nothing more', () => {
+    expect(envOf(api, STREAM_FN).CROPS_TABLE).toBeDefined();
+    expect(envOf(api, STREAM_FN).TRIPS_TABLE).toBeDefined();
+    for (const [hint, index, baseActions] of [
+      ['CropsTable', '/index/FarmerIdCreatedAtIndex', ['dynamodb:BatchGetItem', 'dynamodb:UpdateItem']],
+      ['TripsTable', '/index/TruckerIdCreatedAtIndex', ['dynamodb:UpdateItem']],
+    ] as [string, string, string[]][]) {
+      const statements = statementsOn(api, STREAM_FN, hint);
+      const onIndex = statements.filter((s) => JSON.stringify(s.Resource).includes('/index/'));
+      expect([hint, [...new Set(onIndex.flatMap(actionsOf))]]).toEqual([hint, ['dynamodb:Query']]);
+      expect([hint, JSON.stringify(onIndex.map((s) => s.Resource))]).toEqual([hint, expect.stringContaining(index)]);
+      expect(JSON.stringify(onIndex.map((s) => s.Resource))).not.toContain('/index/*');
+      const onBase = statements.filter((s) => !JSON.stringify(s.Resource).includes('/index/'));
+      expect([hint, [...new Set(onBase.flatMap(actionsOf))].sort()]).toEqual([hint, baseActions]);
+    }
+    // The other two writers of the copies already hold read and write on both tables.
+    for (const fn of [ORDER_CRON_FN, SYNC_FN]) {
+      for (const hint of ['CropsTable', 'TripsTable']) {
+        expect([fn, hint, actionsOn(api, fn, hint)]).toEqual([
+          fn,
+          hint,
+          expect.arrayContaining(['dynamodb:Query', 'dynamodb:BatchGetItem', 'dynamodb:UpdateItem']),
+        ]);
+      }
+    }
+  });
+
+  test('ESC-29 reputation Lambda: five routes behind the app authorizer, least privilege, flags off', () => {
+    const env = envOf(api, REPUTATION_FN);
+    expect(env.REPUTATION_PENALTIES_ENABLED).toBe('false');
+    expect(env.REPUTATION_PUBLIC_TAGS_ENABLED).toBe('false');
+    for (const name of ['REPUTATION_EVENTS_TABLE', 'USERS_TABLE', 'TRANSACTION_AUDIT_TABLE', 'UPLOADS_BUCKET', 'PAGINATION_SECRET_ARN', 'REPUTATION_POLICY_PARAM']) {
+      expect([name, env[name]]).toEqual([name, expect.anything()]);
+    }
+    api.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: REPUTATION_FN,
+      MemorySize: 256,
+      Timeout: 10,
+    });
+
+    expect(actionsOn(api, REPUTATION_FN, 'UsersTable')).toEqual(['dynamodb:GetItem']);
+    const events = statementsOn(api, REPUTATION_FN, 'ReputationEventsTable');
+    expect([...new Set(events.flatMap(actionsOf))].sort()).toEqual(['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:UpdateItem']);
+    expect(actionsOn(api, REPUTATION_FN, 'ReputationEventsTable')).not.toContain('dynamodb:Scan');
+    // Nothing on the listings, the orders or the ratings.
+    for (const hint of ['CropsTable', 'TripsTable', 'OrdersTable', 'RatingsTable']) {
+      expect([hint, statementsOn(api, REPUTATION_FN, hint)]).toEqual([hint, []]);
+    }
+    // S3: only objects under the appeal prefix.
+    const s3 = statementsOn(api, REPUTATION_FN, 'uploads/appeals/*');
+    expect(s3.length).toBeGreaterThan(0);
+    const objectStatements = statementsOn(api, REPUTATION_FN, 'Uploads').filter((s) =>
+      actionsOf(s).some((a) => a === 's3:PutObject' || a.startsWith('s3:GetObject')),
+    );
+    for (const s of objectStatements) {
+      expect(JSON.stringify(s.Resource)).toContain('uploads/appeals/*');
+    }
+    expect(actionsOn(api, REPUTATION_FN, 'Uploads')).not.toContain('s3:DeleteObject*');
+
+    const routes = Object.values(api.findResources('AWS::ApiGatewayV2::Route'))
+      .map((r) => r.Properties)
+      .filter((r) => String(r.RouteKey).includes('/reputation'));
+    expect(routes.map((r) => r.RouteKey).sort()).toEqual([
+      'GET /reputation/me',
+      'GET /reputation/me/events',
+      'GET /reputation/{userId}',
+      'POST /reputation/appeals/photo-url',
+      'POST /reputation/events/{eventId}/appeal',
+    ]);
+    // The same (app pool) authorizer as /ratings: an admin pool token gets 401.
+    const [ratings] = Object.values(api.findResources('AWS::ApiGatewayV2::Route'))
+      .map((r) => r.Properties)
+      .filter((r) => r.RouteKey === 'GET /ratings');
+    for (const route of routes) {
+      expect([route.RouteKey, route.AuthorizationType, route.AuthorizerId]).toEqual([
+        route.RouteKey,
+        'JWT',
+        ratings.AuthorizerId,
+      ]);
+    }
+  });
+
+  test('ESC-29 reads: ratings reads the ratee row and events; crops, trips and match carry both flags, off', () => {
+    const ratingsFn = 'wereda-connect-dev-ratings';
+    expect(actionsOn(api, ratingsFn, 'UsersTable')).toEqual(['dynamodb:GetItem']);
+    expect(actionsOn(api, ratingsFn, 'ReputationEventsTable')).toEqual(['dynamodb:Query']);
+    for (const fn of [ratingsFn, 'wereda-connect-dev-crops', 'wereda-connect-dev-trips', 'wereda-connect-dev-match']) {
+      const env = envOf(api, fn);
+      expect([fn, env.REPUTATION_PENALTIES_ENABLED, env.REPUTATION_PUBLIC_TAGS_ENABLED]).toEqual([fn, 'false', 'false']);
+    }
+    expect(envOf(api, SYNC_FN).REPUTATION_PUBLIC_TAGS_ENABLED).toBe('false');
+  });
+
+  test('ESC-29 suspension and deletion: admin may only upsert the heal marker; account deletion removes appeal photos only', () => {
+    const adminFn = 'wereda-connect-dev-admin';
+    expect(envOf(api, adminFn).REPUTATION_PENALTIES_ENABLED).toBe('false');
+    expect(envOf(api, adminFn).REPUTATION_EVENTS_TABLE).toBeDefined();
+    expect(actionsOn(api, adminFn, 'ReputationEventsTable')).toEqual(['dynamodb:UpdateItem']);
+    for (const fn of DELETION_FNS) {
+      expect([fn, envOf(api, fn).UPLOADS_BUCKET]).toEqual([fn, expect.anything()]);
+      // The appeal photo step runs only with the flag on; off, a deletion makes no S3 call.
+      expect([fn, envOf(api, fn).REPUTATION_PENALTIES_ENABLED]).toEqual([fn, 'false']);
+      const deletes = statementsOn(api, fn, 'uploads/appeals/*');
+      expect([fn, [...new Set(deletes.flatMap(actionsOf))].sort()]).toEqual([fn, ['s3:DeleteObject', 's3:DeleteObjectVersion']]);
+      const lists = statementsOn(api, fn, 'Uploads').filter((s) => actionsOf(s).includes('s3:ListBucketVersions'));
+      expect([fn, lists.length]).toEqual([fn, 1]);
+      expect(JSON.stringify(lists[0])).toContain('uploads/appeals/*');
+    }
   });
 
   test('order-notify-stream reads the reputation-events stream: INSERT of a penalty code or TIER_CHANGED, notify settings', () => {
@@ -507,7 +616,10 @@ describe('ESC-28 reputation core (ApiStack)', () => {
         .filter((a) => ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem'].includes(a));
       if (writes.length > 0) writers.add(name);
     }
-    expect([...writers].sort()).toEqual([...DELETION_FNS, ORDER_CRON_FN, STREAM_FN, SYNC_FN].sort());
+    // ESC-29: the admin Lambda upserts the heal marker on a suspend; the reputation Lambda stores an appeal.
+    expect([...writers].sort()).toEqual(
+      [...DELETION_FNS, 'wereda-connect-dev-admin', ORDER_CRON_FN, REPUTATION_FN, STREAM_FN, SYNC_FN].sort(),
+    );
   });
 });
 
@@ -522,6 +634,11 @@ describe('ESC-28 reputation core outside dev', () => {
       FunctionName: 'wereda-connect-staging-order-cron',
       ReservedConcurrentExecutions: 6,
     });
+    // ESC-29: the reputation reads and the appeal.
+    api.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-staging-reputation',
+      ReservedConcurrentExecutions: 5,
+    });
   });
 
   test.each(['dev', 'staging', 'prod'])('%s: both reputation flags synthesize "false" on every Lambda that reads them', (envName) => {
@@ -534,10 +651,26 @@ describe('ESC-28 reputation core outside dev', () => {
     expect(flags('order-cron')).toEqual(['false', 'false']);
     // Sync reads the penalties flag only.
     expect(flags('sync')).toEqual(['false', undefined]);
+    // ESC-29: the public tags flag is off on every Lambda that returns a reputation.
+    for (const fn of ['crops', 'trips', 'match', 'ratings', 'reputation', 'sync']) {
+      const env = envOf(api, `wereda-connect-${envName}-${fn}`);
+      expect([fn, env.REPUTATION_PENALTIES_ENABLED, env.REPUTATION_PUBLIC_TAGS_ENABLED]).toEqual([fn, 'false', 'false']);
+    }
+    expect(environments[envName].reputationPublicTags).toBe(false);
   });
 
   test('turning the flags on in the config reaches the Lambdas', () => {
-    const { api } = stacks({ ...devConfig, reputationPenalties: true, timeoutPenalties: true });
+    const { api } = stacks({ ...devConfig, reputationPenalties: true, timeoutPenalties: true, reputationPublicTags: true });
+    // ESC-29: the gates, the hidden browse and the public tags follow the same config.
+    for (const fn of ['crops', 'trips', 'match', 'ratings', 'reputation']) {
+      const env = envOf(api, `wereda-connect-dev-${fn}`);
+      expect([fn, env.REPUTATION_PENALTIES_ENABLED, env.REPUTATION_PUBLIC_TAGS_ENABLED]).toEqual([fn, 'true', 'true']);
+    }
+    expect(envOf(api, SYNC_FN).REPUTATION_PUBLIC_TAGS_ENABLED).toBe('true');
+    expect(envOf(api, 'wereda-connect-dev-admin').REPUTATION_PENALTIES_ENABLED).toBe('true');
+    for (const fn of DELETION_FNS) {
+      expect([fn, envOf(api, fn).REPUTATION_PENALTIES_ENABLED]).toEqual([fn, 'true']);
+    }
     for (const fn of [STREAM_FN, ORDER_CRON_FN]) {
       const env = envOf(api, fn);
       expect([fn, env.REPUTATION_PENALTIES_ENABLED, env.REPUTATION_TIMEOUT_PENALTIES_ENABLED]).toEqual([fn, 'true', 'true']);

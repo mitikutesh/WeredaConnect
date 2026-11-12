@@ -39,12 +39,13 @@
 
 ## Admin Playwright Specs (local only)
 
-No CI workflow runs the Playwright suite in `e2e/`; it is run by hand. Two admin specs,
-`e2e/admin/fraud-review.spec.ts` (FRD-07) and `e2e/admin/dispute-evidence.spec.ts` (FRD-14), also need a
-local admin build. They do not sign in (the admin pool needs TOTP): each seeds a fake Cognito session in
+No CI workflow runs the Playwright suite in `e2e/`; it is run by hand. Three admin specs,
+`e2e/admin/fraud-review.spec.ts` (FRD-07), `e2e/admin/dispute-evidence.spec.ts` (FRD-14) and
+`e2e/admin/legs-and-stuck-orders.spec.ts` (ESC-24: the per-leg verdict, the ledger view, Stuck Orders), also
+need a local admin build. They do not sign in (the admin pool needs TOTP): each seeds a fake Cognito session in
 localStorage under the app client id `e2eadminclient` and answers every API call with `page.route`, so
 they check what the page sends and shows, never the server. Against the deployed dev admin the seeded
-session is not found, so both skip themselves unless `ADMIN_URL` is a localhost address (or
+session is not found, so they skip themselves unless `ADMIN_URL` is a localhost address (or
 `ADMIN_COGNITO_CLIENT_ID` names the deployed build's client id).
 
 ```bash
@@ -54,13 +55,13 @@ VITE_COGNITO_ADMIN_USER_POOL_ID=eu-north-1_e2eAdmin VITE_COGNITO_ADMIN_CLIENT_ID
   VITE_API_BASE_URL=https://api.e2e.invalid npx vite build
 npx vite preview --port 4173
 
-# Terminal 2: run the two specs against it (first time only: npx playwright install chromium)
+# Terminal 2: run the three specs against it (first time only: npx playwright install chromium)
 cd e2e && npm ci
 ADMIN_URL=http://localhost:4173 npx playwright test --project=admin \
-  admin/fraud-review.spec.ts admin/dispute-evidence.spec.ts
+  admin/fraud-review.spec.ts admin/dispute-evidence.spec.ts admin/legs-and-stuck-orders.spec.ts
 ```
 
-Expected: 9 passed (6 Fraud Review, 3 dispute evidence), a few seconds. The values on the build line
+Expected: 13 passed (6 Fraud Review, 3 dispute evidence, 4 legs and stuck orders), a few seconds. The values on the build line
 override `admin/.env` for that build only; rebuild with the real values (`npm run build`) before using
 `admin/dist` for anything else. The other admin specs (`login`, `dashboard`, `navigation`) and the
 `webapp` project run against the deployed dev sites by default (`e2e/playwright.config.ts`):

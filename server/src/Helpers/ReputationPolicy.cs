@@ -376,6 +376,59 @@ public static class ReputationPolicy
     }
 
     /// <summary>
+    /// ESC-29 (architecture doc 6.6): the aggregate of a stored <c>reputation</c> map at
+    /// <paramref name="now"/>, with no event read. Valid while <paramref name="now"/> is before the
+    /// map's <c>nextChangeAt</c> (past it the caller recomputes from the events); a restriction or
+    /// an override whose end has passed is dropped here either way, so a gate never refuses on an
+    /// ended restriction. The tier, the effective rating and the reliability come from the stored
+    /// counts and the live policy. An absent map is 0 points, <c>good</c>, no reliability.
+    /// </summary>
+    public static ReputationAggregate FromSnapshot(
+        ReputationSnapshot? snapshot, (long Sum, long Count) ratings, bool suspended, DateTime now, ReputationPolicySettings s)
+    {
+        var restriction = snapshot != null && snapshot.IsRestrictedAt(now)
+            ? new ReputationEvent
+            {
+                UserId = string.Empty,
+                EventId = ReputationSlots.Restriction,
+                Code = ReputationCodes.Restriction,
+                Cause = snapshot.RestrictionCause,
+                Since = snapshot.RestrictionSince,
+                Until = snapshot.RestrictionUntil
+            }
+            : null;
+        var overrideRow = snapshot?.OverrideTag != null && snapshot.OverrideUntil is { } overrideEnd && overrideEnd > now
+            ? new ReputationEvent
+            {
+                UserId = string.Empty,
+                EventId = ReputationSlots.Override,
+                Code = snapshot.OverrideTag == ReputationCauses.TagClear ? ReputationCodes.AdminUntag : ReputationCodes.AdminTag,
+                Tag = snapshot.OverrideTag,
+                Reason = snapshot.OverrideReason,
+                Until = overrideEnd
+            }
+            : null;
+        var points = snapshot?.ActivePoints ?? 0;
+        var completed = snapshot?.CompletedOrders90d ?? 0;
+        var faults = snapshot?.FaultCancels90d ?? 0;
+        var noShows = snapshot?.NoShows90d ?? 0;
+
+        return new ReputationAggregate
+        {
+            ActivePoints = points,
+            Tier = Tier(points, restriction, overrideRow, suspended, s),
+            CompletedOrders90d = completed,
+            FaultCancels90d = faults,
+            NoShows90d = noShows,
+            ReliabilityPct = ReliabilityPct(completed, faults, noShows, s),
+            EffectiveRating = EffectiveRating(ratings.Sum, ratings.Count, points, s),
+            Restriction = restriction,
+            Override = overrideRow,
+            NextChangeAt = snapshot?.NextChangeAt
+        };
+    }
+
+    /// <summary>
     /// The earliest moment a stored value changes with no new event: a point or completion expiry,
     /// a row leaving the 90 day reliability window, the restriction's or the override's end.
     /// </summary>

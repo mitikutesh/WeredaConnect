@@ -55,6 +55,29 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
     }
 
     /// <inheritdoc />
+    public async Task<(List<LedgerRow> Rows, Dictionary<string, AttributeValue>? Next)> GetRowsPageAsync(
+        string escrowId, int limit, Dictionary<string, AttributeValue>? startKey)
+    {
+        var request = new QueryRequest
+        {
+            TableName = _ledgerTable,
+            KeyConditionExpression = "#id = :id",
+            ExpressionAttributeNames = new Dictionary<string, string> { ["#id"] = LedgerFields.EscrowId },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":id"] = S(escrowId) },
+            ConsistentRead = true,
+            Limit = Math.Clamp(limit, 1, 100)
+        };
+        if (startKey != null)
+        {
+            request.ExclusiveStartKey = startKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var rows = (response.Items ?? new List<Dictionary<string, AttributeValue>>()).Select(FromItem).ToList();
+        return (rows, response.LastEvaluatedKey?.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <inheritdoc />
     public async Task<LedgerRow?> GetRowAsync(string escrowId, string reference)
     {
         var response = await _dynamoDb.GetItemAsync(new GetItemRequest

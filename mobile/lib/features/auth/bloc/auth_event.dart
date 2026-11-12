@@ -235,7 +235,15 @@ class AuthStepUpSucceeded extends AuthEvent {
 /// The server rejected the refresh token (400/401): sign the user out
 /// locally. Unsynced work stays queued for their next login.
 class AuthSessionExpired extends AuthEvent {
-  const AuthSessionExpired();
+  /// True when the server refused a signed-in write with `403 AUTH_025`
+  /// (the account is suspended): the sign-out is the same, and the login
+  /// screen says why.
+  final bool suspended;
+
+  const AuthSessionExpired({this.suspended = false});
+
+  @override
+  List<Object?> get props => [suspended];
 }
 
 /// The stored session belongs to another account (FUP-96: on web, another

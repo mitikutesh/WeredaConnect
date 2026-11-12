@@ -145,6 +145,15 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(RatingSummaryDto))]
 [JsonSerializable(typeof(GetRatingsResponse))]
 [JsonSerializable(typeof(GetRatingResponse))]
+// ESC-29: reputation endpoints (reputation-api.md sections 2 to 6)
+[JsonSerializable(typeof(GetReputationResponse))]
+[JsonSerializable(typeof(ReputationDto))]
+[JsonSerializable(typeof(GetReputationEventsResponse))]
+[JsonSerializable(typeof(ReputationEventDto))]
+[JsonSerializable(typeof(ReputationAppealPhotoRequest))]
+[JsonSerializable(typeof(ReputationAppealPhotoResponse))]
+[JsonSerializable(typeof(ReputationAppealRequest))]
+[JsonSerializable(typeof(ReputationAppealResponse))]
 // Message DTOs (in-app chat)
 [JsonSerializable(typeof(MessageDto))]
 [JsonSerializable(typeof(List<MessageDto>))]
@@ -159,6 +168,9 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(AdminEscrowListResponse))]
 [JsonSerializable(typeof(AdminEscrowDetailResponse))]
 [JsonSerializable(typeof(AdminEscrowAuditResponse))]
+// ESC-24: the escrow ledger view and the stuck orders page.
+[JsonSerializable(typeof(AdminEscrowLedgerResponse))]
+[JsonSerializable(typeof(AdminStuckOrderListResponse))]
 [JsonSerializable(typeof(AdminDisputeListResponse))]
 [JsonSerializable(typeof(AdminDeliveryTrailResponse))]
 // FRD-14: the dispute evidence package.

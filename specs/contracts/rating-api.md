@@ -1,7 +1,7 @@
 # Rating API
 
 ## Version
-1.3.0
+1.4.0
 
 ## Parties
 Mobile, Web, Backend, Infrastructure, Admin
@@ -18,8 +18,8 @@ one rating per (order, ratee)**.
 - **Reputation**: the ratee's star sum and count are stored on their users row
   when a rating is created (1.3.0, BUILT in ESC-28); reads are limited to buyers
   and the ratee and filtered by `rateeRole`, and the summary carries the effective
-  rating of `reputation-api.md` (1.2.0, PLANNED: ESC-29). See "Stored aggregate"
-  and "Read rules" below. Until ESC-29 ships, the 1.1.0 read behaviour holds.
+  rating of `reputation-api.md` (1.2.0; BUILT in 1.4.0, ESC-29). See "Stored
+  aggregate" and "Read rules" below.
 
 ## Request Format
 
@@ -60,7 +60,7 @@ One operation inside the standard sync batch (see `sync-protocol.md`):
 
 Both require a valid app user pool JWT (the route's authorizer refuses an admin
 pool token with `401`). Up to 1.1.0 any authenticated user could read any ratee;
-since 1.2.0 (PLANNED, ESC-29) only buyers and the ratee can (see "Read rules").
+since 1.2.0 (BUILT in 1.4.0, ESC-29) only buyers and the ratee can (see "Read rules").
 
 ## Response Format
 
@@ -98,7 +98,7 @@ since 1.2.0 (PLANNED, ESC-29) only buyers and the ratee can (see "Read rules").
 }
 ```
 
-1.2.0 additions (PLANNED, ESC-29):
+1.2.0 additions (BUILT in 1.4.0, ESC-29):
 - `summary.rateeRole`: the role the list and the summary are for.
 - `summary.effectiveRating`: `reputation-api.md` 1.4 (the average minus 0.1 per
   active penalty point, at most 1.0 off, never below 1.0, one decimal). Left out
@@ -171,7 +171,7 @@ returned), `UserRepository.CreateUserAsync` (the registration stamp),
 The wire shape of the create is unchanged; the mobile and web clients change
 nothing for it.
 
-## Read rules (1.2.0, PLANNED: ESC-29)
+## Read rules (1.2.0; BUILT in 1.4.0, ESC-29)
 
 | Caller | `GET /ratings?rateeId=` | `GET /ratings/{id}` |
 |---|---|---|
@@ -199,6 +199,30 @@ so an admin pool token gets `401`. Admins see a user's rating sum and count in
   crop detail, the buyer's `hasRated` check by id) or for the user's own id, so
   no client breaks. ESC-31 drops the per-card calls in favour of the copied
   owner fields.
+
+As built (1.4.0, `Functions/RatingFunction.cs`):
+- The read rules are not flagged. The refusal is decided from the caller's
+  `custom:role` claim before any read; a caller with no role, or another role,
+  is refused too.
+- `GET /ratings/{id}` answers a farmer or trucker `403` both for a rating of
+  someone else and for an id that does not exist; a buyer gets `404` for a
+  missing id.
+- A ratee without a usable users row keeps the 1.1.0 read, so nothing that
+  was readable before goes empty: an id with no row (an unknown id, or a legacy
+  account whose row sits under another id), a buyer ratee and a deleted account
+  get the ratings stored for the id with no role filter and the walked summary,
+  without `summary.rateeRole`, `effectiveRating` or `reputation`. An id with no
+  ratings still reads empty, so the answer is no account oracle. This replaces
+  the "empty list" wording above for an id that does have ratings.
+- With a role filter the page is filled: DynamoDB applies the limit before the
+  filter, so the server reads on until the page is full and looks one row ahead
+  (`PageFill`, as the crop and trip lists do); `nextToken` is present only when
+  a row follows.
+- `summary.rateeRole` is present whenever the ratee's row was used.
+  `summary.effectiveRating` and `reputation` need `reputationPublicTags`.
+- The ratee's row is one `GetItem` (`ReputationService.ReadAsync`); their
+  reputation events are read only when `now` has passed the stored
+  `nextChangeAt`.
 
 ## Error Codes
 | Code | HTTP | Meaning |
@@ -238,6 +262,7 @@ so an admin pool token gets `401`. Admins see a user's rating sum and count in
   returned to clients.
 
 ## Changelog
+- **1.4.0** (2026-11-11): BUILT (ESC-29): the read rules. `GET /ratings` and `GET /ratings/{id}` only for buyers (farmer and trucker ratees) and the ratee, else `403 RATING_FORBIDDEN`, decided from the caller's role claim before any read; new optional `rateeRole` filter (`400 RATING_VALIDATION` for another value), default the ratee's current role; the summary from the users row when the role is current and the row carries `ratingsAggregatedAt`, else the walk filtered by role; `summary.rateeRole`; `summary.effectiveRating` and the `reputation` block behind `reputationPublicTags` (off everywhere). Create unchanged.
 - **1.3.0** (2026-11-07): BUILT (ESC-28): the stored aggregate. The `/sync` rating create is the transaction of "Stored aggregate" (rating, `ADD ratingSum, ratingCount`, heal marker), a changed role puts the rating alone with `inAggregate: false`, registration stamps `ratingSum: 0`, `ratingCount: 0`, `ratingsAggregatedAt`, and the order-cron action `reputation_backfill_ratings` runs the one-time backfill. The best-effort refresh after the commit runs only with `reputationPenalties` on. Read rules stay PLANNED (ESC-29). Create wire shape unchanged.
 - **1.2.0** (2026-11-07): PLANNED (ESC-27 for ESC-28 and ESC-29). Stored aggregate: the create puts the rating and `ADD`s the stars to the ratee's users row (`ratingSum`, `ratingCount`) in one transaction, conditioned on the ratee's role, plus a `HEAL` row for the daily job; a one-time backfill without Scan; a role change rebuilds it; ratings gain the server-only `inAggregate`. Read rules: `GET /ratings` and `GET /ratings/{id}` only for buyers (farmer and trucker ratees) and the ratee, else `403 RATING_FORBIDDEN` (admins use the admin reputation panel); new optional `rateeRole` filter; the summary comes from the users row when aggregated and gains `rateeRole` and `effectiveRating`; new optional `reputation` block (`reputation-api.md` 1.0.0) behind `reputationPublicTags`. Create wire shape unchanged.
 - **1.1.0** (2026-10-10): ratings also open on `disbursing` (ESC-09); `RATING_FORBIDDEN` reads "You can only rate a delivered order (delivered, disbursing or settled)."

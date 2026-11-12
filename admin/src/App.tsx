@@ -10,6 +10,7 @@ import { EscrowDetailPage } from "@/pages/EscrowDetailPage";
 import { DisputesPage } from "@/pages/DisputesPage";
 import { DisputeDetailPage } from "@/pages/DisputeDetailPage";
 import { ManualPayoutsPage } from "@/pages/ManualPayoutsPage";
+import { StuckOrdersPage } from "@/pages/StuckOrdersPage";
 import { UnappliedPaymentsPage } from "@/pages/UnappliedPaymentsPage";
 import { FraudReviewPage } from "@/pages/FraudReviewPage";
 import { ListingReportsPage } from "@/pages/ListingReportsPage";
@@ -73,6 +74,7 @@ function AppRoutes() {
         <Route path="disputes" element={<DisputesPage />} />
         <Route path="disputes/:id" element={<DisputeDetailPage />} />
         <Route path="payouts" element={<ManualPayoutsPage />} />
+        <Route path="stuck-orders" element={<StuckOrdersPage />} />
         <Route path="unapplied-payments" element={<UnappliedPaymentsPage />} />
         <Route path="fraud-review" element={<FraudReviewPage />} />
         <Route path="listing-reports" element={<ListingReportsPage />} />

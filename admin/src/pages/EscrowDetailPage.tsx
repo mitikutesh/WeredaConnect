@@ -1,6 +1,7 @@
 import { useParams } from "react-router";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { LedgerCard, RecordedSplitRow, TruckerLegRows } from "@/components/escrows/MoneyLegs";
 import { useLocale } from "@/hooks/useLocale";
 import { useEscrowDetail, useEscrowAudit } from "@/hooks/useQuery";
 import { formatETB, formatDateTime } from "@/lib/i18n";
@@ -46,6 +47,21 @@ export function EscrowDetailPage() {
                 {formatETB(Number(detail.amount) || 0, locale)}
               </dd>
             </div>
+            {/* ESC-24: the legs of the amount. The farmer and commission parts show once the escrow carries them. */}
+            {detail.farmerPayout != null && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-text-muted">{t("transactions.farmerPayout")}</dt>
+                <dd>{formatETB(Number(detail.farmerPayout) || 0, locale)}</dd>
+              </div>
+            )}
+            {detail.commission != null && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-text-muted">{t("transactions.commission")}</dt>
+                <dd>{formatETB(Number(detail.commission) || 0, locale)}</dd>
+              </div>
+            )}
+            <TruckerLegRows escrow={detail} />
+            <RecordedSplitRow escrow={detail} />
             <div className="flex justify-between">
               <dt className="text-text-muted">{t("escrows.status")}</dt>
               <dd>
@@ -82,6 +98,9 @@ export function EscrowDetailPage() {
             )}
           </div>
         </Card>
+
+        {/* ESC-24: the ledger of an escrow on the ledger (ESC-20); nothing for the legacy model. */}
+        <LedgerCard escrow={detail} />
       </div>
     </div>
   );

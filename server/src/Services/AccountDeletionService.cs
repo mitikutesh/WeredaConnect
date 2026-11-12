@@ -119,6 +119,13 @@ public sealed class AccountDeletionService
     private readonly ITransactionAuditRepository _audit;
     private readonly Func<DateTime> _clock;
 
+    /// <summary>
+    /// ESC-29: deletes the user's appeal photos (every version under <c>uploads/appeals/{userId}/</c>)
+    /// and returns how many went. Null while <c>reputationPenalties</c> is off or the uploads bucket
+    /// is not configured (<see cref="AppealPhotoStore.DeletionStep"/>): the step is skipped.
+    /// </summary>
+    public Func<string, Task<int>>? AppealPhotos { get; init; }
+
     public AccountDeletionService(
         IAccountDeletionRepository repo,
         ICognitoAuthService cognito,
@@ -591,6 +598,14 @@ public sealed class AccountDeletionService
 
         await PurgeNotificationsAsync(userId, scan, counts, budget);
 
+        // ESC-29: the appeal photos the events point at, before the events themselves. A failure
+        // throws, so the deletion job runs this step again.
+        if (AppealPhotos != null)
+        {
+            budget.ThrowIfLow();
+            counts.AppealPhotos += await AppealPhotos(userId);
+        }
+
         // ESC-28: the user's reputation-events partition, appeal text and photo refs included
         // (reputation-architecture.md 16). Writers refuse a deleting account, so nothing comes back.
         foreach (var eventId in await _repo.QueryReputationEventIdsAsync(userId))
@@ -914,10 +929,11 @@ public sealed class AccountDeletionService
         public int Notifications { get; set; }
         public int NotificationsAnonymized { get; set; }
         public int ReputationEvents { get; set; }
+        public int AppealPhotos { get; set; }
 
         public string ToMetadata()
             => FormattableString.Invariant(
-                   $"crops={Crops};trips={Trips};ordersCancelled={OrdersCancelled};orders={Orders};deliveries={Deliveries};escrows={Escrows};ratings={Ratings};messages={Messages};intents={Intents};matchEvents={MatchEvents};deviceTokens={DeviceTokens};notifications={Notifications};notificationsAnonymized={NotificationsAnonymized};reputationEvents={ReputationEvents}")
+                   $"crops={Crops};trips={Trips};ordersCancelled={OrdersCancelled};orders={Orders};deliveries={Deliveries};escrows={Escrows};ratings={Ratings};messages={Messages};intents={Intents};matchEvents={MatchEvents};deviceTokens={DeviceTokens};notifications={Notifications};notificationsAnonymized={NotificationsAnonymized};reputationEvents={ReputationEvents};appealPhotos={AppealPhotos}")
                + (Resumed ? ";resumed=true" : "");
     }
 

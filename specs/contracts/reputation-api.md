@@ -1,14 +1,15 @@
 # Reputation API Contract
 
 ## Version
-1.1.0
+1.2.0
 
 ## Status
-PARTLY BUILT (1.1.0). BUILT in ESC-28: the events, the policy and the aggregate (section 1),
+PARTLY BUILT (1.2.0). BUILT in ESC-28: the events, the policy and the aggregate (section 1),
 the server side of the two notifications (section 10) and the flags and policy parameter
-(section 11), all shipping dark (both flags off everywhere). PLANNED: ESC-29 the reads, the gates
-and the copied owner fields; ESC-30 the matching signal; ESC-31 the app; ESC-32 the admin
-endpoints; ESC-33 the fraud hooks. Each section names its ticket. Design: `specs/architecture/reputation-architecture.md`. Rules and decisions D1 to D9:
+(section 11). BUILT in ESC-29 (server): the reads (sections 2 to 4), the appeal photo and the appeal
+(5, 6), the copied owner fields (7) and the gates (8). Everything ships dark (all three flags off
+everywhere), except the suspension gate of 8.4, which is not flagged. PLANNED: ESC-30 the matching
+signal; ESC-31 the app; ESC-32 the admin endpoints; ESC-33 the fraud hooks. Each section names its ticket. Design: `specs/architecture/reputation-architecture.md`. Rules and decisions D1 to D9:
 `specs/features/three-party-escrow-commitments-reputation.md` 4.11, 5.I and 14.
 
 ## Parties
@@ -52,10 +53,10 @@ The public summary never shows points, events, reasons, appeals or restriction d
 | Section | What | Ticket |
 |---|---|---|
 | 1 | Concepts: events, tiers, effective rating, reliability, restriction | ESC-28 (BUILT) |
-| 2 to 4 | Party and buyer reads | ESC-29 |
-| 5, 6 | Appeal photo and appeal | ESC-29 |
-| 7 | Owner fields copied onto crop and trip rows | ESC-29 (copy), ESC-30 (matching) |
-| 8 | Gates: `REPUTATION_RESTRICTED`, hidden restricted parties, suspension | ESC-29 |
+| 2 to 4 | Party and buyer reads | ESC-29 (BUILT) |
+| 5, 6 | Appeal photo and appeal | ESC-29 (BUILT) |
+| 7 | Owner fields copied onto crop and trip rows | ESC-29 (copy, BUILT), ESC-30 (matching) |
+| 8 | Gates: `REPUTATION_RESTRICTED`, hidden restricted parties, suspension | ESC-29 (BUILT) |
 | 9 | Admin endpoints | ESC-32 |
 | 10 | Notifications `penalty_recorded`, `tier_changed` | ESC-28 (server, BUILT), ESC-31 (app) |
 | 11 | Feature flags | ESC-28 (BUILT) |
@@ -239,6 +240,14 @@ or an ended restriction (architecture doc 6.6).
 **Flags**: not gated. With `reputationPenalties` off the answer shows the stored state (normally
 0 points, `good`) and `penaltiesEnabled: false`.
 
+**As built (1.2.0, `Functions/ReputationFunction.cs`, `ReputationService.ReadAsync`)**: the map does
+not store the next expiry, so this read also Queries the events while `activePoints` is above 0 (one
+Query; the app calls it at most every 30 minutes). `ratingAverage`, `ratingDeduction` and
+`effectiveRating` are left out, and `ratingCount` is 0, for a row without `ratingsAggregatedAt` (a
+farmer or trucker the rating backfill skipped, `rating-api.md` "Stored aggregate" step 4): its stored
+sum holds only the ratings created since the deploy. With `reputationPenalties` off the policy
+parameter is not read and the defaults give the thresholds.
+
 ---
 
 ## 3. GET /reputation/{userId} (ESC-29)
@@ -284,6 +293,11 @@ they read section 9.1. `userId` `me` is section 2 (the static route wins).
   (they exist today through `GET /ratings`).
 
 **Errors**: as section 2, plus `403` for the cases in the table.
+
+**As built (1.2.0)**: the `403` for a farmer or trucker asking about anyone else is decided from the
+caller's claim before any read, so it never tells whether the id exists. The events are read only
+when `now` has passed `nextChangeAt`. The rating fields follow the rule of section 2 for a row
+without `ratingsAggregatedAt`.
 
 ---
 
@@ -355,6 +369,13 @@ architecture doc 3.1) are gone.
 **Errors**: `400 REPUTATION_VALIDATION` (bad `limit` or `nextToken`); `403`, `404`, `500` as
 section 2.
 
+**As built (1.2.0)**: the table's sort key is the slot, not the time, so the server reads the
+caller's rows once (one Query, up to the policy's `eventsReadCap`), sorts them by `occurredAt` then
+`eventId`, newest first, and pages in memory. `nextToken` carries the last row's `occurredAt` and
+`eventId` and the caller's id, signed like every other list token; a token of another caller is
+`400`. `status` is computed at read time: an `active` row whose `pointsExpireAt` has passed reads
+`expired` before the daily job writes it, with `remainingPoints` 0.
+
 ---
 
 ## 5. POST /reputation/appeals/photo-url (ESC-29)
@@ -384,6 +405,11 @@ then sends `photoRef` with the appeal.
 **Errors**: `400 REPUTATION_VALIDATION`; `403 REPUTATION_FORBIDDEN` (a buyer); `403 AUTH_025`
 (suspended, section 8.4); `410 ACCOUNT_004` (deleting account, `account-deletion.md`);
 `503 REPUTATION_UNAVAILABLE`; `500 REPUTATION_SERVER_ERROR`.
+
+**As built (1.2.0)**: checked in this order: the role (`403`), the flag (`503`), the caller's row
+read strongly consistent (`404` with no row, `410`, `403 AUTH_025`), then the body. The file name is
+a new UUID with `.webp` or `.jpg`. The Lambda may put and read objects only under
+`uploads/appeals/`.
 
 ---
 
@@ -440,6 +466,17 @@ cannot be appealed); `409 REPUTATION_APPEAL_EXISTS`; `403 AUTH_025`; `410 ACCOUN
 
 **Audit**: transaction-audit row `reputation_appealed` (entity `user`, the event id as metadata).
 
+**As built (1.2.0)**: the same order of refusals as section 5. `photoRef` must be
+`uploads/appeals/{callerId}/` plus one file name of letters, digits, `-` and `.` (at most 64
+characters); anything else is `400` before any read. The write is one conditional `UpdateItem` on
+the caller's event row (the row exists, is `active` and has no `appealText`); it changes no counted
+attribute, so neither the row's nor the users map's `version` moves. A write that loses its
+condition reads the row again and answers `alreadyAppealed`, `REPUTATION_APPEAL_EXISTS` or
+`REPUTATION_APPEAL_CLOSED` from what is stored. The row keeps when the text arrived in
+`appealTextAt`; that is the answer's `appealedAt`. On a `DELIVERY_OVERDUE` row the stored
+`appealStatus: review` and `appealedAt` (the review queue's sort key) stay as they were. The appeal
+text is never logged and never written to the audit row.
+
 ---
 
 ## 7. Owner fields on crop and trip rows (ESC-29)
@@ -475,6 +512,25 @@ the crop detail screen.
   `MatchScoring` (C#) and `MatchScorer` (Dart), with the neutral 0.7 when absent; trucker
   reliability ranks the trip suggestions. `farmerReliability` stops being written.
 
+**As built (1.2.0, `Data/ReputationCopyRepository.cs`, `Helpers/OwnerReputationView.cs`)**:
+- The stamp at create and the refresh run only while `reputationPenalties` is on: the reputation
+  writes that keep the copy current run only then. With the flag off no row gets the fields.
+- Refresh: after an event whose commit changed the stored tier (the internal one, so `low` to
+  `restricted` counts), the effective rating or the reliability; after every rating create (the
+  count changed); and in the daily job for a user with a `HEAL#` marker, before the marker is
+  deleted, so a failed copy keeps the marker and the next run tries again. A failure after an event
+  or a rating logs `REPUTATION_COPY_FAILED` and is left to the marker.
+- One refresh looks at the owner's newest 200 rows (`FarmerIdCreatedAtIndex` plus one
+  `BatchGetItem` per 100 for the status, or `TruckerIdCreatedAtIndex`), writes only rows in an
+  active status that do not already hold the values, and conditions each `UpdateItem` on the row
+  still being active. No Scan.
+- A row created before the flag went on has no copy until its owner's next change. A one-off stamp
+  of existing rows is a follow-up (TASK FUP-160), needed before `reputationPublicTags` goes on.
+- The five names are dropped from every client payload on `/sync`, create and update alike.
+- Returned by `GET /crops`, `GET /crops/{id}`, `GET /trips`, `GET /trips/{id}`, `GET /match`
+  (`match-api.md` 1.3.0) and a crop or trip row in a `/sync` answer, as the public tier, only with
+  `reputationPublicTags` on.
+
 ---
 
 ## 8. Gates (ESC-29)
@@ -497,6 +553,14 @@ REPUTATION_RESTRICTED: until=2026-11-21T09:00:00.000Z: Your account can't take n
 `until=review` while an admin review is open. Clients that parse only the prefix keep working;
 ESC-31 reads `until` for `errorReputationRestricted`.
 
+**As built (1.2.0, `Helpers/ReputationGate.cs`)**: the gate reads the restriction stored on the
+caller's row (the batch's one strongly consistent read) and its `until`; a restriction whose
+`until` has passed never refuses, whether or not the daily job has run. The accept gate runs after
+the no-op answer, so a replayed accept from before the restriction still succeeds. To a client that
+sends no readable `X-App-Build` (build 1 or older, which may not know the code, TASK FUP-75) the
+same sentence goes out under a code every client treats as permanent: `SYNC_VALIDATION:` on a crop
+or trip, `ORDER_VALIDATION:` on an order.
+
 ### 8.2 `REPUTATION_RESTRICTED` on the counterparty
 
 An `order` create whose listing farmer or trip trucker is restricted or suspended (8.4) is
@@ -509,6 +573,13 @@ The same applies to the buyer's transport choice naming a restricted trucker's t
 (one GetItem; the copied `ownerTier` may be stale in the buyer's cache). A failed read refuses
 the create with the unprefixed retryable text `The seller's account could not be checked. Please
 try again later.` and writes nothing.
+
+**As built (1.2.0)**: behind `reputationPenalties` like 8.1, the suspended owner included (flag
+off: no owner read, no refusal; a suspended owner's payout is still held by the settlement gate).
+The read is strongly consistent. An order id the server already holds is not refused here: the
+create is a replay and gets its `conflict` answer, so a client never drops an order that exists.
+The no-build wording of 8.1 applies (`ORDER_VALIDATION:`). The transport choice is not built
+(ESC-19) and has no gate yet.
 
 ### 8.3 Hidden restricted parties
 
@@ -525,6 +596,12 @@ trips. The rule that a buyer sees all crops and all trips from every farmer and 
 only listings the platform has taken off the market are left out, and they come back when the
 restriction ends.
 
+**As built (1.2.0)**: one check in code on the full rows for every read path (not a
+FilterExpression: the rows are read either way and the crop browse refills the page), in
+`CropFunction`, `TripFunction` and `MatchFunction`, only for a caller whose role is `buyer`. A
+farmer's or trucker's own list, a read by id and an admin's browse are never filtered. The trip
+suggestions are the buyer's trip browse.
+
 ### 8.4 Suspension blocks marketplace actions
 
 Not flag-gated (it closes spec R5 and FRD-08's gap: today a suspended user's ID token keeps
@@ -537,6 +614,23 @@ sections 5 and 6. Reads are left alone (the token dies within the hour). A suspe
 as restricted for buyers: their copied `ownerTier` becomes `restricted` (the suspend action
 refreshes the copy) and 8.2 refuses orders. ESC-29 bumps `sync-protocol.md` and `auth-api.md`
 and checks that both clients end the session on `AUTH_025` from `/sync`.
+
+**As built (1.2.0)**:
+- `POST /sync`: `403 AUTH_025` for the whole request from the read the deletion guard already
+  made; a deleting account still gets its `410` first.
+- `POST /escrow/initiate`, `/escrow/order-checkout` and `/escrow/dispute` (the three that read the
+  caller's row), `POST /user/fayda-start`, `POST /user/fayda-link`, `POST /device-tokens` and the
+  two POSTs of sections 5 and 6. `POST /escrow/release` and `/escrow/refund` read no caller row
+  and stay as they were (a suspended buyer can still confirm a delivery so the farmer is paid; the
+  payout itself is held by the settlement gate).
+- A suspended owner reads as `restricted` in every aggregate. An admin `suspend` or `unsuspend`
+  leaves the day's `HEAL#` marker (only while `reputationPenalties` is on), so the daily job
+  rewrites the copied owner fields within a day; until then 8.2 refuses orders from the live row.
+- Clients (app build with ESC-29): a `403 AUTH_025` from `/sync` or any other route outside
+  `/auth/` ends the session like a rejected refresh; the sync queue stays for the next sign-in, and
+  the login screen shows the existing "account disabled" text (`authAccountDisabled`, en, am, om)
+  on mobile and web. On the `/auth/` routes it stays the sign-in screen's answer. Older builds keep the queue without
+  burning a retry and are signed out when their token refresh is refused.
 
 ---
 
@@ -681,8 +775,11 @@ Policy numbers (points, caps, thresholds, windows) live in one SSM String parame
 `/{prefix}/reputation/policy` (JSON), read once per Lambda container; a missing or out-of-range
 value keeps its default and logs `REPUTATION_POLICY_INVALID` (architecture doc 5.9).
 
-As built: `reputationPenalties` and `timeoutPenalties` are in `infra/lib/config/environments.ts`,
-`false` in dev, staging and prod. `reputationPublicTags` is added with the reads (ESC-29). With
+As built: `reputationPenalties`, `timeoutPenalties` and (1.2.0, ESC-29) `reputationPublicTags` are
+in `infra/lib/config/environments.ts`, `false` in dev, staging and prod. `reputationPenalties` also
+reaches the crops, trips, match, ratings, reputation and admin Lambdas (8.3, sections 5 and 6, the
+heal marker of 8.4); `reputationPublicTags` the crops, trips, match, ratings, reputation and sync
+Lambdas. With
 `reputationPenalties` off nothing reads the policy parameter, the rating create still keeps the
 stored rating sum and count (`rating-api.md` 1.3.0) and the backfill still runs.
 
@@ -753,10 +850,11 @@ Error body: `{"error":{"code":"REPUTATION_FORBIDDEN","message":"..."}}`, as ever
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-11-11 | ESC-29 BUILT (server): `GET /reputation/me`, `GET /reputation/{userId}`, `GET /reputation/me/events`, `POST /reputation/appeals/photo-url`, `POST /reputation/events/{eventId}/appeal` on the new `{prefix}-reputation` Lambda; the owner fields stamped at create and copied on change; `REPUTATION_RESTRICTED` on crop create, trip create, accept and on an order to a restricted or suspended owner; restricted owners left out of a buyer's browse and match; the third flag `reputationPublicTags`; all off everywhere. Not flagged: `403 AUTH_025` for a suspended caller on `/sync` and the write routes of 8.4. "As built" notes under sections 2 to 8: the events read while points are active, no rating for a row without `ratingsAggregatedAt`, in-memory paging of the event list, `appealTextAt`, copies only while `reputationPenalties` is on, the browse check in code, the no-build wording, `/escrow/release` and `/escrow/refund` not gated, the heal marker on an admin suspend. Sections 9 and 13 stay PLANNED |
 | 1.1.0 | 2026-11-07 | ESC-28 BUILT: section 1 (events from the orders stream, the policy with its caps, tiers, restriction, expiry and earn-back, the aggregate on the users row), section 10 on the server (`penalty_recorded`, `tier_changed`) and section 11 (`reputationPenalties`, `timeoutPenalties`, the SSM policy parameter); everything off by default. Sections 2 to 9 and 13 stay PLANNED (ESC-29 to ESC-33). No endpoint yet |
 | 1.0.0 | 2026-11-07 | New contract, PLANNED (ESC-27 for ESC-28 to ESC-33): event codes, tiers, caps, effective rating, reliability, restriction, expiry and earn-back; `GET /reputation/me`, `GET /reputation/{userId}`, `GET /reputation/me/events`, `POST /reputation/appeals/photo-url`, `POST /reputation/events/{eventId}/appeal`; copied owner fields on crop and trip rows; `REPUTATION_RESTRICTED` gates, hidden restricted parties, the suspension gate; admin panel, appeals queue, decision and tag or restrict endpoints; `penalty_recorded` and `tier_changed`; flags `reputationPenalties`, `timeoutPenalties`, `reputationPublicTags`; `REPUTATION_*` error codes |
 
 ---
 
-**Last Updated**: 2026-11-07
-**Version**: 1.1.0
+**Last Updated**: 2026-11-11
+**Version**: 1.2.0
