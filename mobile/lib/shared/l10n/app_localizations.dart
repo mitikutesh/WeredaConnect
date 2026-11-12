@@ -5704,11 +5704,17 @@ abstract class AppLocalizations {
   /// **'Reload page'**
   String get appUpdateBannerReload;
 
-  /// FUP-75: snackbar when the update banner's button could not open the store page
+  /// FUP-75: second line of the update banner on the phone, under the message. The Play listing is not live yet, so the Update button may land on a page without the app
   ///
   /// In en, this message translates to:
-  /// **'Could not open the store. Please install the latest WeredaConnect from where you got the app.'**
-  String get appUpdateStoreNotOpened;
+  /// **'If the store does not open or does not show the app, get the latest WeredaConnect from where you got it.'**
+  String get appUpdateBannerStoreHint;
+
+  /// FUP-75: snackbar on the web app when Reload page could not fetch the newer app (offline, or it did not finish in time); the page was not reloaded
+  ///
+  /// In en, this message translates to:
+  /// **'Could not get the latest version. Check your connection and try again.'**
+  String get appUpdateReloadFailed;
 
   /// A crop or trip text field that buyers read holds a phone number. Shown under the field and when the server refuses the listing (CROP_CONTACT_IN_TEXT / TRIP_CONTACT_IN_TEXT, FUP-49). Also under the registration name, woreda and company name fields (FUP-52)
   ///

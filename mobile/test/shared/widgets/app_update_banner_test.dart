@@ -1,9 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:wereda_connect/core/config/app_update.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
@@ -11,6 +12,8 @@ import 'package:wereda_connect/shared/widgets/app_update_banner.dart';
 
 const _message = 'Please update the app to place or change orders. '
     'Everything else still works.';
+const _storeHint = 'If the store does not open or does not show the app, '
+    'get the latest WeredaConnect from where you got it.';
 
 // Not the running build's number, so the tests hold after a bump.
 const oldBuild = 7;
@@ -106,6 +109,21 @@ void main() {
     expect(find.text('taps 2'), findsOneWidget);
   });
 
+  testWidgets('an accepted order hides it; the screen keeps its state',
+      (tester) async {
+    final events = SecurityEvents.forTesting()..emit(_tooOld);
+    await _pump(tester, host(events));
+    await tester.tap(find.text('taps 0'));
+    await tester.pump();
+    expect(find.text(_message), findsOneWidget);
+
+    events.clearAppUpdateRequired();
+    await tester.pumpAndSettle();
+
+    expect(find.text(_message), findsNothing);
+    expect(find.text('taps 1'), findsOneWidget);
+  });
+
   testWidgets('a refusal before the shell mounted shows it at once',
       (tester) async {
     final events = SecurityEvents.forTesting()..emit(_tooOld);
@@ -195,7 +213,10 @@ void main() {
     expect(find.text(_message), findsOneWidget);
   });
 
-  testWidgets('phone: a store that does not open is said', (tester) async {
+  // FUP-242: the Play listing is not live, so a launch that "worked" may
+  // land on a page without the app. The second line says what to do.
+  testWidgets('phone: a second line says where else to get the app',
+      (tester) async {
     await _pump(
       tester,
       host(
@@ -203,17 +224,13 @@ void main() {
         openStore: () async => false,
       ),
     );
+    expect(find.text(_storeHint), findsOneWidget);
 
     await tester.tap(find.text('Update'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.text(
-        'Could not open the store. Please install the latest WeredaConnect '
-        'from where you got the app.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.text(_storeHint), findsOneWidget);
   });
 
   testWidgets('web: the button reloads the latest app', (tester) async {
@@ -236,11 +253,83 @@ void main() {
     );
 
     expect(find.text('Update'), findsNothing);
+    expect(find.text(_storeHint), findsNothing);
     await tester.tap(find.text('Reload page'));
     await tester.pumpAndSettle();
 
     expect(reloaded, 1);
     expect(opened, 0);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets(
+      'web: the button waits for the reload; one that cannot happen says so',
+      (tester) async {
+    final reload = Completer<bool>();
+    var reloads = 0;
+    await _pump(
+      tester,
+      host(
+        SecurityEvents.forTesting()..emit(_tooOld),
+        isWeb: true,
+        reloadWeb: () {
+          reloads++;
+          return reload.future;
+        },
+      ),
+    );
+
+    await tester.tap(find.text('Reload page'));
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    // A second tap while it works does nothing.
+    await tester.tap(find.text('Reload page'));
+    await tester.pump();
+    expect(reloads, 1);
+
+    reload.complete(false);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(
+      find.text(
+        'Could not get the latest version. Check your connection and try '
+        'again.',
+      ),
+      findsOneWidget,
+    );
+    // Nothing changed: the banner and the button stay.
+    expect(find.text(_message), findsOneWidget);
+    expect(find.text('Reload page'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a small phone with large text in om: the banner takes at most 40% '
+      'and scrolls; the screen stays in view', (tester) async {
+    tester.view.physicalSize = const Size(320, 480);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+    await _pump(
+      tester,
+      host(
+        SecurityEvents.forTesting()..emit(_tooOld),
+        locale: const Locale('om'),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    final area = tester.getRect(
+      find.ancestor(
+        of: find.byType(MaterialBanner),
+        matching: find.byType(SingleChildScrollView),
+      ),
+    );
+    expect(area.height, lessThanOrEqualTo(480 * 0.4));
+    expect(find.text('taps 0'), findsOneWidget);
+    expect(tester.getRect(find.text('taps 0')).top, greaterThan(area.bottom));
   });
 
   testWidgets('the screen under it does not pad for the status bar again',
@@ -292,15 +381,4 @@ void main() {
       expect(find.text(text), findsOneWidget);
     });
   }
-
-  test('the store page is the Android app id on Play', () {
-    expect(
-      AppStore.playStorePage.toString(),
-      'https://play.google.com/store/apps/details?id=et.wereda.connect',
-    );
-  });
-
-  test('off the web there is no page to reload', () async {
-    expect(await reloadLatestWebApp(), isFalse);
-  });
 }

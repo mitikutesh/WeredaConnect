@@ -3163,8 +3163,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get appUpdateBannerReload => 'Reload page';
 
   @override
-  String get appUpdateStoreNotOpened =>
-      'Could not open the store. Please install the latest WeredaConnect from where you got the app.';
+  String get appUpdateBannerStoreHint =>
+      'If the store does not open or does not show the app, get the latest WeredaConnect from where you got it.';
+
+  @override
+  String get appUpdateReloadFailed =>
+      'Could not get the latest version. Check your connection and try again.';
 
   @override
   String get errorContactInText =>

@@ -165,13 +165,13 @@ void main() {
       events.emit(appTooOld('order'));
       expect(events.appUpdateRequired, isTrue);
 
-      final fired = <void>[];
+      final fired = <bool>[];
       final sub = events.onAppUpdateRequired.listen(fired.add);
       events.emit(appTooOld('trip'));
       await waitFor(() => fired.isNotEmpty);
       await sub.cancel();
 
-      expect(fired, hasLength(1));
+      expect(fired, [true]);
       // The refusal itself is still kept for the snackbar.
       final received = <SecurityEvent>[];
       final eventsSub = events.events.listen(received.add);
@@ -236,7 +236,7 @@ void main() {
         appUpdateStore: store,
         appBuild: oldBuild,
       );
-      final fired = <void>[];
+      final fired = <bool>[];
       final sub = events.onAppUpdateRequired.listen(fired.add);
 
       events.reportAppUpdateRequired();
@@ -244,7 +244,7 @@ void main() {
       await sub.cancel();
 
       expect(events.appUpdateRequired, isTrue);
-      expect(fired, hasLength(1));
+      expect(fired, [true]);
       expect(await kept(), oldBuild);
     });
 
@@ -256,7 +256,7 @@ void main() {
         appUpdateStore: store,
         appBuild: oldBuild,
       );
-      final fired = <void>[];
+      final fired = <bool>[];
       final sub = events.onAppUpdateRequired.listen(fired.add);
       expect(events.appUpdateRequired, isFalse);
 
@@ -265,7 +265,7 @@ void main() {
       await sub.cancel();
 
       expect(events.appUpdateRequired, isTrue);
-      expect(fired, hasLength(1));
+      expect(fired, [true]);
       expect(await kept(), oldBuild);
     });
 
@@ -340,6 +340,133 @@ void main() {
 
       expect(events.appUpdateRequired, isTrue);
       expect(await kept(), oldBuild);
+    });
+
+    // An accepted order proves this build passes the server's gate.
+    test('an accepted order clears it, kept value too, and fires false',
+        () async {
+      final events = SecurityEvents.forTesting(
+        appUpdateStore: store,
+        appBuild: oldBuild,
+      )..emit(order);
+      await waitFor(() async => await kept() == oldBuild);
+      final fired = <bool>[];
+      final sub = events.onAppUpdateRequired.listen(fired.add);
+
+      events.clearAppUpdateRequired();
+      await waitFor(() async => fired.isNotEmpty && await kept() == null);
+      await sub.cancel();
+
+      expect(events.appUpdateRequired, isFalse);
+      expect(fired, [false]);
+      expect(await kept(), isNull);
+    });
+
+    test('cleared before the restore: the earlier run is not brought back',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        AppUpdateFlagStore.key: oldBuild,
+      });
+      final events = SecurityEvents.forTesting(
+        appUpdateStore: store,
+        appBuild: oldBuild,
+      );
+      final fired = <bool>[];
+      final sub = events.onAppUpdateRequired.listen(fired.add);
+
+      events.clearAppUpdateRequired();
+      await events.restoreAppUpdateRequired();
+      await sub.cancel();
+
+      expect(events.appUpdateRequired, isFalse);
+      expect(fired, isEmpty);
+      expect(await kept(), isNull);
+    });
+
+    test('cleared while the restore reads: not brought back', () async {
+      SharedPreferences.setMockInitialValues({
+        AppUpdateFlagStore.key: oldBuild,
+      });
+      final events = SecurityEvents.forTesting(
+        appUpdateStore: store,
+        appBuild: oldBuild,
+      );
+
+      final restoring = events.restoreAppUpdateRequired();
+      events.clearAppUpdateRequired();
+      await restoring;
+      await waitFor(() async => await kept() == null);
+
+      expect(events.appUpdateRequired, isFalse);
+      expect(await kept(), isNull);
+    });
+
+    test('a refusal after a clear raises and keeps it again', () async {
+      final events = SecurityEvents.forTesting(
+        appUpdateStore: store,
+        appBuild: oldBuild,
+      )
+        ..emit(order)
+        ..clearAppUpdateRequired();
+      await waitFor(() async => await kept() == null);
+
+      events.emit(order);
+      await waitFor(() async => await kept() == oldBuild);
+
+      expect(events.appUpdateRequired, isTrue);
+      expect(await kept(), oldBuild);
+    });
+
+    test('accepted orders write to storage once per run', () async {
+      SharedPreferences.setMockInitialValues({
+        AppUpdateFlagStore.key: oldBuild,
+      });
+      final events = SecurityEvents.forTesting(
+        appUpdateStore: store,
+        appBuild: oldBuild,
+      )..clearAppUpdateRequired();
+      await waitFor(() async => await kept() == null);
+      expect(await kept(), isNull);
+      // A value that appears later (not by this run) is left alone: the
+      // second accepted order no longer touches storage.
+      SharedPreferences.setMockInitialValues({
+        AppUpdateFlagStore.key: oldBuild,
+      });
+
+      events.clearAppUpdateRequired();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(await kept(), oldBuild);
+    });
+
+    test('nothing set: a clear fires nothing', () async {
+      final events = SecurityEvents.forTesting();
+      final fired = <bool>[];
+      final sub = events.onAppUpdateRequired.listen(fired.add);
+
+      events.clearAppUpdateRequired();
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(fired, isEmpty);
+    });
+
+    test('the test reset forgets it in memory and reads again', () async {
+      SharedPreferences.setMockInitialValues({
+        AppUpdateFlagStore.key: oldBuild,
+      });
+      final events = SecurityEvents.forTesting(
+        appUpdateStore: store,
+        appBuild: oldBuild,
+      );
+      await events.restoreAppUpdateRequired();
+      expect(events.appUpdateRequired, isTrue);
+
+      events.resetAppUpdateRequiredForTesting();
+      expect(events.appUpdateRequired, isFalse);
+      await events.restoreAppUpdateRequired();
+
+      expect(events.appUpdateRequired, isTrue);
     });
   });
 }

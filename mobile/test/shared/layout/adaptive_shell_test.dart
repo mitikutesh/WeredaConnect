@@ -266,7 +266,13 @@ void main() {
 
         events.reportAppUpdateRequired();
         await tester.pumpAndSettle();
-        final banner = tester.getRect(find.byType(MaterialBanner));
+        // What shows of it: long text scrolls inside.
+        final banner = tester.getRect(
+          find.ancestor(
+            of: find.byType(MaterialBanner),
+            matching: find.byType(SingleChildScrollView),
+          ),
+        );
         expect(find.text('Reload page'), findsOneWidget);
         expect(
           banner.bottom,

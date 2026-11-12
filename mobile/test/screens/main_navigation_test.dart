@@ -173,10 +173,11 @@ void main() {
     }
   }
 
-  // FUP-75: the shell shows the update banner over every role's tabs. Last
-  // in the file: it raises the app-wide flag, which no earlier test expects.
+  // FUP-75: the shell shows the update banner over every role's tabs. The
+  // flag is app-wide, so each test resets it after itself.
   group('update banner', () {
     setUp(() => SharedPreferences.setMockInitialValues({}));
+    tearDown(SecurityEvents.instance.resetAppUpdateRequiredForTesting);
 
     for (final locale in const [Locale('en'), Locale('am'), Locale('om')]) {
       for (final role in UserRole.values) {
@@ -197,7 +198,15 @@ void main() {
             expect(body, findsOneWidget);
             expect(find.text(l10n.appUpdateBannerMessage), findsOneWidget);
             expect(
-              tester.getRect(find.byType(MaterialBanner)).bottom,
+              // What shows of it: long text scrolls inside.
+              tester
+                  .getRect(
+                    find.ancestor(
+                      of: find.byType(MaterialBanner),
+                      matching: find.byType(SingleChildScrollView),
+                    ),
+                  )
+                  .bottom,
               lessThanOrEqualTo(tester.getRect(body).top),
             );
           }
@@ -205,5 +214,16 @@ void main() {
         });
       }
     }
+  });
+
+  testWidgets('after those, no banner: the reset left nothing behind',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    useSize(tester, const Size(360, 640));
+    await tester.pumpWidget(buildApp(UserRole.buyer));
+    await tester.pumpAndSettle();
+
+    expect(SecurityEvents.instance.appUpdateRequired, isFalse);
+    expect(find.byType(MaterialBanner), findsNothing);
   });
 }

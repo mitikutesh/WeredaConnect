@@ -3066,8 +3066,12 @@ class AppLocalizationsAm extends AppLocalizations {
   String get appUpdateBannerReload => 'ገጹን እንደገና ይጫኑ';
 
   @override
-  String get appUpdateStoreNotOpened =>
-      'መደብሩን መክፈት አልተቻለም። እባክዎ የቅርብ ጊዜውን WeredaConnect መተግበሪያውን ካገኙበት ቦታ ይጫኑ።';
+  String get appUpdateBannerStoreHint =>
+      'መደብሩ ካልተከፈተ ወይም መተግበሪያውን ካላሳየ፣ የቅርብ ጊዜውን WeredaConnect መተግበሪያውን ካገኙበት ቦታ ያግኙ።';
+
+  @override
+  String get appUpdateReloadFailed =>
+      'የቅርብ ጊዜውን ስሪት ማግኘት አልተቻለም። ግንኙነትዎን ያረጋግጡና እንደገና ይሞክሩ።';
 
   @override
   String get errorContactInText =>

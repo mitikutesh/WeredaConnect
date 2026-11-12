@@ -15,14 +15,20 @@ typedef AppUpdateAction = Future<bool> Function();
 ///
 /// Shown while [SecurityEvents.appUpdateRequired] is set: the server refused
 /// an order from this build as too old (`APP_UPDATE_REQUIRED`,
-/// sync-protocol.md 1.41.0). It never blocks: every screen and the data kept
-/// on the device stay usable, only orders wait for the update. The button
-/// opens the store page on the phone and reloads the latest app on web.
-/// Mounting it reads back a flag kept by an earlier run on the same build
+/// sync-protocol.md 1.41.0). It goes when the server accepts an order from
+/// this build again. It never blocks: every screen and the data kept on the
+/// device stay usable, only orders wait for the update. Mounting it reads
+/// back a flag kept by an earlier run on the same build
 /// ([SecurityEvents.restoreAppUpdateRequired]).
 ///
+/// On the phone the button opens the store page, and a second line says
+/// where else to get the app (the Play listing is not live yet, FUP-242, so
+/// the page may not show it whatever the launch returns). On web the button
+/// reloads the latest app ([reloadLatestWebApp]); when that cannot happen
+/// (offline) nothing changes and a snackbar says so.
+///
 /// The [child] keeps its place in the tree whether the banner shows or not,
-/// so a screen keeps its state when the banner appears.
+/// so a screen keeps its state when the banner comes or goes.
 class AppUpdateBanner extends StatefulWidget {
   const AppUpdateBanner({
     required this.child,
@@ -52,8 +58,11 @@ class AppUpdateBanner extends StatefulWidget {
 }
 
 class _AppUpdateBannerState extends State<AppUpdateBanner> {
-  StreamSubscription<void>? _sub;
+  StreamSubscription<bool>? _sub;
   bool _required = false;
+
+  /// True while the web reload fetches the newer app.
+  bool _busy = false;
 
   SecurityEvents get _events => widget.events ?? SecurityEvents.instance;
 
@@ -61,8 +70,10 @@ class _AppUpdateBannerState extends State<AppUpdateBanner> {
   void initState() {
     super.initState();
     _required = _events.appUpdateRequired;
-    _sub = _events.onAppUpdateRequired.listen((_) {
-      if (mounted && !_required) setState(() => _required = true);
+    _sub = _events.onAppUpdateRequired.listen((required) {
+      if (mounted && required != _required) {
+        setState(() => _required = required);
+      }
     });
     unawaited(_events.restoreAppUpdateRequired());
   }
@@ -74,80 +85,130 @@ class _AppUpdateBannerState extends State<AppUpdateBanner> {
   }
 
   Future<void> _onPressed() async {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    final l10n = AppLocalizations.of(context)!;
-    if (widget.isWeb) {
-      await widget.reloadWeb();
+    if (!widget.isWeb) {
+      // The second line covers a store page that does not show the app.
+      await widget.openStore();
       return;
     }
-    final opened = await widget.openStore();
-    if (!opened) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final l10n = AppLocalizations.of(context)!;
+    setState(() => _busy = true);
+    final reloaded = await widget.reloadWeb();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (!reloaded) {
       messenger?.showSnackBar(
-        SnackBar(content: Text(l10n.appUpdateStoreNotOpened)),
+        SnackBar(content: Text(l10n.appUpdateReloadFailed)),
       );
     }
   }
 
+  /// The most of the height the banner may take: long Amharic or Afan Oromo
+  /// text on a small phone, or a large text size, scrolls inside it instead
+  /// of pushing the screen under it out of view.
+  static const _maxHeightShare = 0.4;
+
   @override
   Widget build(BuildContext context) {
     final shown = _required;
-    return Column(
-      children: [
-        if (shown)
-          SafeArea(
-            bottom: false,
-            child: _UpdateNotice(isWeb: widget.isWeb, onPressed: _onPressed),
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        children: [
+          if (shown)
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: constraints.maxHeight * _maxHeightShare,
+              ),
+              child: SingleChildScrollView(
+                // The screen under it keeps the primary scroll controller.
+                primary: false,
+                child: SafeArea(
+                  bottom: false,
+                  child: _UpdateNotice(
+                    isWeb: widget.isWeb,
+                    busy: _busy,
+                    onPressed: _onPressed,
+                  ),
+                ),
+              ),
+            ),
+          Expanded(
+            // The banner took the top inset; the screen under it must not
+            // pad for the status bar again.
+            child: MediaQuery.removePadding(
+              context: context,
+              removeTop: shown,
+              child: widget.child,
+            ),
           ),
-        Expanded(
-          // The banner took the top inset; the screen under it must not pad
-          // for the status bar again.
-          child: MediaQuery.removePadding(
-            context: context,
-            removeTop: shown,
-            child: widget.child,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
 class _UpdateNotice extends StatelessWidget {
-  const _UpdateNotice({required this.isWeb, required this.onPressed});
+  const _UpdateNotice({
+    required this.isWeb,
+    required this.busy,
+    required this.onPressed,
+  });
 
   final bool isWeb;
+  final bool busy;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    const ink = AppTheme.onStatusInfoContainer;
+    final label =
+        Text(isWeb ? l10n.appUpdateBannerReload : l10n.appUpdateBannerUpdate);
     return Semantics(
       container: true,
       liveRegion: true,
       child: MaterialBanner(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: const Icon(
-          Icons.system_update,
-          color: AppTheme.onStatusInfoContainer,
-          size: 20,
-        ),
-        content: Text(
-          l10n.appUpdateBannerMessage,
-          style: const TextStyle(
-            color: AppTheme.onStatusInfoContainer,
-            fontWeight: FontWeight.w600,
-          ),
+        leading: const Icon(Icons.system_update, color: ink, size: 20),
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              l10n.appUpdateBannerMessage,
+              style: const TextStyle(color: ink, fontWeight: FontWeight.w600),
+            ),
+            if (!isWeb) ...[
+              const SizedBox(height: 4),
+              Text(
+                l10n.appUpdateBannerStoreHint,
+                style: const TextStyle(color: ink),
+              ),
+            ],
+          ],
         ),
         backgroundColor: AppTheme.statusInfoContainer,
         actions: [
           TextButton(
-            onPressed: onPressed,
-            style: TextButton.styleFrom(
-              foregroundColor: AppTheme.onStatusInfoContainer,
-            ),
-            child: Text(
-              isWeb ? l10n.appUpdateBannerReload : l10n.appUpdateBannerUpdate,
-            ),
+            onPressed: busy ? null : onPressed,
+            style: TextButton.styleFrom(foregroundColor: ink),
+            child: busy
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: ink,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      label,
+                    ],
+                  )
+                : label,
           ),
         ],
       ),

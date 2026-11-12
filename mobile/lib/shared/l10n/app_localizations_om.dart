@@ -3189,8 +3189,12 @@ class AppLocalizationsOm extends AppLocalizations {
   String get appUpdateBannerReload => 'Fuula irra deebi\'aa fe\'aa';
 
   @override
-  String get appUpdateStoreNotOpened =>
-      'Kuusaa appii banuu hin dandeenye. Maaloo WeredaConnect isa haaraa iddoo appii itti argattan irraa galchaa.';
+  String get appUpdateBannerStoreHint =>
+      'Kuusaan yoo hin banamne ykn appii kana hin agarsiisne, WeredaConnect isa haaraa iddoo itti argattan irraa argadhaa.';
+
+  @override
+  String get appUpdateReloadFailed =>
+      'Gosa haaraa argachuu hin dandeenye. Walitti dhufeenya keessan mirkaneessaatii irra deebi\'aa yaalaa.';
 
   @override
   String get errorContactInText =>

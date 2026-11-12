@@ -3881,9 +3881,13 @@
   "@appUpdateBannerReload": {
     "description": "FUP-75: the update banner's button on the web app; reloads the page with the latest version"
   },
-  "appUpdateStoreNotOpened": "Could not open the store. Please install the latest WeredaConnect from where you got the app.",
-  "@appUpdateStoreNotOpened": {
-    "description": "FUP-75: snackbar when the update banner's button could not open the store page"
+  "appUpdateBannerStoreHint": "If the store does not open or does not show the app, get the latest WeredaConnect from where you got it.",
+  "@appUpdateBannerStoreHint": {
+    "description": "FUP-75: second line of the update banner on the phone, under the message. The Play listing is not live yet, so the Update button may land on a page without the app"
+  },
+  "appUpdateReloadFailed": "Could not get the latest version. Check your connection and try again.",
+  "@appUpdateReloadFailed": {
+    "description": "FUP-75: snackbar on the web app when Reload page could not fetch the newer app (offline, or it did not finish in time); the page was not reloaded"
   },
   "errorContactInText": "Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow.",
   "@errorContactInText": {
