@@ -21,7 +21,8 @@ void main() {
     test('reads it from an exception text around the message', () {
       expect(
         reputationRestrictedUntil(
-            const SyncRejectedException(dated).toString()),
+          const SyncRejectedException(dated).toString(),
+        ),
         DateTime.utc(2026, 11, 21, 9),
       );
     });

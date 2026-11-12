@@ -60,6 +60,7 @@ import 'package:wereda_connect/features/notifications/data/web_notification_repo
 import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/rating/data/repositories/web_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/web_trip_listing_repository.dart';
 
 Future<void> main() async {
@@ -210,6 +211,11 @@ Future<void> main() async {
         // FUP-67: a buyer's listing report goes straight to /sync on web.
         Provider<BaseListingReportRepository>.value(
           value: WebListingReportRepository(api: api),
+        ),
+        // ESC-31: the signed-in farmer's or trucker's own reputation (HTTP,
+        // with the last answer kept in localStorage).
+        Provider<ReputationRepository>.value(
+          value: ReputationRepository(api: api),
         ),
       ],
       child: MultiBlocProvider(
