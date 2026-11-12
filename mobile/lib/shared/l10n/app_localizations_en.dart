@@ -515,6 +515,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Buyers will no longer see it. This cannot be undone.';
 
   @override
+  String get editListingChanged =>
+      'This listing changed since you opened it, maybe an order took some. Check it and edit again.';
+
+  @override
+  String get deleteListingOrdersUnreadable =>
+      'Could not check this listing\'s orders. Try again when you are online.';
+
+  @override
   String get allCrops => 'All';
 
   @override

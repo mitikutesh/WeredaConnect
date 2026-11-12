@@ -175,4 +175,60 @@ void main() {
     expect(_ids(states.single), ['local']);
     verify(() => matching.refreshMatchCounts('buyer-1', repo)).called(1);
   });
+
+  test(
+      'two loads at once on first run share one read-back and both end '
+      'with the requests', () async {
+    final read = Completer<bool>();
+    when(() => repo.refreshFromServer('buyer-1'))
+        .thenAnswer((_) => read.future);
+
+    bloc
+      ..add(const LoadActiveIntents(buyerId: 'buyer-1'))
+      ..add(const LoadActiveIntents(buyerId: 'buyer-1'));
+    await waitForStates(states, 1);
+    onDevice.add(_intent('from-server'));
+    read.complete(true);
+    // Both loads re-read after the one read-back; an equal second list is
+    // not emitted again, so the last state is the one that counts.
+    await waitFor(() => states.last is ActiveIntentsLoaded);
+
+    verify(() => repo.refreshFromServer('buyer-1')).called(1);
+    expect(states.first, isA<BuyerIntentLoading>());
+    expect(states.whereType<ActiveIntentsLoaded>(), isNotEmpty);
+    for (final loaded in states.whereType<ActiveIntentsLoaded>()) {
+      expect(_ids(loaded), ['from-server']);
+    }
+  });
+
+  test(
+      'a read-back that fails after the rows landed (another load wrote '
+      'them first) still lists them', () async {
+    when(() => repo.refreshFromServer('buyer-1')).thenAnswer((_) async {
+      // The other load's write landed; this one's lost on the unique index.
+      onDevice.add(_intent('from-server'));
+      throw Exception('Unique index violated.');
+    });
+
+    bloc.add(const LoadActiveIntents(buyerId: 'buyer-1'));
+    await waitForStates(states, 2);
+
+    expect(_ids(states[1]), ['from-server']);
+  });
+
+  test('a read-back that added nothing still shows a list the device changed',
+      () async {
+    onDevice.add(_intent('local'));
+    when(() => repo.refreshFromServer('buyer-1')).thenAnswer((_) async {
+      // Another load (or the sync) put a request on the device meanwhile.
+      onDevice.add(_intent('meanwhile'));
+      return false;
+    });
+
+    bloc.add(const LoadActiveIntents(buyerId: 'buyer-1'));
+    await waitForStates(states, 3);
+
+    expect(_ids(states[1]), ['local']);
+    expect(_ids(states[2]), ['local', 'meanwhile']);
+  });
 }

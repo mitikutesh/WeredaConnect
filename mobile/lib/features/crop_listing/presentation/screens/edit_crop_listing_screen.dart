@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,7 +13,6 @@ import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
-import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
@@ -26,7 +27,10 @@ import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 ///
 /// The fields allow what the server accepts (crop-listing-api.md): up to
 /// 9,999.99 quintals, up to 999.99 ETB per kg, 500 characters of
-/// description and no phone number in it. Pops with the saved listing.
+/// description and no phone number in it. Only the changed fields are sent,
+/// at the version of [listing] (the copy the form shows). Pops with an
+/// [EditListingResult]: the saved listing, or that the listing changed
+/// since the form opened (nothing saved), or null when nothing changed.
 class EditCropListingScreen extends StatefulWidget {
   final CropListing listing;
   final String farmerId;
@@ -97,27 +101,72 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
     );
   }
 
-  /// The typed number, or the listing's own when the field still shows it:
-  /// the free stock can carry more decimals than the field (an order's kilos
-  /// taken off), and an untouched field must not round it.
-  static double _valueOf(TextEditingController controller, double original) =>
+  /// The typed number when the farmer changed it, null while the field
+  /// still shows the listing's own: an untouched field is not sent (the free
+  /// stock can carry more decimals than the field, and an order may have
+  /// taken some meanwhile).
+  static double? _changedNumber(
+    TextEditingController controller,
+    double original,
+  ) =>
       controller.text == _plain(original)
-          ? original
+          ? null
           : double.parse(controller.text);
 
-  void _handleSave() {
+  Future<void> _handleSave() async {
     if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
+    final l10n = AppLocalizations.of(context)!;
+    final navigator = Navigator.of(context);
+    final quantity =
+        _changedNumber(_quantityController, widget.listing.quantity);
+    final pricePerKg =
+        _changedNumber(_priceController, widget.listing.pricePerKg);
+    final typed = _descriptionController.text.trim();
+    final description =
+        typed == widget.listing.description.trim() ? null : typed;
+    if (quantity == null && pricePerKg == null && description == null) {
+      navigator.pop();
+      return;
+    }
+
     setState(() => _isSubmitting = true);
+    // This edit's own answer: the bloc is app-wide, and the list under this
+    // screen loads through it too.
+    final done = Completer<CropListing>();
     context.read<CropListingBloc>().add(
           UpdateCropListing(
-            listingId: widget.listing.listingId,
+            listing: widget.listing,
             farmerId: widget.farmerId,
-            quantity: _valueOf(_quantityController, widget.listing.quantity),
-            pricePerKg: _valueOf(_priceController, widget.listing.pricePerKg),
-            description: _descriptionController.text.trim(),
+            quantity: quantity,
+            pricePerKg: pricePerKg,
+            description: description,
+            done: done,
           ),
         );
+    try {
+      final saved = await done.future;
+      if (!mounted) return;
+      // Saved and sent, or saved on the phone to send later (E-5).
+      showSavedOrSent(context, sent: l10n.listingSaved).ignore();
+      navigator.pop(EditListingResult.saved(saved));
+    } on Object catch (e) {
+      if (!mounted) return;
+      final code = mapErrorToCode(e);
+      if (code == AppErrorCode.conflict) {
+        // The listing changed since the form read it (an order took stock):
+        // nothing was written; the detail reads it again and says so.
+        navigator.pop(const EditListingResult.changedElsewhere());
+        return;
+      }
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(localizeErrorCode(code, l10n, message: '$e')),
+          backgroundColor: AppTheme.statusError,
+        ),
+      );
+    }
   }
 
   @override
@@ -125,83 +174,58 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
     final l10n = AppLocalizations.of(context)!;
     final crop = CropType.labelFor(widget.listing.cropType, l10n);
 
-    return BlocListener<CropListingBloc, CropListingState>(
-      // Only this screen's save: the list below reloads through the same
-      // bloc and may fail on its own.
-      listenWhen: (previous, current) =>
-          _isSubmitting &&
-          (current is CropListingUpdated || current is CropListingError),
-      listener: (context, state) {
-        if (state is CropListingUpdated) {
-          _isSubmitting = false;
-          // Saved and sent, or saved on the phone to send later (E-5).
-          showSavedOrSent(context, sent: l10n.listingSaved).ignore();
-          Navigator.of(context).pop(state.listing);
-        } else if (state is CropListingError) {
-          setState(() => _isSubmitting = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                localizeErrorCode(state.code, l10n, message: state.message),
-              ),
-              backgroundColor: AppTheme.statusError,
-            ),
-          );
-        }
-      },
-      child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: SingleChildScrollView(
-            child: FwContentWidth(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  FwDetailHeader(title: l10n.editListing, subtitle: crop),
-                  const OfflineBanner(),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                    child: Form(
-                      key: _formKey,
-                      child: _buildForm(l10n),
-                    ),
+    return Scaffold(
+      body: SafeArea(
+        bottom: false,
+        child: SingleChildScrollView(
+          child: FwContentWidth(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FwDetailHeader(title: l10n.editListing, subtitle: crop),
+                const OfflineBanner(),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                  child: Form(
+                    key: _formKey,
+                    child: _buildForm(l10n),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
-        bottomNavigationBar: FwBottomActions(
-          children: [
-            FilledButton(
-              key: const Key('edit_listing_save'),
-              onPressed: _isSubmitting ? null : _handleSave,
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(56),
-                textStyle: const TextStyle(
-                  fontFamily: AppTheme.fontFamily,
-                  fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
+      ),
+      bottomNavigationBar: FwBottomActions(
+        children: [
+          FilledButton(
+            key: const Key('edit_listing_save'),
+            onPressed: _isSubmitting ? null : _handleSave,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(56),
+              textStyle: const TextStyle(
+                fontFamily: AppTheme.fontFamily,
+                fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
               ),
-              child: _isSubmitting
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Colors.white,
-                        ),
-                      ),
-                    )
-                  : Text(l10n.save),
             ),
-            // Web saves straight to the server, nothing waits in a browser.
-            if (!kIsWeb) FwActionNote(l10n.savedOnPhoneFirstNote),
-          ],
-        ),
+            child: _isSubmitting
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Colors.white,
+                      ),
+                    ),
+                  )
+                : Text(l10n.save),
+          ),
+          // Web saves straight to the server, nothing waits in a browser.
+          if (!kIsWeb) FwActionNote(l10n.savedOnPhoneFirstNote),
+        ],
       ),
     );
   }
@@ -294,4 +318,22 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
       ],
     );
   }
+}
+
+/// How [EditCropListingScreen] ended, for the detail under it.
+class EditListingResult {
+  /// The listing as saved.
+  final CropListing? saved;
+
+  /// The listing changed since the form read it (an order took stock, or a
+  /// newer copy arrived): nothing was saved and the detail must read it
+  /// again before the farmer edits.
+  final bool changedElsewhere;
+
+  const EditListingResult.saved(CropListing this.saved)
+      : changedElsewhere = false;
+
+  const EditListingResult.changedElsewhere()
+      : saved = null,
+        changedElsewhere = true;
 }

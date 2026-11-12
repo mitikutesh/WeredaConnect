@@ -496,6 +496,14 @@ class AppLocalizationsAm extends AppLocalizations {
   String get deleteListingBody => 'ገዢዎች ከእንግዲህ አያዩትም። መመለስ አይቻልም።';
 
   @override
+  String get editListingChanged =>
+      'ይህ ዝርዝር ከከፈቱት በኋላ ተቀይሯል፤ ምናልባት ትዕዛዝ ከፊሉን ወስዶ ሊሆን ይችላል። ይመልከቱትና እንደገና ያስተካክሉ።';
+
+  @override
+  String get deleteListingOrdersUnreadable =>
+      'የዚህን ዝርዝር ትዕዛዞች ማረጋገጥ አልተቻለም። በይነመረብ ሲኖርዎት እንደገና ይሞክሩ።';
+
+  @override
   String get allCrops => 'ሁሉም';
 
   @override

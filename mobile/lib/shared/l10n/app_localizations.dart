@@ -1030,6 +1030,18 @@ abstract class AppLocalizations {
   /// **'Buyers will no longer see it. This cannot be undone.'**
   String get deleteListingBody;
 
+  /// SIM-56: snackbar on the listing detail when the farmer's edit was not saved because the listing changed since the edit form opened (version conflict); the detail now shows the listing as it is
+  ///
+  /// In en, this message translates to:
+  /// **'This listing changed since you opened it, maybe an order took some. Check it and edit again.'**
+  String get editListingChanged;
+
+  /// SIM-56: snackbar when the farmer's delete is stopped because the listing's orders could not be read to check none is in progress
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check this listing\'s orders. Try again when you are online.'**
+  String get deleteListingOrdersUnreadable;
+
   /// Filter label for all crop types
   ///
   /// In en, this message translates to:

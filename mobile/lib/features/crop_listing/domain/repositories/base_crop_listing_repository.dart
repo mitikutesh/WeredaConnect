@@ -66,18 +66,45 @@ abstract class BaseCropListingRepository {
     required String farmerId,
   });
 
-  /// SIM-56: the farmer changes how much is left ([quantity], quintals), the
-  /// price ([pricePerKg], ETB) and the [description] of their own listing, a
-  /// `crop_listing` update at the version this side holds (the server
-  /// refuses another; crop-listing-api.md). Returns the listing as saved.
-  /// Throws [StateError] when the listing is not [farmerId]'s or not found.
+  /// SIM-56: the farmer's edit of [listing], their own, as the form showed
+  /// it: how much is left ([quantity], quintals), the price ([pricePerKg],
+  /// ETB) and the [description]. Only the non-null fields are sent (the
+  /// `crop_listing` update takes partial data), at [listing]'s version: the
+  /// form's base, never a version read at save time, so an edit made before
+  /// an order took stock conflicts instead of putting that stock back
+  /// (crop-listing-api.md 1.13.0). Returns the listing as saved.
+  ///
+  /// Throws `SyncConflictException` when the listing changed since the form
+  /// read it, [StateError] when it is not [farmerId]'s or not found, and
+  /// [ArgumentError] when nothing changes.
   Future<CropListing> updateListing({
-    required String listingId,
+    required CropListing listing,
     required String farmerId,
-    required double quantity,
-    required double pricePerKg,
-    required String description,
+    double? quantity,
+    double? pricePerKg,
+    String? description,
   });
+
+  /// The `data` of a SIM-56 edit: the listing id, the changed fields only,
+  /// and the base [version]. Shared by the Isar and web repositories.
+  static Map<String, dynamic> editPayload({
+    required String listingId,
+    required int version,
+    double? quantity,
+    double? pricePerKg,
+    String? description,
+  }) {
+    if (quantity == null && pricePerKg == null && description == null) {
+      throw ArgumentError('A listing edit must change something.');
+    }
+    return {
+      'listingId': listingId,
+      if (quantity != null) 'quantity': quantity,
+      if (pricePerKg != null) 'pricePerKg': pricePerKg,
+      if (description != null) 'description': description,
+      'version': version,
+    };
+  }
 
   /// A single listing by id, or null when it isn't reachable (not synced
   /// locally / not visible to the caller / offline on web). Used by chat

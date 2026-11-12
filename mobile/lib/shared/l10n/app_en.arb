@@ -629,6 +629,14 @@
   "@deleteListingBody": {
     "description": "SIM-56: body of the dialog that confirms deleting the farmer's own crop listing"
   },
+  "editListingChanged": "This listing changed since you opened it, maybe an order took some. Check it and edit again.",
+  "@editListingChanged": {
+    "description": "SIM-56: snackbar on the listing detail when the farmer's edit was not saved because the listing changed since the edit form opened (version conflict); the detail now shows the listing as it is"
+  },
+  "deleteListingOrdersUnreadable": "Could not check this listing's orders. Try again when you are online.",
+  "@deleteListingOrdersUnreadable": {
+    "description": "SIM-56: snackbar when the farmer's delete is stopped because the listing's orders could not be read to check none is in progress"
+  },
   "allCrops": "All",
   "@allCrops": {
     "description": "Filter label for all crop types"

@@ -117,14 +117,16 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
 
     try {
       final listing = await _repository.updateListing(
-        listingId: event.listingId,
+        listing: event.listing,
         farmerId: event.farmerId,
         quantity: event.quantity,
         pricePerKg: event.pricePerKg,
         description: event.description,
       );
+      event.done?.complete(listing);
       emit(CropListingUpdated(listing: listing));
     } on Object catch (e) {
+      event.done?.completeError(e);
       emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
@@ -135,15 +137,21 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
   ) async {
     emit(const CropListingLoading());
 
+    var deleted = false;
     try {
       await _repository.deleteListing(
         listingId: event.listingId,
         farmerId: event.farmerId,
       );
+      deleted = true;
+      event.done?.complete();
       // Reload listings after delete
       final listings = await _repository.getListingsByFarmer(event.farmerId);
       emit(CropListingsLoaded(listings: listings));
     } on Object catch (e) {
+      // A reload that fails after the delete was saved is not the delete's
+      // failure.
+      if (!deleted) event.done?.completeError(e);
       emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }

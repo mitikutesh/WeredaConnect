@@ -237,11 +237,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
   /// The listing's current server version. Unlike [getListingById] this
   /// throws when the read fails, so a delete never goes out with a guessed
   /// version.
-  Future<int> _currentListingVersion(String listingId) async =>
-      (await _currentListing(listingId)).version;
-
-  /// The listing as the server holds it now; throws when the read fails.
-  Future<CropListing> _currentListing(String listingId) async {
+  Future<int> _currentListingVersion(String listingId) async {
     final data = await _api.get<Map<String, dynamic>>('/crops/$listingId');
     final envelope = data['crop'] ?? data['item'];
     final map = envelope is Map<String, dynamic>
@@ -252,24 +248,35 @@ class WebCropListingRepository extends BaseCropListingRepository {
     if (map == null) {
       throw NotFoundException('Crop listing $listingId not found.');
     }
-    return _parseListingMap(map);
+    return _parseListingMap(map).version;
   }
 
-  /// SIM-56: straight to the server, at the version it holds now (web keeps
-  /// no copy to version from). A refusal throws ([ensureSyncSucceeded]) and
-  /// nothing changed.
+  /// SIM-56: straight to the server, the changed fields only, at the version
+  /// of the listing the form showed (never one read at save time: an order
+  /// that took stock since makes the server answer conflict, thrown as
+  /// `SyncConflictException`, instead of the edit putting the stock back).
+  /// A refusal throws too ([ensureSyncSucceeded]) and nothing changed. On
+  /// success [listing] itself takes the changes and the next version.
   @override
   Future<CropListing> updateListing({
-    required String listingId,
+    required CropListing listing,
     required String farmerId,
-    required double quantity,
-    required double pricePerKg,
-    required String description,
+    double? quantity,
+    double? pricePerKg,
+    String? description,
   }) async {
-    final current = await _currentListing(listingId);
-    if (current.farmerId != farmerId) {
-      throw StateError('Crop listing $listingId is not this farmer\'s.');
+    if (listing.farmerId != farmerId) {
+      throw StateError(
+        'Crop listing ${listing.listingId} is not this farmer\'s.',
+      );
     }
+    final data = BaseCropListingRepository.editPayload(
+      listingId: listing.listingId,
+      version: listing.version,
+      quantity: quantity,
+      pricePerKg: pricePerKg,
+      description: description,
+    );
     final now = DateTime.now().toUtc();
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -281,28 +288,22 @@ class WebCropListingRepository extends BaseCropListingRepository {
             'operationId': _uuid.v4(),
             'entityType': 'crop_listing',
             'action': 'update',
-            'entityId': listingId,
+            'entityId': listing.listingId,
             'timestamp': now.toIso8601String(),
-            'idempotencyKey':
-                '$farmerId:crop_listing:$listingId:update:${now.millisecondsSinceEpoch}',
-            'data': {
-              'listingId': listingId,
-              'quantity': quantity,
-              'pricePerKg': pricePerKg,
-              'description': description,
-              'version': current.version,
-            },
+            'idempotencyKey': '$farmerId:crop_listing:${listing.listingId}'
+                ':update:${now.millisecondsSinceEpoch}',
+            'data': data,
           },
         ],
       },
     );
     ensureSyncSucceeded(response);
-    return current
-      ..quantity = quantity
-      ..pricePerKg = pricePerKg
-      ..description = description
+    if (quantity != null) listing.quantity = quantity;
+    if (pricePerKg != null) listing.pricePerKg = pricePerKg;
+    if (description != null) listing.description = description;
+    return listing
       ..updatedAt = now
-      ..version = current.version + 1;
+      ..version = listing.version + 1;
   }
 
   @override

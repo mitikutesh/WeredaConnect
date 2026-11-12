@@ -122,43 +122,56 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
   /// SIM-56: what the device has shows first. The server's copy of the
   /// buyer's requests is read once per buyer while the app runs (and again on
   /// every pull to refresh): when the device has none (a web reload, a new
-  /// phone) the list waits for it, else it follows, and the list is shown
-  /// again only when it added a request.
+  /// phone) the list waits for it, else it follows. Either way the list is
+  /// read again after it, whatever this read returned: another load running
+  /// at the same time may be the one that added the requests (or this one's
+  /// write may have lost to it), and the list must not stay empty then. It
+  /// is shown again when the requests on it changed.
   Future<void> _onLoadActiveIntents(
     LoadActiveIntents event,
     Emitter<BuyerIntentState> emit,
   ) async {
     emit(const BuyerIntentLoading());
     try {
-      var intents = await _repository.getActiveIntents(event.buyerId);
-      final restore = !_restoredFor.contains(event.buyerId);
-      if (restore && intents.isEmpty) {
-        if (await _restoreFromServer(event.buyerId)) {
-          intents = await _repository.getActiveIntents(event.buyerId);
-        }
+      final intents = await _repository.getActiveIntents(event.buyerId);
+      if (_restoredFor.contains(event.buyerId)) {
         emit(ActiveIntentsLoaded(intents: intents));
         return;
       }
-      emit(ActiveIntentsLoaded(intents: intents));
-      if (restore && await _restoreFromServer(event.buyerId)) {
-        emit(
-          ActiveIntentsLoaded(
-            intents: await _repository.getActiveIntents(event.buyerId),
-          ),
-        );
+      if (intents.isNotEmpty) emit(ActiveIntentsLoaded(intents: intents));
+      await _restoreFromServer(event.buyerId);
+      final after = await _repository.getActiveIntents(event.buyerId);
+      if (intents.isEmpty || !_sameRequests(intents, after)) {
+        emit(ActiveIntentsLoaded(intents: after));
       }
     } on Object catch (e) {
       emit(BuyerIntentError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
+  static bool _sameRequests(List<BuyerIntent> a, List<BuyerIntent> b) =>
+      a.length == b.length &&
+      Iterable<int>.generate(a.length)
+          .every((i) => a[i].intentId == b[i].intentId);
+
   /// Buyers whose requests were read back from the server in this run.
   final Set<String> _restoredFor = {};
+
+  /// The read-back running now, per buyer: loads that overlap share it
+  /// rather than each sending its own (and racing on the same rows).
+  final Map<String, Future<bool>> _restoring = {};
 
   /// Reads the buyer's requests back from the server (SIM-56). Best effort:
   /// offline or on any error the device's own list stands, and the next load
   /// tries again. True when it added a request.
-  Future<bool> _restoreFromServer(String buyerId) async {
+  Future<bool> _restoreFromServer(String buyerId) =>
+      _restoring[buyerId] ??= _readBack(buyerId).whenComplete(() {
+        // A block body: returning the removed future would make this wait
+        // for itself.
+        _restoring.remove(buyerId);
+      });
+
+  Future<bool> _readBack(String buyerId) async {
     try {
       final added = await _repository.refreshFromServer(buyerId);
       _restoredFor.add(buyerId);

@@ -11,6 +11,7 @@ import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -370,12 +371,23 @@ void main() {
             description: 'Teff',
           );
 
-      test('saves on the phone and queues an update at the server version',
+      Future<CropListing> stored(String listingId) async =>
+          (await isar.cropListings
+              .filter()
+              .listingIdEqualTo(listingId)
+              .findFirst())!;
+
+      Future<Map<String, dynamic>> lastUpdateData() async {
+        final pending = await syncQueue.getPendingOperations();
+        return jsonDecode(pending.last.data) as Map<String, dynamic>;
+      }
+
+      test('saves on the phone and queues the changed fields at the form base',
           () async {
         final listing = await seed();
 
         final saved = await repository.updateListing(
-          listingId: listing.listingId,
+          listing: listing,
           farmerId: 'farmer-001',
           quantity: 42.5,
           pricePerKg: 47.25,
@@ -383,11 +395,8 @@ void main() {
         );
 
         expect(saved.quantity, 42.5);
-        final fromDb = await isar.cropListings
-            .filter()
-            .listingIdEqualTo(listing.listingId)
-            .findFirst();
-        expect(fromDb!.quantity, 42.5);
+        final fromDb = await stored(listing.listingId);
+        expect(fromDb.quantity, 42.5);
         expect(fromDb.pricePerKg, 47.25);
         expect(fromDb.description, 'White teff');
         expect(fromDb.version, 2);
@@ -398,9 +407,7 @@ void main() {
 
         final pending = await syncQueue.getPendingOperations();
         expect(pending.map((op) => op.action), ['create', 'update']);
-        final data = jsonDecode(pending.last.data) as Map<String, dynamic>;
-        // Only the three edited fields, at the version the server holds.
-        expect(data, {
+        expect(await lastUpdateData(), {
           'listingId': listing.listingId,
           'quantity': 42.5,
           'pricePerKg': 47.25,
@@ -409,21 +416,38 @@ void main() {
         });
       });
 
-      test('a second edit is sent at the version after the first', () async {
+      test('a price-only edit sends the price only, never the stock', () async {
         final listing = await seed();
+
         await repository.updateListing(
-          listingId: listing.listingId,
+          listing: listing,
+          farmerId: 'farmer-001',
+          pricePerKg: 52,
+        );
+
+        expect(await lastUpdateData(), {
+          'listingId': listing.listingId,
+          'pricePerKg': 52,
+          'version': 1,
+        });
+        final fromDb = await stored(listing.listingId);
+        expect(fromDb.quantity, 50.0);
+        expect(fromDb.description, 'Teff');
+        expect(fromDb.pricePerKg, 52);
+      });
+
+      test('a second edit from the saved listing goes at the next version',
+          () async {
+        final listing = await seed();
+        final first = await repository.updateListing(
+          listing: listing,
           farmerId: 'farmer-001',
           quantity: 40,
-          pricePerKg: 45,
-          description: 'Teff',
         );
         await repository.updateListing(
-          listingId: listing.listingId,
+          listing: first,
           farmerId: 'farmer-001',
           quantity: 30,
-          pricePerKg: 45,
-          description: 'Teff',
         );
 
         final pending = await syncQueue.getPendingOperations();
@@ -434,26 +458,60 @@ void main() {
         expect(versions, [1, 2]);
       });
 
+      test('changed since the form opened is not overwritten', () async {
+        // The form read version 1; the phone's copy moved on to 2 since (a
+        // pull brought the server's copy after an order took stock).
+        final listing = await seed();
+        final formCopy = await stored(listing.listingId);
+        await isar.writeTxn(() async {
+          final row = await stored(listing.listingId);
+          row
+            ..quantity = 6
+            ..version = 2;
+          await isar.cropListings.put(row);
+        });
+
+        await expectLater(
+          repository.updateListing(
+            listing: formCopy,
+            farmerId: 'farmer-001',
+            pricePerKg: 60,
+          ),
+          throwsA(isA<SyncConflictException>()),
+        );
+
+        final fromDb = await stored(listing.listingId);
+        expect(fromDb.quantity, 6);
+        expect(fromDb.pricePerKg, 45.0);
+        expect(fromDb.version, 2);
+        expect(await syncQueue.getPendingOperations(), hasLength(1));
+      });
+
       test("another farmer's listing is refused and nothing changes", () async {
         final listing = await seed();
 
         await expectLater(
           repository.updateListing(
-            listingId: listing.listingId,
+            listing: listing,
             farmerId: 'farmer-002',
             quantity: 1,
-            pricePerKg: 1,
-            description: '',
           ),
           throwsStateError,
         );
 
-        final fromDb = await isar.cropListings
-            .filter()
-            .listingIdEqualTo(listing.listingId)
-            .findFirst();
-        expect(fromDb!.quantity, 50.0);
+        final fromDb = await stored(listing.listingId);
+        expect(fromDb.quantity, 50.0);
         expect(fromDb.version, 1);
+        expect(await syncQueue.getPendingOperations(), hasLength(1));
+      });
+
+      test('an edit that changes nothing is refused', () async {
+        final listing = await seed();
+
+        await expectLater(
+          repository.updateListing(listing: listing, farmerId: 'farmer-001'),
+          throwsArgumentError,
+        );
         expect(await syncQueue.getPendingOperations(), hasLength(1));
       });
     });

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
@@ -26,7 +28,6 @@ import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_tri
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
-import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/edit_crop_listing_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_photo_views.dart';
 import 'package:wereda_connect/features/listing_report/presentation/report_listing_sheet.dart';
@@ -596,13 +597,17 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     );
   }
 
-  /// Opens the edit form on the bloc this screen uses; the saved listing
-  /// replaces the one shown.
+  /// Opens the edit form on the bloc this screen uses. The saved listing
+  /// replaces the one shown; when the listing changed since this screen read
+  /// it (an order took stock), nothing was saved: the listing is read again
+  /// and the farmer told, so they edit what is there now.
   Future<void> _openEdit() async {
     final bloc = context.read<CropListingBloc>();
-    final saved = await Navigator.push<CropListing>(
+    final l10n = AppLocalizations.of(context)!;
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await Navigator.push<EditListingResult>(
       context,
-      MaterialPageRoute<CropListing>(
+      MaterialPageRoute<EditListingResult>(
         builder: (_) => BlocProvider.value(
           value: bloc,
           child: EditCropListingScreen(
@@ -612,7 +617,27 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
         ),
       ),
     );
-    if (saved != null && mounted) setState(() => _listing = saved);
+    if (result == null || !mounted) return;
+    final saved = result.saved;
+    if (saved != null) {
+      setState(() => _listing = saved);
+      return;
+    }
+    if (result.changedElsewhere) {
+      await _reloadListing(bloc);
+      messenger.showSnackBar(SnackBar(content: Text(l10n.editListingChanged)));
+    }
+  }
+
+  /// The listing as it is now (the phone's copy, the server's on web).
+  /// Kept as shown when it cannot be read.
+  Future<void> _reloadListing(CropListingBloc bloc) async {
+    try {
+      final fresh = await bloc.repository.getListingById(_listing.listingId);
+      if (fresh != null && mounted) setState(() => _listing = fresh);
+    } on Object catch (e) {
+      debugPrint('[CropListingDetail] listing re-read failed: $e');
+    }
   }
 
   /// Asks first, then refuses a listing that orders still need (as the
@@ -644,52 +669,60 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     );
     if (confirmed != true || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
-    if (await _hasOrdersInProgress()) {
+    final bloc = context.read<CropListingBloc>();
+    setState(() => _deleting = true);
+    final ordersInProgress = await _hasOrdersInProgress();
+    if (!mounted) return;
+    if (ordersInProgress != false) {
+      setState(() => _deleting = false);
       messenger.showSnackBar(
-        SnackBar(content: Text(l10n.errorCropHasActiveOrders)),
+        SnackBar(
+          content: Text(
+            ordersInProgress == true
+                ? l10n.errorCropHasActiveOrders
+                : l10n.deleteListingOrdersUnreadable,
+          ),
+        ),
       );
       return;
     }
-    if (!mounted) return;
-    final bloc = context.read<CropListingBloc>();
-    setState(() => _deleting = true);
-    final outcome = bloc.stream.firstWhere(
-      (state) => state is CropListingsLoaded || state is CropListingError,
-    );
+    // This delete's own answer: the bloc is app-wide, so another screen's
+    // list load must never be taken for it.
+    final done = Completer<void>();
     bloc.add(
       DeleteCropListing(
         listingId: _listing.listingId,
         farmerId: widget.currentUserId,
+        done: done,
       ),
     );
-    final CropListingState state;
     try {
-      state = await outcome;
-    } on StateError {
-      // The bloc closed first (the app is going away): nothing to say.
-      return;
-    }
-    if (!mounted) return;
-    setState(() => _deleting = false);
-    if (state is CropListingError) {
+      await done.future;
+    } on Object catch (e) {
+      if (!mounted) return;
+      setState(() => _deleting = false);
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            localizeErrorCode(state.code, l10n, message: state.message),
+            localizeErrorCode(mapErrorToCode(e), l10n, message: '$e'),
           ),
           backgroundColor: AppTheme.statusError,
         ),
       );
       return;
     }
+    if (!mounted) return;
     showSavedOrSent(context, sent: l10n.listingDeleted).ignore();
     Navigator.of(context).pop();
   }
 
   /// Whether an order this device knows still needs the listing
-  /// ([listingRemovalBlockingOrderStatuses]). A read that fails, or no
-  /// order repository here, leaves it to the server.
-  Future<bool> _hasOrdersInProgress() async {
+  /// ([listingRemovalBlockingOrderStatuses]): true or false, or null when
+  /// the orders cannot be read (offline on web, no order repository). Null
+  /// stops the delete: the server would refuse it too now (rule 10 in every
+  /// environment), but the phone says why in plain words, and on the phone
+  /// the refusal would only come back after the listing left My Crops.
+  Future<bool?> _hasOrdersInProgress() async {
     try {
       final orders = await context
           .read<OrderBloc>()
@@ -702,7 +735,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
       );
     } on Object catch (e) {
       debugPrint('[CropListingDetail] order read before delete failed: $e');
-      return false;
+      return null;
     }
   }
 

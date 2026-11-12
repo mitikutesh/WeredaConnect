@@ -6,10 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/user.dart';
-import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order.dart';
-import 'package:wereda_connect/core/models/rating.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
@@ -23,6 +23,8 @@ import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dar
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class _MockCropListingBloc extends Mock implements CropListingBloc {}
+
+class _MockCropRepository extends Mock implements BaseCropListingRepository {}
 
 class _MockOrderBloc extends Mock implements OrderBloc {}
 
@@ -74,7 +76,12 @@ void main() {
   late StreamController<CropListingState> cropStates;
   late _MockOrderBloc orderBloc;
   late _MockOrderRepository orders;
+  late _MockCropRepository cropRepo;
   late RatingBloc ratingBloc;
+
+  /// What the screens sent to the bloc; each carries its own completer,
+  /// which the test answers.
+  late List<CropListingEvent> sent;
 
   setUpAll(() => registerFallbackValue(_FakeCropListingEvent()));
 
@@ -84,6 +91,13 @@ void main() {
     when(() => cropBloc.state).thenReturn(const CropListingInitial());
     when(() => cropBloc.stream).thenAnswer((_) => cropStates.stream);
     when(() => cropBloc.close()).thenAnswer((_) async {});
+    sent = [];
+    when(() => cropBloc.add(any())).thenAnswer(
+      (invocation) =>
+          sent.add(invocation.positionalArguments.single as CropListingEvent),
+    );
+    cropRepo = _MockCropRepository();
+    when(() => cropBloc.repository).thenReturn(cropRepo);
     orderBloc = _MockOrderBloc();
     orders = _MockOrderRepository();
     when(() => orderBloc.repository).thenReturn(orders);
@@ -203,6 +217,8 @@ void main() {
       await tester.pump();
     }
 
+    DeleteCropListing sentDelete() => sent.single as DeleteCropListing;
+
     testWidgets('cancel deletes nothing', (tester) async {
       await open(tester);
       await tester.tap(find.byKey(delete));
@@ -210,7 +226,7 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
-      verifyNever(() => cropBloc.add(any()));
+      expect(sent, isEmpty);
       expect(find.byType(CropListingDetailScreen), findsOneWidget);
     });
 
@@ -219,16 +235,34 @@ void main() {
       await open(tester);
       await confirm(tester);
 
-      final sent = verify(() => cropBloc.add(captureAny())).captured.single
-          as DeleteCropListing;
-      expect(sent.listingId, 'listing-1');
-      expect(sent.farmerId, 'farmer-001');
+      expect(sentDelete().listingId, 'listing-1');
+      expect(sentDelete().farmerId, 'farmer-001');
 
-      cropStates.add(const CropListingsLoaded(listings: []));
+      sentDelete().done!.complete();
       await tester.pumpAndSettle();
 
       expect(find.byType(CropListingDetailScreen), findsNothing);
       expect(find.text('home'), findsOneWidget);
+    });
+
+    testWidgets("another screen's list load is not taken for the delete",
+        (tester) async {
+      await open(tester);
+      await confirm(tester);
+
+      // The app-wide bloc answers some other screen's load meanwhile.
+      cropStates
+        ..add(const CropListingsLoaded(listings: []))
+        ..add(const CropListingError(message: 'offline'));
+      // The delete is still running (its spinner turns): no settle here.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byType(CropListingDetailScreen), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+
+      sentDelete().done!.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(CropListingDetailScreen), findsNothing);
     });
 
     testWidgets('a paid order on the listing stops it before it goes out',
@@ -243,12 +277,34 @@ void main() {
       await confirm(tester);
       await tester.pumpAndSettle();
 
-      verifyNever(() => cropBloc.add(any()));
+      expect(sent, isEmpty);
       expect(
         find.text('This listing has open orders. Handle them first.'),
         findsOneWidget,
       );
       expect(find.byType(CropListingDetailScreen), findsOneWidget);
+    });
+
+    testWidgets('orders that cannot be read stop it (fail closed)',
+        (tester) async {
+      when(() => orders.getOrdersByFarmer('farmer-001'))
+          .thenThrow(const NetworkException());
+      await open(tester);
+      await confirm(tester);
+      await tester.pumpAndSettle();
+
+      expect(sent, isEmpty);
+      expect(
+        find.text(
+          "Could not check this listing's orders. Try again when you are "
+          'online.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(CropListingDetailScreen), findsOneWidget);
+      // The buttons work again.
+      final button = tester.widget<OutlinedButton>(find.byKey(delete));
+      expect(button.onPressed, isNotNull);
     });
 
     testWidgets('orders that no longer need it do not stop it', (tester) async {
@@ -262,8 +318,7 @@ void main() {
       await open(tester);
       await confirm(tester);
 
-      verify(() => cropBloc.add(any(that: isA<DeleteCropListing>()))).called(1);
-      cropStates.add(const CropListingsLoaded(listings: []));
+      sentDelete().done!.complete();
       await tester.pumpAndSettle();
       expect(find.byType(CropListingDetailScreen), findsNothing);
     });
@@ -272,12 +327,9 @@ void main() {
       await open(tester);
       await confirm(tester);
 
-      cropStates.add(
-        const CropListingError(
-          message: 'CROP_HAS_ACTIVE_ORDERS: open orders',
-          code: AppErrorCode.cropHasActiveOrders,
-        ),
-      );
+      sentDelete().done!.completeError(
+            const SyncRejectedException('CROP_HAS_ACTIVE_ORDERS: open orders'),
+          );
       await tester.pumpAndSettle();
 
       expect(
@@ -289,10 +341,17 @@ void main() {
   });
 
   group('Edit', () {
-    testWidgets('opens filled in, saves the edit and shows it', (tester) async {
+    Future<void> openEdit(WidgetTester tester) async {
       await open(tester);
       await tester.tap(find.byKey(edit));
       await tester.pumpAndSettle();
+    }
+
+    UpdateCropListing sentEdit() => sent.single as UpdateCropListing;
+
+    testWidgets('opens filled in, sends only the change, shows the saved copy',
+        (tester) async {
+      await openEdit(tester);
 
       expect(find.byType(EditCropListingScreen), findsOneWidget);
       expect(find.text('Edit listing'), findsOneWidget);
@@ -308,18 +367,17 @@ void main() {
       await tester.tap(find.byKey(const Key('edit_listing_save')));
       await tester.pump();
 
-      final sent = verify(() => cropBloc.add(captureAny())).captured.single
-          as UpdateCropListing;
-      expect(sent.listingId, 'listing-1');
-      expect(sent.farmerId, 'farmer-001');
-      expect(sent.pricePerKg, 52.5);
-      // The untouched quantity keeps its decimals (the free stock).
-      expect(sent.quantity, 12.345);
-      expect(sent.description, 'White teff');
+      final edit = sentEdit();
+      expect(edit.listing.listingId, 'listing-1');
+      // The base is the version the farmer was looking at.
+      expect(edit.listing.version, 1);
+      expect(edit.farmerId, 'farmer-001');
+      expect(edit.pricePerKg, 52.5);
+      // Untouched: not sent, so an order's stock taken meanwhile is safe.
+      expect(edit.quantity, isNull);
+      expect(edit.description, isNull);
 
-      cropStates.add(
-        CropListingUpdated(listing: _listing(pricePerKg: 52.5)),
-      );
+      edit.done!.complete(_listing(pricePerKg: 52.5)..version = 2);
       await tester.pumpAndSettle();
 
       expect(find.byType(EditCropListingScreen), findsNothing);
@@ -327,10 +385,66 @@ void main() {
       expect(find.text('52.50'), findsOneWidget);
     });
 
-    testWidgets('a phone number in the description is refused', (tester) async {
-      await open(tester);
+    testWidgets(
+        'changed since it opened: nothing saved, the detail reads the '
+        'listing again and says so', (tester) async {
+      when(() => cropRepo.getListingById('listing-1')).thenAnswer(
+        (_) async => _listing(quantity: 6, pricePerKg: 60.5)..version = 3,
+      );
+      await openEdit(tester);
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_price')),
+        '52.5',
+      );
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pump();
+
+      sentEdit().done!.completeError(
+            const SyncConflictException('Version conflict.'),
+          );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(EditCropListingScreen), findsNothing);
+      expect(
+        find.text(
+          'This listing changed since you opened it, maybe an order took '
+          'some. Check it and edit again.',
+        ),
+        findsOneWidget,
+      );
+      // The detail shows the listing as it is now.
+      expect(find.text('60.50'), findsOneWidget);
+
+      // The next edit starts from that copy.
+      sent.clear();
       await tester.tap(find.byKey(edit));
       await tester.pumpAndSettle();
+      expect(find.text('6'), findsOneWidget);
+      expect(find.text('60.5'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_price')),
+        '61',
+      );
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pump();
+      expect(sentEdit().listing.version, 3);
+      sentEdit().done!.complete(_listing(quantity: 6, pricePerKg: 61));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('nothing changed: Save closes the form, nothing sent',
+        (tester) async {
+      await openEdit(tester);
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pumpAndSettle();
+
+      expect(sent, isEmpty);
+      expect(find.byType(EditCropListingScreen), findsNothing);
+      expect(find.byType(CropListingDetailScreen), findsOneWidget);
+    });
+
+    testWidgets('a phone number in the description is refused', (tester) async {
+      await openEdit(tester);
 
       await tester.enterText(
         find.byKey(const Key('edit_listing_description')),
@@ -339,14 +453,12 @@ void main() {
       await tester.tap(find.byKey(const Key('edit_listing_save')));
       await tester.pumpAndSettle();
 
-      verifyNever(() => cropBloc.add(any()));
+      expect(sent, isEmpty);
       expect(find.byType(EditCropListingScreen), findsOneWidget);
     });
 
     testWidgets('a zero quantity is refused', (tester) async {
-      await open(tester);
-      await tester.tap(find.byKey(edit));
-      await tester.pumpAndSettle();
+      await openEdit(tester);
 
       await tester.enterText(
         find.byKey(const Key('edit_listing_quantity')),
@@ -355,25 +467,35 @@ void main() {
       await tester.tap(find.byKey(const Key('edit_listing_save')));
       await tester.pumpAndSettle();
 
-      verifyNever(() => cropBloc.add(any()));
+      expect(sent, isEmpty);
     });
 
-    testWidgets('a refused save stays on the form', (tester) async {
-      await open(tester);
-      await tester.tap(find.byKey(edit));
-      await tester.pumpAndSettle();
+    testWidgets(
+        "a refused save stays on the form; another screen's error "
+        'is not taken for it', (tester) async {
+      await openEdit(tester);
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_description')),
+        'Red teff',
+      );
       await tester.tap(find.byKey(const Key('edit_listing_save')));
       await tester.pump();
 
-      cropStates.add(
-        const CropListingError(
-          message: 'CROP_CONTACT_IN_TEXT: Remove the phone number.',
-          code: AppErrorCode.contactInText,
-        ),
-      );
+      cropStates.add(const CropListingError(message: 'list reload failed'));
+      // The save is still running (its spinner turns): no settle here.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byType(SnackBar), findsNothing);
+
+      sentEdit().done!.completeError(
+            const SyncRejectedException(
+              'CROP_CONTACT_IN_TEXT: Remove the phone number.',
+            ),
+          );
       await tester.pumpAndSettle();
 
       expect(find.byType(EditCropListingScreen), findsOneWidget);
+      expect(find.byType(SnackBar), findsOneWidget);
       final save = tester.widget<FilledButton>(
         find.byKey(const Key('edit_listing_save')),
       );
