@@ -22,7 +22,6 @@ public class TruckerGpsEvidenceTests
     private static readonly DateTime ConfirmedAt = new(2026, 11, 12, 9, 0, 0, DateTimeKind.Utc);
     private static readonly TrackPoint Pickup = new(7.6700, 36.8300);
     private static readonly TrackPoint Addis = new(9.0300, 38.7400);
-    private static readonly IReadOnlyList<TrackPoint> DropoffAtAddis = new[] { Addis };
 
     private static TripLocationRow Row(
         DateTime capturedAt, double lat, double lng, string kind = "fix", string? source = "hourly",
@@ -34,9 +33,12 @@ public class TruckerGpsEvidenceTests
 
     private static TruckerCheckIn At(DateTime capturedAt, TrackPoint point) => new(capturedAt, point.Latitude, point.Longitude);
 
+    /// <summary>The verdict with the trip's destination in Addis Ababa unless a test says else.</summary>
     private static TruckerGpsVerdict Judge(
-        IReadOnlyList<TruckerCheckIn> checkIns, IReadOnlyList<TrackPoint>? points = null, string from = From, string to = To)
-        => TruckerGpsEvidence.Judge(checkIns, Pickup, ConfirmedAt, from, to, points ?? DropoffAtAddis, Kmh);
+        IReadOnlyList<TruckerCheckIn> checkIns, TrackPoint? destination = null, TrackPoint? orderPoint = null,
+        bool withoutDestination = false, string from = From, string to = To)
+        => TruckerGpsEvidence.Judge(
+            checkIns, Pickup, ConfirmedAt, from, to, withoutDestination ? null : destination ?? Addis, orderPoint, Kmh);
 
     // ── the window and the check-ins that count ─────────────────────
 
@@ -138,29 +140,76 @@ public class TruckerGpsEvidenceTests
     public void Judge_ACheckInTakenJustAfterTheConfirmation_CountsAsTheLast()
     {
         // A phone clock a minute ahead: the time left is the clock skew alone.
-        Judge(new[] { At(ConfirmedAt.AddMinutes(-30), Addis), At(ConfirmedAt.AddMinutes(1), Pickup) })
-            .Outcome.Should().Be(TruckerGpsOutcome.ReachedDropoff);
         Judge(new[] { At(ConfirmedAt.AddMinutes(1), Pickup) }).Outcome.Should().Be(TruckerGpsOutcome.Anomaly);
     }
 
     [Fact]
-    public void Judge_WithoutADropoffPoint_WritesNothing()
+    public void Judge_EveryCheckInAtTheFarm_IsAnAnomaly()
     {
-        Judge(new[] { At(ConfirmedAt.AddMinutes(-10), Pickup) }, Array.Empty<TrackPoint>())
+        var checkIns = new[]
+        {
+            At(ConfirmedAt.AddMinutes(-70), new TrackPoint(7.6702, 36.8301)),
+            At(ConfirmedAt.AddMinutes(-10), new TrackPoint(7.6705, 36.8302))
+        };
+
+        Judge(checkIns).Outcome.Should().Be(TruckerGpsOutcome.Anomaly);
+    }
+
+    [Fact]
+    public void Judge_ACheckInAwayFromThePickup_ClearsTheTrucker_WhereverTheLastOneIs()
+    {
+        // One check-in 1.5 km from the farm on an inter-woreda trip: the truck left the pickup.
+        var checkIns = new[]
+        {
+            At(ConfirmedAt.AddMinutes(-70), Pickup),
+            At(ConfirmedAt.AddMinutes(-40), new TrackPoint(7.6700 + 1.5 / 111.19, 36.8300)),
+            At(ConfirmedAt.AddMinutes(-10), Pickup)
+        };
+
+        Judge(checkIns).Outcome.Should().Be(TruckerGpsOutcome.Consistent);
+    }
+
+    [Fact]
+    public void Judge_ALateConfirm_WithTheTruckBackAtTheFarm_IsNotAnAnomaly()
+    {
+        // Jimma to Addis Ababa with a stop: hourly check-ins on the road, none within 5 km of the drop-off (the
+        // phone checks in every 15 minutes only once its last fix is within 10 km of a drop-off). The phone keeps
+        // sharing until the buyer's confirm syncs; the truck is back at the same farm for its next load when the
+        // buyer comes online (or syncs on purpose) ten minutes after the last check-in there.
+        var checkIns = new[]
+        {
+            At(ConfirmedAt.AddMinutes(-230), new TrackPoint(8.2000, 37.5000)),
+            At(ConfirmedAt.AddMinutes(-170), new TrackPoint(8.9000, 38.6000)), // about 21 km from the drop-off
+            At(ConfirmedAt.AddMinutes(-110), new TrackPoint(8.5000, 38.0000)),
+            At(ConfirmedAt.AddMinutes(-50), new TrackPoint(7.9000, 37.1000)),
+            At(ConfirmedAt.AddMinutes(-10), new TrackPoint(7.6705, 36.8302))
+        };
+
+        Judge(checkIns).Outcome.Should().Be(TruckerGpsOutcome.Consistent);
+    }
+
+    [Fact]
+    public void Judge_ATripWithoutADestinationPoint_WritesNothing()
+    {
+        Judge(new[] { At(ConfirmedAt.AddMinutes(-10), Pickup) }, withoutDestination: true)
             .Outcome.Should().Be(TruckerGpsOutcome.NoDropoffPoint);
     }
 
     [Fact]
-    public void Judge_BackAtThePickupAfterReachingTheDropoff_IsNotAnAnomaly()
+    public void Judge_TheBuyersOrderPointAlone_NeverFlagsTheTrucker()
     {
-        // The buyer synced the confirm late, when the truck was back at the farm for the next load.
-        var checkIns = new[]
-        {
-            At(ConfirmedAt.AddMinutes(-80), new TrackPoint(9.0100, 38.7300)), // 2.5 km from the drop-off point
-            At(ConfirmedAt.AddMinutes(-5), Pickup)
-        };
+        // A trip from before trip-listing-api 2.1.0: only the order's point (the buyer's choice) is far away.
+        Judge(new[] { At(ConfirmedAt.AddMinutes(-10), Pickup) }, orderPoint: Addis, withoutDestination: true)
+            .Outcome.Should().Be(TruckerGpsOutcome.NoDropoffPoint);
+    }
 
-        Judge(checkIns).Outcome.Should().Be(TruckerGpsOutcome.ReachedDropoff);
+    [Fact]
+    public void Judge_ADestinationAFewKmFromTheFarm_WithTheTruckThere_ReachedTheDropoff()
+    {
+        var destination = new TrackPoint(7.6700 + 4 / 111.19, 36.8300);
+
+        Judge(new[] { At(ConfirmedAt.AddMinutes(-10), Pickup) }, destination)
+            .Outcome.Should().Be(TruckerGpsOutcome.ReachedDropoff);
     }
 
     [Fact]
@@ -168,21 +217,24 @@ public class TruckerGpsEvidenceTests
     {
         // Loaded for an hour after the scan, then a 25 km drive: the last check-in is at the farm 35 minutes
         // before the confirmation, and 20 km (beyond the 5 km radius) at 120 km/h takes 10 minutes.
-        var nearDropoff = new[] { new TrackPoint(7.6700 + 25 / 111.19, 36.8300) };
+        var destination = new TrackPoint(7.6700 + 25 / 111.19, 36.8300);
 
-        Judge(new[] { At(ConfirmedAt.AddMinutes(-35), Pickup) }, nearDropoff)
+        Judge(new[] { At(ConfirmedAt.AddMinutes(-35), Pickup) }, destination)
             .Outcome.Should().Be(TruckerGpsOutcome.CouldReachDropoff);
     }
 
     [Fact]
-    public void Judge_TheNearerOfTheTwoDropoffPoints_Counts()
+    public void Judge_TheOrdersOwnPoint_OnlyClears()
     {
         // The order's own point (the buyer's choice, locked at pickup) 3 km from the farm, the trip's destination
         // in Addis: the truck at the farm is at that drop-off, so no row.
         var orderPoint = new TrackPoint(7.6700 + 3 / 111.19, 36.8300);
 
-        Judge(new[] { At(ConfirmedAt.AddMinutes(-10), Pickup) }, new[] { Addis, orderPoint })
+        Judge(new[] { At(ConfirmedAt.AddMinutes(-10), Pickup) }, orderPoint: orderPoint)
             .Outcome.Should().Be(TruckerGpsOutcome.ReachedDropoff);
+        // Far from the farm it changes nothing: the trip's destination decides.
+        Judge(new[] { At(ConfirmedAt.AddMinutes(-10), Pickup) }, orderPoint: new TrackPoint(12.0, 40.0))
+            .Outcome.Should().Be(TruckerGpsOutcome.Anomaly);
     }
 
     [Fact]
@@ -201,9 +253,8 @@ public class TruckerGpsEvidenceTests
     }
 
     [Fact]
-    public void Judge_ReadsTheLastCheckIn_NotAnEarlierOne()
+    public void Judge_AtTheFarmEarlyAndAtTheDropoffAtTheEnd_IsConsistent()
     {
-        // At the farm early on, at the drop-off at the end.
         var checkIns = new[] { At(ConfirmedAt.AddMinutes(-85), Pickup), At(ConfirmedAt.AddMinutes(-3), Addis) };
 
         Judge(checkIns).Outcome.Should().Be(TruckerGpsOutcome.Consistent);

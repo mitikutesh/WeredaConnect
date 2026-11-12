@@ -1,7 +1,7 @@
 # Reputation Architecture
 
 ## Version
-1.6.0 | 2026-11-12 (FUP-203)
+1.7.0 | 2026-11-12 (FUP-203)
 
 ## Status
 PARTLY BUILT. ESC-28 (the core write side) is built and ships dark: sections 3 (the table and
@@ -798,7 +798,7 @@ score is private and about fraud (spec 4.11).
 
 ### 13.1 As built (ESC-33)
 
-`fraud-detection-architecture.md` 3.33.0 section 15.3 is the specification; where the build reads
+`fraud-detection-architecture.md` 3.35.0 section 15.3 is the specification; where the build reads
 the table above differently:
 
 | Hook | As built |
@@ -807,7 +807,7 @@ the table above differently:
 | buyer griefing | `BUYER_DECLINE_PATTERN` (10, soft, an FRD-09 pattern type: once per order, at most 50). Checked on every recorded `DECLINED_REQUEST` or `RESPONSE_EXPIRED` (R1 to R5, R2 included; with or without points). Counts the buyer's paid orders created in `buyerDeclineSignalDays` whose `farmerResponse` or `truckerResponse` is `declined` or `expired`, the order just recorded included when the read shows it paid, and needs at least 2 different declining farmers or truckers (one party declining one buyer three times flags nobody); `BuyerIdCreatedAtIndex`, at most 2 pages of 50 |
 | repeat restriction | not built (follow-up): `REPUTATION_REPEAT_RESTRICTION` needs its Fraud Review handling decided with ESC-32's admin restrict and lift |
 | payout delay | `PayoutDelayPolicy.ReputationWait` on the stored map: a restriction active now waits as flagged, a stored `low` (or an ended restriction not yet rewritten) as new. One extra GetItem only for a payee the risk score already made new. Read on sync and escrow-cron (`REPUTATION_PENALTIES_ENABLED`) |
-| `GPS_ANOMALY` | the confirming buyer keeps the row as before (the evidence is the buyer's phone, and it feeds the buyer's row only). With `reputationPenalties` on, the delivery's trucker can get a row of their own, judged from the trucker's own evidence only (FUP-203): Rule 4's thresholds applied to the stored pickup point and the trucker's last live-trip check-in of the delivery (at most 90 minutes before the confirmation), written only when no check-in of the delivery's window was near the drop-off and the truck could not have reached it from there by the confirmation. No check-in, sharing declined (D2) or a stale one: no row. The row goes through the attribution guard (one per delivery, one per buyer and trucker, two per trucker in 30 days, held by conditional slot rows); never for a self-pickup. Rollout note: the trucker row rides on `reputationPenalties` (decided in FUP-203: the evidence is no longer another party's), so 12.1 step 5 turns it on with the rest. Reading the drop-off check-in of ESC-36 instead, once that exists, is a follow-up |
+| `GPS_ANOMALY` | the confirming buyer keeps the row as before (the evidence is the buyer's phone, and it feeds the buyer's row only). With `reputationPenalties` on, the delivery's trucker can get a row of their own, judged from the trucker's own evidence only (FUP-203): Rule 4's thresholds applied to the stored pickup point and every live-trip check-in of the delivery's window (the truck never left the pickup; the last one at most 90 minutes before the confirmation), written only when the trip has a destination point (the buyer's order point only clears), no check-in of the window was near the drop-off and the truck could not have reached it from there by the confirmation. No check-in, sharing declined (D2), a stale one or a trip without a destination point: no row. The row goes through the attribution guard (one per delivery, one per buyer and trucker, two per trucker in 30 days, held by conditional slot rows); never for a self-pickup. Rollout note: the trucker row rides on `reputationPenalties` (decided in FUP-203: the evidence is no longer another party's), so 12.1 step 5 turns it on with the rest. Reading the drop-off check-in of ESC-36 instead, once that exists, is a follow-up |
 | silent buyer (P3) | ESC-36 |
 
 A failed hook logs `REPUTATION_FRAUD_HOOK_FAILED` and never fails the event. The reputation-stream
@@ -1152,7 +1152,7 @@ How the build reads points the design left open:
 
 | Version | Date | Change |
 |---|---|---|
-| 1.6.0 | 2026-11-12 | FUP-203 built: 13.1 `GPS_ANOMALY`, the trucker's row is judged from the trucker's own check-ins (the live-trip window from the pickup to the confirmation), never from the buyer's drop-off coordinates, and rides on `reputationPenalties` (no flag of its own); the rollout note no longer waits for it (`fraud-detection-architecture.md` 3.33.0). |
+| 1.7.0 | 2026-11-12 | FUP-203 built: 13.1 `GPS_ANOMALY`, the trucker's row is judged from the trucker's own check-ins (every check-in of the live-trip window from the pickup to the confirmation at the pickup, against the trip's destination point), never from the buyer's drop-off coordinates, and rides on `reputationPenalties` (no flag of its own); the rollout note no longer waits for it (`fraud-detection-architecture.md` 3.35.0). |
 | 1.5.0 | 2026-11-12 | FUP-160 and FUP-161 built (both needed before `reputationPenalties` goes on): new 12.3, the order-cron action `reputation_stamp_owner_copies` (the one-off owner stamp: the owners of the active crop and trip rows from the listing status indexes, no Scan, so owners without a `woreda` are reached; per owner the reputation as read and the copy refresh of 6.3; no users write; behind `reputationPenalties`; time budget with a `startAt` cursor; a rerun writes nothing; how to run it); 12.1 step 6 runs it before `reputationPublicTags` goes on; 8.3, section 4 and 15 list it. 7.5: the unpark long-polls 1 second per receive and stops after two empty replies in a row. Section 21 points 2 and 7 point to them. |
 | 1.4.0 | 2026-11-12 | ESC-33 built: section 13.1 (as built: the hooks run in `ReputationService.RecordAsync` after the commit, the signals' caps, the buyer decline pattern on R1 to R5, the payout delay from the stored map, a guarded `GPS_ANOMALY` row on the trucker beside the buyer's, behind the flag; the repeat restriction signal left as a follow-up). |
 | 1.3.0 | 2026-11-12 | ESC-32 built: 6.5 (the admin actions as one transaction with row updates), the admin reads and the appeals queue; section 22 (as built: row update conditions, restriction lift and review end, overrides replaced, replays, one appeal after a decision without party text, copies refreshed in the request for admin writes and for a suspend or unsuspend, admin grants) |

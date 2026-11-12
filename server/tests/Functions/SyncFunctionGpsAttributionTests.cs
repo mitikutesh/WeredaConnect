@@ -65,24 +65,26 @@ public partial class SyncFunctionTests
                 ci.ArgAt<string>(4), ci.ArgAt<string>(5)));
 
     /// <summary>The delivery's trip: an inter-woreda trip with its destination point.</summary>
-    private void GivenGpsTrip(TrackPoint destination)
-        => _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-trips-table"))
-            .Returns(new QueryResponse
-            {
-                Items = new List<Dictionary<string, AttributeValue>>
-                {
-                    new()
-                    {
-                        { "tripId", new AttributeValue { S = "trip-001" } },
-                        { "truckerId", new AttributeValue { S = "trucker-001" } },
-                        { "fromWoreda", new AttributeValue { S = "Jimma" } },
-                        { "toWoreda", new AttributeValue { S = "Addis Ketema" } },
-                        { "destinationLatitude", new AttributeValue { N = destination.Latitude.ToString(CultureInfo.InvariantCulture) } },
-                        { "destinationLongitude", new AttributeValue { N = destination.Longitude.ToString(CultureInfo.InvariantCulture) } },
-                        { "createdAt", new AttributeValue { S = "2026-02-16T10:00:00Z" } }
-                    }
-                }
-            });
+    private void GivenGpsTrip(TrackPoint? destination)
+    {
+        var trip = new Dictionary<string, AttributeValue>
+        {
+            { "tripId", new AttributeValue { S = "trip-001" } },
+            { "truckerId", new AttributeValue { S = "trucker-001" } },
+            { "fromWoreda", new AttributeValue { S = "Jimma" } },
+            { "toWoreda", new AttributeValue { S = "Addis Ketema" } },
+            { "createdAt", new AttributeValue { S = "2026-02-16T10:00:00Z" } }
+        };
+        // A trip created before trip-listing-api 2.1.0 has no destination point.
+        if (destination != null)
+        {
+            trip["destinationLatitude"] = new AttributeValue { N = destination.Latitude.ToString(CultureInfo.InvariantCulture) };
+            trip["destinationLongitude"] = new AttributeValue { N = destination.Longitude.ToString(CultureInfo.InvariantCulture) };
+        }
+
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-trips-table"))
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { trip } });
+    }
 
     /// <summary>
     /// The stored delivery before the confirm: picked up four hours ago by trucker-001 at <paramref name="pickup"/>
@@ -284,6 +286,47 @@ public partial class SyncFunctionTests
         GivenGpsTrip(GpsAddis);
         GivenPickedUpDelivery(GpsJimma);
         GivenTruckerCheckIns(CheckInRow(TimeSpan.FromHours(2), GpsJimma));
+
+        Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: null));
+
+        await NoTruckerRowAsync();
+    }
+
+    [Fact]
+    public async Task GpsAnomaly_ALateConfirm_WithTheTruckBackAtTheFarm_NoTruckerRow()
+    {
+        // The buyer holds the confirm offline (or on purpose) until the truck is back at the same farm for its next
+        // load. Hourly check-ins on the road, none within 5 km of the drop-off; the last one at the farm ten minutes
+        // before the confirm reaches the server. The road check-ins clear the trucker.
+        var function = GpsAnomalyFunction();
+        GivenGpsTrip(GpsAddis);
+        GivenPickedUpDelivery(GpsJimma);
+        GivenTruckerCheckIns(
+            CheckInRow(TimeSpan.FromMinutes(220), new TrackPoint(8.2000, 37.5000)),
+            CheckInRow(TimeSpan.FromMinutes(170), new TrackPoint(8.9000, 38.6000)),
+            CheckInRow(TimeSpan.FromMinutes(110), new TrackPoint(8.5000, 38.0000)),
+            CheckInRow(TimeSpan.FromMinutes(50), new TrackPoint(7.9000, 37.1000)),
+            CheckInRow(TimeSpan.FromMinutes(10), new TrackPoint(7.6705, 36.8302)));
+
+        Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: null));
+
+        await NoTruckerRowAsync();
+    }
+
+    [Fact]
+    public async Task GpsAnomaly_ATripWithoutADestinationPoint_NoTruckerRow_WhateverTheOrdersPoint()
+    {
+        // A trip from before trip-listing-api 2.1.0: the only drop-off point left is the buyer's order point, far
+        // from the farm. It may only clear the trucker, so nothing is written.
+        var function = GpsAnomalyFunction();
+        GivenGpsTrip(destination: null);
+        GivenPickedUpDelivery(GpsJimma, orderId: "order-gps");
+        _mockOrderRepo.GetByIdAsync("order-gps", consistentRead: true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-gps" }, { "buyerId", "buyer-001" }, { "tripId", "trip-001" },
+            { OrderDeliveryLocation.LatitudeField, GpsAddis.Latitude }, { OrderDeliveryLocation.LongitudeField, GpsAddis.Longitude }
+        });
+        GivenTruckerCheckIns(CheckInRow(TimeSpan.FromMinutes(10), GpsJimma));
 
         Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: null));
 

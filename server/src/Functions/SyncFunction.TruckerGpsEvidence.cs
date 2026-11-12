@@ -17,12 +17,13 @@ public partial class SyncFunction
     /// <summary>
     /// With <see cref="GpsAnomalyOnTrucker"/> on, after a delivery's <c>delivered</c> write: read the trucker's
     /// check-ins of the delivery's window (from its <c>pickedUpAt</c> to the confirmation, one bounded consistent
-    /// Query of the trip-locations table), and when they show the truck at the pickup too shortly before the
-    /// confirmation to have reached the drop-off, write the row on the delivery's trucker through the
+    /// Query of the trip-locations table), and when they show a truck that never left the pickup, too shortly
+    /// before the confirmation to have reached the drop-off, write the row on the delivery's trucker through the
     /// attribution guard (<see cref="IFraudDetectionService.RecordAttributedSignalAsync"/>: one per delivery,
     /// one per buyer and trucker, two per trucker in 30 days). The ids, the pickup time and the pickup point
     /// come from the row as stored before this write, never from the request. No check-in, a stale one, sharing
-    /// declined (D2), a window read that stopped at its page cap, no pickup point or no drop-off point: no row.
+    /// declined (D2), a window read that stopped at its page cap, no pickup point or a trip without a destination
+    /// point: no row.
     /// A self-pickup has no trucker. Nothing of the check-ins goes back to the caller. Best effort: a failed
     /// read or write is logged and never fails the confirm.
     /// </summary>
@@ -71,7 +72,8 @@ public partial class SyncFunction
     /// <summary>
     /// The reads behind <see cref="TruckerGpsEvidence.Judge"/>, cheapest first: the check-in window, then the trip
     /// (woredas and destination point) only with a fresh check-in, then the order's own drop-off point only when
-    /// Rule 4 flags that check-in. Null when the stored row lacks what the rule needs.
+    /// Rule 4 flags every check-in and the trip has a destination. Null when the stored row lacks what the rule
+    /// needs.
     /// </summary>
     private async Task<TruckerGpsVerdict?> JudgeTruckerGpsEvidenceAsync(
         Dictionary<string, AttributeValue> existing, string truckerId, string confirmedAtText)
@@ -94,7 +96,7 @@ public partial class SyncFunction
         }
 
         var checkIns = TruckerGpsEvidence.RoadCheckIns(window.Rows, truckerId, pickedUpAt, confirmedAt);
-        if (TruckerGpsEvidence.LastFresh(checkIns, confirmedAt) is not { } last)
+        if (TruckerGpsEvidence.LastFresh(checkIns, confirmedAt) == null)
         {
             return new TruckerGpsVerdict(TruckerGpsOutcome.NoEvidence);
         }
@@ -102,29 +104,29 @@ public partial class SyncFunction
         var tripItem = await GetTripItemAsync(tripId);
         var fromWoreda = tripItem == null ? "" : AttrString(tripItem, "fromWoreda") ?? "";
         var toWoreda = tripItem == null ? "" : AttrString(tripItem, "toWoreda") ?? "";
-        if (!TruckerGpsEvidence.PickupRule(pickup, last, fromWoreda, toWoreda).IsFlagged)
+        if (!TruckerGpsEvidence.NeverLeftPickup(checkIns, pickup, fromWoreda, toWoreda))
         {
             return new TruckerGpsVerdict(TruckerGpsOutcome.Consistent);
         }
 
-        // The points the confirm accepts (DropoffDistanceForConfirmAsync): the trip's destination and the order's
-        // own drop-off point, which the buyer cannot move after pickup. The order is read strongly consistent.
-        var points = new List<TrackPoint>();
+        // The trip's destination point, which the trucker set, is required: a trip without one (older than
+        // trip-listing-api 2.1.0) would leave only the buyer's order point, so no row.
         if (TripTrack.PointOf(tripItem == null ? null : CropRepository.FromItem(tripItem),
-                "destinationLatitude", "destinationLongitude") is { } tripPoint)
+                "destinationLatitude", "destinationLongitude") is not { } tripDestination)
         {
-            points.Add(tripPoint);
+            return new TruckerGpsVerdict(TruckerGpsOutcome.NoDropoffPoint);
         }
 
+        // The order's own drop-off point (the confirm accepts it too; locked at pickup) may only clear the trucker.
+        // Read strongly consistent.
         var orderId = AttrString(existing, "orderId");
-        if (!string.IsNullOrEmpty(orderId)
-            && OrderDeliveryLocation.Of(await _orderRepo.GetByIdAsync(orderId, consistentRead: true)) is { } orderPoint)
-        {
-            points.Add(orderPoint);
-        }
+        var orderPoint = string.IsNullOrEmpty(orderId)
+            ? null
+            : OrderDeliveryLocation.Of(await _orderRepo.GetByIdAsync(orderId, consistentRead: true));
 
         var maxTruckKmh = PatternRules?.Settings.MaxDeliveryKmh ?? TransactionPatternSettings.Default.MaxDeliveryKmh;
-        return TruckerGpsEvidence.Judge(checkIns, pickup, confirmedAt, fromWoreda, toWoreda, points, maxTruckKmh);
+        return TruckerGpsEvidence.Judge(
+            checkIns, pickup, confirmedAt, fromWoreda, toWoreda, tripDestination, orderPoint, maxTruckKmh);
     }
 
     /// <summary>A stored map point (<c>{latitude, longitude}</c>, numbers), such as <c>gpsPickup</c>; null when missing.</summary>

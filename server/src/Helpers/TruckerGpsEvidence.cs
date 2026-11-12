@@ -14,10 +14,13 @@ public enum TruckerGpsOutcome
     /// <summary>No road check-in of the trucker in the delivery's window, or none fresh: no evidence, no row.</summary>
     NoEvidence,
 
-    /// <summary>Rule 4 on the pickup point and the trucker's last check-in does not flag.</summary>
+    /// <summary>Rule 4 on the pickup point does not flag some check-in of the window: the truck left the pickup.</summary>
     Consistent,
 
-    /// <summary>Neither the order's own drop-off point nor the trip's destination point exists: nothing to judge by.</summary>
+    /// <summary>
+    /// The trip has no destination point (a trip from before trip-listing-api 2.1.0): only the buyer's order point
+    /// would be left to judge by, and it may only clear.
+    /// </summary>
     NoDropoffPoint,
 
     /// <summary>A road check-in in the window was within the drop-off radius: the truck reached the drop-off.</summary>
@@ -39,12 +42,13 @@ public sealed record TruckerGpsVerdict(TruckerGpsOutcome Outcome, string? Descri
 /// <summary>
 /// FUP-203 (fraud-detection-architecture.md Rule 4 and section 15.3): the trucker's <c>GPS_ANOMALY</c> row is
 /// judged only from the trucker's own phone, never from the drop-off coordinates the confirming buyer's phone
-/// sends. Rule 4 with the trucker's last check-in (live-trip-api.md section 1) in place of the buyer's drop-off:
-/// the same thresholds (an inter-woreda trip whose two points are under 1 km apart, or identical points),
-/// against the stored pickup scan point. Two guards make sure that check-in stands for where the truck was when
-/// the buyer confirmed: no road check-in of the delivery's window was near the drop-off, and from the last one
-/// the truck could not have reached the drop-off by the confirmation at a speed no truck reaches. Pure: the
-/// caller reads the window's rows, the trip and the order.
+/// sends. Rule 4 with the trucker's check-ins (live-trip-api.md section 1) in place of the buyer's drop-off: the
+/// same thresholds (an inter-woreda trip whose two points are under 1 km apart, or identical points), against
+/// the stored pickup scan point, for every check-in of the delivery's window (the truck never left the pickup),
+/// the last one fresh. Two guards make sure the truck was not at the drop-off when the buyer confirmed: no
+/// check-in of the window was near the drop-off, and from the last one the truck could not have reached the
+/// trip's destination by the confirmation at a speed no truck reaches. Pure: the caller reads the window's rows,
+/// the trip and the order.
 /// </summary>
 public static class TruckerGpsEvidence
 {
@@ -128,39 +132,53 @@ public static class TruckerGpsEvidence
             pickup.Latitude, pickup.Longitude, checkIn.Latitude, checkIn.Longitude, fromWoreda, toWoreda);
 
     /// <summary>
-    /// The verdict on a confirmed delivery. <paramref name="dropoffPoints"/> are the points the confirm accepts
-    /// (the order's own drop-off point and the trip's destination point, either may be missing): the nearer one
-    /// counts, so a point the buyer chose can only clear the trucker, never flag them.
-    /// <paramref name="maxTruckKmh"/> is the impossible delivery time speed (FRD-09, 120 km/h by default).
+    /// Whether the truck never left the pickup by its own evidence: Rule 4 flags the stored pickup point against
+    /// every counted check-in of the window, not only the last one. The buyer chooses when the confirm reaches
+    /// the server (a late sync, offline or on purpose), so the last check-in alone could be a truck that drove to
+    /// the drop-off, came back to the same farm for its next load and was judged there; any check-in away from
+    /// the pickup clears the trucker, and a late sync only adds such check-ins.
+    /// </summary>
+    public static bool NeverLeftPickup(
+        IReadOnlyList<TruckerCheckIn> checkIns, TrackPoint pickup, string fromWoreda, string toWoreda)
+        => checkIns.Count > 0 && checkIns.All(c => PickupRule(pickup, c, fromWoreda, toWoreda).IsFlagged);
+
+    /// <summary>
+    /// The verdict on a confirmed delivery. <paramref name="tripDestination"/> is the trip's destination point,
+    /// which the trucker set: without it there is nothing the buyer cannot move to judge by, so no row.
+    /// <paramref name="orderPoint"/> is the order's own drop-off point (the buyer's choice, locked at pickup),
+    /// used only to clear: the nearer of the two counts. <paramref name="maxTruckKmh"/> is the impossible
+    /// delivery time speed (FRD-09, 120 km/h by default).
     /// </summary>
     public static TruckerGpsVerdict Judge(
         IReadOnlyList<TruckerCheckIn> checkIns, TrackPoint pickup, DateTime confirmedAtUtc,
-        string fromWoreda, string toWoreda, IReadOnlyList<TrackPoint> dropoffPoints, double maxTruckKmh)
+        string fromWoreda, string toWoreda, TrackPoint? tripDestination, TrackPoint? orderPoint, double maxTruckKmh)
     {
         if (LastFresh(checkIns, confirmedAtUtc) is not { } last)
         {
             return new TruckerGpsVerdict(TruckerGpsOutcome.NoEvidence);
         }
 
-        if (!PickupRule(pickup, last, fromWoreda, toWoreda).IsFlagged)
+        if (!NeverLeftPickup(checkIns, pickup, fromWoreda, toWoreda))
         {
             return new TruckerGpsVerdict(TruckerGpsOutcome.Consistent);
         }
 
-        if (dropoffPoints.Count == 0)
+        if (tripDestination == null)
         {
             return new TruckerGpsVerdict(TruckerGpsOutcome.NoDropoffPoint);
         }
 
-        // Back at the pickup after the drop-off (the next load, or home) while the buyer had not synced the
-        // confirm yet: the trucker's own evidence shows the truck reached the drop-off.
+        var dropoffPoints = orderPoint == null ? new[] { tripDestination } : new[] { tripDestination, orderPoint };
+
+        // A drop-off a few km from the farm: a check-in near it is the truck at the drop-off.
         if (checkIns.Any(c => NearestKm(c, dropoffPoints) <= DropoffRadiusKm))
         {
             return new TruckerGpsVerdict(TruckerGpsOutcome.ReachedDropoff);
         }
 
-        // Loaded for an hour after the scan, then drove: the last check-in is at the farm, but there was time.
-        // The clock skew is added to the time left, so a phone clock running ahead never makes it shorter.
+        // Loaded for an hour after the scan, then drove: every check-in is at the farm, but there was time.
+        // The clock skew is added to the time left, so a phone clock up to 2 minutes ahead never makes it shorter.
+        // A phone clock further ahead whose check-in synced late is not caught (fraud spec Rule 4, residual).
         var sinceLast = confirmedAtUtc - last.CapturedAtUtc;
         var hoursLeft = ((sinceLast > TimeSpan.Zero ? sinceLast : TimeSpan.Zero) + ClockSkew).TotalHours;
         var toDropoffKm = NearestKm(last, dropoffPoints);
