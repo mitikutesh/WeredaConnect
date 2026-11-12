@@ -836,8 +836,11 @@ describe('ESC-28 reputation alarms (MonitoringStack)', () => {
     ['REPUTATION_EVENTS_TRUNCATED', 'ReputationEventsTruncated', 'reputation-events-truncated', ['reputation-stream', 'order-cron', 'sync'], 1, 300],
     ['REPUTATION_REVIEW_OVERDUE', 'ReputationReviewOverdue', 'reputation-review-overdue', ['order-cron'], 1, 300],
     ['REPUTATION_APPEAL_OVERDUE', 'ReputationAppealOverdue', 'reputation-appeal-overdue', ['order-cron'], 1, 300],
-    ['REPUTATION_COPY_FAILED', 'ReputationCopyFailed', 'reputation-copy-failed', ['reputation-stream', 'order-cron', 'sync'], 5, 3600],
+    // FUP-163: the admin Lambda logs it too (a suspend or unsuspend whose heal marker or refresh failed).
+    ['REPUTATION_COPY_FAILED', 'ReputationCopyFailed', 'reputation-copy-failed', ['reputation-stream', 'order-cron', 'sync', 'admin'], 5, 3600],
     ['REPUTATION_PARK_FAILED', 'ReputationParkFailed', 'reputation-park-failed', ['reputation-stream', 'order-cron'], 1, 300],
+    // FUP-201: ESC-33's fraud hooks, run where reputation events are recorded.
+    ['REPUTATION_FRAUD_HOOK_FAILED', 'ReputationFraudHookFailed', 'reputation-fraud-hook-failed', ['reputation-stream', 'order-cron'], 1, 300],
   ] as const)('%s: a filter on each log group that can write it, and one alarm', (token, metricName, alarmSuffix, sources, threshold, period) => {
     const filters = Object.values(template.findResources('AWS::Logs::MetricFilter')).filter(
       (f) => f.Properties.MetricTransformations[0].MetricName === metricName,

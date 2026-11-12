@@ -52,6 +52,10 @@ interface DynamoTableDef {
  * Metric filters are free. Recount when an alarm, or a filter with a default, is added.
  * ESC-28 (not in the count above): 10 reputation alarms, one metric each ($1.00), and 6 log filter
  * metrics without a default, billed only in the hours a line is written.
+ * FUP-158, FUP-201 and FUP-231 (not in the count above either): 3 alarms, one metric each ($0.30),
+ * and 8 log filter metrics without a default (LabelSnapshotFailed, ReputationFraudHookFailed,
+ * OrderDeadlineRefundStalled and the 5 FraudAttributedSkipped reasons), billed only in the hours a
+ * line is written.
  *
  * References Lambda functions and DynamoDB tables by name (no cross-stack refs needed).
  */
@@ -425,10 +429,8 @@ export class MonitoringStack extends cdk.Stack {
     countLedgerInvariant('EscrowLedgerInvariantFilter', escrowLogGroup);
     countLedgerInvariant('EscrowCronLedgerInvariantFilter', escrowCronLogGroup);
     // The admin Lambda's group, created by the api-stack Lambda construct like the others.
-    countLedgerInvariant(
-      'AdminLedgerInvariantFilter',
-      logs.LogGroup.fromLogGroupName(this, 'AdminLogGroup', `/aws/lambda/${prefix}-admin`),
-    );
+    const adminLogGroup = logs.LogGroup.fromLogGroupName(this, 'AdminLogGroup', `/aws/lambda/${prefix}-admin`);
+    countLedgerInvariant('AdminLedgerInvariantFilter', adminLogGroup);
 
     // ESC-09: the hourly order-money sweep logs one line when an order does not show what its
     // escrow's money says and it cannot fix it: write_failed (every run once the money moved
@@ -446,7 +448,9 @@ export class MonitoringStack extends cdk.Stack {
     // FRD-03: a settlement sweep left an escrow unsettled because of the fraud risk gate, one
     // line per escrow per hourly run: a suspended party (FRD-04: or one at risk tier CRITICAL)
     // while FRAUD_HOLD_ENABLED is off, or a party row or risk score it could not read. Counted
-    // from the FRD-03 deploy, so no settlement waits unseen.
+    // from the FRD-03 deploy, so no settlement waits unseen. FUP-29 (escrow-protocol 2.6.0): the
+    // payout gate logs the same token (sweep=payout-farmer or payout-trucker) for each leg it leaves
+    // unpaid, on every run that asks; escrow-cron is still the only Lambda that pays as the system.
     new logs.MetricFilter(this, 'RiskSettlementSkippedFilter', {
       logGroup: escrowCronLogGroup,
       filterPattern: logs.FilterPattern.literal('"RISK_SETTLEMENT_SKIPPED"'),
@@ -1238,18 +1242,17 @@ export class MonitoringStack extends cdk.Stack {
       'risk-settlement-skipped',
       'RiskSettlementSkipped',
       'Risk Settlement Skipped',
-      'A settlement sweep left an escrow unsettled because of the fraud risk gate ' +
-        '(RISK_SETTLEMENT_SKIPPED in the escrow-cron log group, one line per escrow per hourly run, ' +
-        'with escrowId, sweep, reason and holdReason; FRD-03, FRD-04, FRD-05). No money moved. ' +
-        'reason=flag_off: FRAUD_HOLD_ENABLED is off and a buyer, farmer or trucker of the escrow was ' +
-        'rejected in Fraud Review (holdReason=fraud_confirmed), suspended otherwise ' +
-        '(account_suspended) or at risk tier CRITICAL (risk_critical), so the payout or refund ' +
-        'waits. Find the party from the escrow in the admin app. Exits: unsuspend the party if the ' +
-        'suspension was not about fraud, or approve the signals behind the tier in Fraud Review (the ' +
-        'next run settles as before), or settle the escrow by hand with POST /escrow/release or ' +
-        '/escrow/refund as an admin in the admin group. reason=user_read_failed or score_unavailable: a ' +
-        'party user row or risk score could not be read (IAM, throttling, the users or fraud-signals ' +
-        'table); fix the cause and the next run decides again.',
+      'The fraud risk gate left money unmoved (RISK_SETTLEMENT_SKIPPED escrowId=.. in the escrow-cron log ' +
+        'group; FRD-03 to FRD-05, FUP-29). Two sources, one line on every run that asks: a settlement ' +
+        'sweep left an escrow unsettled (sweep=auto-release, auto-refund or ' +
+        'dispute), or, since escrow-protocol 2.6.0, the payout gate left a leg unpaid (sweep=payout-farmer ' +
+        'or payout-trucker). reason=flag_off (a sweep, FRAUD_HOLD_ENABLED off) or payee_flagged (a payout ' +
+        'leg): a party was rejected in Fraud Review (holdReason=fraud_confirmed), suspended ' +
+        '(account_suspended) or is at risk tier CRITICAL (risk_critical). Find the party from the escrow. ' +
+        'Exits: unsuspend the party if the suspension was not about fraud, or review the signals behind the ' +
+        'tier in Fraud Review; the next run settles or pays as before. A skipped sweep can also be settled ' +
+        'by hand (POST /escrow/release or /escrow/refund, admin group). reason=user_read_failed or ' +
+        'score_unavailable: a party row or risk score could not be read (IAM, throttling); fix the cause.',
     );
 
     // Persistence alarm: one blocked run is a transient retry, a block in three of four hourly
@@ -1282,6 +1285,57 @@ export class MonitoringStack extends cdk.Stack {
     });
     disputeSettlementBlockedAlarm.addAlarmAction(snsAction);
     disputeSettlementBlockedAlarm.addOkAction(snsAction);
+
+    // FUP-231: an order deadline or refund the crons keep retrying. order-cron's commitment sweep (every 15
+    // minutes) logs ORDER_DEADLINE_ROW_FAILED when a due row's decision throws (the row stays due) and, since
+    // FUP-210, ORDER_DEADLINE_REFUND_WAITING when a paid order's deadline cancel waits because its refund cannot
+    // be armed with it (looked at again an hour later). escrow-cron logs ORDER_STOCK_RESTORE_FAILED when a
+    // cancelled order's stock could not go back on its listing; before the refund of a transport-failure cancel
+    // (FUP-211: and of the refund's own cancel) the hourly sweep then defers the refund. One line is a retry
+    // that usually lands; the line in three of four hourly periods is a cancel or refund that is stuck. One
+    // metric from two filters, the persistence shape above. No default: billed only in the hours a line appears.
+    new logs.MetricFilter(this, 'OrderCronDeadlineRefundStalledFilter', {
+      logGroup: orderCronLogGroup,
+      filterPattern: logs.FilterPattern.anyTerm('ORDER_DEADLINE_REFUND_WAITING', 'ORDER_DEADLINE_ROW_FAILED'),
+      metricNamespace,
+      metricName: 'OrderDeadlineRefundStalled',
+      metricValue: '1',
+    });
+    new logs.MetricFilter(this, 'EscrowCronDeadlineRefundStalledFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"ORDER_STOCK_RESTORE_FAILED"'),
+      metricNamespace,
+      metricName: 'OrderDeadlineRefundStalled',
+      metricValue: '1',
+    });
+    const orderDeadlineRefundStalledAlarm = new cloudwatch.Alarm(this, 'OrderDeadlineRefundStalled', {
+      alarmName: `${prefix}-order-deadline-refund-stalled`,
+      alarmDescription:
+        'An order cancel or refund kept failing in three of the last four hourly periods (FUP-231; runbook: ' +
+        '.ai/deployment.md). ORDER_DEADLINE_ROW_FAILED orderId=.. reason=[<exception>] (order-cron, every 15 ' +
+        'minute run): a due order\'s deadline decision throws and the row stays due. ' +
+        'ORDER_DEADLINE_REFUND_WAITING orderId=.. cancelReason=.. reason=escrow_busy or escrow_changed ' +
+        '(order-cron): a paid order\'s deadline cancel waits because its refund cannot be armed with it (the ' +
+        'money is disputed, being settled or in Manual Payouts); nothing is written and it is tried hourly. ' +
+        'ORDER_STOCK_RESTORE_FAILED orderId=.. listingId=.. (escrow-cron): a cancelled order\'s stock could not go ' +
+        'back on its listing, so the hourly sweep defers its refund. The buyer is still waiting. The lines may ' +
+        'name different orders: read them. Fix the cause (IAM, throttling, the order, escrow or listing row) and ' +
+        'the next run goes on. Never edit the rows by hand.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'OrderDeadlineRefundStalled',
+        statistic: 'Sum',
+        period: cdk.Duration.hours(1),
+        label: 'Order Deadline Refund Stalled',
+      }),
+      threshold: 0,
+      evaluationPeriods: 4,
+      datapointsToAlarm: 3,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    orderDeadlineRefundStalledAlarm.addAlarmAction(snsAction);
+    orderDeadlineRefundStalledAlarm.addOkAction(snsAction);
 
     const adminQueueOverdueAlarm = moneyLogAlarm(
       'AdminQueueOverdue',
@@ -1847,6 +1901,8 @@ export class MonitoringStack extends cdk.Stack {
       Stream: reputationStreamLogGroup,
       OrderCron: orderCronLogGroup,
       Sync: syncLogGroup,
+      // FUP-163: an admin suspend or unsuspend writes the heal marker and refreshes the copies.
+      Admin: adminLogGroup,
     };
     const reputationLogAlarm = (
       token: string,
@@ -1958,11 +2014,12 @@ export class MonitoringStack extends cdk.Stack {
     );
 
     // A rate alarm: a single failed refresh is retried by the daily job (the heal marker), so only a
-    // steady rate needs a person.
+    // steady rate needs a person. FUP-163: the admin Lambda logs the token too, for a suspend or unsuspend
+    // whose heal marker (step=admin_<action>) or refresh in the request (step=admin_<action>_refresh) failed.
     const reputationCopyFailedAlarm = reputationLogAlarm(
       'REPUTATION_COPY_FAILED',
       'ReputationCopyFailed',
-      ['Stream', 'OrderCron', 'Sync'],
+      ['Stream', 'OrderCron', 'Sync', 'Admin'],
       {
         nameSuffix: 'reputation-copy-failed',
         label: 'Reputation Copy Failed',
@@ -1970,9 +2027,12 @@ export class MonitoringStack extends cdk.Stack {
         period: cdk.Duration.hours(1),
         description:
           'At least 5 reputation copy refreshes failed in an hour (REPUTATION_COPY_FAILED in the ' +
-          'reputation-stream, order-cron or sync log group), so the owner tier and rating copied onto some ' +
-          'crop and trip rows are stale. Each failure left a heal marker and the daily job retries it within ' +
-          'a day; a steady rate means DynamoDB throttling or a bug in the refresh. Read the logged errors.',
+          'reputation-stream, order-cron, sync or admin log group), so the owner tier and rating copied onto ' +
+          'some crop and trip rows are stale. Each failure left a heal marker and the daily job retries it ' +
+          'within a day; a steady rate means DynamoDB throttling or a bug in the refresh. Read the logged ' +
+          'errors. step=admin_suspend or admin_unsuspend (admin, FUP-163): the heal marker itself was not ' +
+          'written; if the refresh of that request failed too, nothing retries that user until their next ' +
+          'reputation change: once the cause is fixed, run order-cron reputation_stamp_owner_copies (safe to rerun).',
       },
     );
 
@@ -1990,6 +2050,31 @@ export class MonitoringStack extends cdk.Stack {
           'the reputation-stream or order-cron log group). The stream retries it, and after 10 retries or 24 ' +
           'hours only its metadata reaches reputation-dlq and the event is lost. Check the SQS error: the ' +
           'send permission, the REPUTATION_PARKED_QUEUE_URL value, or a message over the 256 KB limit.',
+      },
+    );
+
+    // FUP-201: ESC-33's fraud hooks run once per recorded event (ReputationService.RecordAsync, in the stream
+    // and in order-cron's unpark replay). A failed hook is never retried, so each line is a signal lost for
+    // good: any line alarms, like a failed park.
+    const reputationFraudHookFailedAlarm = reputationLogAlarm(
+      'REPUTATION_FRAUD_HOOK_FAILED',
+      'ReputationFraudHookFailed',
+      ['Stream', 'OrderCron'],
+      {
+        nameSuffix: 'reputation-fraud-hook-failed',
+        label: 'Reputation Fraud Hook Failed',
+        threshold: 1,
+        period: cdk.Duration.minutes(5),
+        description:
+          'A fraud signal that a recorded reputation event should have written was lost ' +
+          '(REPUTATION_FRAUD_HOOK_FAILED hook=<reliability|buyer_decline> code=<code> [<exception type>] in the ' +
+          'reputation-stream or order-cron log group; ESC-33, fraud spec section 15.3). The event and its points ' +
+          'stand, but the hook never runs again for it. hook=reliability: the NO_SHOW or DELIVERY_OVERDUE signal ' +
+          'on the penalised party. hook=buyer_decline: the buyer decline pattern (the read of the buyer\'s orders ' +
+          'on BuyerIdCreatedAtIndex, or the BUYER_DECLINE_PATTERN write). Usually throttling or IAM on the ' +
+          'fraud-signals table (PutItem, Query) or the orders index, or FRAUD_SIGNALS_TABLE or ORDERS_TABLE ' +
+          'missing from the Lambda. Fix the cause. The line has no ids: if the party matters, find the event by ' +
+          'its code and time in the admin reputation history and review the party in Fraud Review by hand.',
       },
     );
 
@@ -2337,6 +2422,54 @@ export class MonitoringStack extends cdk.Stack {
         'the time (FUP-142).',
     );
 
+    // ─── FUP-158: feature snapshot failures (FRD-20 P1, FUP-144) ─────
+    // Only a Fraud Review decision carries a snapshot, so only the admin Lambda reads one
+    // (LabelFeatureSnapshotReader) or writes a label with one (OutcomeLabelWriter). Both log
+    // LABEL_SNAPSHOT_FAILED and the label is written without it. The money alarm shape of outcome-label-failed.
+    riskLogFilter('LabelSnapshotFailedAdminFilter', adminLogGroup, 'LABEL_SNAPSHOT_FAILED', 'LabelSnapshotFailed');
+    const labelSnapshotFailedAlarm = moneyLogAlarm(
+      'LabelSnapshotFailed',
+      'label-snapshot-failed',
+      'LabelSnapshotFailed',
+      'Label Snapshot Failed',
+      'A Fraud Review decision was labelled without its feature snapshot (LABEL_SNAPSHOT_FAILED in the admin log ' +
+        'group; FRD-20 P1, fraud spec section 20.1). userId=<id> error=<type>: a snapshot read failed (the ' +
+        'user\'s fraud-signals rows, the users row or the role\'s escrow index). caseId=<id> stage=write ' +
+        'error=<type>: the label row was refused with its snapshot and written again without it. The decision ' +
+        'and its label stand; only that FRD-20 training example lacks its features, and nothing backfills it. ' +
+        'Usually throttling or IAM on those reads (dynamodb:Query on fraud-signals and the escrows party ' +
+        'indexes, GetItem on users) or, for stage=write, the row\'s size. Fix the cause; a steady rate thins ' +
+        'the FRD-20 dataset (FUP-158).',
+    );
+
+    // ─── FUP-201: attributed signals the guard held back (ESC-33) ────
+    // FraudDetectionService.RecordAttributedSignalAsync logs FRAUD_ATTRIBUTED_SIGNAL_SKIPPED signalType=<type>
+    // reason=<outcome> for each row onto another user it did not write (today the trucker's GPS_ANOMALY, from
+    // sync, behind reputationPenalties). Not alarmed: a count per reason for the dashboard, where a rising
+    // SourceCapped or TargetCapped is one buyer, or a ring, hammering one trucker. A metric dimension needs a JSON
+    // or space-delimited pattern, which the line behind the runtime prefix may not match (FUP-54), so one
+    // plain-text filter per reason, each its own metric without a default (billed only in the hours it appears).
+    // The reasons are the AttributedSignalOutcome values the guard logs (an infra test reads them).
+    const attributedSkipReasons = ['AlreadyRecorded', 'TargetUnread', 'SourceCapped', 'TargetCapped', 'HourLimited'];
+    for (const reason of attributedSkipReasons) {
+      new logs.MetricFilter(this, `FraudAttributedSkipped${reason}Filter`, {
+        logGroup: syncLogGroup,
+        filterPattern: logs.FilterPattern.literal(`"FRAUD_ATTRIBUTED_SIGNAL_SKIPPED" "reason=${reason}"`),
+        metricNamespace,
+        metricName: `FraudAttributedSkipped${reason}`,
+        metricValue: '1',
+      });
+    }
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Attributed Signals Skipped by Reason (hourly)',
+        left: attributedSkipReasons.map((reason) => hourlySum(`FraudAttributedSkipped${reason}`, reason)),
+        width: 12,
+        height: 6,
+        leftYAxis: { label: 'Lines', showUnits: false },
+      }),
+    );
+
     // ─── Alarm Status Widget (summary at bottom of dashboard) ────────
     dashboard.addWidgets(
       new cloudwatch.AlarmStatusWidget({
@@ -2366,6 +2499,8 @@ export class MonitoringStack extends cdk.Stack {
           escrowDeliveryStampFailuresAlarm,
           orderMoneyMismatchAlarm,
           riskSettlementSkippedAlarm,
+          // FUP-231 order cancels and refunds the crons keep retrying
+          orderDeadlineRefundStalledAlarm,
           accountDeletionStuckAlarm,
           // ESC-21 order notification stream
           notifyDlqAlarm,
@@ -2382,6 +2517,8 @@ export class MonitoringStack extends cdk.Stack {
           reputationAppealOverdueAlarm,
           reputationCopyFailedAlarm,
           reputationParkFailedAlarm,
+          // FUP-201 ESC-33 fraud hooks
+          reputationFraudHookFailedAlarm,
           // FRD-16 fraud signal volume and risk alarms
           signalVolumeSpikeAlarm,
           riskScoreUnavailableAlarm,
@@ -2391,8 +2528,9 @@ export class MonitoringStack extends cdk.Stack {
           riskTableUnconfiguredAlarm,
           // FRD-19 AI advisory reviewer
           fraudAdvisoryErrorsAlarm,
-          // FUP-142 outcome label write failures
+          // FUP-142 outcome label write failures, FUP-158 their feature snapshots
           outcomeLabelFailedAlarm,
+          labelSnapshotFailedAlarm,
           ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
           ...(webhook5xxAlarm ? [webhook5xxAlarm] : []),
           ...(webhookErrorsAlarm ? [webhookErrorsAlarm] : []),

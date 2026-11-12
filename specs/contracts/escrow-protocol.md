@@ -2225,6 +2225,8 @@ every id on both lines goes through `LogId`.
 | `${prefix}-admin-queue-overdue` | `ADMIN_QUEUE_OVERDUE` in the escrow-cron log group | same; an entry that stays undecided keeps it in ALARM (1.13.0, runbook in `.ai/deployment.md`) |
 | `${prefix}-dispute-propagation-failed` (1.26.0) | `DISPUTE_PROPAGATION_FAILED` in the escrow, sync and escrow-cron log groups | any line in 15 minutes, same hold and clear as settlement failures; runbook in `.ai/deployment.md` |
 | `${prefix}-escrow-delivery-stamp-failures` (2.1.0) | `ESCROW_DELIVERY_STAMP_FAILED` in the sync and escrow-cron log groups | any line in 15 minutes, same hold and clear as settlement failures; a confirmed delivery whose escrow is not stamped, so the auto-release cannot pay it (§Additions in 2.1.0); runbook in `.ai/deployment.md` |
+| `${prefix}-risk-settlement-skipped` (1.22.0; both sources named since FUP-176) | `RISK_SETTLEMENT_SKIPPED` in the escrow-cron log group: a settlement sweep that left an escrow unsettled (`sweep=auto-release`, `auto-refund` or `dispute`, 1.22.0) and, since 2.6.0, the payout gate that left a leg unpaid (`sweep=payout-farmer` or `payout-trucker`, `reason=payee_flagged` or `score_unavailable`) | any line in 15 minutes, same hold and clear as settlement failures; exits: unsuspend the party, or review the signals behind its tier in Fraud Review; a skipped sweep can also be settled by hand |
+| `${prefix}-order-deadline-refund-stalled` (FUP-231, monitoring only) | `ORDER_DEADLINE_ROW_FAILED` and `ORDER_DEADLINE_REFUND_WAITING` (FUP-210) in the order-cron log group, `ORDER_STOCK_RESTORE_FAILED` in the escrow-cron log group, one metric `OrderDeadlineRefundStalled` | a line in three of the last four hourly periods (1 hour periods, 3 of 4 datapoints, the shape of `dispute-verdict-settlement-blocked`): a deadline row whose decision keeps throwing, a deadline cancel whose refund cannot be armed hour after hour, or a cancelled order whose stock cannot go back, so its refund keeps being deferred (Refund of a transport-failure cancel, 1.13.0). One failed run does not fire it; it clears once fewer than three of the last four hours have a line. Runbook in `.ai/deployment.md` |
 | `${prefix}-escrow-dispute-rate` (not a money alarm; sync counted since 1.26.0) | the escrow Lambda's `ESCROW`/`DISPUTE` JSON audit line with outcome `success` (2.0.1) and `DELIVERY_DISPUTE_FROZEN` in the sync log group, one metric | more than 5 in one hour |
 
 `scripts/money_alarms_synthetic.sh` checks that the deployed filters match these exact lines
@@ -2906,8 +2908,8 @@ see "Additions in 1.25.0"). Before refunding an order `cancelled` with
 on its listing (`RestoreStockAsync`, idempotent per order), with the dispute verdict's rules: no
 listing or a quantity that is not positive counts as done (never blocks the refund), a listing that
 is gone counts as done, and a restore that keeps conflicting or throws logs
-`ORDER_STOCK_RESTORE_FAILED` and skips this run's refund (the next run retries). Other cancel
-reasons are unchanged.
+`ORDER_STOCK_RESTORE_FAILED` and skips this run's refund (the next run retries; a line in three of four
+hourly periods fires `order-deadline-refund-stalled`, FUP-231). Other cancel reasons are unchanged.
 
 ### Not in 1.13.0 (known limits)
 - No admin decision action yet (ESC-24): an entry for an `accepted` order past its pickup deadline
@@ -4506,7 +4508,8 @@ be read, the payout is not made on this run. No lock is taken and the gateway is
 
 Reasons: `fraud_confirmed`, `account_suspended`, `risk_critical`, `score_unavailable`. Every block logs
 `RISK_SETTLEMENT_SKIPPED escrowId=<id> sweep=payout-<farmer|trucker> reason=<payee_flagged|score_unavailable> holdReason=<reason|->`
-on escrow-cron, counted by the `risk-settlement-skipped` alarm (1.22.0). The leg is asked again on every
+on escrow-cron, counted by the `risk-settlement-skipped` alarm (1.22.0; its text names this source since
+FUP-176). The leg is asked again on every
 run and paid on the first one after the suspension is lifted or the tier drops, with the same reference.
 
 **Unchanged.** Amounts, references and timing for every other payee. An admin's own release (a held exit
