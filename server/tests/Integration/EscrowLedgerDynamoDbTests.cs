@@ -166,6 +166,77 @@ public sealed class EscrowLedgerDynamoDbTests
     }
 
     [LocalDynamoDbFact]
+    public async Task FUP29_APayoutRowOfASuspendedPayee_IsDeferredAnHour_NeverCalled_AndPaidOnceUnsuspended()
+    {
+        // The deferral write and its audit row as DynamoDB evaluates them: the row keeps its status, takes
+        // the risk reason and the new due time under its version condition, and LedgerOpenIndex hands it
+        // back only once the hour has passed.
+        var escrowId = await SeedAsync("riskgate", change: e =>
+        {
+            e["truckerPayout"] = 0m;
+            e["amount"] = 15_750m;
+            e[LedgerEscrowFields.LegStatus] = EscrowLedgerBook.BirthLegs(15_000m, 0m, 750m);
+        });
+        var now = new DateTime(2026, 11, 7, 10, 0, 0, DateTimeKind.Utc);
+        var suspended = true;
+        var users = Substitute.For<IUserRepository>();
+        users.GetUserByIdAsync("farmer-l").Returns(_ => new UserDto
+        {
+            UserId = "farmer-l",
+            PhoneNumber = "+251911000001",
+            Role = "farmer",
+            Woreda = "w",
+            IsPhoneVerified = true,
+            FaydaVerified = true,
+            Suspended = suspended,
+            CreatedAt = CreatedAt,
+            UpdatedAt = CreatedAt,
+            Version = 1
+        });
+        var gateway = new ScriptedGateway();
+        var alarms = new List<string>();
+        var service = new EscrowService(Escrows, new EscrowAuditRepository(Ddb, _db.EscrowAudit),
+            new EscrowIdempotencyRepository(Ddb, _db.Idempotency), gateway, users)
+        {
+            AlarmLog = alarms.Add,
+            LedgerRepo = Ledger,
+            LedgerClock = () => now
+        };
+        var decided = await service.DecideLedgerAsync((await Escrows.GetByIdAsync(escrowId, true))!, "escrowed",
+            s => EscrowLedgerBook.PlanRelease(s, true, false, "delivery_confirmed"), "system", callNow: false);
+        var row = decided.Rows.Single();
+
+        var blocked = await service.CallLedgerRowAsync(row, "system");
+
+        blocked.Outcome.Should().Be(EscrowService.LedgerCallOutcome.Blocked);
+        gateway.Calls.Should().BeEmpty();
+        var stored = (await Ledger.GetRowAsync(escrowId, row.Ref))!;
+        (stored.Status, stored.LastCode, stored.CallingSince, stored.Attempts, stored.Version)
+            .Should().Be(("pending", "PAYEE_BLOCKED:account_suspended", null, 0, row.Version + 1));
+        stored.DueAt.Should().Be(now.AddHours(1).ToString("o"));
+        (await AuditAsync(escrowId)).Count(r => (string)r["action"] == "ledger_payee_blocked").Should().Be(1);
+        alarms.Should().ContainSingle().Which.Should().StartWith("RISK_SETTLEMENT_SKIPPED");
+        (await Escrows.GetByIdAsync(escrowId, true))!.Should().NotContainKey(SettlementBlockFields.Reason);
+        (await Ledger.QueryOpenAsync("pending", now.AddMinutes(59).ToString("o"), 500, null)).Rows
+            .Should().NotContain(r => r.EscrowId == escrowId);
+        (await Ledger.QueryOpenAsync("pending", now.AddMinutes(61).ToString("o"), 500, null)).Rows
+            .Should().Contain(r => r.EscrowId == escrowId);
+
+        // A second blocked run writes the new due time and no second audit row; a stale copy of the row loses.
+        now = now.AddMinutes(61);
+        (await service.CallLedgerRowAsync(row, "system")).Row.Version.Should().Be(row.Version); // stale: nothing written
+        (await service.CallLedgerRowAsync(stored, "system")).Outcome.Should().Be(EscrowService.LedgerCallOutcome.Blocked);
+        (await AuditAsync(escrowId)).Count(r => (string)r["action"] == "ledger_payee_blocked").Should().Be(1);
+
+        suspended = false;
+        var paid = await service.CallLedgerRowAsync((await Ledger.GetRowAsync(escrowId, row.Ref))!, "system");
+
+        paid.Outcome.Should().Be(EscrowService.LedgerCallOutcome.Done);
+        gateway.Calls.Should().ContainSingle(c => c.Amount == 15_000m && c.Destination == "+251911000001");
+        (await StateAsync(escrowId)).Status.Should().Be("completed");
+    }
+
+    [LocalDynamoDbFact]
     public async Task AReleaseThroughTheService_PaysEachLegOnce_AndCompletes()
     {
         var escrowId = await SeedAsync("release");
