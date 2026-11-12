@@ -1701,6 +1701,117 @@ public class EscrowServiceTests
         Assert.True(result.IsSuccess, result.Error?.Message);
     }
 
+    // ── FUP-53: the order the pickup rule judged is checked again inside the freeze's transaction ──
+
+    private const string OrderCreatedAt = "2026-10-01T09:00:00.0000000Z";
+    private static readonly TransactWriteItem NotClosedCheck = new() { ConditionCheck = new ConditionCheck { ConditionExpression = "not closed" } };
+
+    /// <summary>A picked-up order with its sort key, so the freeze carries the order check.</summary>
+    private (IOrderRepository Orders, IDeliveryRepository Deliveries) OrderCheckRig(EscrowLinkedWriteOutcome outcome)
+    {
+        var (orders, deliveries) = PickupRig("in_transit", null);
+        var order = MakeOrder("order-1", "in_transit", 2);
+        order["createdAt"] = OrderCreatedAt;
+        orders.GetByIdAsync("order-1", true).Returns(order);
+        orders.BuildNotClosedCheck("order-1", OrderCreatedAt).Returns(NotClosedCheck);
+        _mockEscrowRepo.TryUpdateStatusWithAsync("escrow-001", Arg.Any<string>(), "disputed", "escrowed",
+            Arg.Any<Dictionary<string, object>?>(), Arg.Any<IReadOnlyList<TransactWriteItem>>()).Returns(outcome);
+        return (orders, deliveries);
+    }
+
+    private Task FreezeCarriedTheOrderCheck() => _mockEscrowRepo.Received(1).TryUpdateStatusWithAsync(
+        "escrow-001", Arg.Any<string>(), "disputed", "escrowed",
+        Arg.Is<Dictionary<string, object>?>(f => f != null && f.ContainsKey("disputeId")),
+        Arg.Is<IReadOnlyList<TransactWriteItem>>(l => l.Count == 1 && l[0] == NotClosedCheck));
+
+    [Fact]
+    public async Task DisputeAsync_OrderBehindTheEscrow_FreezesInOneTransactionWithTheOrderCheck()
+    {
+        var (orders, deliveries) = OrderCheckRig(EscrowLinkedWriteOutcome.Written);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal("disputed", result.Value!.Status);
+        await FreezeCarriedTheOrderCheck();
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            "escrow-001", Arg.Any<string>(), "disputed", Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _mockIdempotencyRepo.Received(1).UpdateAsync(Arg.Any<string>(), "completed");
+    }
+
+    [Fact]
+    public async Task DisputeAsync_OrderClosedSinceItWasRead_GetsTheScheduledRefundAnswer_KeyFreed_NothingFrozen()
+    {
+        var (orders, deliveries) = OrderCheckRig(EscrowLinkedWriteOutcome.LinkedItemRefused);
+        var unchanged = MakeEscrowItem(status: "escrowed");
+        unchanged["orderId"] = "order-1";
+        _mockEscrowRepo.GetByIdAsync("escrow-001", true).Returns(unchanged);
+        var request = MakeDisputeRequest();
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(request, BuyerId);
+
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error.Code);
+        // The existing answer, word for word: the clients read "refund to the buyer is scheduled" (FUP-77).
+        Assert.Equal("A refund to the buyer is scheduled for this escrow; it can no longer be disputed.", result.Error.Message);
+        await FreezeCarriedTheOrderCheck();
+        await _mockIdempotencyRepo.Received(1).DeleteAsync(request.IdempotencyKey);
+        await _mockIdempotencyRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(a => a["action"].ToString() == "dispute"));
+        await orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task DisputeAsync_OrderClosedAndEscrowMovedOn_KeepsTheLostRaceAnswer()
+    {
+        // Another dispute won the escrow too: the answer is the one a lost race gives (ESCROW_020).
+        var (orders, deliveries) = OrderCheckRig(EscrowLinkedWriteOutcome.LinkedItemRefused);
+        _mockEscrowRepo.GetByIdAsync("escrow-001", true).Returns(MakeEscrowItem(status: "disputed"));
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_020", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_EscrowsOwnConditionFailedInTheTransaction_IsTheLostRaceAnswer_AsBefore()
+    {
+        var (orders, deliveries) = OrderCheckRig(EscrowLinkedWriteOutcome.EscrowRefused);
+        var locked = MakeEscrowItem(status: "escrowed");
+        locked["settlementLock"] = "release";
+        _mockEscrowRepo.GetByIdAsync("escrow-001", true).Returns(locked);
+        var request = MakeDisputeRequest();
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(request, BuyerId);
+
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal("A settlement is in progress for this escrow; it can no longer be disputed.", result.Error.Message);
+        await _mockIdempotencyRepo.Received(1).DeleteAsync(request.IdempotencyKey);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_FreezeTransactionMeetsAnotherTransaction_IsAnsweredFromTheEscrow_NeverA500()
+    {
+        var (orders, deliveries) = OrderCheckRig(EscrowLinkedWriteOutcome.Written);
+        _mockEscrowRepo.TryUpdateStatusWithAsync("escrow-001", Arg.Any<string>(), "disputed", "escrowed",
+                Arg.Any<Dictionary<string, object>?>(), Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .ThrowsAsync(new TransactionCanceledException("conflict")
+            {
+                CancellationReasons = new List<CancellationReason> { new() { Code = "TransactionConflict" }, new() { Code = "None" } }
+            });
+        var armed = MakeEscrowItem(status: "escrowed");
+        armed["refundReason"] = "order_cancelled";
+        _mockEscrowRepo.GetByIdAsync("escrow-001", true).Returns(armed);
+        var request = MakeDisputeRequest();
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(request, BuyerId);
+
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Contains("refund to the buyer is scheduled", result.Error.Message);
+        await _mockIdempotencyRepo.Received(1).DeleteAsync(request.IdempotencyKey);
+    }
+
     [Fact]
     public async Task DisputeAsync_PropagationAuditWriteFails_StillSucceeds()
     {

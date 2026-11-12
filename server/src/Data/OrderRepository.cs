@@ -307,6 +307,27 @@ public sealed class OrderRepository : IOrderRepository
     }
 
     /// <inheritdoc />
+    public TransactWriteItem BuildNotClosedCheck(string orderId, string createdAt) => new()
+    {
+        ConditionCheck = new ConditionCheck
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "orderId", new AttributeValue { S = orderId } },
+                { "createdAt", new AttributeValue { S = createdAt } }
+            },
+            ConditionExpression = "attribute_exists(#orderId) AND #status <> :cancelled AND #status <> :rejected",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#orderId", "orderId" }, { "#status", "status" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":cancelled", new AttributeValue { S = "cancelled" } },
+                { ":rejected", new AttributeValue { S = "rejected" } }
+            }
+        }
+    };
+
+    /// <inheritdoc />
     public async Task<OrderLinkedWriteResult> TryUpdateWithAsync(
         string orderId,
         Dictionary<string, object> data,

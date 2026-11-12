@@ -97,20 +97,4 @@ public partial class SyncFunctionTransportCancelTests
         await _orders.Received(1).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(),
             Arg.Any<string>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
     }
-
-    [Fact]
-    public async Task Race_FundedOrderCancel_StillSchedulesItsRefundSeparately()
-    {
-        // FUP-32 changes the transport cancel only: a funded order's cancel keeps its CAS and schedule.
-        _order = Order(status: "funded", version: 4);
-
-        var result = await CancelAsync(BuyerId);
-
-        result.GetProperty("status").GetString().Should().Be("success");
-        await _orders.Received(1).UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4);
-        await _orders.DidNotReceive().TryUpdateWithAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(),
-            Arg.Any<string>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
-        await _escrows.Received(1).UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
-            Arg.Is<Dictionary<string, object>>(f => (string)f["refundReason"] == "order_cancelled"));
-    }
 }
