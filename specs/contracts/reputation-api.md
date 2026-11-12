@@ -4,7 +4,7 @@
 1.8.0
 
 ## Status
-PARTLY BUILT (1.8.0). BUILT in ESC-28: the events, the policy and the aggregate (section 1),
+PARTLY BUILT (1.8.0). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
 the server side of the two notifications (section 10) and the flags and policy parameter
 (section 11). BUILT in ESC-29 (server): the reads (sections 2 to 4), the appeal photo and the appeal
 (5, 6), the copied owner fields (7) and the gates (8). BUILT in ESC-32: the admin endpoints
@@ -580,8 +580,15 @@ the crop detail screen.
   `BatchGetItem` per 100 for the status, or `TruckerIdCreatedAtIndex`), writes only rows in an
   active status that do not already hold the values, and conditions each `UpdateItem` on the row
   still being active. No Scan.
-- A row created before the flag went on has no copy until its owner's next change. A one-off stamp
-  of existing rows is a follow-up (TASK FUP-160), needed before `reputationPublicTags` goes on.
+- A row created before the flag went on has no copy until its owner's next change. **1.7.0
+  (FUP-160)**: the order-cron action `reputation_stamp_owner_copies`, run by hand once per
+  environment after `reputationPenalties` is on and before `reputationPublicTags` goes on
+  (architecture doc 12.3), stamps them: the owners of the active rows come from the crop
+  `StatusCreatedAtIndex` (`available`, `reserved`) and the trip `StatusDepartureDateIndex` (`open`,
+  `matched`), so an owner without a `woreda` is reached too; each owner's rows get the refresh
+  above with the reputation as a read shows it (the values a create stamps). The users row is not
+  written. With `reputationPenalties` off it reads and writes nothing (`outcome: disabled`). A run
+  out of time returns `next` for `{"startAt": next}`; a rerun writes nothing. No wire change.
 - The five names are dropped from every client payload on `/sync`, create and update alike.
 - Returned by `GET /crops`, `GET /crops/{id}`, `GET /trips`, `GET /trips/{id}`, `GET /match`
   (`match-api.md` 1.3.0) and a crop or trip row in a `/sync` answer, as the public tier, only with
@@ -1100,7 +1107,8 @@ platform pair).
 
 | Version | Date | Change |
 |---|---|---|
-| 1.8.0 | 2026-11-12 | FUP-162 (server, no wire change): the rows without `ratingsAggregatedAt` that section 2 "As built" describes get stamped: the order-cron `reputation_backfill_ratings` also Scans the users table once for the farmers and truckers without a `woreda` (resumable with `scanFrom`), and a rating for an unstamped ratee stamps their aggregate after the create (`rating-api.md` 1.5.0). The reads of sections 2 and 3 stay read-only. (1.7.0 is taken by an open branch) |
+| 1.8.0 | 2026-11-12 | FUP-162 (server, no wire change): the rows without `ratingsAggregatedAt` that section 2 "As built" describes get stamped: the order-cron `reputation_backfill_ratings` also Scans the users table once for the farmers and truckers without a `woreda` (resumable with `scanFrom`), and a rating for an unstamped ratee stamps their aggregate after the create (`rating-api.md` 1.5.0). The reads of sections 2 and 3 stay read-only. |
+| 1.7.0 | 2026-11-12 | FUP-160 BUILT (server, no endpoint or field change): the one-off stamp of the owner fields of section 7 on rows created before `reputationPenalties` went on, the order-cron action `reputation_stamp_owner_copies` (owners from the active partitions of the crop and trip status indexes, so owners without a `woreda` too; the reputation as read; behind `reputationPenalties`; a `startAt` cursor; a rerun writes nothing). Run it before `reputationPublicTags` goes on (architecture doc 12.1 step 6, 12.3). |
 | 1.6.0 | 2026-11-12 | ESC-31 BUILT (apps, no endpoint or field change): the owner fields on the cached crop and trip rows and on the cards (label for the public tier `low`, effective rating with its count, no per-card `GET /ratings` when the copy is present), the confirm before ordering from a party with the label, `until=` in the restricted error, My reputation (own standing, rating breakdown, events in pages of 20, appeal with optional photo and a kept draft), the Profile rating, the inbox texts and tap for `penalty_recorded` and `tier_changed`. "As built" notes under sections 7, 8.1, 10 and 13 (the read happens on Profile or My reputation, not at start-up; a draft is not sent by itself; a tapped push still opens the app). |
 | 1.5.0 | 2026-11-12 | ESC-33 BUILT (server): new section 1.7, the fraud hooks. A recorded `NO_SHOW` or `DELIVERY_OVERDUE` with points writes a fraud signal on the party; a recorded decline or expiry checks the buyer's paid orders and writes `BUYER_DECLINE_PATTERN` at 3 in 30 days from at least 2 different parties; the payout delay reads the tier (`low` as new, restricted as flagged); a GPS-inconsistent delivery also puts a capped `GPS_ANOMALY` row on the trucker. All behind `reputationPenalties`; no wire change. The repeat restriction signal of 1.5 is not built. (1.3.0 and 1.4.0 are other tickets' versions.) |
 | 1.4.0 | 2026-11-12 | ESC-32 BUILT: section 9 on the admin Lambda (`GET /admin/users/{userId}/reputation`, `GET /admin/reputation/appeals`, `POST /admin/users/{userId}/reputation/events/{eventId}/decision`, `POST /admin/users/{userId}/reputation`), admin group only, writes behind `reputationPenalties` (reads not gated), one transaction and one audit row per applied write, the copied owner fields refreshed in the request. New: the response shape of 9.1 (`restrictions`, the admin event with `basePoints`, `buyerId`, the appeal text and `appealPhotoUrl`), `appealPhotoUrl` and `tripId` on the queue items, `alreadyApplied` on 9.4, `409 REPUTATION_ALREADY_RESTRICTED`, `seenAppealTextAt` on an uphold with `409 REPUTATION_APPEAL_CHANGED` (an uphold is refused when the appeal is not the one the admin's page showed), `textAt` and `appealTextAt` on the reads, what changed in the audit metadata, the replay rules of 9.3 and 9.4, and the rule of 6.1 that an event upheld before the party sent any text can be appealed once. 8.4: an admin suspend or unsuspend now refreshes the copied owner fields in the same request (TASK FUP-163). (1.3.0 is taken by an open branch) |

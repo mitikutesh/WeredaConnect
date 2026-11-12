@@ -253,4 +253,48 @@ public class ReputationStreamFunctionTests
         await _sqs.DidNotReceive().DeleteMessageAsync(Arg.Is<DeleteMessageRequest>(r => r.ReceiptHandle == "r-bad"), Arg.Any<CancellationToken>());
         _repo.Committed.Should().ContainSingle();
     }
+
+    [Fact]
+    public async Task Unpark_AnEmptyFirstReply_ThenAMessage_StillReplaysIt()
+    {
+        // FUP-161: SQS can answer empty while a small queue holds a message.
+        using var good = JsonDocument.Parse(FarmerDecline());
+        var requests = new List<ReceiveMessageRequest>();
+        _sqs.ReceiveMessageAsync(Arg.Do<ReceiveMessageRequest>(requests.Add), Arg.Any<CancellationToken>())
+            .Returns(
+                new ReceiveMessageResponse { Messages = new List<Message>() },
+                new ReceiveMessageResponse
+                {
+                    Messages = new List<Message> { new() { Body = ReputationParking.BuildMessage(good.RootElement)!, ReceiptHandle = "r-good" } }
+                },
+                new ReceiveMessageResponse { Messages = new List<Message>() });
+        _sqs.DeleteMessageAsync(Arg.Any<DeleteMessageRequest>(), Arg.Any<CancellationToken>()).Returns(new DeleteMessageResponse());
+
+        var summary = await new ReputationUnparkJob(Processor(), _sqs, QueueUrl)
+            .RunAsync(new CronRunBudget(() => TimeSpan.Zero).Slice(TimeSpan.FromMinutes(4)), _context);
+
+        summary["replayed"].Should().Be("1");
+        _repo.Row("farmer-1", "REQUEST#order-1").Points.Should().Be(1);
+        await _sqs.Received(1).DeleteMessageAsync(Arg.Is<DeleteMessageRequest>(r => r.ReceiptHandle == "r-good"), Arg.Any<CancellationToken>());
+        // Empty, the message, then two empty replies in a row end the run.
+        requests.Should().HaveCount(4);
+        requests.Should().OnlyContain(r => r.WaitTimeSeconds == ReputationUnparkJob.ReceiveWaitSeconds && r.WaitTimeSeconds > 0,
+            "every receive long-polls");
+    }
+
+    [Fact]
+    public async Task Unpark_AnEmptyQueue_EndsAfterOneRetry()
+    {
+        _sqs.ReceiveMessageAsync(Arg.Any<ReceiveMessageRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ReceiveMessageResponse { Messages = new List<Message>() });
+
+        var summary = await new ReputationUnparkJob(Processor(), _sqs, QueueUrl)
+            .RunAsync(new CronRunBudget(() => TimeSpan.Zero).Slice(TimeSpan.FromMinutes(4)), _context);
+
+        summary["received"].Should().Be("0");
+        summary["outcome"].Should().Be("ok");
+        await _sqs.Received(ReputationUnparkJob.EmptyRepliesToStop)
+            .ReceiveMessageAsync(Arg.Any<ReceiveMessageRequest>(), Arg.Any<CancellationToken>());
+        ReputationUnparkJob.ReceiveWaitSeconds.Should().BeInRange(1, 2, "a run on an empty queue stays within a few seconds");
+    }
 }

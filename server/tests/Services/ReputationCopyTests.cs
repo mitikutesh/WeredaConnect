@@ -177,6 +177,72 @@ public class ReputationCopyTests
         _copied.Should().BeEmpty();
     }
 
+    // ===== FUP-160: the one-off owner stamp =====
+
+    [Fact]
+    public async Task TheOwnerStamp_CopiesTheReputationAsRead_AndWritesNoMap()
+    {
+        _repo.Users["farmer-1"].RatingSum = 9;
+        _repo.Users["farmer-1"].RatingCount = 2;
+        await Cancel("CANCEL#o1", T0);
+        _copied.Clear();
+        _repo.Committed.Clear();
+        _clock.Now = T0.AddDays(1);
+
+        (await Service().StampOwnerCopiesAsync("farmer-1")).Should().Be(2);
+
+        var (user, role, fields) = _copied.Should().ContainSingle().Subject;
+        (user, role).Should().Be(("farmer-1", "farmer"));
+        fields.Tier.Should().Be(ReputationTiers.Warning);
+        fields.EffectiveRating.Should().Be(4.2m);
+        fields.RatingCount.Should().Be(2);
+        fields.At.Should().Be(T0.AddDays(1));
+        _repo.Committed.Should().BeEmpty("the stamp only copies; the users row is not written");
+    }
+
+    [Fact]
+    public async Task TheOwnerStamp_PastNextChangeAt_CopiesTheRecomputedReputation()
+    {
+        await Cancel("CANCEL#o1", T0);
+        _copied.Clear();
+        _repo.Committed.Clear();
+        // The points expired and the daily job has not run: the stored map still says warning.
+        _clock.Now = T0.AddDays(91);
+
+        await Service().StampOwnerCopiesAsync("farmer-1");
+
+        _copied.Single().Fields.Tier.Should().Be(ReputationTiers.Good, "what a read would show, not the stale map");
+        _repo.Committed.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task TheOwnerStamp_ATrucker_CopiesOntoTheirTrips_WithNoMapYet()
+    {
+        _repo.AddUser("trucker-1", "trucker");
+
+        (await Service().StampOwnerCopiesAsync("trucker-1")).Should().Be(2);
+
+        var (_, role, fields) = _copied.Single();
+        role.Should().Be("trucker");
+        fields.Tier.Should().Be(ReputationTiers.Good);
+        fields.RatingCount.Should().Be(0);
+        fields.EffectiveRating.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task TheOwnerStamp_SkipsAMissingOrDeletingUser_AndNeedsACopyWriter()
+    {
+        _repo.AddUser("farmer-2").DeletionState = "pending";
+
+        (await Service().StampOwnerCopiesAsync("nobody")).Should().BeNull();
+        (await Service().StampOwnerCopiesAsync("farmer-2")).Should().BeNull();
+        var withoutCopies = new ReputationService(_repo, ReputationPolicySettings.Defaults, null, _clock, _ => Task.CompletedTask);
+        withoutCopies.CopiesConfigured.Should().BeFalse();
+        (await withoutCopies.StampOwnerCopiesAsync("farmer-1")).Should().BeNull();
+
+        _copied.Should().BeEmpty();
+    }
+
     private void PutHeal() => _repo.Put(new ReputationEvent
     {
         UserId = "farmer-1",

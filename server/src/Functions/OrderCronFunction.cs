@@ -35,6 +35,9 @@ namespace WeredaConnect.Server.Functions;
 ///   - reputation_backfill_ratings (by hand, once per environment, ESC-28): the rating aggregate
 ///     backfill (12.2); not flagged. FUP-162: then a one-off users Scan for the rows without a woreda;
 ///     <c>{"scanFrom": "..."}</c> resumes it from the <c>scanCursor</c> of a run that stopped
+///   - reputation_stamp_owner_copies (by hand, once per environment, FUP-160): copy the owners'
+///     reputation onto the active crop and trip rows created before <c>reputationPenalties</c> went on
+///     (12.3); <c>{"startAt": next}</c> goes on after a partial run
 ///
 /// Error codes:
 /// - 400: ORDER_CRON_VALIDATION - Invalid or missing action
@@ -90,22 +93,24 @@ public partial class OrderCronFunction
     private const string ReputationUnparkAction = "reputation_unpark";
     private const string ReputationRecomputeAction = "reputation_recompute_all";
     private const string RatingBackfillAction = "reputation_backfill_ratings";
+    private const string OwnerStampAction = OwnerCopyStampJob.Action;
 
     private const string ExpectedActions =
         "auto_cancel_expired, commitment_deadlines, deadline_repair, relationship_patterns, reputation_daily, "
-        + "reputation_unpark, reputation_recompute_all or reputation_backfill_ratings";
+        + "reputation_unpark, reputation_recompute_all, reputation_backfill_ratings or reputation_stamp_owner_copies";
 
     /// <summary>ESC-28: each reputation action's share of the 5 minute Lambda (8.2: 4 minutes, the rest for the summary).</summary>
     internal static readonly TimeSpan ReputationRunTime = TimeSpan.FromMinutes(4);
 
-    /// <summary>FUP-162: the longest <c>scanFrom</c> taken (a user id; DynamoDB keys may be longer, ours are not).</summary>
-    internal const int MaxScanFromLength = 256;
-
     /// <summary>
-    /// ESC-28: the <c>reputationPenalties</c> flag. Off, the daily, unpark and recompute actions log and
-    /// return (the backfill is not flagged). Defaults to the env flag; tests set it in the initializer.
+    /// ESC-28: the <c>reputationPenalties</c> flag. Off, the daily, unpark and recompute actions and
+    /// FUP-160's owner stamp log and return (the backfill is not flagged). Defaults to the env flag;
+    /// tests set it in the initializer.
     /// </summary>
     public bool ReputationPenaltiesEnabled { get; init; } = ReputationFlags.PenaltiesEnabled;
+
+    /// <summary>FUP-160: the one-off owner stamp; wired with the daily job when <c>CROPS_TABLE</c> and <c>TRIPS_TABLE</c> are set too.</summary>
+    internal OwnerCopyStampJob? OwnerCopyStamp { get; init; }
 
     /// <summary>ESC-28: the daily job; wired when <c>REPUTATION_EVENTS_TABLE</c> and <c>USERS_TABLE</c> are set.</summary>
     internal ReputationDailyJob? ReputationDaily { get; init; }
@@ -208,6 +213,12 @@ public partial class OrderCronFunction
             };
             ReputationDaily = new ReputationDailyJob(service, repo);
 
+            // FUP-160: the owner stamp walks the listing status indexes and writes through the copy writer.
+            if (service.CopiesConfigured && !string.IsNullOrEmpty(cropsTable) && !string.IsNullOrEmpty(tripsTable))
+            {
+                OwnerCopyStamp = new OwnerCopyStampJob(service, dynamoDb, cropsTable, tripsTable);
+            }
+
             var parkedQueueUrl = Environment.GetEnvironmentVariable("REPUTATION_PARKED_QUEUE_URL");
             var deviceTokensTable = Environment.GetEnvironmentVariable("DEVICE_TOKENS_TABLE");
             if (!string.IsNullOrEmpty(parkedQueueUrl) && !string.IsNullOrEmpty(deviceTokensTable))
@@ -249,10 +260,12 @@ public partial class OrderCronFunction
     {
         context.Logger.LogInformation("OrderCronFunction invoked.");
 
-        // Parse action (and ESC-28's optional catchUpDays, a number or a numeric string) from the body.
+        // Parse action (and ESC-28's optional catchUpDays, a number or a numeric string, FUP-160's
+        // optional startAt and FUP-162's optional scanFrom, each a user id) from the body.
         string? action = null;
         int? catchUpDays = null;
         string? scanFrom = null;
+        string? startAt = null;
         if (!string.IsNullOrEmpty(request.Body))
         {
             try
@@ -284,16 +297,28 @@ public partial class OrderCronFunction
                     catchUpDays = parsed;
                 }
 
-                // FUP-162: reputation_backfill_ratings resumes its users Scan from the scanCursor of a run that stopped.
+                // FUP-162: reputation_backfill_ratings resumes its users Scan from the scanCursor of a run
+                // that stopped (a user id, so FUP-160's startAt check).
                 if (payload.RootElement.TryGetProperty("scanFrom", out var from))
                 {
-                    if (from.ValueKind != JsonValueKind.String || from.GetString() is not { Length: > 0 and <= MaxScanFromLength } cursor)
+                    if (from.ValueKind != JsonValueKind.String || !OwnerCopyStampJob.IsValidStartAt(from.GetString()))
                     {
                         return LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
-                            $"scanFrom must be the scanCursor of an earlier run (a string of 1 to {MaxScanFromLength} characters).");
+                            $"scanFrom must be the scanCursor of an earlier run, at most {OwnerCopyStampJob.MaxStartAtLength} characters.");
                     }
 
-                    scanFrom = cursor;
+                    scanFrom = from.GetString();
+                }
+
+                if (payload.RootElement.TryGetProperty("startAt", out var start))
+                {
+                    if (start.ValueKind != JsonValueKind.String || !OwnerCopyStampJob.IsValidStartAt(start.GetString()))
+                    {
+                        return LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
+                            $"startAt must be the 'next' user id of an earlier run, at most {OwnerCopyStampJob.MaxStartAtLength} characters.");
+                    }
+
+                    startAt = start.GetString();
                 }
             }
             catch (JsonException)
@@ -330,6 +355,7 @@ public partial class OrderCronFunction
                 ReputationUnparkAction => await HandleReputationUnparkAsync(context),
                 ReputationRecomputeAction => await HandleReputationRecomputeAsync(context),
                 RatingBackfillAction => await HandleRatingBackfillAsync(scanFrom, context),
+                OwnerStampAction => await HandleOwnerStampAsync(startAt, context),
                 _ => LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
                     $"Unknown action '{safeAction}'. Expected: {ExpectedActions}.")
             };
@@ -771,6 +797,25 @@ public partial class OrderCronFunction
 
         return JsonResponse(await RatingBackfill.RunAsync(
             DateTime.UtcNow, CronRunBudget.StartNew().Slice(ReputationRunTime), context, scanFrom));
+    }
+
+    /// <summary>
+    /// FUP-160: the one-off stamp of the owner fields (12.3). Behind <c>reputationPenalties</c> like
+    /// every copy: off, nothing is read or written. A rerun writes nothing.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleOwnerStampAsync(string? startAt, ILambdaContext context)
+    {
+        if (!ReputationPenaltiesEnabled)
+        {
+            return ReputationOff(OwnerStampAction, context);
+        }
+
+        if (OwnerCopyStamp == null)
+        {
+            return ReputationUnconfigured(OwnerStampAction, context);
+        }
+
+        return JsonResponse(await OwnerCopyStamp.RunAsync(startAt, CronRunBudget.StartNew().Slice(ReputationRunTime), context));
     }
 
     /// <summary>

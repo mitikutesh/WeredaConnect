@@ -186,11 +186,21 @@ public sealed class ReputationDailyJob
 /// record step on each and deletes the ones that succeed. A message that keeps failing returns
 /// after its visibility timeout; after 5 receives the queue's redrive policy moves it to the
 /// parked DLQ (alarmed). Replays are safe by the slot ids.
+/// FUP-161: each receive long-polls for <see cref="ReceiveWaitSeconds"/> and the run ends only
+/// after <see cref="EmptyRepliesToStop"/> empty replies in a row. A short poll samples only some
+/// SQS servers and can answer empty while a small queue holds messages, which left parked records
+/// waiting for a later hour.
 /// </summary>
 public sealed class ReputationUnparkJob
 {
     public const string SummaryToken = "REPUTATION_UNPARK";
     public const int MaxMessagesPerRun = 100;
+
+    /// <summary>FUP-161: the long poll of one receive, in seconds (an empty queue answers after it).</summary>
+    public const int ReceiveWaitSeconds = 1;
+
+    /// <summary>FUP-161: empty replies in a row that end the run (the first empty reply is tried once more).</summary>
+    public const int EmptyRepliesToStop = 2;
 
     private readonly ReputationRecordProcessor _processor;
     private readonly IAmazonSQS _sqs;
@@ -205,20 +215,28 @@ public sealed class ReputationUnparkJob
 
     public async Task<Dictionary<string, string>> RunAsync(CronRunSlice slice, ILambdaContext context)
     {
-        int received = 0, replayed = 0, failed = 0;
+        int received = 0, replayed = 0, failed = 0, emptyInARow = 0;
+        // Each receive waits at most ReceiveWaitSeconds, far inside the slice's 30 second reserve.
         while (received < MaxMessagesPerRun && slice.MayStartRow(context))
         {
             var response = await _sqs.ReceiveMessageAsync(new ReceiveMessageRequest
             {
                 QueueUrl = _queueUrl,
                 MaxNumberOfMessages = Math.Min(10, MaxMessagesPerRun - received),
-                WaitTimeSeconds = 0
+                WaitTimeSeconds = ReceiveWaitSeconds
             });
             var messages = response.Messages ?? new List<Message>();
             if (messages.Count == 0)
             {
-                break;
+                if (++emptyInARow >= EmptyRepliesToStop)
+                {
+                    break;
+                }
+
+                continue;
             }
+
+            emptyInARow = 0;
 
             foreach (var message in messages)
             {
@@ -626,5 +644,157 @@ public sealed class RatingAggregateBackfill
         while (startKey != null);
 
         return ratings;
+    }
+}
+
+/// <summary>
+/// FUP-160: the one-off stamp of the owner fields (reputation-architecture.md 12.3), run by hand
+/// once per environment after <c>reputationPenalties</c> goes on and before
+/// <c>reputationPublicTags</c>. The copies are written only while <c>reputationPenalties</c> is on,
+/// so a crop or trip created before that has none until its owner's next change. The owners come
+/// from the active partitions of the status indexes buyer browse reads (crops
+/// <c>StatusCreatedAtIndex</c> <c>available</c> and <c>reserved</c>, trips
+/// <c>StatusDepartureDateIndex</c> <c>open</c> and <c>matched</c>; Query, no Scan), so an owner
+/// without a <c>woreda</c> is reached too and a user with no active row costs nothing. Each owner
+/// gets <see cref="ReputationService.StampOwnerCopiesAsync"/>: the copy refresh of 6.3, which writes
+/// only rows that do not already hold the values, so a rerun writes nothing. Owners are taken in
+/// user id order; a run out of time returns the first owner it did not reach as <c>next</c>, and
+/// <c>{"startAt": next}</c> goes on from there.
+/// </summary>
+public sealed class OwnerCopyStampJob
+{
+    public const string SummaryToken = "REPUTATION_OWNER_STAMP";
+    public const string Action = "reputation_stamp_owner_copies";
+    public const string CropStatusIndex = "StatusCreatedAtIndex";
+    public const string TripStatusIndex = "StatusDepartureDateIndex";
+
+    /// <summary>The longest <c>startAt</c> taken (a user id from a previous run's <c>next</c>).</summary>
+    public const int MaxStartAtLength = 128;
+
+    private readonly ReputationService _service;
+    private readonly IAmazonDynamoDB _dynamoDb;
+    private readonly string _cropsTable;
+    private readonly string _tripsTable;
+
+    public OwnerCopyStampJob(ReputationService service, IAmazonDynamoDB dynamoDb, string cropsTable, string tripsTable)
+    {
+        _service = service ?? throw new ArgumentNullException(nameof(service));
+        _dynamoDb = dynamoDb ?? throw new ArgumentNullException(nameof(dynamoDb));
+        _cropsTable = cropsTable ?? throw new ArgumentNullException(nameof(cropsTable));
+        _tripsTable = tripsTable ?? throw new ArgumentNullException(nameof(tripsTable));
+    }
+
+    /// <summary>Whether <paramref name="value"/> can be a <c>startAt</c> (a user id: no blank, no control character, not too long).</summary>
+    public static bool IsValidStartAt(string? value)
+        => !string.IsNullOrWhiteSpace(value) && value.Length <= MaxStartAtLength && !value.Any(char.IsControl);
+
+    public async Task<Dictionary<string, string>> RunAsync(string? startAt, CronRunSlice slice, ILambdaContext context)
+    {
+        var owners = await ActiveOwnersAsync();
+        int users = 0, rows = 0, skipped = 0, leftover = 0, failed = 0;
+        string? next = null;
+        foreach (var userId in owners)
+        {
+            if (startAt != null && string.CompareOrdinal(userId, startAt) < 0)
+            {
+                continue;
+            }
+
+            if (!slice.MayStartRow(context))
+            {
+                next ??= userId;
+                leftover++;
+                continue;
+            }
+
+            try
+            {
+                if (await _service.StampOwnerCopiesAsync(userId) is { } written)
+                {
+                    users++;
+                    rows += written;
+                }
+                else
+                {
+                    // No users row, or the account is being deleted: nothing to copy.
+                    skipped++;
+                }
+            }
+            catch (Exception ex)
+            {
+                // A rerun (or a run from an earlier startAt) tries the owner again.
+                failed++;
+                context.Logger.LogError(
+                    $"Owner stamp failed for user {MoneyAlarmLog.LogId(userId)}: [{ex.GetType().Name}]");
+            }
+        }
+
+        context.Logger.LogInformation(
+            $"{SummaryToken} owners={owners.Count} users={users} rows={rows} skipped={skipped} leftover={leftover} failed={failed} "
+            + $"from={(startAt == null ? "start" : "startAt")}");
+        var result = new Dictionary<string, string>
+        {
+            ["action"] = Action,
+            ["outcome"] = leftover == 0 && failed == 0 ? "ok" : "partial",
+            ["owners"] = owners.Count.ToString(CultureInfo.InvariantCulture),
+            ["users"] = users.ToString(CultureInfo.InvariantCulture),
+            ["rows"] = rows.ToString(CultureInfo.InvariantCulture),
+            ["skipped"] = skipped.ToString(CultureInfo.InvariantCulture),
+            ["leftover"] = leftover.ToString(CultureInfo.InvariantCulture),
+            ["failed"] = failed.ToString(CultureInfo.InvariantCulture)
+        };
+        if (next != null)
+        {
+            result["next"] = next;
+        }
+
+        return result;
+    }
+
+    /// <summary>The distinct owners of the active crop and trip rows, in ordinal user id order.</summary>
+    private async Task<SortedSet<string>> ActiveOwnersAsync()
+    {
+        var owners = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var status in ReputationCopyRepository.ActiveCropStatuses)
+        {
+            await CollectOwnersAsync(_cropsTable, CropStatusIndex, status, "farmerId", owners);
+        }
+
+        foreach (var status in ReputationCopyRepository.ActiveTripStatuses)
+        {
+            await CollectOwnersAsync(_tripsTable, TripStatusIndex, status, "truckerId", owners);
+        }
+
+        return owners;
+    }
+
+    private async Task CollectOwnersAsync(string table, string index, string status, string ownerAttribute, SortedSet<string> owners)
+    {
+        var request = new QueryRequest
+        {
+            TableName = table,
+            IndexName = index,
+            KeyConditionExpression = "#status = :status",
+            ProjectionExpression = "#owner",
+            ExpressionAttributeNames = new Dictionary<string, string> { ["#status"] = "status", ["#owner"] = ownerAttribute },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":status"] = new() { S = status } }
+        };
+
+        Dictionary<string, AttributeValue>? startKey = null;
+        do
+        {
+            request.ExclusiveStartKey = startKey;
+            var page = await _dynamoDb.QueryAsync(request);
+            foreach (var item in page.Items)
+            {
+                if (item.TryGetValue(ownerAttribute, out var owner) && !string.IsNullOrEmpty(owner.S))
+                {
+                    owners.Add(owner.S);
+                }
+            }
+
+            startKey = page.LastEvaluatedKey is { Count: > 0 } next ? next : null;
+        }
+        while (startKey != null);
     }
 }

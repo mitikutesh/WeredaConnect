@@ -2280,7 +2280,9 @@ export class ApiStack extends cdk.Stack {
     // marker asks for, log the overdue reviews and appeals (reputation-architecture.md section 8).
     // A no-op while REPUTATION_PENALTIES_ENABLED is false (the handler logs and returns). The other
     // reputation actions are invoked by hand, with no rule: reputation_backfill_ratings (once per
-    // environment, section 12.2) and reputation_recompute_all (after a policy change, section 8.3).
+    // environment, section 12.2), reputation_recompute_all (after a policy change, section 8.3) and
+    // reputation_stamp_owner_copies (FUP-160, once per environment before reputationPublicTags, section
+    // 12.3; it reads the crop and trip status indexes and updates rows under the grants above).
     new events.Rule(this, "OrderCronReputationDaily", {
       ruleName: `${prefix}-order-cron-reputation-daily`,
       description: "Expire reputation points, end restrictions and retry copies once a day at 03:00 Ethiopia time (ESC-28)",
@@ -3389,8 +3391,11 @@ export class ApiStack extends cdk.Stack {
     // FUP-02: a manual refund record writes its escrow-audit row and a claim row here in one
     // TransactWriteItems. IAM has no separate transaction action: each Put needs PutItem on its
     // table (a conditional Put needs nothing more; ConditionCheckItem is only for ConditionCheck
-    // items, which this transaction has none of). PutItem only: no read, update or delete.
-    props.escrowIdempotencyTable.grant(adminFn.function, "dynamodb:PutItem");
+    // items, which this transaction has none of).
+    // FUP-05: a manual payout record writes its reference item (payout-ref#...) the same way, in the
+    // record's transaction, and a refused duplicate reads that item (GetItem, strongly consistent) to
+    // name where the reference is used. No update, delete, Query or Scan.
+    props.escrowIdempotencyTable.grant(adminFn.function, "dynamodb:PutItem", "dynamodb:GetItem");
     // FRD-07: the read grant covers the table's indexes too, so Fraud Review and the dashboard
     // count Query the sparse StatusCreatedAtIndex instead of scanning the table.
     props.fraudSignalsTable.grantReadWriteData(adminFn.function);
@@ -3509,8 +3514,12 @@ export class ApiStack extends cdk.Stack {
       // FUP-67: decide a listing's open reports (dismissed or actioned).
       "/admin/listing-reports/{listingId}/review",
       "/admin/users/{id}/action",
-      // ESC-02: record an admin-paid manual payout leg (admin group checked in the Lambda).
-      "/admin/payouts/{escrowId}/{ref}/complete",
+      // ESC-02: record an admin-paid manual payout leg ({action} = complete). FUP-05: claim a leg before
+      // paying it (claim) and give it back (unclaim); a claim is a conditional UpdateItem on the escrow row
+      // or the ledger row (existing grants). One route for the three: with Telebirr live on, this stack
+      // holds 497 of CloudFormation's 500 resources, and each route costs a Route, an Integration and a
+      // Lambda permission. The Lambda answers 404 ADMIN_002 for any other action; admin group checked there.
+      "/admin/payouts/{escrowId}/{ref}/{action}",
       // FUP-02: record the manual refund of such a payment (admin group checked in the Lambda).
       // Uses the existing grants: escrow-audit read + write, orders read, transaction-audit write.
       "/admin/payments/{orderId}/refund-manual",

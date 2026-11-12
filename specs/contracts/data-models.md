@@ -1,6 +1,6 @@
 # Data Models Contract
 
-**Version**: 1.12.0
+**Version**: 1.13.0
 **Last Updated**: 2026-11-12
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
@@ -238,6 +238,11 @@ actor, trigger `delivery_confirmed`, from `escrowed`), written with the `release
 queue write; absent on any other 1.x release and on refunds; `other` on a ledger release decision that is not
 the auto-release. Read only by the clean-delivery credit (`fraud-detection-architecture.md` section 20).
 
+**Server escrow fields of a manual payout claim (1.13.0, FUP-05, `escrow-protocol.md` 2.12.0).** Server-only,
+never in `EscrowDto`. Per 1.x manual payout leg: `manual{Leg}ClaimedBy` (the admin id), `manual{Leg}ClaimedAt`
+and `manual{Leg}ClaimExpiresAt` (ISO 8601 UTC, 30 minutes after the claim), with `{Leg}` = `Farmer`,
+`Trucker` or `Buyer`; removed by the holder or by the record of the leg. Bookkeeping: no `version` change.
+
 ### 5a. EscrowLedger (server only, 1.8.0, ESC-20)
 
 One row per money movement of an order escrow, in `{prefix}-escrow-ledger`. Never synced and never on a
@@ -260,6 +265,12 @@ device; the admin reads the rows in the manual payout queue.
 | `createdAt`, `updatedAt`, `sentAt`, `doneAt` | String (ISO 8601) | Times |
 | `openStatus`, `dueAt` | String | `LedgerOpenIndex` keys while the row is not `done` |
 | `version` | Number | Compare-and-set counter of the row |
+| `claimedBy`, `claimedAt`, `claimExpiresAt` | String | 1.13.0 (FUP-05): the admin who claimed a `manual` row, when, and until when (30 minutes); removed by the holder or by the record. Bookkeeping: `version` does not move |
+
+**Manual payout reference item (1.13.0, FUP-05).** In `{prefix}-escrow-idempotency`, server only: key
+`payout-ref#{REFERENCE}` (the admin-entered portal reference, trimmed, upper case), `kind` (`payout_ref`),
+`escrowId`, `ref` (the 1.x leg or ledger ref it records), `externalRef`, `recordedBy`, `recordedAt`, and
+`expiresAt` (400 days). Written with the leg's record in one transaction; one reference records one leg.
 
 ---
 
@@ -484,6 +495,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.9.0 | 2026-11-11 | Server escrow row gains the server-only `releaseOrigin` (FUP-137: `auto_release` for a release the hourly auto-release started, written with the release or its manual payout queue entry; read by the clean-delivery credit). No client field changes | @Server |
 | 1.10.0 | 2026-11-11 | Order `farmerName` is never an id (order-lifecycle 2.11.0, FUP-130): the server writes the listing's name or the empty string, whatever the client sent; `truckerName` is the trip's name or absent. No schema change. |
 | 1.11.0 | 2026-11-12 | CropListing and Trip gain `ownerReliabilityPct` on the client (Isar schema and web mirror), parsed from `GET /crops` and `GET /trips` for the offline matcher (ESC-30, `match-api.md` 1.4.0); CropListing `farmerReliability` is deprecated. The other owner fields come with ESC-31 | @Mobile |
+| 1.13.0 | 2026-11-12 | Server-only manual payout claim fields on the escrow row (`manual{Leg}ClaimedBy`, `ClaimedAt`, `ClaimExpiresAt`) and the ledger row (`claimedBy`, `claimedAt`, `claimExpiresAt`), and the `payout-ref#` reference item in escrow-idempotency (escrow-protocol 2.12.0, FUP-05). No client field changes. 1.12.0 is another branch's number | @Server |
 | 1.12.0 | 2026-11-12 | CropListing and Trip gain the rest of the owner's public reputation copy on the client (Isar schema and web mirror): `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReputationAt` (ESC-31, `reputation-api.md` 1.6.0 section 7). All nullable, server-written, never sent back; one parser reads them in the marketplace pull, the web repositories, the web matcher and the conflict echo, and a row without them clears the stored copy. The user's own reputation is not an Isar entity: it is kept in the key-value store (`reputation-api.md` section 13) | @Mobile |
 
 ---

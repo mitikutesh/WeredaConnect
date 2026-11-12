@@ -80,7 +80,10 @@ internal enum LedgerWrite
     RowConflict,
 
     /// <summary>The escrow moved on since it was read (its version, status or a leg differs).</summary>
-    EscrowConflict
+    EscrowConflict,
+
+    /// <summary>FUP-05: only the reference item of a manual record failed: the reference is recorded on another leg.</summary>
+    ReferenceTaken
 }
 
 /// <summary>An escrow-audit row written in the same transaction as the ledger write it records (P.7).</summary>
@@ -111,4 +114,10 @@ internal sealed record LedgerTransition
     public (string EscrowId, string CreatedAt, int Version)? Escrow { get; init; }
     public string? EscrowStatus { get; init; }
     public IReadOnlyDictionary<string, object>? EscrowFields { get; init; }
+
+    /// <summary>
+    /// FUP-05: an admin's manual record. The row update also requires that no other admin holds a live claim
+    /// on the row and removes the claim, and the reference item is written in the same transaction.
+    /// </summary>
+    public ManualRecordGuard? ManualRecord { get; init; }
 }

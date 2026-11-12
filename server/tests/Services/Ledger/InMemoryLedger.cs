@@ -19,6 +19,9 @@ internal sealed class InMemoryLedger : IEscrowLedgerRepository
     public Dictionary<(string EscrowId, string Ref), LedgerRow> Rows { get; } = new();
     public List<LedgerAudit> Audits { get; } = new();
 
+    /// <summary>FUP-05: the reference items of manual records, by key, with where each is recorded.</summary>
+    public Dictionary<string, PayoutReferenceRecord> References { get; } = new(StringComparer.Ordinal);
+
     /// <summary>Runs once before the next decision is applied (a concurrent writer).</summary>
     public Action? BeforeNextDecide { get; set; }
 
@@ -204,6 +207,25 @@ internal sealed class InMemoryLedger : IEscrowLedgerRepository
         if (transition.Audits.Any(a => Audits.Any(x => x.EscrowId == a.EscrowId && x.Timestamp == a.Timestamp)))
         {
             return Task.FromResult(LedgerWrite.EscrowConflict);
+        }
+
+        // FUP-05: the claim condition on the row, then the reference item's attribute_not_exists.
+        if (transition.ManualRecord is { } manual)
+        {
+            if (ManualPayoutClaimFields.IsHeldByOther(current.ClaimedBy, current.ClaimExpiresAt, manual.Actor, manual.Now))
+            {
+                return Task.FromResult(LedgerWrite.RowConflict);
+            }
+
+            if (manual.Reference is { } reference)
+            {
+                if (References.ContainsKey(PayoutReferenceFields.Key(reference.ExternalRef)))
+                {
+                    return Task.FromResult(LedgerWrite.ReferenceTaken);
+                }
+
+                References[PayoutReferenceFields.Key(reference.ExternalRef)] = reference;
+            }
         }
 
         var after = transition.After;
