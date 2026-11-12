@@ -742,6 +742,8 @@ public partial class SyncFunction
         _ratingRepo = ratingsTable != null
             ? new RatingRepository(_dynamoDb, ratingsTable, usersTable, reputationEventsTable)
             : null;
+        // FUP-162: a rating for a ratee the backfill did not reach stamps their aggregate (not flagged).
+        RatingHeal = ratingsTable != null ? new RatingAggregateHeal(_dynamoDb, usersTable, ratingsTable) : null;
         Reputation = BuildReputationService(_dynamoDb, reputationEventsTable, usersTable, _fraudService);
 
         // Messages are optional in the same way: the message sync handler is only
@@ -1725,7 +1727,8 @@ public partial class SyncFunction
 
         // ACC-02: no rating for an account that is being or has been deleted (the deletion erased
         // the comments about it).
-        if (_userRepo != null && !string.IsNullOrEmpty((await _userRepo.GetUserByIdAsync(rateeId))?.DeletionState))
+        var ratee = _userRepo != null ? await _userRepo.GetUserByIdAsync(rateeId) : null;
+        if (!string.IsNullOrEmpty(ratee?.DeletionState))
         {
             return new SyncOperationResult
             {
@@ -1738,6 +1741,8 @@ public partial class SyncFunction
         var createResult = await _ratingRepo.CreateAsync(operation.EntityId, operation.Data);
         if (createResult.IsSuccess)
         {
+            // FUP-162: an unstamped ratee gets their full aggregate first, so the refresh reads it.
+            await HealRateeAggregateAsync(rateeId, ratee, rateeRole, context);
             await RefreshRateeReputationAsync(rateeId, context);
         }
 

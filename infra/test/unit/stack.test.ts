@@ -390,7 +390,8 @@ describe('ApiStack', () => {
     // /reputation/appeals/photo-url and /reputation/events/{eventId}/appeal (ESC-29),
     // plus GET /admin/escrows/{id}/ledger and GET /admin/orders/queue (ESC-24) → 76,
     // plus GET and POST /admin/users/{id}/reputation, GET /admin/reputation/appeals and POST
-    // /admin/users/{id}/reputation/events/{eventId}/decision (ESC-32) → 80 total.
+    // /admin/users/{id}/reputation/events/{eventId}/decision (ESC-32) → 80 total. FUP-05: the claim and
+    // unclaim actions share POST /admin/payouts/{escrowId}/{ref}/{action} with complete (no new route).
     template.resourceCountIs('AWS::ApiGatewayV2::Route', 80);
   });
 
@@ -948,7 +949,8 @@ describe('ApiStack', () => {
     const adminAuthorizerId = Object.entries(authorizers)
       .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
     expect(adminAuthorizerId).toBeDefined();
-    for (const routeKey of ['GET /admin/payouts/manual', 'POST /admin/payouts/{escrowId}/{ref}/complete']) {
+    // FUP-05: complete, claim and unclaim share one route ({action}).
+    for (const routeKey of ['GET /admin/payouts/manual', 'POST /admin/payouts/{escrowId}/{ref}/{action}']) {
       template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
         RouteKey: routeKey,
         AuthorizationType: 'JWT',
@@ -957,7 +959,7 @@ describe('ApiStack', () => {
     }
   });
 
-  test('admin Lambda can put the refund claim row and nothing else on escrow-idempotency (FUP-02)', () => {
+  test('admin Lambda can put its claim and reference rows and read them, nothing else, on escrow-idempotency (FUP-02, FUP-05)', () => {
     // The role's statements overflow into a managed policy, so read both kinds.
     const policies = {
       ...template.findResources('AWS::IAM::Policy'),
@@ -974,8 +976,9 @@ describe('ApiStack', () => {
       )
       .filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'))
       .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
-    // TransactWriteItems is authorized per item: a conditional Put needs PutItem only.
-    expect(actions).toEqual(['dynamodb:PutItem']);
+    // TransactWriteItems is authorized per item: a conditional Put needs PutItem only. FUP-05: a refused
+    // duplicate payout reference reads its item to name where the reference is used.
+    expect([...actions].sort()).toEqual(['dynamodb:GetItem', 'dynamodb:PutItem']);
 
     const admin = Object.values(template.findResources('AWS::Lambda::Function')).find(
       (fn) => fn.Properties?.FunctionName === 'wereda-connect-dev-admin',

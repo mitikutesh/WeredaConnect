@@ -252,6 +252,34 @@ public sealed partial class ReputationService
             $"The reputation of user {MoneyAlarmLog.LogId(userId)} kept changing; refresh gave up.");
     }
 
+    // ===== the one-off owner stamp (12.3, FUP-160) =====
+
+    /// <summary>Whether a copy writer is configured (the owner stamp needs one).</summary>
+    internal bool CopiesConfigured => _copies != null;
+
+    /// <summary>
+    /// FUP-160: write the owner fields onto the user's active listings from the reputation as read
+    /// (<see cref="ReadAsync"/>: the stored map under the live policy, recomputed from the events
+    /// once past <c>nextChangeAt</c>), the values a create stamps. The users row is not written.
+    /// Returns the rows written (0 when every row already holds the values), or null when the user
+    /// has no row, is being deleted, or no copy writer is configured. A failed copy throws.
+    /// </summary>
+    public async Task<int?> StampOwnerCopiesAsync(string userId)
+    {
+        if (_copies == null)
+        {
+            return null;
+        }
+
+        var read = await ReadAsync(userId, withEvents: false);
+        if (read == null || !string.IsNullOrEmpty(read.User.DeletionState))
+        {
+            return null;
+        }
+
+        return await _copies.RefreshOwnerRowsAsync(userId, read.User.Role, OwnerFields(read.User, read.Aggregate, read.AsOf));
+    }
+
     // ===== reads (6.6, ESC-29) =====
 
     /// <summary>

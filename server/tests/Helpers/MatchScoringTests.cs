@@ -332,4 +332,273 @@ public class MatchScoringTests
         Assert.True(MatchScoring.IsSubstitute("chickpea", "lentils"));
         Assert.True(MatchScoring.IsCandidate(Criteria(cropType: "chickpea"), Crop(cropType: "lentils")));
     }
+
+    // ── MATCH-01 trip pairing parity guards (MUST match match_scorer_test.dart) ──────────────
+    // The same literal coordinates (the mobile WoredaCentroids entries) and the same trip set,
+    // in the same order, as the Dart group "trip pairing (MATCH-01)".
+
+    private static readonly Dictionary<string, (double Lat, double Lon)> TripCoords = new()
+    {
+        ["Hawassa"] = (7.05, 38.47),
+        ["Shashemene"] = (7.20, 38.60),
+        ["Addis Ababa"] = (9.03, 38.74),
+        ["Addis Abeba"] = (9.03, 38.74),
+        ["Bishoftu"] = (8.75, 38.98),
+        ["Adama"] = (8.54, 39.27),
+        ["Jimma"] = (7.67, 36.83),
+    };
+
+    private static readonly DateTime TripNow = new(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime TripDay2 = new(2026, 1, 2, 21, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime TripDeadline = new(2026, 1, 5, 21, 0, 0, DateTimeKind.Utc);
+
+    private static double? Lat(string name) => TripCoords.TryGetValue(name, out var c) ? c.Lat : null;
+
+    private static double? Lon(string name) => TripCoords.TryGetValue(name, out var c) ? c.Lon : null;
+
+    private static TripCandidate Pt(
+        string id,
+        string from,
+        string to,
+        double price,
+        double? remaining = null,
+        DateTime? departure = null,
+        int? reliabilityPct = null,
+        string status = "open")
+        => new()
+        {
+            TripId = id,
+            Status = status,
+            FromWoreda = from,
+            FromLatitude = Lat(from),
+            FromLongitude = Lon(from),
+            ToWoreda = to,
+            ToLatitude = Lat(to),
+            ToLongitude = Lon(to),
+            DepartureUtc = departure ?? TripDay2,
+            Capacity = 100,
+            RemainingQuintals = remaining,
+            PricePerQuintal = price,
+            OwnerReliabilityPct = reliabilityPct,
+        };
+
+    // A crop in Hawassa, delivered to Addis Ababa, 10 quintals, by 2026-01-05T21:00Z.
+    private static List<TripCandidate> GoldenTrips() =>
+    [
+        Pt("exact", "Hawassa", "Addis Ababa", 12),
+        Pt("exact-twin", "Hawassa", "Addis Ababa", 12),
+        Pt("exact-proven", "Hawassa", "Addis Ababa", 12, reliabilityPct: 95),
+        Pt("today", "Hawassa", "Addis Ababa", 12, departure: new DateTime(2025, 12, 31, 21, 0, 0, DateTimeKind.Utc)),
+        Pt("adjacent", "Shashemene", "Addis Ababa", 12, reliabilityPct: 100),
+        Pt("adjacent-cheap", "Shashemene", "Addis Ababa", 10),
+        Pt("fallback", "Hawassa Zuria", "Addis Ababa", 12),
+        Pt("far", "Jimma", "Addis Ababa", 9),
+        Pt("unknown", "Gimbo", "Addis Ababa", 9),
+        Pt("to-bishoftu", "Hawassa", "Bishoftu", 9),
+        Pt("full", "Hawassa", "Addis Ababa", 9, remaining: 0),
+        Pt("short", "Hawassa", "Addis Ababa", 9, remaining: 9.98),
+        Pt("slack", "Hawassa", "Addis Ababa", 11, remaining: 9.995),
+        Pt("late", "Hawassa", "Addis Ababa", 9, departure: new DateTime(2026, 1, 6, 21, 0, 0, DateTimeKind.Utc)),
+        Pt("deadline-day", "Hawassa", "Addis Ababa", 13, departure: TripDeadline),
+        Pt("left", "Hawassa", "Addis Ababa", 9, departure: new DateTime(2025, 12, 30, 21, 0, 0, DateTimeKind.Utc)),
+        Pt("matched", "Hawassa", "Addis Ababa", 9, status: "matched"),
+    ];
+
+    private static TripRouteQuery TripQuery(
+        double? quantityNeeded = 10,
+        int? orderLeadHours = null,
+        string listing = "Hawassa",
+        string delivery = "Addis Ababa")
+        => new()
+        {
+            ListingWoreda = listing,
+            ListingLatitude = Lat(listing),
+            ListingLongitude = Lon(listing),
+            DeliveryWoreda = delivery,
+            DeliveryLatitude = Lat(delivery),
+            DeliveryLongitude = Lon(delivery),
+            QuantityNeeded = quantityNeeded,
+            NowUtc = TripNow,
+            OrderLeadHours = orderLeadHours,
+            NeededByUtc = TripDeadline,
+        };
+
+    private static string[] SuggestedIds(TripRouteQuery query, IEnumerable<TripCandidate> trips)
+        => MatchScoring.SuggestTrips(query, trips).Select(t => t.TripId).ToArray();
+
+    // Rows: trip end, its point, wanted place, its point, km (null: a point unknown), score
+    // (null: the end does not serve). Duplicated verbatim in match_scorer_test.dart.
+    [Theory]
+    [InlineData("Hawassa", 7.05, 38.47, "Hawassa", 7.05, 38.47, 0.0, 1.0)]                      // same place
+    [InlineData("Shashemene", 7.20, 38.60, "Hawassa", 7.05, 38.47, 22.0, 0.694444444)]          // 1 / (1 + 22 / 50)
+    [InlineData("Bishoftu", 8.75, 38.98, "Adama", 8.54, 39.27, 39.5, 0.558659218)]              // inside 40 km
+    [InlineData("Bishoftu", 8.75, 38.98, "Addis Ababa", 9.03, 38.74, 40.8, null)]               // just outside 40 km
+    [InlineData("Jimma", 7.67, 36.83, "Hawassa", 7.05, 38.47, 193.6, null)]                     // far
+    [InlineData("Hawassa Zuria", null, null, "Hawassa", 7.05, 38.47, null, 0.6)]                // no centroid: whole word
+    [InlineData("Gimbo", null, null, "Hawassa", 7.05, 38.47, null, null)]                       // no centroid, another name
+    [InlineData("Addis Abeba", 9.03, 38.74, "Addis Ababa", 9.03, 38.74, 0.0, 1.0)]              // two spellings, 0 km
+    [InlineData("Adama, Oromia", null, null, "Ādama", null, null, null, 1.0)]                    // no centroid: same name
+    [InlineData("", 7.05, 38.47, "Hawassa", 7.05, 38.47, 0.0, null)]                            // a blank name never serves
+    public void TripEndScore_GoldenVectors(
+        string tripEnd, double? tLat, double? tLon,
+        string wanted, double? wLat, double? wLon,
+        double? km, double? score)
+    {
+        var actualKm = MatchScoring.TripEndKm(tLat, tLon, wLat, wLon);
+        if (km is double expectedKm)
+        {
+            Assert.NotNull(actualKm);
+            Assert.Equal(expectedKm, actualKm!.Value, 9);
+        }
+        else
+        {
+            Assert.Null(actualKm);
+        }
+
+        var actual = MatchScoring.TripEndScore(tripEnd, tLat, tLon, wanted, wLat, wLon);
+        if (score is double expected)
+        {
+            Assert.NotNull(actual);
+            Assert.Equal(expected, actual!.Value, 9);
+        }
+        else
+        {
+            Assert.Null(actual);
+        }
+    }
+
+    [Fact]
+    public void SuggestTrips_GoldenOrder_IsStableAcrossPlatforms()
+    {
+        // Duplicated verbatim on the Dart side ("golden order (same as the C# SuggestTrips
+        // vector)"). Dropped: far (193.6 km), unknown (no centroid, other name), to-bishoftu
+        // (40.8 km from Addis Ababa), full, short, late, left, matched.
+        Assert.Equal(
+            new[]
+            {
+                "adjacent-cheap", // price stays the first key
+                "slack",          // 9.995 room for 10: inside the 0.01 tolerance
+                "exact-proven",   // exact route, reliability 95
+                "today",          // exact, neutral: the earlier departure first
+                "exact",
+                "exact-twin",     // same as exact in all but the id
+                "adjacent",       // 22 km away ranks below exact at the same price
+                "fallback",       // no centroid: the whole-word name match, 0.8
+                "deadline-day",   // departs on the deadline
+            },
+            SuggestedIds(TripQuery(), GoldenTrips()));
+    }
+
+    [Fact]
+    public void TripRouteScore_GoldenVectors()
+    {
+        var byId = GoldenTrips().ToDictionary(t => t.TripId);
+        Assert.Equal(1.0, MatchScoring.TripRouteScore(TripQuery(), byId["exact"]));
+        Assert.Equal(0.847222222, MatchScoring.TripRouteScore(TripQuery(), byId["adjacent"])!.Value, 9);
+        Assert.Equal(0.8, MatchScoring.TripRouteScore(TripQuery(), byId["fallback"])!.Value, 9);
+        Assert.Null(MatchScoring.TripRouteScore(TripQuery(), byId["far"]));
+        Assert.Null(MatchScoring.TripRouteScore(TripQuery(), byId["unknown"]));
+        Assert.Null(MatchScoring.TripRouteScore(TripQuery(), byId["to-bishoftu"]));
+
+        // A trip ending 39.5 km from the delivery woreda serves it.
+        Assert.Equal(
+            0.779329609,
+            MatchScoring.TripRouteScore(TripQuery(delivery: "Adama"), Pt("to-near", "Hawassa", "Bishoftu", 12))!.Value,
+            9);
+    }
+
+    // A trip running the other way fits each end within 40 km when the crop and the delivery
+    // woredas are close; it is dropped when the swapped route scores higher. Equal scores stay.
+    // Rows: crop woreda, delivery woreda, trip from, trip to, route (null: not suggested).
+    // Duplicated verbatim in match_scorer_test.dart ("reverse golden vectors").
+    [Theory]
+    [InlineData("Adama", "Bishoftu", "Adama", "Bishoftu", 1.0)]                 // forward
+    [InlineData("Adama", "Bishoftu", "Bishoftu", "Adama", null)]                // reverse
+    [InlineData("Adama", "Bishoftu", "Adama", "Adama", 0.779329609)]            // tie stays
+    [InlineData("Hawassa", "Shashemene", "Shashemene", "Hawassa", null)]        // reverse
+    [InlineData("Hawassa", "Shashemene", "Hawassa", "Shashemene", 1.0)]         // forward
+    [InlineData("Hawassa", "Hawassa", "Hawassa", "Hawassa", 1.0)]               // one woreda
+    [InlineData("Hawassa", "Hawassa", "Shashemene", "Hawassa", 0.847222222)]    // tie
+    public void TripRouteScore_Reverse(string listing, string delivery, string from, string to, double? route)
+    {
+        var actual = MatchScoring.TripRouteScore(
+            TripQuery(listing: listing, delivery: delivery), Pt("r", from, to, 12));
+        if (route is double expected)
+        {
+            Assert.NotNull(actual);
+            Assert.Equal(expected, actual!.Value, 9);
+        }
+        else
+        {
+            Assert.Null(actual);
+        }
+    }
+
+    [Fact]
+    public void SuggestTrips_Reverse()
+    {
+        // Duplicated verbatim in match_scorer_test.dart ("reverse golden order"): the cheapest
+        // trip runs the wrong way and is dropped.
+        Assert.Equal(
+            new[] { "local", "forward" },
+            SuggestedIds(TripQuery(listing: "Adama", delivery: "Bishoftu"), new[]
+            {
+                Pt("forward", "Adama", "Bishoftu", 12),
+                Pt("reverse", "Bishoftu", "Adama", 9),
+                Pt("local", "Adama", "Adama", 11),
+            }));
+    }
+
+    [Fact]
+    public void SuggestTrips_WithTheOrderLead_DropsTheTripLeavingToday()
+    {
+        Assert.Equal(
+            new[] { "adjacent-cheap", "slack", "exact-proven", "exact", "exact-twin", "adjacent", "fallback", "deadline-day" },
+            SuggestedIds(TripQuery(orderLeadHours: 24), GoldenTrips()));
+    }
+
+    [Fact]
+    public void SuggestTrips_NoPositiveNeed_WantsAQuintalOfRoom()
+    {
+        // The full trip is still dropped; the short one (9.98) now fits.
+        var ids = SuggestedIds(TripQuery(quantityNeeded: 0), GoldenTrips());
+        Assert.DoesNotContain("full", ids);
+        Assert.Contains("short", ids);
+        Assert.Equal(ids, SuggestedIds(TripQuery(quantityNeeded: null), GoldenTrips()));
+    }
+
+    [Fact]
+    public void SuggestTrips_InputOrderDoesNotMatter()
+    {
+        var forward = SuggestedIds(TripQuery(), GoldenTrips());
+        var backward = SuggestedIds(TripQuery(), Enumerable.Reverse(GoldenTrips()));
+        Assert.Equal(forward, backward);
+    }
+
+    [Fact]
+    public void SuggestTrips_GoldenOrder_ReliabilityAtEqualPrice()
+    {
+        // The ESC-30 vector of the Dart rankTripSuggestions test, on one exact route.
+        TripCandidate T(string id, double price, int? pct = null)
+            => Pt(id, "Hawassa", "Addis Ababa", price, reliabilityPct: pct);
+        Assert.Equal(
+            new[] { "cheap-flaky", "mid-proven", "mid-seventy", "mid-unknown", "mid-low", "pricey-proven" },
+            SuggestedIds(TripQuery(), new[]
+            {
+                T("pricey-proven", 15, 100),
+                T("mid-unknown", 12),
+                T("mid-low", 12, 40),
+                T("mid-proven", 12, 95),
+                T("mid-seventy", 12, 70),
+                T("cheap-flaky", 10, 20),
+            }));
+    }
+
+    [Fact]
+    public void TripPairingConstants_MatchTheDartScorer()
+    {
+        Assert.Equal(40.0, MatchScoring.TripNearRadiusKm);
+        Assert.Equal(0.01, MatchScoring.TripRoomSlackQuintals);
+        Assert.Equal(1.0, MatchScoring.TripMinUsefulLoadQuintals);
+    }
 }

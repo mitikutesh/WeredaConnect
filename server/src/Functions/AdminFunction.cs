@@ -36,6 +36,8 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/transactions/{orderId} → stitched transaction detail + timeline
 /// - GET  /admin/payouts/manual         → manual payout queue (ESC-02)
 /// - POST /admin/payouts/{escrowId}/{ref}/complete → record an admin-paid leg (admin group only)
+/// - POST /admin/payouts/{escrowId}/{ref}/claim    → claim a leg before paying it (admin group only, FUP-05)
+/// - POST /admin/payouts/{escrowId}/{ref}/unclaim  → give a claimed leg back (admin group only, FUP-05)
 /// - GET  /admin/payments/unapplied      → captured payments the webhook did not apply (FUP-02)
 /// - POST /admin/payments/{orderId}/refund-manual → record their manual refund (admin group only)
 /// - GET  /admin/deliveries/{id}/trail → the trip trail of a delivery, dispute evidence (admin group only, LT-13)
@@ -220,6 +222,8 @@ public partial class AdminFunction
                 ("GET", ["admin", "audit"]) => await HandleAuditLogAsync(request, context),
                 ("GET", ["admin", "payouts", "manual"]) => await HandleListManualPayoutsAsync(request, context),
                 ("POST", ["admin", "payouts", _, _, "complete"]) => await HandleCompleteManualPayoutAsync(segments[2], segments[3], request, context),
+                ("POST", ["admin", "payouts", _, _, "claim"]) => await HandleClaimManualPayoutAsync(segments[2], segments[3], request, context, claim: true),
+                ("POST", ["admin", "payouts", _, _, "unclaim"]) => await HandleClaimManualPayoutAsync(segments[2], segments[3], request, context, claim: false),
                 ("GET", ["admin", "payments", "unapplied"]) => await HandleListUnappliedPaymentsAsync(request),
                 ("POST", ["admin", "payments", _, "refund-manual"]) => await HandleRecordManualRefundAsync(segments[2], request, context),
                 ("GET", ["admin", "deliveries", _, "trail"]) => await HandleDeliveryTrailAsync(segments[2], request, context),
@@ -1217,7 +1221,12 @@ public partial class AdminFunction
                 : new TransactionAuditRepository(_dynamoDb, _transactionAuditTable))
         {
             // ESC-20: the queue lists and records ledger rows too (P.8).
-            LedgerRepo = LedgerRepository()
+            LedgerRepo = LedgerRepository(),
+            // FUP-05: the claims on its legs, and the reference item each record writes in escrow-idempotency.
+            ManualPayoutClaims = string.IsNullOrEmpty(_escrowIdempotencyTable)
+                ? null
+                : new ManualPayoutClaimRepository(_dynamoDb, _escrowsTable, LedgerTable, _escrowIdempotencyTable),
+            PayoutReferenceTable = _escrowIdempotencyTable
         };
     }
 
@@ -1235,7 +1244,7 @@ public partial class AdminFunction
         queryParams.TryGetValue("nextToken", out var nextToken);
         var limit = Math.Min(ParseLimit(queryParams, 20), 50);
 
-        var result = await service.ListManualPayoutsAsync(limit, nextToken);
+        var result = await service.ListManualPayoutsAsync(limit, nextToken, AuthHelper.GetUserId(request));
         if (!result.IsSuccess)
         {
             var error = result.Error!;
@@ -1252,7 +1261,8 @@ public partial class AdminFunction
     private async Task<APIGatewayProxyResponse> HandleCompleteManualPayoutAsync(
         string escrowId, string leg, APIGatewayProxyRequest request, ILambdaContext context)
     {
-        var service = ManualPayoutService();
+        // FUP-05: no record without its reference item, so one reference can never record two legs.
+        var service = string.IsNullOrEmpty(_escrowIdempotencyTable) ? null : ManualPayoutService();
         if (service == null)
         {
             return LambdaResponse.Error(503, "ADMIN_004", "Escrow tables not configured.");
@@ -1273,7 +1283,7 @@ public partial class AdminFunction
             return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
         }
 
-        if (!IsSafeEscrowId(escrowId) || !ManualPayoutFields.IsLeg(leg))
+        if (!IsSafeEscrowId(escrowId) || !IsPayoutLegRef(leg))
         {
             return LambdaResponse.Error(404, "ESCROW_035", "No such payout leg.");
         }
@@ -1292,6 +1302,16 @@ public partial class AdminFunction
             AuditLogger.LogAudit("ADMIN", "MANUAL_PAYOUT",
                 userId: adminUserId, correlationId: correlationId,
                 entityType: "escrow", entityId: escrowId, outcome: "failure", errorCode: error.Code);
+            if (error.Code == EscrowService.ReferenceTakenCode)
+            {
+                // FUP-05: a reference recorded on another leg is an admin audit row too (the escrow-audit
+                // manual_payout_refused row names where it is used).
+                await TransactionAuditWriter.EmitAsync(
+                    TxAuditRepo(), context, escrowId, "escrow", escrowId,
+                    "admin_manual_payout_refused", null, null, auditContext,
+                    metadata: $"leg={Uri.UnescapeDataString(leg)};code={error.Code};ref={(body.ExternalRef ?? "").Trim()}");
+            }
+
             return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
         }
 

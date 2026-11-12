@@ -390,7 +390,13 @@ public sealed partial class EscrowService
         return write == LedgerWrite.Written ? after : null;
     }
 
-    internal sealed record LedgerCompleteResult(LedgerRow? Row, string? EscrowStatus, bool AlreadyDone = false);
+    /// <summary>
+    /// The result of making a row done. FUP-05: <paramref name="ClaimedByOther"/> (the row read, another admin's live
+    /// claim on it) and <paramref name="ReferenceTaken"/> (the reference is recorded on another leg) refuse an
+    /// admin's manual record; nothing was written.
+    /// </summary>
+    internal sealed record LedgerCompleteResult(
+        LedgerRow? Row, string? EscrowStatus, bool AlreadyDone = false, bool ClaimedByOther = false, bool ReferenceTaken = false);
 
     /// <summary>
     /// P.5 step 3 and 7: the row becomes <c>done</c>. For a row of <c>amount</c> the escrow moves in the same
@@ -399,7 +405,7 @@ public sealed partial class EscrowService
     /// escrow alone and writes the <c>order_payment_refunded_manual</c> row of 1.20.0 with it (P.9).
     /// </summary>
     internal async Task<LedgerCompleteResult> CompleteLedgerRowAsync(
-        LedgerRow current, string telebirrRef, string paidBy, int attempts, string actor)
+        LedgerRow current, string telebirrRef, string paidBy, int attempts, string actor, ManualRecordGuard? manualRecord = null)
     {
         var row = current;
         for (var attempt = 1; attempt <= MaxLedgerWriteAttempts; attempt++)
@@ -418,6 +424,13 @@ public sealed partial class EscrowService
                 return new LedgerCompleteResult(row, null, AlreadyDone: true);
             }
 
+            // FUP-05: an admin's record of a row another admin has claimed is refused.
+            if (manualRecord != null
+                && ManualPayoutClaimFields.IsHeldByOther(row.ClaimedBy, row.ClaimExpiresAt, manualRecord.Actor, manualRecord.Now))
+            {
+                return new LedgerCompleteResult(row, null, ClaimedByOther: true);
+            }
+
             var doneAt = Iso(LedgerClock());
             var after = row with
             {
@@ -431,6 +444,11 @@ public sealed partial class EscrowService
                 Attempts = Math.Max(attempts, row.Attempts),
                 Version = row.Version + 1
             };
+            if (manualRecord != null)
+            {
+                // The record ends the claim (the write removes it).
+                after = after with { ClaimedBy = null, ClaimedAt = null, ClaimExpiresAt = null };
+            }
             var audits = new List<LedgerAudit>
             {
                 new(row.EscrowId, LedgerRefs.AuditTimestamp(doneAt, row.Ref, "ledger_done"), "ledger_done", "", "", actor,
@@ -449,7 +467,7 @@ public sealed partial class EscrowService
                         UnappliedPayments.RefundMetadata(paymentOrderId, row.Amount, null) + $";ledgerRef={row.Ref}", telebirrRef));
                 }
 
-                transition = new LedgerTransition { Before = row, After = after, Audits = audits };
+                transition = new LedgerTransition { Before = row, After = after, Audits = audits, ManualRecord = manualRecord };
             }
             else
             {
@@ -512,11 +530,17 @@ public sealed partial class EscrowService
                     Audits = audits,
                     Escrow = (escrow.EscrowId, escrow.CreatedAt, escrow.Version),
                     EscrowStatus = newStatus,
-                    EscrowFields = fields
+                    EscrowFields = fields,
+                    ManualRecord = manualRecord
                 };
             }
 
             var write = await LedgerRepo!.TransitionAsync(transition);
+            if (write == LedgerWrite.ReferenceTaken)
+            {
+                return new LedgerCompleteResult(row, null, ReferenceTaken: true);
+            }
+
             if (write != LedgerWrite.Written)
             {
                 continue;
