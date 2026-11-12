@@ -18,9 +18,10 @@ typedef AppealPhotoPicker = Future<Uint8List?> Function();
 Future<Uint8List?> pickAppealPhoto() async {
   final file = await ImagePicker().pickImage(
     source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
-    maxWidth: 1024,
-    maxHeight: 1024,
-    imageQuality: 55,
+    // As small as the delivery photos (800 px): a 200 KB cap on a 3G uplink.
+    maxWidth: 800,
+    maxHeight: 800,
+    imageQuality: 50,
   );
   return file?.readAsBytes();
 }
