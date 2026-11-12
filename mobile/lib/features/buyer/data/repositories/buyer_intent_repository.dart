@@ -5,7 +5,9 @@ import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/models/buyer_intent.dart';
+import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/buyer/data/intent_wire.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/woreda_centroids.dart';
 
@@ -14,15 +16,55 @@ import 'package:wereda_connect/features/buyer/domain/woreda_centroids.dart';
 /// Intents are stored locally in Isar (the on-device matcher reads them) AND,
 /// when a [SyncQueue] is provided, synced to the server as `buyer_intent`
 /// operations so the backend can match new crop listings against them for push
-/// alerts. Sync is additive — local writes never depend on it.
+/// alerts. Sync is additive: local writes never depend on it. With an
+/// [ApiClient], [refreshFromServer] brings back the requests the server holds
+/// and this phone lacks (SIM-56: a new phone, or a cleared store).
 class BuyerIntentRepository extends BaseBuyerIntentRepository {
   final Isar _isar;
   final SyncQueue? _syncQueue;
+  final ApiClient? _api;
   static const _uuid = Uuid();
 
-  BuyerIntentRepository({required Isar isar, SyncQueue? syncQueue})
-      : _isar = isar,
-        _syncQueue = syncQueue;
+  BuyerIntentRepository({
+    required Isar isar,
+    SyncQueue? syncQueue,
+    ApiClient? api,
+  })  : _isar = isar,
+        _syncQueue = syncQueue,
+        _api = api;
+
+  /// Adds the server's rows this phone does not have. A row the phone has is
+  /// left as it is (the phone's own changes win, and it keeps the match
+  /// count), and a row with a `buyer_intent` operation the server has not
+  /// accepted yet (a delete or a fulfil still queued, or failed) is not
+  /// brought back. Nothing is removed here: a request still queued for
+  /// create, or refused by the server, stays.
+  @override
+  Future<bool> refreshFromServer(String buyerId) async {
+    final api = _api;
+    if (api == null) return false;
+    final body = await api.get<Map<String, dynamic>>(IntentWire.path);
+    final missing = <BuyerIntent>[];
+    for (final intent in IntentWire.parseList(body, buyerId: buyerId)) {
+      final local = await _isar.buyerIntents
+          .filter()
+          .intentIdEqualTo(intent.intentId)
+          .findFirst();
+      if (local != null) continue;
+      final unsynced = await _syncQueue?.hasUnsyncedOperationsFor(
+            'buyer_intent',
+            intent.intentId,
+          ) ??
+          false;
+      if (unsynced) continue;
+      missing.add(intent);
+    }
+    if (missing.isEmpty) return false;
+    await _isar.writeTxn(() async {
+      await _isar.buyerIntents.putAll(missing);
+    });
+    return true;
+  }
 
   /// Enqueue a `buyer_intent` sync operation (no-op when there's no queue, e.g.
   /// in tests or environments without server intent sync).

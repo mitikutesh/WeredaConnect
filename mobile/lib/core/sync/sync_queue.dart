@@ -508,6 +508,25 @@ class SyncQueue {
     return open > 0;
   }
 
+  /// Whether an operation of the entity has not been accepted by the server:
+  /// pending, on its way, or failed (out of retries, which a reconnect
+  /// retries, or refused). SIM-56: a buyer request deleted or fulfilled on
+  /// this phone is not brought back from the server while that change has
+  /// not landed.
+  Future<bool> hasUnsyncedOperationsFor(
+    String entityType,
+    String entityId,
+  ) async {
+    final unsynced = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(entityType)
+        .entityIdEqualTo(entityId)
+        .not()
+        .statusEqualTo(SyncStatus.synced)
+        .count();
+    return unsynced > 0;
+  }
+
   /// Replace the payload of a waiting operation, keeping its place in the
   /// queue, its idempotency key and its retries. Used by a preflight that
   /// readied the operation (a handoff photo's upload key, FRD-12), so a

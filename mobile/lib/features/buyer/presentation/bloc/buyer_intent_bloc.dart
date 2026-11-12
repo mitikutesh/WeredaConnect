@@ -119,16 +119,54 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
     }
   }
 
+  /// SIM-56: what the device has shows first. The server's copy of the
+  /// buyer's requests is read once per buyer while the app runs (and again on
+  /// every pull to refresh): when the device has none (a web reload, a new
+  /// phone) the list waits for it, else it follows, and the list is shown
+  /// again only when it added a request.
   Future<void> _onLoadActiveIntents(
     LoadActiveIntents event,
     Emitter<BuyerIntentState> emit,
   ) async {
     emit(const BuyerIntentLoading());
     try {
-      final intents = await _repository.getActiveIntents(event.buyerId);
+      var intents = await _repository.getActiveIntents(event.buyerId);
+      final restore = !_restoredFor.contains(event.buyerId);
+      if (restore && intents.isEmpty) {
+        if (await _restoreFromServer(event.buyerId)) {
+          intents = await _repository.getActiveIntents(event.buyerId);
+        }
+        emit(ActiveIntentsLoaded(intents: intents));
+        return;
+      }
       emit(ActiveIntentsLoaded(intents: intents));
+      if (restore && await _restoreFromServer(event.buyerId)) {
+        emit(
+          ActiveIntentsLoaded(
+            intents: await _repository.getActiveIntents(event.buyerId),
+          ),
+        );
+      }
     } on Object catch (e) {
       emit(BuyerIntentError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  /// Buyers whose requests were read back from the server in this run.
+  final Set<String> _restoredFor = {};
+
+  /// Reads the buyer's requests back from the server (SIM-56). Best effort:
+  /// offline or on any error the device's own list stands, and the next load
+  /// tries again. True when it added a request.
+  Future<bool> _restoreFromServer(String buyerId) async {
+    try {
+      final added = await _repository.refreshFromServer(buyerId);
+      _restoredFor.add(buyerId);
+      return added;
+    } on Object catch (e) {
+      debugPrint('[BuyerIntentBloc] request read-back failed, showing the '
+          'requests on this device: $e');
+      return false;
     }
   }
 
@@ -239,6 +277,9 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
       // Deliberately no BuyerIntentLoading here: the caller is a
       // pull-to-refresh that shows its own spinner, so we keep the current
       // list on screen and just swap in fresh counts when done.
+      // SIM-56: first any request the server holds and the device lacks, so
+      // its matches are counted below too.
+      await _restoreFromServer(event.buyerId);
       final refreshed = await _refreshMarketplace();
       // Only recompute persisted counts against fresh data — otherwise a failed
       // pull would overwrite good counts with stale values for every intent.

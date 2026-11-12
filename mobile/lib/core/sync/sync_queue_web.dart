@@ -49,6 +49,13 @@ class SyncQueue {
   Future<bool> hasOpenOperationsFor(String entityType, String entityId) async =>
       false;
 
+  /// No queue on web, so nothing is left unsynced (SIM-56).
+  Future<bool> hasUnsyncedOperationsFor(
+    String entityType,
+    String entityId,
+  ) async =>
+      false;
+
   Future<void> markFailed(String operationId) async {}
 
   Future<void> incrementRetry(String operationId) async {}
