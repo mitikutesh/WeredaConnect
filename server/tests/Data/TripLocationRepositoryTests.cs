@@ -11,7 +11,8 @@ namespace WeredaConnect.Server.Tests.Data;
 /// <summary>
 /// LT-05: the trip-locations table. The put is conditional on the sort key, so a resent ping writes
 /// nothing twice; the hour read lists sort keys strongly consistent over every page. These tests
-/// assert the request shapes; no DynamoDB integration test runs them yet.
+/// assert the request shapes; FUP-203's window read also runs against LocalStack
+/// (<c>Integration/TruckerGpsEvidenceDynamoDbTests</c>).
 /// </summary>
 public class TripLocationRepositoryTests
 {
@@ -197,5 +198,75 @@ public class TripLocationRepositoryTests
         first.ScanIndexForward.Should().BeTrue();
         first.IndexName.Should().BeNullOrEmpty();
         requests[1].ExclusiveStartKey.Should().BeSameAs(page2);
+    }
+
+    private static Dictionary<string, AttributeValue> FixItem(string sortKey) => new()
+    {
+        ["tripId"] = new AttributeValue { S = "trip-101" },
+        ["sortKey"] = new AttributeValue { S = sortKey },
+        ["truckerId"] = new AttributeValue { S = "trucker-789" },
+        ["latitude"] = new AttributeValue { N = "8.1504" },
+        ["longitude"] = new AttributeValue { N = "38.8196" },
+        ["accuracyM"] = new AttributeValue { N = "35" },
+        ["source"] = new AttributeValue { S = "hourly" },
+        ["receivedAt"] = new AttributeValue { S = "2026-10-27T06:00:02.000Z" },
+        ["expiresAt"] = new AttributeValue { N = "1798000000" }
+    };
+
+    [Fact]
+    public async Task ListBetween_ReadsTheKeyRange_StronglyConsistent_InCaptureOrder_OverEveryPage()
+    {
+        var requests = new List<QueryRequest>();
+        var page2 = new Dictionary<string, AttributeValue> { ["tripId"] = new AttributeValue { S = "trip-101" } };
+        _dynamoDb.QueryAsync(Arg.Do<QueryRequest>(r => requests.Add(r)), Arg.Any<CancellationToken>())
+            .Returns(
+                new QueryResponse
+                {
+                    Items = new List<Dictionary<string, AttributeValue>> { FixItem("2026-10-27T06:00:00.000Z#fix") },
+                    LastEvaluatedKey = page2
+                },
+                new QueryResponse
+                {
+                    Items = new List<Dictionary<string, AttributeValue>> { FixItem("2026-10-27T07:00:00.000Z#fix") },
+                    LastEvaluatedKey = new Dictionary<string, AttributeValue>()
+                });
+
+        var window = await _repo.ListBetweenAsync(
+            "trip-101", "2026-10-27T05:05:00.000Z", "2026-10-27T09:02:00.000Z#~", maxPages: 4);
+
+        window.Complete.Should().BeTrue();
+        window.Rows.Select(r => r.SortKey).Should().Equal("2026-10-27T06:00:00.000Z#fix", "2026-10-27T07:00:00.000Z#fix");
+        window.Rows[0].AccuracyM.Should().Be(35);
+        requests.Should().HaveCount(2);
+        var first = requests[0];
+        first.TableName.Should().Be(Table);
+        first.KeyConditionExpression.Should().Be("#t = :t AND #sk BETWEEN :from AND :to");
+        first.ExpressionAttributeNames["#t"].Should().Be("tripId");
+        first.ExpressionAttributeNames["#sk"].Should().Be("sortKey");
+        first.ExpressionAttributeValues[":t"].S.Should().Be("trip-101");
+        first.ExpressionAttributeValues[":from"].S.Should().Be("2026-10-27T05:05:00.000Z");
+        first.ExpressionAttributeValues[":to"].S.Should().Be("2026-10-27T09:02:00.000Z#~");
+        first.ScanIndexForward.Should().BeTrue();
+        first.ConsistentRead.Should().BeTrue();
+        first.IndexName.Should().BeNullOrEmpty();
+        requests[1].ExclusiveStartKey.Should().BeSameAs(page2);
+    }
+
+    [Fact]
+    public async Task ListBetween_StoppedAtThePageCap_IsNotComplete()
+    {
+        var more = new Dictionary<string, AttributeValue> { ["tripId"] = new AttributeValue { S = "trip-101" } };
+        _dynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>> { FixItem("2026-10-27T06:00:00.000Z#fix") },
+                LastEvaluatedKey = more
+            });
+
+        var window = await _repo.ListBetweenAsync("trip-101", "a", "b", maxPages: 2);
+
+        window.Complete.Should().BeFalse();
+        window.Rows.Should().HaveCount(2);
+        await _dynamoDb.Received(2).QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>());
     }
 }

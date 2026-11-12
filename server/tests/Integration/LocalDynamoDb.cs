@@ -103,6 +103,7 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
     public string FraudSignals => $"fraud-signals-{_suffix}";
     public string ReputationEvents => $"reputation-events-{_suffix}";
     public string Ratings => $"ratings-{_suffix}";
+    public string TripLocations => $"trip-locations-{_suffix}";
 
     public async Task InitializeAsync()
     {
@@ -160,6 +161,8 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
         await CreateAsync(Ratings, ("ratingId", null), ("RateeIdCreatedAtIndex", "rateeId", "createdAt"));
         // FRD-07: Fraud Review's sparse status index.
         await CreateAsync(FraudSignals, ("userId", "signalKey"), ("StatusCreatedAtIndex", "status", "createdAt"));
+        // FUP-203: the trucker's check-ins (LT-05), read for the trucker's GPS_ANOMALY row.
+        await CreateAsync(TripLocations, ("tripId", "sortKey"));
     }
 
     public async Task DisposeAsync()
