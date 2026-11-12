@@ -5311,5 +5311,21 @@
   "notifTierGoodBody": "You are back in good standing.",
   "@notifTierGoodBody": {"description": "ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to good"},
   "notifTierWarningBody": "You have penalty points. Buyers see nothing yet. Open My reputation for the details.",
-  "@notifTierWarningBody": {"description": "ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to warning: the private warning"}
+  "@notifTierWarningBody": {"description": "ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to warning: the private warning"},
+  "profileEditTitle": "Edit profile",
+  "@profileEditTitle": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Title of the edit screen and the Profile row that opens it"},
+  "profileEditSubtitle": "Name and woreda",
+  "@profileEditSubtitle": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Subtitle of the Profile row that opens the edit screen"},
+  "profileEditNote": "Listings, trips and orders you create from now on show your new name and woreda. The ones you already made keep the old details.",
+  "@profileEditNote": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Note above the form: existing listings, trips and orders keep the name they were made with"},
+  "profileEditSaved": "Profile saved.",
+  "@profileEditSaved": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Snackbar after the web app saved the edit on the server"},
+  "profileEditSavedQueued": "Profile saved on this phone. It is sent when you are online.",
+  "@profileEditSavedQueued": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Snackbar after the phone app saved the edit and queued it for the server"},
+  "profileEditFailed": "Your profile could not be saved. Check your connection and try again.",
+  "@profileEditFailed": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Snackbar when nothing was saved (no connection, a full queue, a refusal)"},
+  "profileEditTooLong": "Use 100 characters or fewer.",
+  "@profileEditTooLong": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name, woreda or company name is over 100 characters"},
+  "profileEditNameUnavailable": "This name is not available. Choose another.",
+  "@profileEditNameUnavailable": {"description": "SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name is the one deleted accounts carry"}
 }

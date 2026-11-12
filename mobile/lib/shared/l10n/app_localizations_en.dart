@@ -5662,4 +5662,32 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get notifTierWarningBody =>
       'You have penalty points. Buyers see nothing yet. Open My reputation for the details.';
+
+  @override
+  String get profileEditTitle => 'Edit profile';
+
+  @override
+  String get profileEditSubtitle => 'Name and woreda';
+
+  @override
+  String get profileEditNote =>
+      'Listings, trips and orders you create from now on show your new name and woreda. The ones you already made keep the old details.';
+
+  @override
+  String get profileEditSaved => 'Profile saved.';
+
+  @override
+  String get profileEditSavedQueued =>
+      'Profile saved on this phone. It is sent when you are online.';
+
+  @override
+  String get profileEditFailed =>
+      'Your profile could not be saved. Check your connection and try again.';
+
+  @override
+  String get profileEditTooLong => 'Use 100 characters or fewer.';
+
+  @override
+  String get profileEditNameUnavailable =>
+      'This name is not available. Choose another.';
 }

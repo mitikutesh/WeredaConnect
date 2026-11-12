@@ -77,6 +77,10 @@ class ApiConfig {
   /// specs/contracts/account-deletion.md)
   static const String userAccountEndpoint = '/user/account';
 
+  /// GET /user/profile - The caller's own `user` object (SIM-56,
+  /// specs/contracts/user-entity.md 2.2.0). Edits go through /sync.
+  static const String userProfileEndpoint = '/user/profile';
+
   /// POST /auth/login - Login with phone/password
   static const String loginEndpoint = '/auth/login';
 

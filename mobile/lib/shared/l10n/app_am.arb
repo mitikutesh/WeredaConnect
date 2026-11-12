@@ -3318,5 +3318,13 @@
   "notifPenaltyRecordedBody": "{reason}። የተጨመሩ ነጥቦች፦ {points}። ዝርዝሩን ለማየት ወይም ይግባኝ ለማለት \"የእኔ ተዓማኒነት\"ን ይክፈቱ።",
   "notifTierChangedTitle": "ተዓማኒነትዎ ተቀይሯል",
   "notifTierGoodBody": "ወደ ጥሩ አቋም ተመልሰዋል።",
-  "notifTierWarningBody": "የቅጣት ነጥቦች አሉዎት። ገዢዎች እስካሁን ምንም አያዩም። ለዝርዝሩ \"የእኔ ተዓማኒነት\"ን ይክፈቱ።"
+  "notifTierWarningBody": "የቅጣት ነጥቦች አሉዎት። ገዢዎች እስካሁን ምንም አያዩም። ለዝርዝሩ \"የእኔ ተዓማኒነት\"ን ይክፈቱ።",
+  "profileEditTitle": "መገለጫ አርትዕ",
+  "profileEditSubtitle": "ስም እና ወረዳ",
+  "profileEditNote": "ከአሁን በኋላ የሚፈጥሯቸው ዝርዝሮች፣ ጉዞዎች እና ትዕዛዞች አዲሱን ስምዎን እና ወረዳዎን ያሳያሉ። ቀደም ብለው የፈጠሯቸው የቀድሞውን መረጃ ይይዛሉ።",
+  "profileEditSaved": "መገለጫው ተቀምጧል።",
+  "profileEditSavedQueued": "መገለጫው በዚህ ስልክ ላይ ተቀምጧል። በይነመረብ ሲኖር ይላካል።",
+  "profileEditFailed": "መገለጫዎን ማስቀመጥ አልተቻለም። ግንኙነትዎን ያረጋግጡ እና እንደገና ይሞክሩ።",
+  "profileEditTooLong": "ከ100 ቁምፊዎች ያልበለጠ ይጠቀሙ።",
+  "profileEditNameUnavailable": "ይህ ስም አይገኝም። ሌላ ይምረጡ።"
 }
