@@ -49,6 +49,13 @@ class SyncQueue {
   Future<bool> hasOpenOperationsFor(String entityType, String entityId) async =>
       false;
 
+  /// No queue on web: a check-in is sent at once (FUP-285).
+  Future<List<SyncOperation>> unrejectedOperationsFor(
+    String entityType, {
+    required String entityIdPrefix,
+  }) async =>
+      const [];
+
   Future<void> markFailed(String operationId) async {}
 
   Future<void> incrementRetry(String operationId) async {}

@@ -56,7 +56,7 @@ Each contract file follows this structure:
 
 | Contract | File | Version | Parties |
 |----------|------|---------|---------|
-| Sync Protocol | `sync-protocol.md` | 1.55.0 | Mobile, Backend |
+| Sync Protocol | `sync-protocol.md` | 1.55.1 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 2.15.0 | Mobile, Backend, Infrastructure |
 | User Entity | `user-entity.md` | 2.1.2 | Mobile, Web, Backend, Admin, Infrastructure |
 | Rating API | `rating-api.md` | 1.5.0 | Mobile, Web, Backend, Infrastructure, Admin |
@@ -73,7 +73,7 @@ Each contract file follows this structure:
 | Notifications API (order, delivery, money and reputation inbox + push) | `notifications-api.md` | 1.5.1 | Mobile, Web, Backend, Infrastructure |
 | Live Trip (`location_ping` check-ins, track, admin trail, `truck_nearby`) | `live-trip-api.md` | 1.1.1 | Mobile, Web, Backend, Infrastructure, Admin |
 | In-App Messaging (context-scoped chat) | `messaging.md` | 1.5.0 | Mobile, Backend, Admin |
-| Data Models | `data-models.md` | 1.14.0 | Mobile, Backend |
+| Data Models | `data-models.md` | 1.15.0 | Mobile, Backend |
 | Listing Reports (`listing_report` sync entity, admin queue) | `listing-report-api.md` | 1.0.0 | Mobile, Web, Backend, Admin, Infrastructure |
 
 ---

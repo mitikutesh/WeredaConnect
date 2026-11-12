@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/models/order_dropoff_note.dart';
@@ -9,6 +10,7 @@ import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
+import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
 /// Web-only order repository.
@@ -502,6 +504,48 @@ class WebOrderRepository extends BaseOrderRepository {
       'deliveryLongitude': point.longitude,
       'version': order.version,
     });
+  }
+
+  /// ESC-34 (FUP-285): the arrival check-in, with the mobile guards on the
+  /// server's current order, sent at once (web keeps no queue). A refusal
+  /// surfaces as a [SyncRejectedException] with its `CHECKIN_*` code, or
+  /// the unsupported-entity answer of a server with `pickupClassification`
+  /// off.
+  @override
+  Future<void> checkIn(
+    String orderId,
+    String userId, {
+    required String kind,
+    HandoffCheckInFix? fix,
+  }) async {
+    final order = await _currentOrder(orderId);
+    final now = DateTime.now().toUtc();
+    if (!checkCheckInAllowed(order, userId, kind, fix, now)) return;
+    final at = now.toIso8601String();
+    final response = await _api.post<Map<String, dynamic>>(
+      '/sync',
+      data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
+        'operations': [
+          {
+            'operationId': _uuid.v4(),
+            'entityType': handoffCheckInEntityType,
+            'action': 'create',
+            'entityId': handoffCheckInEntityId(orderId, kind),
+            'timestamp': at,
+            'idempotencyKey': 'web_checkin_${orderId}_${kind}_$at',
+            'data': handoffCheckInData(
+              orderId: orderId,
+              kind: kind,
+              capturedAt: now,
+              fix: fix,
+            ),
+          },
+        ],
+      },
+    );
+    ensureSyncSucceeded(response, events: _securityEvents);
   }
 
   List<Order> _parseOrders(Map<String, dynamic> data) {

@@ -6,12 +6,15 @@ import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
+import 'package:wereda_connect/core/models/sync_operation.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
@@ -127,10 +130,37 @@ class OrderRepository extends BaseOrderRepository {
     return query.filter().statusEqualTo(status).sortByCreatedAtDesc().findAll();
   }
 
-  /// Get a single order by its orderId.
+  /// Get a single order by its orderId, with the check-ins made on this
+  /// phone that the server has not refused ([Order.queuedCheckIns], FUP-285).
   @override
   Future<Order?> getOrderById(String orderId) async {
-    return _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
+    final order =
+        await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
+    return order == null ? null : _withQueuedCheckIns(order);
+  }
+
+  /// [order] with its [Order.queuedCheckIns]: per kind the first check-in of
+  /// the queue the server has not refused (the server keeps the first one
+  /// too), sent once any of them was applied. A refused one is left out, so
+  /// the local mark goes back as soon as the queue rejects it.
+  Future<Order> _withQueuedCheckIns(Order order) async {
+    final ops = await _syncQueue.unrejectedOperationsFor(
+      handoffCheckInEntityType,
+      entityIdPrefix: handoffCheckInEntityId(order.orderId, ''),
+    );
+    if (ops.isEmpty) return order;
+    final queued = <String, QueuedCheckIn>{};
+    for (final op in ops) {
+      final kind = parseHandoffCheckInEntityId(op.entityId)?.kind;
+      if (kind == null) continue;
+      final sent = op.status == SyncStatus.synced;
+      final first = queued[kind];
+      queued[kind] = QueuedCheckIn(
+        madeAt: first?.madeAt ?? op.createdAt.toUtc(),
+        sent: (first?.sent ?? false) || sent,
+      );
+    }
+    return order..queuedCheckIns = queued;
   }
 
   /// Create a new order (buyer action).
@@ -672,6 +702,39 @@ class OrderRepository extends BaseOrderRepository {
         }),
         operationId: _uuid.v4(),
       ),
+    );
+  }
+
+  /// ESC-34 (FUP-285): the arrival check-in, queued (offline-first). Nothing
+  /// is written to the order: the queued operation is the local mark
+  /// ([getOrderById]), and the server's copy, with the time it received it,
+  /// comes with the next read of the order. Every `CHECKIN_*` refusal is
+  /// permanent; the sync queue then rejects the operation, which takes the
+  /// mark back, and says why.
+  @override
+  Future<void> checkIn(
+    String orderId,
+    String userId, {
+    required String kind,
+    HandoffCheckInFix? fix,
+  }) async {
+    final order = await _withQueuedCheckIns(await _findOrder(orderId));
+    final now = DateTime.now().toUtc();
+    if (!checkCheckInAllowed(order, userId, kind, fix, now)) return;
+    await _syncQueue.enqueue(
+      userId: userId,
+      entityType: handoffCheckInEntityType,
+      entityId: handoffCheckInEntityId(orderId, kind),
+      action: 'create',
+      data: jsonEncode(
+        handoffCheckInData(
+          orderId: orderId,
+          kind: kind,
+          capturedAt: now,
+          fix: fix,
+        ),
+      ),
+      operationId: _uuid.v4(),
     );
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
@@ -206,6 +207,15 @@ class _FakeOrderRepository extends BaseOrderRepository {
     String truckerId, {
     required bool accept,
     String? declineReason,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> checkIn(
+    String orderId,
+    String userId, {
+    required String kind,
+    HandoffCheckInFix? fix,
   }) =>
       throw UnimplementedError();
 }

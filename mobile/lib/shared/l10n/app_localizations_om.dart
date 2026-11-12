@@ -5716,4 +5716,128 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get notifTierWarningBody =>
       'Qabxii adabbii qabdu. Bitattoonni hanga ammaatti homaa hin argan. Bal\'inaaf \"Amanamummaa koo\" banaa.';
+
+  @override
+  String get checkInTitle => 'Mirkaneessa ga\'umsaa';
+
+  @override
+  String get checkInPartyTrucker => 'Konkolaachisaan maasii irra';
+
+  @override
+  String get checkInPartyBuyer => 'Bitaan maasii irra';
+
+  @override
+  String get checkInPartyFarmer => 'Midhaan qophaa\'eera';
+
+  @override
+  String checkInReceived(String time) {
+    return 'Kan ga\'e $time';
+  }
+
+  @override
+  String checkInReceivedLate(String time) {
+    return 'Barfatee kan ga\'e $time';
+  }
+
+  @override
+  String checkInSavedOnPhone(String time) {
+    return 'Bilbila kana irratti $time olkaa\'ame, ammallee hin ergamne';
+  }
+
+  @override
+  String checkInSentFromPhone(String time) {
+    return 'Kan ergame $time';
+  }
+
+  @override
+  String get checkInNotYet => 'Ammallee miti';
+
+  @override
+  String checkInOpensAt(String time) {
+    return '$time irraa eegaltee mirkaneessuu dandeessa.';
+  }
+
+  @override
+  String get checkInPendingNote =>
+      'Koodiin QR hanga yeroo dhumaa fudhannaatti yoo hin iskaanamne, mirkaneessonni kunneen waan ta\'u murteessu. Kan lakkaa\'amu yeroo tokkoon tokkoon isaanii sarvarii bira ga\'u dha.';
+
+  @override
+  String get checkInDeadlinePassedNote =>
+      'Yeroon dhumaa fudhannaa darbeera. Bu\'aan isaa dhiyootti ni beekama.';
+
+  @override
+  String get checkInArrivedButton => 'Ga\'eera';
+
+  @override
+  String get checkInCropsReadyButton => 'Midhaan qophaa\'eera';
+
+  @override
+  String get checkInLocating => 'Bakka kee barbaadaa jira';
+
+  @override
+  String get checkInNeedsLocation =>
+      'Bakka kee argachuu hin dandeenye. Tajaajila bakkaa banii maasii irratti irra deebi\'ii yaali.';
+
+  @override
+  String get checkInSent => 'Mirkaneessi ergameera.';
+
+  @override
+  String get pickupJudgementScanned => 'Midhaan fudhatameera.';
+
+  @override
+  String get pickupJudgementTruckerNoShow =>
+      'Hanga yeroo dhumaatti namni maasii irratti ga\'uu isaa mirkaneesse hin jiru. Amma bitaan waan ajaja kana irratti ta\'u ni filata.';
+
+  @override
+  String get pickupJudgementFarmerNoShow =>
+      'Qonnaan bulaan hanga yeroo dhumaatti midhaan qophaa\'uu isaa hin beeksisne. Ajajni haqameera; bitaan maallaqa guutuu deebifata.';
+
+  @override
+  String get pickupJudgementBuyerNoShow =>
+      'Bitaan hanga yeroo dhumaatti midhaan fudhachuuf hin dhufne. Ajajni haqameera; maallaqni bitaaf deebi\'a.';
+
+  @override
+  String get pickupJudgementBothPresent =>
+      'Lamaanuu ga\'uu isaanii mirkaneessaniiru, garuu koodiin QR hin iskaanamne. Deeggarsi ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get pickupJudgementUnchecked =>
+      'Ga\'umsi bakka maasii waliin mirkanaa\'uu hin dandeenye. Deeggarsi ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get pickupJudgementOther => 'Murtiin fudhannaa kennameera.';
+
+  @override
+  String get commitmentTruckerNoShow => 'Hin dhufne';
+
+  @override
+  String get commitmentFarmerNoShow => 'Midhaan hin qophoofne';
+
+  @override
+  String get transportFailureTruckerNoShow =>
+      'Konkolaachisaan gara maasii hin dhufne';
+
+  @override
+  String get errorCheckInNotOpen =>
+      'Ajaja kanaaf mirkaneessi hin banamne; kanaaf mirkaneessi kee hin olkaa\'amne.';
+
+  @override
+  String get errorCheckInNotParty =>
+      'Midhaan qophaa\'uu kan dubbatu qonnaan bulaa ajajaa qofa; ga\'uu kan dubbatu immoo konkolaachisaa (ykn bitaa ofii fudhatu) qofa. Mirkaneessi kee hin olkaa\'amne.';
+
+  @override
+  String get errorCheckInTooEarly =>
+      'Ammallee dafee jira: mirkaneessi guyyaa fudhannaa sa\'aatii 24 dura banama. Mirkaneessi kee hin olkaa\'amne; yeroo sana irra deebi\'ii mirkaneessi.';
+
+  @override
+  String get errorCheckInTooFar =>
+      'Maasii irraa km 5 ol fagaattee jirta. Mirkaneessi kee hin olkaa\'amne; yeroo achi geessu irra deebi\'ii mirkaneessi.';
+
+  @override
+  String get errorCheckInTooLate =>
+      'Mirkaneessi kee yeroo dhumaa fudhannaa booda sarvarii bira waan ga\'eef hin lakkaa\'amu. Gamaaggamaaf olkaa\'ameera.';
+
+  @override
+  String get errorCheckInValidation =>
+      'Mirkaneessi kee hin olkaa\'amne. Irra deebi\'ii yaali; yoo itti fufe appii haaromsi.';
 }

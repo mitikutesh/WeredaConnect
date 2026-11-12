@@ -1,4 +1,5 @@
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 
 /// Shared order-status semantics (specs/contracts/order-lifecycle.md),
@@ -117,9 +118,13 @@ final Set<String> activeOrderStatusNames =
 /// [Order.pickupDeadlineAt] counts as a transport failure, and its buyer may
 /// cancel it for a full refund (order-lifecycle.md 1.15.0). This uses the
 /// device clock to show the action; the server decides with its own clock.
+/// Never on an order stamped for the pickup judgement (ESC-34,
+/// order-lifecycle.md 2.15.0): the check-ins decide it and the server
+/// refuses that cancel.
 bool isTransportFailureCancelOpen(Order order, DateTime nowUtc) {
   final deadline = order.pickupDeadlineAt;
   return order.status == OrderStatus.accepted &&
+      !isPickupJudgementStamped(order) &&
       deadline != null &&
       !nowUtc.isBefore(deadline);
 }

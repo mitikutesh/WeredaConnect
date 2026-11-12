@@ -508,6 +508,24 @@ class SyncQueue {
     return open > 0;
   }
 
+  /// The operations of [entityType] whose entity id starts with
+  /// [entityIdPrefix] that the server has not refused for good ([isRejected]):
+  /// waiting, on their way, failed and retried again, or applied. Oldest
+  /// first. The order screen reads an order's check-ins this way
+  /// (`{orderId}#{kind}`, FUP-285).
+  Future<List<SyncOperation>> unrejectedOperationsFor(
+    String entityType, {
+    required String entityIdPrefix,
+  }) async {
+    final ops = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(entityType)
+        .entityIdStartsWith(entityIdPrefix)
+        .sortByCreatedAt()
+        .findAll();
+    return ops.where((op) => !isRejected(op)).toList();
+  }
+
   /// Replace the payload of a waiting operation, keeping its place in the
   /// queue, its idempotency key and its retries. Used by a preflight that
   /// readied the operation (a handoff photo's upload key, FRD-12), so a

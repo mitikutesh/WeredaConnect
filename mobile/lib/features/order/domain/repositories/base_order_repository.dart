@@ -1,4 +1,5 @@
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/models/order_delivery_location.dart';
 
 /// Abstract base for order repositories.
@@ -106,5 +107,21 @@ abstract class BaseOrderRepository {
     String truckerId, {
     required bool accept,
     String? declineReason,
+  });
+
+  /// ESC-34 (FUP-285): [userId]'s arrival check-in of [kind] on an accepted
+  /// order stamped for the pickup judgement: the trucker's (on a self-pickup
+  /// order the buyer's) `arrived_pickup` with [fix], which it needs, or the
+  /// farmer's `crops_ready`, whose [fix] is optional and left out when the
+  /// server would not take it. Queued on the phone, sent at once on web,
+  /// where a refusal throws `SyncRejectedException` with its `CHECKIN_*`
+  /// code. Throws `OrderActionNotAllowedException` when the check-in is not
+  /// this user's to give or not open ([checkCheckInAllowed]); one already
+  /// given is a no-op.
+  Future<void> checkIn(
+    String orderId,
+    String userId, {
+    required String kind,
+    HandoffCheckInFix? fix,
   });
 }

@@ -5515,4 +5515,127 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get notifTierWarningBody =>
       'የቅጣት ነጥቦች አሉዎት። ገዢዎች እስካሁን ምንም አያዩም። ለዝርዝሩ \"የእኔ ተዓማኒነት\"ን ይክፈቱ።';
+
+  @override
+  String get checkInTitle => 'የመድረስ ማረጋገጫዎች';
+
+  @override
+  String get checkInPartyTrucker => 'ሹፌሩ እርሻው ላይ';
+
+  @override
+  String get checkInPartyBuyer => 'ገዢው እርሻው ላይ';
+
+  @override
+  String get checkInPartyFarmer => 'ምርቱ ዝግጁ';
+
+  @override
+  String checkInReceived(String time) {
+    return 'የደረሰው $time';
+  }
+
+  @override
+  String checkInReceivedLate(String time) {
+    return 'ዘግይቶ የደረሰው $time';
+  }
+
+  @override
+  String checkInSavedOnPhone(String time) {
+    return 'በዚህ ስልክ $time ተቀምጧል፤ ገና አልተላከም';
+  }
+
+  @override
+  String checkInSentFromPhone(String time) {
+    return 'የተላከው $time';
+  }
+
+  @override
+  String get checkInNotYet => 'ገና አልሆነም';
+
+  @override
+  String checkInOpensAt(String time) {
+    return 'ከ$time ጀምሮ ማረጋገጥ ይችላሉ።';
+  }
+
+  @override
+  String get checkInPendingNote =>
+      'QR ኮዱ እስከ ማንሳቻው የመጨረሻ ጊዜ ካልተቃኘ፣ እነዚህ ማረጋገጫዎች የሚሆነውን ይወስናሉ። የሚቆጠረው እያንዳንዱ ሰርቨሩ ጋር የደረሰበት ጊዜ ነው።';
+
+  @override
+  String get checkInDeadlinePassedNote =>
+      'የማንሳቻው የመጨረሻ ጊዜ አልፏል። ውጤቱ በቅርቡ ይገለጻል።';
+
+  @override
+  String get checkInArrivedButton => 'ደርሻለሁ';
+
+  @override
+  String get checkInCropsReadyButton => 'ምርቱ ዝግጁ ነው';
+
+  @override
+  String get checkInLocating => 'ቦታዎን በማግኘት ላይ';
+
+  @override
+  String get checkInNeedsLocation =>
+      'ቦታዎን ማግኘት አልቻልንም። የቦታ አገልግሎትን አብርተው እርሻው ላይ እንደገና ይሞክሩ።';
+
+  @override
+  String get checkInSent => 'ማረጋገጫው ተልኳል።';
+
+  @override
+  String get pickupJudgementScanned => 'ምርቱ ተነስቷል።';
+
+  @override
+  String get pickupJudgementTruckerNoShow =>
+      'እስከ መጨረሻው ጊዜ ማንም እርሻው ላይ መድረሱን አላረጋገጠም። አሁን ገዢው በትዕዛዙ ላይ የሚሆነውን ይመርጣል።';
+
+  @override
+  String get pickupJudgementFarmerNoShow =>
+      'ገበሬው እስከ መጨረሻው ጊዜ ምርቱ ዝግጁ መሆኑን አላሳወቀም። ትዕዛዙ ተሰርዟል፤ ገዢው ሙሉ ገንዘቡ ይመለስለታል።';
+
+  @override
+  String get pickupJudgementBuyerNoShow =>
+      'ገዢው እስከ መጨረሻው ጊዜ ምርቱን ለመውሰድ አልመጣም። ትዕዛዙ ተሰርዟል፤ ገንዘቡ ለገዢው ይመለሳል።';
+
+  @override
+  String get pickupJudgementBothPresent =>
+      'ሁለቱም መድረሳቸውን አረጋግጠዋል፣ ነገር ግን QR ኮዱ አልተቃኘም። ድጋፍ ሰጪዎች እያጣሩት ነው፤ ገንዘቡ እንደተያዘ ይቆያል።';
+
+  @override
+  String get pickupJudgementUnchecked =>
+      'መድረሱ ከእርሻው ቦታ ጋር ሊረጋገጥ አልቻለም። ድጋፍ ሰጪዎች እያጣሩት ነው፤ ገንዘቡ እንደተያዘ ይቆያል።';
+
+  @override
+  String get pickupJudgementOther => 'የማንሳቱ ውሳኔ ተሰጥቷል።';
+
+  @override
+  String get commitmentTruckerNoShow => 'አልመጡም';
+
+  @override
+  String get commitmentFarmerNoShow => 'ምርቱ ዝግጁ አልነበረም';
+
+  @override
+  String get transportFailureTruckerNoShow => 'ሹፌሩ ወደ እርሻው አልመጡም';
+
+  @override
+  String get errorCheckInNotOpen =>
+      'ለዚህ ትዕዛዝ ማረጋገጫ አልተከፈተም፤ ስለዚህ ማረጋገጫዎ አልተቀመጠም።';
+
+  @override
+  String get errorCheckInNotParty =>
+      'ምርቱ ዝግጁ መሆኑን የሚናገረው የትዕዛዙ ገበሬ ብቻ ነው፤ መድረሱን የሚናገረው ደግሞ ሹፌሩ (ወይም ራሱ የሚወስደው ገዢ) ብቻ ነው። ማረጋገጫዎ አልተቀመጠም።';
+
+  @override
+  String get errorCheckInTooEarly =>
+      'ገና ነው፤ ማረጋገጫ የሚከፈተው ከማንሳቻው ቀን 24 ሰዓት በፊት ነው። ማረጋገጫዎ አልተቀመጠም፤ ያኔ እንደገና ያረጋግጡ።';
+
+  @override
+  String get errorCheckInTooFar =>
+      'ከእርሻው ከ5 ኪ.ሜ በላይ ርቀዋል። ማረጋገጫዎ አልተቀመጠም፤ ሲደርሱ እንደገና ያረጋግጡ።';
+
+  @override
+  String get errorCheckInTooLate =>
+      'ማረጋገጫዎ ሰርቨሩ ጋር የደረሰው ከማንሳቻው የመጨረሻ ጊዜ በኋላ ስለሆነ አይቆጠርም። ለግምገማ ተቀምጧል።';
+
+  @override
+  String get errorCheckInValidation =>
+      'ማረጋገጫዎ አልተቀመጠም። እንደገና ይሞክሩ፤ ደጋግሞ ከሆነ መተግበሪያውን ያዘምኑ።';
 }
