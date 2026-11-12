@@ -71,6 +71,16 @@ public sealed class RelationshipScanDynamoDbCollection : ICollectionFixture<Loca
 }
 
 /// <summary>
+/// FUP-160: its own set of tables for the owner stamp, which reads whole listing status partitions and writes the
+/// owner fields on every row it finds there: rows the other classes seed never reach it.
+/// </summary>
+[CollectionDefinition(Name)]
+public sealed class OwnerStampDynamoDbCollection : ICollectionFixture<LocalDynamoDbFixture>
+{
+    public const string Name = "OwnerStampDynamoDb";
+}
+
+/// <summary>
 /// One set of tables for the collection, with the deployed key schemas and indexes
 /// (<c>infra/lib/stacks/database-stack.ts</c>), uniquely named per run and deleted afterwards.
 /// </summary>
@@ -138,9 +148,11 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
             ("TruckerIdCreatedAtIndex", "truckerId", "createdAt"));
         await CreateAsync(TransactionAudit, ("transactionId", "timestamp"), ("EntityIndex", "entityId", "timestamp"));
         await CreateAsync(Users, ("userId", null));
-        // ESC-29: the owner indexes the reputation copy reads.
-        await CreateAsync(Crops, ("cropId", "createdAt"), ("FarmerIdCreatedAtIndex", "farmerId", "createdAt"));
-        await CreateAsync(Trips, ("tripId", "createdAt"), ("TruckerIdCreatedAtIndex", "truckerId", "createdAt"));
+        // ESC-29: the owner indexes the reputation copy reads. FUP-160: the status indexes the owner stamp walks.
+        await CreateAsync(Crops, ("cropId", "createdAt"), ("FarmerIdCreatedAtIndex", "farmerId", "createdAt"),
+            ("StatusCreatedAtIndex", "status", "createdAt"));
+        await CreateAsync(Trips, ("tripId", "createdAt"), ("TruckerIdCreatedAtIndex", "truckerId", "createdAt"),
+            ("StatusDepartureDateIndex", "status", "departureDate"));
         // ESC-28: the reputation events and their two sparse indexes.
         await CreateAsync(ReputationEvents, ("userId", "eventId"),
             ("AppealStatusIndex", "appealStatus", "appealedAt"), ("DueIndex", "dueDay", "dueAt"));

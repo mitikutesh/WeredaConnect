@@ -142,6 +142,7 @@ public class ReputationNotificationTests
     [InlineData("reputation_daily")]
     [InlineData("reputation_unpark")]
     [InlineData("reputation_recompute_all")]
+    [InlineData("reputation_stamp_owner_copies")]
     public async Task ReputationActions_FlagOff_LogAndReturn(string action)
     {
         var context = new TestLambdaContext();

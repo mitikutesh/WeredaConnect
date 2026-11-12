@@ -1,7 +1,7 @@
 # Reputation Architecture
 
 ## Version
-1.4.0 | 2026-11-12 (ESC-33)
+1.5.0 | 2026-11-12 (FUP-160, FUP-161)
 
 ## Status
 PARTLY BUILT. ESC-28 (the core write side) is built and ships dark: sections 3 (the table and
@@ -9,7 +9,8 @@ its indexes), 5, 6.1, 6.2, 6.4, 7, 8, 9, 12.2 and the ESC-28 monitoring of 14; s
 where the build reads the design. ESC-29 (the server reads and gates) is built and ships dark too:
 6.3 (copies), 6.6 (reads) and 10 (gates, visibility, suspension); section 21 lists where that build
 reads the design. ESC-32 (the admin actions, 6.5, and the admin app) is built and ships dark:
-section 22. ESC-33 (the fraud hooks) is built: section 13, as built in 13.1. PLANNED: 11
+section 22. ESC-33 (the fraud hooks) is built: section 13, as built in 13.1. FUP-160 (the
+one-off owner stamp, 12.3) and FUP-161 (the unpark's long poll, 7.5) are built. PLANNED: 11
 (ESC-31).
 
 **Contracts**: `specs/contracts/reputation-api.md` 1.4.0, `rating-api.md` 1.4.0,
@@ -187,7 +188,7 @@ change.
 |---|---|---|---|
 | `{prefix}-reputation-stream` (`ReputationStreamFunction`) | new (ESC-28) | orders stream | 256 MB, ARM64, 30 s, parallelization factor 1 (one invocation per shard); reserved concurrency 10, kept at or above the stream's shard count, because a shard with no free concurrency waits and its iterator age grows towards the 24 hour `maxRecordAge` (alarm at 1 hour, section 14) |
 | `{prefix}-reputation` (`ReputationFunction`) | new (ESC-29) | HTTP API: `GET /reputation/me`, `GET /reputation/{userId}`, `GET /reputation/me/events`, `POST /reputation/appeals/photo-url`, `POST /reputation/events/{eventId}/appeal` | 256 MB, 10 s, reserved concurrency 5 |
-| `{prefix}-order-cron` | changed (ESC-28) | new daily rule `reputation_daily`, hourly `reputation_unpark`; manual `reputation_backfill_ratings` | reserved concurrency 3 to 5 |
+| `{prefix}-order-cron` | changed (ESC-28, FUP-160) | new daily rule `reputation_daily`, hourly `reputation_unpark`; manual `reputation_backfill_ratings`, `reputation_stamp_owner_copies` | reserved concurrency 3 to 5 |
 | `{prefix}-sync` | changed (ESC-28, ESC-29) | | rating transaction, gates, owner stamps, suspension |
 | `{prefix}-admin` | changed (ESC-32) | admin routes of `reputation-api.md` section 9 | |
 | `{prefix}-order-notify-stream` | changed (ESC-28) | new source: reputation-events stream (INSERT) | |
@@ -534,7 +535,10 @@ Only when that send fails is the record reported as a batch item failure (stream
 the metadata DLQ and its alarm). The order-cron action `reputation_unpark` (hourly) receives up
 to 100 messages per run, re-runs the derivation and deletes each that succeeds; after 5 receives
 the redrive policy moves a message to `{prefix}-reputation-parked-dlq`, alarmed. Replays are safe
-by the slot ids.
+by the slot ids. Each receive long-polls for 1 second and the run stops only after two empty
+replies in a row (FUP-161): a short poll samples only some SQS servers and can answer empty while
+a small queue holds messages, which left parked records for a later hour. An empty queue ends the
+run after about 2 seconds, well inside the run's time budget.
 
 The one order-dependent edge: a parked penalty replayed after a completion that would have earned
 a point back from it leaves that point standing (the completion saw no active points). Rare and
@@ -572,6 +576,7 @@ fourth rule on the order-cron Lambda. `reputationPenalties` off: log and return.
 | `reputation_daily` with `{"catchUpDays": n}` | after an outage longer than 7 days (n up to 100) |
 | `reputation_recompute_all` | after a policy change: walks `DueIndex` from today to 100 days ahead (every user with an active row has one) and recomputes each user once |
 | `reputation_backfill_ratings` | once per environment (12.2) |
+| `reputation_stamp_owner_copies`, optionally with `{"startAt": "<next>"}` | once per environment after `reputationPenalties` is on and before `reputationPublicTags` (12.3); safe to rerun |
 
 ---
 
@@ -698,8 +703,12 @@ public copy the server puts on crop and trip rows for buyers.
 5. **`reputationPenalties` on** in dev (where `commitmentsEnabled` is on); run the synthetic
    personas (flaky trucker, griefing buyer, happy path). Staging and prod only after
    `commitmentsEnabled` is on there.
-6. **`reputationPublicTags` on** once the ESC-31 build is the minimum in use (older apps ignore
-   the new fields, so this is about showing them, not about breaking anything).
+6. **Owner stamp (12.3), then `reputationPublicTags` on**: once `reputationPenalties` is on in the
+   environment, run `reputation_stamp_owner_copies` until a run ends `ok` (and once more without
+   `startAt` if any run in the chain had `failed` above 0, see 12.3), so listings created
+   before the flag carry the owner fields too; then turn `reputationPublicTags` on once the ESC-31
+   build is the minimum in use (older apps ignore the new fields, so this is about showing them,
+   not about breaking anything).
 7. **`timeoutPenalties` on** last, after Android push delivery is confirmed on real devices (D8
    relies on it).
 
@@ -719,6 +728,56 @@ public copy the server puts on crop and trip rows for buyers.
 Ratings created between step 1 and the backfill were added by their own transaction and carry
 `inAggregate: true`, so nothing is counted twice. Users who registered after step 1 already carry
 `ratingsAggregatedAt`.
+
+### 12.3 Owner stamp (FUP-160)
+
+The copies of 6.3 are written only while `reputationPenalties` is on (section 21 point 2), so a
+crop or trip created before the flag went on has no owner fields until its owner's next change.
+`reputation_stamp_owner_copies` (`OwnerCopyStampJob`), run by hand once per environment after
+12.1 step 5 and before `reputationPublicTags` goes on:
+
+1. `Query` the active partitions of the status indexes buyer browse reads, all pages: crops
+   `StatusCreatedAtIndex` for `available` and `reserved`, trips `StatusDepartureDateIndex` for
+   `open` and `matched` (projection: the owner id). Keep the distinct owners in user id order. No
+   Scan and no users index, so an owner without a `woreda` (not on `RoleWaredaIndex`) is reached,
+   and a farmer or trucker with no active listing costs nothing.
+2. Per owner, until 4 minutes of the 5 minute timeout are used: read the users row and the
+   reputation as a read shows it (6.6: the stored map under the live policy, recomputed from the
+   events once past `nextChangeAt`; the values a create stamps), then the copy refresh of 6.3 with
+   them. A missing or deleting users row is skipped. The users row is not written.
+3. Log `REPUTATION_OWNER_STAMP owners=<n> users=<n> rows=<n> skipped=<n> leftover=<n> failed=<n>
+   from=<start|startAt>` and return the same counts; `next` when the run ran out of time.
+
+How to run it (the body is wrapped the way the cron rules wrap theirs):
+
+```bash
+aws lambda invoke --function-name {prefix}-order-cron --cli-binary-format raw-in-base64-out \
+  --cli-read-timeout 330 \
+  --payload '{"body":"{\"action\":\"reputation_stamp_owner_copies\"}"}' out.json && cat out.json
+```
+
+`--cli-read-timeout 330` is needed: a run may take up to 4 minutes, and with the CLI's default of
+60 seconds the CLI gives up, invokes the function again (up to 3 copies at once, each taking one
+of the order cron's reserved slots) and never shows the result with its `next`. Avoid the top of
+the hour, when the scheduled cron rules use those slots too (a synchronous invoke can then get a
+`429`).
+
+- `outcome: ok`: every owner of this run was stamped. `rows` counts the listing rows written.
+- `outcome: partial` with `next`: the run ran out of time. Invoke again with
+  `{"action":"reputation_stamp_owner_copies","startAt":"<next>"}` (owners from that user id on)
+  until a run ends `ok`.
+- `failed` above 0 in any run of the chain: each failure is logged (`Owner stamp failed for user
+  ...`). After the chain ends `ok`, finish with one more run without `startAt`, which retries
+  every owner (it writes only rows whose values differ).
+- `outcome: disabled`: `reputationPenalties` is off; nothing was read or written. Turn the flag on
+  first (the copies stay current only while it is on).
+
+Safe to rerun: a row that already holds the values is not written, so a rerun writes nothing (it
+still reads). Per owner: one users `GetItem` (plus one events `Query` when the map is past
+`nextChangeAt`), the owner index `Query` of 6.3 (crops: plus one `BatchGetItem` per 100 rows) and
+one `UpdateItem` per active row that does not hold the values yet; plus the walk, one `Query` page
+per 1 MB of active listing rows. An owner's rows past the newest 200 are not reached (the limit of
+6.3).
 
 ---
 
@@ -803,6 +862,10 @@ All on-demand; no Scan in steady state; no new always-on resource.
 - **Rating create**: the transaction adds the users write and a heal upsert to what a rating cost
   before; the read side saves up to 50 index pages per `GET /ratings` and one call per card.
 - **Daily job**: 8 small Queries plus one recompute per user with due rows.
+- **Owner stamp** (12.3, once per environment): the active listing partitions read once, then per
+  owner a users read and one copy refresh; a rerun only reads.
+- **Unpark** (7.5): at least two receives per hourly run (the empty reply is tried once more), cents
+  a year.
 - **Lambda**: the stream function runs only on filtered records; ARM64 at 256 MB.
 - **SQS**: three queues, cents.
 - **Indexes**: both sparse; `DueIndex` keys only.
@@ -978,7 +1041,8 @@ How the build reads points the design left open:
    owner stamps. The gate decides from the stored restriction and its `until` (no events read).
 2. **Copies only while `reputationPenalties` is on** (6.3): the stamp at create and every refresh
    are behind the flag, because only the flagged writes keep a copy current. Turning the flag on
-   leaves older rows without a copy until their owner's next change; a one-off stamp is TASK FUP-160.
+   leaves older rows without a copy until their owner's next change; the one-off stamp of those
+   rows is the order-cron action `reputation_stamp_owner_copies` (12.3, FUP-160).
 3. **What triggers a copy**: a change of the stored tier (the internal one, so `low` to `restricted`
    and `good` to `warning` count; the heal marker follows the same rule), of the effective rating or
    of the reliability; every rating create (the count); the daily job for a user with a heal marker,
@@ -998,7 +1062,8 @@ How the build reads points the design left open:
 7. **Ratings without a backfill stamp**: a row without `ratingsAggregatedAt` contributes no rating
    to the aggregate, the copies or the reads (it would count only the ratings since the deploy);
    `GET /ratings` keeps the walk for it. This closes the second "before the flag goes on" note of
-   the ESC-28 review. The first (the unpark's short poll) is TASK FUP-161.
+   the ESC-28 review. The first (the unpark's short poll) is closed by FUP-161 (7.5: a 1 second
+   long poll and one more receive after an empty reply).
 8. **Event list paging**: in memory over one Query of the user's partition (the sort key is the
    slot), newest `occurredAt` first, with a signed token bound to the caller.
 9. **Appeal**: one conditional `UpdateItem`, no version change; `appealTextAt` keeps when the text
@@ -1086,6 +1151,7 @@ How the build reads points the design left open:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.5.0 | 2026-11-12 | FUP-160 and FUP-161 built (both needed before `reputationPenalties` goes on): new 12.3, the order-cron action `reputation_stamp_owner_copies` (the one-off owner stamp: the owners of the active crop and trip rows from the listing status indexes, no Scan, so owners without a `woreda` are reached; per owner the reputation as read and the copy refresh of 6.3; no users write; behind `reputationPenalties`; time budget with a `startAt` cursor; a rerun writes nothing; how to run it); 12.1 step 6 runs it before `reputationPublicTags` goes on; 8.3, section 4 and 15 list it. 7.5: the unpark long-polls 1 second per receive and stops after two empty replies in a row. Section 21 points 2 and 7 point to them. |
 | 1.4.0 | 2026-11-12 | ESC-33 built: section 13.1 (as built: the hooks run in `ReputationService.RecordAsync` after the commit, the signals' caps, the buyer decline pattern on R1 to R5, the payout delay from the stored map, a guarded `GPS_ANOMALY` row on the trucker beside the buyer's, behind the flag; the repeat restriction signal left as a follow-up). |
 | 1.3.0 | 2026-11-12 | ESC-32 built: 6.5 (the admin actions as one transaction with row updates), the admin reads and the appeals queue; section 22 (as built: row update conditions, restriction lift and review end, overrides replaced, replays, one appeal after a decision without party text, copies refreshed in the request for admin writes and for a suspend or unsuspend, admin grants) |
 | 1.2.0 | 2026-11-11 | ESC-29 built: 6.3, 6.6 and 10 on the server, behind the flags; section 21 (as built: the caller's row read once with its reputation, copies only while `reputationPenalties` is on, copy triggers and the daily job copying before it deletes the heal marker, the heal marker on an admin suspend, the browse check in code, reads from the stored map with a recompute past `nextChangeAt`, no rating for an unstamped row, in-memory event paging, the appeal write, the wording for apps without a build header, the routes the suspension gate covers) |
