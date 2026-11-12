@@ -2663,8 +2663,10 @@ export class ApiStack extends cdk.Stack {
     // one per route (scopePermissionToRoute false), so a route on an existing Lambda costs one
     // resource (stack.test.ts fails above 470). The permission's source ARN is `{this API's id}/*/*/*`:
     // any stage, method and path of this API, no other API; the routes, all defined here, pick the
-    // Lambda. Each shared integration keeps the id of its Lambda's first route, so it keeps its
-    // logical id. Payload 1.0 everywhere (the handlers read the 1.0 event) except /health (2.0). The
+    // Lambda. CDK creates each shared integration and its permission under the first route that binds
+    // it, so their logical ids follow that route: today they keep the ids they had as that route's
+    // own. A new route of the same Lambda added before it would move them (a replacement, still deploy
+    // safe: CloudFormation creates the new ones before cleanup deletes the old). Payload 1.0 everywhere (the handlers read the 1.0 event) except /health (2.0). The
     // admin integration is with the admin routes.
     const lambdaIntegration = (
       id: string,
