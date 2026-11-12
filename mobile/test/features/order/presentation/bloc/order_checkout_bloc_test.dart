@@ -580,6 +580,22 @@ void main() {
       );
     });
 
+    test('no step-up is offered once its held payment left the queue (FUP-24)',
+        () async {
+      events
+        ..holdStepUp('sync:op-other', withFayda: false)
+        ..emit(const StepUpRequired())
+        ..stepUpDeclined()
+        ..releaseStepUpHolds(['sync:op-other']);
+      serverReads.add(null);
+      localReads.add(order(OrderStatus.paymentSubmitted));
+      final b = bloc(mobile: true);
+      addTearDown(b.close);
+
+      b.add(const CheckoutStarted());
+      await expectLater(b.stream, emits(const CheckoutWaitingToSend()));
+    });
+
     test('refused and put back (ESC-12, KYC): not sent', () async {
       serverReads.add(order(OrderStatus.created));
       localReads.add(order(OrderStatus.created));

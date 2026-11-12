@@ -237,8 +237,27 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Object catch (e) {
-      emit(_errorFromException(e));
+      // Web sends the dispute itself, so the password step-up (AUTH_040)
+      // arrives here; the dispute screen asks for the password and sends
+      // the same dispute again (FUP-43). Mobile queues the dispute and its
+      // sync queue prompts. AUTH_041 keeps the generic handling.
+      emit(
+        _needsPasswordStepUp(e)
+            ? DeliveryError(
+                message: e.toString(),
+                code: DeliveryErrorCode.stepUpRequired,
+              )
+            : _errorFromException(e),
+      );
     }
+  }
+
+  /// True for an `AUTH_040` refusal: as the /sync operation's error, or as
+  /// the request's own 403.
+  static bool _needsPasswordStepUp(Object e) {
+    if (e is StepUpRequiredException) return !e.requiresFayda;
+    return e is SyncRejectedException &&
+        e.message.startsWith(stepUpRequiredCode);
   }
 
   Future<void> _onCancelDelivery(

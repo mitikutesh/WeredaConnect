@@ -84,6 +84,83 @@ void main() {
     await done;
   });
 
+  // FUP-43: on web a dispute answered AUTH_040 asks for the password (the
+  // dispute screen prompts and resends); AUTH_041 keeps the generic error.
+  for (final (error, code) in <(Object, String)>[
+    (
+      const SyncRejectedException('AUTH_040: Confirm it is you.'),
+      DeliveryErrorCode.stepUpRequired,
+    ),
+    (
+      const StepUpRequiredException('step-up required'),
+      DeliveryErrorCode.stepUpRequired,
+    ),
+    (
+      const SyncRejectedException('AUTH_041: Confirm it is you with Fayda.'),
+      DeliveryErrorCode.generic,
+    ),
+    (
+      const StepUpRequiredException('Fayda needed', 403, 'AUTH_041'),
+      DeliveryErrorCode.generic,
+    ),
+  ]) {
+    test('a dispute answered "$error" emits $code', () async {
+      final repository = _MockRepository();
+      when(
+        () => repository.raiseDispute(
+          deliveryId: any(named: 'deliveryId'),
+          userId: any(named: 'userId'),
+          reason: any(named: 'reason'),
+        ),
+      ).thenThrow(error);
+      final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
+
+      final done = expectLater(
+        bloc.stream,
+        emitsThrough(isA<DeliveryError>().having((e) => e.code, 'code', code)),
+      );
+      bloc.add(
+        const RaiseDispute(
+          deliveryId: 'del-1',
+          userId: 'buyer-1',
+          reason: 'wet bags',
+          tripId: 'trip-1',
+        ),
+      );
+      await done;
+    });
+  }
+
+  // A step-up on anything but a dispute keeps its handling.
+  test('AUTH_040 on a cancel stays the generic error', () async {
+    final repository = _MockRepository();
+    when(
+      () => repository.cancelDelivery(
+        deliveryId: any(named: 'deliveryId'),
+        userId: any(named: 'userId'),
+      ),
+    ).thenThrow(const SyncRejectedException('AUTH_040: Confirm it is you.'));
+    final bloc = DeliveryBloc(repository: repository);
+    addTearDown(bloc.close);
+
+    final done = expectLater(
+      bloc.stream,
+      emitsThrough(
+        isA<DeliveryError>()
+            .having((e) => e.code, 'code', DeliveryErrorCode.generic),
+      ),
+    );
+    bloc.add(
+      const CancelDelivery(
+        deliveryId: 'del-1',
+        userId: 'farmer-1',
+        tripId: 'trip-1',
+      ),
+    );
+    await done;
+  });
+
   // ESC-07: web sends the dispute straight to /sync too: a dispute the server
   // could not freeze the payment for, or one after the 48-hour window, gets
   // its own message instead of the generic error.

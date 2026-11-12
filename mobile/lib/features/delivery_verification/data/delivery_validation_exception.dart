@@ -59,6 +59,11 @@ class DeliveryErrorCode {
   /// scans the trucker's drop-off QR or contacts support.
   static const codeLockedDropoff = deliveryCodeLockedDropoffCode;
   static const codeGpsRequired = deliveryCodeGpsRequiredCode;
+
+  /// A dispute the server wants a fresh password for (`AUTH_040`). Only web
+  /// sees it: the mobile sync queue holds the operation and prompts
+  /// (FUP-43).
+  static const stepUpRequired = stepUpRequiredCode;
   static const generic = 'DELIVERY_GENERIC';
 }
 

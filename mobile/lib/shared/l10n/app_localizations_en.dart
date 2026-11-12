@@ -5177,6 +5177,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the farmer to show a new code.';
 
   @override
+  String get deliveryDisputeNotConfirmed =>
+      'Dispute not sent. Confirm it\'s you to send it.';
+
+  @override
   String get deliveryErrorCodeGpsRequired =>
       'A typed code needs your location. Turn on location and try again.';
 
