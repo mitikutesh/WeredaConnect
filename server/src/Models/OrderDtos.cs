@@ -236,6 +236,23 @@ public sealed record OrderDto
     public string? FaultParty { get; init; }
 
     /// <summary>
+    /// ESC-34: the pickup judgement of an order accepted with <c>pickupClassification</c> on:
+    /// <c>pending</c> until the order cron judges it at <c>pickupDeadlineAt</c>, then <c>scanned</c>,
+    /// <c>trucker_no_show</c>, <c>farmer_no_show</c>, <c>buyer_no_show</c>, <c>both_present_no_scan</c> or
+    /// <c>unchecked_check_in</c>. Null on every other order (the P1 rules apply).
+    /// </summary>
+    public string? PickupJudgement { get; init; }
+
+    /// <summary>ESC-34: ISO 8601 UTC time the pickup was judged.</summary>
+    public string? PickupJudgedAt { get; init; }
+
+    /// <summary>
+    /// ESC-34: the arrival check-ins the server received, keyed by kind (<c>arrived_pickup</c>,
+    /// <c>crops_ready</c>). No coordinates and no sender. Null when there is none.
+    /// </summary>
+    public Dictionary<string, OrderCheckInDto>? CheckIns { get; init; }
+
+    /// <summary>
     /// ESC-48: whether the caller may reach the other parties on this order (call, copy, message): the
     /// farmer accepted the paid order and the money has not gone back to the buyer
     /// (<c>ContactReveal</c>); for the trucker, also that they committed to the transport (ESC-15).
@@ -251,4 +268,20 @@ public sealed record OrderDto
 
     /// <summary>ESC-48: the trucker's phone (E.164), only to a party of an open order whose trucker committed (ESC-15).</summary>
     public string? TruckerPhone { get; init; }
+}
+
+/// <summary>ESC-34: one arrival check-in as the parties read it (delivery-verification-api.md 2.6.0).</summary>
+public sealed record OrderCheckInDto
+{
+    /// <summary>ISO 8601 UTC time the server received it: the only time the judgement reads.</summary>
+    public string ReceivedAt { get; init; } = string.Empty;
+
+    /// <summary>ISO 8601 UTC time the phone took it, kept when plausible; evidence only.</summary>
+    public string? CapturedAt { get; init; }
+
+    /// <summary>Whether its GPS fix was measured against the pickup point (false: no fix, or no point).</summary>
+    public bool DistanceChecked { get; init; }
+
+    /// <summary>Whether it reached the server after the pickup deadline (kept as evidence, never counted).</summary>
+    public bool Late { get; init; }
 }

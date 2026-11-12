@@ -103,6 +103,9 @@ public class SyncFunctionCommitmentTests
 
     private bool _fraudHoldEnabled;
 
+    // ESC-34: pickupClassification for the stamp at acceptance; off keeps every other test as it was.
+    private bool _pickupClassification;
+
     // ESC-29: reputationPenalties for the accept gate; off keeps every other test as it was.
     private bool _reputationGates;
 
@@ -122,6 +125,7 @@ public class SyncFunctionCommitmentTests
             CommitmentsEnabled = enabled,
             ReputationGatesEnabled = _reputationGates,
             FraudHoldEnabled = _fraudHoldEnabled,
+            PickupClassificationEnabled = _pickupClassification,
             EscrowsTableName = "test-escrows",
             PatternRules = _patterns
         };
@@ -351,6 +355,98 @@ public class SyncFunctionCommitmentTests
         await _orders.Received(1).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 3, "funded",
             Arg.Is<IReadOnlyList<TransactWriteItem>>(items => items.Count == 1 && items[0].Update.UpdateExpression == "confirm"));
         _auditRows.Should().ContainSingle(r => (string)r["action"] == "trucker_responded");
+    }
+
+    // ===== ESC-34: the stamp of the pickup judgement at acceptance =====
+
+    private static Dictionary<string, object> Listing(double? latitude, double? longitude)
+    {
+        var listing = new Dictionary<string, object> { { "listingId", ListingId }, { "farmerId", FarmerId } };
+        if (latitude != null && longitude != null)
+        {
+            listing["latitude"] = latitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            listing["longitude"] = longitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return listing;
+    }
+
+    [Fact]
+    public async Task TruckerAccept_WithPickupClassification_StampsTheJudgement_AndTheFarmsPoint()
+    {
+        _pickupClassification = true;
+        _crops.GetByIdAsync(ListingId).Returns(Listing(8.7523, 38.9785));
+        _order = Order("funded", version: 3, farmer: "accepted", trucker: "pending",
+            truckerDeadline: DateTime.UtcNow.AddHours(10));
+
+        var result = await SendAsync(TruckerId, new Dictionary<string, object> { { "truckerResponse", "accept" }, { "version", 3 } });
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        _written!["status"].Should().Be("accepted");
+        _written[PickupJudgement.Field].Should().Be(PickupJudgement.Outcome.Pending);
+        _written[PickupJudgement.CheckInsField].Should().BeOfType<Dictionary<string, object>>()
+            .Which.Should().BeEmpty();
+        _written[PickupJudgement.PickupLatitudeField].Should().Be(8.7523);
+        _written[PickupJudgement.PickupLongitudeField].Should().Be(38.9785);
+        // The farm's point is server-only: the trucker's screen never gets it.
+        result.GetProperty("serverData").TryGetProperty(PickupJudgement.PickupLatitudeField, out _).Should().BeFalse();
+        result.GetProperty("serverData").GetProperty(PickupJudgement.Field).GetString().Should().Be("pending");
+    }
+
+    [Fact]
+    public async Task FarmerAccept_SelfPickup_WithPickupClassification_StampsTheJudgement()
+    {
+        _pickupClassification = true;
+        _crops.GetByIdAsync(ListingId).Returns(Listing(8.7523, 38.9785));
+        _order = Order("funded", version: 2, selfPickup: true);
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object> { { "farmerResponse", "accept" }, { "version", 2 } });
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        _written!["status"].Should().Be("accepted");
+        _written[PickupJudgement.Field].Should().Be(PickupJudgement.Outcome.Pending);
+        _written.Should().ContainKey(PickupJudgement.PickupLatitudeField);
+    }
+
+    [Fact]
+    public async Task Accept_WithPickupClassification_AndAnUnreadableListing_StillAccepts_WithoutThePoint()
+    {
+        _pickupClassification = true;
+        _crops.GetByIdAsync(ListingId).ThrowsAsync(new ProvisionedThroughputExceededException("slow down"));
+        _order = Order("funded", version: 2, selfPickup: true);
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object> { { "farmerResponse", "accept" }, { "version", 2 } });
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        _written![PickupJudgement.Field].Should().Be(PickupJudgement.Outcome.Pending);
+        _written.Should().NotContainKey(PickupJudgement.PickupLatitudeField);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task Accept_WithoutBothFlags_StampsNothing(bool commitments, bool classification)
+    {
+        _pickupClassification = classification;
+        _order = Order("funded", version: 2, selfPickup: true);
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object> { { "status", "accepted" }, { "version", 2 } }, enabled: commitments);
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        _written.Should().NotContainKey(PickupJudgement.Field);
+        _written.Should().NotContainKey(PickupJudgement.CheckInsField);
+        await _crops.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task FarmerAccept_TripOrder_StaysFunded_AndIsNotStampedYet()
+    {
+        _pickupClassification = true;
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object> { { "farmerResponse", "accept" }, { "version", 2 } });
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        _written.Should().NotContainKey(PickupJudgement.Field);
     }
 
     [Fact]

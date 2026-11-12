@@ -143,6 +143,9 @@ namespace WeredaConnect.Server;
 // Order DTOs
 [JsonSerializable(typeof(OrderDto))]
 [JsonSerializable(typeof(List<OrderDto>))]
+// ESC-34: the arrival check-ins on an order.
+[JsonSerializable(typeof(OrderCheckInDto))]
+[JsonSerializable(typeof(Dictionary<string, OrderCheckInDto>))]
 [JsonSerializable(typeof(GetOrdersResponse))]
 [JsonSerializable(typeof(GetOrderResponse))]
 // Rating DTOs

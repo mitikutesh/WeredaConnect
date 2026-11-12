@@ -91,6 +91,13 @@ public sealed record ReputationEvent
     /// <summary>The stream sequence number of the order change, for support.</summary>
     public string? SourceSeq { get; init; }
 
+    /// <summary>
+    /// FUP-204: the other party whose own report decided this event (the arrival check-in behind a farmer
+    /// no-show, rule R11), so its fraud signal goes through the attribution guard. Carried from the
+    /// candidate to the hooks only; not stored on the row.
+    /// </summary>
+    public string? ReportedBy { get; init; }
+
     // ----- system rows -----
 
     /// <summary>RESTRICTION: <c>points</c>, <c>delivery_overdue</c> or <c>admin</c>.</summary>
@@ -160,6 +167,13 @@ public sealed record ReputationCandidate
     public bool? Reachable { get; init; }
 
     public string? SourceSeq { get; init; }
+
+    /// <summary>
+    /// FUP-204: the other party whose own report decided this event: on R11 (a farmer no-show) the trucker,
+    /// or the buyer of a self-pickup order, whose arrival check-in it rests on. Null when the event rests
+    /// on the party's own conduct alone.
+    /// </summary>
+    public string? ReportedBy { get; init; }
 }
 
 /// <summary>

@@ -216,7 +216,8 @@ export class MonitoringStack extends cdk.Stack {
     //     transport failure and a delivery that was not pending (picked up, or unreadable)
     //     held the order's slot right after: goods may have left the farm on a refunded order;
     //   ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED (ESC-06): a pickup synced after that cancel had
-    //     cancelled the delivery (the reverse offline race): the trucker has the goods;
+    //     cancelled the delivery (the reverse offline race): the trucker has the goods. ESC-34 writes
+    //     it too (reason=late_pickup_evidence) for a real QR scan refused after the pickup was judged;
     //   QR_GATE_UNDECIDED (FUP-42): a delivery pickup or confirm with no QR on record could not
     //     read the escrow that decides whether it needs one. It stays deferred and never fails,
     //     so a read that keeps failing would hold the delivery unseen.
@@ -2444,21 +2445,30 @@ export class MonitoringStack extends cdk.Stack {
 
     // ─── FUP-201: attributed signals the guard held back (ESC-33) ────
     // FraudDetectionService.RecordAttributedSignalAsync logs FRAUD_ATTRIBUTED_SIGNAL_SKIPPED signalType=<type>
-    // reason=<outcome> for each row onto another user it did not write (today the trucker's GPS_ANOMALY, from
-    // sync, behind reputationPenalties). Not alarmed: a count per reason for the dashboard, where a rising
-    // SourceCapped or TargetCapped is one buyer, or a ring, hammering one trucker. A metric dimension needs a JSON
-    // or space-delimited pattern, which the line behind the runtime prefix may not match (FUP-54), so one
-    // plain-text filter per reason, each its own metric without a default (billed only in the hours it appears).
-    // The reasons are the AttributedSignalOutcome values the guard logs (an infra test reads them).
+    // reason=<outcome> for each row onto another user it did not write (the trucker's GPS_ANOMALY, from sync;
+    // since FUP-204 a farmer's NO_SHOW that rests on the trucker's or the self-pickup buyer's check-in, from
+    // the reputation hooks in reputation-stream and order-cron's unpark replay; all behind reputationPenalties).
+    // Not alarmed: a count per reason for the dashboard, where a rising SourceCapped or TargetCapped is one
+    // party, or a ring, hammering another. A metric dimension needs a JSON or space-delimited pattern, which the
+    // line behind the runtime prefix may not match (FUP-54), so one plain-text filter per reason and log group,
+    // each reason its own metric without a default (billed only in the hours it appears). The reasons are the
+    // AttributedSignalOutcome values the guard logs (an infra test reads them).
     const attributedSkipReasons = ['AlreadyRecorded', 'TargetUnread', 'SourceCapped', 'TargetCapped', 'HourLimited'];
+    const attributedSkipLogGroups: Array<[string, logs.ILogGroup]> = [
+      ['', syncLogGroup],
+      ['Stream', reputationStreamLogGroup],
+      ['OrderCron', orderCronLogGroup],
+    ];
     for (const reason of attributedSkipReasons) {
-      new logs.MetricFilter(this, `FraudAttributedSkipped${reason}Filter`, {
-        logGroup: syncLogGroup,
-        filterPattern: logs.FilterPattern.literal(`"FRAUD_ATTRIBUTED_SIGNAL_SKIPPED" "reason=${reason}"`),
-        metricNamespace,
-        metricName: `FraudAttributedSkipped${reason}`,
-        metricValue: '1',
-      });
+      for (const [source, logGroup] of attributedSkipLogGroups) {
+        new logs.MetricFilter(this, `FraudAttributedSkipped${reason}${source}Filter`, {
+          logGroup,
+          filterPattern: logs.FilterPattern.literal(`"FRAUD_ATTRIBUTED_SIGNAL_SKIPPED" "reason=${reason}"`),
+          metricNamespace,
+          metricName: `FraudAttributedSkipped${reason}`,
+          metricValue: '1',
+        });
+      }
     }
     dashboard.addWidgets(
       new cloudwatch.GraphWidget({
