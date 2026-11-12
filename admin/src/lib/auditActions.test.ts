@@ -61,6 +61,9 @@ const ESCROW_AUDIT_ACTIONS = [
   "manual_payout_queued",
   "manual_payout_paid",
   "manual_payout_refused",
+  // FUP-05: an admin's claim on a leg
+  "manual_payout_claimed",
+  "manual_payout_claim_released",
   // Disputes (ESC-03, ESC-07)
   "dispute",
   "dispute_propagation_failed",
@@ -95,6 +98,9 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "refund_mismatch_override",
   "admin_dispute_resolved",
   "admin_manual_payout",
+  "admin_manual_payout_claimed",
+  "admin_manual_payout_claim_released",
+  "admin_manual_payout_refused",
   "admin_queue_entered",
   "admin_queue_cleared",
   // AdminFunction writes fraud_<action> and user_<action> for the actions the admin UI sends

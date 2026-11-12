@@ -310,6 +310,32 @@ export function useCompleteManualPayout() {
       queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
     },
+    // FUP-05: a refusal (another admin's claim, a reference used elsewhere) reloads the queue so the
+    // page shows who holds the leg now.
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+    },
+  });
+}
+
+// FUP-05: claim a manual payout leg before paying it in the portal (claim), or give it back (unclaim).
+// A claim lasts 30 minutes; another admin's live claim is refused (ESCROW_046) and never taken over.
+export function useManualPayoutClaim() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      escrowId,
+      ref,
+      action,
+    }: {
+      escrowId: string;
+      ref: string;
+      action: "claim" | "unclaim";
+    }) =>
+      api.post(`/admin/payouts/${encodeURIComponent(escrowId)}/${encodeURIComponent(ref)}/${action}`),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+    },
   });
 }
 

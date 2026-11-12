@@ -84,11 +84,12 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
         IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string? releaseOrigin = null)
         => _inner.TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, queuedAt, releaseOrigin);
     public Task<bool> TryMarkManualLegPaidAsync(string escrowId, string createdAt, string op, string leg, string externalRef,
-        string paidBy, string paidAt, string? otherLegMustBePending)
-        => _inner.TryMarkManualLegPaidAsync(escrowId, createdAt, op, leg, externalRef, paidBy, paidAt, otherLegMustBePending);
+        string paidBy, string paidAt, string? otherLegMustBePending, PayoutReferenceRecord? reference = null)
+        => _inner.TryMarkManualLegPaidAsync(escrowId, createdAt, op, leg, externalRef, paidBy, paidAt, otherLegMustBePending, reference);
     public Task<bool> TryCloseManualPayoutAsync(string escrowId, string createdAt, string op, string leg, string externalRef,
-        string paidBy, string paidAt, IReadOnlyList<string> otherLegsMustBePaid, string newStatus, Dictionary<string, object> settlementFields)
-        => _inner.TryCloseManualPayoutAsync(escrowId, createdAt, op, leg, externalRef, paidBy, paidAt, otherLegsMustBePaid, newStatus, settlementFields);
+        string paidBy, string paidAt, IReadOnlyList<string> otherLegsMustBePaid, string newStatus, Dictionary<string, object> settlementFields,
+        PayoutReferenceRecord? reference = null)
+        => _inner.TryCloseManualPayoutAsync(escrowId, createdAt, op, leg, externalRef, paidBy, paidAt, otherLegsMustBePaid, newStatus, settlementFields, reference);
     public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryOpenManualPayoutsAsync(
         int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => _inner.QueryOpenManualPayoutsAsync(limit, exclusiveStartKey);
     public Task<Dictionary<string, object>?> GetByDeliveryIdAsync(string deliveryId) => _inner.GetByDeliveryIdAsync(deliveryId);

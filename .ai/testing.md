@@ -39,10 +39,11 @@
 
 ## Admin Playwright Specs (local only)
 
-No CI workflow runs the Playwright suite in `e2e/`; it is run by hand. Four admin specs,
+No CI workflow runs the Playwright suite in `e2e/`; it is run by hand. Five admin specs,
 `e2e/admin/fraud-review.spec.ts` (FRD-07), `e2e/admin/dispute-evidence.spec.ts` (FRD-14),
 `e2e/admin/legs-and-stuck-orders.spec.ts` (ESC-24: the per-leg verdict, the ledger view, Stuck Orders) and
-`e2e/admin/reputation.spec.ts` (ESC-32: excuse and restrict on the user page, the appeals queue), also
+`e2e/admin/reputation.spec.ts` (ESC-32: excuse and restrict on the user page, the appeals queue) and
+`e2e/admin/manual-payout-claims.spec.ts` (FUP-05: claim a payout leg, another admin's claim, a duplicate reference), also
 need a local admin build. They do not sign in (the admin pool needs TOTP): each seeds a fake Cognito session in
 localStorage under the app client id `e2eadminclient` and answers every API call with `page.route`, so
 they check what the page sends and shows, never the server. Against the deployed dev admin the seeded
@@ -56,11 +57,11 @@ VITE_COGNITO_ADMIN_USER_POOL_ID=eu-north-1_e2eAdmin VITE_COGNITO_ADMIN_CLIENT_ID
   VITE_API_BASE_URL=https://api.e2e.invalid npx vite build
 npx vite preview --port 4173
 
-# Terminal 2: run the four specs against it (first time only: npx playwright install chromium)
+# Terminal 2: run the five specs against it (first time only: npx playwright install chromium)
 cd e2e && npm ci
 ADMIN_URL=http://localhost:4173 npx playwright test --project=admin \
   admin/fraud-review.spec.ts admin/dispute-evidence.spec.ts admin/legs-and-stuck-orders.spec.ts \
-  admin/reputation.spec.ts
+  admin/reputation.spec.ts admin/manual-payout-claims.spec.ts
 ```
 
 Expected: 13 passed (6 Fraud Review, 3 dispute evidence, 4 legs and stuck orders), a few seconds. The values on the build line

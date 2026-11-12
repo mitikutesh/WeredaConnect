@@ -4,14 +4,16 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Badge } from "@/components/ui/Badge";
 import { useLocale } from "@/hooks/useLocale";
-import { useManualPayouts, useCompleteManualPayout } from "@/hooks/useQuery";
+import { useManualPayouts, useCompleteManualPayout, useManualPayoutClaim } from "@/hooks/useQuery";
 import { formatETB, formatDateTime } from "@/lib/i18n";
 import { partyName } from "@/lib/user";
 
 /* Manual payout queue (ESC-02). The live Telebirr gateway has no payout API, so a
  * release or refund it cannot make waits here. One table row per payee leg: the
  * admin pays the shown amount to the shown phone in the merchant portal, pastes the
- * portal transaction id and confirms. The last leg of an escrow settles it. */
+ * portal transaction id and confirms. The last leg of an escrow settles it.
+ * FUP-05: an admin claims a leg before paying it, so every other admin sees that it
+ * is being paid and cannot record it; one portal transaction id records one leg. */
 
 interface PayoutLeg {
   ref: string;
@@ -28,6 +30,11 @@ interface PayoutLeg {
   paidAt?: string;
   /* ESC-05: the reference the server sent Telebirr for this leg (release:<id>, release:<id>:trucker, refund:<id>). */
   gatewayRef?: string;
+  /* FUP-05: the admin paying this leg now (a live claim, 30 minutes), and whether that is the viewer. */
+  claimedBy?: string;
+  claimedAt?: string;
+  claimExpiresAt?: string;
+  claimedByMe?: boolean;
 }
 
 interface ManualPayout {
@@ -80,11 +87,22 @@ function fill(template: string, values: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_, k: string) => values[k] ?? "");
 }
 
+/* FUP-05: the server names where a refused reference is used in a fixed form,
+ * "... on escrow <escrowId>, leg <ref>.", so the page can say it in the admin's language. */
+const USED_ON = /on escrow (\S+), leg (\S+?)\.$/;
+
+function referenceUsedOn(message: string | undefined): { escrowId: string; ref: string } | null {
+  const match = USED_ON.exec(message ?? "");
+  return match ? { escrowId: match[1], ref: match[2] } : null;
+}
+
 export function ManualPayoutsPage() {
   const { t, locale } = useLocale();
   const { data, isLoading, isError, hasNextPage, fetchNextPage, isFetchingNextPage } = useManualPayouts();
   const complete = useCompleteManualPayout();
+  const claim = useManualPayoutClaim();
   const [refs, setRefs] = useState<Record<string, string>>({});
+  const [claiming, setClaiming] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -103,6 +121,14 @@ export function ManualPayoutsPage() {
     return text === key ? fallback : text;
   }
 
+  function errorText(err: unknown): string {
+    const { code, message } = err as { code?: string; message?: string };
+    // FUP-05: a reference already recorded elsewhere names the escrow and leg it is on.
+    const usedOn = code === "ESCROW_047" ? referenceUsedOn(message) : null;
+    if (usedOn) return fill(t("payouts.duplicateRef"), usedOn);
+    return code ? label(`errors.${code}`, t("errors.actionFailed")) : t("errors.actionFailed");
+  }
+
   function submit(row: Row) {
     const externalRef = (refs[row.key] ?? "").trim();
     if (!externalRef) return;
@@ -118,11 +144,25 @@ export function ManualPayoutsPage() {
           setConfirming(null);
         },
         onError: (err: unknown) => {
-          const code = (err as { code?: string }).code;
-          setErrorMsg(code ? label(`errors.${code}`, t("errors.actionFailed")) : t("errors.actionFailed"));
+          setErrorMsg(errorText(err));
           setConfirming(null);
         },
         onSettled: () => setSubmitting(null),
+      },
+    );
+  }
+
+  /* FUP-05: claim the leg before paying it in the portal, or give it back. */
+  function changeClaim(row: Row, action: "claim" | "unclaim") {
+    setClaiming(row.key);
+    setErrorMsg(null);
+    setNotice(null);
+    claim.mutate(
+      { escrowId: row.payout.escrowId, ref: row.leg.ref, action },
+      {
+        onSuccess: () => setNotice(t(action === "claim" ? "payouts.claimDone" : "payouts.unclaimDone")),
+        onError: (err: unknown) => setErrorMsg(errorText(err)),
+        onSettled: () => setClaiming(null),
       },
     );
   }
@@ -282,9 +322,54 @@ export function ManualPayoutsPage() {
           );
         }
 
+        // FUP-05: another admin is paying this leg; it cannot be paid or recorded here until the
+        // claim ends (30 minutes after it was taken) or its holder gives it back.
+        if (row.leg.claimedBy && !row.leg.claimedByMe) {
+          return (
+            <div className="space-y-1 md:max-w-56">
+              <Badge variant="warning">{t("payouts.claimedByOther")}</Badge>
+              <p className="text-xs text-text-muted">
+                {fill(t("payouts.claimedByOtherHint"), {
+                  admin: row.leg.claimedBy,
+                  time: row.leg.claimExpiresAt ? formatDateTime(row.leg.claimExpiresAt) : "",
+                })}
+              </p>
+            </div>
+          );
+        }
+
         const value = refs[row.key] ?? "";
-        const busy = submitting === row.key;
+        const busy = submitting === row.key || claiming === row.key;
         const checkPortalFirst = CHECK_PORTAL_FIRST.has(row.payout.reason);
+        const claimLine = row.leg.claimedByMe ? (
+          <div className="space-y-1">
+            <p className="text-xs text-success">
+              {fill(t("payouts.claimedByYou"), {
+                time: row.leg.claimExpiresAt ? formatDateTime(row.leg.claimExpiresAt) : "",
+              })}
+            </p>
+            <button
+              type="button"
+              onClick={() => changeClaim(row, "unclaim")}
+              disabled={busy}
+              className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
+            >
+              {t("payouts.unclaim")}
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <p className="text-xs text-text-muted">{t("payouts.claimHint")}</p>
+            <button
+              type="button"
+              onClick={() => changeClaim(row, "claim")}
+              disabled={busy}
+              className="rounded border border-primary px-2 py-1 text-xs text-primary hover:bg-primary/10 disabled:opacity-50"
+            >
+              {t("payouts.claim")}
+            </button>
+          </div>
+        );
         if (confirming === row.key) {
           return (
             <div className="space-y-2">
@@ -318,6 +403,7 @@ export function ManualPayoutsPage() {
 
         return (
           <div className="flex flex-col gap-2 md:min-w-56">
+            {claimLine}
             <input
               type="text"
               value={value}

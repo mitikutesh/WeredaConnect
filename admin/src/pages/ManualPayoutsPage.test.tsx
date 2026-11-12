@@ -24,11 +24,13 @@ const mocks = vi.hoisted(() => ({
     fetchNextPage: vi.fn(),
   },
   mutate: vi.fn<(vars: unknown, opts?: MutateOptions) => void>(),
+  claim: vi.fn<(vars: unknown, opts?: MutateOptions) => void>(),
 }));
 
 vi.mock("@/hooks/useQuery", () => ({
   useManualPayouts: () => mocks.payouts,
   useCompleteManualPayout: () => ({ mutate: mocks.mutate, isPending: false }),
+  useManualPayoutClaim: () => ({ mutate: mocks.claim, isPending: false }),
 }));
 
 vi.mock("@/hooks/useLocale", async () => {
@@ -132,6 +134,7 @@ function rowFor(text: string): HTMLElement {
 describe("ManualPayoutsPage", () => {
   beforeEach(() => {
     mocks.mutate.mockReset();
+    mocks.claim.mockReset();
     mocks.payouts.isLoading = false;
     mocks.payouts.isError = false;
     mocks.payouts.hasNextPage = false;
@@ -429,6 +432,138 @@ describe("ManualPayoutsPage", () => {
     expect(within(rowFor("Sara Bekele")).getByText(warning)).toBeTruthy();
     // Confirmed before the refund was queued (for example a buyer_wins verdict): no warning.
     expect(within(rowFor("Hana Girma")).queryByText(warning)).toBeNull();
+  });
+
+  /* FUP-05: claims on legs and one leg per portal reference. */
+  function withFarmerClaim(claim: Record<string, unknown>) {
+    const payout = releaseWithTwoLegs();
+    const [farmer, trucker] = payout.legs as Record<string, unknown>[];
+    return pages({ payouts: [{ ...payout, legs: [{ ...farmer, ...claim }, trucker] }], total: 1 });
+  }
+
+  it("offers Claim on an unclaimed leg and posts the claim", async () => {
+    mocks.claim.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.();
+      opts?.onSettled?.();
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const farmerRow = rowFor("Abebe Kebede");
+    expect(
+      within(farmerRow).getByText(
+        "Claim this leg before you pay it in the portal, so no other admin pays it too.",
+      ),
+    ).toBeTruthy();
+    await user.click(within(farmerRow).getByRole("button", { name: "Claim" }));
+
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
+    expect(mocks.claim.mock.calls[0][0]).toEqual({
+      escrowId: "escrow-order-ord-1",
+      ref: "farmer",
+      action: "claim",
+    });
+    expect(screen.getByRole("status").textContent).toBe(
+      "Leg claimed for 30 minutes. Pay it in the portal, then record the transaction ID.",
+    );
+    // Recording stays open on an unclaimed leg: the record claims it in the same write.
+    expect(within(farmerRow).getByLabelText("Telebirr transaction ID")).toBeTruthy();
+  });
+
+  it("shows the viewer's own claim with Release claim, and keeps the record form", async () => {
+    mocks.payouts.data = withFarmerClaim({
+      claimedBy: "admin-1",
+      claimedAt: hoursAgo(0),
+      claimExpiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
+      claimedByMe: true,
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const farmerRow = rowFor("Abebe Kebede");
+    expect(within(farmerRow).getByText(/^You are paying this leg \(claimed until .+\)\.$/)).toBeTruthy();
+    expect(within(farmerRow).queryByRole("button", { name: "Claim" })).toBeNull();
+    expect(within(farmerRow).getByLabelText("Telebirr transaction ID")).toBeTruthy();
+    await user.click(within(farmerRow).getByRole("button", { name: "Release claim" }));
+
+    expect(mocks.claim.mock.calls[0][0]).toEqual({
+      escrowId: "escrow-order-ord-1",
+      ref: "farmer",
+      action: "unclaim",
+    });
+  });
+
+  it("blocks a leg another admin has claimed: no claim, no record, and who holds it", () => {
+    mocks.payouts.data = withFarmerClaim({
+      claimedBy: "admin-2",
+      claimedAt: hoursAgo(0),
+      claimExpiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
+      claimedByMe: false,
+    });
+    renderPage();
+
+    const farmerRow = rowFor("Abebe Kebede");
+    expect(within(farmerRow).getByText("Another admin is paying this")).toBeTruthy();
+    expect(
+      within(farmerRow).getByText(/^Claimed by admin-2 until .+\. Do not pay it in the portal\.$/),
+    ).toBeTruthy();
+    expect(within(farmerRow).queryByRole("button", { name: "Claim" })).toBeNull();
+    expect(within(farmerRow).queryByRole("button", { name: "Mark as paid" })).toBeNull();
+    expect(within(farmerRow).queryByLabelText("Telebirr transaction ID")).toBeNull();
+  });
+
+  it("shows a claim refused because another admin holds it", async () => {
+    mocks.claim.mockImplementation((_vars, opts) => {
+      opts?.onError?.({ code: "ESCROW_046", message: "Another admin (admin-2) has claimed this leg." });
+      opts?.onSettled?.();
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(within(rowFor("Abebe Kebede")).getByRole("button", { name: "Claim" }));
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Another admin has claimed this leg. Do not pay it. The list now shows who holds it.",
+    );
+  });
+
+  it("names where a duplicate reference is already recorded", async () => {
+    mocks.mutate.mockImplementation((_vars, opts) => {
+      opts?.onError?.({
+        code: "ESCROW_047",
+        message: "This reference is already recorded on escrow escrow-order-ord-9, leg release#farmer.",
+      });
+      opts?.onSettled?.();
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const farmerRow = rowFor("Abebe Kebede");
+    await user.type(within(farmerRow).getByLabelText("Telebirr transaction ID"), "TB2026100600001");
+    await user.click(within(farmerRow).getByRole("button", { name: "Mark as paid" }));
+    await user.click(within(farmerRow).getByRole("button", { name: "Yes, recorded" }));
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "This Telebirr transaction ID is already recorded on escrow escrow-order-ord-9, leg release#farmer. Check the ID in the portal: one payment cannot be recorded twice.",
+    );
+  });
+
+  it("falls back to the plain duplicate message when the server does not name the place", async () => {
+    mocks.mutate.mockImplementation((_vars, opts) => {
+      opts?.onError?.({ code: "ESCROW_047", message: "This reference is already recorded on another payout leg." });
+      opts?.onSettled?.();
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const farmerRow = rowFor("Abebe Kebede");
+    await user.type(within(farmerRow).getByLabelText("Telebirr transaction ID"), "TB2026100600001");
+    await user.click(within(farmerRow).getByRole("button", { name: "Mark as paid" }));
+    await user.click(within(farmerRow).getByRole("button", { name: "Yes, recorded" }));
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "This Telebirr transaction ID is already recorded on another payout. Check the ID in the portal.",
+    );
   });
 
   it("shows the empty state when nothing is waiting", () => {

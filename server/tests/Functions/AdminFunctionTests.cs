@@ -98,6 +98,7 @@ public class AdminFunctionTests
     private const string DeliveriesTable = "deliveries-test";
     private const string AuditTable = "escrow-audit-test";
     private const string TxAuditTable = "transaction-audit-test";
+    private const string IdempotencyTable = "escrow-idempotency-test";
 
     private static AttributeValue S(string v) => new() { S = v };
     private static AttributeValue Num(string v) => new() { N = v };
@@ -1914,7 +1915,7 @@ public class AdminFunctionTests
     };
 
     private static AdminFunction PayoutFunction(IAmazonDynamoDB db) =>
-        new(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+        new(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable, IdempotencyTable);
 
     [Fact]
     public async Task ManualPayouts_List_QueriesTheIndexAndMapsLegs()
@@ -1951,6 +1952,8 @@ public class AdminFunctionTests
             .Returns(new GetItemResponse { Item = BuyerUserItem() });
         db.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>()).Returns(new UpdateItemResponse());
         db.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>()).Returns(new PutItemResponse());
+        db.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new TransactWriteItemsResponse());
 
         var response = await PayoutFunction(db).FunctionHandler(
             AdminGroupRequest("POST", "/admin/payouts/escrow-order-ord-7/buyer/complete",
@@ -1959,13 +1962,17 @@ public class AdminFunctionTests
 
         response.StatusCode.Should().Be(200);
         response.Body.Should().Contain("\"escrowStatus\":\"refunded\"").And.Contain("TB-REF-0009");
-        await db.Received(1).UpdateItemAsync(
-            Arg.Is<UpdateItemRequest>(u =>
-                u.TableName == EscrowsTable
-                && u.ExpressionAttributeValues[":newStatus"].S == "refunded"
-                && u.ExpressionAttributeValues[":ref"].S == "TB-REF-0009"
-                && u.ExpressionAttributeValues[":paidBy"].S == "admin-1"
-                && u.UpdateExpression.Contains("REMOVE #marker")),
+        // FUP-05: the close and the reference item commit together.
+        await db.Received(1).TransactWriteItemsAsync(
+            Arg.Is<TransactWriteItemsRequest>(t =>
+                t.TransactItems.Count == 2
+                && t.TransactItems[0].Update.TableName == EscrowsTable
+                && t.TransactItems[0].Update.ExpressionAttributeValues[":newStatus"].S == "refunded"
+                && t.TransactItems[0].Update.ExpressionAttributeValues[":ref"].S == "TB-REF-0009"
+                && t.TransactItems[0].Update.ExpressionAttributeValues[":paidBy"].S == "admin-1"
+                && t.TransactItems[0].Update.UpdateExpression.Contains("REMOVE #marker")
+                && t.TransactItems[1].Put.TableName == IdempotencyTable
+                && t.TransactItems[1].Put.Item["idempotencyKey"].S == "payout-ref#TB-REF-0009"),
             Arg.Any<CancellationToken>());
         await db.Received().PutItemAsync(
             Arg.Is<PutItemRequest>(p => p.TableName == AuditTable && p.Item["action"].S == "manual_payout_paid"),

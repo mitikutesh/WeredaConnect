@@ -34,6 +34,11 @@ internal sealed record LedgerRow
     public string? DueAt { get; init; }
     public int Version { get; init; }
 
+    /// <summary>FUP-05: the admin who claimed this manual row, when, and until when (bookkeeping, no version).</summary>
+    public string? ClaimedBy { get; init; }
+    public string? ClaimedAt { get; init; }
+    public string? ClaimExpiresAt { get; init; }
+
     public bool IsOfAmount => LedgerRefs.IsRowOfAmount(Ref);
 
     /// <summary>A row the gateway pays out of the platform account to the buyer.</summary>

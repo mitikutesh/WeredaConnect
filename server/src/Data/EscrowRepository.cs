@@ -686,7 +686,7 @@ public sealed class EscrowRepository : IEscrowRepository
     /// <inheritdoc />
     public async Task<bool> TryMarkManualLegPaidAsync(
         string escrowId, string createdAt, string op, string leg, string externalRef,
-        string paidBy, string paidAt, string? otherLegMustBePending)
+        string paidBy, string paidAt, string? otherLegMustBePending, PayoutReferenceRecord? reference = null)
     {
         var names = new Dictionary<string, string>
         {
@@ -717,25 +717,90 @@ public sealed class EscrowRepository : IEscrowRepository
             condition += " AND #otherStatus = :pending";
         }
 
+        var claimRemoves = AddLegClaimGuard(names, ref condition, leg);
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
             Key = EscrowKey(escrowId, createdAt),
             UpdateExpression =
                 "SET #legStatus = :paid, #legRef = :ref, #legPaidBy = :paidBy, #legPaidAt = :paidAt, #updated = :paidAt "
-                + "ADD #version :one",
+                + "REMOVE " + claimRemoves + " ADD #version :one",
             ConditionExpression = condition,
             ExpressionAttributeNames = names,
             ExpressionAttributeValues = values
         };
 
+        return await WriteManualRecordAsync(request, reference);
+    }
+
+    /// <summary>
+    /// FUP-05: a leg is recorded only when no other admin holds a live claim on it (the recording admin's
+    /// own claim, an expired one or none), and the record ends the leg's claim. The claim condition judges
+    /// expiry at the record's own paid time (<c>:paidAt</c>) and the holder by the recording admin
+    /// (<c>:paidBy</c>). Returns the REMOVE list of the leg's claim attributes.
+    /// </summary>
+    private static string AddLegClaimGuard(Dictionary<string, string> names, ref string condition, string leg)
+    {
+        names["#claimBy"] = ManualPayoutClaimFields.ClaimedByAttr(leg);
+        names["#claimAt"] = ManualPayoutClaimFields.ClaimedAtAttr(leg);
+        names["#claimExp"] = ManualPayoutClaimFields.ClaimExpiresAtAttr(leg);
+        condition += " AND (attribute_not_exists(#claimBy) OR #claimBy = :paidBy OR #claimExp < :paidAt)";
+        return "#claimBy, #claimAt, #claimExp";
+    }
+
+    /// <summary>
+    /// FUP-05: the record write, with its reference item in the same transaction when a reference table is
+    /// wired. False when the escrow condition failed (the caller reads again); a transaction that failed only on
+    /// the reference item throws <see cref="PayoutReferenceTakenException"/>.
+    /// </summary>
+    private async Task<bool> WriteManualRecordAsync(UpdateItemRequest request, PayoutReferenceRecord? reference)
+    {
+        if (reference == null)
+        {
+            try
+            {
+                await _dynamoDb.UpdateItemAsync(request);
+                return true;
+            }
+            catch (ConditionalCheckFailedException)
+            {
+                return false;
+            }
+        }
+
+        var items = new List<TransactWriteItem>
+        {
+            new()
+            {
+                Update = new Update
+                {
+                    TableName = request.TableName,
+                    Key = request.Key,
+                    UpdateExpression = request.UpdateExpression,
+                    ConditionExpression = request.ConditionExpression,
+                    ExpressionAttributeNames = request.ExpressionAttributeNames,
+                    ExpressionAttributeValues = request.ExpressionAttributeValues
+                }
+            },
+            PayoutReferenceFields.BuildPut(reference)
+        };
         try
         {
-            await _dynamoDb.UpdateItemAsync(request);
+            await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest { TransactItems = items });
             return true;
         }
-        catch (ConditionalCheckFailedException)
+        catch (TransactionCanceledException ex)
         {
+            var reasons = ex.CancellationReasons ?? new List<CancellationReason>();
+            var escrowFailed = reasons.Count > 0 && reasons[0]?.Code == "ConditionalCheckFailed";
+            var referenceFailed = reasons.Count > 1 && reasons[1]?.Code == "ConditionalCheckFailed";
+            if (referenceFailed && !escrowFailed)
+            {
+                throw new PayoutReferenceTakenException(reference.ExternalRef);
+            }
+
+            // The escrow changed (another leg, a claim, the queue closed) or a concurrent transaction on the
+            // same items: nothing was written, and the caller reads again.
             return false;
         }
     }
@@ -744,7 +809,7 @@ public sealed class EscrowRepository : IEscrowRepository
     public async Task<bool> TryCloseManualPayoutAsync(
         string escrowId, string createdAt, string op, string leg, string externalRef,
         string paidBy, string paidAt, IReadOnlyList<string> otherLegsMustBePaid,
-        string newStatus, Dictionary<string, object> settlementFields)
+        string newStatus, Dictionary<string, object> settlementFields, PayoutReferenceRecord? reference = null)
     {
         var sets = new List<string>
         {
@@ -825,6 +890,7 @@ public sealed class EscrowRepository : IEscrowRepository
             removes += ", #tPending, #tBlock, #tBlockAt, #tLockId, #tLockAt";
         }
 
+        removes += ", " + AddLegClaimGuard(names, ref condition, leg);
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
@@ -835,15 +901,7 @@ public sealed class EscrowRepository : IEscrowRepository
             ExpressionAttributeValues = values
         };
 
-        try
-        {
-            await _dynamoDb.UpdateItemAsync(request);
-            return true;
-        }
-        catch (ConditionalCheckFailedException)
-        {
-            return false;
-        }
+        return await WriteManualRecordAsync(request, reference);
     }
 
     /// <inheritdoc />

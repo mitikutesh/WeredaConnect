@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.10.0
+2.12.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -2073,11 +2073,13 @@ matching rule are in §Additions in 1.20.0.
 
 ### Not in 1.8.0 (known limits)
 - No cancel or reassign of a queued payout, no cross-escrow uniqueness of references and no
-  verification of the reference against Telebirr (no API).
+  verification of the reference against Telebirr (no API). Cross-escrow uniqueness: done in 2.12.0
+  (FUP-05).
 - No claim step: two admins can both pay the same leg in the merchant portal before either
   records it. The second record is refused (`ESCROW_036`, audited as
   `manual_payout_refused`), but the second payment has already left; it is recovered by hand.
-  One admin works the queue at a time until a claim step exists.
+  One admin works the queue at a time until a claim step exists. Done in 2.12.0 (FUP-05): a claim
+  per leg.
 - A leg the identity gate blocks (`ESCROW_029`: an unverified trucker, an escrow without
   `truckerId`, a buyer without a profile or phone) cannot be recorded and has no unqueue path.
   It stays in the queue and keeps `${prefix}-manual-payouts-overdue` in ALARM until the payee
@@ -4729,6 +4731,154 @@ escrow's expiry comes up. A delivery in flight is stamped at its confirmation.
 
 ---
 
+## Additions in 2.12.0 (manual payout claims and one leg per reference, FUP-05)
+
+Closes two limits of 1.8.0: nothing showed that another admin was already paying a leg in the Telebirr
+merchant portal, so two admins could both pay it before either recorded it, and the same portal reference
+could be recorded on two legs or two escrows. Both settlement models (1.x legs on the escrow row, ledger rows
+of P.8). Nothing here changes an amount, a status, what recording a leg does to the escrow or the ledger
+(`releasedAt`, the close, the clean-delivery credit of FUP-137), the payout risk gate of 2.6.0 (it still does
+not gate the manual record) or the overdue alarm: a claimed leg is still owed and still overdue.
+
+### The claim
+
+An admin claims a leg before paying it. A claim names the admin, when it was taken and when it ends: 30
+minutes after it was taken or renewed (`ManualPayoutClaimFields.Ttl`, a constant like the 15 minute stale
+lock). Nobody can take a live claim over; it ends on its own, when its holder gives it back, or when the leg
+is recorded.
+
+| Where | Attributes |
+|---|---|
+| 1.x leg, on the escrow row | `manual{Leg}ClaimedBy`, `manual{Leg}ClaimedAt`, `manual{Leg}ClaimExpiresAt` (`{Leg}` = `Farmer`, `Trucker`, `Buyer`) |
+| ledger row | `claimedBy`, `claimedAt`, `claimExpiresAt` |
+
+Times are ISO 8601 UTC in the `o` format and are compared as strings. A claim is server bookkeeping like the
+settlement locks: no escrow `version` (1.38.0) and no ledger row `version` moves with it, and the escrows
+stream sees no status change.
+
+`POST /admin/payouts/{escrowId}/{ref}/claim`, no body. Admin pool **and** the `admin` group, as the record
+(`403 ESCROW_015`). Claims a pending leg, or renews the caller's own claim, for 30 minutes from now, in one
+conditional UpdateItem: the 1.x queue open for the leg's operation and the leg `pending`, or the ledger row
+`manual`; and `attribute_not_exists(claimedBy) OR claimedBy = caller OR claimExpiresAt < now`. A failed
+condition reads the row again and answers from it.
+
+```json
+{
+  "escrowId": "escrow-order-ord-1",
+  "orderId": "ord-1",
+  "ref": "release#farmer",
+  "claimed": true,
+  "claimedBy": "<admin id>",
+  "claimedAt": "2026-11-12T10:00:00.0000000Z",
+  "claimExpiresAt": "2026-11-12T10:30:00.0000000Z",
+  "renewed": false,
+  "released": false,
+  "message": "Leg claimed. Pay it in the portal, then record its transaction ID."
+}
+```
+
+`POST /admin/payouts/{escrowId}/{ref}/unclaim`, no body, same authorization: removes the caller's own claim
+(live or expired), conditional on `claimedBy = caller`, and answers `claimed: false`, `released: true`. A leg
+with no claim, or with an expired claim of another admin, answers `released: false` and writes nothing.
+
+| Status | Code | When (claim and unclaim) |
+|---|---|---|
+| `200` | | claimed, renewed or released; `released: false` when there was nothing of the caller's to release |
+| `403` | `ESCROW_015` | caller not in the admin group |
+| `404` | `ESCROW_016` | 1.x escrow not found |
+| `404` | `ESCROW_035` | unknown leg or ledger row, leg not part of the operation, or no open manual payout |
+| `409` | `ESCROW_035` | claim: the leg is already recorded, or the ledger row is not `manual`, or the leg changed twice while claiming |
+| `409` | `ESCROW_046` | another admin holds a live claim; the message names the admin id and the end of the claim |
+| `503` | `ADMIN_004` | escrow tables or `ESCROW_IDEMPOTENCY_TABLE` not configured; `ESCROW_012` for a ledger ref without the ledger table |
+
+**One route.** API Gateway serves complete, claim and unclaim from one route,
+`POST /admin/payouts/{escrowId}/{ref}/{action}` (it replaces the `.../complete` route): with Telebirr live on
+the API stack holds 497 of CloudFormation's 500 resources, and each route costs a route, an integration and a
+Lambda permission. Any other action answers `404 ADMIN_002`. `{ref}` takes a 1.x leg name or a ledger ref
+(`release%23farmer`) on all three; before 2.12.0 the record route answered `404 ESCROW_035` for every ledger
+ref, so a ledger row could not be recorded from the admin app (P.8 said it could).
+
+### Recording a claimed leg
+
+`POST /admin/payouts/{escrowId}/{ref}/complete` refuses a leg another admin holds a live claim on: `409
+ESCROW_046`, audited `manual_payout_refused`. The check is made on the row read and again by the record's own
+write, whose condition gains `attribute_not_exists(claimedBy) OR claimedBy = caller OR claimExpiresAt <
+paidAt` (1.x; the ledger row update the same with the record's time), so a claim that lands between the read
+and the write is never recorded over. The caller's own claim, an expired claim or no claim at all record the
+leg: an unclaimed leg is claimed and recorded in the same conditional write, so an admin working alone needs
+no extra click. The record removes the leg's claim.
+
+### One leg per reference
+
+Each record writes a reference item in escrow-idempotency in the same `TransactWriteItems` as the leg (the 1.x
+leg write or close, or the ledger row's done transaction with its escrow update and audit rows), conditioned
+on `attribute_not_exists(idempotencyKey)`:
+
+| Attribute | Value |
+|---|---|
+| `idempotencyKey` | `payout-ref#{REFERENCE}`: the `externalRef` trimmed (as the 1.8.0 validation) and upper case, so the same portal id typed in another case is the same reference |
+| `kind` | `payout_ref` |
+| `escrowId`, `ref` | where it is recorded: the escrow and the 1.x leg name or the ledger ref |
+| `externalRef` | the reference as entered (trimmed) |
+| `recordedBy`, `recordedAt` | the admin and the record's time |
+| `expiresAt` | `recordedAt` + 400 days (account-deletion.md: every escrow-idempotency row expires within 400 days) |
+
+A transaction that fails only on the reference item is refused: `409 ESCROW_047` with `field: externalRef`
+and the place named in a fixed form, `This reference is already recorded on escrow {escrowId}, leg {ref}.`
+(read strongly consistent from the item; `... on another payout leg.` when it cannot be read). Nothing is
+written and the leg stays queued. Audited `manual_payout_refused` with `code=ESCROW_047` and
+`usedOn={escrowId}/{ref}` in the metadata. The 1.8.0 check that a reference is not used on another leg of the
+same 1.x escrow (`409 ESCROW_036`) stays. A replay of the same leg with the same reference is answered from
+the recorded leg before any write (`alreadyRecorded: true`); a transaction that loses to the same leg's own
+record reads the leg again and answers the replay.
+
+`POST .../complete` answers `503 ADMIN_004` when the admin Lambda has no `ESCROW_IDEMPOTENCY_TABLE`, so no
+leg is recorded without its reference item.
+
+### The queue list
+
+`GET /admin/payouts/manual`: each pending leg gains `claimedBy`, `claimedAt`, `claimExpiresAt` and
+`claimedByMe` (whether the caller holds it) while a live claim exists; all four are absent otherwise (an
+expired claim is not shown).
+
+### Audit
+
+escrow-audit: `manual_payout_claimed` (metadata `leg=..` for a 1.x leg or `ref=..` for a ledger row, then
+`;expiresAt=..;renewed=true|false`), `manual_payout_claim_released` (`leg=..` or `ref=..`), and the
+`manual_payout_refused` rows above. transaction-audit (the admin Audit Log): `admin_manual_payout_claimed`
+(`leg=..;expiresAt=..;renewed=..`), `admin_manual_payout_claim_released` (`leg=..`), and
+`admin_manual_payout_refused` for `ESCROW_047` (`leg=..;code=ESCROW_047;ref=..`, transaction id the escrow
+id). A failed audit write never changes the answer. No new log token or alarm.
+
+### Admin page
+
+Manual Payouts shows each pending leg's claim. An unclaimed leg offers **Claim** next to the reference form
+(recording it directly still claims it). A leg the viewer claimed says so with its end time and offers
+**Release claim**. A leg another admin claimed shows who holds it and until when, and offers no claim, no
+reference field and no record. `ESCROW_046` and `ESCROW_047` have their own texts in en, am and om; the
+`ESCROW_047` text names the escrow and leg from the server message. A refused record or claim reloads the
+queue.
+
+### Infrastructure
+
+The admin Lambda gains `dynamodb:GetItem` on escrow-idempotency (the refused reference's read; it had
+`PutItem` only). The claim writes use the existing UpdateItem grants on the escrows and ledger tables. No new
+table, index, route resource or env var.
+
+### Not in 2.12.0 (known limits)
+
+- References recorded before 2.12.0 have no reference item, so a new record of one of them is not refused
+  (FUP-215, backfill from the escrow rows and done ledger rows).
+- A claim is advisory in the portal: an admin who pays without looking at the page can still pay a leg
+  another admin claimed. Their record is refused while the claim lives; the second payment is recovered by
+  hand as in 1.8.0.
+- Only admin-recorded references are unique: a gateway reference (a leg seeded `paid` by the gateway, a ledger
+  row done by the gateway) and the FUP-02 unapplied refund (`POST /admin/payments/{orderId}/refund-manual`)
+  write no reference item (FUP-216).
+- A reference item expires 400 days after its record; the same reference can be recorded again after that.
+
+---
+
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
 
 > **P.1 to P.9 and P.11 to P.13 are built in 2.2.0** (ESC-20, "Additions in 2.2.0", which says where the
@@ -5073,6 +5223,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.12.0 | 2026-11-12 | Manual payout claims and one leg per reference (FUP-05, §Additions in 2.12.0). `POST /admin/payouts/{escrowId}/{ref}/claim` and `/unclaim` (admin group): a 30 minute claim per leg on the escrow row or the ledger row, taken by a conditional write, never taken over; the record refuses another admin's live claim (`409 ESCROW_046`, also in the write's condition) and ends the claim; each record writes a `payout-ref#{REFERENCE}` item in escrow-idempotency in its transaction, and a reference recorded on another leg is `409 ESCROW_047` naming where. The list shows each leg's live claim. Complete, claim and unclaim share the route `POST /admin/payouts/{escrowId}/{ref}/{action}`, which also accepts ledger refs (the record route refused them before). Audit rows for claims, releases and refused references. The admin Lambda gains GetItem on escrow-idempotency. No change to amounts, statuses, the close or the overdue alarm. 2.11.0 is another branch's number |
 | 2.10.0 | 2026-11-12 | ESC-33 (§Additions in 2.10.0), no wire change. Behind `reputationPenalties` (off everywhere): the payout delay also reads the payee's reputation tier from the users row, `low` as `new` and restricted as `flagged`; off, the classes and reads are those of 1.33.0. Behind the same flag a GPS-inconsistent confirm also puts a capped `GPS_ANOMALY` row on the trucker, which can make that trucker a `new` payee on later deliveries. Nothing is live. (2.9.0 is another ticket's version.) |
 | 2.9.0 | 2026-11-12 | The release against the crash recovery (FUP-65): a 1.x release whose `completed` write loses to the hourly crash recovery reads the row and answers its normal success (`completed`, one payout, no second `complete` row, the same success on replay) instead of `500`; the recovery leaves a row released less than 2 minutes ago to its release and treats a lost write as no failure. Unlinked order escrows (FUP-66): the delivery confirmation stamps the order's own escrow when the `DeliveryIndex` names none; the refund sweep's safety net and the admin queue review find the delivery through the order's `activeDeliveryId`, so a confirmed delivery is never refunded; a funded order without an escrow row is not cash at the QR gate (`delivery-verification-api.md` 2.4.0). Server only; no endpoint, field, status or client change. 2.7.0 is another change's number. |
 | 2.8.0 | 2026-11-12 | Client error handling, no server change (FUP-70, FUP-77): the clients keep the body's `ESCROW_*` code on `502` and `503` and fall back to `ESCROW_013` and `ESCROW_014` only without one; the mobile intent queue fails a queued delivery payment at once on `400`, `422` and any other `4xx` with an `ESCROW_*` code (not `401`, `404`, `408`, `429`), stores the error code and shows its localized text; the `409 ESCROW_INVALID_TRANSITION` message of a dispute on a scheduled refund (`refund to the buyer is scheduled`) is now relied on by the clients and has its own text; the step-up prompts on the dispute screens name the dispute. 2.6.0 is taken by another branch |

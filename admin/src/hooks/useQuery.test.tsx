@@ -3,7 +3,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useFraudSignals, useHeldEscrows, useSettleHeldEscrow } from "./useQuery";
+import { useFraudSignals, useHeldEscrows, useManualPayoutClaim, useSettleHeldEscrow } from "./useQuery";
 
 /* FRD-07: what the Fraud Review hooks send. The release and refund of a held escrow go through the
  * escrow routes (fraud-detection-architecture.md section 18.3), so their bodies must carry what those
@@ -91,5 +91,19 @@ describe("Fraud Review hooks", () => {
       idempotencyKey: expect.stringMatching(/^admin:escrow-order-ord-9:refund:\d+$/),
       reason: "Goods never sent.",
     });
+  });
+});
+
+describe("Manual payout claim hook (FUP-05)", () => {
+  beforeEach(() => {
+    api.post.mockReset();
+    api.post.mockResolvedValue({ claimed: true });
+  });
+
+  it.each(["claim", "unclaim"] as const)("posts %s to the leg's route, a ledger ref URL-encoded, with no body", async (action) => {
+    const { result } = renderHook(() => useManualPayoutClaim(), { wrapper: wrapper() });
+    await result.current.mutateAsync({ escrowId: "escrow-order-ord-9", ref: "release#farmer", action });
+
+    expect(api.post).toHaveBeenCalledWith(`/admin/payouts/escrow-order-ord-9/release%23farmer/${action}`);
   });
 });

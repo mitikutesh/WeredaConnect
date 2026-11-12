@@ -5542,7 +5542,8 @@ public sealed partial class EscrowService
     /// GET /admin/payouts/manual: escrows whose release or refund the gateway could not make,
     /// oldest first, with one row per payee leg (amount, registered phone, identity gate).
     /// </summary>
-    public async Task<EscrowResult<ManualPayoutListResponse>> ListManualPayoutsAsync(int limit, string? nextToken)
+    public async Task<EscrowResult<ManualPayoutListResponse>> ListManualPayoutsAsync(
+        int limit, string? nextToken, string? viewerId = null)
     {
         if (limit < 1 || limit > 50)
         {
@@ -5563,17 +5564,19 @@ public sealed partial class EscrowService
         var (items, lastEvaluatedKey) = await _escrowRepo.QueryOpenManualPayoutsAsync(limit, exclusiveStartKey);
         var userCache = new Dictionary<string, UserDto?>(StringComparer.Ordinal);
         var payouts = new List<ManualPayoutDto>(items.Count);
+        // FUP-05: each pending leg shows its live claim, and whether the viewer holds it.
+        var nowIso = ClaimNowIso();
 
         // ESC-20 (P.8): the ledger's manual rows, one entry per escrow, on the first page (oldest first);
         // the 1.x queue follows, paged by its token, until it is drained.
         if (exclusiveStartKey == null)
         {
-            payouts.AddRange(await ListLedgerManualPayoutsAsync(userCache));
+            payouts.AddRange(await ListLedgerManualPayoutsAsync(userCache, viewerId, nowIso));
         }
 
         foreach (var item in items)
         {
-            payouts.Add(await MapManualPayoutAsync(item, userCache));
+            payouts.Add(await MapManualPayoutAsync(item, userCache, viewerId, nowIso));
         }
 
         return EscrowResult<ManualPayoutListResponse>.Success(new ManualPayoutListResponse
@@ -5618,13 +5621,14 @@ public sealed partial class EscrowService
         var ledgerRef = Uri.UnescapeDataString(leg);
         if (ledgerRef.Contains('#', StringComparison.Ordinal))
         {
-            var ledgerResult = await CompleteLedgerManualPayoutAsync(escrowId, ledgerRef, reference, actorUserId);
+            var (ledgerResult, refusalDetail) = await CompleteLedgerManualPayoutAsync(escrowId, ledgerRef, reference, actorUserId);
             if (!ledgerResult.IsSuccess && ledgerResult.Error!.HttpStatus is 404 or 409)
             {
                 try
                 {
                     await AppendAuditAsync(escrowId, "manual_payout_refused", "", "", actorUserId,
-                        metadata: $"ref={ledgerRef};code={ledgerResult.Error.Code};attemptedRef={reference}");
+                        metadata: $"ref={ledgerRef};code={ledgerResult.Error.Code};attemptedRef={reference}"
+                                  + (refusalDetail == null ? "" : ";" + refusalDetail));
                 }
                 catch (Exception ex)
                 {
@@ -5644,19 +5648,19 @@ public sealed partial class EscrowService
         // A refusal on an existing escrow is audited too, so a second admin who tried to record
         // another reference (or a blocked payee) leaves a trace next to the leg.
         async Task<EscrowResult<CompleteManualPayoutResponse>> RefuseAsync(
-            string status, int httpStatus, string code, string message)
+            string status, int httpStatus, string code, string message, string? field = null, string? detail = null)
         {
             try
             {
                 await AppendAuditAsync(escrowId, "manual_payout_refused", status, status, actorUserId,
-                    metadata: $"leg={leg};code={code};attemptedRef={reference}");
+                    metadata: $"leg={leg};code={code};attemptedRef={reference}" + (detail == null ? "" : ";" + detail));
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"ESCROW_MANUAL_PAYOUT_REFUSAL_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
             }
 
-            return EscrowResult<CompleteManualPayoutResponse>.Failure(httpStatus, code, message);
+            return EscrowResult<CompleteManualPayoutResponse>.Failure(httpStatus, code, message, field);
         }
 
         const int maxAttempts = 3;
@@ -5714,6 +5718,14 @@ public sealed partial class EscrowService
                 }
             }
 
+            // FUP-05: a leg another admin has claimed is theirs to pay and record until the claim ends.
+            var (claimedBy, _, claimExpiresAt) = LegClaim(escrow, leg);
+            if (ManualPayoutClaimFields.IsHeldByOther(claimedBy, claimExpiresAt, actorUserId, ClaimNowIso()))
+            {
+                var claimed = ClaimedByOther<CompleteManualPayoutResponse>(claimedBy!, claimExpiresAt!).Error!;
+                return await RefuseAsync(currentStatus, claimed.HttpStatus, claimed.Code, claimed.Message);
+            }
+
             // ESC-04: a trucker leg queued on a released escrow (the farmer already paid) closes too.
             var releasedTruckerQueue = IsReleasedTruckerQueue(escrow);
             if (!ManualPayoutSettleableStatuses.Contains(currentStatus) && !releasedTruckerQueue)
@@ -5765,54 +5777,72 @@ public sealed partial class EscrowService
                 .ToList();
             var now = DateTime.UtcNow.ToString("o");
             var newStatus = currentStatus;
+            // FUP-05: the reference item goes in the record's transaction, so one reference records one leg.
+            var referenceRecord = BuildReferenceRecord(reference, escrowId, leg, actorUserId, now);
             bool written;
-            if (pendingOthers.Count > 0)
+            try
             {
-                written = await _escrowRepo.TryMarkManualLegPaidAsync(
-                    escrowId, createdAt, op, leg, reference, actorUserId, now, pendingOthers[0]);
-            }
-            else if (releasedTruckerQueue)
-            {
-                // ESC-04: the release already happened (releasedAt and telebirrReleaseRef stay as the
-                // release wrote them); the last leg completes the escrow in the closing write.
-                newStatus = "completed";
-                var fields = new Dictionary<string, object>
+                if (pendingOthers.Count > 0)
                 {
-                    { TruckerPayoutFields.Ref, leg == ManualPayoutFields.LegTrucker
-                        ? reference
-                        : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegTrucker)) ?? "" },
-                    { TruckerPayoutFields.PaidAt, now },
-                    { "completedAt", AddTicks(now, 1) }
-                };
-                written = await _escrowRepo.TryCloseManualPayoutAsync(
-                    escrowId, createdAt, op, leg, reference, actorUserId, now, paidOthers, newStatus, fields);
-            }
-            else
-            {
-                newStatus = op == ManualPayoutFields.OpRelease ? "released" : "refunded";
-                var fields = new Dictionary<string, object>();
-                if (op == ManualPayoutFields.OpRelease)
+                    written = await _escrowRepo.TryMarkManualLegPaidAsync(
+                        escrowId, createdAt, op, leg, reference, actorUserId, now, pendingOthers[0], referenceRecord);
+                }
+                else if (releasedTruckerQueue)
                 {
-                    var farmerRef = leg == ManualPayoutFields.LegFarmer
-                        ? reference
-                        : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegFarmer)) ?? "";
-                    fields["telebirrReleaseRef"] = farmerRef;
-                    fields["releasedAt"] = now;
-                    if (GetStringOrNull(escrow, ManualPayoutFields.StatusAttr(ManualPayoutFields.LegTrucker)) != null)
+                    // ESC-04: the release already happened (releasedAt and telebirrReleaseRef stay as the
+                    // release wrote them); the last leg completes the escrow in the closing write.
+                    newStatus = "completed";
+                    var fields = new Dictionary<string, object>
                     {
-                        fields["truckerTelebirrRef"] = leg == ManualPayoutFields.LegTrucker
+                        { TruckerPayoutFields.Ref, leg == ManualPayoutFields.LegTrucker
                             ? reference
-                            : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegTrucker)) ?? "";
-                    }
+                            : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegTrucker)) ?? "" },
+                        { TruckerPayoutFields.PaidAt, now },
+                        { "completedAt", AddTicks(now, 1) }
+                    };
+                    written = await _escrowRepo.TryCloseManualPayoutAsync(
+                        escrowId, createdAt, op, leg, reference, actorUserId, now, paidOthers, newStatus, fields, referenceRecord);
                 }
                 else
                 {
-                    fields["telebirrRefundRef"] = reference;
-                    fields["refundedAt"] = now;
+                    newStatus = op == ManualPayoutFields.OpRelease ? "released" : "refunded";
+                    var fields = new Dictionary<string, object>();
+                    if (op == ManualPayoutFields.OpRelease)
+                    {
+                        var farmerRef = leg == ManualPayoutFields.LegFarmer
+                            ? reference
+                            : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegFarmer)) ?? "";
+                        fields["telebirrReleaseRef"] = farmerRef;
+                        fields["releasedAt"] = now;
+                        if (GetStringOrNull(escrow, ManualPayoutFields.StatusAttr(ManualPayoutFields.LegTrucker)) != null)
+                        {
+                            fields["truckerTelebirrRef"] = leg == ManualPayoutFields.LegTrucker
+                                ? reference
+                                : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegTrucker)) ?? "";
+                        }
+                    }
+                    else
+                    {
+                        fields["telebirrRefundRef"] = reference;
+                        fields["refundedAt"] = now;
+                    }
+
+                    written = await _escrowRepo.TryCloseManualPayoutAsync(
+                        escrowId, createdAt, op, leg, reference, actorUserId, now, paidOthers, newStatus, fields, referenceRecord);
+                }
+            }
+            catch (PayoutReferenceTakenException)
+            {
+                // FUP-05: the reference is recorded on another leg already (nothing was written here). A
+                // holder that is this very leg means it was recorded in between: read again for the replay.
+                var holder = await ReadReferenceHolderAsync(reference);
+                if (holder != null && holder.EscrowId == escrowId && holder.Ref == leg && attempt < maxAttempts)
+                {
+                    continue;
                 }
 
-                written = await _escrowRepo.TryCloseManualPayoutAsync(
-                    escrowId, createdAt, op, leg, reference, actorUserId, now, paidOthers, newStatus, fields);
+                return await RefuseAsync(currentStatus, 409, ReferenceTakenCode, ReferenceTakenMessage(holder),
+                    field: "externalRef", detail: ReferenceTakenDetail(holder));
             }
 
             if (!written)
@@ -6019,7 +6049,7 @@ public sealed partial class EscrowService
             .ToList();
 
     private async Task<ManualPayoutDto> MapManualPayoutAsync(
-        Dictionary<string, object> item, Dictionary<string, UserDto?> userCache)
+        Dictionary<string, object> item, Dictionary<string, UserDto?> userCache, string? viewerId = null, string? nowIso = null)
     {
         var op = GetString(item, ManualPayoutFields.Op);
         var legs = new List<ManualPayoutLegDto>();
@@ -6048,7 +6078,7 @@ public sealed partial class EscrowService
             var (verified, blockReason) = truckerBlock != null
                 ? (false, TruckerBlockMessage(truckerBlock))
                 : EvaluateManualPayee(item, leg, payee, amount);
-            legs.Add(new ManualPayoutLegDto
+            var legDto = new ManualPayoutLegDto
             {
                 Ref = leg,
                 PayeeRole = leg,
@@ -6063,7 +6093,12 @@ public sealed partial class EscrowService
                 PaidBy = GetStringOrNull(item, ManualPayoutFields.PaidByAttr(leg)),
                 PaidAt = GetStringOrNull(item, ManualPayoutFields.PaidAtAttr(leg)),
                 GatewayRef = GatewayTransactionRef(GetString(item, "escrowId"), leg)
-            });
+            };
+            // FUP-05: a pending leg's live claim (the record removes a paid leg's claim).
+            var (claimedBy, claimedAt, claimExpiresAt) = LegClaim(item, leg);
+            legs.Add(status == ManualPayoutFields.LegPending
+                ? WithClaim(legDto, claimedBy, claimedAt, claimExpiresAt, viewerId, nowIso ?? ClaimNowIso())
+                : legDto);
         }
 
         return new ManualPayoutDto
