@@ -955,7 +955,7 @@
     "tab_queue": "Admin queue",
     "tab_deadline": "Missed deadlines",
     "hint_queue": "Paid orders whose money was held 21 days and whose order is still not done. An admin decides each one.",
-    "hint_deadline": "Orders past a deadline by more than 30 minutes that the deadline run did not act on: no farmer answer, no trucker answer, no transport choice by the buyer, or a pickup that is overdue.",
+    "hint_deadline": "Orders past a deadline by more than 30 minutes that the deadline run did not act on: no farmer answer, no trucker answer, no transport choice by the buyer, or a pickup that is overdue. After them, the orders still not picked up after the overdue pickup notice went out.",
     "order": "Order",
     "reason": "Why it is stuck",
     "since": "Stuck for",
@@ -971,7 +971,8 @@
     "reason_pickup_judgement": "Pickup not judged in time",
     "reason_both_present_no_scan": "Both checked in, nothing scanned, an admin decides",
     "reason_unchecked_check_in": "The arrival check-in could not be measured, an admin decides",
-    "reason_late_pickup_evidence": "Pickup evidence arrived after the judgement"
+    "reason_late_pickup_evidence": "Pickup evidence arrived after the judgement",
+    "reason_pickup_waiting": "Pickup overdue, the notice was sent, still not picked up"
   },
   "reputation": {
     "title": "Reputation",

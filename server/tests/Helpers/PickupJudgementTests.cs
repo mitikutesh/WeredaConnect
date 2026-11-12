@@ -366,13 +366,15 @@ public class PickupJudgementTests
     }
 
     [Fact]
-    public void AJudgedOrder_HasNothingDue()
+    public void AJudgedOrderStillAccepted_WaitsInTheWatchPartition_NeverTheSweeps()
     {
         var order = Order();
         order[PickupJudgement.Field] = PickupJudgement.Outcome.BothPresentNoScan;
         order[PickupJudgement.JudgedAtField] = Iso(Deadline.AddMinutes(5));
         order[OrderCommitment.PickupOverdueNotifiedAtField] = Iso(Deadline.AddMinutes(5));
 
-        OrderDeadlines.Next(order).Should().BeNull();
+        var next = OrderDeadlines.Next(order)!.Value;
+        next.Should().Be(new OrderDeadline(Deadline, OrderDeadlines.Kind.PickupWaiting));
+        OrderDeadlines.IsSwept(next.Kind).Should().BeFalse();
     }
 }

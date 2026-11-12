@@ -346,7 +346,7 @@ describe("legs and stuck order strings exist in every locale", () => {
         (r) => `legs.manual_${r}`,
       ),
       ...[
-        "hold_cap", "farmer_response", "trucker_response", "buyer_choice", "pickup_overdue",
+        "hold_cap", "farmer_response", "trucker_response", "buyer_choice", "pickup_overdue", "pickup_waiting",
         // ESC-34: the judgement's deadline kind and its queue reasons.
         "pickup_judgement", "both_present_no_scan", "unchecked_check_in", "late_pickup_evidence",
       ].map((r) => `stuckOrders.reason_${r}`),

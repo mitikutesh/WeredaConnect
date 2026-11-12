@@ -454,15 +454,115 @@ public class AdminFunctionLegsTests
         orders[0].GetProperty("ageHours").GetInt32().Should().Be(2);
         orders[1].GetProperty("reason").GetString().Should().Be("buyer_choice");
         orders[1].GetProperty("ageHours").GetInt32().Should().Be(3);
-        Json(response).TryGetProperty("nextToken", out _).Should().BeFalse("the index ended on the second page");
+        Json(response).TryGetProperty("nextToken", out _).Should().BeFalse("both partitions of the index ended");
 
         var queries = Queries("DeadlineIndex");
-        queries.Should().HaveCount(2);
+        queries.Should().HaveCount(3);
         queries[0].ExpressionAttributeValues[":due"].S.Should().Be(Iso(Now.AddHours(1)), "rows the sweep pushed ahead for a retry are read too");
+        queries[0].ExpressionAttributeValues[":shard"].S.Should().Be(OrderDeadlines.Shard);
         queries[0].Limit.Should().Be(20);
         queries[1].Limit.Should().Be(18, "each read asks only for the rows still missing");
         queries[1].ExclusiveStartKey["orderId"].S.Should().Be("order-buyer");
+        // FUP-170: then the watch partition, from its start.
+        queries[2].ExpressionAttributeValues[":shard"].S.Should().Be(OrderDeadlines.WatchShard);
+        queries[2].ExclusiveStartKey.Should().BeNullOrEmpty();
+        queries[2].Limit.Should().Be(18);
         NothingWrittenOrScanned();
+    }
+
+    [Fact]
+    public async Task StuckOrders_Deadline_ListsThePickupWaits_FromTheWatchPartition_AfterTheSweepsPartition()
+    {
+        // FUP-170: past its pickup deadline with the notice sent; its entry in the sweep's partition lags.
+        Order("order-waiting", "accepted",
+            ("pickupDeadlineAt", Iso(Now.AddHours(-30))), ("pickupOverdueNotifiedAt", Iso(Now.AddHours(-29.75))));
+        // The notice went out 10 minutes after a deadline 20 minutes ago: inside the grace.
+        Order("order-fresh", "accepted",
+            ("pickupDeadlineAt", Iso(Now.AddMinutes(-20))), ("pickupOverdueNotifiedAt", Iso(Now.AddMinutes(-10))));
+        // Picked up since: its watch entry lags.
+        Order("order-picked", "pickup_confirmed",
+            ("pickupDeadlineAt", Iso(Now.AddHours(-50))), ("pickupOverdueNotifiedAt", Iso(Now.AddHours(-49))));
+        Order("order-farmer", "funded",
+            ("farmerResponse", "pending"), ("farmerDeadlineAt", Iso(Now.AddHours(-2))), ("paymentVerifiedAt", Iso(Now.AddHours(-26))));
+        static Dictionary<string, AttributeValue> Key(string id) => new() { ["orderId"] = S(id), ["createdAt"] = S("2026-11-01T09:00:00Z") };
+        Pages("DeadlineIndex",
+            Page(null, Key("order-waiting"), Key("order-farmer")),
+            Page(null, Key("order-picked"), Key("order-waiting"), Key("order-fresh")));
+
+        var response = await GetAsync("/admin/orders/queue", new() { ["source"] = "deadline" });
+
+        response.StatusCode.Should().Be(200);
+        var orders = Json(response).GetProperty("orders").EnumerateArray().ToList();
+        orders.Select(o => o.GetProperty("orderId").GetString()).Should().Equal("order-farmer", "order-waiting");
+        orders[1].GetProperty("reason").GetString().Should().Be("pickup_waiting");
+        orders[1].GetProperty("stuckSince").GetString().Should().Be(Iso(Now.AddHours(-30)));
+        orders[1].GetProperty("ageHours").GetInt32().Should().Be(30);
+        orders[1].GetProperty("status").GetString().Should().Be("accepted");
+        Json(response).TryGetProperty("nextToken", out _).Should().BeFalse();
+        Queries("DeadlineIndex").Select(q => q.ExpressionAttributeValues[":shard"].S)
+            .Should().Equal(OrderDeadlines.Shard, OrderDeadlines.WatchShard);
+        NothingWrittenOrScanned();
+    }
+
+    [Fact]
+    public async Task StuckOrders_Deadline_ThePageThatEndsTheSweepsPartition_HandsBackTheWatchPartitionsStart()
+    {
+        Order("order-farmer", "funded",
+            ("farmerResponse", "pending"), ("farmerDeadlineAt", Iso(Now.AddHours(-2))), ("paymentVerifiedAt", Iso(Now.AddHours(-26))));
+        Pages("DeadlineIndex", Page(null, new Dictionary<string, AttributeValue> { ["orderId"] = S("order-farmer") }));
+
+        var first = await GetAsync("/admin/orders/queue", new() { ["source"] = "deadline", ["limit"] = "1" });
+
+        Json(first).GetProperty("orders").EnumerateArray().Single().GetProperty("orderId").GetString().Should().Be("order-farmer");
+        var token = Json(first).GetProperty("nextToken").GetString()!;
+        var decoded = PaginationTokenHelper.DecodeNextToken(token)!;
+        decoded.Keys.Should().Equal("deadlineShard");
+        decoded["deadlineShard"].S.Should().Be(OrderDeadlines.WatchShard);
+        Queries("DeadlineIndex").Should().ContainSingle("the page was full");
+
+        var second = await GetAsync("/admin/orders/queue", new() { ["source"] = "deadline", ["limit"] = "1", ["nextToken"] = token });
+
+        second.StatusCode.Should().Be(200);
+        Json(second).GetProperty("orders").GetArrayLength().Should().Be(0);
+        Json(second).TryGetProperty("nextToken", out _).Should().BeFalse("the watch partition ended");
+        var watch = Queries("DeadlineIndex").Last();
+        watch.ExpressionAttributeValues[":shard"].S.Should().Be(OrderDeadlines.WatchShard);
+        watch.ExclusiveStartKey.Should().BeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task StuckOrders_Deadline_AKeyOfTheWatchPartition_ResumesThere_AnUnknownPartitionIsRefused()
+    {
+        Dictionary<string, AttributeValue> KeyIn(string shard) => new()
+        {
+            ["orderId"] = S("order-x"),
+            ["createdAt"] = S("2026-11-01T09:00:00Z"),
+            ["deadlineShard"] = S(shard),
+            ["nextDeadlineAt"] = S(Iso(Now.AddHours(-3)))
+        };
+
+        var resumed = await GetAsync("/admin/orders/queue",
+            new() { ["source"] = "deadline", ["nextToken"] = PaginationTokenHelper.EncodeNextToken(KeyIn(OrderDeadlines.WatchShard)) });
+
+        resumed.StatusCode.Should().Be(200);
+        var query = Queries("DeadlineIndex").Single();
+        query.ExpressionAttributeValues[":shard"].S.Should().Be(OrderDeadlines.WatchShard);
+        query.ExclusiveStartKey["orderId"].S.Should().Be("order-x");
+
+        foreach (var bad in new[]
+                 {
+                     KeyIn("7"),
+                     new Dictionary<string, AttributeValue> { ["deadlineShard"] = S(OrderDeadlines.Shard) },
+                     new Dictionary<string, AttributeValue> { ["deadlineShard"] = S(OrderDeadlines.WatchShard), ["orderId"] = S("order-x") }
+                 })
+        {
+            var refused = await GetAsync("/admin/orders/queue",
+                new() { ["source"] = "deadline", ["nextToken"] = PaginationTokenHelper.EncodeNextToken(bad) });
+            refused.StatusCode.Should().Be(400);
+            ErrorCode(refused).Should().Be("ADMIN_005");
+        }
+
+        Queries("DeadlineIndex").Should().ContainSingle();
     }
 
     [Fact]
@@ -523,9 +623,9 @@ public class AdminFunctionLegsTests
         };
         AdminFunction.OverdueDeadline(trucker, Now)!.Value.Kind.Should().Be(OrderDeadlines.Kind.TruckerResponse);
 
-        // The notice went out: the order waits for the buyer, nothing is due from the sweep.
+        // FUP-170: the notice went out and the order still waits for its pickup: listed as waiting, from its deadline.
         pickup[OrderCommitment.PickupOverdueNotifiedAtField] = Iso(Now.AddHours(-29));
-        AdminFunction.OverdueDeadline(pickup, Now).Should().BeNull();
+        AdminFunction.OverdueDeadline(pickup, Now).Should().Be(new OrderDeadline(Now.AddHours(-30), OrderDeadlines.Kind.PickupWaiting));
         AdminFunction.OverdueDeadline(new Dictionary<string, object> { ["status"] = "delivered" }, Now).Should().BeNull();
 
         // Exactly at the grace it counts; a minute inside it does not.

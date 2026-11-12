@@ -102,6 +102,7 @@ public sealed class PickupJudgementDynamoDbTests
         var orderId = await SeedJudgeableAsync(DateTime.UtcNow.AddHours(30));
         var before = await ReadAsync(orderId);
         OrderDeadlines.Stored(before)!.Value.Kind.Should().Be(OrderDeadlines.Kind.PickupJudgement);
+        before[OrderDeadlines.ShardField].Should().Be(OrderDeadlines.Shard, "the judgement is the sweep's");
 
         (await Repo.TryRecordCheckInAsync(orderId, CreatedAt, PickupJudgement.Kind.ArrivedPickup, Entry(Id("trucker")), whileOpen: true))
             .Should().BeTrue();
@@ -133,7 +134,11 @@ public sealed class PickupJudgementDynamoDbTests
             },
             new Dictionary<string, string> { { "status", "accepted" }, { PickupJudgement.Field, PickupJudgement.Outcome.Pending } }))
             .Should().BeTrue();
-        OrderDeadlines.Stored(await ReadAsync(orderId)).Should().BeNull("a judged order has nothing due");
+        // FUP-170 and ESC-34: the judgement stamps the notice, so the order still accepted waits in the watch
+        // partition the sweep never reads, never in the sweep's.
+        var judged = await ReadAsync(orderId);
+        OrderDeadlines.Stored(judged)!.Value.Kind.Should().Be(OrderDeadlines.Kind.PickupWaiting);
+        judged[OrderDeadlines.ShardField].Should().Be(OrderDeadlines.WatchShard);
 
         (await Repo.TryRecordCheckInAsync(orderId, CreatedAt, PickupJudgement.Kind.CropsReady, Entry(Id("farmer")), whileOpen: true))
             .Should().BeFalse();
@@ -173,7 +178,8 @@ public sealed class PickupJudgementDynamoDbTests
 
         var row = await ReadAsync(orderId);
         PickupJudgement.IsStamped(row).Should().BeFalse();
-        OrderDeadlines.Stored(row).Should().BeNull();
+        OrderDeadlines.Stored(row)!.Value.Kind.Should().Be(OrderDeadlines.Kind.PickupWaiting, "it waits as any notified order (FUP-170)");
+        row[OrderDeadlines.ShardField].Should().Be(OrderDeadlines.WatchShard);
         (await Repo.TryRecordCheckInAsync(orderId, CreatedAt, PickupJudgement.Kind.ArrivedPickup, Entry(Id("trucker")), whileOpen: true))
             .Should().BeFalse("no check-in opens on a cleared order");
     }

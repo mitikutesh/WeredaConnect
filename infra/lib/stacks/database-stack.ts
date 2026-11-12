@@ -602,7 +602,9 @@ export class DatabaseStack extends cdk.Stack {
     // commitment_deadlines sweep reads "deadlineShard = 0 AND nextDeadlineAt < now",
     // oldest first, instead of walking the status partitions. One shard: order
     // writes are far below one partition's limits. Keys only: the sweep reads every
-    // due row again (strongly consistent) before it acts. Deploy this index before
+    // due row again (strongly consistent) before it acts. FUP-170: a second shard,
+    // "watch", holds the pickup waits the admin's Stuck Orders lists; the sweep never
+    // reads it. Deploy this index before
     // the code that queries it; a table takes one new GSI per deployment.
     this.ordersTable.addGlobalSecondaryIndex({
       indexName: "DeadlineIndex",

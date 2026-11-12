@@ -36,6 +36,9 @@ public partial class OrderCronFunction
     /// </summary>
     internal static readonly TimeSpan DeadlineRetryAfter = TimeSpan.FromHours(1);
 
+    /// <summary>FUP-170: the bound of the repair's read of the watch partition, after every deadline (the whole partition).</summary>
+    private const string WatchWalkDueBefore = "9999-12-31T23:59:59.9999999Z";
+
     /// <summary>ESC-16: the statuses whose orders can carry a deadline of the index (the repair walk reads them).</summary>
     private static readonly string[] DeadlineStatuses = { "funded", OrderCommitment.AwaitingTransportStatus, "accepted" };
 
@@ -144,12 +147,13 @@ public partial class OrderCronFunction
     /// A due row with nothing to apply: the index copy was stale, or its deadline was a retry. It gets
     /// the deadline its state gives (or none). A row still due by its own state, which the decision
     /// could not act on, is logged <see cref="DeadlineStuckToken"/> and looked at again later instead
-    /// of every run.
+    /// of every run. A pickup that waits after its notice (FUP-170) is not the sweep's: it only moves
+    /// to the watch partition.
     /// </summary>
     private async Task CorrectDeadlineAsync(Dictionary<string, object> order, string orderId, CommitmentRun run)
     {
         var next = OrderDeadlines.Next(order);
-        if (next is { } due && due.At < run.Now)
+        if (next is { } due && due.At < run.Now && OrderDeadlines.IsSwept(due.Kind))
         {
             run.Context.Logger.LogWarning(
                 $"{DeadlineStuckToken} orderId={MoneyAlarmLog.LogId(orderId)} kind={due.Kind} at={due.AtIso}: "
@@ -166,10 +170,13 @@ public partial class OrderCronFunction
         await SetDeadlineAsync(order, orderId, next, run, retry: false);
     }
 
-    /// <summary>A row that must wait comes back <see cref="DeadlineRetryAfter"/> later; with nothing pending it leaves the index.</summary>
+    /// <summary>
+    /// A row that must wait comes back <see cref="DeadlineRetryAfter"/> later; with nothing pending it
+    /// leaves the index, and with nothing the sweep acts on it gets its watch entry (FUP-170).
+    /// </summary>
     private async Task RetryLaterAsync(Dictionary<string, object> order, string orderId, CommitmentRun run)
     {
-        if (OrderDeadlines.Next(order) is not { } next)
+        if (OrderDeadlines.Next(order) is not { } next || !OrderDeadlines.IsSwept(next.Kind))
         {
             await CorrectDeadlineAsync(order, orderId, run);
             return;
@@ -257,7 +264,8 @@ public partial class OrderCronFunction
     /// within <paramref name="share"/> of its own start and stamps the next deadline on every order
     /// whose stored one is missing or not the one its state gives, conditioned on the version read.
     /// It decides nothing: the next sweep acts on what it stamped. A row already right costs no write,
-    /// so a pass that starts over after a partial one only re-reads.
+    /// so a pass that starts over after a partial one only re-reads. Then the watch partition
+    /// (<see cref="RepairWatchPartitionAsync"/>, FUP-170).
     /// </summary>
     private async Task<RepairPass> RunRepairPassAsync(ILambdaContext context, TimeSpan share)
     {
@@ -299,10 +307,73 @@ public partial class OrderCronFunction
             }
         }
 
+        if (pass.StopReason == null)
+        {
+            await RepairWatchPartitionAsync(context, slice, pass);
+        }
+
         context.Logger.LogInformation(
             $"Deadline repair complete: {pass.Read} orders read, {pass.Stamped} deadlines stamped, {pass.Conflicts} changed since read"
             + (pass.StopReason != null ? $", stopped early ({pass.StopReason})." : "."));
         return pass;
+    }
+
+    /// <summary>
+    /// FUP-170: the end of the repair pass. The status walk already stamps the watch entry of every
+    /// <c>accepted</c> order; this reads the watch partition of <c>DeadlineIndex</c> (a Query, every
+    /// entry) and reads each order again, so an entry its order no longer gives (an order that left
+    /// <c>accepted</c> while its write could not keep the deadline in step, which the status walk
+    /// never reads) is corrected or removed, conditioned on the version read. Nothing is decided: the
+    /// sweep never reads this partition.
+    /// </summary>
+    private async Task RepairWatchPartitionAsync(ILambdaContext context, CronRunSlice slice, RepairPass pass)
+    {
+        Dictionary<string, AttributeValue>? startKey = null;
+        do
+        {
+            var (entries, next) = await _orderRepo.QueryDeadlinePartitionAsync(
+                OrderDeadlines.WatchShard, WatchWalkDueBefore, DeadlinePageSize, startKey);
+            foreach (var entry in entries ?? new List<Dictionary<string, object>>())
+            {
+                var orderId = GetString(entry, "orderId");
+                if (orderId.Length == 0)
+                {
+                    continue;
+                }
+
+                if (!slice.MayStartRow(context))
+                {
+                    pass.StopReason = slice.StopReason;
+                    return;
+                }
+
+                var row = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+                if (row == null)
+                {
+                    // Deleted: its index entry goes with the row.
+                    continue;
+                }
+
+                pass.Read++;
+                var due = OrderDeadlines.Next(row);
+                if (OrderDeadlines.IsStored(row, due))
+                {
+                    continue;
+                }
+
+                if (await _orderRepo.TrySetDeadlineAsync(orderId, GetString(row, "createdAt"), GetInt(row, "version"), due))
+                {
+                    pass.Stamped++;
+                }
+                else
+                {
+                    pass.Conflicts++;
+                }
+            }
+
+            startKey = next;
+        }
+        while (startKey != null);
     }
 
     /// <summary>ESC-16: how often <c>commitment_deadlines</c> runs a repair pass itself (per container).</summary>
