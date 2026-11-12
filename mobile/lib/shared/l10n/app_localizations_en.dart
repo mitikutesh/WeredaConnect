@@ -5334,4 +5334,314 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get errorDeliveryLocationLocked =>
       'The goods were picked up, so the drop-off place can no longer be changed.';
+
+  @override
+  String get reputationLowTag => 'Low reputation';
+
+  @override
+  String get reputationLowInfo =>
+      'Recently cancelled or missed several paid orders.';
+
+  @override
+  String reputationReliability(String pct) {
+    return '$pct% of orders completed';
+  }
+
+  @override
+  String reputationAsOf(String date) {
+    return 'As of $date';
+  }
+
+  @override
+  String get reputationLowOrderTitle => 'Order anyway?';
+
+  @override
+  String get reputationLowOrderFarmer =>
+      'This farmer has a Low reputation label. They recently cancelled or missed several paid orders. You can still order.';
+
+  @override
+  String get reputationLowOrderTrucker =>
+      'This trucker has a Low reputation label. They recently cancelled or missed several paid orders. You can still order.';
+
+  @override
+  String get reputationLowOrderBoth =>
+      'This farmer and this trucker both have a Low reputation label. They recently cancelled or missed several paid orders. You can still order.';
+
+  @override
+  String get reputationLowOrderContinue => 'Order anyway';
+
+  @override
+  String errorReputationRestrictedUntil(String date) {
+    return 'Your account can\'t take new orders, listings or trips until $date, so this change was not saved. Your current orders continue.';
+  }
+
+  @override
+  String get reputationMyTitle => 'My reputation';
+
+  @override
+  String get reputationMySubtitle => 'Rating, penalty points and appeals';
+
+  @override
+  String get reputationTierGood => 'Good standing';
+
+  @override
+  String get reputationTierGoodBody =>
+      'Nothing to do. Keep completing your orders.';
+
+  @override
+  String get reputationTierWarning => 'Please take care';
+
+  @override
+  String reputationWarning(int threshold) {
+    return 'At $threshold points, buyers will see a Low reputation label.';
+  }
+
+  @override
+  String get reputationTierLowBody =>
+      'Buyers see a Low reputation label on your listings and trips, and are asked to confirm before they order.';
+
+  @override
+  String get reputationTierRestricted => 'New orders paused';
+
+  @override
+  String reputationRestrictedUntil(String date) {
+    return 'You can\'t take new orders until $date. Your current orders continue.';
+  }
+
+  @override
+  String get reputationRestrictedReview =>
+      'You can\'t take new orders while our team reviews a late delivery. Your current orders continue.';
+
+  @override
+  String reputationMyPoints(int points) {
+    String _temp0 = intl.Intl.pluralLogic(
+      points,
+      locale: localeName,
+      other: '$points penalty points',
+      one: '1 penalty point',
+      zero: 'No penalty points',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reputationRestrictAt(int threshold) {
+    return 'At $threshold points, new orders are paused for a while.';
+  }
+
+  @override
+  String reputationNextExpiry(String date) {
+    return 'Your oldest points expire on $date.';
+  }
+
+  @override
+  String get reputationRecoverHint =>
+      'Points expire with time, and a completed order can remove one.';
+
+  @override
+  String reputationRatingBreakdown(String stars, String deduction) {
+    return '$stars from buyers, $deduction deducted for cancellations';
+  }
+
+  @override
+  String reputationRatingFromBuyers(String stars) {
+    return '$stars from buyers';
+  }
+
+  @override
+  String reputationShownToBuyers(String stars) {
+    return 'Buyers see $stars';
+  }
+
+  @override
+  String reputationCompletedOrders(int completed, int total) {
+    return '$completed of $total orders completed in the last 90 days';
+  }
+
+  @override
+  String reputationOverrideLow(String date) {
+    return 'Our team added the Low reputation label until $date.';
+  }
+
+  @override
+  String reputationOverrideClear(String date) {
+    return 'Our team removed the Low reputation label until $date.';
+  }
+
+  @override
+  String get reputationEventsTitle => 'History';
+
+  @override
+  String get reputationEventsEmpty => 'Nothing recorded.';
+
+  @override
+  String get reputationEventDeclined => 'Declined a paid order';
+
+  @override
+  String get reputationEventExpired => 'Didn\'t respond in time';
+
+  @override
+  String get reputationEventCancelled => 'Cancelled after accepting';
+
+  @override
+  String get reputationEventLateCancel =>
+      'Cancelled less than a day before pickup';
+
+  @override
+  String get reputationEventTripCancelled =>
+      'Cancelled a trip with booked orders';
+
+  @override
+  String get reputationEventNoShow => 'Missed the pickup';
+
+  @override
+  String get reputationEventOverdue => 'Delivery overdue';
+
+  @override
+  String get reputationEventTransportFailedCancel =>
+      'Cancelled after the transport failed';
+
+  @override
+  String get reputationEventCompleted =>
+      'Completed an order, one point removed';
+
+  @override
+  String get reputationEventOther => 'Order event';
+
+  @override
+  String reputationEventPoints(int points) {
+    String _temp0 = intl.Intl.pluralLogic(
+      points,
+      locale: localeName,
+      other: '$points points',
+      one: '1 point',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reputationEventNoPoints => 'No points counted';
+
+  @override
+  String reputationEventRemaining(int points) {
+    return '$points still counted';
+  }
+
+  @override
+  String reputationPointExpires(String date) {
+    return 'Expires $date';
+  }
+
+  @override
+  String get reputationEventStatusExpired => 'Expired';
+
+  @override
+  String get reputationEventStatusExcused => 'Excused';
+
+  @override
+  String get reputationAppeal => 'Appeal';
+
+  @override
+  String reputationAppealBy(String date) {
+    return 'You can appeal until $date.';
+  }
+
+  @override
+  String get reputationAppealPending => 'Appeal sent. Our team will review it.';
+
+  @override
+  String get reputationAppealReview => 'Our team is reviewing this.';
+
+  @override
+  String get reputationAppealAccepted =>
+      'Appeal accepted. The points were removed.';
+
+  @override
+  String get reputationAppealUpheld => 'Appeal reviewed. The points stay.';
+
+  @override
+  String reputationAppealNote(String note) {
+    return 'Note from our team: $note';
+  }
+
+  @override
+  String get reputationAppealHint =>
+      'Explain what happened. Our team will review it. You can appeal each record once.';
+
+  @override
+  String get reputationAppealTextLabel => 'What happened';
+
+  @override
+  String get reputationAppealAddPhoto => 'Add a photo (optional)';
+
+  @override
+  String get reputationAppealPhotoAdded => 'Photo added';
+
+  @override
+  String get reputationAppealRemovePhoto => 'Remove photo';
+
+  @override
+  String get reputationAppealNeedsConnection =>
+      'Sending an appeal needs a connection. Your text is kept on this device until you send it.';
+
+  @override
+  String get reputationAppealSend => 'Send appeal';
+
+  @override
+  String get reputationAppealSent => 'Appeal sent.';
+
+  @override
+  String get reputationAppealFailed =>
+      'The appeal was not sent. Check your connection and try again.';
+
+  @override
+  String get reputationAppealClosed => 'This can no longer be appealed.';
+
+  @override
+  String get reputationAppealExists => 'An appeal was already sent for this.';
+
+  @override
+  String get reputationAppealPhotoProblem =>
+      'This photo is too large or can\'t be used. Try another one, or send without a photo.';
+
+  @override
+  String get reputationAppealUnavailable =>
+      'Appeals are not available right now.';
+
+  @override
+  String get reputationOfflineNoCopy =>
+      'Connect to the internet to see your reputation.';
+
+  @override
+  String reputationShowingSaved(String date) {
+    return 'You\'re offline. Showing what was saved on $date.';
+  }
+
+  @override
+  String get reputationLoadMore => 'Show more';
+
+  @override
+  String get reputationHistoryNeedsConnection =>
+      'Connect to the internet to see your history.';
+
+  @override
+  String get profileRatingNone => 'None yet';
+
+  @override
+  String get notifPenaltyRecordedTitle => 'Penalty points added';
+
+  @override
+  String notifPenaltyRecordedBody(String reason, String points) {
+    return '$reason. Points added: $points. Open My reputation to see the details or appeal.';
+  }
+
+  @override
+  String get notifTierChangedTitle => 'Your reputation changed';
+
+  @override
+  String get notifTierGoodBody => 'You are back in good standing.';
+
+  @override
+  String get notifTierWarningBody =>
+      'You have penalty points. Buyers see nothing yet. Open My reputation for the details.';
 }

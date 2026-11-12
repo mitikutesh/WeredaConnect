@@ -40,6 +40,7 @@ void main() {
   late _MockOfflineAuthCache cache;
   late MemoryDropoffHandoffStore handoffs;
   late List<String> tracksForgotten;
+  late List<String> reputationForgotten;
   late StreamController<void> sessionExpired;
 
   setUpAll(() {
@@ -73,6 +74,7 @@ void main() {
     sessionExpired = StreamController<void>.broadcast();
     handoffs = MemoryDropoffHandoffStore();
     tracksForgotten = [];
+    reputationForgotten = [];
     await handoffs.keep(
       _trucker,
       'd-1',
@@ -109,6 +111,7 @@ void main() {
       forgetTrackSnapshots: signOutForgetter(
         handoffs,
         forgetTrackSnapshots: (userId) async => tracksForgotten.add(userId),
+        forgetReputation: (userId) async => reputationForgotten.add(userId),
       ),
     );
     addTearDown(bloc.close);
@@ -138,6 +141,22 @@ void main() {
 
     expect(await handoffs.read(_trucker, 'd-1'), isNull);
     expect(tracksForgotten, [_trucker]);
+    // ESC-31: and the saved own reputation, events and appeal drafts.
+    expect(reputationForgotten, [_trucker]);
+  });
+
+  test('ESC-31: each store is cleared even when another one fails', () async {
+    final forgotten = <String>[];
+    final forget = signOutForgetter(
+      handoffs,
+      forgetTrackSnapshots: (_) async => throw StateError('tracks broken'),
+      forgetReputation: (userId) async => forgotten.add(userId),
+    );
+
+    await expectLater(forget(_trucker), throwsStateError);
+
+    expect(await handoffs.read(_trucker, 'd-1'), isNull);
+    expect(forgotten, [_trucker]);
   });
 
   test('a logout keeps another trucker\'s handoffs on the same phone',

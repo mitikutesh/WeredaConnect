@@ -4,6 +4,7 @@ import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/trip_departure.dart';
+import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
@@ -309,7 +310,7 @@ class WebMatchingService extends BaseMatchingService {
       ..pricePerQuintal = (m['pricePerQuintal'] as num?)?.toDouble() ?? 0
       ..bookedQuintals = quintalsFromWire(m['bookedQuintals'])
       ..remainingQuintals = quintalsFromWire(m['remainingQuintals'])
-      ..ownerReliabilityPct = (m['ownerReliabilityPct'] as num?)?.toInt()
+      ..readOwnerReputation(m)
       ..status = TripStatus.values.firstWhere(
         (e) => e.name == (m['status'] as String? ?? 'open'),
         orElse: () => TripStatus.open,
@@ -351,7 +352,7 @@ class WebMatchingService extends BaseMatchingService {
           m['locationName'] as String? ?? m['woreda'] as String? ?? ''
       ..description = m['description'] as String? ?? ''
       ..farmerReliability = (m['farmerReliability'] as num?)?.toDouble()
-      ..ownerReliabilityPct = (m['ownerReliabilityPct'] as num?)?.toInt()
+      ..readOwnerReputation(m)
       ..status = ListingStatus.active
       ..createdAt =
           DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()

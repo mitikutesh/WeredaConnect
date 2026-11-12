@@ -5196,4 +5196,305 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get errorDeliveryLocationLocked =>
       'ዕቃው ስለተነሳ የማውረጃ ቦታውን ከእንግዲህ መቀየር አይቻልም።';
+
+  @override
+  String get reputationLowTag => 'ዝቅተኛ ተዓማኒነት';
+
+  @override
+  String get reputationLowInfo => 'በቅርቡ በርካታ የተከፈለባቸው ትዕዛዞችን ሰርዟል ወይም አላሟላም።';
+
+  @override
+  String reputationReliability(String pct) {
+    return 'ከትዕዛዞች $pct% ተጠናቀዋል';
+  }
+
+  @override
+  String reputationAsOf(String date) {
+    return 'እስከ $date ድረስ ያለ መረጃ';
+  }
+
+  @override
+  String get reputationLowOrderTitle => 'ቢሆንም ማዘዝ ይፈልጋሉ?';
+
+  @override
+  String get reputationLowOrderFarmer =>
+      'ይህ ገበሬ የዝቅተኛ ተዓማኒነት ምልክት አለው። በቅርቡ በርካታ የተከፈለባቸው ትዕዛዞችን ሰርዟል ወይም አላሟላም። አሁንም ማዘዝ ይችላሉ።';
+
+  @override
+  String get reputationLowOrderTrucker =>
+      'ይህ የጭነት መኪና ሹፌር የዝቅተኛ ተዓማኒነት ምልክት አለው። በቅርቡ በርካታ የተከፈለባቸው ትዕዛዞችን ሰርዟል ወይም አላሟላም። አሁንም ማዘዝ ይችላሉ።';
+
+  @override
+  String get reputationLowOrderBoth =>
+      'ይህ ገበሬ እና ይህ የጭነት መኪና ሹፌር ሁለቱም የዝቅተኛ ተዓማኒነት ምልክት አላቸው። በቅርቡ በርካታ የተከፈለባቸው ትዕዛዞችን ሰርዘዋል ወይም አላሟሉም። አሁንም ማዘዝ ይችላሉ።';
+
+  @override
+  String get reputationLowOrderContinue => 'ቢሆንም እዘዝ';
+
+  @override
+  String errorReputationRestrictedUntil(String date) {
+    return 'መለያዎ እስከ $date ድረስ አዲስ ትዕዛዝ፣ ዝርዝር ወይም ጉዞ መውሰድ አይችልም፣ ስለዚህ ይህ ለውጥ አልተቀመጠም። ያሉዎት ትዕዛዞች ይቀጥላሉ።';
+  }
+
+  @override
+  String get reputationMyTitle => 'የእኔ ተዓማኒነት';
+
+  @override
+  String get reputationMySubtitle => 'ደረጃ፣ የቅጣት ነጥቦች እና ይግባኝ';
+
+  @override
+  String get reputationTierGood => 'ጥሩ አቋም';
+
+  @override
+  String get reputationTierGoodBody =>
+      'ምንም ማድረግ አያስፈልግም። ትዕዛዞችዎን ማጠናቀቅዎን ይቀጥሉ።';
+
+  @override
+  String get reputationTierWarning => 'እባክዎ ይጠንቀቁ';
+
+  @override
+  String reputationWarning(int threshold) {
+    return 'በ$threshold ነጥብ ገዢዎች የዝቅተኛ ተዓማኒነት ምልክት ያያሉ።';
+  }
+
+  @override
+  String get reputationTierLowBody =>
+      'ገዢዎች በዝርዝሮችዎ እና በጉዞዎችዎ ላይ የዝቅተኛ ተዓማኒነት ምልክት ያያሉ፣ ከማዘዛቸው በፊትም እንዲያረጋግጡ ይጠየቃሉ።';
+
+  @override
+  String get reputationTierRestricted => 'አዲስ ትዕዛዞች ለጊዜው ቆመዋል';
+
+  @override
+  String reputationRestrictedUntil(String date) {
+    return 'እስከ $date ድረስ አዲስ ትዕዛዝ መውሰድ አይችሉም። ያሉዎት ትዕዛዞች ይቀጥላሉ።';
+  }
+
+  @override
+  String get reputationRestrictedReview =>
+      'ቡድናችን የዘገየ ማድረስን እስኪመረምር ድረስ አዲስ ትዕዛዝ መውሰድ አይችሉም። ያሉዎት ትዕዛዞች ይቀጥላሉ።';
+
+  @override
+  String reputationMyPoints(int points) {
+    String _temp0 = intl.Intl.pluralLogic(
+      points,
+      locale: localeName,
+      other: '$points የቅጣት ነጥቦች',
+      one: '1 የቅጣት ነጥብ',
+      zero: 'የቅጣት ነጥብ የለም',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reputationRestrictAt(int threshold) {
+    return 'በ$threshold ነጥብ አዲስ ትዕዛዞች ለጊዜው ይቆማሉ።';
+  }
+
+  @override
+  String reputationNextExpiry(String date) {
+    return 'የቆዩ ነጥቦችዎ በ$date ጊዜያቸው ያበቃል።';
+  }
+
+  @override
+  String get reputationRecoverHint =>
+      'ነጥቦች ከጊዜ በኋላ ይጠፋሉ፣ የተጠናቀቀ ትዕዛዝም አንድ ነጥብ ሊያስወግድ ይችላል።';
+
+  @override
+  String reputationRatingBreakdown(String stars, String deduction) {
+    return '$stars ከገዢዎች፣ $deduction በስረዛዎች ምክንያት ተቀንሷል';
+  }
+
+  @override
+  String reputationRatingFromBuyers(String stars) {
+    return '$stars ከገዢዎች';
+  }
+
+  @override
+  String reputationShownToBuyers(String stars) {
+    return 'ገዢዎች $stars ያያሉ';
+  }
+
+  @override
+  String reputationCompletedOrders(int completed, int total) {
+    return 'ባለፉት 90 ቀናት ከ$total ትዕዛዞች $completed ተጠናቀዋል';
+  }
+
+  @override
+  String reputationOverrideLow(String date) {
+    return 'ቡድናችን የዝቅተኛ ተዓማኒነት ምልክቱን እስከ $date ድረስ አክሏል።';
+  }
+
+  @override
+  String reputationOverrideClear(String date) {
+    return 'ቡድናችን የዝቅተኛ ተዓማኒነት ምልክቱን እስከ $date ድረስ አንስቷል።';
+  }
+
+  @override
+  String get reputationEventsTitle => 'ታሪክ';
+
+  @override
+  String get reputationEventsEmpty => 'ምንም የተመዘገበ ነገር የለም።';
+
+  @override
+  String get reputationEventDeclined => 'የተከፈለበትን ትዕዛዝ አልተቀበሉም';
+
+  @override
+  String get reputationEventExpired => 'በጊዜው ምላሽ አልሰጡም';
+
+  @override
+  String get reputationEventCancelled => 'ከተቀበሉ በኋላ ሰርዘዋል';
+
+  @override
+  String get reputationEventLateCancel => 'ከመረከብ ከአንድ ቀን ባነሰ ጊዜ ውስጥ ሰርዘዋል';
+
+  @override
+  String get reputationEventTripCancelled => 'የተያዙ ትዕዛዞች ያሉትን ጉዞ ሰርዘዋል';
+
+  @override
+  String get reputationEventNoShow => 'መረከቢያው ላይ አልተገኙም';
+
+  @override
+  String get reputationEventOverdue => 'ማድረሱ ዘግይቷል';
+
+  @override
+  String get reputationEventTransportFailedCancel => 'ትራንስፖርቱ ከከሸፈ በኋላ ሰርዘዋል';
+
+  @override
+  String get reputationEventCompleted => 'ትዕዛዝ አጠናቀዋል፣ አንድ ነጥብ ተወግዷል';
+
+  @override
+  String get reputationEventOther => 'የትዕዛዝ ክስተት';
+
+  @override
+  String reputationEventPoints(int points) {
+    String _temp0 = intl.Intl.pluralLogic(
+      points,
+      locale: localeName,
+      other: '$points ነጥቦች',
+      one: '1 ነጥብ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reputationEventNoPoints => 'ነጥብ አልተቆጠረም';
+
+  @override
+  String reputationEventRemaining(int points) {
+    return '$points አሁንም ይቆጠራል';
+  }
+
+  @override
+  String reputationPointExpires(String date) {
+    return 'በ$date ያበቃል';
+  }
+
+  @override
+  String get reputationEventStatusExpired => 'ጊዜው አብቅቷል';
+
+  @override
+  String get reputationEventStatusExcused => 'ይቅር ተብሏል';
+
+  @override
+  String get reputationAppeal => 'ይግባኝ';
+
+  @override
+  String reputationAppealBy(String date) {
+    return 'እስከ $date ድረስ ይግባኝ ማለት ይችላሉ።';
+  }
+
+  @override
+  String get reputationAppealPending => 'ይግባኙ ተልኳል። ቡድናችን ይመረምረዋል።';
+
+  @override
+  String get reputationAppealReview => 'ቡድናችን ይህን እየመረመረ ነው።';
+
+  @override
+  String get reputationAppealAccepted => 'ይግባኙ ተቀባይነት አግኝቷል። ነጥቦቹ ተወግደዋል።';
+
+  @override
+  String get reputationAppealUpheld => 'ይግባኙ ተመርምሯል። ነጥቦቹ ይቆያሉ።';
+
+  @override
+  String reputationAppealNote(String note) {
+    return 'ከቡድናችን ማስታወሻ፦ $note';
+  }
+
+  @override
+  String get reputationAppealHint =>
+      'ምን እንደተፈጠረ ያብራሩ። ቡድናችን ይመረምረዋል። ለእያንዳንዱ መዝገብ አንድ ጊዜ ብቻ ይግባኝ ማለት ይችላሉ።';
+
+  @override
+  String get reputationAppealTextLabel => 'ምን ተፈጠረ';
+
+  @override
+  String get reputationAppealAddPhoto => 'ፎቶ ያክሉ (አማራጭ)';
+
+  @override
+  String get reputationAppealPhotoAdded => 'ፎቶ ታክሏል';
+
+  @override
+  String get reputationAppealRemovePhoto => 'ፎቶውን አስወግድ';
+
+  @override
+  String get reputationAppealNeedsConnection =>
+      'ይግባኝ ለመላክ የበይነመረብ ግንኙነት ያስፈልጋል። ጽሑፍዎ እስኪልኩት ድረስ በዚህ መሣሪያ ላይ ይቀመጣል።';
+
+  @override
+  String get reputationAppealSend => 'ይግባኝ ላክ';
+
+  @override
+  String get reputationAppealSent => 'ይግባኙ ተልኳል።';
+
+  @override
+  String get reputationAppealFailed =>
+      'ይግባኙ አልተላከም። ግንኙነትዎን ያረጋግጡና እንደገና ይሞክሩ።';
+
+  @override
+  String get reputationAppealClosed => 'ለዚህ ከአሁን በኋላ ይግባኝ ማለት አይቻልም።';
+
+  @override
+  String get reputationAppealExists => 'ለዚህ ይግባኝ አስቀድሞ ተልኳል።';
+
+  @override
+  String get reputationAppealPhotoProblem =>
+      'ይህ ፎቶ በጣም ትልቅ ነው ወይም መጠቀም አይቻልም። ሌላ ይሞክሩ፣ ወይም ያለ ፎቶ ይላኩ።';
+
+  @override
+  String get reputationAppealUnavailable => 'ይግባኝ አሁን አይገኝም።';
+
+  @override
+  String get reputationOfflineNoCopy => 'ተዓማኒነትዎን ለማየት ከበይነመረብ ጋር ይገናኙ።';
+
+  @override
+  String reputationShowingSaved(String date) {
+    return 'ከመስመር ውጭ ነዎት። በ$date የተቀመጠው እየታየ ነው።';
+  }
+
+  @override
+  String get reputationLoadMore => 'ተጨማሪ አሳይ';
+
+  @override
+  String get reputationHistoryNeedsConnection => 'ታሪክዎን ለማየት ከበይነመረብ ጋር ይገናኙ።';
+
+  @override
+  String get profileRatingNone => 'ገና የለም';
+
+  @override
+  String get notifPenaltyRecordedTitle => 'የቅጣት ነጥቦች ተጨምረዋል';
+
+  @override
+  String notifPenaltyRecordedBody(String reason, String points) {
+    return '$reason። የተጨመሩ ነጥቦች፦ $points። ዝርዝሩን ለማየት ወይም ይግባኝ ለማለት \"የእኔ ተዓማኒነት\"ን ይክፈቱ።';
+  }
+
+  @override
+  String get notifTierChangedTitle => 'ተዓማኒነትዎ ተቀይሯል';
+
+  @override
+  String get notifTierGoodBody => 'ወደ ጥሩ አቋም ተመልሰዋል።';
+
+  @override
+  String get notifTierWarningBody =>
+      'የቅጣት ነጥቦች አሉዎት። ገዢዎች እስካሁን ምንም አያዩም። ለዝርዝሩ \"የእኔ ተዓማኒነት\"ን ይክፈቱ።';
 }

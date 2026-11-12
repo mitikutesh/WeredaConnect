@@ -20,6 +20,12 @@ class CropListing {
 
   /// ESC-30: the farmer's reliability in whole percent (see the Isar schema).
   int? ownerReliabilityPct;
+
+  /// ESC-31: the owner's public reputation copy (see the Isar schema).
+  String? ownerTier;
+  double? ownerEffectiveRating;
+  int? ownerRatingCount;
+  DateTime? ownerReputationAt;
   String? audioNoteRef;
   List<CropPhoto> photos = [];
   late ListingStatus status;

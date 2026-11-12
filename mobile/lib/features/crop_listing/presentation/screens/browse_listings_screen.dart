@@ -30,6 +30,7 @@ import 'package:wereda_connect/features/order/domain/repositories/base_order_rep
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/reputation/domain/owner_reputation.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -104,6 +105,10 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
   final _priceMinController = TextEditingController();
   final _priceMaxController = TextEditingController();
 
+  /// ESC-31: only for a listing without the server's reputation copy (the
+  /// public reputation flag is off, or the row has none yet). A listing that
+  /// carries the copy shows it from the row and makes no call.
+  ///
   /// Seller aggregates (`GET /ratings?rateeId=`), one fetch per farmer per
   /// screen instance: cards rebuild on every filter and scroll, so the future
   /// is cached to spend 3G data once. SIM-19 (was a hardcoded 4.5).
@@ -731,8 +736,13 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                             // loads or when the farmer has none. No escrow
                             // badge: there is no per-listing escrow fact to
                             // show.
+                            final reputation =
+                                OwnerReputation.ofListing(listing);
                             return FutureBuilder<RatingSummary>(
-                              future: _ratingFor(listing.farmerId),
+                              // ESC-31: the row's own copy needs no call.
+                              future: reputation.isPresent
+                                  ? null
+                                  : _ratingFor(listing.farmerId),
                               builder: (context, snapshot) {
                                 final summary = snapshot.data;
                                 final rated =
@@ -758,8 +768,17 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                   price: _pricePerKgFormat
                                       .format(listing.pricePerKg.round()),
                                   priceUnit: l10n.etbPerKg,
-                                  rating: rated ? summary.average : null,
-                                  ratingCount: rated ? summary.count : null,
+                                  rating: reputation.isPresent
+                                      ? reputation.rating
+                                      : (rated ? summary.average : null),
+                                  ratingCount: reputation.isPresent
+                                      ? reputation.count
+                                      : (rated ? summary.count : null),
+                                  // The label is for buyers; the farmer
+                                  // reads their own standing, with what to
+                                  // do about it, on My reputation.
+                                  lowReputation:
+                                      !widget.ownerMode && reputation.isLow,
                                   cropKey: listing.cropType,
                                   // The cover thumb (320 px rendition);
                                   // the full photos open on the detail.

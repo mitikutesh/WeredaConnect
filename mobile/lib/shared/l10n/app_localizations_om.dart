@@ -5386,4 +5386,316 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get errorDeliveryLocationLocked =>
       'Meeshaan waan fe\'ameef bakka buusii jijjiiruun hin danda\'amu.';
+
+  @override
+  String get reputationLowTag => 'Amanamummaa gadi aanaa';
+
+  @override
+  String get reputationLowInfo =>
+      'Dhiheenya kana ajajoota kaffalaman hedduu haqeera yookiin hin raawwanne.';
+
+  @override
+  String reputationReliability(String pct) {
+    return 'Ajajoota keessaa $pct% xumurameera';
+  }
+
+  @override
+  String reputationAsOf(String date) {
+    return 'Odeeffannoo hanga ${date}tti';
+  }
+
+  @override
+  String get reputationLowOrderTitle => 'Ta\'us ajajuu barbaadduu?';
+
+  @override
+  String get reputationLowOrderFarmer =>
+      'Qonnaan bulaan kun mallattoo amanamummaa gadi aanaa qaba. Dhiheenya kana ajajoota kaffalaman hedduu haqeera yookiin hin raawwanne. Ammas ajajuu ni dandeessu.';
+
+  @override
+  String get reputationLowOrderTrucker =>
+      'Konkolaachisaan kun mallattoo amanamummaa gadi aanaa qaba. Dhiheenya kana ajajoota kaffalaman hedduu haqeera yookiin hin raawwanne. Ammas ajajuu ni dandeessu.';
+
+  @override
+  String get reputationLowOrderBoth =>
+      'Qonnaan bulaan kunii fi konkolaachisaan kun lamaanuu mallattoo amanamummaa gadi aanaa qabu. Dhiheenya kana ajajoota kaffalaman hedduu haqaniiru yookiin hin raawwanne. Ammas ajajuu ni dandeessu.';
+
+  @override
+  String get reputationLowOrderContinue => 'Ta\'us ajaji';
+
+  @override
+  String errorReputationRestrictedUntil(String date) {
+    return 'Herregni keessan hanga ${date}tti ajaja, tarree yookiin imala haaraa fudhachuu hin danda\'u, kanaaf jijjiiramni kun hin olkaa\'amne. Ajajni keessan kan amma jiran itti fufu.';
+  }
+
+  @override
+  String get reputationMyTitle => 'Amanamummaa koo';
+
+  @override
+  String get reputationMySubtitle => 'Sadarkaa, qabxii adabbii fi ol\'iyyannoo';
+
+  @override
+  String get reputationTierGood => 'Haala gaarii';
+
+  @override
+  String get reputationTierGoodBody =>
+      'Wanti godhamu hin jiru. Ajajoota keessan xumuruu itti fufaa.';
+
+  @override
+  String get reputationTierWarning => 'Maaloo of eeggadhaa';
+
+  @override
+  String reputationWarning(int threshold) {
+    return 'Qabxii $threshold irratti bitattoonni mallattoo amanamummaa gadi aanaa ni argu.';
+  }
+
+  @override
+  String get reputationTierLowBody =>
+      'Bitattoonni tarree fi imala keessan irratti mallattoo amanamummaa gadi aanaa ni argu, ajajuu isaanii dura akka mirkaneessan ni gaafatamu.';
+
+  @override
+  String get reputationTierRestricted => 'Ajajni haaraan yeroof dhaabateera';
+
+  @override
+  String reputationRestrictedUntil(String date) {
+    return 'Hanga ${date}tti ajaja haaraa fudhachuu hin dandeessan. Ajajni keessan kan amma jiran itti fufu.';
+  }
+
+  @override
+  String get reputationRestrictedReview =>
+      'Hanga gareen keenya geejjiba ture sakatta\'utti ajaja haaraa fudhachuu hin dandeessan. Ajajni keessan kan amma jiran itti fufu.';
+
+  @override
+  String reputationMyPoints(int points) {
+    String _temp0 = intl.Intl.pluralLogic(
+      points,
+      locale: localeName,
+      other: 'Qabxii adabbii $points',
+      one: 'Qabxii adabbii 1',
+      zero: 'Qabxiin adabbii hin jiru',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reputationRestrictAt(int threshold) {
+    return 'Qabxii $threshold irratti ajajni haaraan yeroof ni dhaabata.';
+  }
+
+  @override
+  String reputationNextExpiry(String date) {
+    return 'Qabxiin keessan inni durii $date irratti ni haqama.';
+  }
+
+  @override
+  String get reputationRecoverHint =>
+      'Qabxiin yeroo booda ni haqama, ajajni xumurames qabxii tokko haquu danda\'a.';
+
+  @override
+  String reputationRatingBreakdown(String stars, String deduction) {
+    return '$stars bitattoota irraa, $deduction sababa haqiinsaatiin hir\'ifameera';
+  }
+
+  @override
+  String reputationRatingFromBuyers(String stars) {
+    return '$stars bitattoota irraa';
+  }
+
+  @override
+  String reputationShownToBuyers(String stars) {
+    return 'Bitattoonni $stars argu';
+  }
+
+  @override
+  String reputationCompletedOrders(int completed, int total) {
+    return 'Guyyoota 90 darban keessatti ajajoota $total keessaa $completed xumurameera';
+  }
+
+  @override
+  String reputationOverrideLow(String date) {
+    return 'Gareen keenya mallattoo amanamummaa gadi aanaa hanga ${date}tti dabaleera.';
+  }
+
+  @override
+  String reputationOverrideClear(String date) {
+    return 'Gareen keenya mallattoo amanamummaa gadi aanaa hanga ${date}tti kaaseera.';
+  }
+
+  @override
+  String get reputationEventsTitle => 'Seenaa';
+
+  @override
+  String get reputationEventsEmpty => 'Wanti galmaa\'e hin jiru.';
+
+  @override
+  String get reputationEventDeclined => 'Ajaja kaffalame hin fudhanne';
+
+  @override
+  String get reputationEventExpired => 'Yeroon deebii hin kennine';
+
+  @override
+  String get reputationEventCancelled => 'Erga fudhattanii booda haqxan';
+
+  @override
+  String get reputationEventLateCancel =>
+      'Fuudhuu dura guyyaa tokkoo gaditti haqxan';
+
+  @override
+  String get reputationEventTripCancelled =>
+      'Imala ajajoota qabame qabu haqxan';
+
+  @override
+  String get reputationEventNoShow => 'Bakka fuudhaa hin argamne';
+
+  @override
+  String get reputationEventOverdue => 'Geejjibni tureera';
+
+  @override
+  String get reputationEventTransportFailedCancel =>
+      'Erga geejjibni hin milkaa\'in booda haqxan';
+
+  @override
+  String get reputationEventCompleted =>
+      'Ajaja xumurtan, qabxiin tokko haqameera';
+
+  @override
+  String get reputationEventOther => 'Taatee ajajaa';
+
+  @override
+  String reputationEventPoints(int points) {
+    String _temp0 = intl.Intl.pluralLogic(
+      points,
+      locale: localeName,
+      other: 'Qabxii $points',
+      one: 'Qabxii 1',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reputationEventNoPoints => 'Qabxiin hin lakkaa\'amne';
+
+  @override
+  String reputationEventRemaining(int points) {
+    return '$points ammas ni lakkaa\'ama';
+  }
+
+  @override
+  String reputationPointExpires(String date) {
+    return '$date irratti ni haqama';
+  }
+
+  @override
+  String get reputationEventStatusExpired => 'Yeroon isaa darbeera';
+
+  @override
+  String get reputationEventStatusExcused => 'Dhiifama argateera';
+
+  @override
+  String get reputationAppeal => 'Ol\'iyyannoo';
+
+  @override
+  String reputationAppealBy(String date) {
+    return 'Hanga ${date}tti ol\'iyyachuu dandeessu.';
+  }
+
+  @override
+  String get reputationAppealPending =>
+      'Ol\'iyyannoon ergameera. Gareen keenya ni sakatta\'a.';
+
+  @override
+  String get reputationAppealReview => 'Gareen keenya kana sakatta\'aa jira.';
+
+  @override
+  String get reputationAppealAccepted =>
+      'Ol\'iyyannoon fudhatameera. Qabxiin haqameera.';
+
+  @override
+  String get reputationAppealUpheld =>
+      'Ol\'iyyannoon sakatta\'ameera. Qabxiin ni tura.';
+
+  @override
+  String reputationAppealNote(String note) {
+    return 'Yaadannoo garee keenyaa: $note';
+  }
+
+  @override
+  String get reputationAppealHint =>
+      'Maaltu akka ta\'e ibsaa. Gareen keenya ni sakatta\'a. Galmee tokkoof al tokko qofa ol\'iyyachuu dandeessu.';
+
+  @override
+  String get reputationAppealTextLabel => 'Maaltu ta\'e';
+
+  @override
+  String get reputationAppealAddPhoto => 'Suuraa dabali (filannoo)';
+
+  @override
+  String get reputationAppealPhotoAdded => 'Suuraan dabalameera';
+
+  @override
+  String get reputationAppealRemovePhoto => 'Suuraa haqi';
+
+  @override
+  String get reputationAppealNeedsConnection =>
+      'Ol\'iyyannoo erguuf walitti dhufeenyi interneetii ni barbaachisa. Barreeffamni keessan hanga ergitanitti meeshaa kana irratti ni olkaa\'ama.';
+
+  @override
+  String get reputationAppealSend => 'Ol\'iyyannoo ergi';
+
+  @override
+  String get reputationAppealSent => 'Ol\'iyyannoon ergameera.';
+
+  @override
+  String get reputationAppealFailed =>
+      'Ol\'iyyannoon hin ergamne. Walitti dhufeenya keessan mirkaneessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get reputationAppealClosed =>
+      'Kanaaf kana booda ol\'iyyachuun hin danda\'amu.';
+
+  @override
+  String get reputationAppealExists => 'Kanaaf ol\'iyyannoon duraan ergameera.';
+
+  @override
+  String get reputationAppealPhotoProblem =>
+      'Suuraan kun baay\'ee guddaa dha yookiin fayyadamuun hin danda\'amu. Kan biraa yaalaa, yookiin suuraa malee ergaa.';
+
+  @override
+  String get reputationAppealUnavailable => 'Ol\'iyyannoon amma hin argamu.';
+
+  @override
+  String get reputationOfflineNoCopy =>
+      'Amanamummaa keessan ilaaluuf interneetiitti walqunnamaa.';
+
+  @override
+  String reputationShowingSaved(String date) {
+    return 'Oflaayinii jirtu. Kan $date olkaa\'ame agarsiifamaa jira.';
+  }
+
+  @override
+  String get reputationLoadMore => 'Dabalata agarsiisi';
+
+  @override
+  String get reputationHistoryNeedsConnection =>
+      'Seenaa keessan ilaaluuf interneetiitti walqunnamaa.';
+
+  @override
+  String get profileRatingNone => 'Hin jiru';
+
+  @override
+  String get notifPenaltyRecordedTitle => 'Qabxiin adabbii dabalameera';
+
+  @override
+  String notifPenaltyRecordedBody(String reason, String points) {
+    return '$reason. Qabxii dabalame: $points. Bal\'ina ilaaluuf yookiin ol\'iyyachuuf \"Amanamummaa koo\" banaa.';
+  }
+
+  @override
+  String get notifTierChangedTitle => 'Amanamummaan keessan jijjiirameera';
+
+  @override
+  String get notifTierGoodBody => 'Gara haala gaariitti deebitaniittu.';
+
+  @override
+  String get notifTierWarningBody =>
+      'Qabxii adabbii qabdu. Bitattoonni hanga ammaatti homaa hin argan. Bal\'inaaf \"Amanamummaa koo\" banaa.';
 }

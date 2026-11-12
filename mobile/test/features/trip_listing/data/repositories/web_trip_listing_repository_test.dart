@@ -47,6 +47,51 @@ void main() {
       expect(trip.toWoreda, 'Bishoftu');
     });
 
+    test('ESC-31: reads the owner reputation copy when the row carries it',
+        () async {
+      Map<String, dynamic> row(Map<String, dynamic> extra) => {
+            'trip': {
+              'tripId': 'trip-1',
+              'truckerId': 'trucker-1',
+              'fromWoreda': 'Adama',
+              'toWoreda': 'Bishoftu',
+              'departureDate': '2026-07-13T00:00:00.000Z',
+              'capacity': 50,
+              'pricePerQuintal': 200,
+              'status': 'open',
+              'createdAt': '2026-07-11T00:00:00.000Z',
+              'updatedAt': '2026-07-11T00:00:00.000Z',
+              'version': 1,
+              ...extra,
+            },
+          };
+      when(() => api.get<Map<String, dynamic>>('/trips/trip-1')).thenAnswer(
+        (_) async => row({
+          'ownerTier': 'good',
+          'ownerEffectiveRating': 4.7,
+          'ownerRatingCount': 3,
+          'ownerReliabilityPct': 91,
+          'ownerReputationAt': '2026-11-07T09:00:00.000Z',
+        }),
+      );
+      final trip = (await repository.getTripById('trip-1'))!;
+      expect(trip.ownerTier, 'good');
+      expect(trip.ownerEffectiveRating, 4.7);
+      expect(trip.ownerRatingCount, 3);
+      expect(trip.ownerReliabilityPct, 91);
+      expect(trip.ownerReputationAt, DateTime.utc(2026, 11, 7, 9));
+
+      // The public reputation flag is off: no owner field, as today.
+      when(() => api.get<Map<String, dynamic>>('/trips/trip-1'))
+          .thenAnswer((_) async => row(const {}));
+      final plain = (await repository.getTripById('trip-1'))!;
+      expect(plain.ownerTier, isNull);
+      expect(plain.ownerEffectiveRating, isNull);
+      expect(plain.ownerRatingCount, isNull);
+      expect(plain.ownerReliabilityPct, isNull);
+      expect(plain.ownerReputationAt, isNull);
+    });
+
     test('returns null on failure (offline / 404)', () async {
       when(() => api.get<Map<String, dynamic>>('/trips/trip-x'))
           .thenThrow(Exception('offline'));
