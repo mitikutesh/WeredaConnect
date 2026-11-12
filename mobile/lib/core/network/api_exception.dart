@@ -76,7 +76,7 @@ String? accountGoneState(int? statusCode, Object? body) {
 }
 
 /// REST error code (HTTP 403) for a suspended account. Sign-in, OTP and token
-/// refresh answer it, and since sync-protocol.md 1.47.0 so do `/sync` and the
+/// refresh answer it, and since sync-protocol.md 1.48.0 so do `/sync` and the
 /// other write endpoints (reputation-api.md 8.4).
 const String accountSuspendedCode = 'AUTH_025';
 

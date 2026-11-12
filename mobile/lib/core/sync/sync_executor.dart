@@ -1179,7 +1179,7 @@ class SyncExecutor {
           // If we still got 401, the refresh failed.
           // Revert to pending (don't burn retry count — auth is transient).
           await _revertBatchToPending(operations);
-          // 403 AUTH_025 (sync-protocol.md 1.47.0): the account is suspended
+          // 403 AUTH_025 (sync-protocol.md 1.48.0): the account is suspended
           // and nothing was applied. End the session now, as a rejected
           // refresh does; the queue stays for the next sign-in.
           if (isAccountSuspended(statusCode, error.response?.data)) {
