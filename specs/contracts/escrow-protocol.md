@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.14.0
+2.16.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -4600,15 +4600,24 @@ Admin authorizer. The stuck orders, oldest first, 20 a page, at most 50. Never a
   sweep runs): `reason` is `farmer_response`, `trucker_response`, `buyer_choice` or `pickup_overdue`,
   `stuckSince` that deadline. At most 5 index pages are read per request, each asking only for the
   rows still missing, so a page can be short or empty with a `nextToken`.
+  Since 2.16.0 (FUP-170) the walk goes on, after the sweep's partition (`deadlineShard = 0`), into the
+  index's `watch` partition (order-lifecycle.md 2.14.0): the `accepted` orders whose pickup deadline
+  passed more than 30 minutes ago and whose overdue notice went out, waiting for their pickup or their
+  cancel (`reason: pickup_waiting`, `stuckSince` the pickup deadline). Each partition is read oldest
+  first, the sweep's first; an order is listed only from the partition its own state puts it in, so an
+  index copy that lags behind the notice never lists it twice. The `nextToken` names its partition; the
+  page that ends the sweep's partition may hand back a token that starts the `watch` partition.
 
 `200`: `{ "source", "orders": [...], "nextToken", "total", "asOf" }`; each order has `orderId`,
 `status`, `stage`, `reason`, `stuckSince`, `ageHours` (whole hours from `stuckSince` to `asOf`),
 `buyerId`, `buyerName`, `farmerId`, `farmerName`, `truckerId`, `truckerName` (the order row's copies),
 `cropType`, `orderTotal`, `currency`, `escrowId`, `createdAt`, `updatedAt`. Errors: `400 ADMIN_005`
-(`source` is neither value, or a `nextToken` of the other index), `503 ADMIN_004`.
+(`source` is neither value, or a `nextToken` of the other index or of an unknown partition),
+`503 ADMIN_004`.
 
-Not listed (no index says so without a Scan): an `accepted` order whose pickup deadline passed after
-its overdue notice went out waits for the buyer's cancel and reaches `source=queue` at the 21 day cap.
+Until 2.16.0 an `accepted` order whose pickup deadline passed after its overdue notice went out was
+not listed (it left `DeadlineIndex` with its notice) and reached `source=queue` only at the 21 day cap.
+Listing it changes nothing about it: no notice, cancel or refund follows from the list.
 The decision actions 1.13.0 announced for ESC-24 are not built: the page links each order to its
 transaction, and the money moves through the existing actions.
 
@@ -5556,6 +5565,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.16.0 | 2026-11-12 | Stuck Orders lists the pickup waits (FUP-170, closes the 2.7.0 "Not listed" gap). `GET /admin/orders/queue?source=deadline` reads, after the sweep's partition of `DeadlineIndex`, its new `watch` partition (order-lifecycle.md 2.14.0): an `accepted` order whose pickup deadline passed more than 30 minutes ago and whose overdue notice went out is listed with `reason: pickup_waiting` and `stuckSince` its pickup deadline, until its pickup or cancel, with a Query, never a Scan. Each order is listed only from the partition its state gives; the `nextToken` names its partition, and a token of an unknown partition is `400 ADMIN_005`. The admin page labels the new reason in en, am and om. Read only: no notice, cancel, refund, amount or status follows from the list; the sweep never reads the `watch` partition. 2.15.0 is another change's number |
 | 2.14.0 | 2026-11-12 | Stock before the refund of the sweep's own cancel (FUP-230, closes the 2.13.0 known limit) and the payout reference backfill (FUP-215, closes the 2.12.0 known limit; §Additions in 2.14.0). The 7 day sweep's cancel of a stale `funded` or `awaiting_transport` order gives the listing stock back fail closed before its refund: a restore that keeps conflicting or throws logs `ORDER_STOCK_RESTORE_FAILED ... refund deferred to the next sweep` and refunds nothing this run (the escrow stays armed; the next run restores first, then refunds); the trip booking release still runs. New manual escrow-cron action `backfill_payout_references`: one filtered Scan of the escrows table and a Query per ledger escrow write the `payout-ref#` item of every admin-recorded 1.x leg and admin-done ledger row recorded before 2.12.0 (conditional put, 400 day TTL from the record); a key held by the same leg is a no-op, one held by another leg is logged (`PAYOUT_REF_BACKFILL_CONFLICT`) and never overwritten; bounded by the marker `migration:fup-215:backfill_payout_references` (`done`; `retry` after a failure; `pending` once a run from the start begins a new chain after a `retry`), 4 minute budget, `scanCursor`/`scanFrom` to resume; `200` with counts and `outcome` (a row or page failure is counted, not a `500`). No endpoint, field, amount, grant or client change (`order-lifecycle.md` 2.13.1) |
 | 2.13.0 | 2026-11-12 | The last two cancel-then-arm writers (FUP-210, FUP-211; closes two of the 2.11.0 known limits): the order cron's commitment deadline cancels (`farmer_response_expired`, `transport_not_arranged`) and the funding's stock loss end (`listing_out_of_stock`) write the order and the refund arm in one transaction (an escrow held for review fenced, not armed); money frozen or moving writes nothing (the cron's order waits an hour, `ORDER_DEADLINE_REFUND_WAITING`; the funding's order stays `funded` with `ORDER_STOCK_DECREMENT_FAILED ... status=escrow_busy`); a cron read or write that fails writes nothing, retries next run and logs the alarmed `ORDER_ESCROW_REFUND_SCHEDULE_FAILED reason=escrow_unreadable|cancel_not_written`. The hourly refund sweep gives an `escrow_refunded` cancel's listing stock back before its refund, fail closed, as for the pickup deadline cancel, so an admin refund whose restore failed after its cancel never refunds ahead of the stock. No endpoint, field, amount or client change (`order-lifecycle.md` 2.13.0). 2.12.0 is another change's number |
 | 2.12.0 | 2026-11-12 | Manual payout claims and one leg per reference (FUP-05, §Additions in 2.12.0). `POST /admin/payouts/{escrowId}/{ref}/claim` and `/unclaim` (admin group): a 30 minute claim per leg on the escrow row or the ledger row, taken by a conditional write, never taken over; the record refuses another admin's live claim (`409 ESCROW_046`, also in the write's condition) and ends the claim; each record writes a `payout-ref#{REFERENCE}` item in escrow-idempotency in its transaction, and a reference recorded on another leg is `409 ESCROW_047` naming where. The list shows each leg's live claim. Complete, claim and unclaim share the route `POST /admin/payouts/{escrowId}/{ref}/{action}`, which also accepts ledger refs (the record route refused them before). Audit rows for claims, releases and refused references. The admin page requires the claim before the reference field appears, renews it, treats a lapsed claim of its own as lost and reloads the queue every 30 seconds; the list keeps a lapsed claim for 24 hours (`claimLive: false`); a claim write that meets a record's transaction is retried once, then answers `409`. The admin Lambda gains GetItem on escrow-idempotency. No change to amounts, statuses, the close or the overdue alarm. 2.11.0 is another branch's number |
