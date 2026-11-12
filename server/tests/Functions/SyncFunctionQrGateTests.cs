@@ -218,8 +218,79 @@ public sealed class SyncFunctionQrGateTests
         result.GetProperty("status").GetString().Should().Be("success");
         await _dynamoDb.Received(1).UpdateItemAsync(
             Arg.Is<UpdateItemRequest>(r => r.TableName == DeliveriesTable), Arg.Any<CancellationToken>());
-        await _escrow.Received(1).GetByIdAsync(OrderEscrowId, true);
+        // Once by the gate, once by the delivered stamp looking for an unlinked order escrow (FUP-66).
+        await _escrow.Received(2).GetByIdAsync(OrderEscrowId, true);
+        // FUP-66: with no escrow row the order's funding decides; this order was never funded.
+        await _orders.Received(1).GetByIdAsync(OrderId, true);
         Logs.Should().NotContain("QR_GATE_UNDECIDED");
+    }
+
+    // ---- FUP-66: a funded order with no escrow row at all (create and self-heal both failed) ----
+
+    private void SetupOrder(string? paymentVerifiedAt, string status = "in_transit")
+    {
+        var order = new Dictionary<string, object> { { "orderId", OrderId }, { "status", status }, { "version", "4" } };
+        if (paymentVerifiedAt != null)
+        {
+            order["paymentVerifiedAt"] = paymentVerifiedAt;
+        }
+
+        _orders.GetByIdAsync(OrderId, true).Returns(order);
+    }
+
+    [Fact]
+    public async Task FundedOrder_NoEscrowRow_NoNonce_DropOff_IsDeferred_AndNothingIsWritten()
+    {
+        SetupDelivery(TruckDelivery("pickedUp"));
+        SetupOrder("2026-10-01T08:00:00.0000000Z");
+
+        var result = await SendAsync("delivered", BuyerId, "buyer");
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        result.GetProperty("message").GetString().Should().StartWith(NoncePending);
+        await AssertNothingWrittenAsync();
+        await _escrow.Received(1).GetByIdAsync(OrderEscrowId, true);
+        await _escrow.Received(1).GetByDeliveryIdAsync(DeliveryId);
+        await _orders.Received(1).GetByIdAsync(OrderId, true);
+        Logs.Should().NotContain("QR_GATE_UNDECIDED");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task UnfundedOrder_NoEscrowRow_NoNonce_DropOff_PassesAsCash(string? paymentVerifiedAt)
+    {
+        SetupDelivery(TruckDelivery("pickedUp"));
+        SetupOrder(paymentVerifiedAt);
+
+        var result = await SendAsync("delivered", BuyerId, "buyer");
+
+        result.GetProperty("status").GetString().Should().Be("success");
+    }
+
+    [Fact]
+    public async Task EscrowRowFound_TheOrderIsNotReadByTheGate()
+    {
+        SetupDelivery(TruckDelivery("pickedUp"));
+        SetupUnlinkedOrderEscrow();
+
+        await SendAsync("delivered", BuyerId, "buyer");
+
+        await _orders.DidNotReceive().GetByIdAsync(OrderId, true);
+    }
+
+    [Fact]
+    public async Task NoEscrowRow_OrderReadFails_IsDeferred_AndAlarmed()
+    {
+        // An unknown answer is never cash (FUP-42), also for the order read.
+        SetupDelivery(TruckDelivery("pickedUp"));
+        _orders.GetByIdAsync(OrderId, true).ThrowsAsync(new TimeoutException("slow"));
+
+        var result = await SendAsync("delivered", BuyerId, "buyer");
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        await AssertNothingWrittenAsync();
+        Logs.Should().Contain("QR_GATE_UNDECIDED deliveryId=del-fup42 orderId=order-fup42 reason=TimeoutException");
     }
 
     // ---- FRD-11: a pickup at the farm needs the farmer's QR whatever the money ----
