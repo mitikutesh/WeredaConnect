@@ -75,15 +75,32 @@ public partial class SyncFunctionTests
         return row;
     }
 
+    /// <summary>The pickup side of a delivery row: what the stored row holds before the confirm (FUP-246).</summary>
+    private static Dictionary<string, AttributeValue> PickupSide(Dictionary<string, AttributeValue> row)
+        => row.Where(kv => kv.Key is "gpsPickup" or "pickedUpAt" or TransactionPatternRules.PickupCapturedAtField)
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+    /// <summary>
+    /// The buyer's confirm of a picked-up delivery whose stored pickup is <paramref name="stored"/> (by default the
+    /// pickup side of <paramref name="written"/>, the row the write answers with).
+    /// </summary>
     private async Task<string> ConfirmDeliveryAsync(
-        SyncFunction function, Dictionary<string, AttributeValue> written, TimeSpan? buyerClockOffset = null)
+        SyncFunction function, Dictionary<string, AttributeValue> written, TimeSpan? buyerClockOffset = null,
+        Dictionary<string, AttributeValue>? stored = null, Dictionary<string, object>? extraData = null)
     {
-        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "nonce-frd09");
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "nonce-frd09",
+            stored: stored ?? PickupSide(written));
         _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>()).Returns(new UpdateItemResponse { Attributes = written });
-        var op = MakeDeliveryUpdateOp(new Dictionary<string, object>
+        var data = new Dictionary<string, object>
         {
             { "status", "delivered" }, { "version", 1 }, { "scannedQrNonce", "nonce-frd09" }
-        }) with
+        };
+        foreach (var (key, value) in extraData ?? new Dictionary<string, object>())
+        {
+            data[key] = value;
+        }
+
+        var op = MakeDeliveryUpdateOp(data) with
         {
             Timestamp = IsoUtc(DateTime.UtcNow.AddMinutes(-1) + (buyerClockOffset ?? TimeSpan.Zero))
         };

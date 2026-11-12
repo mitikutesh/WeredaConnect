@@ -2469,8 +2469,9 @@ public partial class SyncFunction
     /// FRD-09: the pattern rules a written delivery update feeds. A dispute this update froze the money for,
     /// sent by the delivery's buyer: the buyer's dispute rate (the escrow as the entity). A confirmed delivery
     /// with a trucker: the impossible delivery time, written on the delivery's trucker (not the caller, who is
-    /// usually the buyer). It reads only the written row: server times and the trucker's own pickup capture
-    /// time, nothing from the buyer's phone. A self-pickup has no trucker and no trip between the scans.
+    /// usually the buyer). The pickup side (point, <c>pickedUpAt</c>, <c>pickupCapturedAt</c>) comes from the row
+    /// as it was before this write, the drop-off side from the written row (FUP-246), so the confirm cannot move
+    /// the pickup. A self-pickup has no trucker and no trip between the scans.
     /// </summary>
     private async Task TryRecordDeliveryPatternSignalsAsync(
         SyncOperationRequest operation, Dictionary<string, AttributeValue> existing,
@@ -2495,7 +2496,7 @@ public partial class SyncFunction
             && AttrString(written, "truckerId") is { Length: > 0 } truckerId)
         {
             await TryRecordPatternSignalsAsync(truckerId, operation.EntityId, "delivery", "delivery_time",
-                rules => Task.FromResult(rules.CheckDeliveryTime(TransactionPatternRules.DeliveryTimeFactsFrom(written))),
+                rules => Task.FromResult(rules.CheckDeliveryTime(TransactionPatternRules.DeliveryTimeFactsFrom(existing, written))),
                 context);
         }
     }
@@ -4720,6 +4721,9 @@ public partial class SyncFunction
                         };
                     }
 
+                    // FUP-246: a create is always pending, so it carries no handoff field.
+                    DropOtherHandoffFields(operation, "pending", context);
+
                     var now = DateTime.UtcNow.ToString("o");
 
                     var item = new Dictionary<string, AttributeValue>
@@ -5459,6 +5463,9 @@ public partial class SyncFunction
                     // F12-SEC-05: GPS proximity validation for pickup/delivery
                     var resolvedNewStatus = operation.Data.TryGetValue("status", out var statusForGps)
                         ? statusForGps?.ToString() : null;
+
+                    // FUP-246: each handoff field only with its own status, so no later step rewrites it.
+                    DropOtherHandoffFields(operation, resolvedNewStatus, context);
 
                     if (resolvedNewStatus == "pickedUp"
                         && operation.Data.TryGetValue("gpsPickup", out var gpsPickupObj)
@@ -8982,6 +8989,38 @@ public partial class SyncFunction
         data.Remove("pickedUpAt");
         data.Remove("confirmedAt");
         return null;
+    }
+
+    /// <summary>
+    /// FUP-246: the delivery fields that belong to one handoff, with the status that handoff writes
+    /// (sync-protocol.md 1.54.0). The role check pins each status to its party: <c>pickedUp</c> to the
+    /// trucker, <c>delivered</c> to the buyer, <c>disputed</c> to the party who disputes. Before, a
+    /// buyer's confirm or any party's dispute could rewrite the other party's GPS point, which feeds
+    /// <c>IMPOSSIBLE_DELIVERY_TIME</c> on the trucker and the admin dispute evidence.
+    /// </summary>
+    private static readonly (string Field, string Status)[] DeliveryHandoffFields =
+    {
+        ("gpsPickup", "pickedUp"),
+        ("gpsDropoff", "delivered"),
+        ("disputeReason", "disputed")
+    };
+
+    /// <summary>
+    /// FUP-246: drops, not refuses, each handoff field the operation's status does not write (a create
+    /// is <c>pending</c>, an update without a status is null), so every shipped client, which sends each
+    /// field only with its own status, is answered as before. Each drop is logged with no personal data.
+    /// </summary>
+    private static void DropOtherHandoffFields(SyncOperationRequest operation, string? status, ILambdaContext context)
+    {
+        foreach (var (field, handoffStatus) in DeliveryHandoffFields)
+        {
+            if (status != handoffStatus && operation.Data!.Remove(field))
+            {
+                context.Logger.LogInformation(
+                    $"DELIVERY_FIELD_DROPPED field={field} status={MoneyAlarmLog.LogId(status ?? "none")} "
+                    + $"deliveryId={MoneyAlarmLog.LogId(operation.EntityId)}");
+            }
+        }
     }
 
     /// <summary>

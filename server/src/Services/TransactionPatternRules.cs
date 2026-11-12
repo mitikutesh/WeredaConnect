@@ -97,7 +97,8 @@ internal readonly record struct PatternHit(string SignalType, string Description
 internal readonly record struct PaymentSample(decimal AmountEtb, DateTime PaidAtUtc, bool Verified);
 
 /// <summary>
-/// FRD-09: what the written delivery row says about the trip between the two QR scans. The server times
+/// FRD-09: what the delivery row says about the trip between the two QR scans (the pickup side as stored before
+/// the confirm, the drop-off side as written, FUP-246). The server times
 /// are when the scans reached the server; <see cref="PickupCapturedAtUtc"/> is when the trucker's phone
 /// made the pickup scan (the pickup operation's <c>timestamp</c>), which is earlier when it was offline.
 /// The confirming operation's own <c>timestamp</c> is not used: it comes from the buyer's phone.
@@ -321,18 +322,21 @@ internal static class TransactionPatternRules
     internal const int BuyerDeclineMinParties = 2;
 
     /// <summary>
-    /// The facts of a confirmed delivery from its written row: <c>gpsPickup</c>, <c>gpsDropoff</c>,
-    /// <c>pickedUpAt</c>, <c>confirmedAt</c> and <see cref="PickupCapturedAtField"/>.
+    /// The facts of a confirmed delivery. The pickup side (<c>gpsPickup</c>, <c>pickedUpAt</c> and
+    /// <see cref="PickupCapturedAtField"/>) comes from <paramref name="stored"/>, the row as it was before the
+    /// confirm wrote it, so nothing the confirm sends can move the pickup (FUP-246); the drop-off side
+    /// (<c>gpsDropoff</c>, <c>confirmedAt</c>) from <paramref name="written"/>, the row the confirm wrote.
     /// </summary>
-    public static DeliveryTimeFacts DeliveryTimeFactsFrom(Dictionary<string, AttributeValue> row)
+    public static DeliveryTimeFacts DeliveryTimeFactsFrom(
+        Dictionary<string, AttributeValue> stored, Dictionary<string, AttributeValue> written)
     {
-        var (pickupLat, pickupLng) = Point(row, "gpsPickup");
-        var (dropoffLat, dropoffLng) = Point(row, "gpsDropoff");
+        var (pickupLat, pickupLng) = Point(stored, "gpsPickup");
+        var (dropoffLat, dropoffLng) = Point(written, "gpsDropoff");
         return new DeliveryTimeFacts(
             pickupLat, pickupLng, dropoffLat, dropoffLng,
-            ParseUtc(Text(row, "pickedUpAt")),
-            ParseUtc(Text(row, "confirmedAt")),
-            ParseUtc(Text(row, PickupCapturedAtField)));
+            ParseUtc(Text(stored, "pickedUpAt")),
+            ParseUtc(Text(written, "confirmedAt")),
+            ParseUtc(Text(stored, PickupCapturedAtField)));
     }
 
     /// <summary>
