@@ -2469,8 +2469,9 @@ public partial class SyncFunction
     /// FRD-09: the pattern rules a written delivery update feeds. A dispute this update froze the money for,
     /// sent by the delivery's buyer: the buyer's dispute rate (the escrow as the entity). A confirmed delivery
     /// with a trucker: the impossible delivery time, written on the delivery's trucker (not the caller, who is
-    /// usually the buyer). It reads only the written row: server times and the trucker's own pickup capture
-    /// time, nothing from the buyer's phone. A self-pickup has no trucker and no trip between the scans.
+    /// usually the buyer). The pickup side (point, <c>pickedUpAt</c>, <c>pickupCapturedAt</c>) comes from the row
+    /// as it was before this write, the drop-off side from the written row (FUP-246), so the confirm cannot move
+    /// the pickup. A self-pickup has no trucker and no trip between the scans.
     /// </summary>
     private async Task TryRecordDeliveryPatternSignalsAsync(
         SyncOperationRequest operation, Dictionary<string, AttributeValue> existing,
@@ -2495,32 +2496,28 @@ public partial class SyncFunction
             && AttrString(written, "truckerId") is { Length: > 0 } truckerId)
         {
             await TryRecordPatternSignalsAsync(truckerId, operation.EntityId, "delivery", "delivery_time",
-                rules => Task.FromResult(rules.CheckDeliveryTime(TransactionPatternRules.DeliveryTimeFactsFrom(written))),
+                rules => Task.FromResult(rules.CheckDeliveryTime(TransactionPatternRules.DeliveryTimeFactsFrom(existing, written))),
                 context);
         }
     }
 
     /// <summary>
-    /// ESC-33: whether the <c>GPS_ANOMALY</c> of a confirmed delivery is also written on the delivery's
-    /// trucker. It follows <c>reputationPenalties</c> (off in every environment): the anomaly is judged
-    /// from coordinates the confirming buyer's phone sends, so the trucker row stays dark until the
-    /// evidence comes from the trucker's own phone (TASK FUP-203).
+    /// ESC-33 and FUP-203: whether a confirmed delivery's trucker can get a <c>GPS_ANOMALY</c> row, judged
+    /// from the trucker's own check-ins (<see cref="TryRecordTruckerGpsAnomalyAsync"/>). It follows
+    /// <c>reputationPenalties</c> (off in every environment): with the evidence the trucker's own phone, the
+    /// row needs no flag of its own (fraud-detection-architecture.md 15.3).
     /// </summary>
     internal bool GpsAnomalyOnTrucker { get; init; } = ReputationFlags.PenaltiesEnabled;
 
     /// <summary>
-    /// The <c>GPS_ANOMALY</c> signal of a confirmed delivery (fraud-detection-architecture.md Rule 4 and
-    /// sections 14.3 and 15.3), written after the delivery write succeeded. It always lands on the caller,
-    /// the buyer whose phone sent the drop-off coordinates, exactly as before ESC-33: a buyer and a trucker
-    /// who fake deliveries together keep adding to the buyer's score. With <see cref="GpsAnomalyOnTrucker"/>
-    /// on, the delivery's trucker (read from the stored row, never from the request) gets a second row
-    /// through the attribution guard (<see cref="IFraudDetectionService.RecordAttributedSignalAsync"/>):
-    /// only for the delivery's own buyer, one row per delivery, one per buyer and trucker, two per trucker in
-    /// 30 days. A self-pickup has no trucker. Best effort like every signal.
+    /// The <c>GPS_ANOMALY</c> signal of the confirming buyer (fraud-detection-architecture.md Rule 4 and section
+    /// 15.3), written after the delivery write succeeded: the caller, whose phone sent the drop-off coordinates,
+    /// exactly as before ESC-33, so a buyer and a trucker who fake deliveries together keep adding to the
+    /// buyer's score. The buyer's coordinates feed this row only; the trucker's row is judged from the trucker's
+    /// own check-ins (FUP-203). Best effort like every signal.
     /// </summary>
     private async Task TryRecordGpsAnomalySignalAsync(
-        SyncOperationRequest operation, Dictionary<string, AttributeValue> existing, FraudCheckResult gpsCheck,
-        string? authenticatedUserId, ILambdaContext context)
+        SyncOperationRequest operation, FraudCheckResult gpsCheck, string? authenticatedUserId, ILambdaContext context)
     {
         if (_fraudService == null || string.IsNullOrEmpty(authenticatedUserId))
         {
@@ -2530,33 +2527,6 @@ public partial class SyncFunction
         var signalType = gpsCheck.FlagReason ?? FraudDetectionService.GpsAnomalySignal;
         await TryRecordFraudSignalAsync(
             authenticatedUserId, signalType, operation.EntityId, "delivery", gpsCheck.Message, context);
-
-        var truckerId = AttrString(existing, "truckerId");
-        if (!GpsAnomalyOnTrucker
-            || AttrString(existing, "deliveryType") == SelfPickupDeliveryType
-            || string.IsNullOrEmpty(truckerId) || truckerId == authenticatedUserId)
-        {
-            return;
-        }
-
-        // Only the delivery's buyer confirms it (the transition check refused anyone else before the write).
-        // One attempt per delivery and batch: a skip for one delivery must not stop the next one's.
-        if (AttrString(existing, "buyerId") != authenticatedUserId
-            || !_batchSignals.Add($"{truckerId}|{signalType}|{operation.EntityId}"))
-        {
-            return;
-        }
-
-        try
-        {
-            await _fraudService.RecordAttributedSignalAsync(
-                truckerId, authenticatedUserId, signalType, operation.EntityId, "delivery", gpsCheck.Message);
-        }
-        catch (Exception ex)
-        {
-            context.Logger.LogWarning(
-                $"Failed to record fraud signal {signalType} for delivery {MoneyAlarmLog.LogId(operation.EntityId)}: [{ex.GetType().Name}]");
-        }
     }
 
     /// <summary>
@@ -4720,6 +4690,9 @@ public partial class SyncFunction
                         };
                     }
 
+                    // FUP-246: a create is always pending, so it carries no handoff field.
+                    DropOtherHandoffFields(operation, "pending", context);
+
                     var now = DateTime.UtcNow.ToString("o");
 
                     var item = new Dictionary<string, AttributeValue>
@@ -5460,6 +5433,9 @@ public partial class SyncFunction
                     var resolvedNewStatus = operation.Data.TryGetValue("status", out var statusForGps)
                         ? statusForGps?.ToString() : null;
 
+                    // FUP-246: each handoff field only with its own status, so no later step rewrites it.
+                    DropOtherHandoffFields(operation, resolvedNewStatus, context);
+
                     if (resolvedNewStatus == "pickedUp"
                         && operation.Data.TryGetValue("gpsPickup", out var gpsPickupObj)
                         && gpsPickupObj is System.Text.Json.JsonElement pickupJe
@@ -5849,7 +5825,14 @@ public partial class SyncFunction
                         // signal before the delivery write, so a confirmed delivery must not lose it.
                         if (gpsAnomaly != null)
                         {
-                            await TryRecordGpsAnomalySignalAsync(operation, existing, gpsAnomaly, authenticatedUserId, context);
+                            await TryRecordGpsAnomalySignalAsync(operation, gpsAnomaly, authenticatedUserId, context);
+                        }
+
+                        // FUP-203: the trucker's row, judged from the trucker's own check-ins, whatever the
+                        // buyer's coordinates said. `now` is the confirmedAt just written.
+                        if (resolvedNewStatus == "delivered")
+                        {
+                            await TryRecordTruckerGpsAnomalyAsync(operation, existing, now, authenticatedUserId, context);
                         }
 
                         // Audit the delivery transition (who/when; GPS is joined at
@@ -8982,6 +8965,38 @@ public partial class SyncFunction
         data.Remove("pickedUpAt");
         data.Remove("confirmedAt");
         return null;
+    }
+
+    /// <summary>
+    /// FUP-246: the delivery fields that belong to one handoff, with the status that handoff writes
+    /// (sync-protocol.md 1.54.0). The role check pins each status to its party: <c>pickedUp</c> to the
+    /// trucker, <c>delivered</c> to the buyer, <c>disputed</c> to the party who disputes. Before, a
+    /// buyer's confirm or any party's dispute could rewrite the other party's GPS point, which feeds
+    /// <c>IMPOSSIBLE_DELIVERY_TIME</c> on the trucker and the admin dispute evidence.
+    /// </summary>
+    private static readonly (string Field, string Status)[] DeliveryHandoffFields =
+    {
+        ("gpsPickup", "pickedUp"),
+        ("gpsDropoff", "delivered"),
+        ("disputeReason", "disputed")
+    };
+
+    /// <summary>
+    /// FUP-246: drops, not refuses, each handoff field the operation's status does not write (a create
+    /// is <c>pending</c>, an update without a status is null), so every shipped client, which sends each
+    /// field only with its own status, is answered as before. Each drop is logged with no personal data.
+    /// </summary>
+    private static void DropOtherHandoffFields(SyncOperationRequest operation, string? status, ILambdaContext context)
+    {
+        foreach (var (field, handoffStatus) in DeliveryHandoffFields)
+        {
+            if (status != handoffStatus && operation.Data!.Remove(field))
+            {
+                context.Logger.LogInformation(
+                    $"DELIVERY_FIELD_DROPPED field={field} status={MoneyAlarmLog.LogId(status ?? "none")} "
+                    + $"deliveryId={MoneyAlarmLog.LogId(operation.EntityId)}");
+            }
+        }
     }
 
     /// <summary>

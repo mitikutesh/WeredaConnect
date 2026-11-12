@@ -3033,7 +3033,8 @@ public partial class SyncFunctionTests
     }
 
     private void SetupExistingDeliveryWithQrNonce(
-        string deliveryId, string truckerId, string status, int version, string qrNonce, string? orderId = null)
+        string deliveryId, string truckerId, string status, int version, string qrNonce, string? orderId = null,
+        IReadOnlyDictionary<string, AttributeValue>? stored = null)
     {
         var item = new Dictionary<string, AttributeValue>
         {
@@ -3061,6 +3062,12 @@ public partial class SyncFunctionTests
         if (orderId != null)
         {
             item["orderId"] = new AttributeValue { S = orderId };
+        }
+
+        // FUP-246: further stored attributes (a picked-up delivery's pickup point and times).
+        foreach (var (key, value) in stored ?? new Dictionary<string, AttributeValue>())
+        {
+            item[key] = value;
         }
 
         _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r =>

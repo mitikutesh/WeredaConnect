@@ -177,6 +177,56 @@ public sealed class TripLocationRepository : ITripLocationRepository
         return rows;
     }
 
+    /// <inheritdoc />
+    public async Task<TripLocationWindow> ListBetweenAsync(string tripId, string fromSortKey, string toSortKey, int maxPages)
+    {
+        var rows = new List<TripLocationRow>();
+        Dictionary<string, AttributeValue>? startKey = null;
+        var pages = 0;
+
+        do
+        {
+            var request = new QueryRequest
+            {
+                TableName = _tableName,
+                KeyConditionExpression = "#t = :t AND #sk BETWEEN :from AND :to",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    ["#t"] = "tripId",
+                    ["#sk"] = "sortKey"
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    [":t"] = S(tripId),
+                    [":from"] = S(fromSortKey),
+                    [":to"] = S(toSortKey)
+                },
+                // Capture order, and the trucker's last check-in before the read must be seen.
+                ScanIndexForward = true,
+                ConsistentRead = true
+            };
+
+            if (startKey != null)
+            {
+                request.ExclusiveStartKey = startKey;
+            }
+
+            var response = await _dynamoDb.QueryAsync(request);
+            foreach (var item in response.Items ?? new List<Dictionary<string, AttributeValue>>())
+            {
+                if (FromItem(item) is { } row)
+                {
+                    rows.Add(row);
+                }
+            }
+
+            startKey = response.LastEvaluatedKey is { Count: > 0 } next ? next : null;
+        }
+        while (startKey != null && ++pages < maxPages);
+
+        return new TripLocationWindow(rows, startKey == null);
+    }
+
     /// <summary>A stored row, or null when its keys are missing.</summary>
     private static TripLocationRow? FromItem(Dictionary<string, AttributeValue> item)
     {

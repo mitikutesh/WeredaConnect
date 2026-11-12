@@ -222,6 +222,16 @@ public sealed class FraudDetectionService : IFraudDetectionService
         double? pickupLat, double? pickupLng,
         double? dropoffLat, double? dropoffLng,
         string fromWoreda, string toWoreda)
+        => GpsConsistency(pickupLat, pickupLng, dropoffLat, dropoffLng, fromWoreda, toWoreda);
+
+    /// <summary>
+    /// Rule 4 itself (fraud-detection-architecture.md section 2). FUP-203: the trucker's <c>GPS_ANOMALY</c> row
+    /// applies the same thresholds to the trucker's own check-in (<see cref="TruckerGpsEvidence"/>).
+    /// </summary>
+    internal static FraudCheckResult GpsConsistency(
+        double? pickupLat, double? pickupLng,
+        double? dropoffLat, double? dropoffLng,
+        string fromWoreda, string toWoreda)
     {
         // Skip if GPS coordinates are missing (optional in rural areas)
         if (pickupLat == null || pickupLng == null ||
