@@ -1112,6 +1112,83 @@ void main() {
         expect((result as EscrowError).code, 'ESCROW_014');
       });
 
+      // FUP-70: the server's own code wins on 502 and 503 too.
+      test('502 and 503 with a server ESCROW code keep that code', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        for (final (status, code) in [
+          (502, 'ESCROW_012'),
+          (503, 'ESCROW_012'),
+          (503, 'ESCROW_014'),
+        ]) {
+          when(
+            () => apiClient.post<Map<String, dynamic>>(
+              any(),
+              data: any<dynamic>(named: 'data'),
+            ),
+          ).thenThrow(ServerException('x', status, code));
+
+          final result = await repository.initiatePayment(
+            deliveryId: 'del-001',
+            buyerId: 'buyer-001',
+            farmerId: 'farmer-001',
+            amount: 15000.0,
+          );
+
+          expect((result as EscrowError).code, code, reason: '$status $code');
+        }
+      });
+
+      test('503 ESCROW_012 on a dispute is not shown as Telebirr', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(const ServerException('read failed', 503, 'ESCROW_012'));
+
+        final result = await repository.raiseDispute(
+          escrowId: 'esc-001',
+          disputedBy: 'buyer-001',
+          reason: 'damaged_goods',
+        );
+
+        expect((result as EscrowError).code, 'ESCROW_012');
+      });
+
+      // FUP-77: the refund-scheduled refusal is told apart from the shared
+      // ESCROW_INVALID_TRANSITION.
+      test('a dispute on a scheduled refund gets the refund code', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const ConflictException(
+            'A refund to the buyer is scheduled for this escrow; it can no '
+                'longer be disputed.',
+            409,
+            'ESCROW_INVALID_TRANSITION',
+          ),
+        );
+
+        final result = await repository.raiseDispute(
+          escrowId: 'esc-001',
+          disputedBy: 'farmer-001',
+          reason: 'damaged_goods',
+        );
+
+        expect(
+          (result as EscrowError).code,
+          escrowDisputeRefundScheduledCode,
+        );
+      });
+
       test(
           'keeps the server code on a 422: ESCROW_039 is the live refusal of '
           'the delivery path (FUP-36)', () async {

@@ -8,13 +8,16 @@ import { type Verdict, useDisputeVerdict } from "@/components/disputes/verdictFl
 import { useLocale } from "@/hooks/useLocale";
 import { useDisputes, useEscrowPages } from "@/hooks/useQuery";
 import { formatETB, formatDate } from "@/lib/i18n";
+import { recordedSplit } from "@/lib/legs";
 import { partyName } from "@/lib/user";
 
 type Row = Record<string, unknown>;
 
 const verdictOf = (row: Row): Verdict | null => {
   const resolution = (row.dispute as Row | undefined)?.resolution;
-  return resolution === "farmer_wins" || resolution === "buyer_wins" ? resolution : null;
+  return resolution === "farmer_wins" || resolution === "buyer_wins" || resolution === "partial_refund"
+    ? resolution
+    : null;
 };
 
 export function DisputesPage() {
@@ -120,7 +123,21 @@ export function DisputesPage() {
       header: t("disputes.resolution"),
       render: (row: Row) => {
         const verdict = verdictOf(row);
-        return verdict ? t(`disputes.verdict_${verdict}`) : "";
+        const split = recordedSplit(row);
+        if (!verdict) return "";
+        return (
+          <span>
+            {t(`disputes.verdict_${verdict}`)}
+            {split && (
+              <span className="block text-xs text-text-muted">
+                {`${t("legs.farmerGets")} ${formatETB(split.farmerAmount, locale)} · ${t("legs.truckerGets")} ${formatETB(
+                  split.truckerAmount,
+                  locale,
+                )} · ${t("legs.buyerGets")} ${formatETB(split.buyerRefund, locale)}`}
+              </span>
+            )}
+          </span>
+        );
       },
     },
     {
@@ -150,12 +167,13 @@ export function DisputesPage() {
       header: t("common.actions"),
       render: (row: Row) => {
         const verdict = verdictOf(row);
-        if (!verdict) return null;
+        if (!verdict || (verdict === "partial_refund" && !recordedSplit(row))) return null;
         const id = String(row.escrowId || "");
         return (
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); openChoice(id, verdict); }}
+            // ESC-24: a recorded split is replayed with its own amounts (another split answers ADMIN_010).
+            onClick={(e) => { e.stopPropagation(); openChoice(id, verdict, recordedSplit(row) ?? undefined); }}
             disabled={resolvingId === id}
             className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
           >

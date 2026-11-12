@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.5.0
+2.8.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -2715,7 +2715,7 @@ a `released` escrow already blocks every party (account-deletion 1.0.0).
   lost after the record write is not re-ensured: the completed escrow leaves the retry query. The escrow
   row keeps `truckerTelebirrRef`, `truckerPaidAt` and `completedAt` (as for the 1.10.0 settled rows).
 - O4: a retry can run days after the release; a trucker suspended since then is still paid if verified.
-  Blocking suspended payees belongs to FRD and would change the release gate too.
+  Blocking suspended payees belongs to FRD and would change the release gate too. Done in 2.6.0 (FUP-29).
 - O7: a future B2B gateway may answer "duplicate reference" on a reused `release:{id}:trucker` after an
   earlier refusal; that answer must be classified as maybe-paid (queued, never retried) when B2B or
   ESC-45 lands.
@@ -4454,6 +4454,185 @@ not verified gets the manual queue in dev too.
 trucker retry and `truckerPayoutPending`, the row-level `manualPayout*` and `manual{Leg}*` attributes, and
 the `partial_refund` refusal of 1.9.0. 1.x escrows keep all of them.
 
+## Additions in 2.6.0 (the payout gate asks the payee's risk, FUP-29)
+
+Closes O4 of 1.11.0. Rules and reasons: `specs/architecture/fraud-detection-architecture.md` section 17.6.
+
+**The rule.** Before any system payout to a farmer or a trucker, after the identity rules pass, the payout
+gate asks whether the payee is suspended or at risk tier CRITICAL now. If so, or if the risk score cannot
+be read, the payout is not made on this run. No lock is taken and the gateway is not called.
+
+| Path | A blocked payee |
+|---|---|
+| `POST /escrow/release` as the system, 1.x escrow (the sweeps) | farmer: `403 ESCROW_029` ("Payout blocked: the farmer's account is under review."), the escrow keeps its status, no `settlementBlockReason`, no `release_blocked_kyc` row. Trucker: the farmer is paid, the escrow is `released` with `truckerPayoutPending` and `truckerPayoutPendingSince`, no `truckerPayoutBlockReason`, no `trucker_release_blocked_kyc` or `trucker_release_failed` row |
+| Trucker retry (1.11.0), a new step after the payout delay and the run's time and call checks, before the trucker lock | outcome `Blocked` with the reason (run summary `truckerLegsBlocked`); nothing is written; `TRUCKER_PAYOUT_OVERDUE reason=<reason>` after 24 hours |
+| Release of a ledger escrow as the system | the blocked payee's leg stays `held` and the other leg is decided and paid (F1, F2); nothing is recorded on the escrow |
+| Ledger transport retry (2.2.0) | `Blocked` with the reason, the leg stays `held` |
+| A ledger payout row called by the system (the ledger sweep) | the row keeps its status, `lastCode: PAYEE_BLOCKED:<reason>`, due again in one hour, audit `ledger_payee_blocked` once per reason (the deferral of an identity block); not an attempt |
+| Split verdict settlement as the system | `403 ESCROW_029`, nothing is split |
+
+Reasons: `fraud_confirmed`, `account_suspended`, `risk_critical`, `score_unavailable`. Every block logs
+`RISK_SETTLEMENT_SKIPPED escrowId=<id> sweep=payout-<farmer|trucker> reason=<payee_flagged|score_unavailable> holdReason=<reason|->`
+on escrow-cron, counted by the `risk-settlement-skipped` alarm (1.22.0). The leg is asked again on every
+run and paid on the first one after the suspension is lifted or the tier drops, with the same reference.
+
+**Unchanged.** Amounts, references and timing for every other payee. An admin's own release (a held exit
+included) and `POST /admin/payouts/{escrowId}/{ref}/complete` are not asked the risk rules; they keep the
+identity rules. Refunds to the buyer. `held` is still written only by the settlement sweeps, so
+`FRAUD_HOLD_ENABLED` does not change this gate. No endpoint, field, status or client change; the reasons
+are never returned to a party.
+
+### Not in 2.6.0 (known limits)
+- A trucker leg blocked on a `released` 1.x escrow waits until an admin lifts the suspension or reviews
+  the signals; it has no queue entry and cannot be returned to the buyer (FUP-175).
+- A leg left owed by an admin's release is paid later by the system and is asked like any other.
+
+## Additions in 2.7.0 (admin legs, ledger view and stuck orders, ESC-24)
+
+Read only. Nothing here changes an amount, a settlement decision, a status or a deadline. The admin
+sees what the server already stores, and the per-leg verdict of 2.2.0 (P.8) gets its admin page.
+
+### Admin escrow DTO
+
+Every admin route that returns an escrow (`GET /admin/escrows`, `/admin/escrows/{id}`,
+`/admin/escrows/held`, `/admin/disputes`, `/admin/disputes/{id}/evidence`,
+`/admin/transactions/{orderId}`) now fills, next to the fields of before:
+
+| Field | Meaning |
+|---|---|
+| `truckerPayout`, `truckerId` | the transport leg and its trucker (the admin mapper left them out before); absent when the escrow has none |
+| `truckerName` | the trucker's display name (the row's copy, else the users table); admin routes only |
+| `legStatus`, `refundedTotal`, `releasedTotal` | the ledger fields of 2.2.0 (P.11); absent on a 1.x escrow |
+| `verdictAmounts` | `{farmerAmount, truckerAmount, buyerRefund}` of a recorded `partial_refund` verdict; absent otherwise |
+| `truckerLeg` | where the transport leg stands (below); absent when the escrow carries no transport money and no trace of a trucker payout |
+
+`truckerLeg`: `state`, `pending` (`truckerPayoutPending`), `pendingSince`, `blockReason`
+(`truckerPayoutBlockReason`), `inManualQueue` (the queue is open and the trucker leg in it is
+`pending`), `paidAt` (`truckerPaidAt`), `telebirrRef` (`truckerTelebirrRef`). `state` is the first
+that applies: `manual_queue`; `paid` (a paid time or reference); `blocked` (pending with a block
+reason); `pending`; on a ledger escrow the transport leg's `legStatus` (`held`, `released`,
+`refunded`; whether a `released` leg is paid is on its ledger row); on a 1.x escrow `held` while the
+escrow is `initiated`, `escrowed`, `disputed`, `dispute_resolved` or `held`, `refunded` when it is
+`refunded`; else `none`. Party routes never fill these fields.
+
+A trucker leg is paid by the release, the hourly trucker retry or the ledger sweep, or recorded by an
+admin in Manual Payouts (`POST /admin/payouts/{escrowId}/{ref}/complete`, 1.8.0, 1.11.0, P.8). No other
+admin route pays or marks one, and the admin pages offer no other action for it: the escrow and
+transaction pages show the leg and link to Manual Payouts.
+
+### `GET /admin/escrows/{id}/ledger?limit=&nextToken=`
+
+Admin authorizer. One page of the escrow's ledger rows in `ref` order: a strongly consistent Query on
+the escrow's partition of the ledger table, 50 rows by default, at most 100. `200`:
+
+```json
+{
+  "escrowId": "escrow-order-ord-1",
+  "settlementModel": "ledger",
+  "rows": [
+    {
+      "ref": "release#farmer", "kind": "release", "legs": ["crop"],
+      "payeeRole": "farmer", "payeeId": "farmer-1", "payeeName": "Tolosa Gemechu",
+      "amount": 15000, "status": "done", "gatewayRef": "WCL...", "telebirrRef": "TB...",
+      "attempts": 1, "lastCode": null, "manualReason": null, "reason": "auto_release",
+      "actor": "system", "paidBy": "gateway",
+      "createdAt": "...", "updatedAt": "...", "sentAt": "...", "doneAt": "..."
+    }
+  ],
+  "nextToken": null
+}
+```
+
+A 1.x escrow answers `settlementModel: "legacy"` with no rows and no ledger read (its money is on the
+escrow row and in the audit trail, shown as before). Errors: `404 ADMIN_003` (no such escrow),
+`400 ADMIN_005` (a `nextToken` that does not decode or belongs to another escrow or index),
+`503 ADMIN_004` (the ledger table is not wired). The admin Lambda uses the ledger grant of 2.2.0
+(GetItem, Query, UpdateItem); nothing is added.
+
+### `GET /admin/orders/queue?source=queue|deadline&limit=&nextToken=`
+
+Admin authorizer. The stuck orders, oldest first, 20 a page, at most 50. Never a Scan.
+
+- `source=queue` (default): the admin stuck-order queue of 1.13.0 (`AdminQueueIndex`): `reason` is the
+  entry's `adminQueueReason` (`hold_cap`), `stuckSince` its `adminQueuedAt`, `escrowId` its
+  `adminQueueEscrowId`.
+- `source=deadline`: orders whose commitment deadline passed and nothing acted on it. The route reads
+  `DeadlineIndex` (order-lifecycle.md, ESC-16) for rows due before now + 1 hour (the sweep's retry
+  delay, so a row the sweep pushed ahead for a retry is read too), reads each order again, and keeps
+  it when its own deadline, with the reminders taken as sent, passed more than 30 minutes ago (two
+  sweep runs): `reason` is `farmer_response`, `trucker_response`, `buyer_choice` or `pickup_overdue`,
+  `stuckSince` that deadline. At most 5 index pages are read per request, each asking only for the
+  rows still missing, so a page can be short or empty with a `nextToken`.
+
+`200`: `{ "source", "orders": [...], "nextToken", "total", "asOf" }`; each order has `orderId`,
+`status`, `stage`, `reason`, `stuckSince`, `ageHours` (whole hours from `stuckSince` to `asOf`),
+`buyerId`, `buyerName`, `farmerId`, `farmerName`, `truckerId`, `truckerName` (the order row's copies),
+`cropType`, `orderTotal`, `currency`, `escrowId`, `createdAt`, `updatedAt`. Errors: `400 ADMIN_005`
+(`source` is neither value, or a `nextToken` of the other index), `503 ADMIN_004`.
+
+Not listed (no index says so without a Scan): an `accepted` order whose pickup deadline passed after
+its overdue notice went out waits for the buyer's cancel and reaches `source=queue` at the 21 day cap.
+The decision actions 1.13.0 announced for ESC-24 are not built: the page links each order to its
+transaction, and the money moves through the existing actions.
+
+### Admin pages
+
+- **Disputes**: a dispute on a ledger escrow whose crop leg is `held` offers "Decide per leg": the
+  farmer's part of the crop leg and the trucker's part of the transport leg, the buyer's refund
+  computed by the rule of P.8, the amounts shown before the confirm, a reason of 10 to 500 characters
+  sent as `notes`. The page sends `resolution: partial_refund`, `action: split` and the three amounts
+  of P.8, nothing new. A `422 ADMIN_015` asks for the disposition as for `farmer_wins` and resends the
+  same split with it; a recorded split waiting for a disposition is replayed with its recorded amounts.
+  Any other escrow keeps the two single verdicts.
+- **Escrow and transaction detail**: the trucker, the trucker payout, the transport leg's state, a
+  recorded split, and for a ledger escrow the legs and the ledger rows.
+- **Stuck Orders** (`/stuck-orders`): the two sources as tabs.
+
+---
+
+## Additions in 2.8.0 (client error handling, FUP-70, FUP-77)
+
+Client only (mobile and web), no server change. Old clients are unaffected.
+
+**The server's code wins on `502` and `503`.** The escrow repositories used to read every `502` as
+`ESCROW_013` and every `503` as `ESCROW_014` (the Telebirr texts) without looking at the body. They now
+keep the body's `ESCROW_*` code (or `FRAUD_ACCOUNT_HELD`) on any status, so a `503 ESCROW_012` (a failed
+read, 1.24.0) shows the generic text and not a Telebirr one. Only an answer without such a code falls back:
+`502` to `ESCROW_013`, `503` to `ESCROW_014` (an API Gateway `502 {"message": ...}` has no code).
+
+**The queued delivery payment (mobile intent queue).** A queued `POST /escrow/initiate` now ends its
+retries at once on an answer that cannot change for the same request:
+
+| Answer | Queue |
+|---|---|
+| `400` or `422`, with or without a code (for example `422 ESCROW_039`, `422 ESCROW_010`) | failed at once, not sent again |
+| any other `4xx` that carries an `ESCROW_*` code (for example `403 ESCROW_026`), except `401`, `404`, `408` and `429` | failed at once, not sent again |
+| `403 FRAUD_ACCOUNT_HELD` | failed at once and explained (1.23.0, unchanged) |
+| `409` | completed: the money is already held (unchanged) |
+| `403 AUTH_040`, `AUTH_041` | stays pending for the step-up, no retry spent (unchanged) |
+| `401`, `404`, `408`, `429`, a `4xx` without an `ESCROW_*` code, every `5xx`, network errors, timeouts | retried, 3 attempts (unchanged) |
+
+A `404` is never permanent: a payment queued offline together with its delivery can be sent before `/sync`
+wrote the delivery, and `404 ESCROW_008` then turns into a success on a later run.
+
+The intent stores the error **code** (the server's when it sent one, else a client code for the kind of
+failure: `ESCROW_OFFLINE`, `ESCROW_011`, `ESCROW_013`, `ESCROW_014`, `ESCROW_005`, `ESCROW_CLIENT`), never
+the server's message, and the pending card shows the code's localized text (en, am, om). A value it has no
+text for (an unknown code, or the English text an older build stored) shows the generic text.
+An intent that ends as failed (at once, or after its last retry) leaves the pending list, so its buyer is
+told once in a message with the code's text; another user signed in on the same device is not shown it.
+
+**A dispute on a scheduled refund.** `POST /escrow/dispute` on an escrow whose refund is scheduled keeps
+its `409 ESCROW_INVALID_TRANSITION` (1.25.0). The clients tell it apart by the message, which is now part
+of the contract: it contains `refund to the buyer is scheduled`. They show "A refund to the buyer is already
+scheduled for this payment, so it can no longer be disputed. Contact support if you disagree." (en, am,
+om). Every other `ESCROW_INVALID_TRANSITION` keeps the generic text. A server that rewords the message
+must keep that phrase, or add a code of its own (an old client then falls back to the generic text).
+
+**Step-up prompts on the dispute screen.** `403 AUTH_040` and `403 AUTH_041` on `POST /escrow/dispute` (and
+`AUTH_040` on a delivery dispute) open the same password or Fayda prompt as before, with a text that names
+the dispute instead of "this payment". The background prompt for queued operations keeps the payment text.
+
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
 
 > **P.1 to P.9 and P.11 to P.13 are built in 2.2.0** (ESC-20, "Additions in 2.2.0", which says where the
@@ -4798,6 +4977,9 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.8.0 | 2026-11-12 | Client error handling, no server change (FUP-70, FUP-77): the clients keep the body's `ESCROW_*` code on `502` and `503` and fall back to `ESCROW_013` and `ESCROW_014` only without one; the mobile intent queue fails a queued delivery payment at once on `400`, `422` and any other `4xx` with an `ESCROW_*` code (not `401`, `404`, `408`, `429`), stores the error code and shows its localized text; the `409 ESCROW_INVALID_TRANSITION` message of a dispute on a scheduled refund (`refund to the buyer is scheduled`) is now relied on by the clients and has its own text; the step-up prompts on the dispute screens name the dispute. 2.6.0 is taken by another branch |
+| 2.7.0 | 2026-11-12 | Admin legs, ledger view and stuck orders (ESC-24), read only: the admin escrow DTO fills `truckerPayout`, `truckerId`, `truckerName`, `legStatus`, `refundedTotal`, `releasedTotal`, `verdictAmounts` and `truckerLeg` (where the transport leg stands); new `GET /admin/escrows/{id}/ledger` (one page of ledger rows, `legacy` with no rows for a 1.x escrow) and `GET /admin/orders/queue?source=queue|deadline` (the admin queue of 1.13.0, or orders more than 30 minutes past a commitment deadline, from `DeadlineIndex`); the Disputes page sends the `partial_refund` split of 2.2.0 from a per-leg form. No amount, settlement, status or timing changes. See "Additions in 2.6.0". |
+| 2.6.0 | 2026-11-12 | The payout gate asks the payee's risk at the moment of payment (FUP-29, O4 of 1.11.0): a system payout to a suspended or CRITICAL farmer or trucker, or to one whose risk score cannot be read, is not made. Covers the system release, the split settlement, the trucker retry, the ledger transport retry and every ledger payout row the ledger sweep calls. The leg stays owed, logs `RISK_SETTLEMENT_SKIPPED` (`sweep=payout-<leg>`) and pays once the flag is gone; nothing is stored on the escrow and no party is told. Admin release, the manual payout record and refunds are unchanged. No endpoint, field or client change. See Additions in 2.6.0 |
 | 2.5.0 | 2026-11-11 | `POST /escrow/release` takes an optional `deliveryId` (FUP-139, closing the release item of FUP-147): an absent, `null` or blank one is accepted and not compared (before, `400 ESCROW_002`, so the admin page sent an order or escrow id in its place for a self-pickup escrow, which has no delivery). Unchanged from 2.2.0: a `deliveryId` that is sent and differs from the one the escrow is linked to is `422 ESCROW_VALIDATION` (`field: deliveryId`), an escrow without a `deliveryId` is released whatever is sent, and the `trigger` is stored as `releaseTrigger`. No request that was accepted is refused now; amounts, conditions, status transitions and timing of a release are unchanged; the cron (in-process) and the admin page send what they sent. Doc fixes: the request table of section 2 still said the `deliveryId` was required and never compared and the `trigger` never stored (the 2.0.0 wording, out of date since 2.2.0), and the 1.21.0 section still listed `GET /admin/fraud-signals?status=..` with the lists that scan and filter (FRD-07 moved it to a Query of the sparse `StatusCreatedAtIndex`). 2.4.0 is taken by another branch |
 | 2.4.0 | 2026-11-11 | One stored `commissionRate` (FUP-129): `POST /escrow/initiate` with a linked order stores the order's rate instead of 0.025, by the same rule as the order-funded path; the legacy rule stores 0.025 on both paths, an order without a rate stores `round4(commission / farmerPayout)`. The initiate response and `GET /escrow/history` rows carry `commissionRate` (additive, optional). Clients read it and fall back to a derivation on the crop leg for an order split. No amount held, paid out or refunded changes. |
 | 2.3.0 | 2026-11-11 | Missing fields on `POST /escrow/initiate` and `POST /escrow/dispute` (FUP-127), as 1.37.0 did for release and refund. Initiate: a missing, `null` or blank `deliveryId` answers `400 ESCROW_002`, `buyerId` or `farmerId` `400 ESCROW_VALIDATION`, a missing or `0` `amount` `400 ESCROW_001`, `currency` `400 ESCROW_004`, `idempotencyKey` `400 ESCROW_003`. Dispute: `escrowId` or `disputedBy` `400 ESCROW_VALIDATION`, `reason` `400 ESCROW_017`, `idempotencyKey` `400 ESCROW_003`. Each carries `field` and is checked right after the body is read (where a malformed body was already answered, so before the caller's role, the live Telebirr refusal `ESCROW_039` and any read). Before, an absent field failed deserialization and answered `400 ESCROW_001 "Invalid JSON in request body."`; a blank one went on to a later refusal (for example `403 ESCROW_006`, `404 ESCROW_008`, `404 ESCROW_016`). A body that is not JSON keeps `400 ESCROW_001 "Invalid JSON in request body."`. No request that was accepted is refused now, and every code is one the apps already map; no app change |
@@ -4857,6 +5039,6 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 ---
 
-**Last Updated**: 2026-11-11
+**Last Updated**: 2026-11-12
 **Version**: 2.0.0
 **Status**: Draft (Phase R4)

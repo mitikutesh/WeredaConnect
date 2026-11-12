@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { LedgerCard, RecordedSplitRow, TruckerLegRows } from "@/components/escrows/MoneyLegs";
 import { HandoffPhoto, TransactionTimeline } from "@/components/transactions/TransactionTimeline";
 import { useLocale } from "@/hooks/useLocale";
 import { useTransactionDetail } from "@/hooks/useQuery";
@@ -180,6 +181,9 @@ export function TransactionDetailPage() {
                   {formatETB(Number(escrow.truckerPayout) || 0, locale)}
                 </Field>
               )}
+              {/* ESC-24: where the transport leg stands, and a recorded per-leg verdict. */}
+              <TruckerLegRows escrow={{ ...escrow, truckerId: undefined, truckerName: undefined }} showPayout={false} />
+              <RecordedSplitRow escrow={escrow} />
               <Field label={t("transactions.paymentMethod")}>{s(order.paymentMethod)}</Field>
               <Field label={t("transactions.cbeRef")}>{s(order.cbeTransactionId)}</Field>
               <Field label={t("transactions.telebirrRef")}>{s(escrow.telebirrRef)}</Field>
@@ -209,6 +213,9 @@ export function TransactionDetailPage() {
             </div>
           )}
         </Card>
+
+        {/* ESC-24: the ledger of an escrow on the ledger (ESC-20); nothing for the legacy model. */}
+        {escrow && <LedgerCard escrow={escrow} />}
 
         {/* Delivery */}
         <Card>

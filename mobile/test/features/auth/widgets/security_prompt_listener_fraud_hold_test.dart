@@ -109,4 +109,76 @@ void main() {
       });
     }
   }
+
+  // FUP-70: a queued delivery payment that failed for good is explained
+  // with the text of its escrow code, never the code or the generic
+  // "not saved".
+  for (final locale in const [Locale('en'), Locale('am'), Locale('om')]) {
+    testWidgets(
+        'a failed queued payment shows the text of its escrow code '
+        '(${locale.languageCode})', (tester) async {
+      when(() => auth.state).thenReturn(_signedIn(UserRole.buyer));
+      await tester.pumpWidget(host(locale));
+
+      events.emit(
+        const SyncOperationRejected(
+          entityType: 'payment_intent',
+          entityId: 'del-1',
+          action: 'initiate',
+          message: 'ESCROW_039',
+          userId: 'buyer-1',
+        ),
+      );
+      await _settle(tester);
+
+      final l10n = lookupAppLocalizations(locale);
+      expect(
+        find.text(l10n.escrowErrorDeliveryPaymentUnavailable),
+        findsOneWidget,
+      );
+      expect(find.textContaining('ESCROW_'), findsNothing);
+      expect(find.text(l10n.errorChangeNotSaved), findsNothing);
+    });
+
+    testWidgets(
+        'a failed queued payment with an unknown code shows the generic '
+        'payment text (${locale.languageCode})', (tester) async {
+      when(() => auth.state).thenReturn(_signedIn(UserRole.buyer));
+      await tester.pumpWidget(host(locale));
+
+      events.emit(
+        const SyncOperationRejected(
+          entityType: 'payment_intent',
+          entityId: 'del-1',
+          action: 'initiate',
+          message: 'ESCROW_999',
+          userId: 'buyer-1',
+        ),
+      );
+      await _settle(tester);
+
+      final l10n = lookupAppLocalizations(locale);
+      expect(find.text(l10n.escrowErrorGeneric), findsOneWidget);
+      expect(find.textContaining('ESCROW_'), findsNothing);
+    });
+  }
+
+  testWidgets("another user's failed queued payment is not shown",
+      (tester) async {
+    when(() => auth.state).thenReturn(_signedIn(UserRole.buyer));
+    await tester.pumpWidget(host(const Locale('en')));
+
+    events.emit(
+      const SyncOperationRejected(
+        entityType: 'payment_intent',
+        entityId: 'del-1',
+        action: 'initiate',
+        message: 'ESCROW_039',
+        userId: 'someone-else',
+      ),
+    );
+    await _settle(tester);
+
+    expect(find.byType(SnackBar), findsNothing);
+  });
 }

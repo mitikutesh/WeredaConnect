@@ -183,6 +183,9 @@ public class EscrowCronFunction
     /// </summary>
     internal bool FraudHoldEnabled { get; init; }
 
+    /// <summary>FUP-29: the escrow service asks the payee's risk tier at every system payout (wiring test).</summary>
+    internal bool PayoutRiskGateWired => _escrowService.PayoutRiskService != null;
+
     /// <summary>FRD-03: the orders table the auto-refund sweep fences its hold on (<c>ORDERS_TABLE</c>).</summary>
     internal string? OrdersTableName { get; init; }
 
@@ -359,12 +362,6 @@ public class EscrowCronFunction
             : null;
 
         _transactionAuditRepo = txAuditRepo;
-        _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway, userRepo,
-            _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo, cropRepo: _cropRepo, tripRepo: _tripRepo)
-        {
-            // ESC-20: the cron settles ledger escrows (sweeps, verdicts, the ledger sweep).
-            LedgerRepo = EscrowLedgerConfig.FromEnvironment(dynamoDb, escrowsTable, auditTable)
-        };
 
         // FRD-04: the gate also reads each party's risk tier from the fraud-signals table. The cron never
         // runs the velocity checks, so the service gets no rate-limit table. FRD-10: its only write to the
@@ -373,6 +370,15 @@ public class EscrowCronFunction
         var fraudService = string.IsNullOrEmpty(fraudSignalsTable)
             ? null
             : new FraudDetectionService(dynamoDb, cropsTable ?? "", fraudSignalsTable, new RateLimitRepository(dynamoDb, ""));
+
+        _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway, userRepo,
+            _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo, cropRepo: _cropRepo, tripRepo: _tripRepo)
+        {
+            // ESC-20: the cron settles ledger escrows (sweeps, verdicts, the ledger sweep).
+            LedgerRepo = EscrowLedgerConfig.FromEnvironment(dynamoDb, escrowsTable, auditTable),
+            // FUP-29: every system payout asks the payee's risk tier again at the moment of payment.
+            PayoutRiskService = fraudService
+        };
 
         // FRD-03: the sweeps hold the escrow of a suspended party; without a users table every check
         // fails closed (the settlement is skipped and logged), so it is never paid out blind.

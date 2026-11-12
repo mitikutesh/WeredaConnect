@@ -1173,6 +1173,26 @@ public class EscrowServiceManualPayoutTests
         result.Error.Code.Should().Be("ESCROW_035");
     }
 
+    /// <summary>
+    /// ESC-24 (ESC-04): a trucker leg that is owed but not in the manual payout queue (the gate blocks the
+    /// trucker, the hourly retry owns it) cannot be recorded as paid by an admin: the queue is the only way in.
+    /// </summary>
+    [Fact]
+    public async Task Complete_TruckerLegOwedButNotQueued_Returns404Escrow035_AndNothingSettles()
+    {
+        var escrow = Escrow(status: "released");
+        escrow[TruckerPayoutFields.Pending] = true;
+        escrow[TruckerPayoutFields.PendingSince] = CreatedAt;
+        escrow[TruckerPayoutFields.BlockReason] = TruckerPayoutFields.BlockPhoneUnverified;
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(escrow);
+
+        var result = await Complete("trucker", "TB-REF-0002");
+
+        result.Error!.HttpStatus.Should().Be(404);
+        result.Error.Code.Should().Be("ESCROW_035");
+        await AssertNothingSettled();
+    }
+
     [Theory]
     [InlineData("farmer")]
     [InlineData("trucker")]

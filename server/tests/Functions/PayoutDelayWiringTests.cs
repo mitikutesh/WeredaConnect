@@ -69,4 +69,12 @@ public sealed class PayoutDelayWiringTests : IDisposable
     {
         new EscrowCronFunction().PayoutDelay.Should().NotBeNull();
     }
+
+    [Fact]
+    public void EscrowCronLambda_WiresThePayoutRiskGate()
+    {
+        // FUP-29: without the fraud service on the escrow service a CRITICAL payee would be paid by the
+        // trucker retry and the ledger sweep, and every unit test (which sets it itself) would still pass.
+        new EscrowCronFunction().PayoutRiskGateWired.Should().BeTrue();
+    }
 }

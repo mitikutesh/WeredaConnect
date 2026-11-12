@@ -64,7 +64,10 @@ class _DisputeScreenState extends State<DisputeScreen> {
     var confirmed = false;
     if (event != null && !_resentAfterStepUp) {
       confirmed = await (widget.confirmPassword ??
-          (BuildContext c) => showStepUpDialog(c))(context);
+          (BuildContext c) => showStepUpDialog(
+                c,
+                message: AppLocalizations.of(c)!.stepUpDisputeMessage,
+              ))(context);
     }
     if (!mounted) return;
     if (confirmed && event != null) {

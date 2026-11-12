@@ -38,6 +38,7 @@ describe("Sidebar", () => {
       "/escrows",
       "/disputes",
       "/payouts",
+      "/stuck-orders",
       "/unapplied-payments",
       "/fraud-review",
       "/listing-reports",
@@ -50,6 +51,7 @@ describe("Sidebar", () => {
       "/compliance",
     ]);
     expect(within(nav).getByRole("link", { name: "Manual Payouts" }).getAttribute("href")).toBe("/payouts");
+    expect(within(nav).getByRole("link", { name: "Stuck Orders" }).getAttribute("href")).toBe("/stuck-orders");
     expect(within(nav).getByRole("link", { name: "Unapplied Payments" }).getAttribute("href")).toBe(
       "/unapplied-payments",
     );

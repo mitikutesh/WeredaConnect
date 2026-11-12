@@ -1569,6 +1569,7 @@
   "@escrowErrorDisputeBeforePickup": {
     "description": "Error when a dispute is raised before the goods are picked up (ESCROW_041)"
   },
+  "escrowErrorDisputeRefundScheduled": "ለዚህ ክፍያ ገንዘቡ ለገዢው እንዲመለስ አስቀድሞ ተይዟል፣ ስለዚህ ከእንግዲህ ክርክር ማንሳት አይቻልም። ካልተስማሙ ድጋፍ ሰጪን ያግኙ።",
   "escrowErrorInvalidTransition": "ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"
@@ -2579,6 +2580,8 @@
   "otpSentTo": "ባለ 6 አሃዝ ኮድ በኤስኤምኤስ ወደ {phone} ልከናል።",
   "otpCodeHint": "ባለ 6 አሃዝ ኮድ",
   "otpExpiresAt": "ኮዱ {time} ላይ ጊዜው ያልፋል።",
+  "stepUpDisputeMessage": "ለደህንነትዎ ይህ ክርክር ከመላኩ በፊት እርስዎ መሆንዎን ያረጋግጡ።",
+  "faydaStepUpDisputeMessage": "ይህን ክርክር ለመላክ እርስዎ መሆንዎን በፋይዳ ያረጋግጡ። የይለፍ ቃልዎም ሊጠየቅ ይችላል።",
   "faydaStepUpMessage": "ይህን ክፍያ ለመቀጠል እርስዎ መሆንዎን በፋይዳ ያረጋግጡ። የይለፍ ቃልዎም ሊጠየቅ ይችላል።",
   "stepUpTitle": "እርስዎ መሆንዎን ያረጋግጡ",
   "stepUpPhoneLabel": "ስልክ፦ {phone}",
@@ -2604,6 +2607,7 @@
   "kycFarmerPhoneMessage": "የገበሬው ስልክ ቁጥር ገና ስላልተረጋገጠ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።",
   "kycFarmerFaydaMessage": "ከ10,000 ብር በላይ ለሆኑ ክፍያዎች ገበሬውም የተረጋገጠ የፋይዳ መታወቂያ ሊኖረው ይገባል፣ ስለዚህ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።",
   "kycFarmerNotVerifiedMessage": "የገበሬው ማንነት ገና ስላልተረጋገጠ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።",
+  "kycUnknownReasonMessage": "የማንነት ማረጋገጫ ገና ስለሚቀር ይህ ክፍያ አልተላከም። ምን እንደሚያስፈልግ ለማየት መተግበሪያውን ያዘምኑ ወይም ድጋፍ ሰጪን ያግኙ።",
   "kycUnavailableMessage": "አሁን የማንነት ማረጋገጫን ማየት አልቻልንም፣ ስለዚህ ይህ ክፍያ አልተላከም። እባክዎ ቆይተው እንደገና ይሞክሩ።",
   "kycPaymentNotSent": "ክፍያው አልተላከም። ማንነትዎ አልተረጋገጠም።",
   "kycPaymentResubmitted": "ማንነትዎ ተረጋግጧል። ክፍያዎ እንደገና ይላካል።",
@@ -2642,6 +2646,7 @@
   "orderTransportFailedBuyerHint": "ሰብሉ በጊዜው አልተነሳም። ይህን ትዕዛዝ ሰርዘው የከፈሉትን ገንዘብ በሙሉ መመለስ ይችላሉ።",
   "orderTransportFailedPartyHint": "ሰብሉ በጊዜው አልተነሳም። ገዢው አሁን ይህን ትዕዛዝ መሰረዝ ይችላል።",
   "cancelOrderTransportFailedBody": "የትራንስፖርትና የመድረክ ኮሚሽንን ጨምሮ የከፈሉት ሁሉ ይመለስልዎታል።",
+  "errorOrderCancelPaymentBusy": "ክፍያው በክርክር ላይ ስለሆነ ወይም እየተጠናቀቀ ስለሆነ ይህ ትዕዛዝ አሁን ሊሰረዝ አይችልም። ውጤቱን ይጠብቁ ወይም ድጋፍ ሰጪን ያግኙ።",
   "errorOrderCancelNotAllowed": "ይህ ትዕዛዝ አሁን ሊሰረዝ አይችልም። መሰረዝ የሚቻለው ሰብሉ በጊዜው ካልተነሳና ምንም ካልተወሰደ ብቻ ነው።",
   "errorDeadlinePassed": "ጊዜው አልፏል። የዚህ እርምጃ ጊዜ አብቅቷል።",
   "errorTripNotEligible": "ያ የጭነት መኪና ከእንግዲህ አይገኝም። እንደገና ይምረጡ።",
