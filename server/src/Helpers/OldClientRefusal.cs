@@ -1,7 +1,7 @@
 namespace WeredaConnect.Server.Helpers;
 
 /// <summary>
-/// FUP-75, FUP-241 (sync-protocol.md 1.53.0): <c>REPUTATION_RESTRICTED</c>, <c>TRIP_HAS_BOOKINGS</c>
+/// FUP-75, FUP-241 (sync-protocol.md 1.52.0): <c>REPUTATION_RESTRICTED</c>, <c>TRIP_HAS_BOOKINGS</c>
 /// and <c>CROP_HAS_ACTIVE_ORDERS</c> are known to clients only since FUP-01 (#155, sync-protocol.md
 /// 1.17.0). An app that sends no readable <c>X-App-Build</c> (build 1 or older,
 /// <see cref="ClientAppBuild.Read"/>) may predate that client and would resend an unknown code on every

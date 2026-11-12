@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.53.0
+1.52.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -592,7 +592,7 @@ Rules for server authors:
   operation.
 - Send `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS` and `CROP_HAS_ACTIVE_ORDERS` only to an app that
   sends `X-App-Build`; an app without it gets the sentence under `SYNC_VALIDATION` or
-  `ORDER_VALIDATION` (1.53.0, Codes older apps do not know).
+  `ORDER_VALIDATION` (1.52.0, Codes older apps do not know).
 - `CROP_VALIDATION` and `TRIP_VALIDATION` stay retryable: they also carry "The farmer profile
   could not be read" when the users table read fails. Since 1.43.0 the client treats only their
   immutable-field text (`... is immutable and cannot be changed on update.`) as permanent, and
@@ -1325,7 +1325,7 @@ A `conflict` (the order moved) and a success answer as before. With nothing in t
 
 ---
 
-## Codes older apps do not know (1.53.0, FUP-241)
+## Codes older apps do not know (1.52.0, FUP-241)
 
 Server only; no client change. The five codes of Permanent trip and crop rejections (1.17.0) are
 known to clients only since FUP-01. An app that sends no readable `X-App-Build` (build 1 or older,
@@ -1337,8 +1337,8 @@ as permanent (Retry Logic): the code and any reason token before the sentence (`
 
 | Code | Sent on | To an app without `X-App-Build` |
 |---|---|---|
-| `TRIP_HAS_BOOKINGS` (new in 1.53.0) | `trip` update or delete, behind `COMMITMENTS_ENABLED` (1.29.0) | `SYNC_VALIDATION: <sentence>`, for example `SYNC_VALIDATION: capacity cannot drop below the 20 quintals already booked.` or `SYNC_VALIDATION: Crops from this trip are already on the way; it can no longer be cancelled.` |
-| `CROP_HAS_ACTIVE_ORDERS` (new in 1.53.0) | `crop_listing` delete or update to `status: deleted`, behind `COMMITMENTS_ENABLED` (1.35.0) | `SYNC_VALIDATION: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.` |
+| `TRIP_HAS_BOOKINGS` (new in 1.52.0) | `trip` update or delete, behind `COMMITMENTS_ENABLED` (1.29.0) | `SYNC_VALIDATION: <sentence>`, for example `SYNC_VALIDATION: capacity cannot drop below the 20 quintals already booked.` or `SYNC_VALIDATION: Crops from this trip are already on the way; it can no longer be cancelled.` |
+| `CROP_HAS_ACTIVE_ORDERS` (new in 1.52.0) | `crop_listing` delete or update to `status: deleted`, behind `COMMITMENTS_ENABLED` (1.35.0) | `SYNC_VALIDATION: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.` |
 | `REPUTATION_RESTRICTED` (1.48.0, unchanged) | `crop_listing` and `trip` create, `order` accept and create, behind `reputationPenalties` | `ORDER_VALIDATION: <sentence>` on an order, `SYNC_VALIDATION: <sentence>` on anything else |
 | `APP_UPDATE_REQUIRED` (1.41.0, unchanged) | `order` operations below `MIN_ORDER_APP_BUILD` | `ORDER_VALIDATION: This version of the app is too old for orders. Update WeredaConnect to continue.` |
 | `TRIP_CAPACITY_EXCEEDED` (unchanged) | `order` create or update naming a trip | Never reaches such an app: the minimum app version gate (1.41.0) refuses every `order` operation without the header first, and an infra test keeps that gate on in every environment with `COMMITMENTS_ENABLED` on. |
@@ -1358,7 +1358,7 @@ text. Built in `Helpers/OldClientRefusal.cs`, shared with the 1.48.0 fallback.
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.53.0 | 2026-11-12 | Codes older apps do not know (FUP-241, `crop-listing-api.md` 1.12.1, `trip-listing-api.md` 2.6.1): `TRIP_HAS_BOOKINGS` and `CROP_HAS_ACTIVE_ORDERS` go only to an app that sends `X-App-Build`; an app without it (build 1 or older) gets the same sentence as `SYNC_VALIDATION:`, permanent on every mobile build since March 2026, as `REPUTATION_RESTRICTED` already did (1.48.0, unchanged). Apps with the header get the codes as before. Server only |
+| 1.52.0 | 2026-11-12 | Codes older apps do not know (FUP-241, `crop-listing-api.md` 1.12.1, `trip-listing-api.md` 2.6.1): `TRIP_HAS_BOOKINGS` and `CROP_HAS_ACTIVE_ORDERS` go only to an app that sends `X-App-Build`; an app without it (build 1 or older) gets the same sentence as `SYNC_VALIDATION:`, permanent on every mobile build since March 2026, as `REPUTATION_RESTRICTED` already did (1.48.0, unchanged). Apps with the header get the codes as before. Server only |
 | 1.51.0 | 2026-11-12 | A funded order's reject or cancel and its refund arm are one transaction (FUP-53, `escrow-protocol.md` 2.11.0, `order-lifecycle.md` 2.12.0): money frozen or moving answers `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` (permanent), and three unprefixed retryable texts cover a failed escrow read, an escrow that kept changing and a cancelled transaction; nothing is written on any of them. Server only. |
 | 1.50.0 | 2026-11-12 | `farmerReliability` retired (ESC-30, `match-api.md` 1.4.0): dropped from client payloads like the owner fields and no longer stamped on a crop create. |
 | 1.49.0 | 2026-11-12 | Refusal texts the clients read, client only (FUP-77, FUP-83): `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` has its own text (the phrase is now relied on by the clients); an `ORDER_KYC_REQUIRED` reason token the client does not know is explained only, with no Fayda action; `buyer_phone` has its own error text on every surface. 1.48.0 is taken by another branch |
@@ -1413,4 +1413,4 @@ text. Built in `Helpers/OldClientRefusal.cs`, shared with the 1.48.0 fallback.
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.53.0
+**Version**: 1.52.0

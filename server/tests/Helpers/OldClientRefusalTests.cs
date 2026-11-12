@@ -5,7 +5,7 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Helpers;
 
 /// <summary>
-/// FUP-241 (sync-protocol.md 1.53.0): the codes clients know only since FUP-01 go out only to an app
+/// FUP-241 (sync-protocol.md 1.52.0): the codes clients know only since FUP-01 go out only to an app
 /// that sends <c>X-App-Build</c>; an older app gets the sentence under a code it already treats as
 /// permanent.
 /// </summary>
