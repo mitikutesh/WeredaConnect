@@ -4691,7 +4691,7 @@ escrow or its delivery through that link only.
 never stamped is stamped by the order-money sweep (order `delivered`) or by the refund sweep when the
 escrow's expiry comes up. A delivery in flight is stamped at its confirmation.
 
-### Not in 2.8.0 (known limits)
+### Not in 2.9.0 (known limits)
 - An exception after the `released` write other than the lost `completed` race (a failed audit write, a
   transient failure of the `completed` write) still answers `500` for a paid release (FUP-190).
 - An order escrow linked to a cancelled delivery whose re-link to the replacement failed is not stamped
