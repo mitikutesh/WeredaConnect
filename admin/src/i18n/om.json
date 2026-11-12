@@ -827,7 +827,8 @@
     "REPUTATION_NOT_RESTRICTED": "Herregni kun daangaa ka'u hin qabu. Fuula irra deebi'ii fe'i.",
     "REPUTATION_ALREADY_RESTRICTED": "Herregni kun duraan daangaa qaba. Dura kaasi, sana booda irra deebi'ii daangessi.",
     "REPUTATION_UNAVAILABLE": "Naannoo kana keessatti adabbiin maqaa gaarii dhaamaa jira, kanaaf wanti jijjiiramu hin jiru.",
-    "REPUTATION_SERVER_ERROR": "Sarvariin kana xumuruu hin dandeenye. Yeroo muraasa booda irra deebi'ii yaali."
+    "REPUTATION_SERVER_ERROR": "Sarvariin kana xumuruu hin dandeenye. Yeroo muraasa booda irra deebi'ii yaali.",
+    "REPUTATION_APPEAL_CHANGED": "Erga fuulli kun fe'amee booda ol'iyyannoon jijjiirameera. Fuulli irra deebi'ee fe'ameera: ol'iyyannoo dubbisi, sana booda irra deebi'ii murteessi."
   },
   "language": {
     "english": "English",

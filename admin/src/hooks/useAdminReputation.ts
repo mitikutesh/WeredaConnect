@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
+  APPEAL_CHANGED,
   decisionPath,
   type ActionResult,
   type AppealQueueStatus,
@@ -56,7 +57,12 @@ export function useReputationAppeals(status: AppealQueueStatus) {
   });
 }
 
-/** 9.3: excuse or uphold one event, with the note the party will see. */
+/**
+ * 9.3: excuse or uphold one event, with the note the party will see. An uphold spends the party's
+ * one appeal, so it carries what the page showed of it (`seenAppealTextAt`: when the text arrived,
+ * left out when the page showed no text). The server answers 409 REPUTATION_APPEAL_CHANGED when
+ * the stored appeal differs; the lists are then refetched so the admin reads the appeal first.
+ */
 export function useReputationDecision() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -66,17 +72,29 @@ export function useReputationDecision() {
       decision,
       note,
       until,
+      seenAppealTextAt,
     }: {
       userId: string;
       eventId: string;
       decision: ReputationDecision;
       note: string;
       until?: string;
+      seenAppealTextAt?: string;
     }) =>
-      api.post<DecisionResult>(decisionPath(userId, eventId), until ? { decision, note, until } : { decision, note }),
+      api.post<DecisionResult>(decisionPath(userId, eventId), {
+        decision,
+        note,
+        ...(until ? { until } : {}),
+        ...(decision === "uphold" && seenAppealTextAt ? { seenAppealTextAt } : {}),
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "reputation"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+    onError: (err: unknown) => {
+      if ((err as { code?: string }).code === APPEAL_CHANGED) {
+        queryClient.invalidateQueries({ queryKey: ["admin", "reputation"] });
+      }
     },
   });
 }

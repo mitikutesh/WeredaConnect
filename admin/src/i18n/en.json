@@ -827,7 +827,8 @@
     "REPUTATION_NOT_RESTRICTED": "This account has no restriction to lift. Reload the page.",
     "REPUTATION_ALREADY_RESTRICTED": "This account already has a restriction. Lift it first, then restrict again.",
     "REPUTATION_UNAVAILABLE": "Reputation penalties are switched off in this environment, so nothing can be changed.",
-    "REPUTATION_SERVER_ERROR": "The server could not finish this. Try again in a moment."
+    "REPUTATION_SERVER_ERROR": "The server could not finish this. Try again in a moment.",
+    "REPUTATION_APPEAL_CHANGED": "The appeal changed after this page was loaded. It has been reloaded: read the appeal, then decide again."
   },
   "language": {
     "english": "English",

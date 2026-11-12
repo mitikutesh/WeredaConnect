@@ -37,6 +37,7 @@ public partial class AdminFunction
     public const string ReputationEventDecidedCode = "REPUTATION_EVENT_DECIDED";
     public const string ReputationNotRestrictedCode = "REPUTATION_NOT_RESTRICTED";
     public const string ReputationAlreadyRestrictedCode = "REPUTATION_ALREADY_RESTRICTED";
+    public const string ReputationAppealChangedCode = "REPUTATION_APPEAL_CHANGED";
 
     private static readonly string[] AppealQueueStatuses = { "pending", "review" };
 
@@ -228,6 +229,7 @@ public partial class AdminFunction
                         AppealStatus = r.AppealStatus ?? status,
                         AppealedAt = r.AppealedAt,
                         Text = r.AppealText,
+                        AppealTextAt = r.AppealTextAt,
                         HasPhoto = !string.IsNullOrEmpty(r.AppealPhotoRef),
                         AppealPhotoUrl = SignAppealPhoto(r, context)
                     };
@@ -298,13 +300,20 @@ public partial class AdminFunction
             until = parsed;
         }
 
+        // What the admin's page showed of the appeal; an ISO time the server wrote, so anything long is not one.
+        var seenTextAt = string.IsNullOrWhiteSpace(body.SeenAppealTextAt) ? null : body.SeenAppealTextAt.Trim();
+        if (seenTextAt is { Length: > 40 })
+        {
+            return ReputationError(400, ReputationFunction.ValidationCode, "seenAppealTextAt is not a time this server sent.", "seenAppealTextAt");
+        }
+
         var eventId = ReputationFunction.EventIdOf(request, rawEventId);
         var adminId = AuthHelper.GetUserId(request) ?? "admin";
 
         try
         {
             var service = ReputationSvc!;
-            var result = await service.DecideAsync(userId, eventId, body.Decision, note, until, adminId, context.Logger);
+            var result = await service.DecideAsync(userId, eventId, body.Decision, note, until, adminId, context.Logger, seenTextAt);
             if (!result.Succeeded)
             {
                 return ReputationRefusal(result.Outcome, service.Settings);
@@ -314,8 +323,8 @@ public partial class AdminFunction
             if (applied)
             {
                 var action = body.Decision == ReputationService.DecisionExcuse ? "reputation_excused" : "reputation_upheld";
-                await AuditReputationAsync(request, context, userId, adminId, action, result,
-                    $"event={eventId};note={note}" + (until is { } end ? $";until={ReputationPolicy.Iso(end)}" : string.Empty));
+                // The body's until is not written here: only an end that was applied is, in the detail.
+                await AuditReputationAsync(request, context, userId, adminId, action, result, $"event={eventId};note={note}");
             }
 
             return LambdaResponse.Ok(new AdminReputationDecisionResponse
@@ -457,6 +466,8 @@ public partial class AdminFunction
                 "This account has no restriction in force."),
             ReputationAdminOutcome.AlreadyRestricted => ReputationError(409, ReputationAlreadyRestrictedCode,
                 "This account already has a restriction in force. Lift it first."),
+            ReputationAdminOutcome.AppealChanged => ReputationError(409, ReputationAppealChangedCode,
+                "The appeal changed since this page was loaded. Reload it, read the appeal and decide again."),
             _ => ReputationError(400, ReputationFunction.ValidationCode,
                 action is ReputationService.ActionTag or ReputationService.ActionUntag
                     ? $"until must be in the future and at most {settings.TagMaxDays} days ahead."
@@ -483,8 +494,10 @@ public partial class AdminFunction
 
     /// <summary>
     /// One transaction-audit row per applied action (never for a replay): the acting admin, the
-    /// action, the tier and points before and after, and the reason or note. Best effort like every
-    /// admin audit (a failed write is logged by the writer), plus the audit log line.
+    /// action, the tier and points before and after, the reason or note, and what else changed
+    /// (<see cref="ReputationAdminResult.Detail"/>: a tag, an untag and a lift can leave the tier and
+    /// the points as they were). Best effort like every admin audit (a failed write is logged by the
+    /// writer), plus the audit log line.
     /// </summary>
     private async Task AuditReputationAsync(
         APIGatewayProxyRequest request, ILambdaContext context, string userId, string adminId, string action,
@@ -495,7 +508,8 @@ public partial class AdminFunction
 
         await TransactionAuditWriter.EmitAsync(
             TxAuditRepo(), context, userId, "user", userId, action, State(result.Before), State(result.After),
-            AuditContext.From(request, adminId, "admin"), metadata: metadata);
+            AuditContext.From(request, adminId, "admin"),
+            metadata: string.IsNullOrEmpty(result.Detail) ? metadata : $"{metadata};{result.Detail}");
 
         AuditLogger.LogAudit("ADMIN", "REPUTATION_ACTION",
             userId: adminId, correlationId: AuditLogger.GetCorrelationId(request),
@@ -560,6 +574,7 @@ public partial class AdminFunction
                     CanAppeal = ReputationReadModels.CanAppeal(e, now, settings),
                     Text = e.AppealText,
                     AppealedAt = e.AppealTextAt ?? e.AppealedAt,
+                    TextAt = e.AppealTextAt,
                     HasPhoto = !string.IsNullOrEmpty(e.AppealPhotoRef),
                     AppealPhotoUrl = SignAppealPhoto(e, context),
                     DecidedAt = e.DecidedAt,
@@ -655,10 +670,9 @@ public partial class AdminFunction
     // ===== ESC-29 and FUP-163: the copies after a suspend or unsuspend =====
 
     /// <summary>
-    /// Best effort, never fails the admin action: the day's heal marker first, then the refresh of
-    /// the aggregate and of the owner fields on the user's listings in this request. A failure of
-    /// either is logged with the copy token; a failed refresh is retried by the daily job through
-    /// the marker.
+    /// Best effort, never fails the admin action: the day's heal marker, written right after the
+    /// profile row so the daily job rewrites the copies whatever happens later in the request. A
+    /// failure is logged with the copy token.
     /// </summary>
     private async Task MarkReputationCopyDueAsync(string userId, string action, ILambdaContext context)
     {
@@ -684,6 +698,21 @@ public partial class AdminFunction
         {
             context.Logger.LogWarning(
                 $"{ReputationService.CopyFailedToken} step=admin_{action} user={MoneyAlarmLog.LogId(userId)} [{ex.GetType().Name}]");
+        }
+
+    }
+
+    /// <summary>
+    /// TASK FUP-163, best effort: the aggregate and the owner fields on the user's listings in this
+    /// request. Called after the sign-in service was updated, so ending the user's sessions never
+    /// waits for it. A failure is logged with the copy token and left to the daily job (the marker).
+    /// </summary>
+    private async Task RefreshReputationAfterSuspensionAsync(string userId, string action, ILambdaContext context)
+    {
+        if (!ReputationPenaltiesEnabled || string.IsNullOrEmpty(ReputationEventsTable)
+            || action is not ("suspend" or "unsuspend"))
+        {
+            return;
         }
 
         try

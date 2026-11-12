@@ -115,9 +115,18 @@ public class AdminReputationTests
 
     private static string DecisionPath(string user, string slot) => $"/admin/users/{user}/reputation/events/{Uri.EscapeDataString(slot)}/decision";
 
-    private static string Decision(string decision, string note = "Flood closed the road.", string? until = null)
-        => JsonSerializer.Serialize(new Dictionary<string, string?> { ["decision"] = decision, ["note"] = note, ["until"] = until }
+    private static string Decision(string decision, string note = "Flood closed the road.", string? until = null, string? seen = null)
+        => JsonSerializer.Serialize(new Dictionary<string, string?>
+        {
+            ["decision"] = decision,
+            ["note"] = note,
+            ["until"] = until,
+            ["seenAppealTextAt"] = seen
+        }
             .Where(p => p.Value != null).ToDictionary(p => p.Key, p => p.Value));
+
+    /// <summary>What an admin page that just loaded the event would send back: when the party's text arrived.</summary>
+    private string? SeenText(string user, string slot) => _repo.Row(user, slot).AppealTextAt;
 
     private static string Action(string action, string? reason = "Repeated complaints from three buyers.", DateTime? until = null)
         => JsonSerializer.Serialize(new Dictionary<string, string?>
@@ -408,7 +417,8 @@ public class AdminReputationTests
         await Penalty("farmer-1", "CANCEL#o1", T0.AddDays(-1));
         await Appeal("farmer-1", "CANCEL#o1");
 
-        var body = await Ok(Post(DecisionPath("farmer-1", "CANCEL#o1"), Decision("uphold", "The buyer confirmed the cancel.")));
+        var body = await Ok(Post(DecisionPath("farmer-1", "CANCEL#o1"),
+            Decision("uphold", "The buyer confirmed the cancel.", seen: SeenText("farmer-1", "CANCEL#o1"))));
 
         body.GetProperty("event").GetProperty("status").GetString().Should().Be("active");
         body.GetProperty("event").GetProperty("appeal").GetProperty("status").GetString().Should().Be("upheld");
@@ -452,6 +462,8 @@ public class AdminReputationTests
         var restriction = _repo.RowsOf("trucker-1").Single(r => r.Code == ReputationCodes.Restriction);
         restriction.Until.Should().Be(T0.AddDays(14));
         restriction.DueAt.Should().Be(ReputationPolicy.Iso(T0.AddDays(14)), "the daily job ends it");
+        _auditRows.Should().ContainSingle().Which.Item["metadata"].S.Should().Be(
+            $"event=OVERDUE#o1;note=No delivery was made.;restriction={restriction.EventId};restrictionUntil={ReputationPolicy.Iso(T0.AddDays(14))}");
 
         // Decided with no word from the party: they may still appeal once, and it is pending again.
         body.GetProperty("event").GetProperty("appeal").GetProperty("canAppeal").GetBoolean().Should().BeTrue();
@@ -529,7 +541,8 @@ public class AdminReputationTests
         // The other admin's uphold commits between this request's read and its write.
         _repo.BeforeCommit = async _ =>
         {
-            var other = await Service().DecideAsync("farmer-1", "CANCEL#o1", "uphold", "Other admin.", null, "admin-2", new TestLambdaLogger());
+            var other = await Service().DecideAsync(
+                "farmer-1", "CANCEL#o1", "uphold", "Other admin.", null, "admin-2", new TestLambdaLogger(), SeenText("farmer-1", "CANCEL#o1"));
             other.Outcome.Should().Be(ReputationAdminOutcome.Applied);
         };
 
@@ -544,18 +557,80 @@ public class AdminReputationTests
     }
 
     [Fact]
-    public async Task AnUphold_NeverClosesAnAppealWhoseTextArrivedAfterTheRead()
+    public async Task AnUphold_FromAStalePage_IsRefused_AndTheAppealStaysOpen()
+    {
+        // The admin's page shows a review with no text. The trucker then sends their one appeal.
+        await Penalty("trucker-1", "OVERDUE#o1", T0.AddDays(-1), ReputationCodes.DeliveryOverdue);
+        var page = await Ok(Get("/admin/reputation/appeals", new() { ["status"] = "review" }));
+        page.GetProperty("appeals")[0].TryGetProperty("appealTextAt", out _).Should().BeFalse("the page showed no text");
+        _clock.Now = T0.AddMinutes(5);
+        (await Appeal("trucker-1", "OVERDUE#o1", "The bridge was closed.")).Should().BeTrue();
+        var committed = _repo.Committed.Count;
+
+        // Uphold on the stale page: it sends what it showed (no text).
+        await Error(Post(DecisionPath("trucker-1", "OVERDUE#o1"), Decision("uphold")), 409, "REPUTATION_APPEAL_CHANGED");
+
+        var row = _repo.Row("trucker-1", "OVERDUE#o1");
+        row.AppealStatus.Should().Be("review", "the appeal is still open");
+        row.AppealDecision.Should().BeNull();
+        _repo.Committed.Should().HaveCount(committed, "nothing was written, and the refusal is not retried");
+        _auditRows.Should().BeEmpty();
+        _repo.RowsOf("trucker-1").Single(r => r.Code == ReputationCodes.Restriction).Until.Should().BeNull();
+
+        // A value the page never got (an older text time) is refused the same way.
+        await Error(Post(DecisionPath("trucker-1", "OVERDUE#o1"), Decision("uphold", seen: ReputationPolicy.Iso(T0))),
+            409, "REPUTATION_APPEAL_CHANGED");
+
+        // After a reload the page shows the text and sends its time: the uphold goes through.
+        var reloaded = await Ok(Get("/admin/reputation/appeals", new() { ["status"] = "review" }));
+        var seen = reloaded.GetProperty("appeals")[0].GetProperty("appealTextAt").GetString();
+        seen.Should().Be(ReputationPolicy.Iso(T0.AddMinutes(5)));
+        var body = await Ok(Post(DecisionPath("trucker-1", "OVERDUE#o1"), Decision("uphold", seen: seen)));
+        body.GetProperty("event").GetProperty("appeal").GetProperty("status").GetString().Should().Be("upheld");
+        body.GetProperty("event").GetProperty("appeal").GetProperty("textAt").GetString().Should().Be(seen);
+    }
+
+    [Fact]
+    public async Task AnUphold_IsRefused_WhenTheTextArrivesBetweenTheServersReadAndItsWrite()
     {
         await Penalty("trucker-1", "OVERDUE#o1", T0.AddDays(-1), ReputationCodes.DeliveryOverdue);
-        // The party's text lands on the review row after the admin's read. It moves no version.
+        // The party's text lands on the review row after the server's read. It moves no version.
         _repo.BeforeCommit = async _ => (await Appeal("trucker-1", "OVERDUE#o1", "The bridge was closed.")).Should().BeTrue();
 
-        var body = await Ok(Post(DecisionPath("trucker-1", "OVERDUE#o1"), Decision("uphold")));
+        // The write loses its condition; the next read finds a text the admin never saw.
+        await Error(Post(DecisionPath("trucker-1", "OVERDUE#o1"), Decision("uphold")), 409, "REPUTATION_APPEAL_CHANGED");
 
-        // The first write lost its condition; the second saw the text.
-        _repo.Attempts.Should().BeGreaterThan(2);
-        body.GetProperty("event").GetProperty("appeal").GetProperty("text").GetString().Should().Be("The bridge was closed.");
-        body.GetProperty("event").GetProperty("appeal").GetProperty("canAppeal").GetBoolean().Should().BeFalse();
+        var row = _repo.Row("trucker-1", "OVERDUE#o1");
+        row.AppealText.Should().Be("The bridge was closed.");
+        row.AppealStatus.Should().Be("review");
+        row.AppealDecision.Should().BeNull();
+        _auditRows.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AnExcuse_IsNotGuarded_ItOnlyHelpsTheParty()
+    {
+        await Penalty("farmer-1", "CANCEL#o1", T0.AddDays(-1));
+        await Appeal("farmer-1", "CANCEL#o1");
+
+        // No seenAppealTextAt at all: the excuse still goes through.
+        var body = await Ok(Post(DecisionPath("farmer-1", "CANCEL#o1"), Decision("excuse")));
+
+        body.GetProperty("event").GetProperty("status").GetString().Should().Be("excused");
+        await Error(Post(DecisionPath("farmer-1", "CANCEL#o1"), Decision("uphold", seen: new string('x', 41))), 400, "REPUTATION_VALIDATION");
+    }
+
+    [Fact]
+    public async Task AnUntilOnAnUpholdOfAnotherEvent_IsIgnored_AndNotAudited()
+    {
+        await Penalty("farmer-1", "CANCEL#o1", T0.AddDays(-1));
+        await Appeal("farmer-1", "CANCEL#o1");
+
+        await Ok(Post(DecisionPath("farmer-1", "CANCEL#o1"),
+            Decision("uphold", "The buyer confirmed the cancel.", ReputationPolicy.Iso(T0.AddDays(30)), SeenText("farmer-1", "CANCEL#o1"))));
+
+        _auditRows.Should().ContainSingle().Which.Item["metadata"].S
+            .Should().Be("event=CANCEL#o1;note=The buyer confirmed the cancel.", "an end that applied to nothing is not recorded");
     }
 
     // ===== 9.4: tag, untag, restrict, lift =====
@@ -585,7 +660,8 @@ public class AdminReputationTests
         audit.Item["action"].S.Should().Be("reputation_tagged");
         audit.Item["fromState"].S.Should().Be("tier=good;points=0");
         audit.Item["toState"].S.Should().Be("tier=low;points=0");
-        audit.Item["metadata"].S.Should().Be($"reason=Repeated complaints from three buyers.;until={ReputationPolicy.Iso(T0.AddDays(30))}");
+        audit.Item["metadata"].S.Should().Be(
+            $"reason=Repeated complaints from three buyers.;until={ReputationPolicy.Iso(T0.AddDays(30))};tag=low;override={row.EventId}");
     }
 
     [Fact]
@@ -607,6 +683,11 @@ public class AdminReputationTests
         _repo.RowsOf("farmer-1").Single(r => r.Code == ReputationCodes.AdminTag).Status.Should().Be(ReputationStatuses.Replaced);
         _repo.RowsOf("farmer-1").Single(r => r.Code == ReputationCodes.AdminUntag).Status.Should().Be(ReputationStatuses.Active);
         _auditRows.Select(a => a.Item["action"].S).Should().Equal("reputation_tagged", "reputation_untagged");
+        // The tier and points are the same before and after an untag here: the audit names what changed.
+        var tagRow = _repo.RowsOf("farmer-1").Single(r => r.Code == ReputationCodes.AdminTag);
+        var untagRow = _repo.RowsOf("farmer-1").Single(r => r.Code == ReputationCodes.AdminUntag);
+        _auditRows[1].Item["metadata"].S.Should().Be(
+            $"reason=Cleared after a call with the farmer.;until={ReputationPolicy.Iso(T0.AddDays(20))};tag=clear;override={untagRow.EventId};replaced={tagRow.EventId}");
     }
 
     [Fact]
@@ -652,6 +733,10 @@ public class AdminReputationTests
         _auditRows.Select(a => a.Item["action"].S).Should().Equal("reputation_restricted", "reputation_lifted");
         _auditRows[1].Item["fromState"].S.Should().Be("tier=restricted;points=0");
         _auditRows[1].Item["toState"].S.Should().Be("tier=good;points=0");
+        _auditRows[0].Item["metadata"].S.Should().Be(
+            $"reason=Repeated complaints from three buyers.;until={ReputationPolicy.Iso(T0.AddDays(60))};restriction={after.EventId}");
+        _auditRows[1].Item["metadata"].S.Should().Be(
+            $"reason=The buyers withdrew their complaints.;lifted={after.EventId};cause=admin;was={ReputationPolicy.Iso(T0.AddDays(60))}");
 
         await Error(Post("/admin/users/trucker-1/reputation", Action("lift")), 409, "REPUTATION_NOT_RESTRICTED");
     }
@@ -667,6 +752,9 @@ public class AdminReputationTests
 
         body.GetProperty("reputation").GetProperty("tier").GetString().Should().Be("low", "the points stay");
         body.GetProperty("reputation").GetProperty("activePoints").GetInt32().Should().Be(12);
+        var lifted = _repo.RowsOf("farmer-1").Single(r => r.Code == ReputationCodes.Restriction);
+        _auditRows.Should().ContainSingle().Which.Item["metadata"].S.Should().Be(
+            $"reason=Repeated complaints from three buyers.;lifted={lifted.EventId};cause=points;was={ReputationPolicy.Iso(lifted.Until!.Value)}");
     }
 
     [Fact]
@@ -734,7 +822,8 @@ public class AdminReputationTests
         await Penalty("farmer-1", "CANCEL#o1", T0.AddDays(-2), ReputationCodes.LateCancel, "buyer-secret");
         await Penalty("farmer-1", "CANCEL#o2", T0.AddDays(-1), ReputationCodes.LateCancel, "buyer-secret-2");
         await Appeal("farmer-1", "CANCEL#o1");
-        await Ok(Post(DecisionPath("farmer-1", "CANCEL#o1"), Decision("uphold", "The buyer confirmed the cancel.")));
+        await Ok(Post(DecisionPath("farmer-1", "CANCEL#o1"),
+            Decision("uphold", "The buyer confirmed the cancel.", seen: SeenText("farmer-1", "CANCEL#o1"))));
         _clock.Now = T0.AddMinutes(1);
         await Ok(Post("/admin/users/farmer-1/reputation", Action("tag", until: T0.AddDays(30))));
 
@@ -802,6 +891,58 @@ public class AdminReputationTests
             c.User == "farmer-1" && c.Fields.Tier == tier);
         _repo.Users["farmer-1"].Map!.Aggregate.Tier.Should().Be(tier);
         _repo.RowsOf("farmer-1").Should().ContainSingle(r => r.Code == ReputationCodes.TierChanged && r.ToTier == tier);
+    }
+
+    [Fact]
+    public async Task Suspend_EndsTheSessionsFirst_ThenRefreshesTheCopies()
+    {
+        _repo.Users["farmer-1"].Suspended = true;
+        var order = new List<string>();
+        var cognito = Substitute.For<ICognitoAuthService>();
+        cognito.AdminDisableUserAsync(Arg.Any<string>()).Returns(_ =>
+        {
+            order.Add("disable");
+            return AuthResult<bool>.Success(true);
+        });
+        cognito.AdminGlobalSignOutAsync(Arg.Any<string>()).Returns(_ =>
+        {
+            order.Add("sign-out");
+            return AuthResult<bool>.Success(true);
+        });
+        _dynamoDb.GetItemAsync(Arg.Any<GetItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new GetItemResponse
+            {
+                Item = new Dictionary<string, AttributeValue> { ["phoneNumber"] = new() { S = "+251911000001" } }
+            });
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            if (call.Arg<UpdateItemRequest>().TableName == "reputation-events")
+            {
+                order.Add("marker");
+            }
+
+            return new UpdateItemResponse();
+        });
+        _copies.RefreshOwnerRowsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<OwnerReputationFields>()).Returns(_ =>
+        {
+            order.Add("copies");
+            return 1;
+        });
+        var fn = new AdminFunction(_dynamoDb, UsersTable, cognitoAuth: cognito)
+        {
+            ReputationPenaltiesEnabled = true,
+            ReputationEventsTable = "reputation-events",
+            ReputationRepo = _repo,
+            ReputationSvc = Service()
+        };
+
+        var response = await fn.FunctionHandler(
+            Post("/admin/users/farmer-1/action", JsonSerializer.Serialize(new Dictionary<string, string> { ["action"] = "suspend", ["reason"] = "fraud" })),
+            _ctx);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        // The marker is left at once (the fallback); the refresh waits until the sessions are ended.
+        order.Should().Equal("marker", "disable", "sign-out", "copies");
     }
 
     [Fact]

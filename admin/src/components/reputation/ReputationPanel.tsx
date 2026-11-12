@@ -6,6 +6,7 @@ import { useLocale } from "@/hooks/useLocale";
 import { useReputationAction, useReputationDecision, useUserReputation } from "@/hooks/useAdminReputation";
 import { formatDate, formatDateTime } from "@/lib/i18n";
 import {
+  APPEAL_CHANGED,
   appealVariant,
   canExcuse,
   canUphold,
@@ -44,6 +45,7 @@ export function ReputationPanel({ userId }: { userId: string }) {
   const [open, setOpen] = useState<Open | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [changed, setChanged] = useState<string | null>(null);
 
   function label(key: string, fallback: string): string {
     const text = t(key);
@@ -58,6 +60,7 @@ export function ReputationPanel({ userId }: { userId: string }) {
   function openDialog(next: Open) {
     setDialogError(null);
     setNotice(null);
+    setChanged(null);
     setOpen(next);
   }
 
@@ -67,13 +70,21 @@ export function ReputationPanel({ userId }: { userId: string }) {
     if (open.kind === "decision") {
       const decision = open.decision;
       decide.mutate(
-        { userId, eventId: open.event.eventId, decision, note: reason, until },
+        { userId, eventId: open.event.eventId, decision, note: reason, until, seenAppealTextAt: open.event.appeal?.textAt },
         {
           onSuccess: (result) => {
             setOpen(null);
             setNotice(result?.alreadyDecided ? t("reputation.alreadyDone") : t(`reputation.done_${decision}`));
           },
-          onError: (err: unknown) => setDialogError(errorText(err)),
+          onError: (err: unknown) => {
+            // The appeal is not the one this page showed: close the dialog, the panel reloads.
+            if ((err as { code?: string }).code === APPEAL_CHANGED) {
+              setOpen(null);
+              setChanged(errorText(err));
+            } else {
+              setDialogError(errorText(err));
+            }
+          },
         },
       );
     } else {
@@ -373,6 +384,11 @@ export function ReputationPanel({ userId }: { userId: string }) {
         {notice && (
           <p role="status" className="mb-4 rounded border border-success/30 bg-success/10 px-4 py-2 text-sm text-success">
             {notice}
+          </p>
+        )}
+        {changed && (
+          <p role="alert" className="mb-4 rounded border border-warning/30 bg-warning/10 px-4 py-2 text-sm text-warning">
+            {changed}
           </p>
         )}
 

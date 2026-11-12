@@ -83,6 +83,10 @@ public sealed record AdminReputationAppealDto
 
     public string? Text { get; init; }
     public string? AppealedAt { get; init; }
+
+    /// <summary>When the party's text arrived; absent with no text. An uphold sends it back as <c>seenAppealTextAt</c>.</summary>
+    public string? TextAt { get; init; }
+
     public bool HasPhoto { get; init; }
 
     /// <summary>A pre-signed GET of the appeal photo, valid 10 minutes.</summary>
@@ -114,6 +118,10 @@ public sealed record AdminReputationAppealItemDto
     public required string AppealStatus { get; init; }
     public string? AppealedAt { get; init; }
     public string? Text { get; init; }
+
+    /// <summary>When the party's text arrived; absent with no text. An uphold sends it back as <c>seenAppealTextAt</c>.</summary>
+    public string? AppealTextAt { get; init; }
+
     public bool HasPhoto { get; init; }
 
     /// <summary>A pre-signed GET of the appeal photo, valid 10 minutes.</summary>
@@ -131,6 +139,13 @@ public sealed record AdminReputationDecisionRequest
 
     /// <summary>Only for an uphold of a <c>DELIVERY_OVERDUE</c> review: the restriction's end.</summary>
     public string? Until { get; init; }
+
+    /// <summary>
+    /// For an uphold: the <c>textAt</c> (or the queue's <c>appealTextAt</c>) of the appeal as the
+    /// admin's page showed it; absent when it showed no text. A different stored value is
+    /// <c>409 REPUTATION_APPEAL_CHANGED</c>. Ignored on an excuse.
+    /// </summary>
+    public string? SeenAppealTextAt { get; init; }
 }
 
 public sealed record AdminReputationDecisionResponse

@@ -58,6 +58,7 @@ function appeal(overrides: Record<string, unknown> = {}) {
     appealStatus: "pending",
     appealedAt: "2026-11-02T08:00:00.000Z",
     text: "The road to Kombolcha was closed by the flood.",
+    appealTextAt: "2026-11-02T08:00:00.000Z",
     hasPhoto: true,
     appealPhotoUrl: "https://uploads.test/uploads/appeals/trucker-77/a.webp?sig",
     ...overrides,
@@ -177,6 +178,7 @@ describe("ReputationAppealsPage", () => {
       decision: "excuse",
       note: "Flood confirmed with the buyer.",
       until: undefined,
+      seenAppealTextAt: "2026-11-02T08:00:00.000Z",
     });
 
     act(() => opts?.onSuccess?.({ alreadyDecided: false }));
@@ -203,6 +205,32 @@ describe("ReputationAppealsPage", () => {
 
     act(() => opts?.onSuccess?.({ alreadyDecided: true }));
     expect(screen.getByRole("status").textContent).toBe("This was already done. Nothing changed.");
+  });
+
+  it("an uphold from a stale page is refused: the dialog closes and the page says the appeal changed", async () => {
+    const user = userEvent.setup();
+    // A review the page shows with no text: the trucker's appeal arrives after it loaded.
+    setPages({
+      appeals: [
+        appeal({ eventId: "OVERDUE#ord-5", code: "DELIVERY_OVERDUE", appealStatus: "review", text: undefined, appealTextAt: undefined, hasPhoto: false }),
+      ],
+    });
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "Uphold the penalty" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/Note to the account holder/), "No delivery was made.");
+    await user.click(within(dialog).getByRole("button", { name: "Uphold the penalty" }));
+
+    const [vars, opts] = mocks.decide.mock.calls[0];
+    expect(vars).toMatchObject({ eventId: "OVERDUE#ord-5", decision: "uphold", seenAppealTextAt: undefined });
+
+    act(() => opts?.onError?.({ code: "REPUTATION_APPEAL_CHANGED", status: 409 }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe(
+      "The appeal changed after this page was loaded. It has been reloaded: read the appeal, then decide again.",
+    );
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("switches to the overdue delivery reviews, where an uphold may set the restriction's end", async () => {
@@ -235,6 +263,7 @@ describe("ReputationAppealsPage", () => {
       decision: "uphold",
       note: "No delivery was made.",
       until: endOfDayIso(tomorrow),
+      seenAppealTextAt: "2026-11-02T08:00:00.000Z",
     });
   });
 

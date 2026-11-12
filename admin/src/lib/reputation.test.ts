@@ -126,6 +126,7 @@ describe("reputation strings exist in every locale", () => {
     "errors.REPUTATION_NOT_FOUND",
     "errors.REPUTATION_EVENT_NOT_FOUND",
     "errors.REPUTATION_APPEAL_CLOSED",
+    "errors.REPUTATION_APPEAL_CHANGED",
     "errors.REPUTATION_EVENT_DECIDED",
     "errors.REPUTATION_NOT_RESTRICTED",
     "errors.REPUTATION_ALREADY_RESTRICTED",

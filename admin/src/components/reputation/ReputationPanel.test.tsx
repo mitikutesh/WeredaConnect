@@ -88,6 +88,7 @@ const cancel = {
     canAppeal: false,
     text: "The road to Kombolcha was closed by the flood.",
     appealedAt: "2026-11-02T08:00:00.000Z",
+    textAt: "2026-11-02T08:00:00.000Z",
     hasPhoto: true,
     appealPhotoUrl: "https://uploads.test/uploads/appeals/trucker-1/a.webp?sig",
   },
@@ -310,6 +311,7 @@ describe("ReputationPanel", () => {
       decision: "excuse",
       note: "Flood confirmed with the buyer.",
       until: undefined,
+      seenAppealTextAt: "2026-11-02T08:00:00.000Z",
     });
 
     act(() => opts?.onSuccess?.({ alreadyDecided: false }));
@@ -337,6 +339,30 @@ describe("ReputationPanel", () => {
     act(() => opts?.onSuccess?.({ alreadyDecided: true }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByText("This was already done. Nothing changed.")).toBeTruthy();
+  });
+
+  it("sends what it showed of the appeal with an uphold, and reloads when the appeal changed meanwhile", async () => {
+    const user = userEvent.setup();
+    setPages(page());
+    renderPanel();
+
+    await user.click(screen.getByRole("button", { name: "Uphold CANCEL#ord-7f3a" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/Note to the account holder/), "The buyer confirmed the cancel.");
+    await user.click(within(dialog).getByRole("button", { name: "Uphold" }));
+
+    const [vars, opts] = mocks.decide.mock.calls[0];
+    // The text the admin read: the server refuses the uphold if the stored appeal is another one.
+    expect(vars).toMatchObject({ decision: "uphold", seenAppealTextAt: "2026-11-02T08:00:00.000Z" });
+
+    act(() => opts?.onError?.({ code: "REPUTATION_APPEAL_CHANGED", status: 409 }));
+    // The dialog closes (its note was written for an appeal the admin had not read) and the panel says why.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toMatch(/The appeal changed after this page was loaded/);
+
+    // Opening a dialog again clears the notice.
+    await user.click(screen.getByRole("button", { name: "Uphold CANCEL#ord-7f3a" }));
+    expect(screen.queryByText(/The appeal changed after this page was loaded/)).toBeNull();
   });
 
   it("lets the uphold of an overdue delivery review set the restriction's end, or leave it empty", async () => {

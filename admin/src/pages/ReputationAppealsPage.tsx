@@ -7,7 +7,13 @@ import { ReputationActionDialog } from "@/components/reputation/ReputationAction
 import { useLocale } from "@/hooks/useLocale";
 import { useReputationAppeals, useReputationDecision } from "@/hooks/useAdminReputation";
 import { formatDateTime } from "@/lib/i18n";
-import { maxUntilDays, type AppealItem, type AppealQueueStatus, type ReputationDecision } from "@/lib/reputation";
+import {
+  APPEAL_CHANGED,
+  maxUntilDays,
+  type AppealItem,
+  type AppealQueueStatus,
+  type ReputationDecision,
+} from "@/lib/reputation";
 import { partyName } from "@/lib/user";
 
 /* ESC-32 (reputation-api.md 1.4.0, 9.2 and 9.3): the appeals queue, oldest first. "Appeals" are
@@ -30,6 +36,7 @@ export function ReputationAppealsPage() {
   const [open, setOpen] = useState<{ item: AppealItem; decision: ReputationDecision } | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [changed, setChanged] = useState<string | null>(null);
 
   function label(key: string, fallback: string): string {
     const text = t(key);
@@ -50,6 +57,7 @@ export function ReputationAppealsPage() {
   function changeTab(next: AppealQueueStatus) {
     setTab(next);
     setNotice(null);
+    setChanged(null);
   }
 
   function confirm(note: string, until?: string) {
@@ -57,7 +65,14 @@ export function ReputationAppealsPage() {
     const decision = open.decision;
     setDialogError(null);
     decide.mutate(
-      { userId: open.item.userId, eventId: open.item.eventId, decision, note, until },
+      {
+        userId: open.item.userId,
+        eventId: open.item.eventId,
+        decision,
+        note,
+        until,
+        seenAppealTextAt: open.item.appealTextAt,
+      },
       {
         onSuccess: (result) => {
           setOpen(null);
@@ -65,7 +80,14 @@ export function ReputationAppealsPage() {
         },
         onError: (err: unknown) => {
           const code = (err as { code?: string }).code;
-          setDialogError(code ? label(`errors.${code}`, t("errors.actionFailed")) : t("errors.actionFailed"));
+          const text = code ? label(`errors.${code}`, t("errors.actionFailed")) : t("errors.actionFailed");
+          // The appeal is not the one this page showed: close the dialog, the queue reloads.
+          if (code === APPEAL_CHANGED) {
+            setOpen(null);
+            setChanged(text);
+          } else {
+            setDialogError(text);
+          }
         },
       },
     );
@@ -146,6 +168,7 @@ export function ReputationAppealsPage() {
                 onClick={() => {
                   setDialogError(null);
                   setNotice(null);
+                  setChanged(null);
                   setOpen({ item, decision: "excuse" });
                 }}
                 disabled={decide.isPending}
@@ -158,6 +181,7 @@ export function ReputationAppealsPage() {
                 onClick={() => {
                   setDialogError(null);
                   setNotice(null);
+                  setChanged(null);
                   setOpen({ item, decision: "uphold" });
                 }}
                 disabled={decide.isPending}
@@ -191,6 +215,11 @@ export function ReputationAppealsPage() {
       {notice && (
         <div role="status" className="mb-4 rounded border border-success/30 bg-success/10 px-4 py-2 text-sm text-success">
           {notice}
+        </div>
+      )}
+      {changed && (
+        <div role="alert" className="mb-4 rounded border border-warning/30 bg-warning/10 px-4 py-2 text-sm text-warning">
+          {changed}
         </div>
       )}
       {body}

@@ -2318,6 +2318,9 @@ public partial class AdminFunction
         // change into Cognito so sessions actually end (or the new role is issued).
         var cognitoNote = await ApplyAccountControlAsync(userId, body.Action, attrValues, context);
 
+        // FUP-163: the copies follow in this request, after the sessions were ended (best effort).
+        await RefreshReputationAfterSuspensionAsync(userId, body.Action, context);
+
         AuditLogger.LogAudit("ADMIN", "USER_ACTION",
             userId: actingAdminId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "user", entityId: userId, detail: body.Action, outcome: "success");

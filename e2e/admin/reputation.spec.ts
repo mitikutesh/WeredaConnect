@@ -111,6 +111,7 @@ function initialState(): State {
           canAppeal: false,
           text: "The road to Kombolcha was closed by the flood.",
           appealedAt: "2026-11-02T08:00:00.000Z",
+          textAt: "2026-11-02T08:00:00.000Z",
           hasPhoto: true,
           appealPhotoUrl: PHOTO_URL,
         },
@@ -225,6 +226,7 @@ async function mockApi(page: Page, state: State): Promise<Captured> {
         appealStatus: status,
         appealedAt: e.appeal.appealedAt,
         text: e.appeal.text,
+        appealTextAt: e.appeal.textAt,
         hasPhoto: Boolean(e.appeal.hasPhoto),
         appealPhotoUrl: e.appeal.appealPhotoUrl,
       })),
@@ -353,6 +355,57 @@ test.describe("Admin reputation (ESC-32)", () => {
     // The queue refetches: the decided appeal has left it.
     await expect(card).toHaveCount(0);
     await expect(page.getByText("No open appeals.")).toBeVisible();
+  });
+
+  test("an uphold carries the appeal the page showed; when the appeal changed the page reloads and says so", async ({ page }) => {
+    const state = initialState();
+    const captured = await open(page, "/reputation-appeals", state);
+    const card = page.getByRole("region", { name: "Kebede Alemu CANCEL#ord-7f3a" });
+    await expect(card.getByText("The road to Kombolcha was closed by the flood.")).toBeVisible();
+
+    // The trucker rewrote nothing here, but the server holds a newer text than the page: it refuses once.
+    let refused = false;
+    const bodies: Record<string, unknown>[] = [];
+    await page.route(/\/admin\/users\/[^/]+\/reputation\/events\/[^/]+\/decision$/, (route) => {
+      bodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      if (!refused) {
+        refused = true;
+        state.events[0].appeal = {
+          ...state.events[0].appeal,
+          text: "The bridge at Kombolcha was washed away. The woreda office can confirm.",
+          textAt: "2026-11-12T08:59:00.000Z",
+        };
+        return json(route, { error: { code: "REPUTATION_APPEAL_CHANGED", message: "The appeal changed." } }, 409);
+      }
+      return route.fallback();
+    });
+
+    await card.getByRole("button", { name: "Uphold the penalty" }).click();
+    const dialog = page.getByRole("dialog", { name: "Uphold this event: Late cancel" });
+    await dialog.getByLabel(/Note to the account holder/).fill("The buyer confirmed the cancel.");
+    await dialog.getByRole("button", { name: "Uphold the penalty" }).click();
+
+    // The uphold said which appeal the admin had read.
+    expect(bodies[0]).toEqual({
+      decision: "uphold",
+      note: "The buyer confirmed the cancel.",
+      seenAppealTextAt: "2026-11-02T08:00:00.000Z",
+    });
+    // Refused: the dialog closes, the page explains and shows the appeal as it is now.
+    await expect(dialog).toBeHidden();
+    await expect(
+      page.getByText("The appeal changed after this page was loaded. It has been reloaded: read the appeal, then decide again."),
+    ).toBeVisible();
+    await expect(card.getByText("The bridge at Kombolcha was washed away. The woreda office can confirm.")).toBeVisible();
+    expect(captured.decisions).toHaveLength(0);
+
+    // Deciding again sends the text the admin has now read, and goes through.
+    await card.getByRole("button", { name: "Uphold the penalty" }).click();
+    await dialog.getByLabel(/Note to the account holder/).fill("Checked with the woreda office: the road was open.");
+    await dialog.getByRole("button", { name: "Uphold the penalty" }).click();
+    await expect(page.getByText("Event upheld.")).toBeVisible();
+    expect(bodies[1].seenAppealTextAt).toBe("2026-11-12T08:59:00.000Z");
+    expect(captured.decisions).toHaveLength(1);
   });
 
   test("upholding a penalty keeps the points and shows the server's refusal when another admin was first", async ({ page }) => {

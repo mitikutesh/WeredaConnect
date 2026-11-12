@@ -143,6 +143,32 @@ public sealed class AdminReputationDynamoDbTests
     }
 
     [LocalDynamoDbFact]
+    public async Task Uphold_FromAPageThatDidNotShowTheText_IsRefused_AndWithItGoesThrough()
+    {
+        var userId = await NewUser("trucker");
+        await Penalty(userId, "OVERDUE#o1", T0.AddDays(-1), ReputationCodes.DeliveryOverdue);
+        (await Repo().TryAppealAsync(userId, "OVERDUE#o1", "The bridge was closed.", null, T0.AddMinutes(5), openReview: true)).Should().BeTrue();
+        var mapVersion = (await Repo().GetUserStateAsync(userId))!.MapVersion;
+
+        // The admin's page was loaded before the text: it sends no seenAppealTextAt.
+        (await Service().DecideAsync(userId, "OVERDUE#o1", "uphold", "No delivery was made.", null, "admin-1", _logger))
+            .Outcome.Should().Be(ReputationAdminOutcome.AppealChanged);
+
+        var raw = await RawRow(userId, "OVERDUE#o1");
+        raw["appealStatus"].S.Should().Be("review");
+        raw.Should().NotContainKey("appealDecision");
+        raw["version"].N.Should().Be("1");
+        (await Repo().GetUserStateAsync(userId))!.MapVersion.Should().Be(mapVersion, "nothing was written");
+
+        // Reloaded: the page shows the text and sends when it arrived.
+        var seen = raw["appealTextAt"].S;
+        seen.Should().Be(ReputationPolicy.Iso(T0.AddMinutes(5)));
+        (await Service().DecideAsync(userId, "OVERDUE#o1", "uphold", "No delivery was made.", null, "admin-1", _logger, seen))
+            .Outcome.Should().Be(ReputationAdminOutcome.Applied);
+        (await RawRow(userId, "OVERDUE#o1"))["appealDecision"].S.Should().Be("upheld");
+    }
+
+    [LocalDynamoDbFact]
     public async Task Uphold_LosesItsCondition_WhenThePartysTextArrivedAfterTheRead()
     {
         var userId = await NewUser("farmer");

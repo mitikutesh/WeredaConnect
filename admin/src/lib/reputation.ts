@@ -53,6 +53,8 @@ export interface EventAppeal {
   canAppeal?: boolean;
   text?: string;
   appealedAt?: string;
+  /** When the party's text arrived; absent with no text. An uphold sends it back (seenAppealTextAt). */
+  textAt?: string;
   hasPhoto?: boolean;
   appealPhotoUrl?: string;
   decidedAt?: string;
@@ -111,6 +113,8 @@ export interface AppealItem {
   appealStatus: string;
   appealedAt?: string;
   text?: string;
+  /** When the party's text arrived; absent with no text. An uphold sends it back (seenAppealTextAt). */
+  appealTextAt?: string;
   hasPhoto?: boolean;
   appealPhotoUrl?: string;
 }
@@ -134,6 +138,12 @@ export interface ActionResult {
   reputation: ReputationSummary;
   alreadyApplied?: boolean;
 }
+
+/**
+ * The server refuses an uphold when the appeal is not the one the page showed (the party's text
+ * arrived or changed since it loaded): the page reloads and the admin reads it before deciding.
+ */
+export const APPEAL_CHANGED = "REPUTATION_APPEAL_CHANGED";
 
 /** The reason or note every admin reputation write needs (the server's limits). */
 export const REASON_MIN = 3;

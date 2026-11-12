@@ -82,9 +82,17 @@ public sealed partial class ReputationService
     /// An event that was upheld with no party text can be appealed once by the party (it then has
     /// an open appeal again and takes a new decision); an event that has the party's text never
     /// reopens.
+    ///
+    /// An uphold spends the party's one appeal, so it must be made on the text the admin read:
+    /// <paramref name="seenAppealTextAt"/> is the <c>appealTextAt</c> the admin's page showed (null:
+    /// it showed no text). When the stored value differs, the answer is
+    /// <see cref="ReputationAdminOutcome.AppealChanged"/> and nothing is written, also when the text
+    /// arrives between this method's read and its write (the write loses its condition and the next
+    /// read finds the difference). An excuse only helps the party and is not guarded.
     /// </summary>
     public async Task<ReputationAdminResult> DecideAsync(
-        string userId, string eventId, string decision, string note, DateTime? until, string adminId, ILambdaLogger logger)
+        string userId, string eventId, string decision, string note, DateTime? until, string adminId, ILambdaLogger logger,
+        string? seenAppealTextAt = null)
     {
         for (var attempt = 1; attempt <= MaxAttempts; attempt++)
         {
@@ -106,6 +114,7 @@ public sealed partial class ReputationService
             var before = ToRead(user, rows, now);
             var open = row.AppealStatus is "pending" or "review";
             var updates = new List<ReputationRowUpdate>();
+            var details = new List<string>();
             var nowIso = ReputationPolicy.Iso(now);
 
             if (decision == DecisionExcuse)
@@ -151,6 +160,12 @@ public sealed partial class ReputationService
                             : ReputationAdminResult.Refused(ReputationAdminOutcome.AppealClosed);
                 }
 
+                // The admin decides on what their page showed, not on what this request just read.
+                if ((row.AppealTextAt ?? string.Empty) != (seenAppealTextAt ?? string.Empty))
+                {
+                    return ReputationAdminResult.Refused(ReputationAdminOutcome.AppealChanged);
+                }
+
                 updates.Add(new ReputationRowUpdate
                 {
                     EventId = row.EventId,
@@ -181,6 +196,7 @@ public sealed partial class ReputationService
                     if (lifts)
                     {
                         updates.Add(Lift(restriction, nowIso, adminId));
+                        details.Add($"lifted={restriction.EventId}");
                     }
                 }
             }
@@ -204,6 +220,9 @@ public sealed partial class ReputationService
                         RequireNoUntil = true,
                         SetUntil = end
                     });
+                    // Only an end that was applied is reported (an until on any other uphold is ignored).
+                    details.Add($"restriction={reviewed.EventId}");
+                    details.Add($"restrictionUntil={ReputationPolicy.Iso(end)}");
                 }
             }
 
@@ -211,7 +230,7 @@ public sealed partial class ReputationService
             var result = await CommitAdminAsync(user, before, rowsAfter, updates, Array.Empty<ReputationEvent>(), now, decision, logger);
             if (result != null)
             {
-                return result with { Event = rowsAfter.First(r => r.EventId == row.EventId) };
+                return result with { Event = rowsAfter.First(r => r.EventId == row.EventId), Detail = Join(details) };
             }
 
             await _backoff(attempt);
@@ -257,6 +276,7 @@ public sealed partial class ReputationService
             var nowIso = ReputationPolicy.Iso(now);
             var updates = new List<ReputationRowUpdate>();
             var newRows = new List<ReputationEvent>();
+            var details = new List<string>();
 
             // Stored at millisecond precision, so compare at that precision.
             DateTime? end = until is { } u && ReputationPolicy.TryParseUtc(ReputationPolicy.Iso(u), out var rounded) ? rounded : null;
@@ -289,7 +309,11 @@ public sealed partial class ReputationService
                                 ToStatus = ReputationStatuses.Replaced,
                                 LeaveDueIndex = true
                             });
+                            details.Add($"replaced={old.EventId}");
                         }
+
+                        details.Insert(0, $"tag={tag}");
+                        details.Insert(1, $"override={ReputationSlots.Override}{nowIso}");
 
                         newRows.Add(new ReputationEvent
                         {
@@ -326,6 +350,7 @@ public sealed partial class ReputationService
                         }
 
                         newRows.Add(RestrictionRow(userId, ReputationCauses.Admin, now, restrictEnd) with { Reason = reason, By = adminId });
+                        details.Add($"restriction={newRows[^1].EventId}");
                         break;
                     }
 
@@ -338,6 +363,9 @@ public sealed partial class ReputationService
                         }
 
                         updates.AddRange(inForce.Select(r => Lift(r, nowIso, adminId)));
+                        // What was lifted: each restriction, its cause and the end it had.
+                        details.AddRange(inForce.Select(r =>
+                            $"lifted={r.EventId};cause={r.Cause};was={(r.Until is { } was ? ReputationPolicy.Iso(was) : "review")}"));
                         break;
                     }
 
@@ -350,7 +378,7 @@ public sealed partial class ReputationService
             var result = await CommitAdminAsync(user, before, rowsAfter, updates, newRows, now, action, logger);
             if (result != null)
             {
-                return result;
+                return result with { Detail = Join(details) };
             }
 
             await _backoff(attempt);
@@ -463,6 +491,8 @@ public sealed partial class ReputationService
                         && e.Since is { } since && since <= now && (e.Until == null || e.Until > now))
             .ToList();
 
+    private static string? Join(List<string> details) => details.Count == 0 ? null : string.Join(";", details);
+
     private static ReputationRowUpdate Lift(ReputationEvent restriction, string nowIso, string adminId) => new()
     {
         EventId = restriction.EventId,
@@ -514,7 +544,10 @@ public enum ReputationAdminOutcome
     AlreadyRestricted,
 
     /// <summary><c>until</c> is missing, in the past or beyond the policy's limit.</summary>
-    InvalidUntil
+    InvalidUntil,
+
+    /// <summary>An uphold on an appeal whose text is not the one the admin's page showed: reload and decide again.</summary>
+    AppealChanged
 }
 
 /// <summary>
@@ -529,6 +562,13 @@ public sealed record ReputationAdminResult(
     ReputationEvent? Event)
 {
     public bool Succeeded => Outcome is ReputationAdminOutcome.Applied or ReputationAdminOutcome.AlreadyApplied;
+
+    /// <summary>
+    /// What the write changed besides the tier and the points, as <c>key=value</c> pairs for the
+    /// audit row: the tag set and the override it replaced, the restriction written or lifted (with
+    /// the end it had), the end given to a reviewed restriction. Null when there is nothing to add.
+    /// </summary>
+    public string? Detail { get; init; }
 
     public static ReputationAdminResult Refused(ReputationAdminOutcome outcome) => new(outcome, null, null, null, null);
 

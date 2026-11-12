@@ -827,7 +827,8 @@
     "REPUTATION_NOT_RESTRICTED": "ይህ መለያ የሚነሳ ገደብ የለውም። ገጹን እንደገና ይጫኑ።",
     "REPUTATION_ALREADY_RESTRICTED": "ይህ መለያ አስቀድሞ ገደብ አለው። መጀመሪያ ያንሱት፣ ከዚያ እንደገና ይገድቡ።",
     "REPUTATION_UNAVAILABLE": "በዚህ አካባቢ የመልካም ስም ቅጣቶች ጠፍተዋል፤ ስለዚህ ምንም ሊቀየር አይችልም።",
-    "REPUTATION_SERVER_ERROR": "ሰርቨሩ ይህን ሊጨርስ አልቻለም። ከጥቂት ጊዜ በኋላ እንደገና ይሞክሩ።"
+    "REPUTATION_SERVER_ERROR": "ሰርቨሩ ይህን ሊጨርስ አልቻለም። ከጥቂት ጊዜ በኋላ እንደገና ይሞክሩ።",
+    "REPUTATION_APPEAL_CHANGED": "ይህ ገጽ ከተጫነ በኋላ ይግባኙ ተቀይሯል። ገጹ እንደገና ተጭኗል፦ ይግባኙን ያንብቡ፣ ከዚያ እንደገና ይወስኑ።"
   },
   "language": {
     "english": "English",

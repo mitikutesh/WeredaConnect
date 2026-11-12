@@ -981,7 +981,11 @@ How the build reads points the design left open:
    from a fresh read, up to 5 times.
 2. **Which row a version protects**: an earn-back bumps the event's `version`, an appeal does not
    (ESC-29). So a decision conditions on the version (earn-back) and an uphold also on
-   `appealStatus` and `appealTextAt` (a text that arrives after the admin's read).
+   `appealStatus` and `appealTextAt`. An uphold is made on what the admin's page showed: the
+   request carries `seenAppealTextAt`, a stored value that differs is refused
+   (`REPUTATION_APPEAL_CHANGED`) before any write and never retried, and a text that lands between
+   the read and the write fails the condition, after which the next read refuses it the same way.
+   An excuse is not guarded (it only helps the party).
 3. **Restrictions** (5.4): an excuse lifts every points restriction in force when the points fall
    below `restrictAt`, and the restriction of the excused `DELIVERY_OVERDUE` event (matched by
    `since` = the event's `recordedAt`, both written by one transaction). An uphold of such a review
@@ -999,13 +1003,17 @@ How the build reads points the design left open:
 7. **Copies at once** (6.3): an admin write that changes a copied field refreshes the owner's
    active listings in the same request and leaves the heal marker for a failure. The same now
    holds for an admin suspend or unsuspend (`RefreshAfterSuspensionAsync`, TASK FUP-163): the map
-   is written when the tier changed (a `TIER#{at}#suspension` row) and the copies are rewritten;
+   is written when the tier changed (a `TIER#{at}#suspension` row) and the copies are rewritten,
+   after the Cognito disable and sign-out so ending the sessions never waits for it (the heal
+   marker is still left right after the profile write);
    point 4 of section 21 (the daily job) is now only the fallback.
 8. **Reads for admins** (6.6): always one Query of the user's partition and an aggregate computed
    from it; the stored map is not trusted for the admin view. The reads are not flagged; with
    `reputationPenalties` off the policy parameter is not read and no write is accepted.
 9. **Audit** (16): one transaction-audit row per applied write, with the tier and points before
-   and after; the appeal text is never in it. A failed audit write is logged by the shared writer
+   and after and, in the metadata, what else changed (the tag and the override row, the restriction
+   written or lifted with the end it had, the end given to a reviewed restriction); the appeal text
+   is never in it. A failed audit write is logged by the shared writer
    and does not undo the action (it is already committed).
 10. **Grants**: on `reputation-events` the admin Lambda may Query the table and
     `AppealStatusIndex`, and put and update items; no Scan, no delete, no `DueIndex`. On crops and

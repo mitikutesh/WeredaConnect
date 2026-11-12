@@ -633,7 +633,8 @@ and checks that both clients end the session on `AUTH_025` from `/sync`.
 - A suspended owner reads as `restricted` in every aggregate. An admin `suspend` or `unsuspend`
   leaves the day's `HEAL#` marker (only while `reputationPenalties` is on) and, since 1.4.0
   (ESC-32, TASK FUP-163), recomputes the aggregate and rewrites the copied owner fields in the same
-  request. When that refresh fails the suspension still stands, the failure is logged
+  request, after the sign-in service was updated (ending the user's sessions never waits for it).
+  When that refresh fails the suspension still stands, the failure is logged
   (`REPUTATION_COPY_FAILED`) and the daily job rewrites the copies from the marker within a day;
   until a copy lands 8.2 refuses orders from the live row.
 - Clients (app build with ESC-29): a `403 AUTH_025` from `/sync` or any other route outside
@@ -665,8 +666,14 @@ the stored state before the rollout.
 - **Audit**: one transaction-audit row per applied write, never for a replay: `fromState` and
   `toState` are `tier={tier};points={activePoints}` before and after, `metadata` is
   `event={eventId};note={note}` for a decision and `reason={reason};until={until}` for an action
-  (`until` left out when there is none), the actor is the admin's id. The appeal text is never
-  written to the audit row or a log.
+  (`until` left out when there is none), followed by what else changed, since a tag, an untag or a
+  lift can leave the tier and the points as they were: `tag={low|clear};override={row id}` and
+  `replaced={row id}` per override replaced; `restriction={row id}` for a restrict;
+  `lifted={row id};cause={cause};was={its end, or review}` per restriction lifted; for a decision
+  `lifted={row id}` per restriction it lifted and `restriction={row id};restrictionUntil={end}`
+  when an uphold gave a review's restriction its end. A body `until` that applied to nothing is
+  not recorded. The actor is the admin's id. The appeal text is never written to the audit row or
+  a log.
 - **Copies**: when the write changed the tier, the effective rating or the reliability, the owner
   fields on the user's active listings are rewritten in the same request (section 7). A copy that
   fails is logged (`REPUTATION_COPY_FAILED`), does not fail the action, and is retried by the
@@ -696,7 +703,7 @@ buyer`); `500 REPUTATION_SERVER_ERROR`.
     { "eventId": "CANCEL#ord-7f3a", "code": "LATE_CANCEL", "party": "trucker", "points": 4, "basePoints": 4,
       "earnedBack": 0, "remainingPoints": 4, "status": "active", "occurredAt": "...", "recordedAt": "...",
       "pointsExpireAt": "...", "orderId": "ord-7f3a", "buyerId": "b-19",
-      "appeal": { "status": "pending", "canAppeal": false, "text": "...", "appealedAt": "...", "hasPhoto": true,
+      "appeal": { "status": "pending", "canAppeal": false, "text": "...", "appealedAt": "...", "textAt": "...", "hasPhoto": true,
                   "appealPhotoUrl": "https://...", "decidedAt": "...", "decidedBy": "admin-1", "note": "..." } }
   ],
   "nextToken": "eyJ..."
@@ -713,6 +720,8 @@ buyer`); `500 REPUTATION_SERVER_ERROR`.
   `until`, `tag`, `reason`, `by`, `fromTier`, `toTier`, `restrictedUntil`, `liftedAt`,
   `liftedBy`), except the `HEAL` markers, which are the daily job's bookkeeping. `appeal` is
   present on order events only.
+- `appeal.textAt` is when the party's text arrived, absent while there is none. The admin app
+  sends it back with an uphold (9.3, `seenAppealTextAt`).
 - `appealPhotoUrl` is a pre-signed `GET` valid 10 minutes, signed only for a key under
   `uploads/appeals/{that user's id}/` with the file name shape of section 6; any other stored
   value is not signed. The admin Lambda may read objects only under `uploads/photos/` and
@@ -752,9 +761,10 @@ The queue, oldest first, from `AppealStatusIndex`.
 **As built (1.4.0)**: one Query of the `status` partition of `AppealStatusIndex`, ascending, with
 `Limit` (no Scan, no filter), then one `BatchGetItem` for the page's display names and roles.
 `nextToken` is the index key, signed; a token of the other status is `400 REPUTATION_VALIDATION`.
-Each item also carries `tripId` in place of `orderId` on a `TRIP_CANCELLED_WITH_BOOKINGS` event
-and, when `hasPhoto`, `appealPhotoUrl` (the 10 minute pre-signed `GET` of 9.1), so the queue shows
-the photo without a second call. The index is eventually consistent: a row decided a moment ago
+Each item also carries `tripId` in place of `orderId` on a `TRIP_CANCELLED_WITH_BOOKINGS` event,
+`appealTextAt` (when the party's text arrived, absent while there is none; sent back with an
+uphold, 9.3) and, when `hasPhoto`, `appealPhotoUrl` (the 10 minute pre-signed `GET` of 9.1), so
+the queue shows the photo without a second call. The index is eventually consistent: a row decided a moment ago
 can still be listed, and deciding it again answers the replay or the refusal of 9.3.
 
 ### 9.3 POST /admin/users/{userId}/reputation/events/{eventId}/decision
@@ -782,7 +792,28 @@ Response: `{ "event": { ...admin event shape... }, "reputation": { ...section 2 
 
 Errors: `400 REPUTATION_VALIDATION`; `404 REPUTATION_EVENT_NOT_FOUND`;
 `409 REPUTATION_EVENT_DECIDED`; `409 REPUTATION_APPEAL_CLOSED` (`uphold` with no open appeal);
-`503 REPUTATION_UNAVAILABLE`; `500 REPUTATION_SERVER_ERROR`.
+`409 REPUTATION_APPEAL_CHANGED` (1.4.0: `uphold` on an appeal that is not the one the admin's page
+showed); `503 REPUTATION_UNAVAILABLE`; `500 REPUTATION_SERVER_ERROR`.
+
+**An uphold is made on the appeal the admin read (1.4.0)**. An uphold spends the party's one
+appeal for good (no second appeal, no reversal), so the server must know what the admin saw:
+
+```json
+{ "decision": "uphold", "note": "The buyer confirmed the cancel.", "seenAppealTextAt": "2026-11-02T08:00:00.000Z" }
+```
+
+| Field | Rule |
+|---|---|
+| `seenAppealTextAt` | for `uphold`: the `appeal.textAt` (9.1) or `appealTextAt` (9.2) of the event as the admin's page showed it; left out when the page showed no text. Ignored on `excuse` |
+
+When the event's stored `appealTextAt` differs from `seenAppealTextAt` (a text arrived, or the
+page is older than the text), the answer is `409 REPUTATION_APPEAL_CHANGED`, nothing is written
+and the server does not retry: the admin reloads, reads the appeal and decides again. The case:
+a `DELIVERY_OVERDUE` review listed with no text, the trucker sends their appeal, the admin clicks
+Uphold on the page loaded before it. The same answer is given when the text lands between the
+server's own read and its write (the write is conditioned on `appealTextAt`). The admin app closes
+its dialog, reloads the list and says so. `excuse` has no such guard: it only removes a penalty,
+so deciding it on an older view cannot cost the party anything.
 
 **As built (1.4.0)**:
 - `eventId` in the path is URL-encoded and decoded once, as in section 6. A system row
@@ -796,13 +827,13 @@ Errors: `400 REPUTATION_VALIDATION`; `404 REPUTATION_EVENT_NOT_FOUND`;
   stored note (the new note is ignored) and no audit row. `excuse` on an upheld event and `uphold`
   on an excused event are `409 REPUTATION_EVENT_DECIDED`. An upheld event the party then appealed
   (6.1, "After an admin decision") has an open appeal again and takes either decision.
-- An uphold checks that the party's text is the one the admin's request read (`appealTextAt`): a
-  text that arrives in between makes the write lose its condition, and the retry decides with the
-  text on the row, so an appeal is never closed unseen.
+- A client that sends no `seenAppealTextAt` can uphold only an appeal with no party text (an
+  untouched `DELIVERY_OVERDUE` review); a value longer than 40 characters is `400`.
 - The restriction of a `DELIVERY_OVERDUE` review is the `RESTRICTION` row written with the event
   (`since` equal to the event's `recordedAt`). `uphold` gives it `until` (the body's, or now plus
   `restrictionDays`); a body `until` in the past or more than `adminRestrictMaxDays` ahead is
-  `400`. `until` in the body of an `excuse` is `400`; on an uphold of any other event it is ignored.
+  `400`. `until` in the body of an `excuse` is `400`; on an uphold of any other event it is ignored
+  (and not written to the audit row).
   `excuse` lifts that restriction, and lifts every points restriction in force when the active
   points fall below `restrictAt`. A lifted row keeps `liftedAt` and `liftedBy`.
 - The event row keeps `appealDecision` (`excused` or `upheld`), `decidedAt`, `decidedBy` and
@@ -916,6 +947,7 @@ stored rating sum and count (`rating-api.md` 1.3.0) and the backfill still runs.
 | `REPUTATION_APPEAL_CLOSED` | 409 | the appeal window passed, the event is not active or not appealable, or no appeal is open to uphold |
 | `REPUTATION_APPEAL_EXISTS` | 409 | the event already has a different appeal |
 | `REPUTATION_EVENT_DECIDED` | 409 | the event was already decided the other way |
+| `REPUTATION_APPEAL_CHANGED` | 409 | `uphold` on an appeal that is not the one the admin's page showed (1.4.0): reload and decide again |
 | `REPUTATION_NOT_RESTRICTED` | 409 | `lift` with no active restriction |
 | `REPUTATION_ALREADY_RESTRICTED` | 409 | `restrict` while a restriction is in force (1.4.0) |
 | `REPUTATION_UNAVAILABLE` | 503 | `reputationPenalties` is off, or the table is not configured |
@@ -971,7 +1003,7 @@ Error body: `{"error":{"code":"REPUTATION_FORBIDDEN","message":"..."}}`, as ever
 
 | Version | Date | Change |
 |---|---|---|
-| 1.4.0 | 2026-11-12 | ESC-32 BUILT: section 9 on the admin Lambda (`GET /admin/users/{userId}/reputation`, `GET /admin/reputation/appeals`, `POST /admin/users/{userId}/reputation/events/{eventId}/decision`, `POST /admin/users/{userId}/reputation`), admin group only, writes behind `reputationPenalties` (reads not gated), one transaction and one audit row per applied write, the copied owner fields refreshed in the request. New: the response shape of 9.1 (`restrictions`, the admin event with `basePoints`, `buyerId`, the appeal text and `appealPhotoUrl`), `appealPhotoUrl` and `tripId` on the queue items, `alreadyApplied` on 9.4, `409 REPUTATION_ALREADY_RESTRICTED`, the replay rules of 9.3 and 9.4, and the rule of 6.1 that an event upheld before the party sent any text can be appealed once. 8.4: an admin suspend or unsuspend now refreshes the copied owner fields in the same request (TASK FUP-163). (1.3.0 is taken by an open branch) |
+| 1.4.0 | 2026-11-12 | ESC-32 BUILT: section 9 on the admin Lambda (`GET /admin/users/{userId}/reputation`, `GET /admin/reputation/appeals`, `POST /admin/users/{userId}/reputation/events/{eventId}/decision`, `POST /admin/users/{userId}/reputation`), admin group only, writes behind `reputationPenalties` (reads not gated), one transaction and one audit row per applied write, the copied owner fields refreshed in the request. New: the response shape of 9.1 (`restrictions`, the admin event with `basePoints`, `buyerId`, the appeal text and `appealPhotoUrl`), `appealPhotoUrl` and `tripId` on the queue items, `alreadyApplied` on 9.4, `409 REPUTATION_ALREADY_RESTRICTED`, `seenAppealTextAt` on an uphold with `409 REPUTATION_APPEAL_CHANGED` (an uphold is refused when the appeal is not the one the admin's page showed), `textAt` and `appealTextAt` on the reads, what changed in the audit metadata, the replay rules of 9.3 and 9.4, and the rule of 6.1 that an event upheld before the party sent any text can be appealed once. 8.4: an admin suspend or unsuspend now refreshes the copied owner fields in the same request (TASK FUP-163). (1.3.0 is taken by an open branch) |
 | 1.2.0 | 2026-11-11 | ESC-29 BUILT (server): `GET /reputation/me`, `GET /reputation/{userId}`, `GET /reputation/me/events`, `POST /reputation/appeals/photo-url`, `POST /reputation/events/{eventId}/appeal` on the new `{prefix}-reputation` Lambda; the owner fields stamped at create and copied on change; `REPUTATION_RESTRICTED` on crop create, trip create, accept and on an order to a restricted or suspended owner; restricted owners left out of a buyer's browse and match; the third flag `reputationPublicTags`; all off everywhere. Not flagged: `403 AUTH_025` for a suspended caller on `/sync` and the write routes of 8.4. "As built" notes under sections 2 to 8: the events read while points are active, no rating for a row without `ratingsAggregatedAt`, in-memory paging of the event list, `appealTextAt`, copies only while `reputationPenalties` is on, the browse check in code, the no-build wording, `/escrow/release` and `/escrow/refund` not gated, the heal marker on an admin suspend. Sections 9 and 13 stay PLANNED |
 | 1.1.0 | 2026-11-07 | ESC-28 BUILT: section 1 (events from the orders stream, the policy with its caps, tiers, restriction, expiry and earn-back, the aggregate on the users row), section 10 on the server (`penalty_recorded`, `tier_changed`) and section 11 (`reputationPenalties`, `timeoutPenalties`, the SSM policy parameter); everything off by default. Sections 2 to 9 and 13 stay PLANNED (ESC-29 to ESC-33). No endpoint yet |
 | 1.0.0 | 2026-11-07 | New contract, PLANNED (ESC-27 for ESC-28 to ESC-33): event codes, tiers, caps, effective rating, reliability, restriction, expiry and earn-back; `GET /reputation/me`, `GET /reputation/{userId}`, `GET /reputation/me/events`, `POST /reputation/appeals/photo-url`, `POST /reputation/events/{eventId}/appeal`; copied owner fields on crop and trip rows; `REPUTATION_RESTRICTED` gates, hidden restricted parties, the suspension gate; admin panel, appeals queue, decision and tag or restrict endpoints; `penalty_recorded` and `tier_changed`; flags `reputationPenalties`, `timeoutPenalties`, `reputationPublicTags`; `REPUTATION_*` error codes |
