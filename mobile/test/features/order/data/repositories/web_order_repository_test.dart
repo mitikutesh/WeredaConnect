@@ -377,6 +377,66 @@ void main() {
     });
   });
 
+  // FUP-75: every web order path raises the update flag on the minimum-build
+  // refusal and clears it once the server accepts the order operation.
+  group('WebOrderRepository app update flag on every order path', () {
+    final paths = <String, Future<void> Function(WebOrderRepository)>{
+      'createOrder': (r) => r.createOrder(
+            listingId: 'listing-1',
+            buyerId: 'buyer-1',
+            farmerId: 'farmer-1',
+            buyerName: 'Buyer',
+            farmerName: 'Farmer',
+            cropType: 'teff',
+            quantity: 100,
+            pricePerUnit: 1050,
+          ),
+      'submitPayment': (r) =>
+          r.submitPayment('ord-1', null, paymentMethod: 'telebirr'),
+      'cancelOrder': (r) => r.cancelOrder('ord-1', 'buyer-1'),
+      'acceptOrder (update)': (r) => r.acceptOrder('ord-1', 'farmer-1'),
+    };
+
+    void answerSync(Map<String, dynamic> result) {
+      // A created order: the buyer may cancel it and still has to pay.
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenAnswer((_) async => {'order': orderDto()});
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'results': [result],
+        },
+      );
+    }
+
+    paths.forEach((name, send) {
+      test('$name accepted: cleared', () async {
+        events.reportAppUpdateRequired();
+        answerSync({'status': 'success', 'serverVersion': 2});
+
+        await send(repo);
+
+        expect(events.appUpdateRequired, isFalse);
+      });
+
+      test('$name refused for the build: raised', () async {
+        answerSync({
+          'status': 'error',
+          'message': 'APP_UPDATE_REQUIRED: This version of the app is too '
+              'old for orders. Update WeredaConnect to continue.',
+        });
+
+        await expectLater(send(repo), throwsA(isA<SyncRejectedException>()));
+
+        expect(events.appUpdateRequired, isTrue);
+      });
+    });
+  });
+
   group('WebOrderRepository commitments (ESC-15)', () {
     Map<String, dynamic>? sentBody;
 

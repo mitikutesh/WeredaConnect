@@ -115,15 +115,17 @@ class _AppUpdateBannerState extends State<AppUpdateBanner> {
       builder: (context, constraints) => Column(
         children: [
           if (shown)
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: constraints.maxHeight * _maxHeightShare,
-              ),
-              child: SingleChildScrollView(
-                // The screen under it keeps the primary scroll controller.
-                primary: false,
-                child: SafeArea(
-                  bottom: false,
+            // Outside the scroll view, so scrolled text never slides under
+            // the status bar.
+            SafeArea(
+              bottom: false,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: constraints.maxHeight * _maxHeightShare,
+                ),
+                child: SingleChildScrollView(
+                  // The screen under it keeps the primary scroll controller.
+                  primary: false,
                   child: _UpdateNotice(
                     isWeb: widget.isWeb,
                     busy: _busy,
@@ -158,60 +160,76 @@ class _UpdateNotice extends StatelessWidget {
   final bool busy;
   final VoidCallback onPressed;
 
+  /// Narrower than this, the button goes under the text: beside it, a long
+  /// label ("Fuula irra deebi'aa fe'aa") at a large text size leaves the
+  /// text no room on a phone.
+  static const _actionsBelowWidth = 600.0;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    const ink = AppTheme.onStatusInfoContainer;
-    final label =
-        Text(isWeb ? l10n.appUpdateBannerReload : l10n.appUpdateBannerUpdate);
     return Semantics(
       container: true,
       liveRegion: true,
-      child: MaterialBanner(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: const Icon(Icons.system_update, color: ink, size: 20),
-        content: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              l10n.appUpdateBannerMessage,
-              style: const TextStyle(color: ink, fontWeight: FontWeight.w600),
-            ),
-            if (!isWeb) ...[
-              const SizedBox(height: 4),
-              Text(
-                l10n.appUpdateBannerStoreHint,
-                style: const TextStyle(color: ink),
-              ),
-            ],
-          ],
+      child: LayoutBuilder(
+        builder: (context, constraints) => _banner(
+          l10n,
+          actionsBelow: constraints.maxWidth < _actionsBelowWidth,
         ),
-        backgroundColor: AppTheme.statusInfoContainer,
-        actions: [
-          TextButton(
-            onPressed: busy ? null : onPressed,
-            style: TextButton.styleFrom(foregroundColor: ink),
-            child: busy
-                ? Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: ink,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      label,
-                    ],
-                  )
-                : label,
+      ),
+    );
+  }
+
+  Widget _banner(AppLocalizations l10n, {required bool actionsBelow}) {
+    const ink = AppTheme.onStatusInfoContainer;
+    final label =
+        Text(isWeb ? l10n.appUpdateBannerReload : l10n.appUpdateBannerUpdate);
+    return MaterialBanner(
+      forceActionsBelow: actionsBelow,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      leading: const Icon(Icons.system_update, color: ink, size: 20),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            l10n.appUpdateBannerMessage,
+            style: const TextStyle(color: ink, fontWeight: FontWeight.w600),
           ),
+          if (!isWeb) ...[
+            const SizedBox(height: 4),
+            Text(
+              l10n.appUpdateBannerStoreHint,
+              style: const TextStyle(color: ink),
+            ),
+          ],
         ],
       ),
+      backgroundColor: AppTheme.statusInfoContainer,
+      actions: [
+        TextButton(
+          onPressed: busy ? null : onPressed,
+          style: TextButton.styleFrom(foregroundColor: ink),
+          child: busy
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: ink,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // A long label wraps beside the spinner.
+                    Flexible(child: label),
+                  ],
+                )
+              : label,
+        ),
+      ],
     );
   }
 }

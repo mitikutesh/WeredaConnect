@@ -303,11 +303,110 @@ void main() {
     expect(find.text('Reload page'), findsOneWidget);
   });
 
-  testWidgets(
-      'a small phone with large text in om: the banner takes at most 40% '
-      'and scrolls; the screen stays in view', (tester) async {
+  // A 320 px phone browser or phone at 2x text, every language, both
+  // buttons, and the web button while it works: nothing overflows, the
+  // button sits under the text, the banner takes at most 40% and scrolls.
+  for (final locale in const [Locale('en'), Locale('am'), Locale('om')]) {
+    for (final (platform, isWeb, busy) in [
+      ('phone', false, false),
+      ('web', true, false),
+      ('web, reloading', true, true),
+    ]) {
+      testWidgets(
+          '320x480 at 2x text, ${locale.languageCode}, $platform: no '
+          'overflow, at most 40%, the screen stays in view', (tester) async {
+        tester.view.physicalSize = const Size(320, 480);
+        tester.view.devicePixelRatio = 1;
+        tester.platformDispatcher.textScaleFactorTestValue = 2;
+        addTearDown(tester.view.reset);
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final reload = Completer<bool>();
+        addTearDown(() {
+          if (!reload.isCompleted) reload.complete(true);
+        });
+
+        await _pump(
+          tester,
+          host(
+            SecurityEvents.forTesting()..emit(_tooOld),
+            locale: locale,
+            isWeb: isWeb,
+            reloadWeb: () => reload.future,
+          ),
+        );
+        if (busy) {
+          // At 2x it may sit below the fold of the banner: scroll to it.
+          final reloadButton = find.descendant(
+            of: find.byType(MaterialBanner),
+            matching: find.byType(TextButton),
+          );
+          await tester.ensureVisible(reloadButton);
+          await tester.pumpAndSettle();
+          await tester.tap(reloadButton);
+          await tester.pump();
+          expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        }
+
+        expect(tester.takeException(), isNull);
+        final area = tester.getRect(
+          find.ancestor(
+            of: find.byType(MaterialBanner),
+            matching: find.byType(SingleChildScrollView),
+          ),
+        );
+        expect(area.height, lessThanOrEqualTo(480 * 0.4));
+        expect(find.text('taps 0'), findsOneWidget);
+        expect(
+          tester.getRect(find.text('taps 0')).top,
+          greaterThan(area.bottom),
+        );
+        // The button is under the message, not beside it.
+        final banner = find.byType(MaterialBanner);
+        final message = find.descendant(
+          of: banner,
+          matching: find.byType(Text),
+        );
+        final button = find.descendant(
+          of: banner,
+          matching: find.byType(TextButton),
+        );
+        expect(
+          tester.getRect(button).top,
+          greaterThanOrEqualTo(tester.getRect(message.first).bottom),
+        );
+        if (busy) {
+          reload.complete(true);
+          await tester.pumpAndSettle();
+        }
+      });
+    }
+  }
+
+  testWidgets('wide: the button sits beside the text', (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await _pump(
+      tester,
+      host(SecurityEvents.forTesting()..emit(_tooOld), isWeb: true),
+    );
+
+    final banner = find.byType(MaterialBanner);
+    final message = tester.getRect(
+      find.descendant(of: banner, matching: find.text(_message)),
+    );
+    final button = tester.getRect(
+      find.descendant(of: banner, matching: find.byType(TextButton)),
+    );
+    expect(button.left, greaterThanOrEqualTo(message.right));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('scrolled text stays clear of the status bar', (tester) async {
     tester.view.physicalSize = const Size(320, 480);
     tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 24);
     tester.platformDispatcher.textScaleFactorTestValue = 2;
     addTearDown(tester.view.reset);
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
@@ -319,17 +418,18 @@ void main() {
         locale: const Locale('om'),
       ),
     );
-
-    expect(tester.takeException(), isNull);
-    final area = tester.getRect(
-      find.ancestor(
-        of: find.byType(MaterialBanner),
-        matching: find.byType(SingleChildScrollView),
-      ),
+    final scroll = find.ancestor(
+      of: find.byType(MaterialBanner),
+      matching: find.byType(SingleChildScrollView),
     );
-    expect(area.height, lessThanOrEqualTo(480 * 0.4));
-    expect(find.text('taps 0'), findsOneWidget);
-    expect(tester.getRect(find.text('taps 0')).top, greaterThan(area.bottom));
+    expect(tester.getRect(scroll).top, greaterThanOrEqualTo(24));
+
+    await tester.drag(scroll, const Offset(0, -200));
+    await tester.pumpAndSettle();
+
+    // The viewport starts under the inset, so nothing scrolls into it.
+    expect(tester.getRect(scroll).top, greaterThanOrEqualTo(24));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('the screen under it does not pad for the status bar again',
