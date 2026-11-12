@@ -4,9 +4,11 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -170,4 +172,58 @@ void main() {
       });
     }
   }
+
+  // FUP-75: the shell shows the update banner over every role's tabs. The
+  // flag is app-wide, so each test resets it after itself.
+  group('update banner', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+    tearDown(SecurityEvents.instance.resetAppUpdateRequiredForTesting);
+
+    for (final locale in const [Locale('en'), Locale('am'), Locale('om')]) {
+      for (final role in UserRole.values) {
+        testWidgets(
+            '360 dp ${role.name} in ${locale.languageCode}: above every tab, '
+            'tabs still work', (tester) async {
+          useSize(tester, const Size(360, 640));
+          SecurityEvents.instance.reportAppUpdateRequired();
+          await tester.pumpWidget(buildApp(role, locale: locale));
+          await tester.pumpAndSettle();
+
+          final context = tester.element(find.byType(MainNavigation));
+          final l10n = AppLocalizations.of(context)!;
+          for (final tab in tabsForRole(role).reversed) {
+            await tester.tap(tabItem(tab.label(l10n)));
+            await tester.pumpAndSettle();
+            final body = find.text('body ${tab.name}');
+            expect(body, findsOneWidget);
+            expect(find.text(l10n.appUpdateBannerMessage), findsOneWidget);
+            expect(
+              // What shows of it: long text scrolls inside.
+              tester
+                  .getRect(
+                    find.ancestor(
+                      of: find.byType(MaterialBanner),
+                      matching: find.byType(SingleChildScrollView),
+                    ),
+                  )
+                  .bottom,
+              lessThanOrEqualTo(tester.getRect(body).top),
+            );
+          }
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+  });
+
+  testWidgets('after those, no banner: the reset left nothing behind',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    useSize(tester, const Size(360, 640));
+    await tester.pumpWidget(buildApp(UserRole.buyer));
+    await tester.pumpAndSettle();
+
+    expect(SecurityEvents.instance.appUpdateRequired, isFalse);
+    expect(find.byType(MaterialBanner), findsNothing);
+  });
 }

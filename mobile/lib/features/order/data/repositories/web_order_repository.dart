@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
 /// Web-only order repository.
@@ -17,7 +18,12 @@ class WebOrderRepository extends BaseOrderRepository {
   static const _uuid = Uuid();
   final ApiClient _api;
 
-  WebOrderRepository({required ApiClient api}) : _api = api;
+  /// The "update the app" flag's owner (FUP-75); the app's by default.
+  final SecurityEvents? _securityEvents;
+
+  WebOrderRepository({required ApiClient api, SecurityEvents? securityEvents})
+      : _api = api,
+        _securityEvents = securityEvents;
 
   @override
   Future<List<Order>> getOrdersByFarmer(
@@ -200,7 +206,7 @@ class WebOrderRepository extends BaseOrderRepository {
     );
     // Surface server-side rejections instead of silently reporting success
     // for an order that was never persisted.
-    ensureSyncSucceeded(response);
+    _ensureOrderAccepted(response);
 
     final rate = commissionRate ?? 0.05;
     // SIM-30: the server's money, each leg to the santim.
@@ -252,6 +258,22 @@ class WebOrderRepository extends BaseOrderRepository {
     return order;
   }
 
+  /// [ensureSyncSucceeded] for an order batch. An accepted order also clears
+  /// the "update the app" flag (FUP-75): the server's minimum-version gate
+  /// runs first on every order operation, so this build passes it.
+  void _ensureOrderAccepted(Map<String, dynamic> response) {
+    ensureSyncSucceeded(response, events: _securityEvents);
+    final results = response['results'];
+    if (results is List &&
+        results.any(
+          (r) =>
+              r is Map &&
+              (r['status'] == 'success' || r['status'] == 'duplicate'),
+        )) {
+      (_securityEvents ?? SecurityEvents.instance).clearAppUpdateRequired();
+    }
+  }
+
   /// One order `update` through `/sync`, refused results surfaced.
   Future<void> _sendOrderUpdate(
     String orderId,
@@ -277,7 +299,7 @@ class WebOrderRepository extends BaseOrderRepository {
         ],
       },
     );
-    ensureSyncSucceeded(response);
+    _ensureOrderAccepted(response);
   }
 
   @override
@@ -321,7 +343,7 @@ class WebOrderRepository extends BaseOrderRepository {
     );
     // Surface server-side rejections instead of silently reporting success
     // for a payment that was never recorded.
-    ensureSyncSucceeded(response);
+    _ensureOrderAccepted(response);
   }
 
   @override
@@ -362,7 +384,7 @@ class WebOrderRepository extends BaseOrderRepository {
     // Surface server-side rejections (e.g. ORDER_UNAUTHORIZED, invalid
     // status transition) instead of reporting a cancellation that never
     // happened on the server.
-    ensureSyncSucceeded(response);
+    _ensureOrderAccepted(response);
   }
 
   /// ESC-15: the farmer command; the server answers a repeat with success.

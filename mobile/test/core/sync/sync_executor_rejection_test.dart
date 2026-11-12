@@ -1443,6 +1443,48 @@ void main() {
     }
   });
 
+  // FUP-75: the gate runs first on every order operation, so an accepted one
+  // proves this build passes it (a minimum raised by mistake, rolled back).
+  group('FUP-75: an accepted order clears the app update flag', () {
+    for (final status in ['success', 'duplicate']) {
+      test('on $status', () async {
+        events.reportAppUpdateRequired();
+        final updates = <bool>[];
+        final flagSub = events.onAppUpdateRequired.listen(updates.add);
+        addTearDown(flagSub.cancel);
+        await enqueue('op-1');
+        replyWith([
+          {'operationId': 'op-1', 'status': status, 'serverVersion': 3},
+        ]);
+
+        await executor.executeBatch();
+        await waitFor(() => updates.isNotEmpty);
+
+        expect(events.appUpdateRequired, isFalse);
+        expect(updates, [false]);
+      });
+    }
+
+    test('any other entity accepted leaves it set', () async {
+      events.reportAppUpdateRequired();
+      await enqueue(
+        'op-1',
+        entityType: 'trip',
+        entityId: 'trip-1',
+        action: 'create',
+      );
+      replyWith([
+        {'operationId': 'op-1', 'status': 'success', 'serverVersion': 1},
+      ]);
+
+      await executor.executeBatch();
+      await waitFor(() async => await syncQueue.getPendingCount() == 0);
+
+      expect(await syncQueue.getPendingCount(), 0);
+      expect(events.appUpdateRequired, isTrue);
+    });
+  });
+
   test(
       'part B: a revert handler that throws leaves the crop op counted as '
       'failed', () async {

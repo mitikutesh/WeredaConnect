@@ -4,6 +4,7 @@ library;
 import 'package:dio/dio.dart';
 
 import 'package:wereda_connect/core/network/json_body.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 
 /// Base exception for all API errors
 sealed class ApiException implements Exception {
@@ -664,13 +665,23 @@ final class SyncConflictException extends SyncRejectedException {
 ///
 /// No-op when the response shape is unexpected (e.g. an empty body) so it
 /// never masks an otherwise-successful write.
-void ensureSyncSucceeded(Map<String, dynamic> syncResponse) {
+///
+/// An `APP_UPDATE_REQUIRED` refusal also raises the update flag the shell's
+/// banner reads ([SecurityEvents.reportAppUpdateRequired], FUP-75); the
+/// mobile queue raises it itself. [events] defaults to the app's.
+void ensureSyncSucceeded(
+  Map<String, dynamic> syncResponse, {
+  SecurityEvents? events,
+}) {
   final results = syncResponse['results'];
   if (results is! List) return;
   for (final result in results) {
     if (result is! Map) continue;
     final message = result['message'] as String?;
     if (result['status'] == 'error') {
+      if (isAppUpdateRequiredMessage(message)) {
+        (events ?? SecurityEvents.instance).reportAppUpdateRequired();
+      }
       throw SyncRejectedException(message ?? 'Sync operation was rejected.');
     }
     if (result['status'] == 'deferred') {

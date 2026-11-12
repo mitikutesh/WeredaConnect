@@ -400,8 +400,9 @@ class SyncExecutor {
   /// answer, and an operation queued behind it for the same entity (an update
   /// after a held create) could only get a transient "not found" and burn its
   /// retries. So batches skip every pending operation of a held entity while
-  /// this executor lives. In memory, like [SecurityEvents.appUpdateRequired]:
-  /// a restart sends them once more. Only these wait: every other entity,
+  /// this executor lives. In memory only (unlike
+  /// [SecurityEvents.appUpdateRequired], kept per build since FUP-75): a
+  /// restart sends them once more. Only these wait: every other entity,
   /// delivery handoffs included, keeps syncing.
   final Set<String> _heldForUpdate = {};
 
@@ -938,6 +939,7 @@ class SyncExecutor {
         case 'success':
           await _syncQueue.markAsSynced(operationId);
           await _notifySynced(operation);
+          _noteAccepted(operation);
           succeeded++;
 
         case 'conflict':
@@ -982,6 +984,7 @@ class SyncExecutor {
           // Already processed by server — safe to remove from queue
           await _syncQueue.markAsSynced(operationId);
           await _notifySynced(operation);
+          _noteAccepted(operation);
           succeeded++;
 
         case 'deferred':
@@ -1381,6 +1384,15 @@ class SyncExecutor {
         continue;
       }
       _securityEvents.emit(_rejectionEvent(operation, message));
+    }
+  }
+
+  /// FUP-75: the server's minimum-version gate runs first on every order
+  /// operation, so an accepted one proves this build passes it: the "update
+  /// the app" flag goes ([SecurityEvents.clearAppUpdateRequired]).
+  void _noteAccepted(SyncOperation operation) {
+    if (operation.entityType == 'order') {
+      _securityEvents.clearAppUpdateRequired();
     }
   }
 

@@ -3056,6 +3056,24 @@ class AppLocalizationsAm extends AppLocalizations {
       'እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ በስልክዎ ላይ ተቀምጧል፣ ከዝማኔው በኋላ ይላካል።';
 
   @override
+  String get appUpdateBannerMessage =>
+      'ትዕዛዝ ለማስገባት ወይም ለመቀየር እባክዎ መተግበሪያውን ያዘምኑ። ሌላው ሁሉ እንደተለመደው ይሰራል።';
+
+  @override
+  String get appUpdateBannerUpdate => 'ያዘምኑ';
+
+  @override
+  String get appUpdateBannerReload => 'ገጹን እንደገና ይጫኑ';
+
+  @override
+  String get appUpdateBannerStoreHint =>
+      'መደብሩ ካልተከፈተ ወይም መተግበሪያውን ካላሳየ፣ የቅርብ ጊዜውን WeredaConnect መተግበሪያውን ካገኙበት ቦታ ያግኙ።';
+
+  @override
+  String get appUpdateReloadFailed =>
+      'የቅርብ ጊዜውን ስሪት ማግኘት አልተቻለም። ግንኙነትዎን ያረጋግጡና እንደገና ይሞክሩ።';
+
+  @override
   String get errorContactInText =>
       'እዚህ ስልክ ቁጥር አይፈቀድም። ቁጥሩን ያስወግዱ፤ ክፍያው በኢስክሮ ከተያዘ በኋላ መገናኘት ይቻላል።';
 

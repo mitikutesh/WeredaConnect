@@ -4,17 +4,20 @@ import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/order/data/repositories/web_order_repository.dart';
 
 class MockApiClient extends Mock implements ApiClient {}
 
 void main() {
   late MockApiClient api;
+  late SecurityEvents events;
   late WebOrderRepository repo;
 
   setUp(() {
     api = MockApiClient();
-    repo = WebOrderRepository(api: api);
+    events = SecurityEvents.forTesting();
+    repo = WebOrderRepository(api: api, securityEvents: events);
   });
 
   Map<String, dynamic> orderDto({
@@ -344,6 +347,93 @@ void main() {
             .having((e) => e.message, 'message', message),
       );
       expect(mapErrorToCode(error!), AppErrorCode.appUpdateRequired);
+      // FUP-75: the shell's banner reads it.
+      expect(events.appUpdateRequired, isTrue);
+    });
+
+    // FUP-75: the gate runs first on every order operation, so an accepted
+    // one proves this build passes it.
+    for (final status in ['success', 'duplicate']) {
+      test('an accepted order ($status) clears the app update flag', () async {
+        events.reportAppUpdateRequired();
+        answerSync({'status': status, 'serverVersion': 2});
+
+        await repo.acceptOrder('ord-1', 'farmer-1');
+
+        expect(events.appUpdateRequired, isFalse);
+      });
+    }
+
+    test('a refused order leaves the app update flag set', () async {
+      events.reportAppUpdateRequired();
+      answerSync({'status': 'error', 'message': 'ORDER_VALIDATION: no'});
+
+      await expectLater(
+        repo.acceptOrder('ord-1', 'farmer-1'),
+        throwsA(isA<SyncRejectedException>()),
+      );
+
+      expect(events.appUpdateRequired, isTrue);
+    });
+  });
+
+  // FUP-75: every web order path raises the update flag on the minimum-build
+  // refusal and clears it once the server accepts the order operation.
+  group('WebOrderRepository app update flag on every order path', () {
+    final paths = <String, Future<void> Function(WebOrderRepository)>{
+      'createOrder': (r) => r.createOrder(
+            listingId: 'listing-1',
+            buyerId: 'buyer-1',
+            farmerId: 'farmer-1',
+            buyerName: 'Buyer',
+            farmerName: 'Farmer',
+            cropType: 'teff',
+            quantity: 100,
+            pricePerUnit: 1050,
+          ),
+      'submitPayment': (r) =>
+          r.submitPayment('ord-1', null, paymentMethod: 'telebirr'),
+      'cancelOrder': (r) => r.cancelOrder('ord-1', 'buyer-1'),
+      'acceptOrder (update)': (r) => r.acceptOrder('ord-1', 'farmer-1'),
+    };
+
+    void answerSync(Map<String, dynamic> result) {
+      // A created order: the buyer may cancel it and still has to pay.
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenAnswer((_) async => {'order': orderDto()});
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'results': [result],
+        },
+      );
+    }
+
+    paths.forEach((name, send) {
+      test('$name accepted: cleared', () async {
+        events.reportAppUpdateRequired();
+        answerSync({'status': 'success', 'serverVersion': 2});
+
+        await send(repo);
+
+        expect(events.appUpdateRequired, isFalse);
+      });
+
+      test('$name refused for the build: raised', () async {
+        answerSync({
+          'status': 'error',
+          'message': 'APP_UPDATE_REQUIRED: This version of the app is too '
+              'old for orders. Update WeredaConnect to continue.',
+        });
+
+        await expectLater(send(repo), throwsA(isA<SyncRejectedException>()));
+
+        expect(events.appUpdateRequired, isTrue);
+      });
     });
   });
 
