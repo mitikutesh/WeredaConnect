@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.51.0
+1.52.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -563,7 +563,7 @@ Mobile client (sync queue):
 | Refused delivery `create` that reaches the delivery revert (any code that undoes a delivery change) | The server never stored it: the local delivery is removed without a read. Every other refused delivery change is still re-read and never removed (1.11.0). |
 | Order operation refused with one of the five codes | Reverted like any permanent order rejection (1.10.0), not counted. |
 | `APP_UPDATE_REQUIRED` on anything but an `order` (`crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent`, `match_event`) | Kept pending without burning a retry and never reverted or removed (a create included): the same payload goes through once the app is updated. Not counted as failed. This build does not send it, or any operation queued behind it for the same entity, again while it runs (an in-memory hold, cleared by a restart or an update); every other entity keeps syncing. Explained once per entity, except background match events. |
-| `APP_UPDATE_REQUIRED`, refused order or held operation | The app also raises an in-memory "update required" flag the shell can read (the banner is FUP-75's). The client does no version gating of its own. |
+| `APP_UPDATE_REQUIRED`, refused order or held operation | The app also raises the "update required" flag the shell's banner reads (since 1.52.0 kept with the build number, see Minimum app version for order operations). The client does no version gating of its own. |
 | Reason | Each code has its own text in en, am and om (below), shown in the rejection snackbar. On an `order` create, `REPUTATION_RESTRICTED` says the farmer or trucker cannot take orders; on every other operation it says the user's account cannot do this for now. On a refused order create, `REPUTATION_RESTRICTED`, `TRIP_CAPACITY_EXCEEDED`, `ORDER_TRIP_NOT_ELIGIBLE` and `APP_UPDATE_REQUIRED` keep their own text (they already say what to do next); any other code on a refused create still reads "This order could not be placed". |
 
 Texts (keys in `app_en.arb`, `app_am.arb`, `app_om.arb`):
@@ -582,7 +582,8 @@ Texts (keys in `app_en.arb`, `app_am.arb`, `app_om.arb`):
 
 Web client (no queue, calls `/sync` directly): every code is a failure with the same text. A
 buyer's order create refused `REPUTATION_RESTRICTED` reads `errorCounterpartyRestricted`. Web
-reads live data, so nothing is reverted, and it raises no update flag.
+reads live data, so nothing is reverted. Since 1.52.0 (FUP-75) an `APP_UPDATE_REQUIRED` refusal
+also raises the "update required" flag, as on mobile (before, web raised none).
 
 Rules for server authors:
 - Each code must be deterministic for the same payload. A transient failure in the same
@@ -1085,9 +1086,21 @@ the gate went live gets the refusal too; the client's next order pull brings the
 Clients (1.17.0, no change): mobile marks the order operation rejected (never sent again), reverts
 the local order (a refused create removes it), leaves it out of the "Sync failed" count, raises the
 in-memory "update required" flag and shows `errorAppUpdateRequired` ("Please update the app to
-continue. This change was not saved."); web shows the same text. The persistent "update the app"
-banner that reads the flag is FUP-75. Server rule unchanged: send `APP_UPDATE_REQUIRED` on order
-operations only.
+continue. This change was not saved."); web shows the same text. Server rule unchanged: send
+`APP_UPDATE_REQUIRED` on order operations only.
+
+**The update banner (1.52.0, FUP-75).** Client only. The flag is raised by the mobile queue (an
+order refused, or an operation held, with `APP_UPDATE_REQUIRED`) and, since 1.52.0, by a web `/sync`
+refusal with that code. While it is set, the signed-in shell shows a banner above every main screen
+(the phone's tabs; every web page, beside the sidebar): `appUpdateBannerMessage` ("Please update the
+app to place or change orders. Everything else still works."), with a button. On the phone it opens
+the app's Play Store page (`et.wereda.connect`; `appUpdateStoreNotOpened` when nothing opens it); on
+web it fetches `main.dart.js` past the browser cache (the file is served `immutable`) and reloads the
+page. The banner never blocks: every screen and the data kept on the device stay usable, nothing is
+wiped, and only orders wait. The flag is kept on the device with the running build's number (`X-App-Build`'s
+`n`): a restart on the same build shows the banner again before any sync; the first start of another
+build forgets it, and the next refusal raises it again if that build is still too old. Logout keeps
+it. The client still does no version gating of its own: the banner follows the server's answer.
 
 ---
 
@@ -1326,6 +1339,7 @@ A `conflict` (the order moved) and a success answer as before. With nothing in t
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.52.0 | 2026-11-12 | The "update the app" banner (FUP-75), client only: the shell shows it above every main screen while the "update required" flag is set, with a Play Store button on the phone and a cache-skipping reload on web; web now raises the flag on an `APP_UPDATE_REQUIRED` refusal; the flag is kept with the build number, so it survives a restart on the same build and is forgotten by another build (see Minimum app version for order operations). No server change. |
 | 1.51.0 | 2026-11-12 | A funded order's reject or cancel and its refund arm are one transaction (FUP-53, `escrow-protocol.md` 2.11.0, `order-lifecycle.md` 2.12.0): money frozen or moving answers `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` (permanent), and three unprefixed retryable texts cover a failed escrow read, an escrow that kept changing and a cancelled transaction; nothing is written on any of them. Server only. |
 | 1.50.0 | 2026-11-12 | `farmerReliability` retired (ESC-30, `match-api.md` 1.4.0): dropped from client payloads like the owner fields and no longer stamped on a crop create. |
 | 1.49.0 | 2026-11-12 | Refusal texts the clients read, client only (FUP-77, FUP-83): `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` has its own text (the phrase is now relied on by the clients); an `ORDER_KYC_REQUIRED` reason token the client does not know is explained only, with no Fayda action; `buyer_phone` has its own error text on every surface. 1.48.0 is taken by another branch |

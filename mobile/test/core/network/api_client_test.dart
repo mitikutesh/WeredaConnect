@@ -7,6 +7,7 @@ import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 
 void main() {
   group('ApiClient', () {
@@ -641,6 +642,54 @@ void main() {
         () => ensureSyncSucceeded(response),
         throwsA(isA<SyncRejectedException>()),
       );
+    });
+
+    // FUP-75: web has no queue, so the refusal itself raises the flag the
+    // shell's update banner reads.
+    test('APP_UPDATE_REQUIRED raises the update flag, then throws', () {
+      final events = SecurityEvents.forTesting();
+      final response = {
+        'results': [
+          {
+            'operationId': 'op-1',
+            'status': 'error',
+            'message': 'APP_UPDATE_REQUIRED: This version of the app is too '
+                'old for orders. Update WeredaConnect to continue.',
+          },
+        ],
+      };
+
+      expect(
+        () => ensureSyncSucceeded(response, events: events),
+        throwsA(
+          isA<SyncRejectedException>().having(
+            (e) => e.message,
+            'message',
+            startsWith('APP_UPDATE_REQUIRED'),
+          ),
+        ),
+      );
+      expect(events.appUpdateRequired, isTrue);
+    });
+
+    test('other refusals leave the update flag unset', () {
+      final events = SecurityEvents.forTesting();
+      final response = {
+        'results': [
+          {
+            'operationId': 'op-1',
+            'status': 'error',
+            'message': 'ORDER_VALIDATION: This version of the app is too old '
+                'for orders. Update WeredaConnect to continue.',
+          },
+        ],
+      };
+
+      expect(
+        () => ensureSyncSucceeded(response, events: events),
+        throwsA(isA<SyncRejectedException>()),
+      );
+      expect(events.appUpdateRequired, isFalse);
     });
 
     test('is a no-op when results are missing or malformed', () {

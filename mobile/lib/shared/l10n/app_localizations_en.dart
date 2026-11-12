@@ -3153,6 +3153,20 @@ class AppLocalizationsEn extends AppLocalizations {
       'Please update the app. This change is kept on your phone and will be sent after the update.';
 
   @override
+  String get appUpdateBannerMessage =>
+      'Please update the app to place or change orders. Everything else still works.';
+
+  @override
+  String get appUpdateBannerUpdate => 'Update';
+
+  @override
+  String get appUpdateBannerReload => 'Reload page';
+
+  @override
+  String get appUpdateStoreNotOpened =>
+      'Could not open the store. Please install the latest WeredaConnect from where you got the app.';
+
+  @override
   String get errorContactInText =>
       'Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow.';
 

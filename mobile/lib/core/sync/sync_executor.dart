@@ -400,8 +400,9 @@ class SyncExecutor {
   /// answer, and an operation queued behind it for the same entity (an update
   /// after a held create) could only get a transient "not found" and burn its
   /// retries. So batches skip every pending operation of a held entity while
-  /// this executor lives. In memory, like [SecurityEvents.appUpdateRequired]:
-  /// a restart sends them once more. Only these wait: every other entity,
+  /// this executor lives. In memory only (unlike
+  /// [SecurityEvents.appUpdateRequired], kept per build since FUP-75): a
+  /// restart sends them once more. Only these wait: every other entity,
   /// delivery handoffs included, keeps syncing.
   final Set<String> _heldForUpdate = {};
 

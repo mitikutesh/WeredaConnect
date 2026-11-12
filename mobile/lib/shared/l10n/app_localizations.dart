@@ -5686,6 +5686,30 @@ abstract class AppLocalizations {
   /// **'Please update the app. This change is kept on your phone and will be sent after the update.'**
   String get errorAppUpdateRequiredKept;
 
+  /// FUP-75: the banner at the top of every main screen while the server refuses orders from this app build as too old (APP_UPDATE_REQUIRED). It stays until the app is updated
+  ///
+  /// In en, this message translates to:
+  /// **'Please update the app to place or change orders. Everything else still works.'**
+  String get appUpdateBannerMessage;
+
+  /// FUP-75: the update banner's button on the phone; opens the app's store page
+  ///
+  /// In en, this message translates to:
+  /// **'Update'**
+  String get appUpdateBannerUpdate;
+
+  /// FUP-75: the update banner's button on the web app; reloads the page with the latest version
+  ///
+  /// In en, this message translates to:
+  /// **'Reload page'**
+  String get appUpdateBannerReload;
+
+  /// FUP-75: snackbar when the update banner's button could not open the store page
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open the store. Please install the latest WeredaConnect from where you got the app.'**
+  String get appUpdateStoreNotOpened;
+
   /// A crop or trip text field that buyers read holds a phone number. Shown under the field and when the server refuses the listing (CROP_CONTACT_IN_TEXT / TRIP_CONTACT_IN_TEXT, FUP-49). Also under the registration name, woreda and company name fields (FUP-52)
   ///
   /// In en, this message translates to:

@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 
 /// Something background work cannot settle alone: a prompt the user must
@@ -144,6 +147,26 @@ class SyncOperationRejected extends SecurityEvent {
   });
 }
 
+/// Keeps, across restarts, the app build the server refused as too old
+/// (`APP_UPDATE_REQUIRED`, FUP-75), so [SecurityEvents.appUpdateRequired]
+/// comes back after a restart on that build and is forgotten once the build
+/// changes. SharedPreferences: app storage on Android, localStorage on web.
+class AppUpdateFlagStore {
+  const AppUpdateFlagStore();
+
+  static const String key = 'app_update_required_build';
+
+  /// The build kept, or null when none is.
+  Future<int?> read() async =>
+      (await SharedPreferences.getInstance()).getInt(key);
+
+  Future<void> write(int build) async =>
+      (await SharedPreferences.getInstance()).setInt(key, build);
+
+  Future<void> clear() async =>
+      (await SharedPreferences.getInstance()).remove(key);
+}
+
 /// App-wide bus between background workers (sync executor, escrow intent
 /// sync) and the UI.
 ///
@@ -170,14 +193,31 @@ class SyncOperationRejected extends SecurityEvent {
 /// [pendingStepUp] does not outlive the operation it was raised for
 /// (FUP-24).
 class SecurityEvents {
-  SecurityEvents._({DateTime Function()? now}) : _now = now ?? DateTime.now;
+  SecurityEvents._({
+    DateTime Function()? now,
+    AppUpdateFlagStore? appUpdateStore,
+    int appBuild = ApiConfig.appBuild,
+  })  : _now = now ?? DateTime.now,
+        _appUpdateStore = appUpdateStore,
+        _appBuild = appBuild;
 
   /// Shared instance used by the app.
-  static final SecurityEvents instance = SecurityEvents._();
+  static final SecurityEvents instance =
+      SecurityEvents._(appUpdateStore: const AppUpdateFlagStore());
 
-  /// A separate instance for tests, with an optional clock.
-  factory SecurityEvents.forTesting({DateTime Function()? now}) =>
-      SecurityEvents._(now: now);
+  /// A separate instance for tests, with an optional clock. It keeps
+  /// [appUpdateRequired] in memory only unless given an [appUpdateStore];
+  /// [appBuild] stands for the running build.
+  factory SecurityEvents.forTesting({
+    DateTime Function()? now,
+    AppUpdateFlagStore? appUpdateStore,
+    int appBuild = ApiConfig.appBuild,
+  }) =>
+      SecurityEvents._(
+        now: now,
+        appUpdateStore: appUpdateStore,
+        appBuild: appBuild,
+      );
 
   /// How long a cancelled step-up prompt stays quiet.
   static const stepUpCooldown = Duration(minutes: 10);
@@ -208,21 +248,74 @@ class SecurityEvents {
   final StreamController<void> _appUpdateRequired =
       StreamController<void>.broadcast();
   bool _appUpdateRequiredSeen = false;
+  final AppUpdateFlagStore? _appUpdateStore;
+  final int _appBuild;
+  Future<void>? _appUpdateRestore;
 
   /// Events the UI should prompt for.
   Stream<SecurityEvent> get events => _events.stream;
 
-  /// True once the server answered a queued change with `APP_UPDATE_REQUIRED`
-  /// (sync-protocol.md 1.17.0): this build is below the server's minimum and
-  /// every further order command would be refused the same way. Set even
-  /// when nobody listens yet and never cleared by logout (the build is still
-  /// old). Kept in memory only: a relaunch starts false until the next such
-  /// refusal. The persistent banner that reads it is ESC-25's.
+  /// True once the server answered a change with `APP_UPDATE_REQUIRED`
+  /// (sync-protocol.md 1.17.0, 1.52.0): this build is below the server's
+  /// minimum and every further order command would be refused the same way.
+  /// Raised by the mobile sync queue and by a web `/sync` refusal
+  /// ([reportAppUpdateRequired]). Set even when nobody listens yet and never
+  /// cleared by logout (the build is still old). Kept with the running
+  /// build's number (FUP-75): [restoreAppUpdateRequired] brings it back after
+  /// a restart on the same build and forgets it once the build changed. The
+  /// shell's "update the app" banner reads it.
   bool get appUpdateRequired => _appUpdateRequiredSeen;
 
-  /// Fires once per refusal that carried `APP_UPDATE_REQUIRED`, for a shell
-  /// that is already mounted when it arrives.
+  /// Fires once per refusal that carried `APP_UPDATE_REQUIRED`, and when
+  /// [restoreAppUpdateRequired] brings the flag back, for a shell that is
+  /// already mounted.
   Stream<void> get onAppUpdateRequired => _appUpdateRequired.stream;
+
+  /// A web `/sync` refusal said this build is too old (web has no queue, so
+  /// no [SyncOperationRejected] is raised for it).
+  void reportAppUpdateRequired() => _raiseAppUpdateRequired();
+
+  void _raiseAppUpdateRequired({bool keep = true}) {
+    // Written once per run: later refusals find it kept.
+    if (keep && !_appUpdateRequiredSeen) {
+      unawaited(_keepAppUpdateRequired());
+    }
+    _appUpdateRequiredSeen = true;
+    if (!_appUpdateRequired.isClosed) _appUpdateRequired.add(null);
+  }
+
+  Future<void> _keepAppUpdateRequired() async {
+    try {
+      await _appUpdateStore?.write(_appBuild);
+    } on Object {
+      // No storage (a blocked browser store): memory only for this run.
+    }
+  }
+
+  /// Read back the flag kept by an earlier run (FUP-75), once per app run:
+  /// the same build raises [appUpdateRequired] again; another build (the app
+  /// was updated) forgets it, and the next refusal raises it again if that
+  /// build is still too old. The shell's banner calls it when it mounts.
+  Future<void> restoreAppUpdateRequired() =>
+      _appUpdateRestore ??= _restoreAppUpdateRequired();
+
+  Future<void> _restoreAppUpdateRequired() async {
+    final store = _appUpdateStore;
+    if (store == null) return;
+    try {
+      final kept = await store.read();
+      if (kept == _appBuild) {
+        if (!_appUpdateRequiredSeen) _raiseAppUpdateRequired(keep: false);
+      } else if (_appUpdateRequiredSeen) {
+        // Refused again while reading: keep it for this build.
+        await store.write(_appBuild);
+      } else if (kept != null) {
+        await store.clear();
+      }
+    } on Object {
+      // No storage: memory only for this run.
+    }
+  }
 
   /// Fires after the user re-authenticated; pending money ops should retry.
   Stream<void> get onStepUpCompleted => _stepUpCompleted.stream;
@@ -245,8 +338,7 @@ class SecurityEvents {
     if (event is StepUpRequired && stepUpSuppressed) return;
     if (event is SyncOperationRejected &&
         isAppUpdateRequiredMessage(event.message)) {
-      _appUpdateRequiredSeen = true;
-      if (!_appUpdateRequired.isClosed) _appUpdateRequired.add(null);
+      _raiseAppUpdateRequired();
     }
     if (_events.isClosed) return;
     if (event is SyncOperationRejected && !_events.hasListener) {

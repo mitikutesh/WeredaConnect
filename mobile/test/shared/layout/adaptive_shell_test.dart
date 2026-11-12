@@ -9,6 +9,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
@@ -18,6 +19,7 @@ import 'package:wereda_connect/shared/layout/adaptive_shell.dart';
 import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/widgets/app_update_banner.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -48,6 +50,7 @@ void main() {
     String userName = '',
     String? woreda,
     Locale? locale,
+    SecurityEvents? updateEvents,
   }) {
     when(() => authBloc.state).thenReturn(
       AuthAuthenticated(
@@ -63,8 +66,18 @@ void main() {
       routes: [
         ShellRoute(
           observers: [pushedRoutes],
-          builder: (context, state, child) =>
-              AdaptiveShell(pushedRoutes: pushedRoutes, child: child),
+          // With [updateEvents], as the web router mounts it (FUP-75).
+          builder: (context, state, child) => AdaptiveShell(
+            pushedRoutes: pushedRoutes,
+            child: updateEvents == null
+                ? child
+                : AppUpdateBanner(
+                    events: updateEvents,
+                    isWeb: true,
+                    reloadWeb: () async => true,
+                    child: child,
+                  ),
+          ),
           routes: [
             GoRoute(
               path: '/',
@@ -227,6 +240,49 @@ void main() {
       expect(find.byType(RoleCreateButton), findsNothing);
       if (layout == 'phone') expect(find.byType(RoleNavBar), findsNothing);
     });
+  }
+
+  // FUP-75: on web the update banner tops the page, beside the sidebar,
+  // over tab pages and pushed screens alike; the shell works as before.
+  for (final size in const [Size(400, 800), Size(800, 900), Size(1300, 900)]) {
+    final layout = size.width < 600
+        ? 'phone'
+        : size.width < 1024
+            ? 'tablet'
+            : 'desktop';
+    for (final role in UserRole.values) {
+      testWidgets('$layout ${role.name}: the update banner tops the page',
+          (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        const message = 'Please update the app to place or change orders. '
+            'Everything else still works.';
+
+        final events = SecurityEvents.forTesting();
+        await tester.pumpWidget(buildApp(role, updateEvents: events));
+        await tester.pumpAndSettle();
+        expect(find.text(message), findsNothing);
+
+        events.reportAppUpdateRequired();
+        await tester.pumpAndSettle();
+        final banner = tester.getRect(find.byType(MaterialBanner));
+        expect(find.text('Reload page'), findsOneWidget);
+        expect(
+          banner.bottom,
+          lessThanOrEqualTo(tester.getRect(find.text('open detail')).top),
+        );
+        // In the page column, not over the sidebar or rail.
+        expect(banner.left, layout == 'phone' ? 0 : greaterThan(0));
+        expect(find.byType(RoleCreateButton), findsOneWidget);
+
+        await tester.tap(find.text('open detail'));
+        await tester.pumpAndSettle();
+        expect(find.text('pushed detail'), findsOneWidget);
+        expect(find.text(message), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
   }
 
   // Desktop sidebar footer: "Meki · Farmer" under the name, in the user's

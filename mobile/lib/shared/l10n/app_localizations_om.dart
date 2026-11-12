@@ -3179,6 +3179,20 @@ class AppLocalizationsOm extends AppLocalizations {
       'Maaloo appii haaromsaa. Jijjiiramni kun bilbila keessan irratti kuufameera, haaromsa booda ni ergama.';
 
   @override
+  String get appUpdateBannerMessage =>
+      'Ajaja galmeessuuf ykn jijjiiruuf maaloo appii haaromsaa. Wantoonni biroo hundi akkuma duraatti hojjetu.';
+
+  @override
+  String get appUpdateBannerUpdate => 'Haaromsaa';
+
+  @override
+  String get appUpdateBannerReload => 'Fuula irra deebi\'aa fe\'aa';
+
+  @override
+  String get appUpdateStoreNotOpened =>
+      'Kuusaa appii banuu hin dandeenye. Maaloo WeredaConnect isa haaraa iddoo appii itti argattan irraa galchaa.';
+
+  @override
   String get errorContactInText =>
       'Lakkoofsi bilbilaa asitti hin hayyamamu. Lakkoofsa kana haqi; quunnamtiin kan banamu erga kaffaltiin Eeskiroo keessatti qabamee booda.';
 

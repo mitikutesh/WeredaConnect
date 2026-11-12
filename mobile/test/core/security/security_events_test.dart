@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wereda_connect/core/security/security_events.dart';
 
@@ -201,6 +202,144 @@ void main() {
         ..emit(const StepUpRequired());
 
       expect(events.appUpdateRequired, isFalse);
+    });
+  });
+
+  // FUP-75: the flag outlives a restart on the same build only.
+  group('APP_UPDATE_REQUIRED kept per build (FUP-75)', () {
+    // Not the running build's number, so the tests hold after a bump.
+    const oldBuild = 7;
+    const newBuild = 8;
+    const store = AppUpdateFlagStore();
+    const order = SyncOperationRejected(
+      entityType: 'order',
+      entityId: 'o-1',
+      action: 'update',
+      message: 'APP_UPDATE_REQUIRED: too old',
+    );
+
+    Future<int?> kept() async =>
+        (await SharedPreferences.getInstance()).getInt(AppUpdateFlagStore.key);
+
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('a refusal keeps the running build', () async {
+      SecurityEvents.forTesting(appUpdateStore: store, appBuild: oldBuild)
+          .emit(order);
+
+      await waitFor(() async => await kept() == oldBuild);
+      expect(await kept(), oldBuild);
+    });
+
+    test('a web refusal raises and keeps it too', () async {
+      final events = SecurityEvents.forTesting(
+        appUpdateStore: store,
+        appBuild: oldBuild,
+      );
+      final fired = <void>[];
+      final sub = events.onAppUpdateRequired.listen(fired.add);
+
+      events.reportAppUpdateRequired();
+      await waitFor(() async => fired.isNotEmpty && await kept() == oldBuild);
+      await sub.cancel();
+
+      expect(events.appUpdateRequired, isTrue);
+      expect(fired, hasLength(1));
+      expect(await kept(), oldBuild);
+    });
+
+    test('a restart on the same build brings it back and fires', () async {
+      SharedPreferences.setMockInitialValues({
+        AppUpdateFlagStore.key: oldBuild,
+      });
+      final events = SecurityEvents.forTesting(
+        appUpdateStore: store,
+        appBuild: oldBuild,
+      );
+      final fired = <void>[];
+      final sub = events.onAppUpdateRequired.listen(fired.add);
+      expect(events.appUpdateRequired, isFalse);
+
+      await events.restoreAppUpdateRequired();
+      await waitFor(() => fired.isNotEmpty);
+      await sub.cancel();
+
+      expect(events.appUpdateRequired, isTrue);
+      expect(fired, hasLength(1));
+      expect(await kept(), oldBuild);
+    });
+
+    test('a new build forgets it', () async {
+      SharedPreferences.setMockInitialValues({
+        AppUpdateFlagStore.key: oldBuild,
+      });
+      final events = SecurityEvents.forTesting(
+        appUpdateStore: store,
+        appBuild: newBuild,
+      );
+
+      await events.restoreAppUpdateRequired();
+
+      expect(events.appUpdateRequired, isFalse);
+      expect(await kept(), isNull);
+    });
+
+    test('a new build refused before the read keeps its own number', () async {
+      SharedPreferences.setMockInitialValues({
+        AppUpdateFlagStore.key: oldBuild,
+      });
+      final events = SecurityEvents.forTesting(
+        appUpdateStore: store,
+        appBuild: newBuild,
+      );
+
+      final restoring = events.restoreAppUpdateRequired();
+      events.emit(order);
+      await restoring;
+      await waitFor(() async => await kept() == newBuild);
+
+      expect(events.appUpdateRequired, isTrue);
+      expect(await kept(), newBuild);
+    });
+
+    test('nothing kept: nothing raised, nothing written', () async {
+      final events = SecurityEvents.forTesting(
+        appUpdateStore: store,
+        appBuild: oldBuild,
+      );
+
+      await events.restoreAppUpdateRequired();
+
+      expect(events.appUpdateRequired, isFalse);
+      expect(await kept(), isNull);
+    });
+
+    test('reads once per run', () async {
+      final events = SecurityEvents.forTesting(
+        appUpdateStore: store,
+        appBuild: oldBuild,
+      );
+      await events.restoreAppUpdateRequired();
+      // Written by another run after this one read: not read again.
+      SharedPreferences.setMockInitialValues({
+        AppUpdateFlagStore.key: oldBuild,
+      });
+
+      await events.restoreAppUpdateRequired();
+
+      expect(events.appUpdateRequired, isFalse);
+    });
+
+    test('without a store it stays in memory only', () async {
+      SharedPreferences.setMockInitialValues({
+        AppUpdateFlagStore.key: oldBuild,
+      });
+      final events = SecurityEvents.forTesting(appBuild: oldBuild)..emit(order);
+
+      await events.restoreAppUpdateRequired();
+
+      expect(events.appUpdateRequired, isTrue);
+      expect(await kept(), oldBuild);
     });
   });
 }
