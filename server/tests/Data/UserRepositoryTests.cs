@@ -166,6 +166,85 @@ public class UserRepositoryTests
     }
 
     [Fact]
+    public async Task UpdateUserAsync_WithoutFaydaId_RemovesTheIndexKeyInsteadOfSettingNull()
+    {
+        // SIM-56: DynamoDB refuses a NULL FaydaIdIndex key ("Invalid attribute value type").
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(CreateTestUser(), 1);
+
+        Assert.EndsWith(" REMOVE #fayda", sent!.UpdateExpression);
+        Assert.DoesNotContain("#fayda = :fayda", sent.UpdateExpression);
+        Assert.False(sent.ExpressionAttributeValues.ContainsKey(":fayda"));
+        Assert.Equal("faydaId", sent.ExpressionAttributeNames["#fayda"]);
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_WithFaydaId_SetsIt()
+    {
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(CreateTestUser() with { FaydaId = "1234567890123456" }, 1);
+
+        Assert.Contains("#fayda = :fayda", sent!.UpdateExpression);
+        Assert.Contains("#woreda = :woreda", sent.UpdateExpression);
+        Assert.DoesNotContain("REMOVE", sent.UpdateExpression);
+        Assert.Equal("1234567890123456", sent.ExpressionAttributeValues[":fayda"].S);
+        Assert.Equal("Adama", sent.ExpressionAttributeValues[":woreda"].S);
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_WithoutWoreda_RemovesTheIndexKeyInsteadOfWritingEmpty()
+    {
+        // SIM-56: FromItem reads a missing woreda as "" (FUP-162 rows), and DynamoDB refuses an empty
+        // RoleWaredaIndex sort key.
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(CreateTestUser() with { Woreda = "" }, 1);
+
+        Assert.EndsWith(" REMOVE #fayda, #woreda", sent!.UpdateExpression);
+        Assert.DoesNotContain("#woreda = :woreda", sent.UpdateExpression);
+        Assert.False(sent.ExpressionAttributeValues.ContainsKey(":woreda"));
+        Assert.Equal("woreda", sent.ExpressionAttributeNames["#woreda"]);
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_CompanyBuyer_WritesTheCompanyName()
+    {
+        // SIM-56: the profile edit changes a company buyer's companyName.
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(
+            CreateTestUser() with { Role = "buyer", BuyerType = "company", CompanyName = "Meki Traders" }, 1);
+
+        Assert.Contains("#company = :company", sent!.UpdateExpression);
+        Assert.Equal("companyName", sent.ExpressionAttributeNames["#company"]);
+        Assert.Equal("Meki Traders", sent.ExpressionAttributeValues[":company"].S);
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_WithoutCompanyName_NeverNamesIt()
+    {
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(CreateTestUser(), 1);
+
+        Assert.DoesNotContain("#company", sent!.UpdateExpression);
+        Assert.False(sent.ExpressionAttributeNames.ContainsKey("#company"));
+        Assert.False(sent.ExpressionAttributeValues.ContainsKey(":company"));
+    }
+
+    [Fact]
     public async Task UpdateUserAsync_VersionConflict_ReturnsFailure()
     {
         _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())

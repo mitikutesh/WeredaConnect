@@ -3347,5 +3347,14 @@
   "notifPenaltyRecordedBody": "{reason}. Qabxii dabalame: {points}. Bal'ina ilaaluuf yookiin ol'iyyachuuf \"Amanamummaa koo\" banaa.",
   "notifTierChangedTitle": "Amanamummaan keessan jijjiirameera",
   "notifTierGoodBody": "Gara haala gaariitti deebitaniittu.",
-  "notifTierWarningBody": "Qabxii adabbii qabdu. Bitattoonni hanga ammaatti homaa hin argan. Bal'inaaf \"Amanamummaa koo\" banaa."
+  "notifTierWarningBody": "Qabxii adabbii qabdu. Bitattoonni hanga ammaatti homaa hin argan. Bal'inaaf \"Amanamummaa koo\" banaa.",
+  "profileEditTitle": "Piroofaayilii gulaali",
+  "profileEditSubtitle": "Maqaa fi aanaa",
+  "profileEditNote": "Tarreeffamni, imalli fi ajajni amma booda uumtan maqaa fi aanaa keessan haaraa agarsiisu. Kanneen duraan uumtan odeeffannoo duraanii qabatu.",
+  "profileEditSaved": "Piroofaayiliin olkaa'ameera.",
+  "profileEditSavedQueued": "Piroofaayiliin bilbila kana irratti olkaa'ameera. Yeroo interneetiin jiru ni ergama.",
+  "profileEditFailed": "Piroofaayilii keessan olkaa'uun hin danda'amne. Walqunnamtii keessan mirkaneessaatii irra deebi'aa yaalaa.",
+  "profileEditTooLong": "Arfiilee 100 ykn isaa gadi fayyadamaa.",
+  "profileEditNameUnavailable": "Maqaan kun hin argamu. Kan biraa filadhaa.",
+  "profileEditRefused": "Odeeffannoon kun hin fudhatamne. Dirree tokkoon tokkoon isaa mirkaneessaatii irra deebi'aa yaalaa."
 }

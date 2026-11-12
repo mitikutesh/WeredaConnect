@@ -9742,6 +9742,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You have penalty points. Buyers see nothing yet. Open My reputation for the details.'**
   String get notifTierWarningBody;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Title of the edit screen and the Profile row that opens it
+  ///
+  /// In en, this message translates to:
+  /// **'Edit profile'**
+  String get profileEditTitle;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Subtitle of the Profile row that opens the edit screen
+  ///
+  /// In en, this message translates to:
+  /// **'Name and woreda'**
+  String get profileEditSubtitle;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Note above the form: existing listings, trips and orders keep the name they were made with
+  ///
+  /// In en, this message translates to:
+  /// **'Listings, trips and orders you create from now on show your new name and woreda. The ones you already made keep the old details.'**
+  String get profileEditNote;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar after the web app saved the edit on the server
+  ///
+  /// In en, this message translates to:
+  /// **'Profile saved.'**
+  String get profileEditSaved;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar after the phone app saved the edit and queued it for the server
+  ///
+  /// In en, this message translates to:
+  /// **'Profile saved on this phone. It is sent when you are online.'**
+  String get profileEditSavedQueued;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar when nothing was saved (no connection, a full queue, a refusal)
+  ///
+  /// In en, this message translates to:
+  /// **'Your profile could not be saved. Check your connection and try again.'**
+  String get profileEditFailed;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name, woreda or company name is over 100 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Use 100 characters or fewer.'**
+  String get profileEditTooLong;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name is the one deleted accounts carry
+  ///
+  /// In en, this message translates to:
+  /// **'This name is not available. Choose another.'**
+  String get profileEditNameUnavailable;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar when the server refused the edit for a reason the form did not catch (web): not a connection problem
+  ///
+  /// In en, this message translates to:
+  /// **'These details were not accepted. Check each field and try again.'**
+  String get profileEditRefused;
 }
 
 class _AppLocalizationsDelegate

@@ -27,6 +27,7 @@ import 'package:wereda_connect/core/sync/sync_executor.dart'
 import 'package:wereda_connect/core/sync/sync_queue.dart'
     if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/features/account/presentation/screens/delete_account_screen.dart';
+import 'package:wereda_connect/features/account/presentation/screens/edit_profile_screen.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -314,6 +315,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         // Device lock on app open (hidden on web / devices without a lock).
         trailing: _AppLockRow(service: widget.appLockService),
         children: [
+          // SIM-56: the name, woreda and a company buyer's company name.
+          _ProfileRow(
+            key: const Key('profile_edit'),
+            icon: Icons.edit_outlined,
+            title: l10n.profileEditTitle,
+            subtitle: l10n.profileEditSubtitle,
+            onTap: () => _openEditProfile(context),
+          ),
           // Link-later Fayda: needed for payments above 10,000 ETB.
           if (!isVerified)
             _ProfileRow(
@@ -504,6 +513,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } on Object {
       return null;
     }
+  }
+
+  /// Open the profile edit; read the saved name again on return.
+  Future<void> _openEditProfile(BuildContext context) async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(builder: (_) => const EditProfileScreen()),
+    );
+    if (mounted) setState(() => _rebuildKey++);
   }
 
   /// Open Fayda link-later verification; refresh the badge on return.
