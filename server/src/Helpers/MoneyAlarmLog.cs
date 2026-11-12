@@ -21,7 +21,7 @@ namespace WeredaConnect.Server.Helpers;
 /// TRUCKER_PAYOUT_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
 /// DISPUTE_NO_ESCROW orderId=&lt;id&gt; deliveryId=&lt;id&gt;
 /// ORDER_MONEY_MISMATCH orderId=&lt;id&gt; escrowId=&lt;id&gt; orderStatus=&lt;s&gt; escrowStatus=&lt;s&gt; reason=&lt;reason&gt;
-/// RISK_SETTLEMENT_SKIPPED escrowId=&lt;id&gt; sweep=&lt;auto-release|auto-refund|dispute&gt; reason=&lt;flag_off|user_read_failed|score_unavailable&gt; holdReason=&lt;reason&gt;
+/// RISK_SETTLEMENT_SKIPPED escrowId=&lt;id&gt; sweep=&lt;auto-release|auto-refund|dispute|payout-farmer|payout-trucker&gt; reason=&lt;flag_off|user_read_failed|score_unavailable|payee_flagged&gt; holdReason=&lt;reason&gt;
 /// RISK_TABLE_UNCONFIGURED action=&lt;action&gt;
 /// RISK_HOLD_ORDER_MISMATCH escrowId=&lt;id&gt; heldFor=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// DISPUTE_PROPAGATION_FAILED escrowId=&lt;id&gt; orderId=&lt;id&gt; deliveryId=&lt;id&gt; legs=&lt;legs&gt;
@@ -32,7 +32,9 @@ namespace WeredaConnect.Server.Helpers;
 /// <c>RISK_SETTLEMENT_SKIPPED</c> each run a settlement sweep leaves an escrow unsettled because of the
 /// risk gate: a trigger while <c>FRAUD_HOLD_ENABLED</c> is off, a party row it could not read, or (FRD-04)
 /// a party risk score it could not read; the <c>risk-settlement-skipped</c> alarm counts it from the FRD-03
-/// deploy. The escrow Lambda logs <c>RISK_HOLD_ORDER_MISMATCH</c> each time an admin refund of a held
+/// deploy. FUP-29: the escrow service logs the same line (<c>sweep=payout-&lt;leg&gt;</c>) each time the payout
+/// gate leaves a leg unpaid because its payee is suspended or CRITICAL (<c>payee_flagged</c>) or could not
+/// be scored. The escrow Lambda logs <c>RISK_HOLD_ORDER_MISMATCH</c> each time an admin refund of a held
 /// escrow is refused because its order cannot follow the refund; FRD-16 adds its alarm. FRD-04:
 /// escrow-cron logs <c>RISK_TABLE_UNCONFIGURED</c> once per settlement run while its gate reads no risk
 /// tier (no <c>FRAUD_SIGNALS_TABLE</c>), flag on or off, so a CRITICAL party is neither held nor skipped

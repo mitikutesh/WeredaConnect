@@ -45,13 +45,18 @@ public sealed partial class EscrowService
         var farmerOk = false;
         if (state.IsHeld(LedgerEscrowFields.LegCrop))
         {
-            var (payout, payoutBlock) = await ResolvePayoutAsync(state.FarmerId, state.Amount, "farmer");
+            var (payout, payoutBlock) = await ResolvePayoutAsync(
+                state.FarmerId, state.Amount, "farmer", authenticatedUserId, request.EscrowId);
             farmerOk = payout.IsSuccess;
             if (!farmerOk)
             {
                 farmerBlock = payout;
                 var blockReason = payoutBlock ?? "unknown";
-                if (authenticatedUserId == SystemActor)
+                if (IsPayeeRiskBlock(payoutBlock))
+                {
+                    // FUP-29: alarmed by the gate. Nothing is stored or audited, so no party is told.
+                }
+                else if (authenticatedUserId == SystemActor)
                 {
                     await NoteSettlementBlockedAsync(escrowItem, currentStatus,
                         SettlementBlockFields.Value("release", SettlementBlockFields.GatePayout, blockReason),
@@ -69,7 +74,8 @@ public sealed partial class EscrowService
             }
         }
 
-        var (truckerOk, _) = await TruckerLegPayableAsync(escrowItem, state, currentStatus, noteBlock: farmerOk);
+        var (truckerOk, _) = await TruckerLegPayableAsync(
+            escrowItem, state, currentStatus, noteBlock: farmerOk, authenticatedUserId);
         var trigger = string.IsNullOrEmpty(request.Trigger) ? "delivered" : request.Trigger;
         var reason = currentStatus == "dispute_resolved" ? $"verdict:{GetStringOrNull(escrowItem, "disputeResolution") ?? "farmer_wins"}" : trigger;
         var decided = await DecideLedgerAsync(escrowItem, currentStatus,
@@ -146,22 +152,24 @@ public sealed partial class EscrowService
     /// The transport leg of a ledger escrow may be paid now: it is held, carries money, has a trucker, and
     /// the trucker passes the identity gate. A block is recorded once per reason when
     /// <paramref name="noteBlock"/> is true (the farmer's own block takes the escrow's one reason slot).
+    /// FUP-29: a risk block (<paramref name="actor"/> the system) is never recorded on the escrow.
     /// </summary>
     private async Task<(bool Payable, string? BlockReason)> TruckerLegPayableAsync(
-        Dictionary<string, object> escrowItem, LedgerEscrow state, string status, bool noteBlock)
+        Dictionary<string, object> escrowItem, LedgerEscrow state, string status, bool noteBlock, string actor)
     {
         if (!state.IsHeld(LedgerEscrowFields.LegTransport) || state.TruckerPayout <= 0)
         {
             return (false, null);
         }
 
-        var (dest, reason) = await ResolveTruckerPayeeAsync(state.TruckerId ?? "", state.TruckerPayout);
+        var (dest, reason) = await ResolveTruckerPayeeAsync(
+            state.TruckerId ?? "", state.TruckerPayout, actor, state.EscrowId);
         if (dest.IsSuccess)
         {
             return (true, null);
         }
 
-        if (noteBlock)
+        if (noteBlock && !IsPayeeRiskBlock(reason))
         {
             await NoteSettlementBlockedAsync(escrowItem, status,
                 SettlementBlockFields.Value("release", "trucker", reason ?? "unknown"),
@@ -323,24 +331,35 @@ public sealed partial class EscrowService
         var state = LedgerEscrow.From(escrowItem);
         if (amounts.FarmerAmount > 0)
         {
-            var (payout, reason) = await ResolvePayoutAsync(state.FarmerId, amounts.FarmerAmount, "farmer");
+            var (payout, reason) = await ResolvePayoutAsync(
+                state.FarmerId, amounts.FarmerAmount, "farmer", actor, escrowId);
             if (!payout.IsSuccess)
             {
-                await NoteSettlementBlockedAsync(escrowItem, status,
-                    SettlementBlockFields.Value("release", SettlementBlockFields.GatePayout, reason ?? "unknown"),
-                    "release_blocked_kyc", PayoutBlockedMetadata(reason ?? "unknown"));
+                // FUP-29: a risk block is alarmed by the gate and never recorded on the escrow.
+                if (!IsPayeeRiskBlock(reason))
+                {
+                    await NoteSettlementBlockedAsync(escrowItem, status,
+                        SettlementBlockFields.Value("release", SettlementBlockFields.GatePayout, reason ?? "unknown"),
+                        "release_blocked_kyc", PayoutBlockedMetadata(reason ?? "unknown"));
+                }
+
                 return EscrowResult<ReleaseEscrowResponse>.Failure(payout.Error!);
             }
         }
 
         if (amounts.TruckerAmount > 0)
         {
-            var (dest, reason) = await ResolveTruckerPayeeAsync(state.TruckerId ?? "", amounts.TruckerAmount);
+            var (dest, reason) = await ResolveTruckerPayeeAsync(
+                state.TruckerId ?? "", amounts.TruckerAmount, actor, escrowId);
             if (!dest.IsSuccess)
             {
-                await NoteSettlementBlockedAsync(escrowItem, status,
-                    SettlementBlockFields.Value("release", "trucker", reason ?? "unknown"),
-                    TruckerBlockedAuditAction, PayoutBlockedMetadata(reason ?? "unknown"));
+                if (!IsPayeeRiskBlock(reason))
+                {
+                    await NoteSettlementBlockedAsync(escrowItem, status,
+                        SettlementBlockFields.Value("release", "trucker", reason ?? "unknown"),
+                        TruckerBlockedAuditAction, PayoutBlockedMetadata(reason ?? "unknown"));
+                }
+
                 return EscrowResult<ReleaseEscrowResponse>.Failure(dest.Error!);
             }
         }
@@ -416,7 +435,7 @@ public sealed partial class EscrowService
             return default;
         }
 
-        var (payable, blockReason) = await TruckerLegPayableAsync(escrowItem, state, state.Status, noteBlock: true);
+        var (payable, blockReason) = await TruckerLegPayableAsync(escrowItem, state, state.Status, noteBlock: true, SystemActor);
         if (!payable)
         {
             return new LedgerTransportRetry(LedgerCallOutcome.Blocked, blockReason);
