@@ -29,6 +29,7 @@ import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
 import 'package:wereda_connect/shared/layout/adaptive_shell.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
+import 'package:wereda_connect/shared/widgets/app_update_banner.dart';
 
 const _authRoutes = {
   '/login',
@@ -109,7 +110,12 @@ GoRouter createWebRouter(AuthBloc authBloc) {
             // LT-09: a trucker's first pickup scan of a trip asks whether
             // to share where the truck is.
             child: ShareConsentListener(
-              child: AdaptiveShell(pushedRoutes: pushedRoutes, child: child),
+              child: AdaptiveShell(
+                pushedRoutes: pushedRoutes,
+                // FUP-75: "reload for the latest app" above every page while
+                // the server refuses this bundle's orders.
+                child: AppUpdateBanner(child: child),
+              ),
             ),
           ),
         ),

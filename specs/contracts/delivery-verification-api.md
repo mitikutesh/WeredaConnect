@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.4.0
+2.5.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -974,6 +974,13 @@ phone under its key; offline and never cached, the tile says it shows when onlin
    - If provided, must be within Ethiopian bounds (3-15 N, 33-48 E) as a sanity check
    - Pickup GPS must be within 5km of listing location
    - Dropoff GPS must be within 5km of trip destination or buyer location
+   - Each point only from its own handoff (2.5.0, FUP-246): `gpsPickup` is written only by the
+     trucker's `pickedUp`, `gpsDropoff` only by the buyer's `delivered` (a self-pickup's too). Sent
+     with any other status (a create, `inTransit`, the other handoff, a `disputed`, an update without
+     a status) the point is dropped, not refused, and logged as `DELIVERY_FIELD_DROPPED`; so is a
+     `disputeReason` sent without `disputed` (its length check, empty or over 500 characters, still
+     refuses first). The stored points are the evidence the impossible
+     delivery time rule and the admin dispute evidence read, so no later step may move them
 7. **Status Transitions**:
    - Only valid transitions allowed (see Status Transitions above)
    - Invalid transitions return `422 Unprocessable Entity`
@@ -1495,9 +1502,10 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 2.3.0 | 2026-11-11 | No id as a name (FUP-130): on create, the order row's name is the fallback for a party without a profile name only when it is a real name; the party's id or any UUID there is ignored, so the create is rejected with `DELIVERY_VALIDATION` (no name known) instead of storing the id. Clients send an empty `farmerName` rather than the id. (2.2.0 is taken by a change on another open branch.) |
 | 2.2.0 | 2026-11-11 | Updates behind a cancel (FUP-128, `sync-protocol.md` 1.45.0): an update that reaches a `cancelled` delivery (or a legacy `deletedAt` row) with a `version` behind the stored one answers `conflict` with the scrubbed row to a caller who may make the change (trucker: `pickedUp`, `inTransit`, an update without a status; buyer: `delivered`; any party: `disputed`; farmer: an update storing `qrNonce`) instead of the `DELIVERY_ALREADY_CANCELLED` error, which stands for anyone else and at the stored version or without one; nothing is written and the transport-cancel pickup alarm still logs. The mobile queue no longer resends that error and puts the delivery back from the server |
 | 2.4.0 | 2026-11-12 | QR gate, a funded order without an escrow row (FUP-66, `escrow-protocol.md` 2.9.0): when neither the order's escrow nor the `DeliveryIndex` finds an escrow, the order is read (strongly consistent) and a `paymentVerifiedAt` on it makes the delivery money-bearing, so a trucker's drop-off with no nonce is `deferred` (then `DELIVERY_NONCE_MISSING` after 14 days) and a typed code needs the leg's GPS. Before, such a delivery passed as cash. A failed order read defers with `QR_GATE_UNDECIDED`, as the escrow reads do. An order never funded, or a delivery without an order, passes as before. Server only; no client change. |
+| 2.5.0 | 2026-11-12 | Each handoff point only from its own handoff (FUP-246, `sync-protocol.md` 1.54.0, `fraud-detection-architecture.md` 3.34.0): `gpsPickup` is written only with the trucker's `pickedUp`, `gpsDropoff` only with the buyer's `delivered`, `disputeReason` only with `disputed`; sent with any other status, on a create or on an update without a status, the field is dropped (not refused) and logged. A buyer's confirm moved the trucker's pickup point, and a dispute both points the admin dispute evidence shows. The impossible delivery time rule reads the pickup side from the row as stored before the confirm. No client change. |
 
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 2.4.0
+**Version**: 2.5.0
 **Status**: Draft (Phase R4.2)

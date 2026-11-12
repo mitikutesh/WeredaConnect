@@ -26,6 +26,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/app_update_banner.dart';
 
 /// Main navigation with a labeled FAB floating above a role-shaped 4-tab bar.
 ///
@@ -200,7 +201,9 @@ class _MainNavigationState extends State<MainNavigation> {
             }
           },
           child: Scaffold(
-            body: screens[_currentIndex],
+            // FUP-75: "update the app" over every tab while the server
+            // refuses this build's orders.
+            body: AppUpdateBanner(child: screens[_currentIndex]),
             // The role's one create verb, labeled — an icon-only "+"
             // assumes app-convention literacy; a verb assumes nothing.
             floatingActionButton: RoleCreateButton(

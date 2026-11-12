@@ -1,9 +1,15 @@
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/features/buyer/domain/woreda_centroids.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_distance_service.dart';
 import 'package:wereda_connect/shared/services/place_normalizer.dart';
+
+/// MATCH-01: the centroid of a woreda name, or null when it is unknown.
+/// [WoredaCentroids.lookup] in the app; a test can pass a fixed table.
+typedef WoredaLocator = LatLng? Function(String woreda);
 
 /// Pure, platform-agnostic relevance scoring for buyer intent matching.
 ///
@@ -84,6 +90,25 @@ class MatchScorer {
   /// (`score = 1 / (1 + km / geoHalfScoreKm)`). Tuned for Ethiopian
   /// rural→market distances; tune empirically.
   static const double geoHalfScoreKm = 50.0;
+
+  /// MATCH-01: how far (km, straight line between centroids) a trip's start
+  /// may be from the crop's woreda, and its end from the buyer's delivery
+  /// woreda, for the trip to be suggested. It keeps a neighbouring town
+  /// (Hawassa and Shashemene are 22 km apart, Adama and Bishoftu 39.5) and
+  /// leaves out the next market over (Addis Ababa and Bishoftu are 40.8).
+  /// Conservative on purpose: the trip's price does not show the detour.
+  /// Same value as the server's `TripNearRadiusKm`.
+  static const double tripNearRadiusKm = 40.0;
+
+  /// MATCH-01: slack on the room-left check, the server's order tolerance
+  /// (`MoneyTolerance` in `BindOrderToTrip`): a trip is suggested when its
+  /// room is at least the need minus 0.01 quintal, so the order create
+  /// accepts it.
+  static const double tripRoomSlackQuintals = 0.01;
+
+  /// MATCH-01: the room a trip must have left when the request names no
+  /// positive quantity, so a full or nearly full truck is never suggested.
+  static const double tripMinUsefulLoadQuintals = 1.0;
 
   /// Accepted-substitute map (lowercase keys MUST match the stored `CropType`
   /// enum names, e.g. `lentils` not `lentil`). A buyer asking for the key may
@@ -220,25 +245,234 @@ class MatchScorer {
   double reliabilityScore(CropListing listing) =>
       reliabilityFromPct(listing.ownerReliabilityPct);
 
-  /// ESC-30: the order of the trips suggested for a crop, shared by the
-  /// mobile and the web matching service.
+  /// MATCH-01: the trips to suggest for a crop at [listingWoreda] going to
+  /// [deliveryWoreda], best first. Shared by the mobile and the web matching
+  /// service; the server's `MatchScoring.SuggestTrips` is the same rule.
   ///
-  /// Cheapest first, as before. Among trips at the same price the trucker
-  /// with the higher [reliabilityFromPct] comes first (an unknown trucker
-  /// counts as [reliabilityNeutral]). Trips equal on both keep the order they
-  /// came in, so with no reliability on any row (the flag off) the result is
-  /// exactly the old price order, and the first trip is always a cheapest
-  /// one (the estimated total uses it).
-  List<Trip> rankTripSuggestions(Iterable<Trip> trips) {
-    final indexed = trips.indexed.toList()
-      ..sort((a, b) {
+  /// A trip is kept when [isTripEligible] (open, not left, outside the order
+  /// lead, room for the need, departing by the deadline) and
+  /// [tripRouteScore] serves the route; the kept trips are ordered by
+  /// [rankTripSuggestions]. Centroids come from [locate], once per name.
+  List<Trip> suggestTrips(
+    Iterable<Trip> trips, {
+    required String listingWoreda,
+    required String deliveryWoreda,
+    required double quantityNeeded,
+    required DateTime now,
+    int? orderLeadHours,
+    DateTime? neededByDate,
+    WoredaLocator locate = WoredaCentroids.lookup,
+  }) {
+    final points = <String, LatLng?>{};
+    LatLng? cached(String woreda) =>
+        points.putIfAbsent(woreda, () => locate(woreda));
+    final routes = Map<Trip, double>.identity();
+    for (final trip in trips) {
+      if (!isTripEligible(
+        trip,
+        quantityNeeded: quantityNeeded,
+        now: now,
+        orderLeadHours: orderLeadHours,
+        neededByDate: neededByDate,
+      )) {
+        continue;
+      }
+      final route = tripRouteScore(
+        trip,
+        listingWoreda: listingWoreda,
+        deliveryWoreda: deliveryWoreda,
+        locate: cached,
+      );
+      if (route != null) routes[trip] = route;
+    }
+    return rankTripSuggestions(routes.keys, routeScore: (t) => routes[t]!);
+  }
+
+  /// MATCH-01: whether [trip] can take the buyer's load at all, before the
+  /// route is looked at. It must be `open`, its departure day in Ethiopia not
+  /// over ([tripHasLeft], FUP-85), outside the order lead when the server runs
+  /// the commitments ([tripInsideOrderLead], FUP-122), with room left for
+  /// [quantityNeeded] less [tripRoomSlackQuintals] (or for
+  /// [tripMinUsefulLoadQuintals] when the need is not positive), and, when
+  /// the buyer set [neededByDate], departing on or before it. The deadline is
+  /// compared with the departure, not an arrival: trips carry no transit
+  /// time. A trip outside that window is dropped, not scored down.
+  bool isTripEligible(
+    Trip trip, {
+    required double quantityNeeded,
+    required DateTime now,
+    int? orderLeadHours,
+    DateTime? neededByDate,
+  }) {
+    if (trip.status != TripStatus.open) return false;
+    if (tripHasLeft(trip, now)) return false;
+    if (tripInsideOrderLead(trip, now, orderLeadHours)) return false;
+    final need =
+        quantityNeeded > 0 ? quantityNeeded : tripMinUsefulLoadQuintals;
+    if (tripRoomLeft(trip) < need - tripRoomSlackQuintals) return false;
+    if (neededByDate != null && trip.departureDate.isAfter(neededByDate)) {
+      return false;
+    }
+    return true;
+  }
+
+  /// MATCH-01: how well [trip]'s route serves a crop at [listingWoreda]
+  /// going to [deliveryWoreda], in 0..1: the mean of [tripEndScore] for the
+  /// trip's start against the crop's woreda and for its end against the
+  /// delivery woreda. 1.0 is the exact route.
+  ///
+  /// Null (the trip is not suggested) when either end does not serve, or
+  /// when the trip runs the other way: scored with the crop's and the
+  /// delivery woreda swapped it fits better than forward (a truck from
+  /// Bishoftu to Adama for a crop in Adama going to Bishoftu). Each end alone
+  /// would pass when the two woredas are close, so the direction is checked
+  /// on the pair. A route whose two scores are equal (the crop and the
+  /// delivery in one woreda) stays.
+  double? tripRouteScore(
+    Trip trip, {
+    required String listingWoreda,
+    required String deliveryWoreda,
+    WoredaLocator locate = WoredaCentroids.lookup,
+  }) {
+    final fromPoint = locate(trip.fromWoreda);
+    final toPoint = locate(trip.toWoreda);
+    final listingPoint = locate(listingWoreda);
+    final deliveryPoint = locate(deliveryWoreda);
+    final forward = _meanRouteScore(
+      trip,
+      fromPoint,
+      toPoint,
+      startWoreda: listingWoreda,
+      startPoint: listingPoint,
+      endWoreda: deliveryWoreda,
+      endPoint: deliveryPoint,
+    );
+    if (forward == null) return null;
+    final reversed = _meanRouteScore(
+      trip,
+      fromPoint,
+      toPoint,
+      startWoreda: deliveryWoreda,
+      startPoint: deliveryPoint,
+      endWoreda: listingWoreda,
+      endPoint: listingPoint,
+    );
+    if (reversed != null && reversed > forward) return null;
+    return forward;
+  }
+
+  /// The mean of the trip's start against [startWoreda] and its end against
+  /// [endWoreda], or null when either end does not serve.
+  double? _meanRouteScore(
+    Trip trip,
+    LatLng? fromPoint,
+    LatLng? toPoint, {
+    required String startWoreda,
+    required LatLng? startPoint,
+    required String endWoreda,
+    required LatLng? endPoint,
+  }) {
+    final from = tripEndScore(
+      trip.fromWoreda,
+      startWoreda,
+      tripPoint: fromPoint,
+      wantedPoint: startPoint,
+    );
+    if (from == null) return null;
+    final to = tripEndScore(
+      trip.toWoreda,
+      endWoreda,
+      tripPoint: toPoint,
+      wantedPoint: endPoint,
+    );
+    if (to == null) return null;
+    return (from + to) / 2;
+  }
+
+  /// MATCH-01: how well one end of a trip, [tripWoreda], serves the place the
+  /// buyer wants it at, [wantedWoreda], in 0..1, or null when it does not.
+  ///
+  /// The best of what applies, whether or not the centroids are known: 1.0
+  /// when the two names are the same place after [normalizeWoreda];
+  /// `1 / (1 + km / geoHalfScoreKm)` (the [geoScore] decay) when both
+  /// centroids are known and at most [tripNearRadiusKm] apart ([tripEndKm]);
+  /// [geoPartial] for a whole-word name match. For a woreda the centroid
+  /// table does not know, only the name rules can apply. A blank name never
+  /// serves.
+  double? tripEndScore(
+    String tripWoreda,
+    String wantedWoreda, {
+    LatLng? tripPoint,
+    LatLng? wantedPoint,
+  }) {
+    final tripKey = normalizeWoreda(tripWoreda);
+    final wantedKey = normalizeWoreda(wantedWoreda);
+    if (tripKey.isEmpty || wantedKey.isEmpty) return null;
+    final match = compareWoredaKeys(tripKey, wantedKey);
+    if (match == WoredaMatch.exact) return 1.0;
+    double? score = match == WoredaMatch.partial ? geoPartial : null;
+    final km = tripEndKm(tripPoint, wantedPoint);
+    if (km != null && km <= tripNearRadiusKm) {
+      final byDistance = 1.0 / (1.0 + km / geoHalfScoreKm);
+      if (score == null || byDistance > score) score = byDistance;
+    }
+    return score;
+  }
+
+  /// MATCH-01: the great-circle distance between two centroids in km,
+  /// rounded half away from zero to 0.1 km, or null when either point is
+  /// unknown or not a real position. The rounding keeps the phone, the web
+  /// and the server on the same number whatever the platform's last digit
+  /// of sin and cos. Computed as metres (radius 6371000) over 1000, the same
+  /// expression as the server's `TripEndKm`.
+  double? tripEndKm(LatLng? a, LatLng? b) {
+    if (a == null || b == null || !_hasRealFix(a) || !_hasRealFix(b)) {
+      return null;
+    }
+    final km = GpsDistanceService.haversineDistance(
+          a.latitude,
+          a.longitude,
+          b.latitude,
+          b.longitude,
+        ) /
+        1000.0;
+    return (km * 10).round() / 10;
+  }
+
+  /// The order of the trips suggested for a crop (ESC-30, MATCH-01), shared
+  /// by the mobile and the web matching service through [suggestTrips].
+  ///
+  /// 1. Cheapest `pricePerQuintal` first, so the first trip is always a
+  ///    cheapest one (the estimated total uses it).
+  /// 2. At the same price, the better [routeScore] first: the exact route
+  ///    above a neighbouring woreda. Without [routeScore] every trip counts
+  ///    as the exact route.
+  /// 3. Then the trucker with the higher [reliabilityFromPct] (an unknown
+  ///    trucker counts as [reliabilityNeutral]).
+  /// 4. Then the earlier departure, then `tripId`, so the order never
+  ///    depends on the order the trips came in (the phone's cache and the
+  ///    web's API pages differ).
+  List<Trip> rankTripSuggestions(
+    Iterable<Trip> trips, {
+    double Function(Trip trip)? routeScore,
+  }) {
+    final keyed = [
+      for (final (index, trip) in trips.indexed)
+        (index, trip, routeScore == null ? 1.0 : routeScore(trip)),
+    ]..sort((a, b) {
         final byPrice = a.$2.pricePerQuintal.compareTo(b.$2.pricePerQuintal);
         if (byPrice != 0) return byPrice;
+        final byRoute = b.$3.compareTo(a.$3);
+        if (byRoute != 0) return byRoute;
         final byReliability = reliabilityFromPct(b.$2.ownerReliabilityPct)
             .compareTo(reliabilityFromPct(a.$2.ownerReliabilityPct));
-        return byReliability != 0 ? byReliability : a.$1.compareTo(b.$1);
+        if (byReliability != 0) return byReliability;
+        final byDeparture = a.$2.departureDate.compareTo(b.$2.departureDate);
+        if (byDeparture != 0) return byDeparture;
+        final byId = a.$2.tripId.compareTo(b.$2.tripId);
+        return byId != 0 ? byId : a.$1.compareTo(b.$1);
       });
-    return [for (final entry in indexed) entry.$2];
+    return [for (final entry in keyed) entry.$2];
   }
 
   /// Overall 0..1 relevance score for [listing] against [intent] at [now].

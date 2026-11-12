@@ -725,10 +725,43 @@ public copy the server puts on crop and trip rows for buyers.
    ratingsAggregatedAt`.
 4. Log `REPUTATION_BACKFILL users=<n> ratings=<n>`. A rerun skips users already stamped and
    ratings already flagged.
+5. FUP-162: once the walk is done, one filtered `Scan` of the users table (`role` farmer or trucker,
+   no `ratingsAggregatedAt`, no `deletionState`) for the rows `RoleWaredaIndex` does not list (no
+   `woreda`); each found user gets steps 2 and 3. A user the walk already tried is not tried again.
+   One-off and manual only: it reads the whole table once (read capacity for every row, matching or
+   not; about one read unit per 8 KB, eventually consistent). The summary line adds
+   `unindexed=<n> scanDone=<true|false>`.
 
 Ratings created between step 1 and the backfill were added by their own transaction and carry
 `inAggregate: true`, so nothing is counted twice. Users who registered after step 1 already carry
-`ratingsAggregatedAt`.
+`ratingsAggregatedAt`. Since FUP-162 a rating for a still unstamped farmer or trucker also stamps
+them right after its create (at most 99 ratings to add, else left to this action), with the same
+conditions, so the create, that heal and this action never count a rating twice.
+
+Running it (dev shown; the handler reads the action from the request body):
+
+```bash
+aws lambda invoke --function-name wereda-connect-dev-order-cron \
+  --cli-binary-format raw-in-base64-out --cli-read-timeout 330 \
+  --payload '{"body":"{\"action\":\"reputation_backfill_ratings\"}"}' /dev/stdout
+```
+
+The answer's body has `outcome`, `users`, `ratings`, `skipped`, `leftover`, `failed` and
+`unindexed`. Rerun until `outcome` is `ok`. When it also has `scanCursor`, the Scan stopped on the
+time budget: pass it on as `"scanFrom":"<scanCursor>"` next to the action so the Scan resumes there
+instead of from the start (without it, the rerun reads the table again and still adds nothing
+twice). A `failed` user found by the index walk is retried by the next run; one found by the Scan is
+retried only by a run without `scanFrom` (the cursor moves past it). So after a chain of runs with
+`scanFrom` that had any `failed`, finish with one run without `scanFrom`.
+
+Check that none is left (expect `0`):
+
+```bash
+aws dynamodb scan --table-name wereda-connect-dev-users --select COUNT \
+  --filter-expression "#r IN (:f, :t) AND attribute_not_exists(ratingsAggregatedAt) AND attribute_not_exists(deletionState)" \
+  --expression-attribute-names '{"#r":"role"}' \
+  --expression-attribute-values '{":f":{"S":"farmer"},":t":{"S":"trucker"}}'
+```
 
 ### 12.3 Owner stamp (FUP-160)
 
@@ -810,7 +843,8 @@ the table above differently:
 | `GPS_ANOMALY` | the confirming buyer keeps the row as before (the evidence is the buyer's phone, and it feeds the buyer's row only). With `reputationPenalties` on, the delivery's trucker can get a row of their own, judged from the trucker's own evidence only (FUP-203): Rule 4's thresholds applied to the stored pickup point and every live-trip check-in of the delivery's window (the truck never left the pickup; the last one at most 90 minutes before the confirmation), written only when the trip has a destination point (the buyer's order point only clears), no check-in of the window was near the drop-off and the truck could not have reached it from there by the confirmation. No check-in, sharing declined (D2), a stale one or a trip without a destination point: no row. The row goes through the attribution guard (one per delivery, one per buyer and trucker, two per trucker in 30 days, held by conditional slot rows); never for a self-pickup. Rollout note: the trucker row rides on `reputationPenalties` (decided in FUP-203: the evidence is no longer another party's), so 12.1 step 5 turns it on with the rest. Reading the drop-off check-in of ESC-36 instead, once that exists, is a follow-up |
 | silent buyer (P3) | ESC-36 |
 
-A failed hook logs `REPUTATION_FRAUD_HOOK_FAILED` and never fails the event. The reputation-stream
+A failed hook logs `REPUTATION_FRAUD_HOOK_FAILED` and never fails the event (alarmed on any line since
+FUP-201, `reputation-fraud-hook-failed`: the hook does not run again, so the signal is lost). The reputation-stream
 Lambda gained `ORDERS_TABLE`, Query on the orders `BuyerIdCreatedAtIndex` and PutItem on the
 fraud-signals table.
 
@@ -841,7 +875,12 @@ fraud-signals table.
 Monitoring (ESC-28, `monitoring-stack.ts`): DLQ and parked-DLQ depth, the reputation stream's
 iterator age (alarm above 1 hour), Lambda errors, and metric filters on `REPUTATION_POLICY_INVALID`,
 `REPUTATION_EVENTS_TRUNCATED`, `REPUTATION_REVIEW_OVERDUE`, `REPUTATION_APPEAL_OVERDUE` and
-`REPUTATION_COPY_FAILED` (rate).
+`REPUTATION_COPY_FAILED` (rate). FUP-163: the copy filter also covers the admin log group (a
+suspend or unsuspend whose heal marker, `step=admin_<action>`, or refresh in the request,
+`step=admin_<action>_refresh`, failed), in the same rate alarm. FUP-201: `REPUTATION_FRAUD_HOOK_FAILED`
+on the reputation-stream and order-cron log groups (ESC-33's hooks, 13.1), any line alarms
+(`reputation-fraud-hook-failed`), and the attribution guard's `FRAUD_ATTRIBUTED_SIGNAL_SKIPPED`
+(sync) is a dashboard count per reason (fraud spec section 23.1).
 
 ---
 
@@ -1080,8 +1119,8 @@ How the build reads points the design left open:
     role asked for is the current one and the row is stamped. A ratee without a usable users row
     keeps the old read, and a role-filtered page is filled (`PageFill`).
 13. **Monitoring**: `REPUTATION_COPY_FAILED` is counted on the stream, order-cron and sync log
-    groups as before; the admin Lambda's marker failure logs the same token but is not in that
-    alarm (the suspension itself stands and is audited).
+    groups as before; the admin Lambda's marker failure logs the same token (the suspension itself
+    stands and is audited), and since FUP-163 the admin log group is in that alarm too.
 
 ---
 
@@ -1153,6 +1192,7 @@ How the build reads points the design left open:
 | Version | Date | Change |
 |---|---|---|
 | 1.7.0 | 2026-11-12 | FUP-203 built: 13.1 `GPS_ANOMALY`, the trucker's row is judged from the trucker's own check-ins (every check-in of the live-trip window from the pickup to the confirmation at the pickup, against the trip's destination point), never from the buyer's drop-off coordinates, and rides on `reputationPenalties` (no flag of its own); the rollout note no longer waits for it (`fraud-detection-architecture.md` 3.35.0). |
+| 1.6.0 | 2026-11-12 | Monitoring only (FUP-163, FUP-201; no server change): the `REPUTATION_COPY_FAILED` filter also covers the admin log group, and its alarm text names the admin steps; `REPUTATION_FRAUD_HOOK_FAILED` is counted on the reputation-stream and order-cron log groups and any line alarms (`reputation-fraud-hook-failed`). Section 13.1, section 14 and point 13 of section 21 updated. |
 | 1.5.0 | 2026-11-12 | FUP-160 and FUP-161 built (both needed before `reputationPenalties` goes on): new 12.3, the order-cron action `reputation_stamp_owner_copies` (the one-off owner stamp: the owners of the active crop and trip rows from the listing status indexes, no Scan, so owners without a `woreda` are reached; per owner the reputation as read and the copy refresh of 6.3; no users write; behind `reputationPenalties`; time budget with a `startAt` cursor; a rerun writes nothing; how to run it); 12.1 step 6 runs it before `reputationPublicTags` goes on; 8.3, section 4 and 15 list it. 7.5: the unpark long-polls 1 second per receive and stops after two empty replies in a row. Section 21 points 2 and 7 point to them. |
 | 1.4.0 | 2026-11-12 | ESC-33 built: section 13.1 (as built: the hooks run in `ReputationService.RecordAsync` after the commit, the signals' caps, the buyer decline pattern on R1 to R5, the payout delay from the stored map, a guarded `GPS_ANOMALY` row on the trucker beside the buyer's, behind the flag; the repeat restriction signal left as a follow-up). |
 | 1.3.0 | 2026-11-12 | ESC-32 built: 6.5 (the admin actions as one transaction with row updates), the admin reads and the appeals queue; section 22 (as built: row update conditions, restriction lift and review end, overrides replaced, replays, one appeal after a decision without party text, copies refreshed in the request for admin writes and for a suspend or unsuspend, admin grants) |

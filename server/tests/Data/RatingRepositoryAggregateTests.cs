@@ -21,6 +21,12 @@ public class RatingRepositoryAggregateTests
 {
     private readonly IAmazonDynamoDB _dynamoDb = Substitute.For<IAmazonDynamoDB>();
 
+    public RatingRepositoryAggregateTests()
+    {
+        // FUP-162: the backfill's users Scan (rows without a woreda) finds nobody here.
+        _dynamoDb.ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>()).Returns(new ScanResponse());
+    }
+
     private static Dictionary<string, object> Data(string role = "farmer") => new()
     {
         ["ratingId"] = "order-1:farmer-1",
@@ -93,6 +99,47 @@ public class RatingRepositoryAggregateTests
         result.IsSuccess.Should().BeTrue();
         put!.Item["inAggregate"].BOOL.Should().BeFalse();
         put.ConditionExpression.Should().Be("attribute_not_exists(ratingId)");
+    }
+
+    private static TransactionCanceledException UsersRowConflict() => new("x")
+    {
+        CancellationReasons = new List<CancellationReason> { new() { Code = "None" }, new() { Code = "TransactionConflict" }, new() { Code = "None" } }
+    };
+
+    [Fact]
+    public async Task Create_ATransactionConflictOnTheRateeRow_IsSentOnceMore_AndSucceeds()
+    {
+        // FUP-162: the heal of an unstamped ratee (or the backfill) is a transaction on the same users row.
+        var sent = new List<TransactWriteItemsRequest>();
+        var calls = 0;
+        _dynamoDb.TransactWriteItemsAsync(Arg.Do<TransactWriteItemsRequest>(sent.Add), Arg.Any<CancellationToken>())
+            .Returns(_ => calls++ == 0
+                ? Task.FromException<TransactWriteItemsResponse>(UsersRowConflict())
+                : Task.FromResult(new TransactWriteItemsResponse()));
+        var repo = new RatingRepository(_dynamoDb, "ratings", "users", "reputation-events");
+
+        var result = await repo.CreateAsync("order-1:farmer-1", Data());
+
+        result.IsSuccess.Should().BeTrue();
+        sent.Should().HaveCount(RatingRepository.TransactionConflictAttempts);
+        sent[1].TransactItems.Should().BeSameAs(sent[0].TransactItems, "the same conditional transaction goes again");
+        sent[1].TransactItems[0].Put.Item["inAggregate"].BOOL.Should().BeTrue();
+        await _dynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Create_ASecondTransactionConflict_Throws_AsBefore()
+    {
+        _dynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(UsersRowConflict());
+        var repo = new RatingRepository(_dynamoDb, "ratings", "users", "reputation-events");
+
+        var act = () => repo.CreateAsync("order-1:farmer-1", Data());
+
+        await act.Should().ThrowAsync<TransactionCanceledException>();
+        await _dynamoDb.Received(RatingRepository.TransactionConflictAttempts)
+            .TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>());
+        await _dynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

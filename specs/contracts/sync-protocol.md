@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.51.0
+1.54.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -563,7 +563,7 @@ Mobile client (sync queue):
 | Refused delivery `create` that reaches the delivery revert (any code that undoes a delivery change) | The server never stored it: the local delivery is removed without a read. Every other refused delivery change is still re-read and never removed (1.11.0). |
 | Order operation refused with one of the five codes | Reverted like any permanent order rejection (1.10.0), not counted. |
 | `APP_UPDATE_REQUIRED` on anything but an `order` (`crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent`, `match_event`) | Kept pending without burning a retry and never reverted or removed (a create included): the same payload goes through once the app is updated. Not counted as failed. This build does not send it, or any operation queued behind it for the same entity, again while it runs (an in-memory hold, cleared by a restart or an update); every other entity keeps syncing. Explained once per entity, except background match events. |
-| `APP_UPDATE_REQUIRED`, refused order or held operation | The app also raises an in-memory "update required" flag the shell can read (the banner is FUP-75's). The client does no version gating of its own. |
+| `APP_UPDATE_REQUIRED`, refused order or held operation | The app also raises the "update required" flag the shell's banner reads (since 1.53.0 kept with the build number and cleared by an accepted order operation, see Minimum app version for order operations). The client does no version gating of its own. |
 | Reason | Each code has its own text in en, am and om (below), shown in the rejection snackbar. On an `order` create, `REPUTATION_RESTRICTED` says the farmer or trucker cannot take orders; on every other operation it says the user's account cannot do this for now. On a refused order create, `REPUTATION_RESTRICTED`, `TRIP_CAPACITY_EXCEEDED`, `ORDER_TRIP_NOT_ELIGIBLE` and `APP_UPDATE_REQUIRED` keep their own text (they already say what to do next); any other code on a refused create still reads "This order could not be placed". |
 
 Texts (keys in `app_en.arb`, `app_am.arb`, `app_om.arb`):
@@ -582,7 +582,8 @@ Texts (keys in `app_en.arb`, `app_am.arb`, `app_om.arb`):
 
 Web client (no queue, calls `/sync` directly): every code is a failure with the same text. A
 buyer's order create refused `REPUTATION_RESTRICTED` reads `errorCounterpartyRestricted`. Web
-reads live data, so nothing is reverted, and it raises no update flag.
+reads live data, so nothing is reverted. Since 1.53.0 (FUP-75) an `APP_UPDATE_REQUIRED` refusal
+also raises the "update required" flag, as on mobile (before, web raised none).
 
 Rules for server authors:
 - Each code must be deterministic for the same payload. A transient failure in the same
@@ -590,6 +591,9 @@ Rules for server authors:
 - Send `APP_UPDATE_REQUIRED` on order commands only (spec K1). A client holds any other
   operation answered with it until the app is updated, so sending it there only delays that
   operation.
+- Send `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS` and `CROP_HAS_ACTIVE_ORDERS` only to an app that
+  sends `X-App-Build`; an app without it gets the sentence under `SYNC_VALIDATION` or
+  `ORDER_VALIDATION` (1.52.0, Codes older apps do not know).
 - `CROP_VALIDATION` and `TRIP_VALIDATION` stay retryable: they also carry "The farmer profile
   could not be read" when the users table read fails. Since 1.43.0 the client treats only their
   immutable-field text (`... is immutable and cannot be changed on update.`) as permanent, and
@@ -1085,9 +1089,37 @@ the gate went live gets the refusal too; the client's next order pull brings the
 Clients (1.17.0, no change): mobile marks the order operation rejected (never sent again), reverts
 the local order (a refused create removes it), leaves it out of the "Sync failed" count, raises the
 in-memory "update required" flag and shows `errorAppUpdateRequired` ("Please update the app to
-continue. This change was not saved."); web shows the same text. The persistent "update the app"
-banner that reads the flag is FUP-75. Server rule unchanged: send `APP_UPDATE_REQUIRED` on order
-operations only.
+continue. This change was not saved."); web shows the same text. Server rule unchanged: send
+`APP_UPDATE_REQUIRED` on order operations only.
+
+**The update banner (1.53.0, FUP-75).** Client only. The flag is raised by the mobile queue (an
+order refused, or an operation held, with `APP_UPDATE_REQUIRED`) and, since 1.53.0, by a web `/sync`
+refusal with that code. While it is set, the signed-in shell shows a banner above every main screen
+(the phone's tabs; every web page, beside the sidebar): `appUpdateBannerMessage` ("Please update the
+app to place or change orders. Everything else still works."), with a button. It takes at most 40% of
+the height and scrolls inside when the text is long. The banner never blocks: every screen and the
+data kept on the device stay usable, nothing is wiped, and only orders wait.
+
+- Phone: "Update" opens the app's Play Store page (`et.wereda.connect`). The listing is not live yet,
+  so a second line, `appUpdateBannerStoreHint`, always says to get the latest app from where it was
+  installed (a launch that "worked" may land on a page without the app).
+- Web: "Reload page" reloads only once the newer app is in hand, because the app's code can be held
+  in two places. A Flutter caching service worker (the default of the Flutter that CI builds the web
+  app with) answers `main.dart.js` from its own cache whatever the page asks, so the page first asks
+  its worker to update and waits (up to 3 minutes) for the newer worker to be active (its install
+  downloads the app past the browser cache). Then it fetches `main.dart.js` with `cache: 'reload'`
+  (the browser cache keeps it for a year, `immutable`), then reloads. Offline (`navigator.onLine`
+  false), or when the worker update or the fetch fails, nothing is reloaded and nothing cached is
+  dropped, so the app keeps running and still starts offline; a snackbar says so
+  (`appUpdateReloadFailed`).
+
+The flag is kept on the device with the running build's number (`X-App-Build`'s `n`): a restart on
+the same build shows the banner again before any sync; the first start of another build forgets it,
+and the next refusal raises it again if that build is still too old. Logout keeps it. An order
+operation the server accepts (`success` or `duplicate`; mobile in the queue, web in the order
+repository) clears it, kept value included: the minimum-version gate runs first on every order
+operation, so this build passes it now (a minimum raised by mistake and rolled back, say). The
+client still does no version gating of its own: the banner follows the server's last answer.
 
 ---
 
@@ -1322,10 +1354,76 @@ A `conflict` (the order moved) and a success answer as before. With nothing in t
 
 ---
 
+## Codes older apps do not know (1.52.0, FUP-241)
+
+Server only; no client change. The five codes of Permanent trip and crop rejections (1.17.0) are
+known to clients only since FUP-01. An app that sends no readable `X-App-Build` (build 1 or older,
+read as in Minimum app version for order operations, 1.41.0) may predate that client, and such a
+client resends an unknown code on every reconnect. So the server sends each code only to an app that
+sends the header. An app without it gets the same sentence under a code every client already treats
+as permanent (Retry Logic): the code and any reason token before the sentence (`until=...`,
+`counterparty`) are dropped.
+
+| Code | Sent on | To an app without `X-App-Build` |
+|---|---|---|
+| `TRIP_HAS_BOOKINGS` (new in 1.52.0) | `trip` update or delete, behind `COMMITMENTS_ENABLED` (1.29.0) | `SYNC_VALIDATION: <sentence>`, for example `SYNC_VALIDATION: capacity cannot drop below the 20 quintals already booked.` or `SYNC_VALIDATION: Crops from this trip are already on the way; it can no longer be cancelled.` |
+| `CROP_HAS_ACTIVE_ORDERS` (new in 1.52.0) | `crop_listing` delete or update to `status: deleted`, behind `COMMITMENTS_ENABLED` (1.35.0) | `SYNC_VALIDATION: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.` |
+| `REPUTATION_RESTRICTED` (1.48.0, unchanged) | `crop_listing` and `trip` create, `order` accept and create, behind `reputationPenalties` | `ORDER_VALIDATION: <sentence>` on an order, `SYNC_VALIDATION: <sentence>` on anything else |
+| `APP_UPDATE_REQUIRED` (1.41.0, unchanged) | `order` operations below `MIN_ORDER_APP_BUILD` | `ORDER_VALIDATION: This version of the app is too old for orders. Update WeredaConnect to continue.` |
+| `TRIP_CAPACITY_EXCEEDED` (unchanged) | `order` create or update naming a trip | Never reaches such an app: the minimum app version gate (1.41.0) refuses every `order` operation without the header first, and an infra test keeps that gate on in every environment with `COMMITMENTS_ENABLED` on. |
+
+Why `SYNC_VALIDATION` and not `TRIP_VALIDATION` or `CROP_VALIDATION`: those two stay retryable on
+every client (only their immutable-field text is permanent, and only since 1.43.0), while every
+mobile build since March 2026 marks a `SYNC_VALIDATION` refusal rejected and never resends it. Such
+an app does not revert its local change (the 1.17.0 revert came with the codes) and counts the
+operation as failed; web shows the message as a failure. An app that sends the header (build 2 or
+later) gets the code exactly as before, with the 1.17.0 revert and text. The fraud signal of a
+refused booked-trip change (1.27.0, `IMMUTABLE_FIELD_CHANGE`) still records the `TRIP_HAS_BOOKINGS`
+text. Built in `Helpers/OldClientRefusal.cs`, shared with the 1.48.0 fallback.
+
+## Handoff fields by status (1.54.0, FUP-246)
+
+Server only; no client change. A `delivery` operation writes each handoff field only with the status
+of its own handoff. The role check already pins each of those statuses to one party, so the field
+can only come from that party's handoff:
+
+| Field | Written only with | By |
+|---|---|---|
+| `gpsPickup` | `status: pickedUp` | the trucker (pickup scan) |
+| `gpsDropoff` | `status: delivered` | the buyer (drop-off scan, or a self-pickup at the farm) |
+| `disputeReason` | `status: disputed` | the party who disputes |
+
+Anywhere else (a create, which is always `pending`; `inTransit`; `delivered` for `gpsPickup`;
+`disputed` for both points; an update without a status) the field is dropped, not refused: the
+operation is answered as if it had not been sent, and the server logs
+`DELIVERY_FIELD_DROPPED field=<field> status=<status or none> deliveryId=<id>` at Information (no
+personal data). The length check of `disputeReason` (empty or over 500 characters) still runs
+first and refuses such a value on any status. Before, a buyer's confirm could carry `gpsPickup` and move the trucker's pickup point
+(the impossible delivery time rule then wrote `IMPOSSIBLE_DELIVERY_TIME` on an honest trucker), and
+any party's dispute, or the trucker's update without a status, could rewrite both points the admin
+reads as dispute evidence (`fraud-detection-architecture.md` 3.34.0,
+`delivery-verification-api.md` 2.5.0).
+
+Shipped clients are unaffected: mobile and web send `gpsPickup` only in the pickup confirm,
+`gpsDropoff` only in the delivery confirm and `disputeReason` only in the dispute, and none of them
+on a create, `inTransit` or the farmer's `qrNonce` update.
+
+Checked and unchanged: the photo keys (`pickupPhotoRef`, `dropoffPhotoRef`) were already dropped
+from every `delivery` operation (1.39.0, attached only by their taker through `delivery_photo`, first
+photo kept); `pickedUpAt`, `confirmedAt` and `updatedAt` are stamped by the server and a client
+value is dropped (1.3.1); `pickupCapturedAt` and the photo version ids are refused as unknown fields;
+`qrNonce` is taken only from the farmer (SIM-41) and a party's `scannedQrNonce` or `scannedQrCode`
+is never stored.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.54.0 | 2026-11-12 | Handoff fields by status (FUP-246, `delivery-verification-api.md` 2.5.0, `fraud-detection-architecture.md` 3.34.0): a `delivery` operation writes `gpsPickup` only with `status: pickedUp`, `gpsDropoff` only with `delivered` and `disputeReason` only with `disputed`; anywhere else (a create, `inTransit`, the other handoffs, a dispute, an update without a status) the field is dropped, not refused, and logged as `DELIVERY_FIELD_DROPPED`. A buyer's confirm can no longer move the trucker's pickup point, nor a dispute rewrite either point. Server only; every shipped client already sends each field only with its own status. |
+| 1.53.0 | 2026-11-12 | The "update the app" banner (FUP-75), client only: the shell shows it above every main screen while the "update required" flag is set, with a Play Store button and a hint on the phone, and on web a reload that first updates the caching service worker, then fetches `main.dart.js` past the browser cache, and does nothing offline; web now raises the flag on an `APP_UPDATE_REQUIRED` refusal; the flag is kept with the build number (survives a restart on the same build, forgotten by another build) and an accepted order operation clears it (see Minimum app version for order operations). No server change. |
+| 1.52.0 | 2026-11-12 | Codes older apps do not know (FUP-241, `crop-listing-api.md` 1.12.1, `trip-listing-api.md` 2.6.1): `TRIP_HAS_BOOKINGS` and `CROP_HAS_ACTIVE_ORDERS` go only to an app that sends `X-App-Build`; an app without it (build 1 or older) gets the same sentence as `SYNC_VALIDATION:`, permanent on every mobile build since March 2026, as `REPUTATION_RESTRICTED` already did (1.48.0, unchanged). Apps with the header get the codes as before. Server only |
 | 1.51.0 | 2026-11-12 | A funded order's reject or cancel and its refund arm are one transaction (FUP-53, `escrow-protocol.md` 2.11.0, `order-lifecycle.md` 2.12.0): money frozen or moving answers `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` (permanent), and three unprefixed retryable texts cover a failed escrow read, an escrow that kept changing and a cancelled transaction; nothing is written on any of them. Server only. |
 | 1.50.0 | 2026-11-12 | `farmerReliability` retired (ESC-30, `match-api.md` 1.4.0): dropped from client payloads like the owner fields and no longer stamped on a crop create. |
 | 1.49.0 | 2026-11-12 | Refusal texts the clients read, client only (FUP-77, FUP-83): `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` has its own text (the phrase is now relied on by the clients); an `ORDER_KYC_REQUIRED` reason token the client does not know is explained only, with no Fayda action; `buyer_phone` has its own error text on every surface. 1.48.0 is taken by another branch |
@@ -1380,4 +1478,4 @@ A `conflict` (the order moved) and a success answer as before. With nothing in t
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.50.0
+**Version**: 1.54.0

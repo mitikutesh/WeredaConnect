@@ -7,6 +7,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
@@ -24,6 +25,9 @@ public class SyncFunctionListingGuardTests
 {
     private const string FarmerId = "farmer-001";
     private const string ListingId = "listing-001";
+
+    /// <summary>What today's apps send in <c>X-App-Build</c>; FUP-241 tests also send none.</summary>
+    private const string CurrentAppBuild = "3";
 
     private static readonly JsonSerializerOptions SerializerOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -161,6 +165,50 @@ public class SyncFunctionListingGuardTests
         result.GetProperty("status").GetString().Should().Be("success");
     }
 
+    // ===== FUP-241: CROP_HAS_ACTIVE_ORDERS only to apps that send X-App-Build =====
+
+    [Theory]
+    [InlineData("2", "CROP_HAS_ACTIVE_ORDERS")]
+    [InlineData(CurrentAppBuild, "CROP_HAS_ACTIVE_ORDERS")]
+    [InlineData(null, "SYNC_VALIDATION")]
+    public async Task Delete_WithAnActiveOrder_CodeFollowsTheAppBuild(string? appBuild, string code)
+    {
+        OrderOnListing("funded");
+
+        var result = await DeleteAsync(appBuild: appBuild);
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().Be(
+            $"{code}: This listing has 1 order(s) in progress. It cannot be deleted until they are completed or cancelled.");
+        await _crops.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData("2", "CROP_HAS_ACTIVE_ORDERS")]
+    [InlineData(null, "SYNC_VALIDATION")]
+    public async Task UpdateToDeleted_WithAnActiveOrder_CodeFollowsTheAppBuild(string? appBuild, string code)
+    {
+        OrderOnListing("accepted");
+        OrderOnListing("payment_submitted");
+
+        var result = await UpdateAsync(new Dictionary<string, object> { { "status", "deleted" }, { "version", 3 } }, appBuild);
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().Be(
+            $"{code}: This listing has 2 order(s) in progress. It cannot be deleted until they are completed or cancelled.");
+        await _crops.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Delete_OrdersCannotBeRead_NoAppBuild_StaysRetryable()
+    {
+        _orders.QueryByListingAsync(ListingId).ThrowsAsync(new InvalidOperationException("index down"));
+
+        var result = await DeleteAsync(appBuild: null);
+
+        result.GetProperty("message").GetString().Should().Be("The listing's orders could not be checked. Please try again later.");
+    }
+
     // ===== quantity: the free stock =====
 
     [Fact]
@@ -211,11 +259,11 @@ public class SyncFunctionListingGuardTests
 
     // ===== helpers =====
 
-    private Task<JsonElement> DeleteAsync(bool enabled = true)
-        => SendAsync(FarmerId, "farmer", Op("delete", new Dictionary<string, object> { { "version", 3 } }), enabled);
+    private Task<JsonElement> DeleteAsync(bool enabled = true, string? appBuild = CurrentAppBuild)
+        => SendAsync(FarmerId, "farmer", Op("delete", new Dictionary<string, object> { { "version", 3 } }), enabled, appBuild);
 
-    private Task<JsonElement> UpdateAsync(Dictionary<string, object> data)
-        => SendAsync(FarmerId, "farmer", Op("update", data));
+    private Task<JsonElement> UpdateAsync(Dictionary<string, object> data, string? appBuild = CurrentAppBuild)
+        => SendAsync(FarmerId, "farmer", Op("update", data), appBuild: appBuild);
 
     private static SyncOperationRequest Op(string action, Dictionary<string, object> data) => new()
     {
@@ -227,7 +275,9 @@ public class SyncFunctionListingGuardTests
         Data = data
     };
 
-    private async Task<JsonElement> SendAsync(string userId, string role, SyncOperationRequest operation, bool enabled = true)
+    /// <summary><paramref name="appBuild"/> null sends no <c>X-App-Build</c> (an app before build 2).</summary>
+    private async Task<JsonElement> SendAsync(
+        string userId, string role, SyncOperationRequest operation, bool enabled = true, string? appBuild = CurrentAppBuild)
     {
         var request = new APIGatewayProxyRequest
         {
@@ -237,6 +287,7 @@ public class SyncFunctionListingGuardTests
                 ClientId = "device-001",
                 Operations = new List<SyncOperationRequest> { operation }
             }, SerializerOptions),
+            Headers = appBuild == null ? null : new Dictionary<string, string> { { ClientAppBuild.Header, appBuild } },
             RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
             {
                 Authorizer = new APIGatewayCustomAuthorizerContext { { "userId", userId }, { "custom:role", role } }

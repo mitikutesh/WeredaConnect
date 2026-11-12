@@ -51,18 +51,10 @@ public static class ReputationGate
     /// The text for a client that sends no readable <c>X-App-Build</c> (build 1 or older): it may
     /// predate the client that knows <c>REPUTATION_RESTRICTED</c> and would retry an unknown code
     /// (TASK FUP-75), so the same sentence goes out under a code every client treats as permanent:
-    /// <c>ORDER_VALIDATION</c> on an order, <c>SYNC_VALIDATION</c> elsewhere.
+    /// <c>ORDER_VALIDATION</c> on an order, <c>SYNC_VALIDATION</c> elsewhere (<see cref="OldClientRefusal"/>).
     /// </summary>
     public static string ForClient(string message, int? clientBuild, string entityType)
-    {
-        if (clientBuild != null || !message.StartsWith(Code + ":", StringComparison.Ordinal))
-        {
-            return message;
-        }
-
-        var text = message[(message.LastIndexOf(": ", StringComparison.Ordinal) + 2)..];
-        return (entityType == "order" ? "ORDER_VALIDATION: " : "SYNC_VALIDATION: ") + text;
-    }
+        => OldClientRefusal.ForClient(message, clientBuild, Code, entityType);
 
     /// <summary>
     /// Section 7: the owner fields of a row created at <paramref name="now"/> by this owner, from
