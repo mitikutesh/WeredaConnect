@@ -207,11 +207,13 @@ public sealed partial class EscrowService
 
         // The gates at call time: a payout only to a verified payee (F2: a payee who lost verification
         // waits), a refund only to a buyer whose phone is verified (F7: otherwise the manual queue).
+        // FUP-29: a system call (the ledger sweep, a system settlement) also waits while the payee is
+        // suspended or CRITICAL, the same deferral with the risk reason; the admin's own call does not.
         var payout = row.PayeeRole is LedgerFields.PayeeFarmer or LedgerFields.PayeeTrucker;
         string destination;
         if (payout)
         {
-            var (dest, blockReason) = await ResolvePayoutAsync(row.PayeeId, row.Amount, row.PayeeRole!);
+            var (dest, blockReason) = await ResolvePayoutAsync(row.PayeeId, row.Amount, row.PayeeRole!, actor, row.EscrowId);
             if (!dest.IsSuccess)
             {
                 var deferred = await WriteLedgerStatusAsync(row, row.Status, actor, mutate: r => r with

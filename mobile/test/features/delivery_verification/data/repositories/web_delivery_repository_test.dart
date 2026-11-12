@@ -765,6 +765,121 @@ void main() {
       );
     });
 
+    // FUP-43: the resend after the password prompt is the same operation.
+    group('step-up', () {
+      const stepUp = {
+        'results': [
+          {'status': 'error', 'message': 'AUTH_040: Confirm it is you.'},
+        ],
+      };
+      const done = {
+        'results': [
+          {'status': 'success'},
+        ],
+      };
+
+      Future<Map<String, dynamic>> dispute(String reason) async {
+        try {
+          await repository.raiseDispute(
+            deliveryId: 'del-1',
+            userId: 'buyer-1',
+            reason: reason,
+          );
+        } on SyncRejectedException {
+          // The op that was sent is what the test reads.
+        }
+        return sentOp();
+      }
+
+      test('AUTH_040 throws with its code and writes nothing else', () async {
+        stubCurrentVersion(2);
+        answerSync(stepUp);
+
+        await expectLater(
+          repository.raiseDispute(
+            deliveryId: 'del-1',
+            userId: 'buyer-1',
+            reason: 'wet bags',
+          ),
+          throwsA(
+            isA<SyncRejectedException>().having(
+              (e) => e.message,
+              'message',
+              startsWith(stepUpRequiredCode),
+            ),
+          ),
+        );
+      });
+
+      test('the resend carries the same operation id and idempotency key',
+          () async {
+        stubCurrentVersion(2);
+        answerSync(stepUp);
+        final first = await dispute('wet bags');
+
+        answerSync(done);
+        final second = await dispute('wet bags');
+
+        expect(second['operationId'], first['operationId']);
+        expect(second['idempotencyKey'], first['idempotencyKey']);
+        expect(second['timestamp'], first['timestamp']);
+        expect(second['data'], first['data']);
+      });
+
+      test('a 403 AUTH_040 on the request is held the same way', () async {
+        stubCurrentVersion(2);
+        Map<String, dynamic>? firstOp;
+        when(
+          () => api.post<Map<String, dynamic>>(
+            '/sync',
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenAnswer((invocation) async {
+          final body = invocation.namedArguments[#data] as Map<String, dynamic>;
+          firstOp = (body['operations'] as List).first as Map<String, dynamic>;
+          throw const StepUpRequiredException('step-up required');
+        });
+        await expectLater(
+          repository.raiseDispute(
+            deliveryId: 'del-1',
+            userId: 'buyer-1',
+            reason: 'wet bags',
+          ),
+          throwsA(isA<StepUpRequiredException>()),
+        );
+
+        answerSync(done);
+        final second = await dispute('wet bags');
+
+        expect(second['idempotencyKey'], firstOp!['idempotencyKey']);
+        expect(second['operationId'], firstOp!['operationId']);
+      });
+
+      test('a changed reason is a new dispute', () async {
+        stubCurrentVersion(2);
+        answerSync(stepUp);
+        final first = await dispute('wet bags');
+
+        answerSync(done);
+        final second = await dispute('two bags missing');
+
+        expect(second['operationId'], isNot(first['operationId']));
+      });
+
+      test('a dispute that went through is not sent again as the same one',
+          () async {
+        stubCurrentVersion(2);
+        answerSync(stepUp);
+        final first = await dispute('wet bags');
+        answerSync(done);
+        await dispute('wet bags');
+
+        final third = await dispute('wet bags');
+
+        expect(third['operationId'], isNot(first['operationId']));
+      });
+    });
+
     test('a conflict that left the delivery disputed is done', () async {
       stubReads(['delivered', 'disputed']);
       answerSync({

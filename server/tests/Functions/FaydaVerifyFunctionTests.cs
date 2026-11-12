@@ -960,6 +960,25 @@ public class FaydaVerifyFunctionTests
         Assert.Equal(401, response.StatusCode);
     }
 
+    // ===== ESC-29 (reputation-api.md 8.4): a suspended account links no Fayda identity =====
+
+    [Theory]
+    [InlineData("/user/fayda-start")]
+    [InlineData("/user/fayda-link")]
+    public async Task UserFaydaRoutes_ForASuspendedAccount_Return403Auth025_BeforeAnyStateOrExchange(string path)
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-7"));
+        _mockRepo.GetUserByIdAsync("user-7", true).Returns(LinkingUser() with { Suspended = true });
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(path.EndsWith("link") ? VerifyBody() : null, path, userId: "user-7"), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_025", response.Body);
+        await _mockAuthState.DidNotReceive().ConsumeAsync(Arg.Any<string>());
+        await _mockAuthState.DidNotReceive().PutAsync(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<int>());
+    }
+
     // ===== ACC-02: a deleting or deleted account links no Fayda identity =====
 
     [Theory]

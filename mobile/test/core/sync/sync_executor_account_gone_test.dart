@@ -111,6 +111,51 @@ void main() {
   Future<SyncOperation> op(String operationId) async =>
       (await queue.getOperation(operationId))!;
 
+  test(
+      '403 AUTH_025 (suspended): kept without a retry, the session is ended, '
+      'no deletion is signalled', () async {
+    await enqueue('user-1', 'op-1');
+    adapter.onPost(
+      SyncExecutor.syncEndpoint,
+      (server) => server.reply(403, {
+        'error': {'code': 'AUTH_025', 'message': 'Account suspended.'},
+      }),
+      data: Matchers.any,
+    );
+    var expired = 0;
+    final expiredSub = signals.onAccountSuspended.listen((_) => expired++);
+
+    final result = await executor.executeBatch();
+    await Future<void>.delayed(Duration.zero);
+    await expiredSub.cancel();
+
+    expect(result.status, SyncBatchStatus.authError);
+    expect((await op('op-1')).status, SyncStatus.pending);
+    expect((await op('op-1')).retryCount, 0);
+    expect(expired, 1);
+    expect(signalled, isEmpty);
+  });
+
+  test('another 403 keeps the session', () async {
+    await enqueue('user-1', 'op-1');
+    adapter.onPost(
+      SyncExecutor.syncEndpoint,
+      (server) => server.reply(403, {
+        'error': {'code': 'FORBIDDEN', 'message': 'no'},
+      }),
+      data: Matchers.any,
+    );
+    var expired = 0;
+    final expiredSub = signals.onAccountSuspended.listen((_) => expired++);
+
+    final result = await executor.executeBatch();
+    await Future<void>.delayed(Duration.zero);
+    await expiredSub.cancel();
+
+    expect(result.status, SyncBatchStatus.authError);
+    expect(expired, 0);
+  });
+
   for (final state in ['completed', 'cognito_pending']) {
     test('$state: kept without a retry, never sent again, signalled', () async {
       await enqueue('user-1', 'op-1');

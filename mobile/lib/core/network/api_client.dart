@@ -322,6 +322,16 @@ class ApiClient {
           final goneState = accountGoneState(statusCode, data);
           if (goneState != null) SessionSignals.instance.accountGone(goneState);
 
+          // A write from a suspended account (the web /sync calls, escrow,
+          // device tokens): the session is over, so sign out like a rejected
+          // refresh instead of failing every call until the token dies. The
+          // sync queue stays for the next sign-in. Not for the /auth routes:
+          // there AUTH_025 is the answer to a sign-in and the screen shows it.
+          if (isAccountSuspended(statusCode, data) &&
+              !error.requestOptions.path.startsWith('/auth/')) {
+            SessionSignals.instance.accountSuspended();
+          }
+
           if (statusCode == 400) {
             return ValidationException(message, statusCode, code);
           } else if (statusCode == 403 &&

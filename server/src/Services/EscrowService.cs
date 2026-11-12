@@ -1800,11 +1800,16 @@ public sealed partial class EscrowService
         //     ESC-10: the hourly sweeps audit a block once per reason (stored on the escrow), an
         //     admin's own attempt each time.
         var farmerId = GetString(escrowItem, "farmerId");
-        var (payout, payoutBlock) = await ResolvePayoutAsync(farmerId, GetDecimal(escrowItem, "amount"), "farmer");
+        var (payout, payoutBlock) = await ResolvePayoutAsync(
+            farmerId, GetDecimal(escrowItem, "amount"), "farmer", authenticatedUserId, request.EscrowId);
         if (!payout.IsSuccess)
         {
             var blockReason = payoutBlock ?? "unknown";
-            if (authenticatedUserId == SystemActor)
+            if (IsPayeeRiskBlock(payoutBlock))
+            {
+                // FUP-29: alarmed by the gate. Nothing is stored or audited, so no party is told.
+            }
+            else if (authenticatedUserId == SystemActor)
             {
                 await NoteSettlementBlockedAsync(escrowItem, currentStatus,
                     SettlementBlockFields.Value("release", SettlementBlockFields.GatePayout, blockReason),
@@ -1838,8 +1843,12 @@ public sealed partial class EscrowService
         if (hasTruckerLeg)
         {
             (truckerPayoutDest, truckerBlockReason) = await ResolveTruckerPayeeAsync(
-                GetStringOrNull(escrowItem, "truckerId") ?? "", truckerPayoutAmount);
+                GetStringOrNull(escrowItem, "truckerId") ?? "", truckerPayoutAmount, authenticatedUserId, request.EscrowId);
         }
+
+        // FUP-29: a trucker the risk rules block is not called either; the leg stays pending with no
+        // stored reason and no audit row (both would tell the trucker), and the hourly retry asks again.
+        var truckerRiskBlocked = IsPayeeRiskBlock(truckerBlockReason);
 
         // 5. Acquire the settlement lock BEFORE the irreversible Telebirr call. This is the
         //    atomic mutual-exclusion guard: at most ONE settlement (release OR refund, across
@@ -2069,7 +2078,7 @@ public sealed partial class EscrowService
         {
             releaseFields[TruckerPayoutFields.Pending] = true;
             releaseFields[TruckerPayoutFields.PendingSince] = now;
-            if (truckerBlockReason != null)
+            if (truckerBlockReason != null && !truckerRiskBlocked)
             {
                 releaseFields[TruckerPayoutFields.BlockReason] = truckerBlockReason;
                 releaseFields[TruckerPayoutFields.BlockReasonAt] = now;
@@ -2100,7 +2109,11 @@ public sealed partial class EscrowService
             // release_blocked_kyc: audited with its reason, no money alarm (the overdue alarm
             // fires after 24 hours), at the time the row stores with the reason, so the hourly
             // retry re-ensures a row this write lost. A gateway refusal is a settlement failure.
-            if (truckerBlockReason != null)
+            if (truckerRiskBlocked)
+            {
+                // FUP-29: the gate logged the alarm line; no audit row.
+            }
+            else if (truckerBlockReason != null)
             {
                 await EnsureAuditAsync(request.EscrowId, now, TruckerBlockedAuditAction, currentStatus, currentStatus,
                     SystemActor, metadata: PayoutBlockedMetadata(truckerBlockReason));
@@ -4486,6 +4499,13 @@ public sealed partial class EscrowService
             return new(TruckerRetryOutcome.Deferred, "deferred");
         }
 
+        // FUP-29: the risk rules at the moment of payment, last before the lock, so a leg that is not paid
+        // this run anyway costs no score read and no alarm line. The trucker row is the one read above.
+        if (await PayeeRiskBlockAsync(trucker, SystemActor, escrowId, "trucker") is { } riskBlock)
+        {
+            return new(TruckerRetryOutcome.Blocked, riskBlock);
+        }
+
         var lockId = await _escrowRepo.TryAcquireTruckerPayoutLockAsync(escrowId, GetString(escrow, "createdAt"));
         if (lockId == null)
         {
@@ -6719,10 +6739,11 @@ public sealed partial class EscrowService
     /// passed through as before. With one, the party must exist and be
     /// phone-verified, and Fayda-verified when the escrow amount exceeds the NBE
     /// threshold; otherwise ESCROW_029 blocks the payout, with the rule that blocked it
-    /// (ESC-10 audits it once per rule).
+    /// (ESC-10 audits it once per rule). FUP-29: a payee who passes them is then asked the
+    /// risk rules when <paramref name="actor"/> is the system (<see cref="PayeeRiskBlockAsync"/>).
     /// </summary>
     private async Task<(EscrowResult<string> Destination, string? BlockReason)> ResolvePayoutAsync(
-        string? userId, decimal amount, string legLabel)
+        string? userId, decimal amount, string legLabel, string actor, string escrowId)
     {
         if (_userRepo == null)
         {
@@ -6731,7 +6752,14 @@ public sealed partial class EscrowService
 
         var user = string.IsNullOrEmpty(userId) ? null : await _userRepo.GetUserByIdAsync(userId);
         var destination = CheckPayoutEligibility(user, amount, legLabel);
-        return (destination, destination.IsSuccess ? null : PayoutBlockReason(user, amount));
+        if (!destination.IsSuccess)
+        {
+            return (destination, PayoutBlockReason(user, amount));
+        }
+
+        return await PayeeRiskBlockAsync(user, actor, escrowId, legLabel) is { } riskBlock
+            ? (PayeeRiskRefusal(legLabel), riskBlock)
+            : (destination, null);
     }
 
     /// <summary>The identity rules behind <see cref="ResolvePayoutAsync"/>, also applied to manual payouts (ESC-02).</summary>
@@ -6770,10 +6798,10 @@ public sealed partial class EscrowService
     /// <summary>
     /// ESC-04: the trucker's payout destination with the reason it is blocked (null when it is
     /// not). Without a user repository the id passes through, as <see cref="ResolvePayoutAsync"/>
-    /// does for the release.
+    /// does for the release. FUP-29: then the risk rules for the system, as there.
     /// </summary>
     private async Task<(EscrowResult<string> Destination, string? BlockReason)> ResolveTruckerPayeeAsync(
-        string truckerId, decimal amount)
+        string truckerId, decimal amount, string actor, string escrowId)
     {
         if (_userRepo == null)
         {
@@ -6782,6 +6810,11 @@ public sealed partial class EscrowService
 
         var trucker = string.IsNullOrEmpty(truckerId) ? null : await _userRepo.GetUserByIdAsync(truckerId);
         var destination = CheckPayoutEligibility(trucker, amount, "trucker");
+        if (destination.IsSuccess && await PayeeRiskBlockAsync(trucker, actor, escrowId, "trucker") is { } riskBlock)
+        {
+            return (PayeeRiskRefusal("trucker"), riskBlock);
+        }
+
         var reason = destination.IsSuccess
             ? null
             : string.IsNullOrEmpty(truckerId) ? TruckerPayoutFields.BlockNoTrucker : PayoutBlockReason(trucker, amount);

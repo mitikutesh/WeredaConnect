@@ -11,9 +11,9 @@ namespace WeredaConnect.Server.Services;
 /// changes, conditioned on the map's own version, so the event rows and the aggregate never drift
 /// and two writers for one user are serialized: the loser re-reads and sees the winner.
 ///
-/// Not here yet: the copies onto crop and trip rows (ESC-29). Every write that changes a public
-/// field (tier, effective rating, reliability) upserts the day's <c>HEAL#</c> marker, so once the
-/// copy step exists the daily job retries a copy that failed.
+/// ESC-29: a write that changes a field copied onto the user's crop or trip rows (the tier, the
+/// effective rating, the reliability) refreshes those copies after the commit (6.3), best effort,
+/// and upserts the day's <c>HEAL#</c> marker, so the daily job retries a copy that failed.
 /// </summary>
 public sealed class ReputationService
 {
@@ -30,6 +30,9 @@ public sealed class ReputationService
     public const string TruncatedToken = "REPUTATION_EVENTS_TRUNCATED";
     public const string RecordedToken = "REPUTATION_RECORDED";
 
+    /// <summary>A copy onto crop or trip rows failed (the monitoring stack counts it; the daily job retries).</summary>
+    public const string CopyFailedToken = "REPUTATION_COPY_FAILED";
+
     /// <summary>Most items in one transaction (DynamoDB allows 100; one stays free).</summary>
     public const int MaxTransactionItems = 99;
 
@@ -38,14 +41,17 @@ public sealed class ReputationService
     private readonly ReputationPolicySettings _settings;
     private readonly TimeProvider _clock;
     private readonly Func<int, Task> _backoff;
+    private readonly IReputationCopyWriter? _copies;
 
     public ReputationService(
         IReputationEventRepository repo,
         ReputationPolicySettings settings,
         IFraudDetectionService? fraud = null,
         TimeProvider? clock = null,
-        Func<int, Task>? backoff = null)
+        Func<int, Task>? backoff = null,
+        IReputationCopyWriter? copies = null)
     {
+        _copies = copies;
         _repo = repo ?? throw new ArgumentNullException(nameof(repo));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _fraud = fraud;
@@ -92,6 +98,11 @@ public sealed class ReputationService
                         $"{RecordedToken} user={MoneyAlarmLog.LogId(candidate.UserId)} code={plan.Event.Code} points={plan.Event.Points}"
                         + (plan.Event.ZeroReason != null ? $" zeroReason={plan.Event.ZeroReason}" : string.Empty)
                         + $" tier={plan.Write.Map.Aggregate.Tier}");
+                    if (plan.Write.HealAt != null)
+                    {
+                        await TryCopyAsync(user, plan.Write.Map.Aggregate, now, "record", logger);
+                    }
+
                     return ReputationRecordResult.Recorded;
                 case ReputationCommitOutcome.EventExists:
                     return ReputationRecordResult.Replay;
@@ -202,6 +213,13 @@ public sealed class ReputationService
             var now = Now;
             var after = Aggregate(rows, user, now);
             var tierRow = TierRow(userId, user, after, now, "refresh");
+            if (attempt == 1)
+            {
+                // The caller is the rating create: the rating count changed even when no stored
+                // field did. The rating transaction left the HEAL# marker for a failure here.
+                await TryCopyAsync(user, after, now, "refresh", logger);
+            }
+
             if (user.MapVersion != null && tierRow == null && !PublicFieldsChanged(user, after))
             {
                 return false;
@@ -225,6 +243,47 @@ public sealed class ReputationService
         throw new ReputationConflictException(
             $"The reputation of user {MoneyAlarmLog.LogId(userId)} kept changing; refresh gave up.");
     }
+
+    // ===== reads (6.6, ESC-29) =====
+
+    /// <summary>
+    /// A user's reputation at read time, with no write: the stored aggregate under the live policy,
+    /// or, once <c>now</c> has passed the map's <c>nextChangeAt</c> (an expiry or an end the daily
+    /// job has not written yet), a recompute from the events (one Query). So a read never shows an
+    /// expired point, an ended restriction or an ended override. <paramref name="withEvents"/> also
+    /// reads the events while points are active (the party's own view needs the next expiry).
+    /// Null when the user has no row.
+    /// </summary>
+    public async Task<ReputationRead?> ReadAsync(string userId, bool withEvents)
+    {
+        var user = await _repo.GetUserStateAsync(userId);
+        if (user == null)
+        {
+            return null;
+        }
+
+        var now = Now;
+        var ratings = ReputationGate.StoredRatings(user.RatingSum, user.RatingCount, user.RatingsAggregatedAt);
+        var snapshot = user.Snapshot;
+        var stale = snapshot?.NextChangeAt is { } next && next <= now;
+        if (snapshot == null || !(stale || (withEvents && snapshot.ActivePoints > 0)))
+        {
+            return new ReputationRead(user, ReputationPolicy.FromSnapshot(snapshot, ratings, user.Suspended, now, _settings), ratings, null, now);
+        }
+
+        var (rows, _) = await _repo.QueryEventsAsync(userId, _settings.EventsReadCap);
+        var aggregate = Aggregate(rows, user, now);
+        var nextExpiry = rows
+            .Where(e => ReputationCodes.Penalties.Contains(e.Code) && e.Status == ReputationStatuses.Active
+                        && e.Points - e.EarnedBack > 0 && e.PointsExpireAt is { } expires && expires > now)
+            .Select(e => e.PointsExpireAt)
+            .Min();
+        return new ReputationRead(user, aggregate, ratings, nextExpiry, now);
+    }
+
+    /// <summary>The user's rows for the party's event list (one Query, up to <c>eventsReadCap</c>).</summary>
+    public async Task<IReadOnlyList<ReputationEvent>> ReadEventsAsync(string userId)
+        => (await _repo.QueryEventsAsync(userId, _settings.EventsReadCap)).Rows;
 
     // ===== the daily job's per-user step (8.2) =====
 
@@ -257,6 +316,16 @@ public sealed class ReputationService
                 && !PublicFieldsChanged(user, after))
             {
                 return new ReputationSettleResult(true, 0, 0, 0, Written: false);
+            }
+
+            // 6.3 through the heal marker: the copies are refreshed before the marker is deleted, so
+            // a failed copy throws, the marker stays and the next run tries again. Idempotent (rows
+            // that already hold the values are not written), so a version conflict below repeats it
+            // for free.
+            var copied = 0;
+            if (_copies != null && (force || deletes.Count > 0 || tierRow != null || PublicFieldsChanged(user, after)))
+            {
+                copied = await _copies.RefreshOwnerRowsAsync(userId, user.Role, OwnerFields(user, after, now));
             }
 
             var changes = transitions.Select(t => new DueChange(t, null))
@@ -302,7 +371,10 @@ public sealed class ReputationService
                 Expired: transitions.Count(t => t.ToStatus == ReputationStatuses.Expired),
                 Ended: transitions.Count(t => t.ToStatus == ReputationStatuses.Ended),
                 Healed: deletes.Count,
-                Written: true);
+                Written: true)
+            {
+                Copied = copied
+            };
         }
 
         throw new ReputationConflictException(
@@ -400,8 +472,16 @@ public sealed class ReputationService
         }
     }
 
+    /// <summary>
+    /// The aggregate of the rows read. The rating sum and count are used only once the row carries
+    /// <c>ratingsAggregatedAt</c>: an unstamped row would give an effective rating over the ratings
+    /// created since the deploy only (<see cref="ReputationGate.StoredRatings"/>).
+    /// </summary>
     private ReputationAggregate Aggregate(IReadOnlyList<ReputationEvent> rows, ReputationUserState user, DateTime now)
-        => ReputationPolicy.Aggregate(rows, user.RatingSum, user.RatingCount, user.Suspended, now, _settings);
+    {
+        var (sum, count) = ReputationGate.StoredRatings(user.RatingSum, user.RatingCount, user.RatingsAggregatedAt);
+        return ReputationPolicy.Aggregate(rows, sum, count, user.Suspended, now, _settings);
+    }
 
     /// <summary>5.8 rule 4: no <c>SELF_TRADE</c> or <c>SHARED_DEVICE_TRADE</c> signal on the order for the party or the buyer.</summary>
     private async Task<bool> IsCleanOrderAsync(ReputationCandidate completion)
@@ -502,11 +582,38 @@ public sealed class ReputationService
         };
     }
 
-    /// <summary>Whether a field buyers see (public tier, effective rating, reliability) differs from the stored map.</summary>
+    /// <summary>
+    /// Whether a field copied onto the user's rows differs from the stored map: the tier (the
+    /// internal one, since browse hides <c>restricted</c> owners while buyers read it as <c>low</c>),
+    /// the effective rating or the reliability.
+    /// </summary>
     internal static bool PublicFieldsChanged(ReputationUserState user, ReputationAggregate after)
-        => ReputationTiers.Public(user.StoredTier ?? ReputationTiers.Good) != after.PublicTier
+        => (user.StoredTier ?? ReputationTiers.Good) != after.Tier
            || user.StoredEffectiveRating != after.EffectiveRating
            || user.StoredReliabilityPct != after.ReliabilityPct;
+
+    private static OwnerReputationFields OwnerFields(ReputationUserState user, ReputationAggregate aggregate, DateTime now)
+        => ReputationGate.OwnerFields(
+            aggregate, ReputationGate.StoredRatings(user.RatingSum, user.RatingCount, user.RatingsAggregatedAt).Count, now);
+
+    /// <summary>The copy refresh after a commit (6.3), best effort: a failure is logged and left to the daily job.</summary>
+    private async Task TryCopyAsync(ReputationUserState user, ReputationAggregate aggregate, DateTime now, string step, ILambdaLogger logger)
+    {
+        if (_copies == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _copies.RefreshOwnerRowsAsync(user.UserId, user.Role, OwnerFields(user, aggregate, now));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                $"{CopyFailedToken} step={step} user={MoneyAlarmLog.LogId(user.UserId)} [{ex.GetType().Name}]");
+        }
+    }
 
     /// <summary>The map to write with no new event: the last event fields carry over.</summary>
     private static ReputationMapWrite CarryOver(ReputationUserState user, ReputationAggregate after, DateTime now) => new()
@@ -539,6 +646,10 @@ public sealed class ReputationService
     private sealed record DueChange(ReputationRowTransition? Transition, string? Delete);
 }
 
+/// <summary>ESC-29: a user's reputation as read (<see cref="ReputationService.ReadAsync"/>).</summary>
+public sealed record ReputationRead(
+    ReputationUserState User, ReputationAggregate Aggregate, (long Sum, long Count) Ratings, DateTime? NextPointExpiryAt, DateTime AsOf);
+
 /// <summary>How <see cref="ReputationService.RecordAsync"/> ended.</summary>
 public enum ReputationRecordResult
 {
@@ -550,6 +661,9 @@ public enum ReputationRecordResult
 /// <summary>What <see cref="ReputationService.SettleDueAsync"/> did for one user.</summary>
 public sealed record ReputationSettleResult(bool Processed, int Expired, int Ended, int Healed, bool Written)
 {
+    /// <summary>ESC-29: crop or trip rows whose owner fields were rewritten.</summary>
+    public int Copied { get; init; }
+
     public static ReputationSettleResult Skipped { get; } = new(false, 0, 0, 0, false);
 }
 

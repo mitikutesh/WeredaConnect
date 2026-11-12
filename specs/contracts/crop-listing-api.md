@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.10.0
+1.11.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -350,6 +350,11 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
 | `locationName` | string | No | The place the farmer entered for this listing; clients show it before `woreda` |
 | `deletedAt` | string (ISO 8601) | No | Soft-delete stamp, written by a `delete` and by an `update` to `status: deleted` (1.10.0); a deleted listing is never listed and `GET /crops/{id}` answers 404 for it. A row with `status: deleted` and no stamp is treated the same |
 | `farmerReliability` | number | No | 0 to 1, stamped at create for on-device matching |
+| `ownerTier` | string | No | 1.11.0 (ESC-29, `reputation-api.md` section 7): the farmer's public reputation tier, `good` or `low`, copied onto the listing by the server. Returned only while `reputationPublicTags` is on; never taken from a client |
+| `ownerEffectiveRating` | number | No | The farmer's rating after the reputation deduction, 1.0 to 5.0 with one decimal; absent with no ratings |
+| `ownerRatingCount` | number | No | How many ratings the farmer has |
+| `ownerReliabilityPct` | number | No | 0 to 100: completed orders out of completed, cancelled at fault and no-shows in 90 days; absent below 3 orders |
+| `ownerReputationAt` | string (ISO 8601) | No | When the copy was written; the apps show "As of {date}" |
 | `latitude`, `longitude` | number | No | GPS of the listing. The web client matches by fetching `GET /crops?status=available` and scoring with the shared `MatchScorer`, so they must be returned for true haversine geo-scoring; when absent the matcher falls back to a woreda-string proxy (`match-api.md`, same fields on `MatchDto`) |
 | `photos` | object[] | No | 1.6.0: `{photoId, thumbUrl}` on the list, plus `fullUrl` on the single read |
 
@@ -562,9 +567,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.8.0 | 2026-11-06 | The crop `woreda` is screened for a phone number on `/sync` create and update (FUP-98, rule 6b), refused with `CROP_CONTACT_IN_TEXT` like `description` and `locationName` (listed last in `<fields>`), nothing written. Not checked: an unchanged echo of the stored value, or a value equal to the farmer's profile `woreda` after trimming (accounts registered before `auth-api.md` 2.12.0). No client change: the code is permanent on clients since `sync-protocol.md` 1.23.0, and the app sends the profile woreda, which is exempt |
 | 1.9.0 | 2026-11-06 | Read model reconciled with the server (SIM-26). Documented as served, not renamed, because mobile, web and e2e read these names: the flat read model (`cropId`, `quantityKg` that holds quintals, flat `woreda`, no `unit`, `currency`, `zone`, `region` or `harvestDate`), and `GET /crops/{id}` wrapped in `crop`. Server changes: `GET /crops` from a buyer or admin defaults to `status=available` (it listed every status before; a farmer's own list still has every status); a `limit` above 50 is served as 50 (it accepted up to 100 before; web asked for 100 and now asks for 50); the server fills each page and looks one listing ahead, so `nextToken` is sent only when a listing follows, and the new `hasMore` agrees with it. Docs only: `total`, `zone`, `region`, `minQuantity` and `maxPrice` were never built and are gone from the contract; the reads need a caller (F-36), they were marked public; pagination tokens are HMAC-signed and do not expire |
 | 1.10.0 | 2026-11-11 | Deleted by update, and the infrastructure claims (FUP-132). An `update` to `status: deleted` passed the delete guard (1.7.0) but wrote no `deletedAt`, and every list filters on `deletedAt`, so the listing stayed in the farmer's own `GET /crops`. The update now writes `deletedAt` like a `delete` (kept if already set). Rows already in that state are hidden too: `GET /crops` (farmer's own list, buyer browse), `GET /match` and `GET /crops/{id}` (404) treat `status: deleted` as deleted with or without the stamp, and a delivery create on such a listing is refused like on a stamped one. No client change: the shipped apps delete with the `delete` action. Docs corrected against the CDK code: no CloudFront cache in front of `GET /crops` (none exists, responses are `no-store`, and a shared cache on a role-filtered list would be a visibility risk), no 100 req/s per user or 200 req/s per IP limits; the real limits are the HTTP API stage throttle (25 req/s per route, burst 50, all callers together), 60 sync requests per minute per user (`SYNC_RATE_LIMITED`) and the Lambda reserved concurrency (staging and prod only; dev sets none) |
+| 1.11.0 | 2026-11-11 | Owner reputation and restricted farmers (ESC-29, `reputation-api.md` 1.2.0 sections 7 and 8.3), all off in every environment. With `reputationPublicTags` on, `GET /crops` and `GET /crops/{id}` return `ownerTier` (`good` or `low`), `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt`, copied onto the listing by the server (stamped at create, refreshed when the farmer's reputation changes, without a `version` or `updatedAt` change); a client value is dropped. With `reputationPenalties` on, a buyer's `GET /crops` leaves out the listings of a farmer whose stored tier is `restricted` (a moderation filter like the one for deleted listings; the page is still filled); the farmer's own list, `GET /crops/{id}` and an admin's browse are not filtered, and a restricted farmer's `crop_listing` create is refused with `REPUTATION_RESTRICTED` (`sync-protocol.md` 1.48.0). Role visibility is unchanged: a farmer sees only their own listings, a buyer every listing on the market |
 
 ---
 
 **Last Updated**: 2026-11-11
-**Version**: 1.10.0
+**Version**: 1.11.0
 **Status**: Implemented (Phase R3)

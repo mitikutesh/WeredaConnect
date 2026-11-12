@@ -196,7 +196,8 @@ public partial class OrderCronFunction
             var fraud = string.IsNullOrEmpty(fraudSignalsTable)
                 ? null
                 : new FraudDetectionService(dynamoDb, cropsTable ?? "", fraudSignalsTable, new RateLimitRepository(dynamoDb, ""));
-            var service = new ReputationService(repo, settings, fraud);
+            var service = new ReputationService(
+                repo, settings, fraud, copies: ReputationCopyRepository.FromEnvironment(dynamoDb));
             ReputationDaily = new ReputationDailyJob(service, repo);
 
             var parkedQueueUrl = Environment.GetEnvironmentVariable("REPUTATION_PARKED_QUEUE_URL");

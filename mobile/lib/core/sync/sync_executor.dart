@@ -313,7 +313,9 @@ class SyncBatchResult {
 /// - `duplicate` → already processed, mark synced
 /// - `error` with `AUTH_040` / `AUTH_041` (step-up) → keep pending, ask the
 ///   UI for the password or a Fayda login, retry after
-///   [SecurityEvents.stepUpCompleted]
+///   [SecurityEvents.stepUpCompleted]; the operation is named as the
+///   step-up's holder, and let go once it got any other answer or left the
+///   queue (FUP-24)
 /// - `error` with `ORDER_KYC_REQUIRED` → reject, undo the local change via
 ///   [KycRejectionHandler], ask the UI to offer Fayda verification
 /// - `error` with any other `ORDER_*` code, `FRAUD_*`, `SYNC_VALIDATION`,
@@ -352,6 +354,8 @@ class SyncBatchResult {
 /// Error handling per HTTP error:
 /// - Network/timeout → revert to pending without retry count increment
 /// - 401 → revert (AuthInterceptor should have refreshed token)
+/// - 403 `AUTH_025` (account suspended) → revert without a retry and raise
+///   [SessionSignals.accountSuspended]; the queue stays for the next sign-in
 /// - 429 → revert (rate limited, try again later)
 /// - 410 `ACCOUNT_004` (account being or already deleted) → revert without a
 ///   retry, stop this sync and raise [SessionSignals.accountGone]; for a
@@ -681,7 +685,40 @@ class SyncExecutor {
       }
       return result;
     } finally {
+      await _releaseDepartedStepUpHolds();
       _isSyncing = false;
+    }
+  }
+
+  /// Holder key prefix of this executor's operations in
+  /// [SecurityEvents.holdStepUp].
+  static const stepUpHolderPrefix = 'sync:';
+
+  static String _stepUpHolder(String operationId) =>
+      '$stepUpHolderPrefix$operationId';
+
+  /// Let go of the step-up holds whose operation no longer waits in the
+  /// queue (FUP-24): rejected with the entity whose `create` was refused,
+  /// out of retries, or removed. A held operation that was answered is let
+  /// go in [_processResponse]; this catches the ones that left unsent.
+  /// Never throws: a failed read keeps the holds for the next run.
+  Future<void> _releaseDepartedStepUpHolds() async {
+    final holders = _securityEvents.stepUpHolders(stepUpHolderPrefix);
+    if (holders.isEmpty) return;
+    try {
+      final departed = <String>[];
+      for (final holder in holders) {
+        final op = await _syncQueue.getOperation(
+          holder.substring(stepUpHolderPrefix.length),
+        );
+        final waits = op != null &&
+            (op.status == SyncStatus.pending ||
+                op.status == SyncStatus.syncing);
+        if (!waits) departed.add(holder);
+      }
+      _securityEvents.releaseStepUpHolds(departed);
+    } on Object catch (e) {
+      debugPrint('[SYNC] step-up hold check failed: $e');
     }
   }
 
@@ -872,6 +909,7 @@ class SyncExecutor {
     final operationErrors = <String, String>{};
     final rejected = <(SyncOperation, String?)>[];
     final heldForUpdate = <(SyncOperation, String)>[];
+    final stepUpHeld = <String>{};
 
     // Build lookup map for O(1) access by operationId
     final opMap = {for (final op in operations) op.operationId: op};
@@ -963,7 +1001,13 @@ class SyncExecutor {
           if (status == 'error' && isStepUpRequiredMessage(message)) {
             await _syncQueue.revertToPending(operationId);
             stepUpRequired++;
-            faydaStepUpRequired |= isFaydaStepUpRequiredMessage(message);
+            final withFayda = isFaydaStepUpRequiredMessage(message);
+            faydaStepUpRequired |= withFayda;
+            stepUpHeld.add(operationId);
+            _securityEvents.holdStepUp(
+              _stepUpHolder(operationId),
+              withFayda: withFayda,
+            );
             continue;
           }
           // Minimum-version gate (ESC-25, spec K1): it is meant for order
@@ -1026,6 +1070,16 @@ class SyncExecutor {
 
     await _settleRejections(rejected);
     _announceHeldForUpdate(heldForUpdate);
+
+    // An operation held for a step-up that got any other answer now (sent,
+    // refused, failed) no longer waits for it (FUP-24). One the response
+    // left out is still unanswered and keeps its hold.
+    _securityEvents.releaseStepUpHolds([
+      for (final id in processed)
+        if (!stepUpHeld.contains(id)) _stepUpHolder(id),
+    ]);
+    // Operations rejected along with a refused create left without an answer.
+    await _releaseDepartedStepUpHolds();
 
     if (stepUpRequired > 0) {
       // One prompt for the batch. Fayda wins: after a Fayda login the
@@ -1125,6 +1179,12 @@ class SyncExecutor {
           // If we still got 401, the refresh failed.
           // Revert to pending (don't burn retry count — auth is transient).
           await _revertBatchToPending(operations);
+          // 403 AUTH_025 (sync-protocol.md 1.48.0): the account is suspended
+          // and nothing was applied. End the session now, as a rejected
+          // refresh does; the queue stays for the next sign-in.
+          if (isAccountSuspended(statusCode, error.response?.data)) {
+            _sessionSignals.accountSuspended();
+          }
           return SyncBatchResult(
             total: operations.length,
             failed: operations.length,

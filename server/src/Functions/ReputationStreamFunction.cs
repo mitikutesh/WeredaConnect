@@ -61,7 +61,9 @@ public class ReputationStreamFunction
         var fraud = string.IsNullOrEmpty(fraudSignalsTable)
             ? null
             : new FraudDetectionService(dynamoDb, "", fraudSignalsTable, new RateLimitRepository(dynamoDb, ""));
-        var service = new ReputationService(new ReputationEventRepository(dynamoDb, eventsTable, usersTable), settings, fraud);
+        var service = new ReputationService(
+            new ReputationEventRepository(dynamoDb, eventsTable, usersTable), settings, fraud,
+            copies: ReputationCopyRepository.FromEnvironment(dynamoDb));
         _processor = new ReputationRecordProcessor(
             service, new DeviceReachability(dynamoDb, deviceTokensTable).HasDeviceAsync, ReputationFlags.TimeoutPenaltiesEnabled);
         _parkedQueueUrl = Environment.GetEnvironmentVariable("REPUTATION_PARKED_QUEUE_URL");

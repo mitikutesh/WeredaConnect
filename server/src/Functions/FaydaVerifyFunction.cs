@@ -128,15 +128,15 @@ public class FaydaVerifyFunction
     }
 
     /// <summary>
-    /// ACC-02: <c>410 ACCOUNT_004</c> for a caller whose account is being or has been deleted, null
-    /// for a live one. When the account cannot be read the answer is a typed, retryable
+    /// ACC-02: <c>410 ACCOUNT_004</c> for a caller whose account is being or has been deleted,
+    /// ESC-29 (reputation-api.md 8.4): <c>403 AUTH_025</c> for a suspended one, null for a live one. When the account cannot be read the answer is a typed, retryable
     /// <c>503 AUTH_008</c> and nothing is read or consumed.
     /// </summary>
     private async Task<APIGatewayProxyResponse?> RefuseDeletingCallerAsync(string userId, ILambdaContext context)
     {
         try
         {
-            return await AccountDeletionGuard.RefuseIfDeletingAsync(_userRepository, userId);
+            return await AccountDeletionGuard.RefuseIfDeletingOrSuspendedAsync(_userRepository, userId);
         }
         catch (Exception ex)
         {

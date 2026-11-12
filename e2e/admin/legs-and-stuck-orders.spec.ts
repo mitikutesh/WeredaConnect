@@ -3,7 +3,7 @@ import { test, expect, type Page, type Route } from "@playwright/test";
 /**
  * Admin legs and stuck orders (ESC-24): the per-leg dispute verdict (ESC-20's partial_refund, action
  * split), the ledger view on the escrow page, and the Stuck Orders page
- * (escrow-protocol.md 2.6.0: GET /admin/escrows/{id}/ledger, GET /admin/orders/queue).
+ * (escrow-protocol.md 2.7.0: GET /admin/escrows/{id}/ledger, GET /admin/orders/queue).
  *
  * Like dispute-evidence.spec.ts this spec does not sign in: it seeds a Cognito session for a fake
  * admin in localStorage and answers every API call the page makes with page.route, so it checks what

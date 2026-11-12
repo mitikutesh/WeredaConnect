@@ -133,6 +133,12 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new OrderFunction().FunctionHandler, serializer),
 
+            // ESC-29: GET /reputation/* and the appeal (reputation-api.md sections 2 to 6). The
+            // stream consumer above is matched first; its name does not hold this one.
+            var h when h.Contains("ReputationFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new ReputationFunction().FunctionHandler, serializer),
+
             var h when h.Contains("RatingFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new RatingFunction().FunctionHandler, serializer),

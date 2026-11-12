@@ -17,6 +17,12 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
 
   WebDeliveryRepository({required ApiClient api}) : _api = api;
 
+  /// Disputes the server answered with a step-up (`AUTH_040`, `AUTH_041`),
+  /// by delivery id: nothing was written, and the resend after the prompt
+  /// goes as the same operation (same id and idempotency key), like the
+  /// held operation of the mobile sync queue (FUP-43).
+  final Map<String, _HeldDispute> _disputesHeldForStepUp = {};
+
   @override
   Future<Delivery> createDelivery({
     required String tripId,
@@ -386,30 +392,46 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String userId,
     required String reason,
   }) async {
-    final now = DateTime.now().toUtc().toIso8601String();
+    // A dispute held for a step-up goes again as it was; a changed reason
+    // is a new dispute.
+    final held = _disputesHeldForStepUp.remove(deliveryId);
+    final dispute = held != null && held.reason == reason
+        ? held
+        : _HeldDispute(
+            operationId: _uuid.v4(),
+            timestamp: DateTime.now().toUtc().toIso8601String(),
+            reason: reason,
+          );
+    final now = dispute.timestamp;
     final version = await _currentVersion(deliveryId);
-    final response = await _api.post<Map<String, dynamic>>(
-      '/sync',
-      data: {
-        'syncBatchId': _uuid.v4(),
-        'clientId': 'web',
-        'operations': [
-          {
-            'operationId': _uuid.v4(),
-            'entityType': 'delivery',
-            'action': 'update',
-            'entityId': deliveryId,
-            'timestamp': now,
-            'idempotencyKey': 'web_dispute_${deliveryId}_$now',
-            'data': {
-              'status': 'disputed',
-              'disputeReason': reason,
-              'version': version,
+    final Map<String, dynamic> response;
+    try {
+      response = await _api.post<Map<String, dynamic>>(
+        '/sync',
+        data: {
+          'syncBatchId': _uuid.v4(),
+          'clientId': 'web',
+          'operations': [
+            {
+              'operationId': dispute.operationId,
+              'entityType': 'delivery',
+              'action': 'update',
+              'entityId': deliveryId,
+              'timestamp': now,
+              'idempotencyKey': 'web_dispute_${deliveryId}_$now',
+              'data': {
+                'status': 'disputed',
+                'disputeReason': reason,
+                'version': version,
+              },
             },
-          },
-        ],
-      },
-    );
+          ],
+        },
+      );
+    } on StepUpRequiredException {
+      _disputesHeldForStepUp[deliveryId] = dispute;
+      rethrow;
+    }
     try {
       ensureSyncSucceeded(response);
     } on SyncConflictException {
@@ -426,6 +448,11 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       }
       final current = await getDeliveryById(deliveryId, userId: userId);
       if (current?.status != DeliveryStatus.disputed) rethrow;
+    } on SyncRejectedException catch (e) {
+      if (isStepUpRequiredMessage(e.message)) {
+        _disputesHeldForStepUp[deliveryId] = dispute;
+      }
+      rethrow;
     }
   }
 
@@ -653,4 +680,19 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       orElse: () => DeliveryStatus.pending,
     );
   }
+}
+
+/// A dispute the server asked a step-up for, kept to send again unchanged.
+class _HeldDispute {
+  const _HeldDispute({
+    required this.operationId,
+    required this.timestamp,
+    required this.reason,
+  });
+
+  final String operationId;
+
+  /// The operation's timestamp, also the tail of its idempotency key.
+  final String timestamp;
+  final String reason;
 }

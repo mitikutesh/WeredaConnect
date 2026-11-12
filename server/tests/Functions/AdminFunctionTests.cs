@@ -756,6 +756,47 @@ public class AdminFunctionTests
         await cognito.DidNotReceive().AdminEnableUserAsync(Arg.Any<string>());
     }
 
+    // ESC-29 (reputation-api.md 8.4): the copied owner fields follow a suspension through the heal marker.
+    [Theory]
+    [InlineData("suspend", true, 1)]
+    [InlineData("unsuspend", true, 1)]
+    [InlineData("change_role", true, 0)]
+    [InlineData("suspend", false, 0)]
+    public async Task SuspendAndUnsuspend_LeaveTheReputationHealMarker_OnlyWithTheFlag(string action, bool flag, int markers)
+    {
+        var fn = new AdminFunction(_dynamoDb, UsersTable, cognitoAuth: CognitoWithPhone("+251911000001"))
+        {
+            ReputationPenaltiesEnabled = flag,
+            ReputationEventsTable = "reputation-events"
+        };
+
+        var response = await fn.FunctionHandler(
+            UserActionRequest("user-1", new { action, reason = "fraud", newRole = "Buyer" }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        await _dynamoDb.Received(markers).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r => r.TableName == "reputation-events"
+                                           && r.Key["userId"].S == "user-1" && r.Key["eventId"].S.StartsWith("HEAL#")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Suspend_WhenTheHealMarkerFails_StillSucceeds()
+    {
+        _dynamoDb.UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "reputation-events"), Arg.Any<CancellationToken>())
+            .Returns<Task<UpdateItemResponse>>(_ => throw new AmazonDynamoDBException("throttled"));
+        var fn = new AdminFunction(_dynamoDb, UsersTable, cognitoAuth: CognitoWithPhone("+251911000001"))
+        {
+            ReputationPenaltiesEnabled = true,
+            ReputationEventsTable = "reputation-events"
+        };
+
+        var response = await fn.FunctionHandler(
+            UserActionRequest("user-1", new { action = "suspend", reason = "fraud" }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+    }
+
     [Fact]
     public async Task Unsuspend_ReEnablesCognitoUser()
     {

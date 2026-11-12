@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.14.0
+2.15.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -556,7 +556,7 @@ After a successful online login or registration, the mobile client stores the fo
 | `AUTH_022` | 400 | reset-password: confirmation code wrong, or missing (2.13.0) | Show "check the code" |
 | `AUTH_023` | 400 | reset-password: confirmation code expired | Offer a new code |
 | `AUTH_024` | 400 | reset-password: new password refused by the password policy, or missing (2.13.0) | Show password requirements |
-| `AUTH_025` | 403 | Account suspended (login, verify-otp, refresh) | Show "contact support", clear the session |
+| `AUTH_025` | 403 | Account suspended (login, verify-otp, refresh; since 2.15.0 also `POST /sync` and the write routes of `reputation-api.md` 8.4) | Show "contact support", clear the session |
 | `AUTH_026` | 403 | Refresh token belongs to another user (logout, 2.7.0) | Retry the logout once with a bearer minted from the refresh token (2.9.0), then clear the local session anyway |
 | `AUTH_027` | 400 | Register: `displayName`, `woreda` or `companyName` holds a phone number; `field` is the first of them (2.12.0) | Show "remove the phone number" on the registration screen; the Fayda proof is still valid, so resend after the fix |
 | `ACCOUNT_004` | 410 | `/user/fayda-start` or `/user/fayda-link` by an account that is being or has been deleted; carries `error.deletionState` (2.11.0, `account-deletion.md`) | `in_progress`: offer "Finish deleting"; otherwise wipe local data and go to login |
@@ -1066,6 +1066,7 @@ The refresh token lifetime is 7 days, not 30.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.15.0 | 2026-11-11 | Suspension blocks marketplace writes (ESC-29, `reputation-api.md` 1.2.0 section 8.4, closes the FRD-08 gap): a suspended caller's ID token no longer works on `POST /sync` (whole request `403 AUTH_025`, nothing applied), `POST /escrow/initiate`, `/escrow/order-checkout`, `/escrow/dispute`, `POST /user/fayda-start`, `POST /user/fayda-link`, `POST /device-tokens` and the two reputation POSTs, each from the caller row it already read for the deletion guard. Reads, `/escrow/release` and `/escrow/refund` are unchanged (the token dies with the Cognito sign-out). Clients: a `403 AUTH_025` from a route outside `/auth/` ends the session like a rejected refresh and keeps the sync queue; on `/auth/` routes it is still the sign-in answer. No new code |
 | 2.14.0 | 2026-11-07 | Client session rules (FUP-82, FUP-96): a token refresh that answers after its session was cleared or replaced writes nothing and signs nobody out (logout step 5); on web a tab clears the shared stored session only while it holds that tab's account (logout step 6); a web tab never sends, refreshes or retries with another account's bearer and signs itself out instead (invariant 11). Server unchanged |
 | 2.13.1 | 2026-11-07 | Doc only (ESC-14 drift pass): the changelog is newest first throughout; the 1.0.0 and 2.0.0 rows sat above 2.13.0. 2.5.0 was never used. No wire change |
 | 2.13.0 | 2026-11-06 | Error codes as served (SIM-27, Additions in 2.13.0): a missing, `null` or blank field answers that field's code with `field` set (it was `AUTH_007` "Invalid JSON" when the field was absent), on register, login, verify-otp, resend-otp, forgot-password, reset-password, refresh, logout and fayda-verify; verify-otp without a password is `AUTH_002` and reset-password without a code or new password `AUTH_022` / `AUTH_024` (they were `AUTH_007`); register without `preferredLanguage` uses `am` as documented (it was refused); the 400 uses of `AUTH_007` are documented. Docs only: the accepted phone spellings (`+251`, `00251`, local `0`, spaces and hyphens ignored) and their normalization to `+251`; `AUTH_019` is reserved and a revoked refresh token is `AUTH_018` because Cognito does not tell revoked from expired; the refresh token lives 7 days, not 30; reset-password codes `AUTH_022` to `AUTH_024` in the reference table. No client change |
@@ -1089,4 +1090,4 @@ The refresh token lifetime is 7 days, not 30.
 ---
 
 **Last Updated**: 2026-11-07
-**Version**: 2.13.1
+**Version**: 2.15.0

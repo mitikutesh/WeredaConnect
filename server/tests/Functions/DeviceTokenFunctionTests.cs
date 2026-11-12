@@ -587,6 +587,35 @@ public class DeviceTokenFunctionTests
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
     }
 
+    // ESC-29 (reputation-api.md 8.4): the same read refuses a suspended caller.
+    [Fact]
+    public async Task Register_ByASuspendedAccount_Returns403Auth025_AndCreatesNoEndpoint()
+    {
+        var users = Substitute.For<IUserRepository>();
+        users.GetUserByIdAsync("buyer-1", true).Returns(new UserDto
+        {
+            UserId = "buyer-1",
+            PhoneNumber = "+251911000003",
+            Role = "buyer",
+            Woreda = "Adama",
+            IsPhoneVerified = true,
+            Suspended = true,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+        var fn = new DeviceTokenFunction(_sns, _repo, PlatformAppArn, users);
+
+        var response = await fn.FunctionHandler(Req("buyer-1", new { token = "fcm-token-xyz" }), _ctx);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_025", response.Body);
+        await _sns.DidNotReceive().CreatePlatformEndpointAsync(
+            Arg.Any<CreatePlatformEndpointRequest>(), Arg.Any<CancellationToken>());
+        await _repo.DidNotReceive().PutAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
     [Fact]
     public async Task Register_ByALiveAccount_StillWorks()
     {

@@ -181,8 +181,9 @@ public class ReputationServiceTests
         var tier = _repo.RowsOf("farmer-1").Single(r => r.Code == ReputationCodes.TierChanged);
         tier.FromTier.Should().Be(ReputationTiers.Good);
         tier.ToTier.Should().Be(ReputationTiers.Warning);
-        // Warning still reads as good to buyers: no public change, no heal marker.
-        _repo.RowsOf("farmer-1").Should().NotContain(r => r.Code == ReputationCodes.Heal);
+        // ESC-29: the stored ownerTier is the internal tier, so a warning also refreshes the copies
+        // and leaves the heal marker (buyers still read it as good).
+        _repo.RowsOf("farmer-1").Should().Contain(r => r.Code == ReputationCodes.Heal);
 
         await Record(Candidate(ReputationCodes.LateCancel, "CANCEL#o2", T0.AddHours(1)));
         _repo.RowsOf("farmer-1").Count(r => r.Code == ReputationCodes.TierChanged).Should().Be(2);
