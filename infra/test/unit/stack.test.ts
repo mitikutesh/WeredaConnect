@@ -391,8 +391,8 @@ describe('ApiStack', () => {
     // plus GET /admin/escrows/{id}/ledger and GET /admin/orders/queue (ESC-24) → 76,
     // plus GET and POST /admin/users/{id}/reputation, GET /admin/reputation/appeals and POST
     // /admin/users/{id}/reputation/events/{eventId}/decision (ESC-32) → 80. FUP-05: the claim and
-    // unclaim actions share POST /admin/payouts/{escrowId}/{ref}/{action} with complete (no new route).
-    // Plus GET /intents (SIM-56, the buyer's own requests) → 81 total.
+    // unclaim actions share POST /admin/payouts/{escrowId}/{ref}/{action} with complete (no new route),
+    // and so does FUP-218's correct. Plus GET /intents (SIM-56, the buyer's own requests) → 81 total.
     template.resourceCountIs('AWS::ApiGatewayV2::Route', 81);
   });
 
@@ -993,7 +993,7 @@ describe('ApiStack', () => {
     }
   });
 
-  test('admin Lambda can put its claim and reference rows and read them, nothing else, on escrow-idempotency (FUP-02, FUP-05)', () => {
+  test('admin Lambda can put its claim and reference rows, read them and delete a corrected reference, nothing else, on escrow-idempotency (FUP-02, FUP-05, FUP-218)', () => {
     // The role's statements overflow into a managed policy, so read both kinds.
     const policies = {
       ...template.findResources('AWS::IAM::Policy'),
@@ -1011,8 +1011,9 @@ describe('ApiStack', () => {
       .filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'))
       .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
     // TransactWriteItems is authorized per item: a conditional Put needs PutItem only. FUP-05: a refused
-    // duplicate payout reference reads its item to name where the reference is used.
-    expect([...actions].sort()).toEqual(['dynamodb:GetItem', 'dynamodb:PutItem']);
+    // duplicate payout reference reads its item to name where the reference is used. FUP-218: a correction's
+    // transaction deletes the old reference item (a conditional Delete needs DeleteItem only).
+    expect([...actions].sort()).toEqual(['dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:PutItem']);
 
     const admin = Object.values(template.findResources('AWS::Lambda::Function')).find(
       (fn) => fn.Properties?.FunctionName === 'wereda-connect-dev-admin',
@@ -2299,6 +2300,22 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
         template.hasResourceProperties('AWS::Lambda::Function', {
           FunctionName: `wereda-connect-${envName}-${fn}`,
           Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'false' }) },
+        });
+      }
+    }
+  });
+
+  test('ESC-34: every environment keeps the pickup judgement off on sync and order-cron', () => {
+    const templates: [string, ReturnType<typeof liveTemplate>][] = [
+      ['dev', liveTemplate(environments['dev'])],
+      ['staging', liveTemplate(environments['staging'])],
+      ['prod', liveTemplate(environments['prod'])],
+    ];
+    for (const [envName, template] of templates) {
+      for (const fn of ['sync', 'order-cron']) {
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          FunctionName: `wereda-connect-${envName}-${fn}`,
+          Environment: { Variables: Match.objectLike({ PICKUP_CLASSIFICATION_ENABLED: 'false' }) },
         });
       }
     }

@@ -431,6 +431,60 @@ void main() {
     }
   });
 
+  // ESC-34, FUP-147 (sync-protocol.md 1.55.0): a pickup scan that reaches an
+  // order whose pickup was already judged is refused ORDER_DEADLINE_PASSED on
+  // a delivery operation. Like every ORDER_* refusal it is permanent: never
+  // resent, the local pickup goes back to the server's view (the handler gets
+  // the delivery operation), its waiting photo is rejected with it, and the
+  // user is told why.
+  group('a pickup refused after the pickup judgement', () {
+    for (final (status, message) in [
+      (
+        'pickedUp',
+        'ORDER_DEADLINE_PASSED: The pickup of this order was already judged, '
+            'so the scan was not applied. It was sent to support to review.',
+      ),
+      (
+        'delivered',
+        'ORDER_DEADLINE_PASSED: The pickup of this order was already judged, '
+            'so the scan was not applied. Contact support if the crops '
+            'changed hands.',
+      ),
+    ]) {
+      test('$status is permanent and reverted', () async {
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          data: '{"status":"$status","scannedQrNonce":"n","version":1}',
+        );
+        await enqueue(
+          'op-photo',
+          entityType: 'delivery_photo',
+          entityId: status == 'pickedUp' ? 'del-1#pickup' : 'del-1#dropoff',
+          data: '{"photoRef":"uploads/photos/del-1/pickup-1.webp"}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await isRejected('op-photo'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.operationId, 'op-1');
+        expect(reverts.single.$1.entityType, 'delivery');
+        expect(reverts.single.$2, message);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        // A reconnect sends nothing.
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+  });
+
   // FUP-138: a handoff without the farmer's QR nonce gets the same answer
   // every time (the op carries none, or the farmer's never reached the
   // server in 14 days), so it is never resent; the local pickup or delivery

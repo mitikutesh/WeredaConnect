@@ -426,6 +426,49 @@ public sealed record ManualPayoutClaimResponse
     public string? Message { get; init; }
 }
 
+/// <summary>
+/// FUP-218: POST /admin/payouts/{escrowId}/{ref}/correct body. Replaces the portal reference of a leg an admin
+/// recorded by mistake.
+/// </summary>
+public sealed record CorrectPayoutReferenceRequest
+{
+    /// <summary>The reference the leg carries now, as the page showed it (the correction is refused if it moved).</summary>
+    public string? OldExternalRef { get; init; }
+
+    /// <summary>The Telebirr merchant-portal transaction id of the leg's real payment.</summary>
+    public string? ExternalRef { get; init; }
+
+    /// <summary>Why the recorded reference is wrong: 10 to 500 characters after trimming.</summary>
+    public string? Reason { get; init; }
+}
+
+/// <summary>FUP-218: the answer of a reference correction.</summary>
+public sealed record CorrectPayoutReferenceResponse
+{
+    public required string EscrowId { get; init; }
+    public string? OrderId { get; init; }
+
+    /// <summary>The 1.x leg name or the ledger ref.</summary>
+    public required string Ref { get; init; }
+
+    public required string OldExternalRef { get; init; }
+
+    /// <summary>The reference the leg carries now.</summary>
+    public required string ExternalRef { get; init; }
+
+    /// <summary>The trimmed reason, as recorded in the audit rows.</summary>
+    public required string Reason { get; init; }
+
+    /// <summary>The admin who corrected it and when; null on a replay (nothing was written by this call).</summary>
+    public string? CorrectedBy { get; init; }
+    public string? CorrectedAt { get; init; }
+
+    /// <summary>True when the leg already carried the new reference: nothing was written and no audit row added.</summary>
+    public bool AlreadyCorrected { get; init; }
+
+    public string? Message { get; init; }
+}
+
 // ──────────────────────────────────────────────
 // Manual refund of an unapplied payment (FUP-02, admin)
 // ──────────────────────────────────────────────
@@ -616,6 +659,13 @@ public sealed record EscrowDto
 
     /// <summary>ESC-24, admin responses only: the split an admin recorded with a <c>partial_refund</c> verdict (ESC-20).</summary>
     public VerdictAmountsDto? VerdictAmounts { get; init; }
+
+    /// <summary>
+    /// FUP-218, admin responses only: the legs of a 1.x escrow's manual payout (1.8.0), open or closed, so the escrow
+    /// page can correct a reference recorded by mistake. Null when the escrow never entered the queue. Party reads
+    /// never fill it.
+    /// </summary>
+    public List<AdminManualLegDto>? ManualLegs { get; init; }
 }
 
 /// <summary>
@@ -691,10 +741,17 @@ public sealed record EscrowSummaryDto
     public string? ExpiresAt { get; init; }
 
     /// <summary>
+    /// When the delivery was confirmed (as on <see cref="EscrowDto.DeliveryConfirmedAt"/>); null before.
+    /// FUP-97: a confirmed hold waits for its release, so a client never reads its past
+    /// <see cref="ExpiresAt"/> as a refund.
+    /// </summary>
+    public string? DeliveryConfirmedAt { get; init; }
+
+    /// <summary>
     /// True while the money is still held but on its way back to the buyer: the
     /// order was cancelled or rejected (refund scheduled), or the hold expired
-    /// and the refund sweep has not run yet. Clients label such rows
-    /// "Refund pending", never "Funds held safely". SIM-20.
+    /// before its delivery was confirmed and the refund sweep has not run yet.
+    /// Clients label such rows "Refund pending", never "Funds held safely". SIM-20, FUP-97.
     /// </summary>
     public bool RefundPending { get; init; }
 

@@ -319,9 +319,12 @@ aws logs filter-log-events --log-group-name /aws/lambda/wereda-connect-<env>-esc
 
   Each line names the reference, the leg that holds it (`heldBy=<escrowId>/<leg or ledger
   ref>`) and the other one (`alsoOn=`), with the admins who recorded them (a ledger ref
-  shows `:` for `#`). Check both payments in the merchant portal and follow the
-  correction procedure of escrow-protocol 2.12.0 (known limits, FUP-218). Never delete or
-  edit the reference item by hand to make room.
+  shows `:` for `#`). Check both payments in the merchant portal. The leg whose record is
+  wrong is corrected by an admin on its escrow page (Correct reference, escrow-protocol
+  2.18.0); a leg that was never paid at all still follows the escalation of 2.12.0 (known
+  limits). Never delete or edit the reference item by hand to make room. When the leg
+  corrected was the one holding the item, the other leg has no item until the backfill
+  reads it again: remove the marker (below) and run it once more.
 - `skippedLegs` above 0: a recorded leg without a readable `manual{Leg}PaidAt`
   (`PAYOUT_REF_BACKFILL_SKIPPED`, bad data only); escalate it.
 

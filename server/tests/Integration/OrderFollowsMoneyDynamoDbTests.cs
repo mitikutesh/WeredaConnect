@@ -691,6 +691,7 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         public Task<List<Dictionary<string, object>>> QueryByListingAsync(string listingId) => inner.QueryByListingAsync(listingId);
         public Task<Dictionary<string, object>?> TryAdvanceStatusUnlessAsync(string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields, string unlessField, string unlessValue) => inner.TryAdvanceStatusUnlessAsync(orderId, fromStatus, toStatus, extraFields, unlessField, unlessValue);
         public Task<bool> TryStampAsync(string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expectedStrings) => inner.TryStampAsync(orderId, fields, expectedStrings);
+        public Task<bool> TryRecordCheckInAsync(string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen) => inner.TryRecordCheckInAsync(orderId, createdAt, kind, entry, whileOpen);
 
         public Task<AuthResult<Dictionary<string, object>>> CreateAsync(string orderId, Dictionary<string, object> data) => inner.CreateAsync(orderId, data);
         public Task<AuthResult<Dictionary<string, object>>> UpdateAsync(string orderId, Dictionary<string, object> data, int expectedVersion) => inner.UpdateAsync(orderId, data, expectedVersion);
@@ -711,6 +712,7 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryMoneySweepPageAsync(string status, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => inner.QueryMoneySweepPageAsync(status, limit, exclusiveStartKey);
         public Task<bool> TryMarkMoneySweepSkipAsync(string orderId, string status, string markedAt) => inner.TryMarkMoneySweepSkipAsync(orderId, status, markedAt);
         public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDueDeadlinesAsync(string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => inner.QueryDueDeadlinesAsync(dueBefore, limit, exclusiveStartKey);
+        public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDeadlinePartitionAsync(string shard, string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => inner.QueryDeadlinePartitionAsync(shard, dueBefore, limit, exclusiveStartKey);
         public Task<bool> TrySetDeadlineAsync(string orderId, string createdAt, int expectedVersion, OrderDeadline? deadline) => inner.TrySetDeadlineAsync(orderId, createdAt, expectedVersion, deadline);
         public Task<bool> TryHoldForPaymentAsync(string orderId, string holdUntil, string? paymentSubmittedAt) => inner.TryHoldForPaymentAsync(orderId, holdUntil, paymentSubmittedAt);
         public Task<bool> TryMarkPaymentFailedAsync(string orderId, int expectedVersion, string nowIso) => inner.TryMarkPaymentFailedAsync(orderId, expectedVersion, nowIso);

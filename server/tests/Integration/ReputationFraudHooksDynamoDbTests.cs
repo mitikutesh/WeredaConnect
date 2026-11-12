@@ -337,6 +337,47 @@ public sealed class ReputationFraudHooksDynamoDbTests
         (await Fraud().HasSignalAsync(trucker, signal, order)).Should().BeTrue();
     }
 
+    [LocalDynamoDbFact]
+    public async Task FUP204_ATruckerWhoKeepsReportingOneFarmer_AddsOneNoShowRow_AndAllReportersTwo()
+    {
+        // Each farmer no-show rests on a trucker's arrival check-in (rule R11), so the NO_SHOW signal is a
+        // write the trucker's report causes on the farmer: the attribution guard bounds it. One trucker
+        // drives three judgements against one farmer (three orders): one row and one source slot. A second
+        // trucker takes the farmer's second slot (its row then meets the hour key of the first: fewer rows,
+        // never more); a third finds both of the farmer's slots taken. The events and their points stand.
+        var farmer = Id("farmer-noshow");
+        var (t1, t2, t3) = (Id("trucker-n1"), Id("trucker-n2"), Id("trucker-n3"));
+        await SeedUserAsync(farmer, "farmer");
+
+        async Task JudgedAbsent(string order, string reporter)
+        {
+            var candidate = Candidate(farmer, "farmer", ReputationCodes.NoShow, ReputationSlots.NoShow, Id(order), Id("buyer-n"))
+                with { ReportedBy = reporter };
+            (await Reputation().RecordAsync(candidate, timeoutPenaltiesOn: false, _logger))
+                .Should().Be(ReputationRecordResult.Recorded);
+        }
+
+        await JudgedAbsent("n-o1", t1);
+        await JudgedAbsent("n-o2", t1);
+        await JudgedAbsent("n-o3", t1);
+        var first = (await SignalsOf(farmer)).Should().ContainSingle().Subject;
+        first["signalType"].S.Should().Be("NO_SHOW");
+        first[FraudDetectionService.SourceUserIdAttribute].S.Should().Be(t1);
+        first["entityId"].S.Should().Be(Id("n-o1"));
+
+        await JudgedAbsent("n-o4", t2);
+        await JudgedAbsent("n-o5", t3);
+
+        var prefix = $"{FraudDetectionService.AttributionSlotPrefix}NO_SHOW#";
+        (await SlotsOf(farmer)).Should().BeEquivalentTo(
+            $"{prefix}slot#1", $"{prefix}slot#2", $"{prefix}source#{t1}", $"{prefix}source#{t2}", $"{prefix}source#{t3}");
+        // The second row lands only when the hour turned between the two writes; the third reporter's never.
+        var rows = await SignalsOf(farmer);
+        rows.Count.Should().BeInRange(1, 2);
+        rows.Select(r => r[FraudDetectionService.SourceUserIdAttribute].S).Should().NotContain(t3);
+        (await Fraud().GetUserRiskScoreAsync(farmer)).Score.Should().BeLessThanOrEqualTo(30, "other users' reports never pass the guard's caps");
+    }
+
     // ===== the buyer decline pattern =====
 
     [LocalDynamoDbFact]

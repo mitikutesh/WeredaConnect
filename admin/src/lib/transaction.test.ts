@@ -91,10 +91,10 @@ describe("deriveStage", () => {
       const tr = (key: string) => translate(key, locale);
       expect(orderStatusLabel("awaiting_transport", tr)).not.toBe("awaiting_transport");
       expect(tr("transactions.action_trucker_responded")).not.toBe("transactions.action_trucker_responded");
-      for (const r of ["pending", "accepted", "declined", "expired", "cancelled", "not_asked", "failed_capacity", "none"]) {
+      for (const r of ["pending", "accepted", "declined", "expired", "cancelled", "not_asked", "failed_capacity", "none", "no_show"]) {
         expect(commitmentResponseLabel(r, tr)).not.toBe(r);
       }
-      for (const f of ["trucker_declined", "trucker_expired", "trucker_cancelled", "trip_cancelled", "trip_full"]) {
+      for (const f of ["trucker_declined", "trucker_expired", "trucker_cancelled", "trip_cancelled", "trip_full", "trucker_no_show"]) {
         expect(transportFailureLabel(f, tr)).not.toBe(f);
       }
       for (const p of ["buyer", "farmer", "trucker", "system"]) {
@@ -130,6 +130,10 @@ describe("admin queue label (ESC-06)", () => {
     for (const locale of ["en", "am", "om"] as const) {
       const tr = (key: string) => translate(key, locale);
       expect(adminQueueLabel("hold_cap", tr)).not.toBe("hold_cap");
+      // ESC-34: the pickup judgement's queue reasons.
+      for (const r of ["both_present_no_scan", "unchecked_check_in", "late_pickup_evidence"]) {
+        expect(adminQueueLabel(r, tr)).not.toBe(r);
+      }
       expect(tr("transactions.adminQueue")).not.toBe("transactions.adminQueue");
       expect(tr("transactions.pickupDeadline")).not.toBe("transactions.pickupDeadline");
       expect(adminQueueLabel("t11_verdict", tr)).toBe("t11_verdict");

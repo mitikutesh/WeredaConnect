@@ -42,6 +42,8 @@ public class OrderCronDeadlineSweepTests
     {
         _orders.QueryDueDeadlinesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
+        _orders.QueryDeadlinePartitionAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
         _orders.QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>())
             .Returns(new List<Dictionary<string, object>>());
         _orders.UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
@@ -432,7 +434,7 @@ public class OrderCronDeadlineSweepTests
     }
 
     [Fact]
-    public async Task UnreadableDelivery_WithNothingElsePending_LeavesTheIndex()
+    public async Task UnreadableDelivery_WithOnlyThePickupWaitLeft_MovesToTheWatchPartition()
     {
         _trips.GetByIdAsync(TripId).Returns(new Dictionary<string, object> { { "tripId", TripId }, { "status", "cancelled" } });
         _deliveries.GetByIdAsync(DeliveryId).ThrowsAsync(new AmazonDynamoDBException("throttled"));
@@ -443,10 +445,51 @@ public class OrderCronDeadlineSweepTests
         row[OrderDeadlines.ShardField] = OrderDeadlines.Shard;
         IndexServes(row);
 
+        var actual = await RunAsync();
+
+        // FUP-170: nothing in it is the sweep's, so no retry an hour later: the wait at its pickup deadline.
+        var write = Assert.Single(_deadlineWrites);
+        Assert.Equal(OrderDeadlines.Next(row), write.Deadline);
+        Assert.Equal(OrderDeadlines.Kind.PickupWaiting, write.Deadline?.Kind);
+        Assert.Equal(OrderDeadlines.WatchShard, write.Deadline?.Shard);
+        Assert.Contains("\"retried\":\"0\"", actual.Body);
+        Assert.DoesNotContain(OrderCronFunction.DeadlineStuckToken, Logs);
+    }
+
+    [Fact]
+    public async Task LaggingEntryOfANotifiedPickup_IsNotStuck_ItMovesToTheWatchPartition_AndNothingIsDecided()
+    {
+        var row = AcceptedOnTrip(HoursFromNow(-3));
+        row[OrderCommitment.PickupOverdueNotifiedAtField] = Iso(HoursFromNow(-2));
+        row[OrderDeadlines.AtField] = Iso(HoursFromNow(-3));
+        row[OrderDeadlines.KindField] = OrderDeadlines.Kind.PickupOverdue;
+        row[OrderDeadlines.ShardField] = OrderDeadlines.Shard;
+        IndexServes(row);
+
+        var actual = await RunAsync();
+
+        Assert.Contains("\"restamped\":\"1\"", actual.Body);
+        Assert.Contains("\"pickupOverdue\":\"0\"", actual.Body);
+        var write = Assert.Single(_deadlineWrites);
+        Assert.Equal(OrderDeadlines.Kind.PickupWaiting, write.Deadline?.Kind);
+        Assert.Equal(OrderDeadlines.Next(row)!.Value.At, write.Deadline?.At);
+        Assert.DoesNotContain(OrderCronFunction.DeadlineStuckToken, Logs);
+        await _orders.DidNotReceive().TryStampAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(),
+            Arg.Any<IReadOnlyDictionary<string, string>>());
+        await AssertNoCancel();
+        await AssertNoRefund();
+    }
+
+    [Fact]
+    public async Task Sweep_NeverReadsTheWatchPartition()
+    {
+        IndexServes(FarmerExpired());
+
         await RunAsync();
 
-        var write = Assert.Single(_deadlineWrites);
-        Assert.Null(write.Deadline);
+        await _orders.Received(1).QueryDueDeadlinesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+        await _orders.DidNotReceive().QueryDeadlinePartitionAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
     }
 
     [Fact]
@@ -512,14 +555,66 @@ public class OrderCronDeadlineSweepTests
         Assert.Contains("\"stamped\":\"2\"", actual.Body);
         Assert.Contains("\"conflicts\":\"1\"", actual.Body);
         Assert.Equal(
-            new[] { ("ord-legacy", (OrderDeadline?)OrderDeadlines.Next(unstamped)), ("ord-stale", (OrderDeadline?)null) },
+            new[] { ("ord-legacy", OrderDeadlines.Next(unstamped)), ("ord-stale", OrderDeadlines.Next(stale)) },
             _deadlineWrites.Select(w => (w.OrderId, w.Deadline)).ToArray());
         Assert.Equal(OrderDeadlines.Kind.FarmerResponse, OrderDeadlines.Next(unstamped)?.Kind);
+        // FUP-170: a notified pickup moves to the watch partition (also the backfill of the waits in flight).
+        Assert.Equal(OrderDeadlines.Kind.PickupWaiting, OrderDeadlines.Next(stale)?.Kind);
         // It only stamps: the expired farmer window is the sweep's to settle.
         await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
         await _orders.DidNotReceive().TryStampAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(),
             Arg.Any<IReadOnlyDictionary<string, string>>());
         await _orders.DidNotReceive().QueryDueDeadlinesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+        await AssertNoRefund();
+    }
+
+    [Fact]
+    public async Task Repair_ReadsTheWatchPartition_TakesOutAnEntryItsOrderNoLongerGives_AndDecidesNothing()
+    {
+        // Picked up, but the write that did it could not take the wait out of the index.
+        var picked = Order("ord-picked", "pickup_confirmed",
+            (PickupDeadline.Field, PickupDeadline.Format(HoursFromNow(-30))),
+            (OrderCommitment.PickupOverdueNotifiedAtField, Iso(HoursFromNow(-29))),
+            (OrderDeadlines.AtField, Iso(HoursFromNow(-30))),
+            (OrderDeadlines.KindField, OrderDeadlines.Kind.PickupWaiting),
+            (OrderDeadlines.ShardField, OrderDeadlines.WatchShard));
+        // Still waiting, its entry right.
+        var waiting = AcceptedOnTrip(HoursFromNow(-20), "ord-waiting");
+        waiting[OrderCommitment.PickupOverdueNotifiedAtField] = Iso(HoursFromNow(-19));
+        var due = OrderDeadlines.Next(waiting)!.Value;
+        waiting[OrderDeadlines.AtField] = due.AtIso;
+        waiting[OrderDeadlines.KindField] = due.Kind;
+        waiting[OrderDeadlines.ShardField] = OrderDeadlines.WatchShard;
+        _orders.GetByIdAsync("ord-picked", true).Returns(picked);
+        _orders.GetByIdAsync("ord-waiting", true).Returns(waiting);
+        _orders.GetByIdAsync("ord-deleted", true).Returns((Dictionary<string, object>?)null);
+        var page2 = Key("ord-waiting");
+        _orders.QueryDeadlinePartitionAsync(Arg.Is(OrderDeadlines.WatchShard), Arg.Any<string>(), Arg.Any<int>(),
+                Arg.Is<Dictionary<string, AttributeValue>?>(k => k == null))
+            .Returns((new List<Dictionary<string, object>> { IndexCopy("ord-picked"), IndexCopy("ord-waiting") }, page2));
+        _orders.QueryDeadlinePartitionAsync(Arg.Is(OrderDeadlines.WatchShard), Arg.Any<string>(), Arg.Any<int>(), Arg.Is(page2))
+            .Returns((new List<Dictionary<string, object>> { IndexCopy("ord-deleted") }, (Dictionary<string, AttributeValue>?)null));
+
+        var actual = await RunAsync("deadline_repair");
+
+        Assert.Contains("\"outcome\":\"ok\"", actual.Body);
+        Assert.Contains("\"read\":\"2\"", actual.Body);
+        Assert.Contains("\"stamped\":\"1\"", actual.Body);
+        var write = Assert.Single(_deadlineWrites);
+        Assert.Equal(("ord-picked", 4, (OrderDeadline?)null), (write.OrderId, write.Version, write.Deadline));
+        var reads = _orders.ReceivedCalls().Where(c => c.GetMethodInfo().Name == nameof(IOrderRepository.QueryDeadlinePartitionAsync))
+            .Select(c => c.GetArguments()).ToList();
+        Assert.Equal(2, reads.Count);
+        Assert.All(reads, args =>
+        {
+            Assert.Equal(OrderDeadlines.WatchShard, args[0]);
+            Assert.True(string.CompareOrdinal((string)args[1]!, Iso(DateTime.UtcNow.AddYears(100))) > 0, "every entry of the partition");
+            Assert.Equal(OrderCronFunction.DeadlinePageSize, args[2]);
+        });
+        await _orders.DidNotReceive().TryStampAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(),
+            Arg.Any<IReadOnlyDictionary<string, string>>());
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await AssertNoCancel();
         await AssertNoRefund();
     }
 

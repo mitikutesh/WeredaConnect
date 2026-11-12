@@ -382,7 +382,9 @@ public sealed class OrderRepository : IOrderRepository
         // ESC-16: the read above is consistent and the write checks the version, so the deadline is
         // derived from the row as written, except for a marker stamp (no version bump) that lands
         // between the read and the write. No check after the write: such a row is due early at worst,
-        // and the sweep re-reads it and sets its correct deadline when it comes due.
+        // and the sweep re-reads it and sets its correct deadline when it comes due. A `watch` entry
+        // (FUP-170) left on a row that moved on that way is never swept; the daily repair's watch walk
+        // removes it, and the admin listing drops it meanwhile.
         var removeParts = new List<string>();
         var deadline = AppendDeadline(DynamoDbHelper.FromItem(written), updateParts, removeParts, attrNames, attrValues);
         if (deadline.Added)
@@ -1199,6 +1201,75 @@ public sealed class OrderRepository : IOrderRepository
         return true;
     }
 
+    /// <inheritdoc />
+    public async Task<bool> TryRecordCheckInAsync(
+        string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen)
+    {
+        var names = new Dictionary<string, string>
+        {
+            { "#ci", PickupJudgement.CheckInsField },
+            { "#kind", kind }
+        };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":entry", DynamoDbHelper.ToAttributeValue(entry) }
+        };
+        var open = string.Empty;
+        if (whileOpen)
+        {
+            names["#status"] = "status";
+            names["#pj"] = PickupJudgement.Field;
+            values[":accepted"] = new AttributeValue { S = "accepted" };
+            values[":pending"] = new AttributeValue { S = PickupJudgement.Outcome.Pending };
+            open = " AND #status = :accepted AND #pj = :pending";
+        }
+
+        // The map is stamped (empty) with pickupJudgement, so the entry goes into it. A row whose map is
+        // missing gets the map with this one entry instead; a document path into a missing map would fail.
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, createdAt),
+                UpdateExpression = "SET #ci.#kind = :entry",
+                ConditionExpression = "attribute_exists(orderId) AND attribute_exists(#ci) AND attribute_not_exists(#ci.#kind)" + open,
+                ExpressionAttributeNames = names,
+                ExpressionAttributeValues = values
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // The kind is taken, the order moved on, or the map is missing: try the last one only.
+        }
+
+        var withMap = new Dictionary<string, AttributeValue>(values)
+        {
+            [":map"] = DynamoDbHelper.ToAttributeValue(new Dictionary<string, object> { { kind, entry } })
+        };
+        withMap.Remove(":entry");
+        var mapNames = new Dictionary<string, string>(names);
+        mapNames.Remove("#kind");
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, createdAt),
+                UpdateExpression = "SET #ci = :map",
+                ConditionExpression = "attribute_exists(orderId) AND attribute_not_exists(#ci)" + open,
+                ExpressionAttributeNames = mapNames,
+                ExpressionAttributeValues = withMap
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Order attributes a status or stamp write never takes from its caller's field map: the keys,
     /// the version and timestamp the write owns, the status (set by the write itself or not at all),
@@ -1215,8 +1286,13 @@ public sealed class OrderRepository : IOrderRepository
     internal const string DeadlineStampFailedToken = "ORDER_DEADLINE_STAMP_FAILED";
 
     /// <inheritdoc />
-    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDueDeadlinesAsync(
+    public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDueDeadlinesAsync(
         string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
+        => QueryDeadlinePartitionAsync(OrderDeadlines.Shard, dueBefore, limit, exclusiveStartKey);
+
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDeadlinePartitionAsync(
+        string shard, string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
     {
         if (limit < 1 || limit > 100)
         {
@@ -1235,7 +1311,7 @@ public sealed class OrderRepository : IOrderRepository
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
-                { ":shard", new AttributeValue { S = OrderDeadlines.Shard } },
+                { ":shard", new AttributeValue { S = shard } },
                 { ":due", new AttributeValue { S = dueBefore } }
             },
             Limit = limit,
@@ -1354,7 +1430,7 @@ public sealed class OrderRepository : IOrderRepository
         {
             attrValues[":ndAt"] = new AttributeValue { S = due.AtIso };
             attrValues[":ndKind"] = new AttributeValue { S = due.Kind };
-            attrValues[":ndShard"] = new AttributeValue { S = OrderDeadlines.Shard };
+            attrValues[":ndShard"] = new AttributeValue { S = due.Shard };
             setParts.Add("#ndAt = :ndAt");
             setParts.Add("#ndKind = :ndKind");
             setParts.Add("#ndShard = :ndShard");
@@ -1410,7 +1486,7 @@ public sealed class OrderRepository : IOrderRepository
         {
             row[OrderDeadlines.AtField] = due.AtIso;
             row[OrderDeadlines.KindField] = due.Kind;
-            row[OrderDeadlines.ShardField] = OrderDeadlines.Shard;
+            row[OrderDeadlines.ShardField] = due.Shard;
             return;
         }
 
@@ -1426,7 +1502,7 @@ public sealed class OrderRepository : IOrderRepository
         {
             row[OrderDeadlines.AtField] = new AttributeValue { S = due.AtIso };
             row[OrderDeadlines.KindField] = new AttributeValue { S = due.Kind };
-            row[OrderDeadlines.ShardField] = new AttributeValue { S = OrderDeadlines.Shard };
+            row[OrderDeadlines.ShardField] = new AttributeValue { S = due.Shard };
             return;
         }
 

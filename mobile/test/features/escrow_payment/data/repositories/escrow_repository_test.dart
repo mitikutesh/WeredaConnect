@@ -569,6 +569,37 @@ void main() {
         );
       });
 
+      test(
+          'a confirmed hold past its expiry is cached as confirmed and does '
+          'not read as a refund (FUP-97)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(() => apiClient.get<Map<String, dynamic>>(any())).thenAnswer(
+          (_) async => {
+            'escrowId': 'esc-001',
+            'status': 'escrowed',
+            'createdAt': '2026-02-17T10:00:00Z',
+            'updatedAt': '2026-02-23T10:00:00Z',
+            'expiresAt': '2026-02-24T10:00:00Z',
+            'deliveryConfirmedAt': '2026-02-23T10:00:00Z',
+            'disputeWindowEndsAt': '2026-02-25T10:00:00Z',
+            'refundPending': false,
+          },
+        );
+
+        final payment = await repository.refreshEscrow('esc-001');
+
+        expect(
+          payment!.deliveryConfirmedAt!.toUtc(),
+          DateTime.utc(2026, 2, 23, 10),
+        );
+        expect(payment.isRefundPending, isFalse);
+        // Offline, the cached row keeps it: its past expiry is no refund.
+        final cached = await repository.getEscrow('esc-001');
+        expect(cached!.deliveryConfirmedAt, isNotNull);
+        expect(cached.isRefundPending, isFalse);
+      });
+
       test('falls back to cache when offline', () async {
         await _insertTestPayment(isar);
 
@@ -636,6 +667,7 @@ void main() {
         bool? refundPending,
         String? refundReason,
         String? releaseNotBefore,
+        String? deliveryConfirmedAt,
       }) =>
           {
             'escrows': [
@@ -656,6 +688,8 @@ void main() {
                 if (refundReason != null) 'refundReason': refundReason,
                 if (releaseNotBefore != null)
                   'releaseNotBefore': releaseNotBefore,
+                if (deliveryConfirmedAt != null)
+                  'deliveryConfirmedAt': deliveryConfirmedAt,
                 'currency': 'ETB',
                 'status': 'escrowed',
                 'createdAt': '2026-03-01T10:00:00.0000000Z',
@@ -816,6 +850,97 @@ void main() {
         );
         expect(row.refundPending, isTrue);
         expect(row.refundReason, 'order_cancelled');
+        expect(row.isRefundPending, isTrue);
+      });
+
+      // FUP-97: each party's cached row of a confirmed hold past its expiry
+      // waits for the payout; it never reads "Refund pending" offline.
+      for (final role in const ['buyer', 'farmer', 'trucker']) {
+        test(
+            '$role: a confirmed hold past its expiry is not a refund on the '
+            'cached row (FUP-97)', () async {
+          when(() => connectivityMonitor.isConnected())
+              .thenAnswer((_) async => true);
+          when(
+            () => apiClient.get<Map<String, dynamic>>(
+              any(),
+              queryParameters: any(named: 'queryParameters'),
+            ),
+          ).thenAnswer(
+            (_) async => summaryJson(
+              farmerPayout: 1362.5,
+              truckerPayout: 100.0,
+              truckerId: 'trucker-001',
+              expiresAt: '2026-03-01T10:05:00.000Z',
+              deliveryConfirmedAt: '2026-03-01T09:00:00.000Z',
+              refundPending: false,
+              releaseNotBefore:
+                  role == 'buyer' ? null : '2099-03-04T10:00:00.000Z',
+            ),
+          );
+
+          await repository.refreshHistory(
+            userId: '$role-001',
+            roleFilter: role,
+          );
+
+          final row = (await repository.getHistory(userId: '$role-001')).single;
+          expect(
+            row.deliveryConfirmedAt!.toUtc(),
+            DateTime.parse('2026-03-01T09:00:00.000Z'),
+          );
+          expect(row.isRefundPending, isFalse);
+        });
+      }
+
+      test(
+          'keeps a cached confirmation when the summary carries none, so the '
+          'row does not turn into a refund (FUP-97)', () async {
+        final cached =
+            await _insertTestPayment(isar, paymentId: 'escrow-order-ord-1');
+        cached.deliveryConfirmedAt = DateTime.utc(2026, 3, 1, 9);
+        await isar.writeTxn(() => isar.payments.put(cached));
+
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer(
+          (_) async => summaryJson(expiresAt: '2026-03-01T10:05:00.000Z'),
+        );
+
+        await repository.refreshHistory(userId: 'buyer-001');
+
+        final row = (await repository.getHistory(userId: 'buyer-001')).single;
+        expect(row.deliveryConfirmedAt!.toUtc(), DateTime.utc(2026, 3, 1, 9));
+        expect(row.isRefundPending, isFalse);
+      });
+
+      test(
+          'a refund the server scheduled on a confirmed hold still reads as '
+          'one (FUP-97)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer(
+          (_) async => summaryJson(
+            expiresAt: '2026-03-01T10:05:00.000Z',
+            deliveryConfirmedAt: '2026-03-01T09:00:00.000Z',
+            refundPending: true,
+            refundReason: 'admin_refund',
+          ),
+        );
+
+        await repository.refreshHistory(userId: 'buyer-001');
+
+        final row = (await repository.getHistory(userId: 'buyer-001')).single;
         expect(row.isRefundPending, isTrue);
       });
 

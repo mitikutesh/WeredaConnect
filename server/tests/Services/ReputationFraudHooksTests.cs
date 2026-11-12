@@ -116,6 +116,39 @@ public class ReputationFraudHooksTests
     }
 
     [Fact]
+    public async Task FUP204_AFarmerNoShowReportedByTheTrucker_GoesThroughTheAttributionGuard()
+    {
+        // The judgement rests on the trucker's own check-in: a signal written at the trucker's request.
+        await Record(Candidate(ReputationCodes.NoShow, "NOSHOW#o1", user: "farmer-1", party: "farmer") with { ReportedBy = "trucker-1" });
+
+        await _fraud.Received(1).RecordAttributedSignalAsync(
+            "farmer-1", "trucker-1", "NO_SHOW", "o1", "order", Arg.Is<string?>(d => d!.Contains("farmer")));
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task FUP204_ATruckerNoShow_RestsOnTheTruckerAlone_AndIsWrittenPlainly()
+    {
+        await Record(Candidate(ReputationCodes.NoShow, "NOSHOW#o1"));
+
+        await _fraud.Received(1).RecordFraudSignalAsync("trucker-1", "NO_SHOW", "o1", "order", Arg.Any<string?>());
+        await _fraud.DidNotReceiveWithAnyArgs().RecordAttributedSignalAsync(default!, default!, default!, default!, default!, default);
+    }
+
+    [Fact]
+    public async Task FUP204_AGuardThatThrows_NeverFailsTheEvent()
+    {
+        _fraud.RecordAttributedSignalAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<string?>())
+            .ThrowsAsync(new ProvisionedThroughputExceededException("slow down"));
+
+        (await Record(Candidate(ReputationCodes.NoShow, "NOSHOW#o1", user: "farmer-1", party: "farmer") with { ReportedBy = "trucker-1" }))
+            .Should().Be(ReputationRecordResult.Recorded);
+        _logger.Buffer.ToString().Should().Contain($"{ReputationFraudHooks.FailedToken} hook=reliability code=NO_SHOW");
+    }
+
+    [Fact]
     public async Task AReplayedEvent_WritesNoSecondSignal()
     {
         var candidate = Candidate(ReputationCodes.NoShow, "NOSHOW#o1");

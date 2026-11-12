@@ -104,6 +104,8 @@ describe("StuckOrdersPage (ESC-24)", () => {
             stuck({ orderId: "ord-2", status: "funded", reason: "farmer_response", ageHours: 2, truckerId: undefined, truckerName: undefined }),
             stuck({ orderId: "ord-3", status: "awaiting_transport", reason: "buyer_choice", ageHours: 5, buyerName: undefined }),
             stuck({ orderId: "ord-4", status: "funded", reason: "a_new_reason", ageHours: 1 }),
+            // FUP-170: an accepted order past its pickup deadline whose notice went out.
+            stuck({ orderId: "ord-5", status: "accepted", reason: "pickup_waiting", ageHours: 30 }),
           ],
         },
       ],
@@ -114,7 +116,7 @@ describe("StuckOrdersPage (ESC-24)", () => {
     await user.click(screen.getByRole("button", { name: "Missed deadlines" }));
 
     const rows = within(screen.getByRole("table")).getAllByRole("row");
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(5);
     expect(within(rows[1]).getByText("Paid, the farmer did not answer in time")).toBeTruthy();
     expect(within(rows[1]).getByText("2 h")).toBeTruthy();
     expect(within(rows[1]).getByText("No trucker")).toBeTruthy();
@@ -122,6 +124,8 @@ describe("StuckOrdersPage (ESC-24)", () => {
     expect(within(rows[2]).getByText("buyer-1")).toBeTruthy();
     expect(within(rows[3]).getByText("a_new_reason")).toBeTruthy();
     expect(within(rows[3]).getByRole("link", { name: "ord-4" }).getAttribute("href")).toBe("/transactions/ord-4");
+    expect(within(rows[4]).getByText("Pickup overdue, the notice was sent, still not picked up")).toBeTruthy();
+    expect(within(rows[4]).getByText("30 h")).toBeTruthy();
   });
 
   it("loads the next page on demand, also when the page before it was empty", async () => {

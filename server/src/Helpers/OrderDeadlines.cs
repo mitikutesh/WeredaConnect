@@ -27,6 +27,14 @@ namespace WeredaConnect.Server.Helpers;
 /// writes are far below one partition's limits; should they ever not be, the shard becomes a hash of
 /// the order id and the sweep reads each shard.
 /// </para>
+/// <para>
+/// FUP-170: one kind is not the sweep's. <see cref="Kind.PickupWaiting"/> (an <c>accepted</c> order past
+/// its pickup deadline whose notice went out) is kept in its own partition, <see cref="WatchShard"/>,
+/// which the sweep never reads, so the admin's Stuck Orders can list the order with a Query until its
+/// pickup or its cancel, and the sweep's oldest-first read is never held up by orders that only wait.
+/// The partition of an entry follows from its kind (<see cref="ShardOf"/>). ESC-34's
+/// <see cref="Kind.PickupJudgement"/> is swept: a judgeable order is never parked in the watch partition.
+/// </para>
 /// </summary>
 public static class OrderDeadlines
 {
@@ -41,8 +49,11 @@ public static class OrderDeadlines
 
     public const string IndexName = "DeadlineIndex";
 
-    /// <summary>The single partition of the index (see the class remarks).</summary>
+    /// <summary>The partition the sweep reads (see the class remarks).</summary>
     public const string Shard = "0";
+
+    /// <summary>FUP-170: the partition of the entries the sweep never acts on (<see cref="Kind.PickupWaiting"/>); only the admin lists it.</summary>
+    public const string WatchShard = "watch";
 
     /// <summary>The three attributes, server-only, written and removed together.</summary>
     public static readonly string[] Fields = { AtField, KindField, ShardField };
@@ -70,10 +81,32 @@ public static class OrderDeadlines
 
         /// <summary>T7: <c>pickupDeadlineAt</c>; <c>pickupOverdueNotifiedAt</c> is stamped.</summary>
         public const string PickupOverdue = "pickup_overdue";
+
+        /// <summary>
+        /// ESC-34, T7 on an order stamped <c>pickupJudgement: pending</c>: <c>pickupDeadlineAt</c> plus
+        /// <see cref="Helpers.PickupJudgement.SettleMargin"/>; the pickup is judged by the check-ins. Swept
+        /// (<see cref="Shard"/>) whether or not a notice was stamped, so a judgeable order is never parked
+        /// in the watch partition before its judgement.
+        /// </summary>
+        public const string PickupJudgement = "pickup_judgement";
+
+        /// <summary>
+        /// FUP-170: after T7, <c>pickupDeadlineAt</c> with <c>pickupOverdueNotifiedAt</c> stamped: the order
+        /// waits for its pickup or its cancel. Listed for the admin, never acted on (<see cref="WatchShard"/>).
+        /// ESC-34: also an order still <c>accepted</c> after its judgement (both present, an unmeasured
+        /// arrival, a delivery the order lagged), and one whose judgement the flag turned off.
+        /// </summary>
+        public const string PickupWaiting = "pickup_waiting";
     }
 
     /// <summary>Whether <paramref name="key"/> is one of the deadline attributes (never taken from a caller's field map).</summary>
     public static bool IsDeadlineField(string key) => key is AtField or KindField or ShardField;
+
+    /// <summary>FUP-170: the partition an entry of <paramref name="kind"/> is kept in.</summary>
+    public static string ShardOf(string kind) => kind == Kind.PickupWaiting ? WatchShard : Shard;
+
+    /// <summary>FUP-170: whether the sweep acts on a deadline of <paramref name="kind"/> (it reads only <see cref="Shard"/>).</summary>
+    public static bool IsSwept(string kind) => ShardOf(kind) == Shard;
 
     /// <summary>The order's next deadline with this container's timings, or null when nothing is pending.</summary>
     public static OrderDeadline? Next(IReadOnlyDictionary<string, object> order) => Next(order, OrderTimings.Current);
@@ -91,10 +124,15 @@ public static class OrderDeadlines
                 AddAwaitingTransport(order, timings, candidates);
                 break;
             case "accepted":
-                if (Str(order, OrderCommitment.PickupOverdueNotifiedAtField).Length == 0
-                    && OrderCommitment.TryParseUtc(Str(order, PickupDeadline.Field), out var pickupBy))
+                if (OrderCommitment.TryParseUtc(Str(order, PickupDeadline.Field), out var pickupBy))
                 {
-                    candidates.Add(new OrderDeadline(pickupBy, Kind.PickupOverdue));
+                    // ESC-34: a judgeable order is judged a moment after its deadline, in the sweep's partition.
+                    // Otherwise T7 until the marker is stamped; after it the order waits in the watch partition
+                    // (FUP-170). The judgement stamps the marker, so a judged order still accepted waits there.
+                    candidates.Add(Helpers.PickupJudgement.IsPending(order)
+                        ? new OrderDeadline(pickupBy + Helpers.PickupJudgement.SettleMargin, Kind.PickupJudgement)
+                        : new OrderDeadline(pickupBy,
+                            Str(order, OrderCommitment.PickupOverdueNotifiedAtField).Length == 0 ? Kind.PickupOverdue : Kind.PickupWaiting));
                 }
 
                 break;
@@ -129,7 +167,7 @@ public static class OrderDeadlines
         return Stored(order) is { } stored
                && stored.At == due.At
                && stored.Kind == due.Kind
-               && Str(order, ShardField) == Shard;
+               && Str(order, ShardField) == due.Shard;
     }
 
     private static void AddFunded(IReadOnlyDictionary<string, object> order, OrderTimings timings, List<OrderDeadline> candidates)
@@ -205,4 +243,7 @@ public readonly record struct OrderDeadline(DateTime At, string Kind)
 {
     /// <summary><see cref="At"/> as stored (ISO 8601 UTC, sortable as text).</summary>
     public string AtIso => OrderCommitment.Iso(At);
+
+    /// <summary>FUP-170: the index partition it is kept in (<see cref="OrderDeadlines.ShardOf"/>).</summary>
+    public string Shard => OrderDeadlines.ShardOf(Kind);
 }

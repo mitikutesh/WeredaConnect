@@ -223,6 +223,17 @@ public interface IOrderRepository
         string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expectedStrings);
 
     /// <summary>
+    /// ESC-34: store one arrival check-in as <c>checkIns.{kind}</c> WITHOUT bumping <c>version</c> or
+    /// touching <c>updatedAt</c> (a check-in must never make a queued order change conflict), only while
+    /// that kind has no entry yet (the first check-in is kept). With <paramref name="whileOpen"/> also only
+    /// while the order is <c>accepted</c> and its <c>pickupJudgement</c> is still <c>pending</c>, so a
+    /// check-in can never land after the judgement as if it had counted. Returns false when a condition
+    /// failed (the caller reads the row again to say why); other errors throw.
+    /// </summary>
+    Task<bool> TryRecordCheckInAsync(
+        string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen);
+
+    /// <summary>
     /// ESC-09: one page of the <c>StatusCreatedAtIndex</c> partition for <paramref name="status"/>,
     /// oldest first, without the rows the money sweep marked as decided at that status
     /// (<see cref="OrderMoneyFields.SweepSkip"/>). <paramref name="limit"/> is the evaluation limit.
@@ -241,10 +252,19 @@ public interface IOrderRepository
     /// ESC-16: one page of the orders whose next deadline (<see cref="Helpers.OrderDeadlines"/>) is before
     /// <paramref name="dueBefore"/> (ISO 8601 UTC), oldest deadline first, from the sparse
     /// <c>DeadlineIndex</c> (a Query, never a Scan). <paramref name="limit"/> is 1 to 100. The index copy
-    /// is eventually consistent: the caller re-reads a row before acting on it.
+    /// is eventually consistent: the caller re-reads a row before acting on it. Only the sweep's
+    /// partition (<see cref="Helpers.OrderDeadlines.Shard"/>) is read.
     /// </summary>
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDueDeadlinesAsync(
         string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
+    /// FUP-170: <see cref="QueryDueDeadlinesAsync"/> on the partition <paramref name="shard"/> of
+    /// <c>DeadlineIndex</c>: <see cref="Helpers.OrderDeadlines.Shard"/> (the sweep's) or
+    /// <see cref="Helpers.OrderDeadlines.WatchShard"/> (the entries only the admin lists).
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDeadlinePartitionAsync(
+        string shard, string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
 
     /// <summary>
     /// ESC-16: set the order's next deadline to <paramref name="deadline"/> (remove it when null),

@@ -14,8 +14,9 @@ namespace WeredaConnect.Server.Services;
 ///
 /// The hooks:
 /// - <c>NO_SHOW</c> and <c>DELIVERY_OVERDUE</c> with points: the same-named signal on the penalised
-///   party, the order as the entity. Their producers are ESC-34 and ESC-36; when those start writing
-///   the order fields the derivation reads, the signals follow with no further change;
+///   party, the order as the entity. Their producers are ESC-34 and ESC-36. FUP-204: an event another
+///   party's report decided (<see cref="ReputationEvent.ReportedBy"/>, a farmer no-show) goes through the
+///   attribution guard of <see cref="IFraudDetectionService.RecordAttributedSignalAsync"/>;
 /// - a decline or an expiry (<c>DECLINED_REQUEST</c>, <c>RESPONSE_EXPIRED</c>, with or without points):
 ///   the buyer decline pattern on the order's buyer, which feeds the FRD-09 pattern set. It needs the
 ///   declines of at least two different farmers or truckers.
@@ -38,8 +39,20 @@ internal static class ReputationFraudHooks
         {
             try
             {
-                await fraud.RecordFraudSignalAsync(
-                    recorded.UserId, signalType, recorded.OrderId, "order", ReliabilityDescription(recorded));
+                // FUP-204: an event decided by another party's own report (a farmer no-show resting on the
+                // trucker's or the self-pickup buyer's check-in) is a signal written at that party's request:
+                // it goes through the attribution guard (fraud spec 14.3), one per order, one per reporter and
+                // party, two per party in 30 days. The guard logs what it held back.
+                if (ReportedByAnother(recorded) is { } reporter)
+                {
+                    await fraud.RecordAttributedSignalAsync(
+                        recorded.UserId, reporter, signalType, recorded.OrderId, "order", ReliabilityDescription(recorded));
+                }
+                else
+                {
+                    await fraud.RecordFraudSignalAsync(
+                        recorded.UserId, signalType, recorded.OrderId, "order", ReliabilityDescription(recorded));
+                }
             }
             catch (Exception ex)
             {
@@ -81,6 +94,10 @@ internal static class ReputationFraudHooks
             _ => null
         };
     }
+
+    /// <summary>FUP-204: the other party whose report decided the event, or null when it rests on the party alone.</summary>
+    internal static string? ReportedByAnother(ReputationEvent recorded)
+        => string.IsNullOrEmpty(recorded.ReportedBy) || recorded.ReportedBy == recorded.UserId ? null : recorded.ReportedBy;
 
     /// <summary>What Fraud Review shows: the role and the points, no person and no phone.</summary>
     private static string ReliabilityDescription(ReputationEvent recorded)

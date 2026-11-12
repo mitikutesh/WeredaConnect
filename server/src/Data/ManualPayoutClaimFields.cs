@@ -102,6 +102,26 @@ internal static class PayoutReferenceFields
             }
         };
     }
+
+    /// <summary>
+    /// FUP-218: the delete of a reference item, one item of a correction's transaction, only while the item still
+    /// names <paramref name="escrowId"/> and <paramref name="reference"/>: an item another leg holds is never removed.
+    /// </summary>
+    public static TransactWriteItem BuildDelete(string table, string externalRef, string escrowId, string reference) => new()
+    {
+        Delete = new Delete
+        {
+            TableName = table,
+            Key = new Dictionary<string, AttributeValue> { ["idempotencyKey"] = new() { S = Key(externalRef) } },
+            ConditionExpression = "#escrow = :escrow AND #ref = :ref",
+            ExpressionAttributeNames = new Dictionary<string, string> { ["#escrow"] = EscrowId, ["#ref"] = Ref },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":escrow"] = new() { S = escrowId },
+                [":ref"] = new() { S = reference }
+            }
+        }
+    };
 }
 
 /// <summary>FUP-05: the reference item a manual record writes with its leg (see <see cref="PayoutReferenceFields"/>).</summary>

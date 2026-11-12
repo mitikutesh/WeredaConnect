@@ -974,6 +974,16 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             names[$"#other{i}"] = ManualPayoutFields.StatusAttr(other);
             condition += $" AND #other{i} = :paid";
+            // FUP-218: a settlement reference copied from another leg's reference requires that leg to still carry
+            // it, so a correction of that reference between the caller's read and this write is never overwritten.
+            if (settlementFields.TryGetValue(ManualPayoutFields.SettlementRefAttr(other), out var copied)
+                && copied is string copiedRef && copiedRef.Length > 0)
+            {
+                names[$"#otherRef{i}"] = ManualPayoutFields.RefAttr(other);
+                values[$":otherRef{i}"] = new AttributeValue { S = copiedRef };
+                condition += $" AND #otherRef{i} = :otherRef{i}";
+            }
+
             i++;
         }
 

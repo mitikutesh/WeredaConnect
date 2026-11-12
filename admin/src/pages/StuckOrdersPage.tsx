@@ -17,7 +17,8 @@ const sources: StuckSource[] = ["queue", "deadline"];
 /**
  * ESC-24: the stuck orders. "Admin queue" is the stuck-order queue of ESC-06 (an order escrow held
  * 21 days whose order is not done); "Missed deadlines" the orders whose commitment deadline passed
- * and the sweep did not act on it (ESC-16). Read only: each row links to its transaction, where the
+ * and the sweep did not act on it (ESC-16), then the accepted orders still not picked up after the
+ * overdue notice went out (FUP-170). Read only: each row links to its transaction, where the
  * admin sees the whole order, and the money moves only through the existing actions.
  */
 export function StuckOrdersPage() {

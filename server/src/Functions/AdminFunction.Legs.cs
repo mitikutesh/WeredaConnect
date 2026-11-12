@@ -103,6 +103,26 @@ public partial class AdminFunction
             ? new VerdictAmountsDto { FarmerAmount = split.FarmerAmount, TruckerAmount = split.TruckerAmount, BuyerRefund = split.BuyerRefund }
             : null;
 
+    /// <summary>
+    /// FUP-218: the legs of a 1.x escrow's manual payout, open or closed (the leg attributes stay on the row after
+    /// the close), for the escrow page's reference correction; null when the escrow never entered the queue.
+    /// </summary>
+    internal static List<AdminManualLegDto>? ManualLegsOf(Dictionary<string, object> item)
+    {
+        var legs = ManualPayoutFields.AllLegs
+            .Where(leg => !string.IsNullOrEmpty(GetStringOrNull(item, ManualPayoutFields.StatusAttr(leg))))
+            .Select(leg => new AdminManualLegDto
+            {
+                Ref = leg,
+                Status = GetString(item, ManualPayoutFields.StatusAttr(leg)),
+                ExternalRef = NullIfEmpty(GetStringOrNull(item, ManualPayoutFields.RefAttr(leg))),
+                PaidBy = NullIfEmpty(GetStringOrNull(item, ManualPayoutFields.PaidByAttr(leg))),
+                PaidAt = NullIfEmpty(GetStringOrNull(item, ManualPayoutFields.PaidAtAttr(leg)))
+            })
+            .ToList();
+        return legs.Count == 0 ? null : legs;
+    }
+
     /// <summary>ESC-24: a ledger escrow's legs for the admin DTO, or null on a 1.x escrow.</summary>
     private static Dictionary<string, string>? LegStatusOf(Dictionary<string, object> item)
         => LedgerEscrowFields.IsLedger(item)
@@ -210,7 +230,8 @@ public partial class AdminFunction
     /// ESC-24: the real deadline of <paramref name="order"/> that passed more than
     /// <see cref="StuckOrderGrace"/> ago, or null. A reminder is not a deadline: the reminders are taken as
     /// sent, so the answer is the farmer's or the trucker's response deadline, the buyer's transport choice or
-    /// the pickup deadline (<see cref="OrderDeadlines"/>).
+    /// the pickup deadline (<see cref="OrderDeadlines"/>): <c>pickup_overdue</c> before its notice went out,
+    /// <c>pickup_waiting</c> after it (FUP-170).
     /// </summary>
     internal static OrderDeadline? OverdueDeadline(Dictionary<string, object> order, DateTime now)
     {
@@ -240,8 +261,10 @@ public partial class AdminFunction
     /// delay, each read again and kept only when its own deadline (the farmer's answer, the trucker's answer,
     /// the buyer's transport choice, the pickup) passed more than <see cref="StuckOrderGrace"/> ago: the sweep
     /// did not act on it. A row the sweep pushed an hour ahead for a retry is still found, because the answer
-    /// comes from the order's own stamps, not from the index time. A page can be short or empty with a
-    /// <c>nextToken</c>: at most <see cref="StuckOrderMaxPages"/> index pages are read per request.</item>
+    /// comes from the order's own stamps, not from the index time. Then (FUP-170) the index's watch partition:
+    /// the <c>accepted</c> orders past their pickup deadline whose notice went out (<c>pickup_waiting</c>),
+    /// which wait for their pickup or their cancel. A page can be short or empty with a <c>nextToken</c>: at
+    /// most <see cref="StuckOrderMaxPages"/> index pages are read per request.</item>
     /// </list>
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleListStuckOrdersAsync(APIGatewayProxyRequest request)
@@ -259,7 +282,12 @@ public partial class AdminFunction
         }
 
         var limit = Math.Min(ParseLimit(queryParams, 20), MaxIndexPageSize);
-        if (!TryReadPageToken(queryParams, source == StuckSourceQueue ? AdminQueueIndexKeys : DeadlineIndexKeys, out var startKey))
+        Dictionary<string, AttributeValue>? startKey;
+        var shard = OrderDeadlines.Shard;
+        var tokenRead = source == StuckSourceQueue
+            ? TryReadPageToken(queryParams, AdminQueueIndexKeys, out startKey)
+            : TryReadDeadlinePageToken(queryParams, out shard, out startKey);
+        if (!tokenRead)
         {
             return InvalidNextToken();
         }
@@ -267,50 +295,116 @@ public partial class AdminFunction
         var orders = new OrderRepository(_dynamoDb, _ordersTable);
         var now = Clock();
         var stuck = new List<AdminStuckOrderDto>();
-        Dictionary<string, AttributeValue>? next;
+        string? nextToken;
         if (source == StuckSourceQueue)
         {
-            (var items, next) = await orders.QueryAdminQueueAsync(limit, startKey);
+            var (items, next) = await orders.QueryAdminQueueAsync(limit, startKey);
             stuck.AddRange(items.Select(item => MapToStuckOrder(
                 item, GetStringOrNull(item, AdminQueueFields.Reason) ?? AdminQueueFields.ReasonHoldCap,
                 GetString(item, AdminQueueFields.QueuedAt), now)));
+            nextToken = next == null ? null : PaginationTokenHelper.EncodeNextToken(next);
         }
         else
         {
-            var dueBefore = OrderCommitment.Iso(now + OrderCronFunction.DeadlineRetryAfter);
-            next = startKey;
-            for (var page = 0; page < StuckOrderMaxPages && stuck.Count < limit; page++)
-            {
-                // Each read asks only for the rows still missing, so the page never passes the limit.
-                (var indexed, next) = await orders.QueryDueDeadlinesAsync(dueBefore, limit - stuck.Count, next);
-                var rows = await Task.WhenAll(indexed
-                    .Select(row => GetString(row, "orderId"))
-                    .Where(id => id.Length > 0)
-                    .Select(id => orders.GetByIdAsync(id)));
-                foreach (var order in rows)
-                {
-                    if (order != null && OverdueDeadline(order, now) is { } due)
-                    {
-                        stuck.Add(MapToStuckOrder(order, due.Kind, due.AtIso, now));
-                    }
-                }
-
-                if (next == null)
-                {
-                    break;
-                }
-            }
+            nextToken = await ListMissedDeadlinesAsync(orders, shard, startKey, limit, now, stuck);
         }
 
         var response = new AdminStuckOrderListResponse
         {
             Source = source,
             Orders = stuck,
-            NextToken = next == null ? null : PaginationTokenHelper.EncodeNextToken(next),
+            NextToken = nextToken,
             Total = stuck.Count,
             AsOf = OrderCommitment.Iso(now)
         };
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminStuckOrderListResponse);
+    }
+
+    /// <summary>
+    /// ESC-24 and FUP-170: the <c>deadline</c> source from <paramref name="shard"/> and <paramref name="startKey"/>
+    /// on: the sweep's partition of <c>DeadlineIndex</c> to its end, then the watch partition, each oldest
+    /// first. Adds the stuck orders to <paramref name="stuck"/> and returns the next page's token, or null
+    /// after the end of the watch partition. Each order is listed only from the partition its own state
+    /// keeps it in, so an index copy that lags in the other one never lists it twice.
+    /// </summary>
+    private static async Task<string?> ListMissedDeadlinesAsync(
+        OrderRepository orders, string shard, Dictionary<string, AttributeValue>? startKey, int limit, DateTime now,
+        List<AdminStuckOrderDto> stuck)
+    {
+        var dueBefore = OrderCommitment.Iso(now + OrderCronFunction.DeadlineRetryAfter);
+        var next = startKey;
+        for (var page = 0; page < StuckOrderMaxPages && stuck.Count < limit; page++)
+        {
+            // Each read asks only for the rows still missing, so the page never passes the limit.
+            (var indexed, next) = await orders.QueryDeadlinePartitionAsync(shard, dueBefore, limit - stuck.Count, next);
+            var rows = await Task.WhenAll(indexed
+                .Select(row => GetString(row, "orderId"))
+                .Where(id => id.Length > 0)
+                .Select(id => orders.GetByIdAsync(id)));
+            foreach (var order in rows)
+            {
+                if (order != null && OverdueDeadline(order, now) is { } due && due.Shard == shard)
+                {
+                    stuck.Add(MapToStuckOrder(order, due.Kind, due.AtIso, now));
+                }
+            }
+
+            if (next != null)
+            {
+                continue;
+            }
+
+            if (shard == OrderDeadlines.WatchShard)
+            {
+                return null;
+            }
+
+            // The sweep's partition is done: the watch partition from its start.
+            shard = OrderDeadlines.WatchShard;
+        }
+
+        return PaginationTokenHelper.EncodeNextToken(next ?? WatchPartitionStart);
+    }
+
+    /// <summary>FUP-170: the token payload of the watch partition's start (its shard alone; a key of the index has four attributes).</summary>
+    private static Dictionary<string, AttributeValue> WatchPartitionStart => new()
+    {
+        [OrderDeadlines.ShardField] = new AttributeValue { S = OrderDeadlines.WatchShard }
+    };
+
+    /// <summary>
+    /// FUP-170: where a <c>deadline</c> page starts, from the request's <c>nextToken</c>: a <c>DeadlineIndex</c>
+    /// key of either partition, or the watch partition's start (<see cref="WatchPartitionStart"/>). Without a
+    /// token, the sweep's partition from its start. False for a token that does not decode or belongs to
+    /// another index.
+    /// </summary>
+    private static bool TryReadDeadlinePageToken(
+        IDictionary<string, string> queryParams, out string shard, out Dictionary<string, AttributeValue>? startKey)
+    {
+        shard = OrderDeadlines.Shard;
+        startKey = null;
+        if (!queryParams.TryGetValue("nextToken", out var nextToken) || string.IsNullOrEmpty(nextToken))
+        {
+            return true;
+        }
+
+        var decoded = PaginationTokenHelper.DecodeNextToken(nextToken);
+        if (decoded is { Count: 1 }
+            && decoded.TryGetValue(OrderDeadlines.ShardField, out var only) && only.S == OrderDeadlines.WatchShard)
+        {
+            shard = OrderDeadlines.WatchShard;
+            return true;
+        }
+
+        if (decoded == null || decoded.Count != DeadlineIndexKeys.Length || !DeadlineIndexKeys.All(decoded.ContainsKey)
+            || decoded[OrderDeadlines.ShardField].S is not (OrderDeadlines.Shard or OrderDeadlines.WatchShard))
+        {
+            return false;
+        }
+
+        shard = decoded[OrderDeadlines.ShardField].S;
+        startKey = decoded;
+        return true;
     }
 
     private static AdminStuckOrderDto MapToStuckOrder(Dictionary<string, object> order, string reason, string stuckSince, DateTime now)

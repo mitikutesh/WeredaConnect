@@ -177,8 +177,11 @@ public class EscrowRepositoryManualPayoutTests
             "#marker = :open AND #op = :op AND #legStatus = :pending"
             + " AND (#status = :escrowed OR #status = :disputed OR #status = :disputeResolved OR #status = :held"
             + " OR (#status = :released AND #fromStatus = :released))"
-            + " AND #other0 = :paid"
+            + " AND #other0 = :paid AND #otherRef0 = :otherRef0"
             + " AND (attribute_not_exists(#claimBy) OR #claimBy = :paidBy OR #claimExp < :paidAt)");
+        // FUP-218: the farmer's reference copied into telebirrReleaseRef must still be the farmer leg's.
+        Name(_update, "#otherRef0").Should().Be("manualFarmerRef");
+        _update.ExpressionAttributeValues[":otherRef0"].S.Should().Be("TB-REF-0001");
         Name(_update, "#claimBy").Should().Be("manualTruckerClaimedBy");
         // FRD-03: an admin release or refund of a held escrow that the gateway queued closes from held.
         _update.ExpressionAttributeValues[":held"].S.Should().Be("held");
@@ -205,6 +208,33 @@ public class EscrowRepositoryManualPayoutTests
         // Protected keys passed in the settlement fields are ignored, not written twice.
         _update.ExpressionAttributeValues.Values.Select(v => v.S).Should().NotContain("ignored");
         _update.ExpressionAttributeValues.Values.Select(v => v.N).Should().NotContain("99");
+    }
+
+    [Fact]
+    public async Task Close_ReleasedTruckerQueue_GuardsTheTruckerReferenceItCopies_AndNoGatewayLegWithoutAReference()
+    {
+        // FUP-218: an ESC-04 close of a farmer leg copies the recorded trucker reference into truckerTelebirrRef, so
+        // the trucker leg must still carry it. A paid leg whose copied value is empty adds no condition.
+        var fields = new Dictionary<string, object>
+        {
+            { "truckerTelebirrRef", "TB-REF-0002" },
+            { "telebirrReleaseRef", "" },
+            { "completedAt", "2026-10-02T10:05:00Z" }
+        };
+
+        await _repo.TryCloseManualPayoutAsync(
+            EscrowId, CreatedAt, "release", "farmer", "TB-REF-0001", "admin-1", "2026-10-02T10:05:00Z",
+            new[] { "trucker" }, "completed", fields);
+
+        _update!.ConditionExpression.Should().Contain(" AND #other0 = :paid AND #otherRef0 = :otherRef0 AND ");
+        Name(_update, "#otherRef0").Should().Be("manualTruckerRef");
+        _update.ExpressionAttributeValues[":otherRef0"].S.Should().Be("TB-REF-0002");
+
+        await _repo.TryCloseManualPayoutAsync(
+            EscrowId, CreatedAt, "release", "trucker", "TB-REF-0002", "admin-1", "2026-10-02T10:05:00Z",
+            new[] { "farmer" }, "released", fields);
+
+        _update.ConditionExpression.Should().NotContain("#otherRef0");
     }
 
     [Fact]

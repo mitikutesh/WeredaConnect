@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.13.1
+2.15.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -198,8 +198,9 @@ Client previews of an order total (place order, the listing detail price breakdo
 - **Commands since 2.0.0**: `farmerResponse` and `truckerResponse` take `accept` or `decline`, and `declineReason` one of `date`, `capacity`, `price`, `route`, `crop_not_ready`, `other`. They are the only new update keys a client may send, each with `version`. The farmer's legacy `status: accepted | rejected` is mapped to the farmer command. The stored response values (`pending`, `accepted`, `declined`, ...) are server-written and never taken from a client. See Commitments.
 - **Server-only since 2.0.0**: `fulfillment`, `pickupDate`, `farmerResponse` (stored value), `farmerRespondedAt`, `farmerDeadlineAt`, `truckerResponse` (stored value), `truckerAskedAt`, `truckerRespondedAt`, `truckerDeadlineAt`, `buyerChoiceDeadlineAt`, `transportFailure`, `cancelledBy`, `faultParty`, `farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt` and `pickupOverdueNotifiedAt` are dropped from create and update payloads (`declineReason` is taken only with a `decline` command). `GET /orders` and `GET /orders/{id}` return all of them.
 - **Server-only since 2.8.0**: `nextDeadlineAt`, `nextDeadlineKind` and `deadlineShard` (the order's next deadline, see Deadlines) are dropped from create and update payloads (a client that sends them gets the rest of its update applied). They are not part of the `GET /orders` and `GET /orders/{id}` answers, but the `serverData` of a sync create or update result echoes the stored row and may carry them; clients ignore them.
+- **Server-only since 2.15.0** (ESC-34): `pickupJudgement`, `pickupJudgedAt`, `checkIns`, `pickupLatitude` and `pickupLongitude` are dropped from create and update payloads. `GET /orders`, `GET /orders/{id}` and the `/sync` order rows return `pickupJudgement`, `pickupJudgedAt` and `checkIns` (per kind `{receivedAt, capturedAt?, distanceChecked, late}`, no coordinates and no sender); the stamped `pickupLatitude` and `pickupLongitude` are never returned. See Pickup judgement.
 - **Server-only since 2.2.0**: `pickupPlace` (the listing's `locationName`) and `dropoffPlace` (the buyer's registered woreda) are stamped at create from the listing and buyer profile reads the create already makes, dropped from client payloads, and returned by `GET /orders`, `GET /orders/{id}` and `/sync` rows. Either is absent when its source is empty or on an order from before 2.2.0.
-- **`cancelReason`** is the buyer's free text on every cancel except the transport-failure cancel, where the server writes the code `transport_failed_buyer_cancelled` and keeps the buyer's text in `cancelNote` (1.15.0). The sweeps write the code `escrow_refunded`. Server codes are reserved: a client `cancelReason` that spells one (`transport_failed_buyer_cancelled`, `escrow_refunded`, or a spec 4.6 code such as `buyer_withdrew`; case and surrounding spaces ignored) is stored as `cancelNote` instead, on create and on every update. Since 2.0.0 the server also writes `buyer_withdrew` (a buyer's cancel of an unpaid order that sends no reason), `transport_failed_buyer_cancelled` (the buyer's cancel in `awaiting_transport`), `farmer_cancelled`, `farmer_response_expired` and `transport_not_arranged`, each with `cancelledBy`, and since 2.4.0 `listing_out_of_stock` (a funding that lost the listing's stock, `cancelledBy: system`); the reserved list covers them.
+- **`cancelReason`** is the buyer's free text on every cancel except the transport-failure cancel, where the server writes the code `transport_failed_buyer_cancelled` and keeps the buyer's text in `cancelNote` (1.15.0). The sweeps write the code `escrow_refunded`. Server codes are reserved: a client `cancelReason` that spells one (`transport_failed_buyer_cancelled`, `escrow_refunded`, or a spec 4.6 code such as `buyer_withdrew`; case and surrounding spaces ignored) is stored as `cancelNote` instead, on create and on every update. Since 2.0.0 the server also writes `buyer_withdrew` (a buyer's cancel of an unpaid order that sends no reason), `transport_failed_buyer_cancelled` (the buyer's cancel in `awaiting_transport`), `farmer_cancelled`, `farmer_response_expired` and `transport_not_arranged`, each with `cancelledBy`, since 2.4.0 `listing_out_of_stock` (a funding that lost the listing's stock, `cancelledBy: system`), and since 2.15.0 `farmer_no_show` and `buyer_no_show` (the pickup judgement, `cancelledBy: system`); the reserved list covers them.
 - **Unknown keys** are rejected: `ORDER_VALIDATION: Unknown fields: a, b`.
 
 ## Drop-off landmark (2.5.0, LT-12)
@@ -618,12 +619,15 @@ or trucker may send theirs; anyone else gets `ORDER_UNAUTHORIZED`.
 | `truckerResponse` | `none` (self-pickup), `not_asked` (waiting for the farmer), `pending`, `accepted`, `declined`, `expired`, `cancelled` (drop-out, or the trip cancelled), `failed_capacity` (the trip had no room) | funding, the farmer's accept, the trucker's command, the cron, the trip cascade; a trip order from before 2.0.0 reads as `not_asked` while `funded` and as `accepted` after it (spec K2) |
 | `truckerAskedAt`, `truckerRespondedAt`, `truckerDeadlineAt` | ISO 8601 UTC | the farmer's accept (asked, deadline); the trucker's command |
 | `buyerChoiceDeadlineAt` | ISO 8601 UTC | on entering `awaiting_transport` (now + 48h) |
-| `transportFailure` | `trucker_declined`, `trucker_expired`, `trucker_cancelled`, `trip_cancelled`, `trip_full` | on entering `awaiting_transport` |
+| `transportFailure` | `trucker_declined`, `trucker_expired`, `trucker_cancelled`, `trip_cancelled`, `trip_full`; `trucker_no_show` since 2.15.0 (the pickup judgement) | on entering `awaiting_transport` |
 | `declineReason` | `date`, `capacity`, `price`, `route`, `crop_not_ready`, `other` | the farmer's or the trucker's decline, when sent |
 | `cancelledBy` | `buyer`, `farmer`, `trucker`, `system` | every cancel and reject |
 | `faultParty` | `farmer`, `trucker`, `buyer`, `none` | reject, transport failure, cancel; feeds reputation (ESC-26 and later) |
 | `farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt` | ISO 8601 UTC | the cron, 6 hours before the deadline (windows of 12 hours or more) |
 | `pickupOverdueNotifiedAt` | ISO 8601 UTC | the cron, when `pickupDeadlineAt` passed on an `accepted` order |
+| `pickupJudgement` (2.15.0) | `pending`, then `scanned`, `trucker_no_show`, `farmer_no_show`, `buyer_no_show`, `both_present_no_scan`, `unchecked_check_in` | the accept with `pickupClassification` on (`pending`); the cron's judgement (the outcome). A `farmerResponse` or `truckerResponse` of `no_show` names the absent party |
+| `pickupJudgedAt` (2.15.0) | ISO 8601 UTC | the cron's judgement |
+| `checkIns` (2.15.0) | map per kind (`arrived_pickup`, `crops_ready`) | `handoff_check_in` (`sync-protocol.md` 1.55.0); the accept stamps it empty |
 
 ### Deadlines (server time only)
 
@@ -645,8 +649,8 @@ deadlines are the server's and the clients only display them.
 
 Every order write keeps the order's next deadline on the row, derived from its status and its own
 stamps (`OrderDeadlines.Next`): `nextDeadlineAt` (ISO 8601 UTC), `nextDeadlineKind` and
-`deadlineShard` (always `0`), all three set together, or all three removed when nothing in the
-table above is pending. The kinds:
+`deadlineShard` (`0`, the partition the sweep reads; `watch` for `pickup_waiting` since 2.14.0), all
+three set together, or all three removed when nothing in the table below is pending. The kinds:
 
 | `nextDeadlineKind` | Status | Due at |
 |---|---|---|
@@ -656,7 +660,16 @@ table above is pending. The kinds:
 | `trucker_response` | `funded`, trucker pending | `truckerDeadlineAt` (or `truckerAskedAt` + 24h without it) |
 | `buyer_choice_reminder` | `awaiting_transport`, no `buyerChoiceReminderAt` | `buyerChoiceDeadlineAt` - 6h |
 | `buyer_choice` | `awaiting_transport` | `buyerChoiceDeadlineAt` (or `updatedAt` + 48h without it) |
-| `pickup_overdue` | `accepted`, no `pickupOverdueNotifiedAt` | `pickupDeadlineAt` |
+| `pickup_overdue` | `accepted`, no `pickupOverdueNotifiedAt`, no `pickupJudgement: pending` | `pickupDeadlineAt` |
+| `pickup_judgement` (2.15.0) | `accepted`, `pickupJudgement: pending` (swept, whether or not a notice was stamped) | `pickupDeadlineAt` + 1 minute |
+| `pickup_waiting` (2.14.0, FUP-170; `deadlineShard = watch`) | `accepted`, `pickupOverdueNotifiedAt` stamped, no `pickupJudgement: pending` (since 2.15.0 also an order still `accepted` after its pickup judgement, which stamps the notice) | `pickupDeadlineAt` |
+
+`pickup_waiting` is not a deadline anything acts on: the order waits for its pickup or its cancel
+after the overdue notice went out, and the entry lets the admin's Stuck Orders list it with a Query
+(`escrow-protocol.md` 2.17.0, `GET /admin/orders/queue?source=deadline`). It sits in its own
+partition, `watch`, which the sweep never reads, so the waits never hold up the sweep's oldest-first
+read and the sweep never refunds, cancels or notifies on them. It goes with the order's next write
+that leaves `accepted` (the pickup, a cancel, the drop to `awaiting_transport`), like any other kind.
 
 The earliest pending one is stored. The write that sets it is the write that changes the order (the
 versioned update, the linked and fenced updates, the funding, the status advance, the marker stamp),
@@ -673,6 +686,8 @@ writes moves the deadline with its write; a lost race leaves it to the write tha
 nothing to do gets its correct deadline back; a row that must wait (an unreadable delivery, goods on
 the move under a cancelled trip) comes back an hour later; a row still due by its own state that
 nothing could act on is logged `ORDER_DEADLINE_STUCK` and looked at again an hour later; a row whose
+only pending kind is `pickup_waiting` (an index copy that lagged behind the notice) is moved to the
+`watch` partition, never retried or logged stuck (2.14.0); a row whose
 decision throws is logged `ORDER_DEADLINE_ROW_FAILED` and the run goes on. The summary adds `due`,
 `restamped`, `retried`, `rowErrors` and `stopReason` (`time`, `lambda`, `pages`; outcome `partial`).
 
@@ -680,7 +695,11 @@ decision throws is logged `ORDER_DEADLINE_ROW_FAILED` and the run goes on. The s
 `accepted` partitions of `StatusCreatedAtIndex` (the walk the sweep replaced) and stamps the next
 deadline on every order whose stored one is missing or wrong, conditioned on the version read. It
 decides nothing; the next sweep acts on what it stamped. It backfills the orders already in flight
-when the index was added. `commitment_deadlines` also runs a repair pass itself (1 minute share, after
+when the index was added (and, since 2.14.0, gives the `accepted` orders notified before it their
+`pickup_waiting` entry). Since 2.14.0 it then reads the whole `watch` partition of `DeadlineIndex` (a
+Query) and each order again, and corrects or removes an entry its order no longer gives (an order
+that left `accepted` while its write could not keep the deadline in step), conditioned on the version
+read; those rows count in `read` and `stamped`. `commitment_deadlines` also runs a repair pass itself (1 minute share, after
 the sweep and the departed-trip close) when its container has not finished one in 24 hours, so the
 first run of a new deploy stamps the orders in flight without anyone invoking `deadline_repair`; a
 partial or failed pass (`ORDER_DEADLINE_REPAIR_FAILED`) is not counted and the next run goes on. The
@@ -717,7 +736,7 @@ dispute window instead of waiting for the cap.
 | `payment_submitted` | refused, unchanged | wait for the verification or the 24h failure |
 | `funded` | **refused** (flag on) | `ORDER_CANCEL_NOT_ALLOWED: The farmer and the trucker are deciding; you will be told as soon as they answer.` T3 and T4 end the wait either way |
 | `awaiting_transport` | **allowed** | `cancelled` (`transport_failed_buyer_cancelled`, `cancelledBy: buyer`), full refund including commission (`refundReason: order_transport_failed`), stock restored |
-| `accepted` | after the pickup deadline only (1.15.0) | unchanged until ESC-19 |
+| `accepted` | after the pickup deadline only (1.15.0) | unchanged until ESC-19; refused for an order stamped `pickupJudgement` while `pickupClassification` is on (2.15.0): `ORDER_CANCEL_NOT_ALLOWED: The pickup is judged from the arrival check-ins; you will be told the outcome.` |
 | later | refused | a dispute after delivery is the only exit |
 
 The farmer may cancel from `accepted` before pickup (fresh sign-in, `farmer_cancelled`, `faultParty:
@@ -918,8 +937,54 @@ delivery was cancelled by the disposition, so the `buyer_wins` refund does not c
 its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
 (1.18.0). The clients already show `dispute_resolved`; no client change.
 
+## Pickup judgement (2.15.0, ESC-34)
+
+Spec 4.8 and 4.5 (T7), built behind `pickupClassification` (env `PICKUP_CLASSIFICATION_ENABLED` on the
+sync and order-cron Lambdas, off in every environment, only with `COMMITMENTS_ENABLED`). The full rules,
+the check-in and the late evidence are in `delivery-verification-api.md` 2.6.0 P.2 ("As built"); this
+section names what changes on the order.
+
+- **Stamp.** The write that makes an order `accepted` with the flag on stamps `pickupJudgement: pending`,
+  an empty `checkIns` map and the farm's point. Orders accepted before the flag (or while it is off)
+  keep the 1.15.0 rules: the `pickup_overdue` marker and the buyer's deadline cancel.
+- **Check-ins** (`handoff_check_in`, `sync-protocol.md` 1.55.0) add to `checkIns` without moving
+  `version` or `updatedAt`.
+- **Judgement** at `pickupDeadlineAt` plus one minute (deadline kind `pickup_judgement`), in
+  `commitment_deadlines`; each outcome also stamps `pickupJudgement`, `pickupJudgedAt` and
+  `pickupOverdueNotifiedAt`:
+
+| Outcome | Order | Money | Reputation |
+|---|---|---|---|
+| `scanned` (the delivery left `pending`) | unchanged (it lagged its delivery) | unchanged | none |
+| `trucker_no_show` | `awaiting_transport`, `transportFailure: trucker_no_show`, `truckerResponse: no_show`, `faultParty: trucker`, `buyerChoiceDeadlineAt` now + 48h; pending delivery cancelled, trip capacity released | held; the buyer chooses (T5) | `NO_SHOW` on the trucker (R10) |
+| `farmer_no_show` | `cancelled`, `cancelReason: farmer_no_show`, `farmerResponse: no_show`, `cancelledBy: system`, `faultParty: farmer`; pending delivery cancelled, stock and capacity back | full refund armed in the cancel's transaction (as the 2.13.0 deadline cancels) | `NO_SHOW` on the farmer (R11), its fraud signal through the attribution guard |
+| `buyer_no_show` (self-pickup) | `cancelled`, `cancelReason: buyer_no_show`, `faultParty: buyer` | full refund, as above | none in P3 |
+| `both_present_no_scan`, `unchecked_check_in` | stays `accepted`; admin queue with that `adminQueueReason` | held | none automatic |
+
+A judged no-show whose absent party has a late check-in on record also enters the admin queue as
+`late_pickup_evidence`; so does a late check-in or a real QR scan that reaches the server after the
+judgement. On a `cancelled` (farmer or buyer no-show) order that entry clears itself once the refund
+leaves, like every entry; only the late QR scan logs an alarmed line, and the late check-in stays as
+evidence on the order and in the audit trail for the party's reputation appeal. With the flag turned
+off while orders wait, the cron stamps the P1 marker and clears `pickupJudgement`.
+
+- **Buyer's deadline cancel** refused for a stamped order while the flag is on (Buyer cancel rules).
+- **Late pickup scan.** A pickup on a judged order (not `scanned`) is refused `ORDER_DEADLINE_PASSED:`,
+  nothing written (`delivery-verification-api.md` 2.6.0).
+- **Admin queue reasons** gain `both_present_no_scan`, `unchecked_check_in` and `late_pickup_evidence`
+  (`AdminQueueIndex`, written without a version bump, cleared like every entry when the escrow shows the
+  money moved on). The stuck-order list from the deadline index shows `pickup_judgement` for an order
+  the sweep left past its judgement.
+- **Deadline index.** A pending order's `pickup_judgement` is in the sweep's partition (`0`) whether or
+  not a notice was stamped, so the judgement is never parked in `watch`. The judgement stamps the notice,
+  so an order still `accepted` after it (both present, an unmeasured arrival, a delivery the order
+  lagged) and one whose stamp the flag turned off then wait in the `watch` partition as `pickup_waiting`
+  (2.14.0, FUP-170). With the flag off nothing here applies and the 2.14.0 rules stand unchanged.
+
 ## Changelog
 
+- **2.15.0 (2026-11-12)**: Pickup judgement (ESC-34, `delivery-verification-api.md` 2.6.0, `sync-protocol.md` 1.55.0), behind `pickupClassification` (off everywhere): the accept of a flagged order stamps `pickupJudgement: pending`, `checkIns` and the farm's point; arrival check-ins fill `checkIns` without a version move; `commitment_deadlines` judges at the pickup deadline plus one minute (deadline kind `pickup_judgement`): `scanned`, `trucker_no_show` (`awaiting_transport`), `farmer_no_show` and `buyer_no_show` (`cancelled`, full refund in the cancel's transaction), `both_present_no_scan` and `unchecked_check_in` (admin queue, money held), plus `late_pickup_evidence` in the admin queue; new values `truckerResponse` / `farmerResponse` `no_show`, `transportFailure` `trucker_no_show`, `cancelReason` `farmer_no_show` and `buyer_no_show`; the buyer's deadline cancel is refused for a flagged order; a pickup after the judgement is refused `ORDER_DEADLINE_PASSED`. Off, nothing changes. Companion: `data-models.md` 1.14.0.
+- **2.14.0 (2026-11-12)**: The pickup wait stays indexed (FUP-170, `escrow-protocol.md` 2.17.0): an `accepted` order whose `pickupOverdueNotifiedAt` is stamped keeps a `DeadlineIndex` entry, kind `pickup_waiting` at its `pickupDeadlineAt`, in a second partition (`deadlineShard = watch`) that the `commitment_deadlines` sweep never reads, until the write that takes it out of `accepted` (pickup, cancel, `awaiting_transport`). The admin's Stuck Orders lists it under Missed deadlines with a Query; before, it left the index with its notice and showed up only at the 21 day hold cap. The sweep's reads, decisions, refunds and notices are unchanged; a lagging entry of such an order in the sweep's partition is moved, not retried or logged `ORDER_DEADLINE_STUCK`. `deadline_repair` stamps the entry on the orders notified before this version and then reads the `watch` partition to correct or remove the entries their orders no longer give. No status, money, client or field change (the three deadline attributes stay server-only).
 - **2.13.1 (2026-11-12)**: The 7 day refund sweep's own cancel of a stale `funded` or `awaiting_transport` order (`escrow_refunded`) gives the listing stock back fail closed before its refund (FUP-230, `escrow-protocol.md` 2.14.0): a restore that keeps conflicting or throws defers the refund to the next run, which restores first; the trip booking release still runs with the cancel. No status, field or client change.
 - **2.13.0 (2026-11-12)**: The last cancel-then-arm writers (FUP-210, FUP-211, `escrow-protocol.md` 2.13.0): the order cron's `farmer_response_expired` and `transport_not_arranged` cancels and the funding's `listing_out_of_stock` end write the order and the escrow refund arm in one transaction, so a fraud hold or a settlement can no longer leave a cancelled order with its refund unarmed. Money a dispute froze or that is being settled writes nothing: the cron's order waits an hour (`ORDER_DEADLINE_REFUND_WAITING`), the funding's order stays `funded` for a person (`ORDER_STOCK_DECREMENT_FAILED ... status=escrow_busy`). The hourly refund sweep gives an `escrow_refunded` cancel's listing stock back before the refund, fail closed, so an admin refund whose restore failed is never refunded ahead of the stock. With nothing in the way the statuses, audit rows, stock, trip capacity, notifications and refund are as before. No client change.
 - **2.12.0 (2026-11-12)**: Cancel-then-refund races (FUP-53, `escrow-protocol.md` 2.11.0, `sync-protocol.md` 1.51.0): the reject or cancel of a `funded` order through sync, the admin refund's cancel before pickup and the 7 day sweep's cancel of a stale order write the order and the escrow refund arm in one transaction, as the transport-failure cancel does since 1.23.0. Money a dispute froze or that is being settled refuses the close and nothing is written (sync: `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.`, permanent; admin: `409 ESCROW_INVALID_TRANSITION`; sweep: skipped for the run). `POST /escrow/dispute` is refused once the order is `cancelled` or `rejected`, also when that happens between its read and its freeze. With nothing in the way the statuses, audit rows, stock, notifications and refund are as before. No client change.
