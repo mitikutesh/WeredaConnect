@@ -242,7 +242,13 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(localizeErrorCode(state.code, l10n)),
+                content: Text(
+                  localizeErrorCode(
+                    state.code,
+                    l10n,
+                    message: state.message,
+                  ),
+                ),
                 backgroundColor: AppTheme.statusError,
               ),
             );

@@ -5,11 +5,13 @@ import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
+import 'package:wereda_connect/features/reputation/domain/owner_reputation.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
+import 'package:wereda_connect/shared/widgets/low_reputation_pill.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// One trip in a list, a sibling of the Trip detail board's header: the
@@ -26,6 +28,11 @@ import 'package:wereda_connect/shared/widgets/status_chip.dart';
 /// [showTrucker] (the buyer's browse of every trucker's trips, SIM-33)
 /// names the trucker under the route. The trucker's own list leaves it out,
 /// as My Crops leaves out the farmer's own name.
+///
+/// ESC-31: with [showTrucker], a trip that carries the trucker's public
+/// reputation copy also shows their rating beside the name and the "Low
+/// reputation" label. Read from the row: no call per card. A trip without
+/// the copy, and the trucker's own list, look as before.
 class TripCard extends StatelessWidget {
   final Trip trip;
   final VoidCallback? onTap;
@@ -66,6 +73,9 @@ class TripCard extends StatelessWidget {
     final datePassed = departureDayPassed && beforePickup;
     final trucker =
         showTrucker ? partyDisplayName(trip.truckerName, l10n).trim() : '';
+    final reputation =
+        showTrucker ? OwnerReputation.ofTrip(trip) : OwnerReputation.none;
+    final rating = reputation.rating;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
@@ -90,16 +100,40 @@ class TripCard extends StatelessWidget {
                       ),
                       if (trucker.isNotEmpty) ...[
                         const SizedBox(height: 3),
-                        Text(
-                          '${l10n.trucker}: $trucker',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.soilDark,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                '${l10n.trucker}: $trucker',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.soilDark,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (rating != null) ...[
+                              const Text(' · ', style: FwText.body),
+                              const Icon(
+                                Icons.star,
+                                size: 13,
+                                color: AppTheme.accentSoft,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                '${rating.toStringAsFixed(1)} '
+                                '(${reputation.count})',
+                                style: FwText.body,
+                              ),
+                            ],
+                          ],
                         ),
+                      ],
+                      if (reputation.isLow) ...[
+                        const SizedBox(height: 6),
+                        const LowReputationPill(),
                       ],
                       const SizedBox(height: 3),
                       Text(

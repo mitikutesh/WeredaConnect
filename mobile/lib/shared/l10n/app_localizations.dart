@@ -9154,6 +9154,474 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The goods were picked up, so the drop-off place can no longer be changed.'**
   String get errorDeliveryLocationLocked;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Chip a buyer sees on a card of a farmer or trucker whose public tier is low
+  ///
+  /// In en, this message translates to:
+  /// **'Low reputation'**
+  String get reputationLowTag;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). One line under the Low reputation chip on a detail screen, plain and without blame
+  ///
+  /// In en, this message translates to:
+  /// **'Recently cancelled or missed several paid orders.'**
+  String get reputationLowInfo;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The share of the owner's recent orders that were completed, a whole percent
+  ///
+  /// In en, this message translates to:
+  /// **'{pct}% of orders completed'**
+  String reputationReliability(String pct);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). When the shown reputation was last written by the server or saved on the device
+  ///
+  /// In en, this message translates to:
+  /// **'As of {date}'**
+  String reputationAsOf(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Title of the confirm a buyer gets before ordering from a low reputation farmer or trucker
+  ///
+  /// In en, this message translates to:
+  /// **'Order anyway?'**
+  String get reputationLowOrderTitle;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Body of the low reputation order confirm when the listing's farmer is tagged
+  ///
+  /// In en, this message translates to:
+  /// **'This farmer has a Low reputation label. They recently cancelled or missed several paid orders. You can still order.'**
+  String get reputationLowOrderFarmer;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Body of the low reputation order confirm when the chosen trip's trucker is tagged
+  ///
+  /// In en, this message translates to:
+  /// **'This trucker has a Low reputation label. They recently cancelled or missed several paid orders. You can still order.'**
+  String get reputationLowOrderTrucker;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Body of the low reputation order confirm when both the farmer and the trucker are tagged
+  ///
+  /// In en, this message translates to:
+  /// **'This farmer and this trucker both have a Low reputation label. They recently cancelled or missed several paid orders. You can still order.'**
+  String get reputationLowOrderBoth;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Button of the low reputation order confirm that places the order
+  ///
+  /// In en, this message translates to:
+  /// **'Order anyway'**
+  String get reputationLowOrderContinue;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The server refused a new listing, trip or order accept with REPUTATION_RESTRICTED and an until date; neutral wording, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'Your account can\'t take new orders, listings or trips until {date}, so this change was not saved. Your current orders continue.'**
+  String errorReputationRestrictedUntil(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Title of the farmer's or trucker's own reputation screen and its Profile row
+  ///
+  /// In en, this message translates to:
+  /// **'My reputation'**
+  String get reputationMyTitle;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Subtitle of the My reputation row on Profile
+  ///
+  /// In en, this message translates to:
+  /// **'Rating, penalty points and appeals'**
+  String get reputationMySubtitle;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Own tier good: 0 to 2 penalty points
+  ///
+  /// In en, this message translates to:
+  /// **'Good standing'**
+  String get reputationTierGood;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Line under the good tier on My reputation
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing to do. Keep completing your orders.'**
+  String get reputationTierGoodBody;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Own tier warning: private, buyers see nothing yet; respectful wording
+  ///
+  /// In en, this message translates to:
+  /// **'Please take care'**
+  String get reputationTierWarning;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Explains the low threshold from the live policy
+  ///
+  /// In en, this message translates to:
+  /// **'At {threshold} points, buyers will see a Low reputation label.'**
+  String reputationWarning(int threshold);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Line under the low tier on My reputation
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers see a Low reputation label on your listings and trips, and are asked to confirm before they order.'**
+  String get reputationTierLowBody;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Own tier restricted: no new listings, trips or accepts for a while
+  ///
+  /// In en, this message translates to:
+  /// **'New orders paused'**
+  String get reputationTierRestricted;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Line under the restricted tier with its end date
+  ///
+  /// In en, this message translates to:
+  /// **'You can\'t take new orders until {date}. Your current orders continue.'**
+  String reputationRestrictedUntil(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Line under the restricted tier while an admin review is open (no end date)
+  ///
+  /// In en, this message translates to:
+  /// **'You can\'t take new orders while our team reviews a late delivery. Your current orders continue.'**
+  String get reputationRestrictedReview;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The party's active penalty points
+  ///
+  /// In en, this message translates to:
+  /// **'{points, plural, =0{No penalty points} =1{1 penalty point} other{{points} penalty points}}'**
+  String reputationMyPoints(int points);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Explains the restricted threshold from the live policy
+  ///
+  /// In en, this message translates to:
+  /// **'At {threshold} points, new orders are paused for a while.'**
+  String reputationRestrictAt(int threshold);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). When the oldest active penalty expires
+  ///
+  /// In en, this message translates to:
+  /// **'Your oldest points expire on {date}.'**
+  String reputationNextExpiry(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). How points go away: expiry and earn-back
+  ///
+  /// In en, this message translates to:
+  /// **'Points expire with time, and a completed order can remove one.'**
+  String get reputationRecoverHint;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The raw star average and the penalty deduction on the party's own screen
+  ///
+  /// In en, this message translates to:
+  /// **'{stars} from buyers, {deduction} deducted for cancellations'**
+  String reputationRatingBreakdown(String stars, String deduction);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The raw star average on the party's own screen when nothing is deducted
+  ///
+  /// In en, this message translates to:
+  /// **'{stars} from buyers'**
+  String reputationRatingFromBuyers(String stars);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The effective rating buyers see, on the party's own screen
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers see {stars}'**
+  String reputationShownToBuyers(String stars);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Completed orders out of completed plus fault cancels plus no-shows in 90 days
+  ///
+  /// In en, this message translates to:
+  /// **'{completed} of {total} orders completed in the last 90 days'**
+  String reputationCompletedOrders(int completed, int total);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). An admin tag is in force; the admin's reason follows as plain text
+  ///
+  /// In en, this message translates to:
+  /// **'Our team added the Low reputation label until {date}.'**
+  String reputationOverrideLow(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). An admin untag is in force; the admin's reason follows as plain text
+  ///
+  /// In en, this message translates to:
+  /// **'Our team removed the Low reputation label until {date}.'**
+  String reputationOverrideClear(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Section title of the party's own reputation events
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get reputationEventsTitle;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Empty state of the event list
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing recorded.'**
+  String get reputationEventsEmpty;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event DECLINED_REQUEST
+  ///
+  /// In en, this message translates to:
+  /// **'Declined a paid order'**
+  String get reputationEventDeclined;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event RESPONSE_EXPIRED
+  ///
+  /// In en, this message translates to:
+  /// **'Didn\'t respond in time'**
+  String get reputationEventExpired;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event CANCELLED_AFTER_ACCEPT
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled after accepting'**
+  String get reputationEventCancelled;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event LATE_CANCEL
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled less than a day before pickup'**
+  String get reputationEventLateCancel;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event TRIP_CANCELLED_WITH_BOOKINGS
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled a trip with booked orders'**
+  String get reputationEventTripCancelled;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event NO_SHOW
+  ///
+  /// In en, this message translates to:
+  /// **'Missed the pickup'**
+  String get reputationEventNoShow;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event DELIVERY_OVERDUE
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery overdue'**
+  String get reputationEventOverdue;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event CANCELLED_TRANSPORT_FAILED (never penalized)
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled after the transport failed'**
+  String get reputationEventTransportFailedCancel;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event ORDER_COMPLETED that earned a point back
+  ///
+  /// In en, this message translates to:
+  /// **'Completed an order, one point removed'**
+  String get reputationEventCompleted;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). An event code this build does not know
+  ///
+  /// In en, this message translates to:
+  /// **'Order event'**
+  String get reputationEventOther;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The points of one event
+  ///
+  /// In en, this message translates to:
+  /// **'{points, plural, =1{1 point} other{{points} points}}'**
+  String reputationEventPoints(int points);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). An event recorded with 0 points (a cap, not reachable, no fault)
+  ///
+  /// In en, this message translates to:
+  /// **'No points counted'**
+  String get reputationEventNoPoints;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Points of an event left after earn-back, when fewer than its points
+  ///
+  /// In en, this message translates to:
+  /// **'{points} still counted'**
+  String reputationEventRemaining(int points);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). When an active event's points expire
+  ///
+  /// In en, this message translates to:
+  /// **'Expires {date}'**
+  String reputationPointExpires(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event status expired: its points no longer count
+  ///
+  /// In en, this message translates to:
+  /// **'Expired'**
+  String get reputationEventStatusExpired;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event status excused by an admin
+  ///
+  /// In en, this message translates to:
+  /// **'Excused'**
+  String get reputationEventStatusExcused;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Button on an appealable event and title of the appeal sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal'**
+  String get reputationAppeal;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The appeal deadline of an event
+  ///
+  /// In en, this message translates to:
+  /// **'You can appeal until {date}.'**
+  String reputationAppealBy(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Appeal status pending
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal sent. Our team will review it.'**
+  String get reputationAppealPending;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Appeal status review (admin review of a late delivery)
+  ///
+  /// In en, this message translates to:
+  /// **'Our team is reviewing this.'**
+  String get reputationAppealReview;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Appeal status excused
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal accepted. The points were removed.'**
+  String get reputationAppealAccepted;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Appeal status upheld
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal reviewed. The points stay.'**
+  String get reputationAppealUpheld;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The admin's note to the party after a decision
+  ///
+  /// In en, this message translates to:
+  /// **'Note from our team: {note}'**
+  String reputationAppealNote(String note);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Hint at the top of the appeal sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Explain what happened. Our team will review it. You can appeal each record once.'**
+  String get reputationAppealHint;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Label of the appeal text field
+  ///
+  /// In en, this message translates to:
+  /// **'What happened'**
+  String get reputationAppealTextLabel;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Button that adds the optional appeal photo
+  ///
+  /// In en, this message translates to:
+  /// **'Add a photo (optional)'**
+  String get reputationAppealAddPhoto;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Shown when an appeal photo is attached
+  ///
+  /// In en, this message translates to:
+  /// **'Photo added'**
+  String get reputationAppealPhotoAdded;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Removes the attached appeal photo
+  ///
+  /// In en, this message translates to:
+  /// **'Remove photo'**
+  String get reputationAppealRemovePhoto;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Note on the appeal sheet: the submit is an online request, the text is kept as a draft
+  ///
+  /// In en, this message translates to:
+  /// **'Sending an appeal needs a connection. Your text is kept on this device until you send it.'**
+  String get reputationAppealNeedsConnection;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Submit button of the appeal sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Send appeal'**
+  String get reputationAppealSend;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Snackbar after the appeal reached the server
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal sent.'**
+  String get reputationAppealSent;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The appeal request failed (offline or a server error); the draft is kept
+  ///
+  /// In en, this message translates to:
+  /// **'The appeal was not sent. Check your connection and try again.'**
+  String get reputationAppealFailed;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The server answered REPUTATION_APPEAL_CLOSED
+  ///
+  /// In en, this message translates to:
+  /// **'This can no longer be appealed.'**
+  String get reputationAppealClosed;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The server answered REPUTATION_APPEAL_EXISTS
+  ///
+  /// In en, this message translates to:
+  /// **'An appeal was already sent for this.'**
+  String get reputationAppealExists;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The picked appeal photo is over 200 KB or not a JPEG or WebP
+  ///
+  /// In en, this message translates to:
+  /// **'This photo is too large or can\'t be used. Try another one, or send without a photo.'**
+  String get reputationAppealPhotoProblem;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The server answered REPUTATION_UNAVAILABLE (the feature is switched off)
+  ///
+  /// In en, this message translates to:
+  /// **'Appeals are not available right now.'**
+  String get reputationAppealUnavailable;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). My reputation could not be loaded and nothing is saved on the device
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to the internet to see your reputation.'**
+  String get reputationOfflineNoCopy;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). My reputation shows the saved copy because the request failed
+  ///
+  /// In en, this message translates to:
+  /// **'You\'re offline. Showing what was saved on {date}.'**
+  String reputationShowingSaved(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Loads the next page of reputation events
+  ///
+  /// In en, this message translates to:
+  /// **'Show more'**
+  String get reputationLoadMore;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The event list could not be loaded and nothing is saved
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to the internet to see your history.'**
+  String get reputationHistoryNeedsConnection;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The Profile Rating tile when a farmer or trucker has no ratings yet (a buyer is never rated and keeps the dash); short, it sits in a narrow tile above the word Rating
+  ///
+  /// In en, this message translates to:
+  /// **'None yet'**
+  String get profileRatingNone;
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox title of penalty_recorded; plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'Penalty points added'**
+  String get notifPenaltyRecordedTitle;
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of penalty_recorded: what happened (the event line), the points it added, and where to look or appeal
+  ///
+  /// In en, this message translates to:
+  /// **'{reason}. Points added: {points}. Open My reputation to see the details or appeal.'**
+  String notifPenaltyRecordedBody(String reason, String points);
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox title of tier_changed
+  ///
+  /// In en, this message translates to:
+  /// **'Your reputation changed'**
+  String get notifTierChangedTitle;
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to good
+  ///
+  /// In en, this message translates to:
+  /// **'You are back in good standing.'**
+  String get notifTierGoodBody;
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to warning: the private warning
+  ///
+  /// In en, this message translates to:
+  /// **'You have penalty points. Buyers see nothing yet. Open My reputation for the details.'**
+  String get notifTierWarningBody;
 }
 
 class _AppLocalizationsDelegate

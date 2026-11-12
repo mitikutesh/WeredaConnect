@@ -27,6 +27,7 @@ import 'package:wereda_connect/features/listing_report/presentation/report_listi
 import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/reputation/domain/owner_reputation.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_preview_card.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
@@ -35,6 +36,7 @@ import 'package:wereda_connect/shared/services/place_normalizer.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/low_reputation_pill.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// Full detail view for a single crop listing (the Buyer · Crop detail and
@@ -356,7 +358,10 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                   // for a listing without a real name (SIM-33).
                   if (partyDisplayName(widget.listing.farmerName, l10n)
                       .isNotEmpty) ...[
-                    _FarmerCard(listing: widget.listing),
+                    _FarmerCard(
+                      listing: widget.listing,
+                      showLowLabel: isBuyer,
+                    ),
                     const SizedBox(height: 14),
                   ],
 
@@ -453,15 +458,23 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                 // The trucker's real rating ends the route line, as on the
                 // board; nothing while it loads, offline or unrated.
                 child: FutureBuilder<RatingSummary?>(
-                  future: _truckerRatingFor(trip.truckerId),
+                  // ESC-31: a trip that carries the trucker's reputation
+                  // copy shows it from the row and makes no call.
+                  future: OwnerReputation.ofTrip(trip).isPresent
+                      ? null
+                      : _truckerRatingFor(trip.truckerId),
                   builder: (context, snapshot) {
                     final summary = snapshot.data;
+                    final reputation = OwnerReputation.ofTrip(trip);
                     return SuggestedTripCard(
                       trip: trip,
                       isSelected: _selectedTrip?.tripId == trip.tripId,
-                      rating: summary != null && summary.count > 0
-                          ? summary.average
-                          : null,
+                      rating: reputation.isPresent
+                          ? reputation.rating
+                          : (summary != null && summary.count > 0
+                              ? summary.average
+                              : null),
+                      lowReputation: reputation.isLow,
                       onSelect: () {
                         setState(() {
                           _selectedTrip = _selectedTrip?.tripId == trip.tripId
@@ -778,24 +791,39 @@ class _LocationSection extends StatelessWidget {
   }
 }
 
-/// The farmer who sells the crop with their aggregate rating (average and
-/// count), fetched best effort from the server; "no ratings yet" while
-/// loading or offline.
+/// The farmer who sells the crop with their rating (average and count).
+///
+/// ESC-31: a listing that carries the server's reputation copy shows it
+/// from the row, with no call and offline: the effective rating, how
+/// reliably the farmer completes orders, when the copy was written and, for
+/// a buyer ([showLowLabel]), the "Low reputation" label with one plain
+/// line. A listing without the copy reads the aggregate best effort from
+/// the server as before; "no ratings yet" while loading or offline.
 class _FarmerCard extends StatefulWidget {
   final CropListing listing;
 
-  const _FarmerCard({required this.listing});
+  /// Whether the "Low reputation" label is shown (buyers). The farmer
+  /// looking at their own listing reads their standing on My reputation.
+  final bool showLowLabel;
+
+  const _FarmerCard({required this.listing, required this.showLowLabel});
 
   @override
   State<_FarmerCard> createState() => _FarmerCardState();
 }
 
 class _FarmerCardState extends State<_FarmerCard> {
-  // Fetched once, not on every rebuild (minimise 3G data usage).
-  late final Future<RatingSummary> _summaryFuture = context
-      .read<RatingBloc>()
-      .repository
-      .getRatingSummary(widget.listing.farmerId);
+  late final OwnerReputation _reputation =
+      OwnerReputation.ofListing(widget.listing);
+
+  // Fetched once, not on every rebuild (minimise 3G data usage), and not at
+  // all when the row carries the copy.
+  late final Future<RatingSummary>? _summaryFuture = _reputation.isPresent
+      ? null
+      : context
+          .read<RatingBloc>()
+          .repository
+          .getRatingSummary(widget.listing.farmerId);
 
   @override
   Widget build(BuildContext context) {
@@ -807,11 +835,24 @@ class _FarmerCardState extends State<_FarmerCard> {
         .take(2)
         .map((part) => part.characters.first.toUpperCase())
         .join();
+    const muted = TextStyle(fontSize: 12, color: AppTheme.mutedSteel);
     return FutureBuilder<RatingSummary>(
       future: _summaryFuture,
       builder: (context, snapshot) {
         final summary = snapshot.data;
-        final rated = summary != null && summary.count > 0;
+        final double? average;
+        final int count;
+        if (_reputation.isPresent) {
+          average = _reputation.rating;
+          count = _reputation.count ?? 0;
+        } else {
+          final rated = summary != null && summary.count > 0;
+          average = rated ? summary.average : null;
+          count = rated ? summary.count : 0;
+        }
+        final reliability = _reputation.reliabilityPct;
+        final asOf = _reputation.asOf;
+        final low = widget.showLowLabel && _reputation.isLow;
         return FwCard(
           padding: const EdgeInsets.all(14),
           child: Padding(
@@ -845,20 +886,39 @@ class _FarmerCardState extends State<_FarmerCard> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        rated
+                        average != null
                             ? '${l10n.farmerRating} '
-                                '${summary.average.toStringAsFixed(1)} · '
-                                '${l10n.ratingsCount(summary.count)}'
+                                '${average.toStringAsFixed(1)} · '
+                                '${l10n.ratingsCount(count)}'
                             : '${l10n.farmerRating}: ${l10n.noRatingsYet}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.mutedSteel,
-                        ),
+                        style: muted,
                       ),
+                      if (_reputation.isPresent && reliability != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          l10n.reputationReliability('$reliability'),
+                          style: muted,
+                        ),
+                      ],
+                      if (low) ...[
+                        const SizedBox(height: 6),
+                        const LowReputationPill(),
+                        const SizedBox(height: 4),
+                        Text(l10n.reputationLowInfo, style: muted),
+                      ],
+                      if (_reputation.isPresent && asOf != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          l10n.reputationAsOf(
+                            DateFormat.yMMMd().format(dayInEthiopia(asOf)),
+                          ),
+                          style: muted,
+                        ),
+                      ],
                     ],
                   ),
                 ),
-                if (rated) ...[
+                if (average != null) ...[
                   const SizedBox(width: 8),
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -870,7 +930,7 @@ class _FarmerCardState extends State<_FarmerCard> {
                       ),
                       const SizedBox(width: 3),
                       Text(
-                        summary.average.toStringAsFixed(1),
+                        average.toStringAsFixed(1),
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,

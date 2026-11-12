@@ -276,6 +276,68 @@ void main() {
       expect(find.text(privacyNote), findsOneWidget);
     });
 
+    group('ESC-31: the owner reputation copy on the cards', () {
+      CropListing withCopy(String id, {String tier = 'good'}) =>
+          _listing(id: id, farmerId: 'farmer-$id')
+            ..ownerTier = tier
+            ..ownerEffectiveRating = 4.4
+            ..ownerRatingCount = 12
+            ..ownerReputationAt = DateTime.utc(2026, 11, 7, 9);
+
+      void asBuyer() => when(() => authBloc.state).thenReturn(
+            const AuthAuthenticated(
+              userId: 'buyer-001',
+              tokens: _testTokens,
+              role: UserRole.buyer,
+            ),
+          );
+
+      testWidgets(
+          'a listing without the copy reads the aggregate as before, one '
+          'with it makes no call', (tester) async {
+        asBuyer();
+        when(() => ratingRepo.getRatingSummary('farmer-plain')).thenAnswer(
+          (_) async => const RatingSummary(average: 4.8, count: 3),
+        );
+        loaded([
+          _listing(id: 'plain', farmerId: 'farmer-plain'),
+          withCopy('copied'),
+        ]);
+
+        await tester.pumpWidget(buildTestWidget());
+        await tester.pumpAndSettle();
+
+        expect(find.text('4.8 (3)'), findsOneWidget);
+        expect(find.text('4.4 (12)'), findsOneWidget);
+        expect(find.text('Low reputation'), findsNothing);
+        verify(() => ratingRepo.getRatingSummary('farmer-plain')).called(1);
+        verifyNever(() => ratingRepo.getRatingSummary('farmer-copied'));
+      });
+
+      testWidgets('a buyer sees the Low reputation label', (tester) async {
+        asBuyer();
+        loaded([withCopy('low', tier: 'low'), withCopy('good')]);
+
+        await tester.pumpWidget(buildTestWidget());
+        await tester.pumpAndSettle();
+
+        expect(find.text('Low reputation'), findsOneWidget);
+        verifyNever(() => ratingRepo.getRatingSummary(any()));
+      });
+
+      testWidgets('My Crops shows the farmer their rating, not the label',
+          (tester) async {
+        loaded([withCopy('low', tier: 'low')]);
+
+        await tester.pumpWidget(buildTestWidget(ownerMode: true));
+        await tester.pumpAndSettle();
+
+        expect(find.text('4.4 (12)'), findsOneWidget);
+        expect(find.text('Low reputation'), findsNothing);
+        verifyNever(() => ratingRepo.getRatingSummary(any()));
+      });
+    });
+
     testWidgets('a price per kg of 1000 or more groups its thousands',
         (tester) async {
       loaded([_listing()..pricePerKg = 1250]);

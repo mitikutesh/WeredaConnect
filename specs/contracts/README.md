@@ -60,7 +60,7 @@ Each contract file follows this structure:
 | Authentication API | `auth-api.md` | 2.15.0 | Mobile, Backend, Infrastructure |
 | User Entity | `user-entity.md` | 2.1.1 | Mobile, Web, Backend, Admin, Infrastructure |
 | Rating API | `rating-api.md` | 1.4.0 | Mobile, Web, Backend, Infrastructure, Admin |
-| Reputation API (penalty events, tiers, appeals, gates; events, aggregate, reads, appeal, gates and admin endpoints BUILT on the server; app PLANNED) | `reputation-api.md` | 1.4.0 | Mobile, Web, Backend, Admin, Infrastructure |
+| Reputation API (penalty events, tiers, appeals, gates; events, aggregate, reads, appeal, gates and admin endpoints BUILT on the server; app PLANNED) | `reputation-api.md` | 1.6.0 | Mobile, Web, Backend, Admin, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.12.0 | Mobile, Backend, Admin |
 | Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.11.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 2.4.0 | Mobile, Web, Backend, Infrastructure, Admin |
@@ -70,10 +70,10 @@ Each contract file follows this structure:
 | Buyer Match API | `match-api.md` | 1.4.0 | Mobile, Backend |
 | Match Events (`match_event` sync entity) | `match-events.md` | n/a | Mobile, Backend |
 | Push Alerts API | `push-alerts-api.md` | 1.4.0 | Mobile, Backend |
-| Notifications API (order, delivery, money and reputation inbox + push) | `notifications-api.md` | 1.5.0 | Mobile, Web, Backend, Infrastructure |
+| Notifications API (order, delivery, money and reputation inbox + push) | `notifications-api.md` | 1.5.1 | Mobile, Web, Backend, Infrastructure |
 | Live Trip (`location_ping` check-ins, track, admin trail, `truck_nearby`) | `live-trip-api.md` | 1.1.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | In-App Messaging (context-scoped chat) | `messaging.md` | 1.5.0 | Mobile, Backend, Admin |
-| Data Models | `data-models.md` | 1.11.0 | Mobile, Backend |
+| Data Models | `data-models.md` | 1.12.0 | Mobile, Backend |
 | Listing Reports (`listing_report` sync entity, admin queue) | `listing-report-api.md` | 1.0.0 | Mobile, Web, Backend, Admin, Infrastructure |
 
 ---

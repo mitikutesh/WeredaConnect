@@ -197,7 +197,11 @@ public partial class OrderCronFunction
                 ? null
                 : new FraudDetectionService(dynamoDb, cropsTable ?? "", fraudSignalsTable, new RateLimitRepository(dynamoDb, ""));
             var service = new ReputationService(
-                repo, settings, fraud, copies: ReputationCopyRepository.FromEnvironment(dynamoDb));
+                repo, settings, fraud, copies: ReputationCopyRepository.FromEnvironment(dynamoDb))
+            {
+                // ESC-33: a parked decline replayed here checks the buyer decline pattern like a live one.
+                BuyerPatterns = new TransactionPatternService(_orderRepo, escrows: null)
+            };
             ReputationDaily = new ReputationDailyJob(service, repo);
 
             var parkedQueueUrl = Environment.GetEnvironmentVariable("REPUTATION_PARKED_QUEUE_URL");

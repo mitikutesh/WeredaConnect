@@ -384,7 +384,11 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
         if (_cardAction && state is OrderError) {
           // E-6: the answer failed; the list stays, this says why.
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
+            SnackBar(
+              content: Text(
+                localizeErrorCode(state.code, l10n, message: state.message),
+              ),
+            ),
           );
         }
         if (_cardAction && (state is OrderAccepted || state is OrderRejected)) {

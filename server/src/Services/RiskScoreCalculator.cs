@@ -74,7 +74,15 @@ internal sealed record RiskScoreSettings(
     /// or the type itself.
     /// </summary>
     internal static string CapKeyOf(string signalType) =>
-        FraudDetectionService.IsCappedRelationshipType(signalType) ? SoftRelationshipCapGroup : signalType;
+        FraudDetectionService.IsCappedRelationshipType(signalType) ? SoftRelationshipCapGroup
+        : FraudDetectionService.IsReliabilitySignal(signalType) ? ReliabilityCapGroup
+        : signalType;
+
+    /// <summary>
+    /// ESC-33: the cap group of <c>NO_SHOW</c> and <c>DELIVERY_OVERDUE</c>. The two share one
+    /// <c>RISK_PATTERN_TYPE_CAP</c>, so reliability failures alone stop at MEDIUM.
+    /// </summary>
+    internal const string ReliabilityCapGroup = "group:reliability";
 
     /// <summary>
     /// The cap of a capped type (or of a cap group) over the window: <c>RISK_REJECT_TYPE_CAP</c> for the FRD-08
@@ -86,6 +94,8 @@ internal sealed record RiskScoreSettings(
         : FraudDetectionService.IsPatternSignal(signalTypeOrGroup)
           || FraudDetectionService.IsCappedRelationshipType(signalTypeOrGroup)
           || signalTypeOrGroup == SoftRelationshipCapGroup
+          || FraudDetectionService.IsReliabilitySignal(signalTypeOrGroup)
+          || signalTypeOrGroup == ReliabilityCapGroup
             ? PatternTypeCap
         : null;
 

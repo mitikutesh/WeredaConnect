@@ -236,6 +236,78 @@ void main() {
       expect((await tripPcts())['trip-1'], isNull);
     });
 
+    test(
+        'ESC-31: the rest of the owner reputation copy is stored on crops '
+        'and trips, and cleared when the server stops sending it', () async {
+      const owner = {
+        'ownerTier': 'low',
+        'ownerEffectiveRating': 4.2,
+        'ownerRatingCount': 12,
+        'ownerReliabilityPct': 83,
+        'ownerReputationAt': '2026-11-07T09:00:00.000Z',
+      };
+      stubApi(
+        crops: [
+          {..._cropJson(), ...owner},
+          _cropJson(cropId: 'crop-2'),
+        ],
+        trips: [
+          {..._tripJson(), ...owner},
+          _tripJson(tripId: 'trip-2'),
+        ],
+      );
+      await buildSync().pullAll();
+
+      final crops = {
+        for (final c in await isar.cropListings.where().findAll())
+          c.listingId: c,
+      };
+      final trips = {
+        for (final t in await isar.trips.where().findAll()) t.tripId: t,
+      };
+      for (final (tier, rating, count, at) in [
+        (
+          crops['crop-1']!.ownerTier,
+          crops['crop-1']!.ownerEffectiveRating,
+          crops['crop-1']!.ownerRatingCount,
+          crops['crop-1']!.ownerReputationAt,
+        ),
+        (
+          trips['trip-1']!.ownerTier,
+          trips['trip-1']!.ownerEffectiveRating,
+          trips['trip-1']!.ownerRatingCount,
+          trips['trip-1']!.ownerReputationAt,
+        ),
+      ]) {
+        expect(tier, 'low');
+        expect(rating, 4.2);
+        expect(count, 12);
+        expect(at?.toUtc(), DateTime.utc(2026, 11, 7, 9));
+      }
+      // A row the server sent without a copy has none.
+      expect(crops['crop-2']!.ownerTier, isNull);
+      expect(crops['crop-2']!.ownerEffectiveRating, isNull);
+      expect(crops['crop-2']!.ownerRatingCount, isNull);
+      expect(crops['crop-2']!.ownerReputationAt, isNull);
+      expect(trips['trip-2']!.ownerTier, isNull);
+      expect(trips['trip-2']!.ownerReputationAt, isNull);
+
+      // The flag goes off: the next pull carries no owner field.
+      stubApi(crops: [_cropJson()], trips: [_tripJson()]);
+      await buildSync().pullAll();
+
+      final crop = (await isar.cropListings.where().findAll())
+          .firstWhere((c) => c.listingId == 'crop-1');
+      final trip = (await isar.trips.where().findAll())
+          .firstWhere((t) => t.tripId == 'trip-1');
+      expect(crop.ownerTier, isNull);
+      expect(crop.ownerEffectiveRating, isNull);
+      expect(crop.ownerRatingCount, isNull);
+      expect(crop.ownerReputationAt, isNull);
+      expect(trip.ownerTier, isNull);
+      expect(trip.ownerEffectiveRating, isNull);
+    });
+
     group('FUP-122: the order lead from GET /trips', () {
       setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 

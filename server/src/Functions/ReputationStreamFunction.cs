@@ -61,9 +61,17 @@ public class ReputationStreamFunction
         var fraud = string.IsNullOrEmpty(fraudSignalsTable)
             ? null
             : new FraudDetectionService(dynamoDb, "", fraudSignalsTable, new RateLimitRepository(dynamoDb, ""));
+        // ESC-33: the buyer decline pattern reads the buyer's orders (BuyerIdCreatedAtIndex). Without the
+        // table name (a stack from before ESC-33) that hook does not run.
+        var ordersTable = Environment.GetEnvironmentVariable("ORDERS_TABLE");
         var service = new ReputationService(
             new ReputationEventRepository(dynamoDb, eventsTable, usersTable), settings, fraud,
-            copies: ReputationCopyRepository.FromEnvironment(dynamoDb));
+            copies: ReputationCopyRepository.FromEnvironment(dynamoDb))
+        {
+            BuyerPatterns = string.IsNullOrEmpty(ordersTable)
+                ? null
+                : new TransactionPatternService(new OrderRepository(dynamoDb, ordersTable), escrows: null)
+        };
         _processor = new ReputationRecordProcessor(
             service, new DeviceReachability(dynamoDb, deviceTokensTable).HasDeviceAsync, ReputationFlags.TimeoutPenaltiesEnabled);
         _parkedQueueUrl = Environment.GetEnvironmentVariable("REPUTATION_PARKED_QUEUE_URL");

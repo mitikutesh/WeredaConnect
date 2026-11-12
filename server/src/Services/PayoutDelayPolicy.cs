@@ -72,10 +72,13 @@ internal enum PayoutDelayClass
     /// <summary>Score 0 (no counted signal), an old enough account and enough completed escrows.</summary>
     Trusted,
 
-    /// <summary>A computed score that is not trusted: a young account, too little history, or a score above 0 below HIGH.</summary>
+    /// <summary>
+    /// A computed score that is not trusted: a young account, too little history, or a score above 0 below HIGH.
+    /// ESC-33, with <c>reputationPenalties</c> on: also a payee whose reputation tier is <c>low</c>.
+    /// </summary>
     New,
 
-    /// <summary>Risk tier HIGH or CRITICAL.</summary>
+    /// <summary>Risk tier HIGH or CRITICAL. ESC-33, with <c>reputationPenalties</c> on: also a restricted payee.</summary>
     Flagged,
 
     /// <summary>Not a computed score, or the payee's row could not be read: the longest delay.</summary>
@@ -133,6 +136,13 @@ internal sealed class PayoutDelayPolicy
     private readonly IEscrowRepository? _escrows;
     private readonly PayoutDelaySettings? _settings;
     private readonly RiskScoreSettings? _riskSettings;
+
+    /// <summary>
+    /// ESC-33 (section 17.5): whether a payee's reputation tier, read from the users row, lengthens the
+    /// wait. It follows <c>reputationPenalties</c> (off in every environment today): off, the classes are
+    /// exactly FRD-13's and no read is added.
+    /// </summary>
+    internal bool ReadsReputationTier { get; init; } = ReputationFlags.PenaltiesEnabled;
 
     /// <param name="fraudService">Reads the risk score; without it every payee is unscored.</param>
     /// <param name="users">Reads the account age; without it every payee is unscored.</param>
@@ -221,15 +231,35 @@ internal sealed class PayoutDelayPolicy
                 return PayoutDelayClass.Flagged;
             }
 
-            if (score.EnforcementScore > 0 || rulesTier != RiskTier.Low)
+            var scored = score.EnforcementScore > 0 || rulesTier != RiskTier.Low;
+            if (scored && !ReadsReputationTier)
             {
                 return PayoutDelayClass.New;
             }
 
+            // FRD-13 read this row only for a payee with a clean score. ESC-33, with the flag on, also reads
+            // it for a payee the score already made new (one GetItem per payee and batch), since a restricted
+            // payee waits as flagged whatever the score.
             var user = await _users.GetUserByIdAsync(userId);
             if (user == null)
             {
                 return PayoutDelayClass.Unscored;
+            }
+
+            if (ReadsReputationTier)
+            {
+                switch (ReputationWait(user.Reputation, nowUtc))
+                {
+                    case PayoutDelayClass.Flagged:
+                        return PayoutDelayClass.Flagged;
+                    case PayoutDelayClass.New:
+                        return PayoutDelayClass.New;
+                }
+            }
+
+            if (scored)
+            {
+                return PayoutDelayClass.New;
             }
 
             if (!OldEnough(user.CreatedAt, settings, nowUtc))
@@ -243,6 +273,29 @@ internal sealed class PayoutDelayPolicy
         {
             return PayoutDelayClass.Unscored;
         }
+    }
+
+    /// <summary>
+    /// ESC-33: what the stored reputation says about the wait, from the users row alone (no events read, no
+    /// policy read). A restriction active now waits as <see cref="PayoutDelayClass.Flagged"/>; a stored tier
+    /// of <c>low</c>, or of <c>restricted</c> whose restriction has ended, waits as
+    /// <see cref="PayoutDelayClass.New"/>; <c>good</c>, <c>warning</c> and no map change nothing (null). The
+    /// stored tier can lag an expiry by up to a day (the daily job rewrites it), which only makes the wait
+    /// longer, never shorter.
+    /// </summary>
+    internal static PayoutDelayClass? ReputationWait(ReputationSnapshot? reputation, DateTime nowUtc)
+    {
+        if (reputation == null)
+        {
+            return null;
+        }
+
+        if (reputation.IsRestrictedAt(nowUtc.ToUniversalTime()))
+        {
+            return PayoutDelayClass.Flagged;
+        }
+
+        return reputation.Tier is ReputationTiers.Low or ReputationTiers.Restricted ? PayoutDelayClass.New : null;
     }
 
     private static bool OldEnough(string? createdAt, PayoutDelaySettings settings, DateTime nowUtc) =>

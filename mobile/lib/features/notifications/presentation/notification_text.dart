@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/app_notification.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/notifications/data/notification_api.dart';
+import 'package:wereda_connect/features/reputation/presentation/reputation_event_text.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -46,7 +48,17 @@ const List<String> notificationTypes = [
   'dispute_received',
   'dispute_resolved',
   'under_review',
+  // ESC-31 (notifications-api.md 1.5.0): the party's own reputation.
+  'penalty_recorded',
+  'tier_changed',
 ];
+
+/// ESC-31: the types about the recipient's own reputation. They name no
+/// order: tapping one opens My reputation.
+const Set<String> reputationNotificationTypes = {
+  'penalty_recorded',
+  'tier_changed',
+};
 
 /// Types that ask the recipient to act (`NotificationTypes.ActionRequired`).
 const Set<String> actionRequiredNotificationTypes = {
@@ -212,8 +224,40 @@ const Set<String> actionRequiredNotificationTypes = {
         title: l10n.notifUnderReviewTitle,
         body: l10n.notifUnderReviewBody,
       ),
+    'penalty_recorded' => (
+        title: l10n.notifPenaltyRecordedTitle,
+        body: l10n.notifPenaltyRecordedBody(
+          reputationEventTitle(l10n, p['code']),
+          p['points'] ?? '',
+        ),
+      ),
+    'tier_changed' => (
+        title: l10n.notifTierChangedTitle,
+        body: _tierChangedBody(l10n, p),
+      ),
     _ => (title: l10n.notifGenericTitle, body: l10n.notifGenericBody),
   };
+}
+
+/// What the party's new tier means for them, in the words My reputation
+/// uses. Only their own tier ever reaches them.
+String _tierChangedBody(AppLocalizations l10n, Map<String, String> p) {
+  switch (p['toTier']) {
+    case 'restricted':
+      final until = DateTime.tryParse(p['restrictedUntil'] ?? '');
+      return until == null
+          // No end date: an admin review is open.
+          ? l10n.reputationRestrictedReview
+          : l10n.reputationRestrictedUntil(
+              DateFormat.yMMMd().format(dayInEthiopia(until.toUtc())),
+            );
+    case 'low':
+      return l10n.reputationTierLowBody;
+    case 'warning':
+      return l10n.notifTierWarningBody;
+    default:
+      return l10n.notifTierGoodBody;
+  }
 }
 
 String _payoutHint(AppLocalizations l10n, String? reason) {
@@ -275,6 +319,10 @@ ClockLabel? notificationDetailLine(
     'payout_blocked' ||
     'order_rejected' =>
       (icon: Icons.error_outline, color: AppTheme.statusError),
+    'penalty_recorded' || 'tier_changed' => (
+        icon: Icons.workspace_premium_outlined,
+        color: AppTheme.statusWarning
+      ),
     'delivery_scheduled' ||
     'buyer_collecting' ||
     'picked_up' ||

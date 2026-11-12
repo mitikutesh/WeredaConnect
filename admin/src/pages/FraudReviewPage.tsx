@@ -52,6 +52,8 @@ const SOFT_SIGNAL_TYPES = new Set([
   // FRD-15 (not SELF_TRADE, which is hard)
   "SHARED_DEVICE_TRADE",
   "REPEATED_PAIR",
+  // ESC-33 (not NO_SHOW or DELIVERY_OVERDUE, which are hard)
+  "BUYER_DECLINE_PATTERN",
 ]);
 
 /* FRD-19: the AI reviewer's row (fraud-detection-architecture.md section 21). Its description is the model's
