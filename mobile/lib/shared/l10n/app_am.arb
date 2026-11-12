@@ -3308,5 +3308,10 @@
   "reputationShowingSaved": "ከመስመር ውጭ ነዎት። በ{date} የተቀመጠው እየታየ ነው።",
   "reputationLoadMore": "ተጨማሪ አሳይ",
   "reputationHistoryNeedsConnection": "ታሪክዎን ለማየት ከበይነመረብ ጋር ይገናኙ።",
-  "profileRatingNone": "ገና የለም"
+  "profileRatingNone": "ገና የለም",
+  "notifPenaltyRecordedTitle": "የቅጣት ነጥቦች ተጨምረዋል",
+  "notifPenaltyRecordedBody": "{reason}። የተጨመሩ ነጥቦች፦ {points}። ዝርዝሩን ለማየት ወይም ይግባኝ ለማለት \"የእኔ ተዓማኒነት\"ን ይክፈቱ።",
+  "notifTierChangedTitle": "ተዓማኒነትዎ ተቀይሯል",
+  "notifTierGoodBody": "ወደ ጥሩ አቋም ተመልሰዋል።",
+  "notifTierWarningBody": "የቅጣት ነጥቦች አሉዎት። ገዢዎች እስካሁን ምንም አያዩም። ለዝርዝሩ \"የእኔ ተዓማኒነት\"ን ይክፈቱ።"
 }

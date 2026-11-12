@@ -3301,5 +3301,10 @@
   "reputationShowingSaved": "Oflaayinii jirtu. Kan {date} olkaa'ame agarsiifamaa jira.",
   "reputationLoadMore": "Dabalata agarsiisi",
   "reputationHistoryNeedsConnection": "Seenaa keessan ilaaluuf interneetiitti walqunnamaa.",
-  "profileRatingNone": "Hin jiru"
+  "profileRatingNone": "Hin jiru",
+  "notifPenaltyRecordedTitle": "Qabxiin adabbii dabalameera",
+  "notifPenaltyRecordedBody": "{reason}. Qabxii dabalame: {points}. Bal'ina ilaaluuf yookiin ol'iyyachuuf \"Amanamummaa koo\" banaa.",
+  "notifTierChangedTitle": "Amanamummaan keessan jijjiirameera",
+  "notifTierGoodBody": "Gara haala gaariitti deebitaniittu.",
+  "notifTierWarningBody": "Qabxii adabbii qabdu. Bitattoonni hanga ammaatti homaa hin argan. Bal'inaaf \"Amanamummaa koo\" banaa."
 }

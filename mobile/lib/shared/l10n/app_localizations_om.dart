@@ -5680,4 +5680,22 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get profileRatingNone => 'Hin jiru';
+
+  @override
+  String get notifPenaltyRecordedTitle => 'Qabxiin adabbii dabalameera';
+
+  @override
+  String notifPenaltyRecordedBody(String reason, String points) {
+    return '$reason. Qabxii dabalame: $points. Bal\'ina ilaaluuf yookiin ol\'iyyachuuf \"Amanamummaa koo\" banaa.';
+  }
+
+  @override
+  String get notifTierChangedTitle => 'Amanamummaan keessan jijjiirameera';
+
+  @override
+  String get notifTierGoodBody => 'Gara haala gaariitti deebitaniittu.';
+
+  @override
+  String get notifTierWarningBody =>
+      'Qabxii adabbii qabdu. Bitattoonni hanga ammaatti homaa hin argan. Bal\'inaaf \"Amanamummaa koo\" banaa.';
 }

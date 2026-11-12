@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +11,7 @@ import 'package:wereda_connect/features/reputation/domain/models/reputation_even
 import 'package:wereda_connect/features/reputation/presentation/bloc/my_reputation_bloc.dart';
 import 'package:wereda_connect/features/reputation/presentation/bloc/my_reputation_event.dart';
 import 'package:wereda_connect/features/reputation/presentation/bloc/my_reputation_state.dart';
+import 'package:wereda_connect/features/reputation/presentation/reputation_event_text.dart';
 import 'package:wereda_connect/features/reputation/presentation/widgets/appeal_dialog.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -58,12 +61,11 @@ class _MyReputationScreenState extends State<MyReputationScreen> {
     super.dispose();
   }
 
-  Future<void> _refresh() async {
-    _bloc.add(const MyReputationRequested(force: true));
+  Future<void> _refresh() {
     // The indicator stays until the answer (or the saved copy) is in.
-    await _bloc.stream
-        .firstWhere((s) => s.status != ReputationLoad.loading)
-        .timeout(const Duration(seconds: 30), onTimeout: () => _bloc.state);
+    final done = Completer<void>();
+    _bloc.add(MyReputationRequested(force: true, done: done));
+    return done.future;
   }
 
   Future<void> _appeal(ReputationEvent event) async {
@@ -470,20 +472,6 @@ class _EventCard extends StatelessWidget {
 
   const _EventCard({required this.event, super.key, this.onAppeal});
 
-  static String _title(AppLocalizations l10n, String code) => switch (code) {
-        'DECLINED_REQUEST' => l10n.reputationEventDeclined,
-        'RESPONSE_EXPIRED' => l10n.reputationEventExpired,
-        'CANCELLED_AFTER_ACCEPT' => l10n.reputationEventCancelled,
-        'LATE_CANCEL' => l10n.reputationEventLateCancel,
-        'TRIP_CANCELLED_WITH_BOOKINGS' => l10n.reputationEventTripCancelled,
-        'NO_SHOW' => l10n.reputationEventNoShow,
-        'DELIVERY_OVERDUE' => l10n.reputationEventOverdue,
-        'CANCELLED_TRANSPORT_FAILED' =>
-          l10n.reputationEventTransportFailedCancel,
-        'ORDER_COMPLETED' => l10n.reputationEventCompleted,
-        _ => l10n.reputationEventOther,
-      };
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -529,7 +517,10 @@ class _EventCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(_title(l10n, event.code), style: FwText.cardTitle),
+                    Text(
+                      reputationEventTitle(l10n, event.code),
+                      style: FwText.cardTitle,
+                    ),
                     if (occurredAt != null) ...[
                       const SizedBox(height: 2),
                       Text(

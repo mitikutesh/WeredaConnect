@@ -5479,4 +5479,22 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get profileRatingNone => 'ገና የለም';
+
+  @override
+  String get notifPenaltyRecordedTitle => 'የቅጣት ነጥቦች ተጨምረዋል';
+
+  @override
+  String notifPenaltyRecordedBody(String reason, String points) {
+    return '$reason። የተጨመሩ ነጥቦች፦ $points። ዝርዝሩን ለማየት ወይም ይግባኝ ለማለት \"የእኔ ተዓማኒነት\"ን ይክፈቱ።';
+  }
+
+  @override
+  String get notifTierChangedTitle => 'ተዓማኒነትዎ ተቀይሯል';
+
+  @override
+  String get notifTierGoodBody => 'ወደ ጥሩ አቋም ተመልሰዋል።';
+
+  @override
+  String get notifTierWarningBody =>
+      'የቅጣት ነጥቦች አሉዎት። ገዢዎች እስካሁን ምንም አያዩም። ለዝርዝሩ \"የእኔ ተዓማኒነት\"ን ይክፈቱ።';
 }

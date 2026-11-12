@@ -76,6 +76,10 @@ class _AppealDialogState extends State<AppealDialog> {
   Uint8List? _photo;
   bool _sending = false;
   bool _sent = false;
+
+  /// The kept draft has been read. Until then an empty field says nothing
+  /// about the draft, so closing must not overwrite it.
+  bool _draftRead = false;
   AppealFailure? _failure;
 
   @override
@@ -87,6 +91,7 @@ class _AppealDialogState extends State<AppealDialog> {
   Future<void> _restoreDraft() async {
     final draft = await widget.repository
         .readAppealDraft(widget.userId, widget.event.eventId);
+    _draftRead = true;
     // Never over what the user already typed.
     if (!mounted || draft == null || _text.text.isNotEmpty) return;
     setState(() => _text.text = draft);
@@ -94,7 +99,7 @@ class _AppealDialogState extends State<AppealDialog> {
 
   @override
   void dispose() {
-    if (!_sent) {
+    if (!_sent && (_draftRead || _text.text.isNotEmpty)) {
       unawaited(
         widget.repository.saveAppealDraft(
           widget.userId,

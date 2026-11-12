@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 
 import 'package:wereda_connect/features/reputation/domain/models/reputation_event.dart';
@@ -11,11 +13,13 @@ abstract class MyReputationEvent extends Equatable {
 
 /// Load the user's own reputation and the first page of their events.
 /// [force] asks the server even when the saved answer is fresh
-/// (pull-to-refresh).
+/// (pull-to-refresh). [done] completes when the load is over, whatever came
+/// of it, so the refresh indicator knows when to stop.
 class MyReputationRequested extends MyReputationEvent {
   final bool force;
+  final Completer<void>? done;
 
-  const MyReputationRequested({this.force = false});
+  const MyReputationRequested({this.force = false, this.done});
 
   @override
   List<Object?> get props => [force];

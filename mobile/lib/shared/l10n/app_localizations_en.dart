@@ -5626,4 +5626,22 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get profileRatingNone => 'None yet';
+
+  @override
+  String get notifPenaltyRecordedTitle => 'Penalty points added';
+
+  @override
+  String notifPenaltyRecordedBody(String reason, String points) {
+    return '$reason. Points added: $points. Open My reputation to see the details or appeal.';
+  }
+
+  @override
+  String get notifTierChangedTitle => 'Your reputation changed';
+
+  @override
+  String get notifTierGoodBody => 'You are back in good standing.';
+
+  @override
+  String get notifTierWarningBody =>
+      'You have penalty points. Buyers see nothing yet. Open My reputation for the details.';
 }

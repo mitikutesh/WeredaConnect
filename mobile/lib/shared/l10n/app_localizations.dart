@@ -9592,6 +9592,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'None yet'**
   String get profileRatingNone;
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox title of penalty_recorded; plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'Penalty points added'**
+  String get notifPenaltyRecordedTitle;
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of penalty_recorded: what happened (the event line), the points it added, and where to look or appeal
+  ///
+  /// In en, this message translates to:
+  /// **'{reason}. Points added: {points}. Open My reputation to see the details or appeal.'**
+  String notifPenaltyRecordedBody(String reason, String points);
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox title of tier_changed
+  ///
+  /// In en, this message translates to:
+  /// **'Your reputation changed'**
+  String get notifTierChangedTitle;
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to good
+  ///
+  /// In en, this message translates to:
+  /// **'You are back in good standing.'**
+  String get notifTierGoodBody;
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to warning: the private warning
+  ///
+  /// In en, this message translates to:
+  /// **'You have penalty points. Buyers see nothing yet. Open My reputation for the details.'**
+  String get notifTierWarningBody;
 }
 
 class _AppLocalizationsDelegate

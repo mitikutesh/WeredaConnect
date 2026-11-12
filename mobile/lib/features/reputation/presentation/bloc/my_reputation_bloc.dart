@@ -28,6 +28,18 @@ class MyReputationBloc extends Bloc<MyReputationEvent, MyReputationState> {
     MyReputationRequested event,
     Emitter<MyReputationState> emit,
   ) async {
+    try {
+      await _load(event, emit);
+    } finally {
+      final done = event.done;
+      if (done != null && !done.isCompleted) done.complete();
+    }
+  }
+
+  Future<void> _load(
+    MyReputationRequested event,
+    Emitter<MyReputationState> emit,
+  ) async {
     // A refresh keeps what is on screen until the new answer is here.
     if (state.reputation == null) {
       emit(state.copyWith(status: ReputationLoad.loading));

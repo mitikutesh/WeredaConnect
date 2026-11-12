@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -428,6 +429,31 @@ void main() {
     });
   });
 
+  testWidgets('pull to refresh asks the server again and ends', (tester) async {
+    answer(ownReputation(tier: 'warning', points: 4));
+    await open(tester);
+    verify(() => repository.loadOwn('f-1')).called(1);
+
+    // The refresh fails: the standing stays, marked as the saved copy, and
+    // the indicator stops.
+    when(() => repository.loadOwn('f-1', force: true))
+        .thenThrow(const NetworkException());
+    await tester.fling(find.text('My reputation'), const Offset(0, 1200), 1000);
+    await tester.pumpAndSettle();
+
+    verify(() => repository.loadOwn('f-1', force: true)).called(1);
+    expect(find.byType(RefreshProgressIndicator), findsNothing);
+    expect(find.text('4 penalty points'), findsOneWidget);
+    expect(find.byKey(const Key('reputation_saved_copy')), findsOneWidget);
+
+    // Refreshing again while it is already stale also ends.
+    await tester.fling(find.text('My reputation'), const Offset(0, 1200), 1000);
+    await tester.pumpAndSettle();
+
+    verify(() => repository.loadOwn('f-1', force: true)).called(1);
+    expect(find.byType(RefreshProgressIndicator), findsNothing);
+  });
+
   group('offline', () {
     testWidgets('the saved copy is shown with its date', (tester) async {
       answer(
@@ -622,6 +648,24 @@ void main() {
             .onPressed,
         isNotNull,
       );
+    });
+
+    testWidgets('closing before the draft was read leaves the draft alone',
+        (tester) async {
+      answer(ownReputation(tier: 'warning', points: 4), events: [appealable]);
+      final draft = Completer<String?>();
+      when(() => repository.readAppealDraft('f-1', 'CANCEL#ord-1'))
+          .thenAnswer((_) => draft.future);
+      await open(tester);
+      await openAppeal(tester);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      draft.complete('The road was closed.');
+      await tester.pumpAndSettle();
+
+      // An empty field that never showed the draft must not erase it.
+      verifyNever(() => repository.saveAppealDraft(any(), any(), any()));
     });
 
     for (final (failure, text) in [

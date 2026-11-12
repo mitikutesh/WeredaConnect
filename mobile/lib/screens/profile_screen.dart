@@ -114,9 +114,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   static const _fallbackStats = {'trades': '0', 'rating': '-', 'escrow': '0'};
 
-  /// The app's reputation repository, or null where none is provided (a
-  /// test that does not need it).
-  ReputationRepository? get _reputationRepository {
+  /// The app's reputation repository, looked up once outside a build; null
+  /// where none is provided (a test that does not need it).
+  ReputationRepository? _reputationRepository;
+
+  ReputationRepository? _findReputationRepository() {
     final injected = widget.reputationRepository;
     if (injected != null) return injected;
     try {
@@ -137,6 +139,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// Reads the user's own rating once per user and role, beside the local
   /// stats: a slow network never holds the rest of the profile back.
   Future<void> _readOwnRating(String userId, UserRole role) async {
+    // Started from a build: look the providers up after it.
+    await Future<void>.value();
+    if (!mounted) return;
+    _reputationRepository ??= _findReputationRepository();
     final load = widget.loadOwnRating ??
         (String userId, UserRole role) => loadOwnRating(
               userId: userId,

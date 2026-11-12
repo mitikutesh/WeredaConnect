@@ -24,9 +24,14 @@ AppNotification _entry(String type, [Map<String, String> params = const {}]) =>
 void main() {
   const locales = [Locale('en'), Locale('am'), Locale('om')];
 
-  test('the type list matches the server (33 types, no repeats)', () {
-    expect(notificationTypes, hasLength(33));
-    expect(notificationTypes.toSet(), hasLength(33));
+  test('the type list matches the server (35 types, no repeats)', () {
+    // 33 order types and, since ESC-31, the two reputation types.
+    expect(notificationTypes, hasLength(35));
+    expect(notificationTypes.toSet(), hasLength(35));
+    expect(
+      notificationTypes.toSet().containsAll(reputationNotificationTypes),
+      isTrue,
+    );
     expect(
       notificationTypes.toSet().containsAll(actionRequiredNotificationTypes),
       isTrue,
@@ -65,6 +70,87 @@ void main() {
       expect(text.body, contains(l10n.buyer));
     });
   }
+
+  // ESC-31 (notifications-api.md 1.5.0): the party's own reputation.
+  group('reputation types', () {
+    final en = lookupAppLocalizations(const Locale('en'));
+
+    test('a penalty says what happened and how many points it added', () {
+      final text = notificationText(
+        en,
+        _entry('penalty_recorded', {
+          'eventId': 'CANCEL#ord-7f3a',
+          'code': 'LATE_CANCEL',
+          'points': '4',
+          'activePoints': '7',
+        }),
+      );
+      expect(text.title, 'Penalty points added');
+      expect(
+        text.body,
+        'Cancelled less than a day before pickup. Points added: 4. Open My '
+        'reputation to see the details or appeal.',
+      );
+    });
+
+    test('a penalty with a code this build does not know stays neutral', () {
+      final text = notificationText(
+        en,
+        _entry('penalty_recorded', {'code': 'SOMETHING_NEW', 'points': '2'}),
+      );
+      expect(text.body, startsWith('Order event. Points added: 2.'));
+    });
+
+    for (final (params, body) in <(Map<String, String>, String)>[
+      (
+        {'fromTier': 'good', 'toTier': 'warning'},
+        'You have penalty points. Buyers see nothing yet. Open My '
+            'reputation for the details.',
+      ),
+      (
+        {'fromTier': 'warning', 'toTier': 'low'},
+        'Buyers see a Low reputation label on your listings and trips, '
+            'and are asked to confirm before they order.',
+      ),
+      (
+        {
+          'fromTier': 'low',
+          'toTier': 'restricted',
+          'restrictedUntil': '2026-11-21T09:00:00.000Z',
+        },
+        "You can't take new orders until Nov 21, 2026. Your current "
+            'orders continue.',
+      ),
+      (
+        // No end date: an admin review is open.
+        {'fromTier': 'good', 'toTier': 'restricted'},
+        "You can't take new orders while our team reviews a late "
+            'delivery. Your current orders continue.',
+      ),
+      (
+        {'fromTier': 'warning', 'toTier': 'good'},
+        'You are back in good standing.',
+      ),
+    ]) {
+      test('tier changed to ${params['toTier']}: "$body"', () {
+        final text = notificationText(en, _entry('tier_changed', params));
+        expect(text.title, 'Your reputation changed');
+        expect(text.body, body);
+      });
+    }
+
+    test('they are not order types and ask for no order action', () {
+      expect(
+        reputationNotificationTypes,
+        {'penalty_recorded', 'tier_changed'},
+      );
+      expect(
+        actionRequiredNotificationTypes
+            .intersection(reputationNotificationTypes),
+        isEmpty,
+      );
+    });
+  });
 
   test('names come from the params', () {
     final en = lookupAppLocalizations(const Locale('en'));
