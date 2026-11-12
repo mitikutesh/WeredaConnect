@@ -3284,15 +3284,40 @@ export class ApiStack extends cdk.Stack {
         PAGINATION_SECRET_ARN: paginationSecret.reference,
         // ESC-29 (reputation-api.md 8.4): a suspend or unsuspend leaves the day's heal marker, so
         // the daily job rewrites the owner fields copied onto the user's listings. Off: no marker.
+        // ESC-32 (reputation-api.md section 9): the same table serves the admin reputation routes.
+        // The reads work whatever the flag says; the writes answer 503 while it is off.
         REPUTATION_EVENTS_TABLE: props.reputationEventsTable.tableName,
         REPUTATION_PENALTIES_ENABLED: reputationPenalties,
+        // ESC-32: the policy (thresholds, tag and restriction limits), read only while the flag is on.
+        REPUTATION_POLICY_PARAM: reputationPolicyParam.parameterName,
       },
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       reservedConcurrentExecutions: 10,
     });
     // ESC-29: the heal marker is one UpdateItem on the user's reputation events.
-    props.reputationEventsTable.grant(adminFn.function, "dynamodb:UpdateItem");
+    // ESC-32: the admin reputation routes read a user's partition (Query, strongly consistent) and
+    // write a decision, a lift or a replaced tag (UpdateItem) and a restriction, tag or tier row
+    // (PutItem), all in one transaction with the users map (the users write grant below). The
+    // appeals queue is a Query on AppealStatusIndex and on no other index. No Scan, no delete.
+    adminFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"],
+        resources: [props.reputationEventsTable.tableArn],
+      }),
+    );
+    adminFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${props.reputationEventsTable.tableArn}/index/AppealStatusIndex`],
+      }),
+    );
+    // ESC-32 (and TASK FUP-163 for a suspend): the owner fields copied onto the user's active
+    // listings are refreshed in the admin request. The rows are found with the read grants below
+    // (the owner indexes and the crop BatchGetItem); the copy itself is a conditional UpdateItem.
+    props.cropsTable.grant(adminFn.function, "dynamodb:UpdateItem");
+    props.tripsTable.grant(adminFn.function, "dynamodb:UpdateItem");
+    reputationPolicyParam.grantRead(adminFn.function);
 
     // Pagination secret access
     paginationSecret.grantRead(adminFn.function);
@@ -3311,6 +3336,9 @@ export class ApiStack extends cdk.Stack {
     props.tripLocationsTable.grant(adminFn.function, "dynamodb:Query");
     // FRD-12: a presigned GET carries its signer's rights, so the admin may read the photo keys.
     props.uploadsBucket.grantRead(adminFn.function, "uploads/photos/*");
+    // ESC-32: the same for the appeal photos shown in the reputation panel and the appeals queue
+    // (presigned GETs of 10 minutes). Read only, under the appeal prefix only.
+    props.uploadsBucket.grantRead(adminFn.function, "uploads/appeals/*");
     // FRD-14: a dispute's message threads, one Query by conversation id each. Query on that index
     // only: no GetItem, no other index (no listing of a user's messages), no write.
     adminFn.function.addToRolePolicy(
@@ -3429,6 +3457,10 @@ export class ApiStack extends cdk.Stack {
       "/admin/payments/unapplied",
       // LT-13: the trip trail of a delivery, dispute evidence (admin group checked in the Lambda).
       "/admin/deliveries/{id}/trail",
+      // ESC-32 (reputation-api.md 9.1, 9.2): a user's reputation and the appeals queue (admin
+      // group checked in the Lambda).
+      "/admin/users/{id}/reputation",
+      "/admin/reputation/appeals",
     ];
 
     for (const path of adminGetPaths) {
@@ -3461,6 +3493,10 @@ export class ApiStack extends cdk.Stack {
       // FUP-02: record the manual refund of such a payment (admin group checked in the Lambda).
       // Uses the existing grants: escrow-audit read + write, orders read, transaction-audit write.
       "/admin/payments/{orderId}/refund-manual",
+      // ESC-32 (reputation-api.md 9.3, 9.4): excuse or uphold one event; tag, untag, restrict or
+      // lift (admin group checked in the Lambda; 503 while reputationPenalties is off).
+      "/admin/users/{id}/reputation/events/{eventId}/decision",
+      "/admin/users/{id}/reputation",
     ];
 
     for (const path of adminPostPaths) {

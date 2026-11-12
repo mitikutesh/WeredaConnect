@@ -74,6 +74,9 @@ public sealed record ReputationEvent
     public string? DecidedAt { get; init; }
     public string? DecisionNote { get; init; }
 
+    /// <summary>ESC-32: the admin who decided (admin-only on reads).</summary>
+    public string? DecidedBy { get; init; }
+
     /// <summary>The <c>DueIndex</c> keys while the row will still change state.</summary>
     public string? DueDay { get; init; }
 
@@ -103,6 +106,11 @@ public sealed record ReputationEvent
 
     public string? Reason { get; init; }
     public string? By { get; init; }
+
+    /// <summary>ESC-32, RESTRICTION with status <c>lifted</c>: when it was lifted and by which admin.</summary>
+    public string? LiftedAt { get; init; }
+
+    public string? LiftedBy { get; init; }
 
     /// <summary>TIER_CHANGED: the tiers before and after.</summary>
     public string? FromTier { get; init; }

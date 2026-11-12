@@ -483,7 +483,7 @@ public class ReputationFunction
     }
 
     /// <summary>The event id of the path, decoded once (<c>CANCEL%23ord-7f3a</c>); the gateway's path parameter when it gives one.</summary>
-    private static string EventIdOf(APIGatewayProxyRequest request, string rawSegment)
+    internal static string EventIdOf(APIGatewayProxyRequest request, string rawSegment)
         => request.PathParameters != null && request.PathParameters.TryGetValue("eventId", out var fromGateway)
            && !string.IsNullOrEmpty(fromGateway)
             ? (fromGateway.Contains('#') ? fromGateway : Uri.UnescapeDataString(fromGateway))
