@@ -257,4 +257,58 @@ class CropListingRepository extends BaseCropListingRepository {
       operationId: _uuid.v4(),
     );
   }
+
+  /// SIM-56: saved on the phone first, then sent as a `crop_listing` update
+  /// with the version the server still holds (as [deleteListing] does). A
+  /// refusal puts the listing back from the server (sync-protocol.md 1.17.0);
+  /// a version conflict takes the server's copy.
+  @override
+  Future<CropListing> updateListing({
+    required String listingId,
+    required String farmerId,
+    required double quantity,
+    required double pricePerKg,
+    required String description,
+  }) async {
+    final listing = await _isar.cropListings
+        .filter()
+        .listingIdEqualTo(listingId)
+        .findFirst();
+    if (listing == null || listing.farmerId != farmerId) {
+      throw StateError('Crop listing $listingId is not this farmer\'s.');
+    }
+
+    final now = DateTime.now().toUtc();
+    final baseVersion = listing.version;
+
+    // Queued first: when the queue refuses it (full), nothing changed here
+    // and the farmer is told, rather than a local edit the server never
+    // gets, whose bumped version would then make the next change conflict.
+    await _syncQueue.enqueue(
+      userId: farmerId,
+      entityType: 'crop_listing',
+      entityId: listingId,
+      action: 'update',
+      data: jsonEncode({
+        'listingId': listingId,
+        'quantity': quantity,
+        'pricePerKg': pricePerKg,
+        'description': description,
+        'version': baseVersion,
+      }),
+      operationId: _uuid.v4(),
+    );
+
+    await _isar.writeTxn(() async {
+      listing
+        ..quantity = quantity
+        ..pricePerKg = pricePerKg
+        ..description = description
+        ..updatedAt = now
+        ..version = baseVersion + 1;
+      await _isar.cropListings.put(listing);
+    });
+
+    return listing;
+  }
 }

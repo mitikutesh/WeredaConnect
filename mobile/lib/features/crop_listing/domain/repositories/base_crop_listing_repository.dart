@@ -66,6 +66,19 @@ abstract class BaseCropListingRepository {
     required String farmerId,
   });
 
+  /// SIM-56: the farmer changes how much is left ([quantity], quintals), the
+  /// price ([pricePerKg], ETB) and the [description] of their own listing, a
+  /// `crop_listing` update at the version this side holds (the server
+  /// refuses another; crop-listing-api.md). Returns the listing as saved.
+  /// Throws [StateError] when the listing is not [farmerId]'s or not found.
+  Future<CropListing> updateListing({
+    required String listingId,
+    required String farmerId,
+    required double quantity,
+    required double pricePerKg,
+    required String description,
+  });
+
   /// A single listing by id, or null when it isn't reachable (not synced
   /// locally / not visible to the caller / offline on web). Used by chat
   /// threads to open the crop they're linked to.

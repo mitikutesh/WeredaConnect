@@ -613,6 +613,22 @@
   "@listingDeleted": {
     "description": "Message after deleting listing"
   },
+  "editListing": "ዝርዝሩን አርትዕ",
+  "@editListing": {
+    "description": "SIM-56: title of the screen where a farmer edits their own crop listing"
+  },
+  "editListingNote": "የቀረውን መጠን፣ ዋጋውን ወይም መግለጫውን ይቀይሩ። ሰብሉን፣ ፎቶዎቹን ወይም ቦታውን ለመቀየር ይህን ዝርዝር ሰርዘው እንደገና ይዘርዝሩ።",
+  "@editListingNote": {
+    "description": "SIM-56: note at the top of the edit listing screen: what can change, and what needs a new listing"
+  },
+  "deleteListingTitle": "ይህ ዝርዝር ይሰረዝ?",
+  "@deleteListingTitle": {
+    "description": "SIM-56: title of the dialog that confirms deleting the farmer's own crop listing"
+  },
+  "deleteListingBody": "ገዢዎች ከእንግዲህ አያዩትም። መመለስ አይቻልም።",
+  "@deleteListingBody": {
+    "description": "SIM-56: body of the dialog that confirms deleting the farmer's own crop listing"
+  },
   "allCrops": "ሁሉም",
   "@allCrops": {
     "description": "Filter label for all crop types"

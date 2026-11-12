@@ -504,6 +504,20 @@ class AppLocalizationsOm extends AppLocalizations {
   String get listingDeleted => 'Tarreen haqameera';
 
   @override
+  String get editListing => 'Tarree Gulaali';
+
+  @override
+  String get editListingNote =>
+      'Hamma hafe, gatii ykn ibsa jijjiiri. Midhaan, suuraawwan ykn bakka jijjiiruuf tarree kana haqiitii irra deebi\'ii galchi.';
+
+  @override
+  String get deleteListingTitle => 'Tarree kana haquu?';
+
+  @override
+  String get deleteListingBody =>
+      'Bittoonni kana booda hin argan. Deebisuun hin danda\'amu.';
+
+  @override
   String get allCrops => 'Hunda';
 
   @override

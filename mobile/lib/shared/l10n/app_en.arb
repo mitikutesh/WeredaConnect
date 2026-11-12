@@ -613,6 +613,22 @@
   "@listingDeleted": {
     "description": "Message after deleting listing"
   },
+  "editListing": "Edit listing",
+  "@editListing": {
+    "description": "SIM-56: title of the screen where a farmer edits their own crop listing"
+  },
+  "editListingNote": "Change how much is left, the price or the description. To change the crop, the photos or the place, delete this listing and list it again.",
+  "@editListingNote": {
+    "description": "SIM-56: note at the top of the edit listing screen: what can change, and what needs a new listing"
+  },
+  "deleteListingTitle": "Delete this listing?",
+  "@deleteListingTitle": {
+    "description": "SIM-56: title of the dialog that confirms deleting the farmer's own crop listing"
+  },
+  "deleteListingBody": "Buyers will no longer see it. This cannot be undone.",
+  "@deleteListingBody": {
+    "description": "SIM-56: body of the dialog that confirms deleting the farmer's own crop listing"
+  },
   "allCrops": "All",
   "@allCrops": {
     "description": "Filter label for all crop types"

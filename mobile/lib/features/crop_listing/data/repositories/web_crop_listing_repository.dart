@@ -237,7 +237,11 @@ class WebCropListingRepository extends BaseCropListingRepository {
   /// The listing's current server version. Unlike [getListingById] this
   /// throws when the read fails, so a delete never goes out with a guessed
   /// version.
-  Future<int> _currentListingVersion(String listingId) async {
+  Future<int> _currentListingVersion(String listingId) async =>
+      (await _currentListing(listingId)).version;
+
+  /// The listing as the server holds it now; throws when the read fails.
+  Future<CropListing> _currentListing(String listingId) async {
     final data = await _api.get<Map<String, dynamic>>('/crops/$listingId');
     final envelope = data['crop'] ?? data['item'];
     final map = envelope is Map<String, dynamic>
@@ -248,7 +252,57 @@ class WebCropListingRepository extends BaseCropListingRepository {
     if (map == null) {
       throw NotFoundException('Crop listing $listingId not found.');
     }
-    return _parseListingMap(map).version;
+    return _parseListingMap(map);
+  }
+
+  /// SIM-56: straight to the server, at the version it holds now (web keeps
+  /// no copy to version from). A refusal throws ([ensureSyncSucceeded]) and
+  /// nothing changed.
+  @override
+  Future<CropListing> updateListing({
+    required String listingId,
+    required String farmerId,
+    required double quantity,
+    required double pricePerKg,
+    required String description,
+  }) async {
+    final current = await _currentListing(listingId);
+    if (current.farmerId != farmerId) {
+      throw StateError('Crop listing $listingId is not this farmer\'s.');
+    }
+    final now = DateTime.now().toUtc();
+    final response = await _api.post<Map<String, dynamic>>(
+      '/sync',
+      data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
+        'operations': [
+          {
+            'operationId': _uuid.v4(),
+            'entityType': 'crop_listing',
+            'action': 'update',
+            'entityId': listingId,
+            'timestamp': now.toIso8601String(),
+            'idempotencyKey':
+                '$farmerId:crop_listing:$listingId:update:${now.millisecondsSinceEpoch}',
+            'data': {
+              'listingId': listingId,
+              'quantity': quantity,
+              'pricePerKg': pricePerKg,
+              'description': description,
+              'version': current.version,
+            },
+          },
+        ],
+      },
+    );
+    ensureSyncSucceeded(response);
+    return current
+      ..quantity = quantity
+      ..pricePerKg = pricePerKg
+      ..description = description
+      ..updatedAt = now
+      ..version = current.version + 1;
   }
 
   @override

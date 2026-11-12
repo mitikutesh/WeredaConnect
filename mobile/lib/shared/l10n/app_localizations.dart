@@ -1006,6 +1006,30 @@ abstract class AppLocalizations {
   /// **'Listing deleted'**
   String get listingDeleted;
 
+  /// SIM-56: title of the screen where a farmer edits their own crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Edit listing'**
+  String get editListing;
+
+  /// SIM-56: note at the top of the edit listing screen: what can change, and what needs a new listing
+  ///
+  /// In en, this message translates to:
+  /// **'Change how much is left, the price or the description. To change the crop, the photos or the place, delete this listing and list it again.'**
+  String get editListingNote;
+
+  /// SIM-56: title of the dialog that confirms deleting the farmer's own crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this listing?'**
+  String get deleteListingTitle;
+
+  /// SIM-56: body of the dialog that confirms deleting the farmer's own crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers will no longer see it. This cannot be undone.'**
+  String get deleteListingBody;
+
   /// Filter label for all crop types
   ///
   /// In en, this message translates to:

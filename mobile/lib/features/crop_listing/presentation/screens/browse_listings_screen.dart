@@ -582,8 +582,10 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
               // Listings
               Expanded(
                 child: BlocBuilder<CropListingBloc, CropListingState>(
+                  // A save (create, SIM-56 edit) reloads the list below.
                   buildWhen: (previous, current) =>
-                      current is! CropListingCreated,
+                      current is! CropListingCreated &&
+                      current is! CropListingUpdated,
                   builder: (context, state) {
                     if (state is CropListingLoading) {
                       return const Center(child: CircularProgressIndicator());
@@ -894,7 +896,8 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     );
 
     return BlocListener<CropListingBloc, CropListingState>(
-      listenWhen: (previous, current) => current is CropListingCreated,
+      listenWhen: (previous, current) =>
+          current is CropListingCreated || current is CropListingUpdated,
       listener: (context, state) => _loadListings(),
       child: widget.embedded ? content : Scaffold(body: content),
     );

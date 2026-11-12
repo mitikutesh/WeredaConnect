@@ -356,5 +356,106 @@ void main() {
       expect(deleteData['version'], 1);
       expect(deleteData['status'], ListingStatus.expired.name);
     });
+
+    group('updateListing (SIM-56)', () {
+      Future<CropListing> seed() => repository.createListing(
+            photos: testCropPhotos(),
+            farmerId: 'farmer-001',
+            cropType: 'teff',
+            quantity: 50.0,
+            pricePerKg: 45.0,
+            latitude: 9.0,
+            longitude: 38.0,
+            locationName: 'Ada',
+            description: 'Teff',
+          );
+
+      test('saves on the phone and queues an update at the server version',
+          () async {
+        final listing = await seed();
+
+        final saved = await repository.updateListing(
+          listingId: listing.listingId,
+          farmerId: 'farmer-001',
+          quantity: 42.5,
+          pricePerKg: 47.25,
+          description: 'White teff',
+        );
+
+        expect(saved.quantity, 42.5);
+        final fromDb = await isar.cropListings
+            .filter()
+            .listingIdEqualTo(listing.listingId)
+            .findFirst();
+        expect(fromDb!.quantity, 42.5);
+        expect(fromDb.pricePerKg, 47.25);
+        expect(fromDb.description, 'White teff');
+        expect(fromDb.version, 2);
+        // Untouched: the crop, the place and the status.
+        expect(fromDb.cropType, 'teff');
+        expect(fromDb.locationName, 'Ada');
+        expect(fromDb.status, ListingStatus.active);
+
+        final pending = await syncQueue.getPendingOperations();
+        expect(pending.map((op) => op.action), ['create', 'update']);
+        final data = jsonDecode(pending.last.data) as Map<String, dynamic>;
+        // Only the three edited fields, at the version the server holds.
+        expect(data, {
+          'listingId': listing.listingId,
+          'quantity': 42.5,
+          'pricePerKg': 47.25,
+          'description': 'White teff',
+          'version': 1,
+        });
+      });
+
+      test('a second edit is sent at the version after the first', () async {
+        final listing = await seed();
+        await repository.updateListing(
+          listingId: listing.listingId,
+          farmerId: 'farmer-001',
+          quantity: 40,
+          pricePerKg: 45,
+          description: 'Teff',
+        );
+        await repository.updateListing(
+          listingId: listing.listingId,
+          farmerId: 'farmer-001',
+          quantity: 30,
+          pricePerKg: 45,
+          description: 'Teff',
+        );
+
+        final pending = await syncQueue.getPendingOperations();
+        final versions = [
+          for (final op in pending.where((op) => op.action == 'update'))
+            (jsonDecode(op.data) as Map<String, dynamic>)['version'],
+        ];
+        expect(versions, [1, 2]);
+      });
+
+      test("another farmer's listing is refused and nothing changes", () async {
+        final listing = await seed();
+
+        await expectLater(
+          repository.updateListing(
+            listingId: listing.listingId,
+            farmerId: 'farmer-002',
+            quantity: 1,
+            pricePerKg: 1,
+            description: '',
+          ),
+          throwsStateError,
+        );
+
+        final fromDb = await isar.cropListings
+            .filter()
+            .listingIdEqualTo(listing.listingId)
+            .findFirst();
+        expect(fromDb!.quantity, 50.0);
+        expect(fromDb.version, 1);
+        expect(await syncQueue.getPendingOperations(), hasLength(1));
+      });
+    });
   });
 }

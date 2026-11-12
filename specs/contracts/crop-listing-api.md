@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.12.1
+1.13.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -453,6 +453,35 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
 - Show localized error messages in user's preferred language
 - Validate before enqueueing sync operation (prevent invalid operations from clogging queue)
 
+### The farmer's edit and delete (1.13.0, SIM-56)
+
+The apps let a farmer change and delete their own listing, from its detail screen, with the
+operations of section 1 (no new endpoint, no server change). Only the owner sees the two
+actions, and only on an `active` (`available`) listing: a reserved, sold or expired listing
+has neither. Buyers and truckers never see them.
+
+- **Edit** changes `quantity` (the free stock, quintals), `pricePerKg` and `description`, and
+  nothing else (the crop, the photos and the place stay; the form says to delete and list
+  again for those). The operation is a `crop_listing` `update` whose `data` is exactly
+  `{listingId, quantity, pricePerKg, description, version}`, `version` being the one the
+  server holds (the pre-increment value, like the delete). The form allows what the server
+  accepts (rules 1 to 3 and 6b): above 0 and at most 9,999.99 quintals, above 0 and at most
+  999.99 ETB per kg (two decimals), 500 characters and no phone number in the description. A
+  field left as shown sends the stored value, so an untouched free stock with more than two
+  decimals is not rounded.
+  - Mobile: saved in Isar and queued (offline-first); the operation is queued before the local
+    write, so a full queue changes nothing and says so. A refusal (`CROP_CONTACT_IN_TEXT`, a
+    restricted account) reverts the listing from `GET /crops/{id}`, a version conflict takes
+    the server's copy (`sync-protocol.md` 1.17.0).
+  - Web: reads `GET /crops/{id}` for the version, sends the update, and a refusal or a
+    conflict fails the save with nothing changed.
+- **Delete** asks first, then checks the farmer's orders the device knows: an order of the
+  listing in `payment_submitted`, `funded`, `awaiting_transport` or `accepted` (the rule 10
+  set) stops it on the device with `errorCropHasActiveOrders`, so a paid order does not lose
+  its listing where `COMMITMENTS_ENABLED` is off (staging and prod). A failed order read leaves
+  the decision to the server. Then the existing `delete` (mobile: the listing turns `expired`
+  locally and the operation is queued; web: straight to the server).
+
 ---
 
 ## Performance Considerations
@@ -572,9 +601,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 
 | 1.12.0 | 2026-11-12 | `farmerReliability` retired (ESC-30, `match-api.md` 1.4.0): the server no longer computes it at create (one query on the farmer's listings less) and drops a client value; matching reads `ownerReliabilityPct`. Listings that still store it keep returning it. |
 | 1.12.1 | 2026-11-12 | `CROP_HAS_ACTIVE_ORDERS` only to an app that sends `X-App-Build` (FUP-241, rule 10, `sync-protocol.md` 1.52.0): an app without the header gets the same sentence as `SYNC_VALIDATION:`, which it treats as permanent. Apps that send the header get the code as before. Server only |
+| 1.13.0 | 2026-11-12 | The farmer's edit and delete in the apps (SIM-56, "The farmer's edit and delete" under Validation Rules): the owner of an `active` listing edits `quantity`, `pricePerKg` and `description` with a `crop_listing` `update` at the server's version, and deletes it after a device-side check of the rule 10 order statuses. Uses the existing operations: no server or wire change |
 
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.12.1
+**Version**: 1.13.0
 **Status**: Implemented (Phase R3)

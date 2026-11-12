@@ -84,6 +84,30 @@ class CreateCropListing extends CropListingEvent {
       ];
 }
 
+/// SIM-56: the farmer edits how much is left, the price and the description
+/// of their own listing.
+class UpdateCropListing extends CropListingEvent {
+  final String listingId;
+  final String farmerId;
+
+  /// Quintals.
+  final double quantity;
+  final double pricePerKg;
+  final String description;
+
+  const UpdateCropListing({
+    required this.listingId,
+    required this.farmerId,
+    required this.quantity,
+    required this.pricePerKg,
+    required this.description,
+  });
+
+  @override
+  List<Object?> get props =>
+      [listingId, farmerId, quantity, pricePerKg, description];
+}
+
 /// Event to delete a crop listing.
 class DeleteCropListing extends CropListingEvent {
   final String listingId;

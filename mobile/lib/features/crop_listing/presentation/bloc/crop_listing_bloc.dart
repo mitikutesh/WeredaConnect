@@ -9,7 +9,8 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 
 /// BLoC for managing crop listing state.
 ///
-/// Handles creating, loading, filtering, and deleting crop listings.
+/// Handles creating, loading, filtering, editing (SIM-56) and deleting crop
+/// listings.
 /// All operations go through the BaseCropListingRepository (mobile or web).
 class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
   final BaseCropListingRepository _repository;
@@ -32,6 +33,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
     on<LoadCropListings>(_onLoadCropListings);
     on<LoadActiveListings>(_onLoadActiveListings);
     on<CreateCropListing>(_onCreateCropListing);
+    on<UpdateCropListing>(_onUpdateCropListing);
     on<DeleteCropListing>(_onDeleteCropListing);
     on<FilterCropListings>(_onFilterCropListings);
   }
@@ -102,6 +104,26 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
         listingId: event.listingId,
       );
       emit(CropListingCreated(listing: listing));
+    } on Object catch (e) {
+      emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  Future<void> _onUpdateCropListing(
+    UpdateCropListing event,
+    Emitter<CropListingState> emit,
+  ) async {
+    emit(const CropListingLoading());
+
+    try {
+      final listing = await _repository.updateListing(
+        listingId: event.listingId,
+        farmerId: event.farmerId,
+        quantity: event.quantity,
+        pricePerKg: event.pricePerKg,
+        description: event.description,
+      );
+      emit(CropListingUpdated(listing: listing));
     } on Object catch (e) {
       emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
