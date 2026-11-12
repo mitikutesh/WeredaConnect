@@ -1,16 +1,16 @@
 # Reputation API Contract
 
 ## Version
-1.4.0
+1.5.0
 
 ## Status
-PARTLY BUILT (1.4.0). BUILT in ESC-28: the events, the policy and the aggregate (section 1),
+PARTLY BUILT (1.5.0). BUILT in ESC-28: the events, the policy and the aggregate (section 1),
 the server side of the two notifications (section 10) and the flags and policy parameter
 (section 11). BUILT in ESC-29 (server): the reads (sections 2 to 4), the appeal photo and the appeal
 (5, 6), the copied owner fields (7) and the gates (8). BUILT in ESC-32: the admin endpoints
 (section 9) and the admin app's panel and appeals queue. Everything ships dark (all three flags off
 everywhere), except the suspension gate of 8.4, which is not flagged. BUILT in ESC-30: the matching
-signal (section 7, `match-api.md` 1.4.0). PLANNED: ESC-31 the app; ESC-33 the fraud hooks. Each section names its ticket. Design: `specs/architecture/reputation-architecture.md`. Rules and decisions D1 to D9:
+signal (section 7, `match-api.md` 1.4.0). BUILT in ESC-33 (server): the fraud hooks of section 1.7. PLANNED: ESC-31 the app. Each section names its ticket. Design: `specs/architecture/reputation-architecture.md`. Rules and decisions D1 to D9:
 `specs/features/three-party-escrow-commitments-reputation.md` 4.11, 5.I and 14.
 
 ## Parties
@@ -33,7 +33,7 @@ A farmer or trucker who declines, ignores, cancels or misses a paid order gets p
 Points lower the rating buyers see, add a public "Low reputation" tag at 6 points and block new
 commitments at 10 points for 14 days. Points expire after 90 days, completed orders earn them
 back, and an admin can excuse them on appeal. Buyers have no reputation; a buyer who griefs
-farmers and truckers gets a fraud signal instead (ESC-33).
+farmers and truckers gets a fraud signal instead (ESC-33, section 1.7).
 
 Penalties come only from changes the server made to orders (the orders table stream). No party
 can file a penalty against another, and no client sends a penalty, a point or a tier.
@@ -173,7 +173,22 @@ with `points: 0`, so the party sees it and can tell why. The caps hold in any ar
   restriction below 10. Earn-back never lifts a restriction.
 - **Repeat**: a second points restriction within 12 months writes the fraud signal
   `REPUTATION_REPEAT_RESTRICTION` (weight 0, review only), which puts the account in the Fraud
-  Review queue, whose reject is the existing suspend (ESC-33, proposed).
+  Review queue, whose reject is the existing suspend (proposed; not built in ESC-33, a follow-up).
+
+### 1.7 Fraud hooks (ESC-33, BUILT)
+
+Server-internal: nothing here is on the wire, and no client reads a fraud signal, a risk score or
+a payout class. Specified in `fraud-detection-architecture.md` 3.32.0 section 15.3.
+
+| When | Effect | Flag |
+|---|---|---|
+| a `NO_SHOW` or `DELIVERY_OVERDUE` event is recorded with points above 0 | the same-named fraud signal on the penalised party (weight 15 and 25, hard), the order as the entity; once per event, never on a replay; the two together add at most 50 to a risk score | `reputationPenalties` (the events are produced by ESC-34 and ESC-36) |
+| a `DECLINED_REQUEST` or `RESPONSE_EXPIRED` event is recorded, with or without points | when the order's buyer has `buyerDeclineSignalCount` (3) or more paid orders declined or expired among those created in the last `buyerDeclineSignalDays` (30) days, this one included, by at least 2 different farmers or truckers: the fraud signal `BUYER_DECLINE_PATTERN` on the buyer (weight 10, soft, at most 50 per buyer). One party declining one buyer repeatedly flags nobody. The party who declined gets no fraud signal | `reputationPenalties` |
+| a delivery whose GPS looks inconsistent is confirmed (fraud Rule 4) | the confirming buyer's `GPS_ANOMALY` signal as before; in addition a capped row on the delivery's trucker (one per delivery, one per buyer and trucker, two per trucker in 30 days) | `reputationPenalties` (the buyer's row is not flagged) |
+| a delivery is confirmed and escrow stamps the payout date | a payee whose tier is `low` waits like a new payee, a restricted payee (an open `DELIVERY_OVERDUE` review included) like a flagged one (`escrow-protocol.md` 2.10.0); `good` and `warning` change nothing | `reputationPenalties` |
+
+A hook that fails is logged (`REPUTATION_FRAUD_HOOK_FAILED`) and never fails or delays the event.
+With `reputationPenalties` off none of the four runs, and nothing in ESC-33 is live.
 
 ### 1.6 Expiry and earn-back
 
@@ -1009,6 +1024,7 @@ Error body: `{"error":{"code":"REPUTATION_FORBIDDEN","message":"..."}}`, as ever
 
 | Version | Date | Change |
 |---|---|---|
+| 1.5.0 | 2026-11-12 | ESC-33 BUILT (server): new section 1.7, the fraud hooks. A recorded `NO_SHOW` or `DELIVERY_OVERDUE` with points writes a fraud signal on the party; a recorded decline or expiry checks the buyer's paid orders and writes `BUYER_DECLINE_PATTERN` at 3 in 30 days from at least 2 different parties; the payout delay reads the tier (`low` as new, restricted as flagged); a GPS-inconsistent delivery also puts a capped `GPS_ANOMALY` row on the trucker. All behind `reputationPenalties`; no wire change. The repeat restriction signal of 1.5 is not built. (1.3.0 and 1.4.0 are other tickets' versions.) |
 | 1.4.0 | 2026-11-12 | ESC-32 BUILT: section 9 on the admin Lambda (`GET /admin/users/{userId}/reputation`, `GET /admin/reputation/appeals`, `POST /admin/users/{userId}/reputation/events/{eventId}/decision`, `POST /admin/users/{userId}/reputation`), admin group only, writes behind `reputationPenalties` (reads not gated), one transaction and one audit row per applied write, the copied owner fields refreshed in the request. New: the response shape of 9.1 (`restrictions`, the admin event with `basePoints`, `buyerId`, the appeal text and `appealPhotoUrl`), `appealPhotoUrl` and `tripId` on the queue items, `alreadyApplied` on 9.4, `409 REPUTATION_ALREADY_RESTRICTED`, `seenAppealTextAt` on an uphold with `409 REPUTATION_APPEAL_CHANGED` (an uphold is refused when the appeal is not the one the admin's page showed), `textAt` and `appealTextAt` on the reads, what changed in the audit metadata, the replay rules of 9.3 and 9.4, and the rule of 6.1 that an event upheld before the party sent any text can be appealed once. 8.4: an admin suspend or unsuspend now refreshes the copied owner fields in the same request (TASK FUP-163). (1.3.0 is taken by an open branch) |
 | 1.3.0 | 2026-11-12 | ESC-30 BUILT: the matching signal of section 7. `ownerReliabilityPct / 100` is the reliability input of `MatchScoring` and `MatchScorer` (neutral 0.7 when the caller gets no value), the trip suggestions order equal prices by the trucker's reliability, `farmerReliability` is no longer computed or stored (`match-api.md` 1.4.0, `crop-listing-api.md` 1.12.0, `sync-protocol.md` 1.50.0). No endpoint or field change here. |
 | 1.2.0 | 2026-11-11 | ESC-29 BUILT (server): `GET /reputation/me`, `GET /reputation/{userId}`, `GET /reputation/me/events`, `POST /reputation/appeals/photo-url`, `POST /reputation/events/{eventId}/appeal` on the new `{prefix}-reputation` Lambda; the owner fields stamped at create and copied on change; `REPUTATION_RESTRICTED` on crop create, trip create, accept and on an order to a restricted or suspended owner; restricted owners left out of a buyer's browse and match; the third flag `reputationPublicTags`; all off everywhere. Not flagged: `403 AUTH_025` for a suspended caller on `/sync` and the write routes of 8.4. "As built" notes under sections 2 to 8: the events read while points are active, no rating for a row without `ratingsAggregatedAt`, in-memory paging of the event list, `appealTextAt`, copies only while `reputationPenalties` is on, the browse check in code, the no-build wording, `/escrow/release` and `/escrow/refund` not gated, the heal marker on an admin suspend. Sections 9 and 13 stay PLANNED |
@@ -1018,4 +1034,4 @@ Error body: `{"error":{"code":"REPUTATION_FORBIDDEN","message":"..."}}`, as ever
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.4.0
+**Version**: 1.5.0

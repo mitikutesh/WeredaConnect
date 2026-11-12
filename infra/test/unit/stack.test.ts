@@ -1805,8 +1805,9 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       const withOrders = Object.entries(functions).filter(([, f]) => {
         const vars = (f as { Properties: { Environment?: { Variables?: Record<string, unknown> } } })
           .Properties.Environment?.Variables ?? {};
-        return 'ORDERS_TABLE' in vars && !String((f as { Properties: { FunctionName?: string } }).Properties.FunctionName)
-          .includes('account-deletion');
+        // reputation-stream (ESC-33) only Queries the buyer index for the decline pattern: it writes no order.
+        const name = String((f as { Properties: { FunctionName?: string } }).Properties.FunctionName);
+        return 'ORDERS_TABLE' in vars && !name.includes('account-deletion') && !name.includes('reputation-stream');
       });
       const names = withOrders.map(([, f]) => (f as { Properties: { FunctionName: string } }).Properties.FunctionName);
       const writers = ['sync', 'deliveries', 'escrow', 'escrow-cron', 'orders', 'messages', 'order-cron', 'admin'];

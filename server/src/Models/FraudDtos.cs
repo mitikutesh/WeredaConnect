@@ -46,6 +46,37 @@ public sealed record FraudCheckResult
 }
 
 /// <summary>
+/// ESC-33 (fraud-detection-architecture.md section 14.3): how the guarded write of a signal onto a user
+/// other than the caller ended. Only <see cref="Written"/> wrote a row.
+/// </summary>
+public enum AttributedSignalOutcome
+{
+    /// <summary>The row was written.</summary>
+    Written,
+
+    /// <summary>The signals table is not configured (today's no-op).</summary>
+    NotConfigured,
+
+    /// <summary>A target, source or entity id is missing.</summary>
+    Invalid,
+
+    /// <summary>The target already holds a row of this type on this entity (one per delivery).</summary>
+    AlreadyRecorded,
+
+    /// <summary>This source already put its row of this type on this target in the window.</summary>
+    SourceCapped,
+
+    /// <summary>The target already holds the most rows of this type that other users may cause.</summary>
+    TargetCapped,
+
+    /// <summary>The target's partition had rows left after the read cap: nothing is written.</summary>
+    TargetUnread,
+
+    /// <summary>The target already holds a row of this type in this hour (the FRD-08 write limit).</summary>
+    HourLimited
+}
+
+/// <summary>
 /// Risk tier of a user (fraud-detection-architecture.md section 16). Unrelated to the
 /// reputation tiers of the three-party escrow design.
 /// </summary>
