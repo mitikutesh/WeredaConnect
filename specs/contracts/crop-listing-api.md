@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.12.0
+1.12.1
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -445,6 +445,7 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
    - A `delete`, or an `update` with `status: deleted`, is refused while any order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`: `CROP_HAS_ACTIVE_ORDERS: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.`, nothing written. An `update` to `status: deleted` that passes is a delete: it writes `deletedAt` as the `delete` action does (1.10.0). Orders in any other status (unpaid, failed, cancelled, rejected, or past pickup) do not block. The orders are read through the orders table's `ListingIdIndex` (one query, every page). When they cannot be read the answer is the unprefixed `The listing's orders could not be checked. Please try again later.` (retryable, nothing written).
    - Behind `COMMITMENTS_ENABLED` (on in dev, off in staging and prod), like `TRIP_HAS_BOOKINGS`: clients handle the code since `sync-protocol.md` 1.17.0, and the flag goes on in staging and prod only after the minimum app version gate (spec K1). Ownership is checked first (`CROP_UNAUTHORIZED`).
    - Permanent on clients: the mobile queue reverts the listing from `GET /crops/{id}` and shows `errorCropHasActiveOrders`; web shows the same text (`sync-protocol.md` 1.17.0).
+   - Only to an app that sends `X-App-Build` (1.12.1, FUP-241): an app that sends none (build 1 or older, which may predate the 1.17.0 client) gets the same sentence as `SYNC_VALIDATION: This listing has N order(s) in progress. ...`, permanent on every client (`sync-protocol.md` 1.53.0).
 
 ### Client-Side Validation
 
@@ -570,9 +571,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.11.0 | 2026-11-11 | Owner reputation and restricted farmers (ESC-29, `reputation-api.md` 1.2.0 sections 7 and 8.3), all off in every environment. With `reputationPublicTags` on, `GET /crops` and `GET /crops/{id}` return `ownerTier` (`good` or `low`), `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt`, copied onto the listing by the server (stamped at create, refreshed when the farmer's reputation changes, without a `version` or `updatedAt` change); a client value is dropped. With `reputationPenalties` on, a buyer's `GET /crops` leaves out the listings of a farmer whose stored tier is `restricted` (a moderation filter like the one for deleted listings; the page is still filled); the farmer's own list, `GET /crops/{id}` and an admin's browse are not filtered, and a restricted farmer's `crop_listing` create is refused with `REPUTATION_RESTRICTED` (`sync-protocol.md` 1.48.0). Role visibility is unchanged: a farmer sees only their own listings, a buyer every listing on the market |
 
 | 1.12.0 | 2026-11-12 | `farmerReliability` retired (ESC-30, `match-api.md` 1.4.0): the server no longer computes it at create (one query on the farmer's listings less) and drops a client value; matching reads `ownerReliabilityPct`. Listings that still store it keep returning it. |
+| 1.12.1 | 2026-11-12 | `CROP_HAS_ACTIVE_ORDERS` only to an app that sends `X-App-Build` (FUP-241, rule 10, `sync-protocol.md` 1.53.0): an app without the header gets the same sentence as `SYNC_VALIDATION:`, which it treats as permanent. Apps that send the header get the code as before. Server only |
 
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.12.0
+**Version**: 1.12.1
 **Status**: Implemented (Phase R3)

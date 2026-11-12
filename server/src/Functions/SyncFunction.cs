@@ -3431,17 +3431,22 @@ public partial class SyncFunction
 
                     // ESC-17: a booked trip is frozen (date, price, route; capacity never below
                     // the bookings), `matched` is written by the server when the trip fills, and
-                    // a trip with bookings may start from `open`.
+                    // a trip with bookings may start from `open`. FUP-241: an app without
+                    // X-App-Build gets TRIP_HAS_BOOKINGS as SYNC_VALIDATION; the signal keeps the code.
                     var bookingError = CheckBookedTripUpdate(operation.Data, existing);
                     if (bookingError != null)
                     {
                         return bookingError.Value.Code == "TRIP_HAS_BOOKINGS"
-                            ? await RefuseWithSignalAsync(new SyncOperationResult
+                            ? (await RefuseWithSignalAsync(new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
                                 Status = "error",
                                 Message = bookingError.Value.Message
-                            }, FraudDetectionService.ImmutableFieldChangeSignal, operation, "trip", authenticatedUserId, context)
+                            }, FraudDetectionService.ImmutableFieldChangeSignal, operation, "trip", authenticatedUserId, context)) with
+                            {
+                                Message = OldClientRefusal.ForClient(
+                                    bookingError.Value.Message, _batchAppBuild, "TRIP_HAS_BOOKINGS", operation.EntityType)
+                            }
                             : new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,

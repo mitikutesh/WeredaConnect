@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.6.0
+2.6.1
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -344,6 +344,7 @@ Invalid transitions return `422 Unprocessable Entity`:
    - Permanent on clients since `sync-protocol.md` 1.17.0 (`errorTripHasBookings`); the trip is reverted to the server row.
 13. **Cancelling a booked trip** (2.0.0):
    - An update to `cancelled` or a `delete` is refused with `TRIP_HAS_BOOKINGS` while an order on the trip is `pickup_confirmed` or `in_transit` (goods on the move).
+   - Rules 12 and 13: `TRIP_HAS_BOOKINGS` goes only to an app that sends `X-App-Build` (2.6.1, FUP-241). An app that sends none (build 1 or older, which may predate the 1.17.0 client) gets the same sentence as `SYNC_VALIDATION:` (for example `SYNC_VALIDATION: capacity cannot drop below the 20 quintals already booked.`), permanent on every client (`sync-protocol.md` 1.53.0). The fraud signal of rule 12 still records the `TRIP_HAS_BOOKINGS` text.
    - Otherwise the cancel goes through and cascades: every `funded` or `accepted` order on the trip moves to `awaiting_transport` (`transportFailure: trip_cancelled`, `truckerResponse: cancelled`, `faultParty: trucker`, `order-lifecycle.md` 2.0.0), its pending delivery is cancelled and its booking released; unpaid orders are left alone (the payment gate refuses them later). The order cron repeats the cascade for orders it missed when each is next due (`order-lifecycle.md` 2.8.0).
 
 ### Client-Side Validation
@@ -590,9 +591,10 @@ Common route patterns:
 | 2.5.1 | 2026-11-07 | Order deadlines (ESC-16, `order-lifecycle.md` 2.8.0): the order cron's catch-up of a trip-cancel cascade runs when each missed order is next due (its reminder, deadline or pickup deadline), no longer every hour, and `commitment_deadlines` (with the departed-trip close of 2.4.0) runs every 15 minutes instead of hourly; `orderLeadHours` and the order-create lead follow the SSM parameter `/{prefix}/orders/response-window-hours` (24 by default), which the trips Lambda now reads like the order writers. Server only, no wire change |
 | 2.5.2 | 2026-11-11 | Docs only, no behaviour change (FUP-132): the infrastructure claims corrected against the CDK code, as in `crop-listing-api.md` 1.10.0. No CloudFront cache in front of `GET /trips` (none exists, responses are `no-store`, and a shared cache on a role-filtered list would be a visibility risk), no 100 req/s per user or 200 req/s per IP limits; the real limits are the HTTP API stage throttle (25 req/s per route, burst 50, all callers together), 60 sync requests per minute per user (`SYNC_RATE_LIMITED`) and the Lambda reserved concurrency (staging and prod only; dev sets none) |
 | 2.6.0 | 2026-11-11 | Owner reputation and restricted truckers (ESC-29, `reputation-api.md` 1.2.0 sections 7 and 8.3), all off in every environment. With `reputationPublicTags` on, `GET /trips` and `GET /trips/{id}` return `ownerTier` (`good` or `low`), `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt`, copied onto the trip by the server (stamped at create, refreshed when the trucker's reputation changes, without a `version` or `updatedAt` change); a client value is dropped. With `reputationPenalties` on, a buyer's `GET /trips` leaves out the trips of a trucker whose stored tier is `restricted` (the page may be short, as for cancelled trips); the trucker's own list, `GET /trips/{id}` and an admin's browse are not filtered, and a restricted trucker's `trip` create is refused with `REPUTATION_RESTRICTED` (`sync-protocol.md` 1.48.0). Role visibility is unchanged: a trucker sees only their own trips, a buyer every trip on the market |
+| 2.6.1 | 2026-11-12 | `TRIP_HAS_BOOKINGS` only to an app that sends `X-App-Build` (FUP-241, rules 12 and 13, `sync-protocol.md` 1.53.0): an app without the header gets the same sentence as `SYNC_VALIDATION:`, which it treats as permanent. Apps that send the header get the code as before. Server only |
 
 ---
 
-**Last Updated**: 2026-11-11
-**Version**: 2.6.0
+**Last Updated**: 2026-11-12
+**Version**: 2.6.1
 **Status**: Draft (Phase R4.1)

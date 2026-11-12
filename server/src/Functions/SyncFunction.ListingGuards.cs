@@ -31,7 +31,9 @@ public partial class SyncFunction
     /// <c>CROP_HAS_ACTIVE_ORDERS</c>, nothing written. The orders come from <c>ListingIdIndex</c>
     /// (one query, every page). An index that cannot be read refuses for now with an unprefixed,
     /// retryable error. Behind <see cref="CommitmentsEnabled"/>, like <c>TRIP_HAS_BOOKINGS</c>: the
-    /// code reaches clients only once the flag is on (spec K1). Null when the change may proceed.
+    /// code reaches clients only once the flag is on (spec K1), and only those that send
+    /// <c>X-App-Build</c>: an older app gets the sentence as <c>SYNC_VALIDATION</c> (FUP-241,
+    /// <see cref="OldClientRefusal"/>). Null when the change may proceed.
     /// </summary>
     private async Task<SyncOperationResult?> CheckListingRemovalAllowedAsync(
         SyncOperationRequest operation, ILambdaContext context)
@@ -68,8 +70,10 @@ public partial class SyncFunction
         {
             OperationId = operation.OperationId,
             Status = "error",
-            Message = $"{CropHasActiveOrdersCode}: This listing has {holding} order(s) in progress. "
-                      + "It cannot be deleted until they are completed or cancelled."
+            Message = OldClientRefusal.ForClient(
+                $"{CropHasActiveOrdersCode}: This listing has {holding} order(s) in progress. "
+                + "It cannot be deleted until they are completed or cancelled.",
+                _batchAppBuild, CropHasActiveOrdersCode, operation.EntityType)
         };
     }
 }
