@@ -32,12 +32,15 @@ internal sealed class PayoutReferenceBackfill
 
     /// <summary>
     /// The marker in escrow-idempotency (30 day TTL): <c>done</c> once a run read the whole table with no failure,
-    /// after which a run reads nothing; <c>retry</c> after a run with a failure, so only a run that starts from
-    /// the beginning (no <c>scanFrom</c>) can write <c>done</c> again. Deleting it makes the next run read again.
+    /// after which a run reads nothing; <c>retry</c> after a run with a failure, so a chain resumed with
+    /// <c>scanFrom</c> cannot write <c>done</c>; <c>pending</c> once a run from the start (no <c>scanFrom</c>)
+    /// began a new chain after a <c>retry</c>, so that chain can write <c>done</c> when none of its runs fails.
+    /// Deleting it makes the next run read again.
     /// </summary>
     public const string MarkerKey = "migration:fup-215:backfill_payout_references";
     public const string MarkerDone = "done";
     public const string MarkerRetry = "retry";
+    public const string MarkerPending = "pending";
 
     /// <summary>The summary line of every run.</summary>
     public const string SummaryToken = "PAYOUT_REF_BACKFILL";
@@ -147,6 +150,15 @@ internal sealed class PayoutReferenceBackfill
             return counts;
         }
 
+        if (scanFrom == null && marker == MarkerRetry)
+        {
+            // A run from the start after a failure begins a new chain: it and the runs resumed from its cursor
+            // re-read every row the failed run left behind, so that chain may write done (a failure in it writes
+            // retry again). If this write fails the marker stays retry and only this run can write done.
+            marker = await WriteMarkerAsync(marker, MarkerPending, context) ?? marker;
+            counts.Marker = marker;
+        }
+
         await ScanAsync(KeyOf(scanFrom), slice, context, counts);
 
         if (counts.Failed > 0)
@@ -156,7 +168,7 @@ internal sealed class PayoutReferenceBackfill
         else if (counts.ScanDone && (scanFrom == null || marker != MarkerRetry))
         {
             // A chain resumed with scanFrom after a run that failed somewhere cannot vouch for the rows that run
-            // left behind: only a run from the start writes done after a retry.
+            // left behind: after a retry only a new chain (a run from the start, marker pending) writes done.
             counts.Marker = await WriteMarkerAsync(marker, MarkerDone, context) ?? marker;
         }
 

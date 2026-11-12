@@ -306,8 +306,9 @@ Read the answer's body:
 - `scanCursor` present: the run stopped on time. Run again with it, until `outcome` is
   `ok`: `--payload '{"body":"{\"action\":\"backfill_payout_references\",\"scanFrom\":\"<scanCursor>\"}"}'`.
 - `failed` above 0 (a throttled page or put): `marker: retry`. Run again without
-  `scanFrom` (only a run from the start can finish after a failure); the log names each
-  one (`PAYOUT_REF_BACKFILL_FAILED`).
+  `scanFrom` (a chain resumed after a failure cannot finish; the run from the start
+  writes `marker: pending`, and then it or its resumed runs can finish as above); the
+  log names each one (`PAYOUT_REF_BACKFILL_FAILED`).
 - `conflicts` above 0: one portal reference was recorded on two legs before 2.12.0. The
   first leg the Scan met keeps the item; nothing is overwritten. List them:
 

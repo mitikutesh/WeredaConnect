@@ -422,6 +422,57 @@ public sealed class PayoutReferenceBackfillTests
     }
 
     [Fact]
+    public async Task ANewChainAfterAFailure_ThatRunsOutOfTime_IsFinishedByItsResumedRun()
+    {
+        for (var i = 1; i <= 5; i++)
+        {
+            Escrow($"escrow-{i}", ("farmer", $"TB-00{i}", "admin-a", "2026-10-03T10:00:00.0000000Z"));
+        }
+
+        _references[PayoutReferenceBackfill.MarkerKey] = new Dictionary<string, AttributeValue>
+        {
+            ["idempotencyKey"] = S(PayoutReferenceBackfill.MarkerKey),
+            ["status"] = S(PayoutReferenceBackfill.MarkerRetry)
+        };
+
+        // The run from the start reads one page of two escrows, then runs out of time.
+        _perPage = TimeSpan.FromMinutes(2.5);
+        var first = await Backfill().RunAsync(null, Slice(), _context);
+
+        first.ScanDone.Should().BeFalse();
+        first.Outcome.Should().Be("partial");
+        MarkerStatus().Should().Be(PayoutReferenceBackfill.MarkerPending);
+
+        _elapsed = TimeSpan.Zero;
+        _perPage = TimeSpan.Zero;
+        var resumed = await Backfill().RunAsync(first.Cursor, Slice(), _context);
+
+        resumed.ScanDone.Should().BeTrue();
+        resumed.Written.Should().Be(3);
+        resumed.Outcome.Should().Be("ok");
+        MarkerStatus().Should().Be(PayoutReferenceBackfill.MarkerDone);
+    }
+
+    [Fact]
+    public async Task ANewChainAfterAFailure_ThatFailsAgain_GoesBackToRetry()
+    {
+        Escrow("escrow-1", ("farmer", "TB-001", "admin-a", "2026-10-03T10:00:00.0000000Z"));
+        _references[PayoutReferenceBackfill.MarkerKey] = new Dictionary<string, AttributeValue>
+        {
+            ["idempotencyKey"] = S(PayoutReferenceBackfill.MarkerKey),
+            ["status"] = S(PayoutReferenceBackfill.MarkerRetry)
+        };
+        _ddb.ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>())
+            .Returns<ScanResponse>(_ => throw new ProvisionedThroughputExceededException("slow down"));
+
+        var counts = await Backfill().RunAsync(null, Slice(), _context);
+
+        counts.Failed.Should().Be(1);
+        counts.Outcome.Should().Be("partial");
+        MarkerStatus().Should().Be(PayoutReferenceBackfill.MarkerRetry);
+    }
+
+    [Fact]
     public async Task AScanPageThatFails_StopsWithTheCursor_AndNeverThrows()
     {
         Escrow("escrow-1", ("farmer", "TB-001", "admin-a", "2026-10-03T10:00:00.0000000Z"));
