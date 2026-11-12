@@ -221,7 +221,8 @@ public sealed class RatingRepository : IRatingRepository
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByRateeAsync(
         string rateeId,
         int limit = 20,
-        Dictionary<string, AttributeValue>? exclusiveStartKey = null)
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null,
+        string? rateeRole = null)
     {
         if (limit < 1 || limit > 50)
         {
@@ -250,13 +251,15 @@ public sealed class RatingRepository : IRatingRepository
             request.ExclusiveStartKey = exclusiveStartKey;
         }
 
+        ApplyRoleFilter(request, rateeRole);
+
         var response = await _dynamoDb.QueryAsync(request);
         var items = response.Items.Select(DynamoDbHelper.FromItem).ToList();
         return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
     }
 
     /// <inheritdoc />
-    public async Task<(double Average, int Count)> GetSummaryAsync(string rateeId)
+    public async Task<(double Average, int Count)> GetSummaryAsync(string rateeId, string? rateeRole = null)
     {
         var request = new QueryRequest
         {
@@ -272,6 +275,8 @@ public sealed class RatingRepository : IRatingRepository
                 { ":val", new AttributeValue { S = rateeId } }
             }
         };
+
+        ApplyRoleFilter(request, rateeRole);
 
         var total = 0L;
         var count = 0;
@@ -302,5 +307,21 @@ public sealed class RatingRepository : IRatingRepository
 
         var average = count > 0 ? (double)total / count : 0.0;
         return (average, count);
+    }
+
+    /// <summary>
+    /// ESC-29 (rating-api.md 1.2.0): only the ratings received in one role (the index projects
+    /// <c>ALL</c>, so the filter sees <c>rateeRole</c>). No role, no filter.
+    /// </summary>
+    private static void ApplyRoleFilter(QueryRequest request, string? rateeRole)
+    {
+        if (string.IsNullOrEmpty(rateeRole))
+        {
+            return;
+        }
+
+        request.FilterExpression = "#rateeRole = :rateeRole";
+        request.ExpressionAttributeNames["#rateeRole"] = "rateeRole";
+        request.ExpressionAttributeValues[":rateeRole"] = new AttributeValue { S = rateeRole };
     }
 }

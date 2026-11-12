@@ -34,6 +34,9 @@ public static class SyncServerData
         "version",
         // Crop listing (CropDto); the row stores the quantity as "quantity".
         "quantity", "quantityKg", "pricePerKg", "latitude", "longitude", "farmerReliability",
+        // ESC-29: the owner's copied reputation on crop and trip rows.
+        OwnerReputationFields.EffectiveRatingField, OwnerReputationFields.RatingCountField,
+        OwnerReputationFields.ReliabilityPctField,
         // Trip (TripDto) and its destination point (trip-listing-api 2.1.0).
         "capacity", "pricePerQuintal", "bookedQuintals", "remainingQuintals",
         "destinationLatitude", "destinationLongitude",
@@ -52,6 +55,23 @@ public static class SyncServerData
     /// <summary>The result with its <c>serverData</c> typed; a result without a row is returned as it is.</summary>
     public static SyncOperationResult Typed(SyncOperationResult result)
         => result.ServerData is { } row ? result with { ServerData = TypedRow(row) } : result;
+
+    /// <summary>
+    /// ESC-29 (reputation-api.md section 7): <see cref="Typed(SyncOperationResult)"/>, with the
+    /// owner fields of a crop or trip row as a reader gets them: the public tier, or nothing while
+    /// <c>reputationPublicTags</c> is off (<see cref="OwnerReputationView.ApplyTo"/>).
+    /// </summary>
+    public static SyncOperationResult Typed(SyncOperationResult result, bool reputationPublicTags)
+    {
+        if (result.ServerData is not { } row)
+        {
+            return result;
+        }
+
+        var typed = TypedRow(row);
+        OwnerReputationView.ApplyTo(typed, reputationPublicTags);
+        return result with { ServerData = typed };
+    }
 
     /// <summary>A typed copy of <paramref name="row"/>; the row itself is not changed.</summary>
     public static Dictionary<string, object> TypedRow(Dictionary<string, object> row)

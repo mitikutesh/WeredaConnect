@@ -451,6 +451,31 @@ void main() {
     });
 
     test(
+        'a suspended account\'s refused write signs out like an expired '
+        'session and says why', () async {
+      final bloc = await signedIn(service, signals: signals);
+
+      signals.accountSuspended();
+      final state = await bloc.stream
+          .firstWhere((s) => s is AuthUnauthenticated)
+          .timeout(const Duration(seconds: 2));
+
+      expect(state, isA<AuthSuspendedSignedOut>());
+      expect(bloc.sessionSubject, isNull);
+    });
+
+    test('an expired session is a plain sign-out, not a suspension', () async {
+      final bloc = await signedIn(service, signals: signals);
+
+      signals.sessionExpired();
+      final state = await bloc.stream
+          .firstWhere((s) => s is AuthUnauthenticated)
+          .timeout(const Duration(seconds: 2));
+
+      expect(state, isNot(isA<AuthSuspendedSignedOut>()));
+    });
+
+    test(
         'the interceptor\'s signal signs the tab out and leaves the stored '
         'session and the offline cache alone', () async {
       final bloc = await signedIn(service, signals: signals);

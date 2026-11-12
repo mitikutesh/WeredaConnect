@@ -137,6 +137,14 @@ public partial class SyncFunction
             };
         }
 
+        // ESC-29 (reputation-api.md 8.1): a restricted farmer or trucker takes no new commitment.
+        // After the no-op answer, so a replayed accept from before the restriction still succeeds;
+        // a decline stays allowed (0 points while restricted).
+        if (command == OrderCommitment.AcceptCommand && RefuseIfRestricted(operation) is { } restricted)
+        {
+            return restricted;
+        }
+
         var fields = decision.Fields!;
         var priorStatus = ItemString(existingOrder, "status");
 

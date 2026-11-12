@@ -350,8 +350,9 @@ describe('ApiStack', () => {
     // + the crop photo processor and the two CDK helpers its buckets bring
     // (bucket notifications, dev auto-delete) (crop-listing-api 1.6.0) = 31,
     // + the AI advisory cron and its Bedrock reviewer (FRD-19) = 33,
-    // + reputation-stream (ESC-28) = 34.
-    template.resourceCountIs('AWS::Lambda::Function', 34);
+    // + reputation-stream (ESC-28) = 34,
+    // + reputation, the GET /reputation/* reads and the appeal (ESC-29) = 35.
+    template.resourceCountIs('AWS::Lambda::Function', 35);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -384,8 +385,10 @@ describe('ApiStack', () => {
     // plus POST /crops/{id}/photos (crop-listing-api 1.6.0) → 65,
     // plus GET /admin/escrows/held (FRD-07, the held queue) → 66,
     // plus GET /admin/disputes/{id}/evidence (FRD-14, the dispute evidence package) → 67,
-    // plus GET /admin/listing-reports and POST /admin/listing-reports/{listingId}/review (FUP-67) → 69 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 69);
+    // plus GET /admin/listing-reports and POST /admin/listing-reports/{listingId}/review (FUP-67) → 69,
+    // plus GET /reputation/me, /reputation/me/events and /reputation/{userId}, POST
+    // /reputation/appeals/photo-url and /reputation/events/{eventId}/appeal (ESC-29) → 74 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 74);
   });
 
   // ─── Crop photos (crop-listing-api 1.6.0) ───
@@ -1177,7 +1180,12 @@ describe('ApiStack', () => {
   test('a dispute verdict can move its order and delivery (ESC-03)', () => {
     // The admin verdict, and the escrow and escrow-cron settlement of it, move the order
     // and delivery to the verdict and audit each hop in transaction-audit.
-    const policies = template.findResources('AWS::IAM::Policy');
+    // The admin role's statements pass the inline policy size in this unminimized test app, so CDK
+    // moves the rest to an overflow managed policy (same id prefix): both kinds are read.
+    const policies = {
+      ...template.findResources('AWS::IAM::Policy'),
+      ...template.findResources('AWS::IAM::ManagedPolicy'),
+    };
     const actionsOn = (rolePrefix: string, tableId: string) => {
       const ids = Object.keys(policies).filter((key) => key.startsWith(rolePrefix));
       expect(ids.length).toBeGreaterThan(0);

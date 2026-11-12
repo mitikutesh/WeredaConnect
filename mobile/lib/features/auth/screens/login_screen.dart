@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -58,6 +59,22 @@ class _LoginScreenState extends State<LoginScreen> {
   /// Per-field autovalidation, switched on by the first submit (see
   /// [_handleLogin]).
   AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
+
+  /// Whether the "signed out because the account is suspended" text was
+  /// already taken from the bloc's state when this screen opened.
+  bool _suspensionChecked = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The sign-out happens before this screen is built, so a listener
+    // would miss it: read the state once, when the localizations exist.
+    if (_suspensionChecked) return;
+    _suspensionChecked = true;
+    if (context.read<AuthBloc>().state is AuthSuspendedSignedOut) {
+      _errorMessage = _localizeAuthError(AuthErrorCode.accountSuspended, '');
+    }
+  }
 
   @override
   void dispose() {
@@ -169,6 +186,13 @@ class _LoginScreenState extends State<LoginScreen> {
           if (!_otpScreenOpen && (ModalRoute.of(context)?.isCurrent ?? true)) {
             _openOtpScreen(state);
           }
+        } else if (state is AuthSuspendedSignedOut) {
+          // Signed out while this screen was already open (a stale tab).
+          setState(() {
+            _errorSerial++;
+            _errorMessage =
+                _localizeAuthError(AuthErrorCode.accountSuspended, '');
+          });
         } else if (state is AuthError) {
           setState(() {
             _errorSerial++;

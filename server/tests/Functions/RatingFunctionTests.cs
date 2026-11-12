@@ -35,7 +35,7 @@ public class RatingFunctionTests
             RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
             {
                 Authorizer = userId != null
-                    ? new APIGatewayCustomAuthorizerContext { { "sub", userId } }
+                    ? new APIGatewayCustomAuthorizerContext { { "sub", userId }, { "custom:role", "buyer" } }
                     : null
             }
         };

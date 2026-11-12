@@ -47,6 +47,15 @@ public class CropFunction
     /// <summary>The server clock for URL expiry; tests set it.</summary>
     internal Func<DateTime> Clock { get; init; } = () => DateTime.UtcNow;
 
+    /// <summary>
+    /// ESC-29 (reputation-api.md 8.3), <c>reputationPenalties</c>: a buyer's read leaves out rows
+    /// whose owner is restricted. Off by default.
+    /// </summary>
+    internal bool HideRestrictedOwners { get; init; } = ReputationFlags.PenaltiesEnabled;
+
+    /// <summary>ESC-29 (reputation-api.md section 7), <c>reputationPublicTags</c>: the owner fields are returned. Off by default.</summary>
+    internal bool ReputationPublicTags { get; init; } = ReputationFlags.PublicTagsEnabled;
+
     /// <summary>Page size of GET /crops without a <c>limit</c>.</summary>
     internal const int DefaultPageSize = 20;
 
@@ -196,17 +205,23 @@ public class CropFunction
         {
             // SIM-26: fill the page and look one listing ahead (PageFill), so a nextToken never
             // leads to an empty last page.
+            // ESC-29 (reputation-api.md 8.3): a buyer's browse leaves out listings of a restricted
+            // farmer, checked on the full rows in code (the crop type index does not project
+            // ownerTier), and the page is refilled. Never for the farmer's own list or an admin.
+            var hideRestricted = HideRestrictedOwners && !isFarmer
+                && string.Equals(role, "buyer", StringComparison.OrdinalIgnoreCase);
             var (items, nextKey) = await PageFill.ReadAsync(
                 (count, key) => _cropRepo.QueryCropsAsync(farmerId, woreda, cropType, status, count, key),
                 limit,
-                exclusiveStartKey);
+                exclusiveStartKey,
+                hideRestricted ? row => !OwnerReputationView.IsRestrictedOwner(row) : null);
 
             // ESC-48: the phone goes only to the listing's farmer and admins. A buyer browsing
             // could otherwise call the farmer and agree to trade off the platform.
             var isAdmin = AdminAuthHelper.IsAdmin(request);
             // 1.6.0: thumbs only on the list, signed here, after the role gate above.
             var crops = items
-                .Select(i => MapToCropDto(i, includePhone: isAdmin || IsOwner(i, authenticatedUserId)) with
+                .Select(i => MapToCropDto(i, includePhone: isAdmin || IsOwner(i, authenticatedUserId), ReputationPublicTags) with
                 {
                     Photos = SignPhotos(i, includeFull: false, context)
                 })
@@ -281,7 +296,8 @@ public class CropFunction
 
             // 1.6.0: the detail adds the full rendition, signed only after the role gate above.
             var cropDto = MapToCropDto(crop,
-                includePhone: AdminAuthHelper.IsAdmin(request) || IsOwner(crop, AuthHelper.GetUserId(request))) with
+                includePhone: AdminAuthHelper.IsAdmin(request) || IsOwner(crop, AuthHelper.GetUserId(request)),
+                ReputationPublicTags) with
             {
                 Photos = SignPhotos(crop, includeFull: true, context)
             };
@@ -478,8 +494,9 @@ public class CropFunction
     /// Handles type conversions from string/number representations.
     /// <paramref name="includePhone"/> is true only for the owning farmer and admins (ESC-48).
     /// </summary>
-    private static CropDto MapToCropDto(Dictionary<string, object> item, bool includePhone)
+    private static CropDto MapToCropDto(Dictionary<string, object> item, bool includePhone, bool publicTags = false)
     {
+        var owner = OwnerReputationView.Of(item, publicTags);
         return new CropDto
         {
             CropId = GetString(item, "cropId"),
@@ -500,6 +517,11 @@ public class CropFunction
             LocationName = GetStringOrNull(item, "locationName"),
             DeletedAt = GetStringOrNull(item, "deletedAt"),
             FarmerReliability = GetDoubleOrNull(item, "farmerReliability"),
+            OwnerTier = owner.Tier,
+            OwnerEffectiveRating = owner.EffectiveRating,
+            OwnerRatingCount = owner.RatingCount,
+            OwnerReliabilityPct = owner.ReliabilityPct,
+            OwnerReputationAt = owner.At,
             Latitude = GetDoubleOrNull(item, "latitude"),
             Longitude = GetDoubleOrNull(item, "longitude")
         };

@@ -354,6 +354,8 @@ class SyncBatchResult {
 /// Error handling per HTTP error:
 /// - Network/timeout → revert to pending without retry count increment
 /// - 401 → revert (AuthInterceptor should have refreshed token)
+/// - 403 `AUTH_025` (account suspended) → revert without a retry and raise
+///   [SessionSignals.accountSuspended]; the queue stays for the next sign-in
 /// - 429 → revert (rate limited, try again later)
 /// - 410 `ACCOUNT_004` (account being or already deleted) → revert without a
 ///   retry, stop this sync and raise [SessionSignals.accountGone]; for a
@@ -1177,6 +1179,12 @@ class SyncExecutor {
           // If we still got 401, the refresh failed.
           // Revert to pending (don't burn retry count — auth is transient).
           await _revertBatchToPending(operations);
+          // 403 AUTH_025 (sync-protocol.md 1.48.0): the account is suspended
+          // and nothing was applied. End the session now, as a rejected
+          // refresh does; the queue stays for the next sign-in.
+          if (isAccountSuspended(statusCode, error.response?.data)) {
+            _sessionSignals.accountSuspended();
+          }
           return SyncBatchResult(
             total: operations.length,
             failed: operations.length,

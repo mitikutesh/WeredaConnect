@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.47.0
+1.48.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -178,6 +178,7 @@ When the client receives `status: "conflict"`:
 | `SYNC_RATE_LIMIT` | Too many requests | Back off, retry with exponential delay |
 | `SYNC_SERVER_ERROR` | Server failure | Retry with exponential backoff |
 | `ACCOUNT_004` (HTTP 410, whole request) | The caller's account is being or has been deleted (1.26.0) | Stop this sync, no retry counted, the operations stay queued. `cognito_pending` or `completed`: never resend while the app runs, wipe and go to login; `in_progress`: a later sync may resend. See Deleted accounts (1.26.0) |
+| `AUTH_025` (HTTP 403, whole request) | The caller's account is suspended (1.48.0) | Stop this sync, no retry counted, the operations stay queued; end the session like a rejected token refresh. See Suspended accounts and reputation gates (1.48.0) |
 
 ---
 
@@ -1185,6 +1186,48 @@ funding.
 
 ---
 
+## Suspended accounts and reputation gates (1.48.0, ESC-29)
+
+Source: `reputation-api.md` 1.2.0 sections 7 and 8.
+
+**Suspended caller (not flagged).** The read the server already makes for a deleted account
+(Deleted accounts, 1.26.0: the caller's users row, strongly consistent, once per request) also
+refuses a row with `suspended: true`: the whole request answers HTTP `403` with
+`{"error":{"code":"AUTH_025","message":"Account suspended."}}`. No operation is applied, no
+idempotency key is read or stored and nothing is recorded for a retry to trip over. A deleting
+account still gets its `410` first. Before 1.48.0 a suspended user's ID token kept working on `/sync`
+until it expired (FRD-08).
+
+| Client | On `403 AUTH_025` from `/sync` |
+|---|---|
+| Mobile queue (app build with ESC-29) | Reverts the batch to pending without a retry counted, signs the user out as after a rejected refresh, with the "account disabled" text on the login screen, and keeps the queue for the next sign-in |
+| Web (app build with ESC-29) | The API client does the same for a `403 AUTH_025` from any route outside `/auth/`; the caller still gets the error |
+| Older builds | Keep the batch pending without a retry counted (the `401`/`403` rule) and are signed out when their token refresh is refused with `AUTH_025` |
+
+**Reputation gates (behind `reputationPenalties`, off in every environment).** The codes and the
+client rules are those of Permanent trip and crop rejections (1.17.0); 1.48.0 is the server
+sending them:
+
+| Operation | Refusal | When |
+|---|---|---|
+| `crop_listing` create, `trip` create | `REPUTATION_RESTRICTED: until=<ISO time or review>: Your account can't take new orders until <date>. Your current orders continue.` | The caller's stored restriction has not ended. Update, delete and cancel stay allowed |
+| `order` update with `farmerResponse: accept` or `truckerResponse: accept` | the same text | As above, after the no-op answer for an accept already given; `decline` stays allowed |
+| `order` create | `REPUTATION_RESTRICTED: counterparty: This farmer or trucker can't take new orders right now.` | The listing's farmer or the trip's trucker is restricted or suspended (one strongly consistent read each). An order id the server already holds gets its `conflict` answer instead |
+| `order` create | `The seller's account could not be checked. Please try again later.` (no prefix, retryable) | The owner's row could not be read; nothing is written |
+
+To a client that sends no readable `X-App-Build` (build 1 or older; it may not know the code, as for
+the minimum app version, 1.41.0) the same sentence goes out as `SYNC_VALIDATION: ...` on a crop or
+trip and `ORDER_VALIDATION: ...` on an order, which every client treats as permanent.
+
+**Owner fields (section 7 of `reputation-api.md`).** `ownerTier`, `ownerEffectiveRating`,
+`ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt` are server-written on crop and trip
+rows. The server drops them from every client payload, create and update alike (no refusal), stamps
+them on a create while `reputationPenalties` is on, and returns them in a `serverData` row (success
+and conflict) only while `reputationPublicTags` is on, with `ownerTier` as the public tier (`good` or
+`low`) and the three numbers as JSON numbers (1.37.0).
+
+---
+
 ## Listing reports (1.44.0, FUP-67)
 
 New create-only entity `listing_report`: a buyer reports a crop listing or a trip to the admins. Full contract: `listing-report-api.md` 1.0.0.
@@ -1228,6 +1271,7 @@ Client only, no server change.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.48.0 | 2026-11-11 | Suspended accounts and reputation gates (ESC-29, `reputation-api.md` 1.2.0, `auth-api.md` 2.15.0). Not flagged: a batch from a suspended account answers HTTP `403 AUTH_025` for the whole request from the caller row the server already reads, nothing applied, no idempotency key stored; clients with ESC-29 keep the queue without a retry and end the session, older builds keep the queue and are signed out at their next token refresh. Behind `reputationPenalties` (off everywhere): the server now sends `REPUTATION_RESTRICTED` on a restricted caller's `crop_listing` create, `trip` create and order accept, and on an `order` create whose listing farmer or trip trucker is restricted or suspended (an unreadable owner row answers an unprefixed retryable text); a client without `X-App-Build` gets the sentence as `SYNC_VALIDATION` or `ORDER_VALIDATION`. The owner fields (`ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct`, `ownerReputationAt`) are dropped from client payloads and returned in `serverData` only with `reputationPublicTags` on. |
 | 1.47.0 | 2026-11-11 | Step-up leftovers, client only (FUP-24, FUP-43): on mobile the remembered pending step-up is tied to the held operations and dropped once they all left the queue or got another answer, kept across a cancelled prompt; on web a delivery dispute answered `AUTH_040:` opens the password prompt and is sent once more as the same operation, and a cancelled prompt leaves it unsent with its own text (en, am, om) |
 | 1.46.0 | 2026-11-11 | Order detail read (ESC-23), client only: the mobile order detail shows the stored order at once and reads `GET /orders/{id}` once per open and on pull to refresh, under the pull rules (not sent while an operation for the order is queued, never to an older `version`); a failed read, `404` and `403` included, is silent and removes nothing. No server change. |
 | 1.45.0 | 2026-11-11 | Changes to a finished delivery or trip (FUP-128, `delivery-verification-api.md` 2.2.0): a delivery update that reaches a cancelled (or legacy soft-deleted) delivery with a version behind the stored one answers `conflict` with the scrubbed row to a caller who may make that change (SIM-28's rule; the trucker or the farmer's `qrNonce` for an update without a status), instead of `DELIVERY_ALREADY_CANCELLED`; at the current version, without one or for anyone else the error stands. The trip side was built in `trip-listing-api.md` 2.4.0. Mobile: `DELIVERY_ALREADY_CANCELLED`, `TRIP_TERMINAL_STATE` and `TRIP_ALREADY_CANCELLED` errors are permanent and revert the delivery or trip (they were retried); the conflict resolver no longer fails on a crop row without `description`, a trip row without `truckerName` or `truckerPhone`, reads a crop's flat `latitude` and `longitude` and maps `available` to `active`. Web unchanged. New conflict resolution rule 7 |
@@ -1278,4 +1322,4 @@ Client only, no server change.
 ---
 
 **Last Updated**: 2026-11-11
-**Version**: 1.47.0
+**Version**: 1.48.0

@@ -229,6 +229,14 @@ public static class ReputationFlags
     /// <summary><c>reputationPenalties</c>: the stream records events and the daily job runs. Off by default.</summary>
     public static bool PenaltiesEnabled => IsOn(PenaltiesEnv);
 
+    public const string PublicTagsEnv = "REPUTATION_PUBLIC_TAGS_ENABLED";
+
+    /// <summary>
+    /// ESC-29, <c>reputationPublicTags</c>: buyers get the tier, the effective rating and the
+    /// reliability (reputation-api.md sections 3 and 7, rating-api.md 1.2.0). Off by default.
+    /// </summary>
+    public static bool PublicTagsEnabled => IsOn(PublicTagsEnv);
+
     /// <summary><c>timeoutPenalties</c>: <c>RESPONSE_EXPIRED</c> carries its point. Off by default.</summary>
     public static bool TimeoutPenaltiesEnabled => IsOn(TimeoutPenaltiesEnv);
 

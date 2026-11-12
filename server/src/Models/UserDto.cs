@@ -61,6 +61,20 @@ public sealed record UserDto
     /// <summary>ACC-02: when the personal data was erased (the tombstone write). Server-side only.</summary>
     [JsonIgnore]
     public string? DeletedAt { get; init; }
+    /// <summary>
+    /// ESC-29: the stored <c>reputation</c> map (user-entity.md section 2), for the gates and the
+    /// owner stamps; null when the row has none. Server-side only.
+    /// </summary>
+    [JsonIgnore]
+    public ReputationSnapshot? Reputation { get; init; }
+    /// <summary>ESC-28: the stars the user received in their current role. Server-side only.</summary>
+    [JsonIgnore]
+    public long RatingSum { get; init; }
+    [JsonIgnore]
+    public long RatingCount { get; init; }
+    /// <summary>ESC-28: set once the sum and count are exact (registration or the backfill). Server-side only.</summary>
+    [JsonIgnore]
+    public string? RatingsAggregatedAt { get; init; }
     public required string CreatedAt { get; init; }
     public required string UpdatedAt { get; init; }
     public required int Version { get; init; }

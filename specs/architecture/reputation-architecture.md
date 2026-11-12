@@ -1,15 +1,16 @@
 # Reputation Architecture
 
 ## Version
-1.1.0 | 2026-11-07 (ESC-28)
+1.2.0 | 2026-11-11 (ESC-29)
 
 ## Status
 PARTLY BUILT. ESC-28 (the core write side) is built and ships dark: sections 3 (the table and
 its indexes), 5, 6.1, 6.2, 6.4, 7, 8, 9, 12.2 and the ESC-28 monitoring of 14; section 20 lists
-where the build reads the design. PLANNED: 6.3 (copies), 6.5, 6.6, 10, 11 and 13 (ESC-29 to
-ESC-33).
+where the build reads the design. ESC-29 (the server reads and gates) is built and ships dark too:
+6.3 (copies), 6.6 (reads) and 10 (gates, visibility, suspension); section 21 lists where that build
+reads the design. PLANNED: 6.5, 11 and 13 (ESC-30 to ESC-33).
 
-**Contracts**: `specs/contracts/reputation-api.md` 1.1.0, `rating-api.md` 1.3.0,
+**Contracts**: `specs/contracts/reputation-api.md` 1.2.0, `rating-api.md` 1.4.0,
 `user-entity.md` 2.1.0, `notifications-api.md` 1.5.0, `account-deletion.md` 1.6.0.
 **Rules and decisions**: `specs/features/three-party-escrow-commitments-reputation.md` 4.11,
 5.I, 5.K, 14 (D1 to D9). Product rules set by the user, not changed here: a farmer or trucker who
@@ -897,9 +898,71 @@ How the build reads points the design left open:
 
 ---
 
+## 21. As built (ESC-29)
+
+Code: `Functions/ReputationFunction.cs` (the five routes), `Helpers/ReputationGate.cs`,
+`Helpers/OwnerReputationView.cs`, `Helpers/ReputationReadModels.cs`, `Data/ReputationCopyRepository.cs`,
+`Services/AppealPhotoStore.cs`, `Functions/SyncFunction.Reputation.cs` (gates and stamps),
+`Functions/AdminFunction.Reputation.cs` (the heal marker on a suspend), and changes in
+`Services/ReputationService.cs` (copy refresh, `ReadAsync`), `Data/ReputationEventRepository.cs` (the
+stored map as a snapshot, the appeal write), `Functions/CropFunction.cs`, `TripFunction.cs`,
+`MatchFunction.cs`, `RatingFunction.cs`, `EscrowFunction.cs`, `FaydaVerifyFunction.cs`,
+`DeviceTokenFunction.cs`, `Helpers/AccountDeletionGuard.cs`; infra in `api-stack.ts` and
+`environments.ts`; the mobile and web session rule in `core/network/api_client.dart` and
+`core/sync/sync_executor.dart`.
+
+How the build reads points the design left open:
+
+1. **One read of the caller's row** (section 10): `UserRepository.FromItem` parses the `reputation`
+   map, `ratingSum`, `ratingCount` and `ratingsAggregatedAt` into server-only fields of the user, so
+   the `/sync` batch read serves the deletion guard, the suspension refusal, the own gate and the
+   owner stamps. The gate decides from the stored restriction and its `until` (no events read).
+2. **Copies only while `reputationPenalties` is on** (6.3): the stamp at create and every refresh
+   are behind the flag, because only the flagged writes keep a copy current. Turning the flag on
+   leaves older rows without a copy until their owner's next change; a one-off stamp is TASK FUP-160.
+3. **What triggers a copy**: a change of the stored tier (the internal one, so `low` to `restricted`
+   and `good` to `warning` count; the heal marker follows the same rule), of the effective rating or
+   of the reliability; every rating create (the count); the daily job for a user with a heal marker,
+   **before** the marker is deleted. A row that already holds the values is not written.
+4. **Suspend and unsuspend** (6.3, last line): the admin Lambda leaves the day's heal marker and the
+   daily job rewrites the copies (the aggregate reads `suspended`), so the copy follows within a day,
+   not at once. The order gate reads the live row, so no order reaches a suspended owner meanwhile.
+5. **Hidden restricted owners** (section 10): a check in code on the full rows on every read path, in
+   the three read Lambdas, for the `buyer` role only. No FilterExpression: the rows are read and
+   billed either way, the crop browse refills its page, and one rule covers the `INCLUDE` index.
+6. **Reads** (6.6): `ReputationService.ReadAsync` builds the aggregate from the stored map under the
+   live policy (`ReputationPolicy.FromSnapshot`) and recomputes from the events once `now` has passed
+   `nextChangeAt`. The party's own view also reads the events while points are active, for
+   `nextPointExpiryAt`. With `reputationPenalties` off the read Lambdas use the default policy and
+   never read the parameter.
+7. **Ratings without a backfill stamp**: a row without `ratingsAggregatedAt` contributes no rating
+   to the aggregate, the copies or the reads (it would count only the ratings since the deploy);
+   `GET /ratings` keeps the walk for it. This closes the second "before the flag goes on" note of
+   the ESC-28 review. The first (the unpark's short poll) is TASK FUP-161.
+8. **Event list paging**: in memory over one Query of the user's partition (the sort key is the
+   slot), newest `occurredAt` first, with a signed token bound to the caller.
+9. **Appeal**: one conditional `UpdateItem`, no version change; `appealTextAt` keeps when the text
+   arrived, and a `DELIVERY_OVERDUE` row keeps its `review` status and queue key. Account deletion
+   deletes every version under `uploads/appeals/{userId}/`, only while `reputationPenalties` is on
+   (off: no S3 call on the erasure path; TASK FUP-166 for the first run against real S3).
+10. **Old apps** (TASK FUP-75): to a request without `X-App-Build` the restriction text goes out as
+    `SYNC_VALIDATION` or `ORDER_VALIDATION`.
+11. **Suspension** (R20): `/sync`, the three escrow POSTs that read the caller's row, the two Fayda
+    POSTs, `POST /device-tokens` and the two reputation POSTs. `POST /escrow/release` and
+    `/escrow/refund` read no caller row and are unchanged.
+12. **Rating reads**: the role rule is not flagged; the summary comes from the users row when the
+    role asked for is the current one and the row is stamped. A ratee without a usable users row
+    keeps the old read, and a role-filtered page is filled (`PageFill`).
+13. **Monitoring**: `REPUTATION_COPY_FAILED` is counted on the stream, order-cron and sync log
+    groups as before; the admin Lambda's marker failure logs the same token but is not in that
+    alarm (the suspension itself stands and is audited).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-11-11 | ESC-29 built: 6.3, 6.6 and 10 on the server, behind the flags; section 21 (as built: the caller's row read once with its reputation, copies only while `reputationPenalties` is on, copy triggers and the daily job copying before it deletes the heal marker, the heal marker on an admin suspend, the browse check in code, reads from the stored map with a recompute past `nextChangeAt`, no rating for an unstamped row, in-memory event paging, the appeal write, the wording for apps without a build header, the routes the suspension gate covers) |
 | 1.1.0 | 2026-11-07 | ESC-28 built: status PARTLY BUILT; section 20 (as built: copies left to ESC-29 with the heal marker kept, TIER rows on every stored tier change and keyed `TIER#{at}#{cause}`, restriction from the recording time, R8 needs the old `farmerResponse`, R12 on the order's `disputeReason`, reachability only with `timeoutPenalties`, earn-back none without the fraud table, the request cap over the candidate's whole life, `nextChangeAt` with completions and the reliability window, the read-lag check with `lastEventId`, the refresh behind `reputationPenalties`, `catchUpDays`, parking shape, monitoring, inbox key); `activePointsAfter` on penalty rows |
 | 1.0.0 | 2026-11-07 | First design (ESC-27): data model, stream derivation, policy and defaults, service and transaction, daily job, notifications, gates, matching, rollout and backfill, FRD hooks, failure modes, cost, ticket split ESC-28 to ESC-33, decisions R1 to R32. Review fixes before merge: caps and earn-back limits look both ways in time; strongly consistent events read under the version check; R8 and R9 keyed on the old status; suspended, short-window and request caps; crop owner index is `INCLUDE` (BatchGet for status, browse filter in code on the `INCLUDE` path); admins only on `/admin` routes; parked messages hold projected images; stream concurrency at or above the shard count; notify source filtered on `code` |

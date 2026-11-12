@@ -211,6 +211,31 @@ void main() {
       );
     });
 
+    for (final locale in const [Locale('en'), Locale('am'), Locale('om')]) {
+      testWidgets(
+          'opened after a suspension sign-out, says the account is disabled '
+          '(${locale.languageCode})', (tester) async {
+        setMobileSize(tester);
+        when(() => authBloc.state).thenReturn(const AuthSuspendedSignedOut());
+
+        await tester.pumpWidget(buildTestWidget(locale: locale));
+        await tester.pumpAndSettle();
+
+        final l10n = lookupAppLocalizations(locale);
+        expect(find.text(l10n.authAccountDisabled), findsOneWidget);
+      });
+    }
+
+    testWidgets('a plain sign-out shows no error', (tester) async {
+      setMobileSize(tester);
+
+      await tester.pumpWidget(buildTestWidget(locale: const Locale('en')));
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('en'));
+      expect(find.text(l10n.authAccountDisabled), findsNothing);
+    });
+
     testWidgets('phone field starts empty (no pre-fill)', (tester) async {
       setMobileSize(tester);
       await tester.pumpWidget(buildTestWidget());
