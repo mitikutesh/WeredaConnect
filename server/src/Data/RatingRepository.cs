@@ -145,29 +145,45 @@ public sealed class RatingRepository : IRatingRepository
             items.Add(new TransactWriteItem { Update = ReputationEventRepository.HealUpsert(_reputationEventsTable, rateeId, nowUtc) });
         }
 
-        try
+        for (var attempt = 1; ; attempt++)
         {
-            await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest { TransactItems = items });
-            return AuthResult<Dictionary<string, object>>.Success(ClientView(item));
-        }
-        catch (TransactionCanceledException ex)
-        {
-            var reasons = ex.CancellationReasons ?? new List<CancellationReason>();
-            if (reasons.Count > 0 && reasons[0]?.Code == "ConditionalCheckFailed")
+            try
             {
-                return AuthResult<Dictionary<string, object>>.Failure(
-                    409, "SYNC_CONFLICT", "Rating already exists.", "ratingId");
+                await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest { TransactItems = items });
+                return AuthResult<Dictionary<string, object>>.Success(ClientView(item));
             }
-
-            if (reasons.Count > 1 && reasons[1]?.Code == "ConditionalCheckFailed")
+            catch (TransactionCanceledException ex)
             {
-                item[InAggregateField] = new AttributeValue { BOOL = false, IsBOOLSet = true };
-                return await PutAsync(item);
-            }
+                var reasons = ex.CancellationReasons ?? new List<CancellationReason>();
+                if (reasons.Count > 0 && reasons[0]?.Code == "ConditionalCheckFailed")
+                {
+                    return AuthResult<Dictionary<string, object>>.Failure(
+                        409, "SYNC_CONFLICT", "Rating already exists.", "ratingId");
+                }
 
-            throw;
+                if (reasons.Count > 1 && reasons[1]?.Code == "ConditionalCheckFailed")
+                {
+                    item[InAggregateField] = new AttributeValue { BOOL = false, IsBOOLSet = true };
+                    return await PutAsync(item);
+                }
+
+                // FUP-162: another transaction on the ratee's row (the heal of an unstamped ratee, the
+                // backfill) cancels this one with TransactionConflict. Nothing was written and every
+                // item is conditional or idempotent (the put on attribute_not_exists(ratingId), the
+                // ADD only with it, the heal marker an upsert), so the same transaction goes once more.
+                if (attempt < TransactionConflictAttempts && reasons.Any(r => r?.Code == "TransactionConflict"))
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(40));
+                    continue;
+                }
+
+                throw;
+            }
         }
     }
+
+    /// <summary>FUP-162: transactions per create when another one is in flight on the ratee's row (the first and one retry).</summary>
+    internal const int TransactionConflictAttempts = 2;
 
     /// <summary>The 1.1.0 conditional put (also the role-changed fallback of the aggregate path).</summary>
     private async Task<AuthResult<Dictionary<string, object>>> PutAsync(Dictionary<string, AttributeValue> item)
