@@ -244,4 +244,55 @@ public sealed class AdminLegsDynamoDbTests
         mine.GetProperty("status").GetString().Should().Be("funded");
         mine.GetProperty("farmerName").GetString().Should().Be("Farmer");
     }
+
+    [LocalDynamoDbFact]
+    public async Task TheStuckOrders_OfADeadline_ListAnAcceptedOrderPastItsPickupWithTheNoticeSent_UntilItsPickup()
+    {
+        // FUP-170: past its pickup deadline, the overdue notice sent, nobody picked up or cancelled.
+        var now = DateTime.UtcNow;
+        var pickupBy = now.AddHours(-5);
+        var waiting = await SeedOrderAsync("waiting", "payment_submitted");
+        (await Orders.TryMarkFundedAsync(waiting, new Dictionary<string, object>
+        {
+            { OrderCommitment.FarmerResponseField, OrderCommitment.Response.Pending },
+            { OrderCommitment.FarmerDeadlineAtField, OrderCommitment.Iso(now.AddHours(20)) },
+            { "paymentVerifiedAt", OrderCommitment.Iso(now.AddHours(-30)) },
+            { OrderCommitment.TruckerResponseField, OrderCommitment.Response.None }
+        })).Should().NotBeNull();
+        (await Orders.UpdateAsync(waiting, new Dictionary<string, object>
+        {
+            { "status", "accepted" },
+            { OrderCommitment.FarmerResponseField, OrderCommitment.Response.Accepted },
+            { PickupDeadline.Field, PickupDeadline.Format(pickupBy) }
+        }, 3)).IsSuccess.Should().BeTrue();
+        (await Orders.TryStampAsync(waiting,
+            new Dictionary<string, object> { { OrderCommitment.PickupOverdueNotifiedAtField, OrderCommitment.Iso(pickupBy.AddMinutes(15)) } },
+            new Dictionary<string, string> { { "status", "accepted" } })).Should().BeTrue();
+        // A missed farmer answer in the sweep's partition, so the walk crosses from one partition to the other.
+        var late = await SeedOrderAsync("late", "payment_submitted");
+        (await Orders.TryMarkFundedAsync(late, new Dictionary<string, object>
+        {
+            { OrderCommitment.FarmerResponseField, OrderCommitment.Response.Pending },
+            { OrderCommitment.FarmerDeadlineAtField, OrderCommitment.Iso(now.AddHours(-2)) },
+            { "paymentVerifiedAt", OrderCommitment.Iso(now.AddHours(-26)) },
+            { OrderCommitment.TruckerResponseField, OrderCommitment.Response.None }
+        })).Should().NotBeNull();
+
+        var stuck = await AllStuckAsync("deadline");
+
+        var ids = stuck.Select(o => o.GetProperty("orderId").GetString()).ToList();
+        ids.Should().Contain(waiting).And.Contain(late);
+        ids.Should().OnlyHaveUniqueItems("the tokens cross from one partition to the other without repeating a row");
+        ids.IndexOf(late).Should().BeLessThan(ids.IndexOf(waiting), "the sweep's partition first, then the waits");
+        var mine = stuck.Single(o => o.GetProperty("orderId").GetString() == waiting);
+        mine.GetProperty("reason").GetString().Should().Be("pickup_waiting");
+        mine.GetProperty("stuckSince").GetString().Should().Be(PickupDeadline.Format(pickupBy));
+        mine.GetProperty("ageHours").GetInt32().Should().Be(5);
+        mine.GetProperty("status").GetString().Should().Be("accepted");
+
+        // The pickup takes it off the list.
+        (await Orders.UpdateAsync(waiting, new Dictionary<string, object> { { "status", "pickup_confirmed" } }, 4))
+            .IsSuccess.Should().BeTrue();
+        (await AllStuckAsync("deadline")).Select(o => o.GetProperty("orderId").GetString()).Should().NotContain(waiting);
+    }
 }

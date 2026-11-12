@@ -67,7 +67,7 @@ public class OrderRepositoryDeadlineTests
 
     private static (string Key, string Value)[] With(OrderDeadline due) => new[]
     {
-        (OrderDeadlines.AtField, due.AtIso), (OrderDeadlines.KindField, due.Kind), (OrderDeadlines.ShardField, OrderDeadlines.Shard)
+        (OrderDeadlines.AtField, due.AtIso), (OrderDeadlines.KindField, due.Kind), (OrderDeadlines.ShardField, due.Shard)
     };
 
     private void Stored(Dictionary<string, AttributeValue> row)
@@ -95,7 +95,7 @@ public class OrderRepositoryDeadlineTests
            && r.ExpressionAttributeNames["#ndShard"] == OrderDeadlines.ShardField
            && r.ExpressionAttributeValues[":ndAt"].S == due.AtIso
            && r.ExpressionAttributeValues[":ndKind"].S == due.Kind
-           && r.ExpressionAttributeValues[":ndShard"].S == OrderDeadlines.Shard;
+           && r.ExpressionAttributeValues[":ndShard"].S == due.Shard;
 
     private static bool RemovesDeadline(string expression)
         => expression.Contains("REMOVE #ndAt, #ndKind, #ndShard");
@@ -186,6 +186,50 @@ public class OrderRepositoryDeadlineTests
         Assert.True(SetsDeadline(write, expected), write.UpdateExpression);
         // A stamp never bumps the version.
         Assert.DoesNotContain("version", write.ExpressionAttributeNames.Values);
+    }
+
+    [Fact]
+    public async Task Stamp_ThePickupNotice_MovesTheEntryToTheWatchPartition_AtThePickupDeadline()
+    {
+        // FUP-170: the order stays in the index after its notice, where only the admin reads.
+        var pickupBy = _now.AddHours(-2);
+        var pickupAt = PickupDeadline.TryParse(PickupDeadline.Format(pickupBy), out var at) ? at : default;
+        var overdue = new OrderDeadline(pickupAt, OrderDeadlines.Kind.PickupOverdue);
+        var waiting = new OrderDeadline(pickupAt, OrderDeadlines.Kind.PickupWaiting);
+        Stored(Row("accepted", "5", new[] { (PickupDeadline.Field, PickupDeadline.Format(pickupBy)) }.Concat(With(overdue)).ToArray()));
+        Writes(Row("accepted", "5", new[]
+        {
+            (PickupDeadline.Field, PickupDeadline.Format(pickupBy)), (OrderCommitment.PickupOverdueNotifiedAtField, Iso(_now))
+        }.Concat(With(waiting)).ToArray()));
+
+        var stamped = await _repository.TryStampAsync(OrderId,
+            new Dictionary<string, object> { { OrderCommitment.PickupOverdueNotifiedAtField, Iso(_now) } },
+            new Dictionary<string, string> { { "status", "accepted" } });
+
+        Assert.True(stamped);
+        var write = Assert.Single(_updates);
+        Assert.True(SetsDeadline(write, waiting), write.UpdateExpression);
+        Assert.Equal(OrderDeadlines.WatchShard, write.ExpressionAttributeValues[":ndShard"].S);
+    }
+
+    [Fact]
+    public async Task Update_ThePickup_TakesTheWaitOutOfTheIndex()
+    {
+        var pickupBy = _now.AddHours(-30);
+        var fields = new[]
+        {
+            (PickupDeadline.Field, PickupDeadline.Format(pickupBy)), (OrderCommitment.PickupOverdueNotifiedAtField, Iso(_now.AddHours(-29)))
+        };
+        var waiting = OrderDeadlines.Next(DynamoDbHelper.FromItem(Row("accepted", "6", fields)))!.Value;
+        Assert.Equal(OrderDeadlines.Kind.PickupWaiting, waiting.Kind);
+        Stored(Row("accepted", "6", fields.Concat(With(waiting)).ToArray()));
+        Writes(Row("pickup_confirmed", "7", fields));
+
+        var result = await _repository.UpdateAsync(OrderId, new Dictionary<string, object> { { "status", "pickup_confirmed" } }, 6);
+
+        Assert.True(result.IsSuccess);
+        var write = Assert.Single(_updates);
+        Assert.True(RemovesDeadline(write.UpdateExpression), write.UpdateExpression);
     }
 
     [Fact]
@@ -302,6 +346,29 @@ public class OrderRepositoryDeadlineTests
         Assert.Same(startKey, sent.ExclusiveStartKey);
         Assert.Equal(OrderId, Assert.Single(items)["orderId"]);
         Assert.Same(lastKey, next);
+        await _ddb.DidNotReceive().ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task QueryDeadlinePartition_ReadsTheNamedPartition_TheSweepsReadStaysOnItsOwn()
+    {
+        var sent = new List<QueryRequest>();
+        _ddb.QueryAsync(Arg.Is<QueryRequest>(r => r.IndexName == OrderDeadlines.IndexName), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                sent.Add(ci.Arg<QueryRequest>());
+                return new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() };
+            });
+
+        await _repository.QueryDeadlinePartitionAsync(OrderDeadlines.WatchShard, "2026-11-07T10:00:00.0000000Z", 20, null);
+        await _repository.QueryDueDeadlinesAsync("2026-11-07T10:00:00.0000000Z", 20, null);
+
+        Assert.Equal(2, sent.Count);
+        Assert.Equal(OrderDeadlines.WatchShard, sent[0].ExpressionAttributeValues[":shard"].S);
+        Assert.Equal("#shard = :shard AND #at < :due", sent[0].KeyConditionExpression);
+        Assert.Equal(20, sent[0].Limit);
+        Assert.True(sent[0].ScanIndexForward);
+        Assert.Equal(OrderDeadlines.Shard, sent[1].ExpressionAttributeValues[":shard"].S);
         await _ddb.DidNotReceive().ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>());
     }
 

@@ -973,7 +973,7 @@
     "tab_queue": "Toora bulchaa",
     "tab_deadline": "Daangaa yeroo darban",
     "hint_queue": "Ajajawwan kaffalaman kan maallaqni isaanii guyyaa 21f qabamee fi ajajni isaanii ammallee hin xumuramne. Tokkoon tokkoon isaa bulchaan murteessa.",
-    "hint_deadline": "Ajajawwan daangaa yeroo daqiiqaa 30 ol darbanii fi hojiin daangaa yeroo irratti hin hojjenne: deebiin qonnaan bulaa hin jiru, deebiin konkolaachisaa hin jiru, bitataan geejjiba hin filanne, ykn fudhachuun tureera.",
+    "hint_deadline": "Ajajawwan daangaa yeroo daqiiqaa 30 ol darbanii fi hojiin daangaa yeroo irratti hin hojjenne: deebiin qonnaan bulaa hin jiru, deebiin konkolaachisaa hin jiru, bitataan geejjiba hin filanne, ykn fudhachuun tureera. Isaan booda, ajajawwan erga beeksisni turtii fudhachuu ergamee booda illee hin fudhatamne.",
     "order": "Ajaja",
     "reason": "Sababa itti dhaabbate",
     "since": "Yeroo itti dhaabbate",
@@ -985,7 +985,8 @@
     "reason_farmer_response": "Kaffalameera, qonnaan bulaan yeroon hin deebisne",
     "reason_trucker_response": "Konkolaachisaan yeroon hin deebisne",
     "reason_buyer_choice": "Geejjiba eegaa jira, bitataan yeroon hin filanne",
-    "reason_pickup_overdue": "Fudhachuun tureera, beeksisni hin ergamne"
+    "reason_pickup_overdue": "Fudhachuun tureera, beeksisni hin ergamne",
+    "reason_pickup_waiting": "Fudhachuun tureera, beeksisni ergameera, ammallee hin fudhatamne"
   },
   "reputation": {
     "title": "Maqaa Gaarii",

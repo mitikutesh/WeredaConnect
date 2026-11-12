@@ -241,10 +241,19 @@ public interface IOrderRepository
     /// ESC-16: one page of the orders whose next deadline (<see cref="Helpers.OrderDeadlines"/>) is before
     /// <paramref name="dueBefore"/> (ISO 8601 UTC), oldest deadline first, from the sparse
     /// <c>DeadlineIndex</c> (a Query, never a Scan). <paramref name="limit"/> is 1 to 100. The index copy
-    /// is eventually consistent: the caller re-reads a row before acting on it.
+    /// is eventually consistent: the caller re-reads a row before acting on it. Only the sweep's
+    /// partition (<see cref="Helpers.OrderDeadlines.Shard"/>) is read.
     /// </summary>
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDueDeadlinesAsync(
         string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
+    /// FUP-170: <see cref="QueryDueDeadlinesAsync"/> on the partition <paramref name="shard"/> of
+    /// <c>DeadlineIndex</c>: <see cref="Helpers.OrderDeadlines.Shard"/> (the sweep's) or
+    /// <see cref="Helpers.OrderDeadlines.WatchShard"/> (the entries only the admin lists).
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDeadlinePartitionAsync(
+        string shard, string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
 
     /// <summary>
     /// ESC-16: set the order's next deadline to <paramref name="deadline"/> (remove it when null),

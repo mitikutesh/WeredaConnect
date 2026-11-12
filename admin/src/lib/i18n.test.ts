@@ -345,7 +345,9 @@ describe("legs and stuck order strings exist in every locale", () => {
       ...["PAYOUT_NOT_SUPPORTED", "GATEWAY_REF_MISSING", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_REFUSED_3", "PAYEE_NOT_VERIFIED"].map(
         (r) => `legs.manual_${r}`,
       ),
-      ...["hold_cap", "farmer_response", "trucker_response", "buyer_choice", "pickup_overdue"].map((r) => `stuckOrders.reason_${r}`),
+      ...["hold_cap", "farmer_response", "trucker_response", "buyer_choice", "pickup_overdue", "pickup_waiting"].map(
+        (r) => `stuckOrders.reason_${r}`,
+      ),
     ];
     for (const locale of locales) {
       expect(sent.filter((key) => t(key, locale) === key)).toEqual([]);

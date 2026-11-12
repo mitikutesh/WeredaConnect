@@ -74,6 +74,45 @@ void main() {
       expect(result.isRefundPending, isTrue);
     });
 
+    test(
+        'a confirmed hold past its expiry is not a refund, on the detail and '
+        'on the history rows (FUP-97)', () async {
+      // escrowDto's expiresAt (2026-02-26) has passed.
+      final confirmed = {
+        ...escrowDto(),
+        'deliveryConfirmedAt': '2026-02-25T10:00:00Z',
+        'refundPending': false,
+      };
+      when(
+        () => api.get<Map<String, dynamic>>('/escrow/by-delivery/del-001'),
+      ).thenAnswer((_) async => confirmed);
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/escrow/history',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'escrows': [
+            confirmed,
+            // Unconfirmed and past its expiry: the sweep refunds it.
+            {...escrowDto(), 'escrowId': 'esc-002'},
+          ],
+          'hasMore': false,
+        },
+      );
+
+      final detail = await repo.getEscrowByDelivery('del-001');
+      final rows = await repo.refreshHistory(userId: 'buyer-001');
+
+      expect(detail!.deliveryConfirmedAt, DateTime.utc(2026, 2, 25, 10));
+      expect(detail.isRefundPending, isFalse);
+      expect(rows[0].deliveryConfirmedAt, DateTime.utc(2026, 2, 25, 10));
+      expect(rows[0].isRefundPending, isFalse);
+      expect(rows[1].deliveryConfirmedAt, isNull);
+      expect(rows[1].isRefundPending, isTrue);
+    });
+
     test('derives the farmer leg for history rows from older servers',
         () async {
       final legacy = escrowDto()..remove('farmerPayout');
