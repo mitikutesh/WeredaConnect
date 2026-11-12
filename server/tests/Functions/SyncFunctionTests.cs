@@ -488,6 +488,8 @@ public partial class SyncFunctionTests
         };
         _mockCropRepo.DeleteAsync("crop-001", 1)
             .Returns(AuthResult<Dictionary<string, object>>.Success(serverData));
+        // SIM-56: the delete reads the listing's orders whatever the commitments flag; none here.
+        _mockOrderRepo.QueryByListingAsync("crop-001").Returns(new List<Dictionary<string, object>>());
 
         var deleteOp = new SyncOperationRequest
         {
