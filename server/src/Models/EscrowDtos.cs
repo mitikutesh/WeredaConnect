@@ -308,6 +308,21 @@ public sealed record ManualPayoutLegDto
     /// portal for it before paying a leg whose outcome is unknown.
     /// </summary>
     public string? GatewayRef { get; init; }
+
+    /// <summary>
+    /// FUP-05: the admin who claimed this pending leg, when the claim was taken and when it ends. Shown while the
+    /// claim lives and for 24 hours after it lapsed (<see cref="ClaimLive"/> false: that admin may have paid). All
+    /// null when there is no claim, it was released, or it lapsed longer ago.
+    /// </summary>
+    public string? ClaimedBy { get; init; }
+    public string? ClaimedAt { get; init; }
+    public string? ClaimExpiresAt { get; init; }
+
+    /// <summary>FUP-05: true when the caller is the admin of <see cref="ClaimedBy"/>; null when there is no claim shown.</summary>
+    public bool? ClaimedByMe { get; init; }
+
+    /// <summary>FUP-05: true while the claim lives (at the time of the read), false once it lapsed; null without a claim.</summary>
+    public bool? ClaimLive { get; init; }
 }
 
 /// <summary>
@@ -382,6 +397,33 @@ public sealed record CompleteManualPayoutResponse
 
     /// <summary>True when this leg was already recorded with the same reference (a replay); nothing new was paid or settled.</summary>
     public bool AlreadyRecorded { get; init; }
+}
+
+/// <summary>
+/// FUP-05: POST /admin/payouts/{escrowId}/{ref}/claim and /unclaim. No request body.
+/// </summary>
+public sealed record ManualPayoutClaimResponse
+{
+    public required string EscrowId { get; init; }
+    public string? OrderId { get; init; }
+
+    /// <summary>The 1.x leg name or the ledger ref.</summary>
+    public required string Ref { get; init; }
+
+    /// <summary>True when the caller holds a live claim on the leg after this call.</summary>
+    public required bool Claimed { get; init; }
+
+    public string? ClaimedBy { get; init; }
+    public string? ClaimedAt { get; init; }
+    public string? ClaimExpiresAt { get; init; }
+
+    /// <summary>Claim: the caller already held a live claim, and its end moved on.</summary>
+    public bool Renewed { get; init; }
+
+    /// <summary>Unclaim: the caller's claim was removed.</summary>
+    public bool Released { get; init; }
+
+    public string? Message { get; init; }
 }
 
 // ──────────────────────────────────────────────

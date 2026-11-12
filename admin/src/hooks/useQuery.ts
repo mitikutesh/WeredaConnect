@@ -277,6 +277,10 @@ export function useUserAction() {
 
 // Manual payout queue (ESC-02): settlements the live gateway could not make.
 // Oldest first, 50 per page; the page loads the next page on demand.
+// FUP-05: reloaded every 30 seconds while the page is open and when the window gets focus, so a
+// leg another admin claims shows up before this admin pays it.
+export const MANUAL_PAYOUTS_REFRESH_MS = 30_000;
+
 export function useManualPayouts() {
   return useInfiniteQuery({
     queryKey: ["admin", "payouts"],
@@ -286,6 +290,8 @@ export function useManualPayouts() {
         `/admin/payouts/manual?limit=50${pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""}`,
       ),
     getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+    refetchInterval: MANUAL_PAYOUTS_REFRESH_MS,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -309,6 +315,32 @@ export function useCompleteManualPayout() {
       queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+    },
+    // FUP-05: a refusal (another admin's claim, a reference used elsewhere) reloads the queue so the
+    // page shows who holds the leg now.
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+    },
+  });
+}
+
+// FUP-05: claim a manual payout leg before paying it in the portal (claim), or give it back (unclaim).
+// A claim lasts 30 minutes; another admin's live claim is refused (ESCROW_046) and never taken over.
+export function useManualPayoutClaim() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      escrowId,
+      ref,
+      action,
+    }: {
+      escrowId: string;
+      ref: string;
+      action: "claim" | "unclaim";
+    }) =>
+      api.post(`/admin/payouts/${encodeURIComponent(escrowId)}/${encodeURIComponent(ref)}/${action}`),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
     },
   });
 }

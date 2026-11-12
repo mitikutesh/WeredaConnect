@@ -159,11 +159,14 @@ public interface IEscrowRepository
     /// the queue being open for <paramref name="op"/>, this leg still pending and
     /// <paramref name="otherLegMustBePending"/> (when given) still pending, which proves
     /// another leg remains and the escrow must stay in its current status. Returns false
-    /// when the condition fails (the caller re-reads and decides again).
+    /// when the condition fails (the caller re-reads and decides again). FUP-05: also conditional on
+    /// no other admin holding a live claim on the leg (the record ends the claim), and with
+    /// <paramref name="reference"/> the reference item is written in the same transaction; a
+    /// transaction that fails only on that item throws <see cref="PayoutReferenceTakenException"/>.
     /// </summary>
     Task<bool> TryMarkManualLegPaidAsync(
         string escrowId, string createdAt, string op, string leg, string externalRef,
-        string paidBy, string paidAt, string? otherLegMustBePending);
+        string paidBy, string paidAt, string? otherLegMustBePending, PayoutReferenceRecord? reference = null);
 
     /// <summary>
     /// ESC-02: record the LAST pending leg and close the queue in one write: the leg
@@ -173,12 +176,13 @@ public interface IEscrowRepository
     /// on the queue being open for <paramref name="op"/> and the status still settleable.
     /// ESC-04: a trucker leg queued on a <c>released</c> escrow (from status <c>released</c>)
     /// closes too, to <c>completed</c>; a release close also removes the trucker leg's pending
-    /// flag, block reason and lock. Returns false when the condition fails.
+    /// flag, block reason and lock. Returns false when the condition fails. FUP-05: the claim
+    /// condition and the reference item as <see cref="TryMarkManualLegPaidAsync"/>.
     /// </summary>
     Task<bool> TryCloseManualPayoutAsync(
         string escrowId, string createdAt, string op, string leg, string externalRef,
         string paidBy, string paidAt, IReadOnlyList<string> otherLegsMustBePaid,
-        string newStatus, Dictionary<string, object> settlementFields);
+        string newStatus, Dictionary<string, object> settlementFields, PayoutReferenceRecord? reference = null);
 
     /// <summary>
     /// ESC-02: open manual payouts, oldest first, from the sparse <c>ManualPayoutIndex</c>.

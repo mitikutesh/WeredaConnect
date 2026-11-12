@@ -175,7 +175,10 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
     /// <inheritdoc />
     public async Task<LedgerWrite> TransitionAsync(LedgerTransition transition)
     {
-        var items = new List<TransactWriteItem> { new() { Update = BuildRowUpdate(transition.Before, transition.After) } };
+        var items = new List<TransactWriteItem>
+        {
+            new() { Update = BuildRowUpdate(transition.Before, transition.After, transition.ManualRecord) }
+        };
         var escrowIndex = -1;
         if (transition.Escrow is { } escrow)
         {
@@ -184,7 +187,15 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
         }
 
         items.AddRange(transition.Audits.Select(AuditPut));
-        return await TransactAsync(items, rowIndexes: new HashSet<int> { 0 }, escrowIndex, rowConflict: LedgerWrite.RowConflict);
+        var referenceIndex = -1;
+        if (transition.ManualRecord?.Reference is { } reference)
+        {
+            referenceIndex = items.Count;
+            items.Add(PayoutReferenceFields.BuildPut(reference));
+        }
+
+        return await TransactAsync(items, rowIndexes: new HashSet<int> { 0 }, escrowIndex, rowConflict: LedgerWrite.RowConflict,
+            referenceIndex);
     }
 
     /// <inheritdoc />
@@ -249,7 +260,8 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
     // ── Writes ──────────────────────────────────────────────────────────────
 
     private async Task<LedgerWrite> TransactAsync(
-        List<TransactWriteItem> items, HashSet<int> rowIndexes, int escrowIndex, LedgerWrite rowConflict)
+        List<TransactWriteItem> items, HashSet<int> rowIndexes, int escrowIndex, LedgerWrite rowConflict,
+        int referenceIndex = -1)
     {
         try
         {
@@ -275,6 +287,12 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
                 {
                     return LedgerWrite.EscrowConflict;
                 }
+            }
+
+            // FUP-05: the row and the escrow held, only the reference item failed: the reference is taken.
+            if (referenceIndex >= 0 && referenceIndex < reasons.Count && reasons[referenceIndex]?.Code == "ConditionalCheckFailed")
+            {
+                return LedgerWrite.ReferenceTaken;
             }
 
             // A concurrent transaction on the same items, or an audit key taken at the same instant:
@@ -360,7 +378,7 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
         }
     }
 
-    private Update BuildRowUpdate(LedgerRow before, LedgerRow after)
+    private Update BuildRowUpdate(LedgerRow before, LedgerRow after, ManualRecordGuard? manualRecord = null)
     {
         var names = new Dictionary<string, string>
         {
@@ -394,6 +412,19 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
         Field(LedgerFields.OpenStatus, before.Status == LedgerFields.StatusDone ? null : before.Status, open, "open", forceSet: open != null);
         Field(LedgerFields.DueAt, before.DueAt, open == null ? null : after.DueAt ?? after.UpdatedAt, "due", forceSet: open != null);
 
+        // FUP-05: an admin's record of a manual row needs no live claim of another admin and ends the claim.
+        var condition = "#version = :v AND #status = :was";
+        if (manualRecord != null)
+        {
+            names["#claimBy"] = ManualPayoutClaimFields.LedgerClaimedBy;
+            names["#claimAt"] = ManualPayoutClaimFields.LedgerClaimedAt;
+            names["#claimExp"] = ManualPayoutClaimFields.LedgerClaimExpiresAt;
+            values[":claimActor"] = S(manualRecord.Actor);
+            values[":claimNow"] = S(manualRecord.Now);
+            condition += " AND (attribute_not_exists(#claimBy) OR #claimBy = :claimActor OR #claimExp < :claimNow)";
+            removes.AddRange(new[] { "#claimBy", "#claimAt", "#claimExp" });
+        }
+
         var expression = "SET " + string.Join(", ", sets);
         if (removes.Count > 0)
         {
@@ -405,7 +436,7 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
             TableName = _ledgerTable,
             Key = RowKey(before.EscrowId, before.Ref),
             UpdateExpression = expression + " ADD #version :one",
-            ConditionExpression = "#version = :v AND #status = :was",
+            ConditionExpression = condition,
             ExpressionAttributeNames = names,
             ExpressionAttributeValues = values
         };
@@ -593,7 +624,10 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
             SentAt = Str(LedgerFields.SentAt),
             DoneAt = Str(LedgerFields.DoneAt),
             DueAt = Str(LedgerFields.DueAt),
-            Version = (int)Num(LedgerFields.Version)
+            Version = (int)Num(LedgerFields.Version),
+            ClaimedBy = Str(ManualPayoutClaimFields.LedgerClaimedBy),
+            ClaimedAt = Str(ManualPayoutClaimFields.LedgerClaimedAt),
+            ClaimExpiresAt = Str(ManualPayoutClaimFields.LedgerClaimExpiresAt)
         };
     }
 
