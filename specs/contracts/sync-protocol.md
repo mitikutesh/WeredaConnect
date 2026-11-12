@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.53.0
+1.54.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -1381,12 +1381,46 @@ later) gets the code exactly as before, with the 1.17.0 revert and text. The fra
 refused booked-trip change (1.27.0, `IMMUTABLE_FIELD_CHANGE`) still records the `TRIP_HAS_BOOKINGS`
 text. Built in `Helpers/OldClientRefusal.cs`, shared with the 1.48.0 fallback.
 
+## Handoff fields by status (1.54.0, FUP-246)
+
+Server only; no client change. A `delivery` operation writes each handoff field only with the status
+of its own handoff. The role check already pins each of those statuses to one party, so the field
+can only come from that party's handoff:
+
+| Field | Written only with | By |
+|---|---|---|
+| `gpsPickup` | `status: pickedUp` | the trucker (pickup scan) |
+| `gpsDropoff` | `status: delivered` | the buyer (drop-off scan, or a self-pickup at the farm) |
+| `disputeReason` | `status: disputed` | the party who disputes |
+
+Anywhere else (a create, which is always `pending`; `inTransit`; `delivered` for `gpsPickup`;
+`disputed` for both points; an update without a status) the field is dropped, not refused: the
+operation is answered as if it had not been sent, and the server logs
+`DELIVERY_FIELD_DROPPED field=<field> status=<status or none> deliveryId=<id>` at Information (no
+personal data). Before, a buyer's confirm could carry `gpsPickup` and move the trucker's pickup point
+(the impossible delivery time rule then wrote `IMPOSSIBLE_DELIVERY_TIME` on an honest trucker), and
+any party's dispute, or the trucker's update without a status, could rewrite both points the admin
+reads as dispute evidence (`fraud-detection-architecture.md` 3.34.0,
+`delivery-verification-api.md` 2.5.0).
+
+Shipped clients are unaffected: mobile and web send `gpsPickup` only in the pickup confirm,
+`gpsDropoff` only in the delivery confirm and `disputeReason` only in the dispute, and none of them
+on a create, `inTransit` or the farmer's `qrNonce` update.
+
+Checked and unchanged: the photo keys (`pickupPhotoRef`, `dropoffPhotoRef`) were already dropped
+from every `delivery` operation (1.39.0, attached only by their taker through `delivery_photo`, first
+photo kept); `pickedUpAt`, `confirmedAt` and `updatedAt` are stamped by the server and a client
+value is dropped (1.3.1); `pickupCapturedAt` and the photo version ids are refused as unknown fields;
+`qrNonce` is taken only from the farmer (SIM-41) and a party's `scannedQrNonce` or `scannedQrCode`
+is never stored.
+
 ---
 
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.54.0 | 2026-11-12 | Handoff fields by status (FUP-246, `delivery-verification-api.md` 2.5.0, `fraud-detection-architecture.md` 3.34.0): a `delivery` operation writes `gpsPickup` only with `status: pickedUp`, `gpsDropoff` only with `delivered` and `disputeReason` only with `disputed`; anywhere else (a create, `inTransit`, the other handoffs, a dispute, an update without a status) the field is dropped, not refused, and logged as `DELIVERY_FIELD_DROPPED`. A buyer's confirm can no longer move the trucker's pickup point, nor a dispute rewrite either point. Server only; every shipped client already sends each field only with its own status. |
 | 1.53.0 | 2026-11-12 | The "update the app" banner (FUP-75), client only: the shell shows it above every main screen while the "update required" flag is set, with a Play Store button and a hint on the phone, and on web a reload that first updates the caching service worker, then fetches `main.dart.js` past the browser cache, and does nothing offline; web now raises the flag on an `APP_UPDATE_REQUIRED` refusal; the flag is kept with the build number (survives a restart on the same build, forgotten by another build) and an accepted order operation clears it (see Minimum app version for order operations). No server change. |
 | 1.52.0 | 2026-11-12 | Codes older apps do not know (FUP-241, `crop-listing-api.md` 1.12.1, `trip-listing-api.md` 2.6.1): `TRIP_HAS_BOOKINGS` and `CROP_HAS_ACTIVE_ORDERS` go only to an app that sends `X-App-Build`; an app without it (build 1 or older) gets the same sentence as `SYNC_VALIDATION:`, permanent on every mobile build since March 2026, as `REPUTATION_RESTRICTED` already did (1.48.0, unchanged). Apps with the header get the codes as before. Server only |
 | 1.51.0 | 2026-11-12 | A funded order's reject or cancel and its refund arm are one transaction (FUP-53, `escrow-protocol.md` 2.11.0, `order-lifecycle.md` 2.12.0): money frozen or moving answers `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` (permanent), and three unprefixed retryable texts cover a failed escrow read, an escrow that kept changing and a cancelled transaction; nothing is written on any of them. Server only. |
@@ -1443,4 +1477,4 @@ text. Built in `Helpers/OldClientRefusal.cs`, shared with the 1.48.0 fallback.
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.53.0
+**Version**: 1.54.0
