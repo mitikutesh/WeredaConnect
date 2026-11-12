@@ -411,10 +411,6 @@ class EscrowSyncService {
     );
   }
 
-  /// The `entityType` of the [SyncOperationRejected] events this service
-  /// raises for a queued payment.
-  static const paymentIntentEntityType = 'payment_intent';
-
   /// Handle a failed intent: increment retry count or mark as failed. A
   /// [permanent] refusal is marked failed at once. [errorCode] is a code
   /// ([escrowFailureCodeOf]), which the pending card localizes. Returns

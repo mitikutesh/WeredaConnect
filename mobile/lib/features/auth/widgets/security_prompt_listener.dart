@@ -160,7 +160,7 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
       // The server's listing limit resets at the next UTC hour.
       return l10n.fraudVelocityExceeded(60 - DateTime.now().toUtc().minute);
     }
-    if (event.entityType == 'payment_intent' &&
+    if (event.entityType == paymentIntentEntityType &&
         !isFraudAccountHeldMessage(message)) {
       // A queued delivery payment that failed for good (FUP-70): the
       // message is an escrow error code, shown with the escrow texts.

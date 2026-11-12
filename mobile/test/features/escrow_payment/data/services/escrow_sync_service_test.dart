@@ -374,6 +374,66 @@ void main() {
         expect(intent.lastError, 'ESCROW_012');
       });
 
+      test(
+          'a 404 ESCROW_008 (the delivery has not synced yet) is retried and '
+          'goes through on the next run', () async {
+        await _insertTestIntent(isar);
+
+        // The payment was queued offline with its delivery; the intent can
+        // reach the server before /sync wrote the delivery.
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const NotFoundException('Delivery not found', 404, 'ESCROW_008'),
+        );
+
+        await syncService.processQueuedIntents();
+
+        var intent = await isar.paymentIntents.where().findFirst();
+        expect(intent!.status, IntentStatus.pendingSync);
+        expect(intent.retryCount, 1);
+        expect(intent.lastError, 'ESCROW_008');
+        await Future<void>.delayed(Duration.zero);
+        expect(emitted.whereType<SyncOperationRejected>(), isEmpty);
+
+        // The delivery is on the server now. No backoff wait in the test.
+        await isar.writeTxn(() async {
+          final current = await isar.paymentIntents.where().findFirst();
+          current!.retryCount = 0;
+          await isar.paymentIntents.put(current);
+        });
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenAnswer(
+          (_) async => {
+            'escrowId': 'esc-001',
+            'deliveryId': 'del-001',
+            'buyerId': 'buyer-001',
+            'farmerId': 'farmer-001',
+            'amount': 15000.0,
+            'commission': 375.0,
+            'farmerPayout': 14625.0,
+            'currency': 'ETB',
+            'status': 'escrowed',
+            'createdAt': '2026-02-19T10:00:00Z',
+            'expiresAt': '2026-02-26T10:00:00Z',
+          },
+        );
+
+        await syncService.processQueuedIntents();
+
+        intent = await isar.paymentIntents.where().findFirst();
+        expect(intent!.status, IntentStatus.completed);
+        await Future<void>.delayed(Duration.zero);
+        expect(emitted.whereType<SyncOperationRejected>(), isEmpty);
+      });
+
       test('marks intent completed on 409 conflict, not failed (M4)', () async {
         await _insertTestIntent(isar);
 

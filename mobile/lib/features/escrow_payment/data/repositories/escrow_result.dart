@@ -141,16 +141,20 @@ const String _refundScheduledToken = 'refund to the buyer is scheduled';
 ///
 /// The rule the sync executor uses for a refused batch: `400` and `422` are
 /// permanent. Any other `4xx` is permanent only when it carries the server's
-/// own `ESCROW_*` code (a typed refusal such as `403 ESCROW_026` or
-/// `404 ESCROW_008`), and never for `401` (the session is refreshed), `408`
-/// or `429` (retry later). `5xx`, network errors and timeouts stay
-/// retryable. Step-up (`AUTH_040`, `AUTH_041`) and `409` are not failures
-/// and are handled by the caller before this.
+/// own `ESCROW_*` code (a typed refusal such as `403 ESCROW_026`), and
+/// never for `401` (the session is refreshed), `404`, `408` or `429` (retry
+/// later). A `404` is never permanent: `404 ESCROW_008` (delivery not found)
+/// is what a payment queued offline gets when it is sent before `/sync`
+/// wrote its delivery, and the next run finds it. `5xx`, network errors and
+/// timeouts stay retryable. Step-up (`AUTH_040`, `AUTH_041`) and `409` are
+/// not failures and are handled by the caller before this.
 bool isPermanentEscrowRefusal(ApiException e) {
   final status = e.statusCode;
   if (status == null || status < 400 || status > 499) return false;
   if (status == 400 || status == 422) return true;
-  if (status == 401 || status == 408 || status == 429) return false;
+  if (status == 401 || status == 404 || status == 408 || status == 429) {
+    return false;
+  }
   return e.code?.startsWith('ESCROW_') ?? false;
 }
 
@@ -160,7 +164,10 @@ bool isPermanentEscrowRefusal(ApiException e) {
 String escrowFailureCodeOf(Object error) {
   if (error is! ApiException) return 'ESCROW_CLIENT';
   final fallback = switch (error) {
-    NetworkException() || TimeoutException() => 'ESCROW_OFFLINE',
+    NetworkException() => 'ESCROW_OFFLINE',
+    // A timeout happens while online, so "offline" would be wrong. The
+    // escrow texts have none for a timeout: the generic "try again" one.
+    TimeoutException() => 'ESCROW_CLIENT',
     RateLimitException() => 'ESCROW_011',
     _ => switch (error.statusCode) {
         502 => 'ESCROW_013',

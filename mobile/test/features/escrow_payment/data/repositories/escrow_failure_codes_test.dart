@@ -38,11 +38,13 @@ void main() {
         ),
         isTrue,
       );
+      // A 404 is never permanent: the delivery of a payment queued offline
+      // may not have reached the server yet.
       expect(
         isPermanentEscrowRefusal(
           const NotFoundException('no delivery', 404, 'ESCROW_008'),
         ),
-        isTrue,
+        isFalse,
       );
       expect(
         isPermanentEscrowRefusal(const AuthException('forbidden', 403)),
@@ -98,9 +100,10 @@ void main() {
         'ESCROW_014',
       );
       expect(escrowFailureCodeOf(const NetworkException()), 'ESCROW_OFFLINE');
+      // Online but slow: not the offline text.
       expect(
         escrowFailureCodeOf(const TimeoutException('slow')),
-        'ESCROW_OFFLINE',
+        'ESCROW_CLIENT',
       );
       expect(escrowFailureCodeOf(const RateLimitException()), 'ESCROW_011');
       expect(

@@ -81,6 +81,11 @@ enum KycReason {
   }
 }
 
+/// The `entityType` of the [SyncOperationRejected] the escrow intent queue
+/// raises for a queued delivery payment that failed. Kept here, not in the
+/// queue (which imports Isar), so shared widgets can read it on web too.
+const String paymentIntentEntityType = 'payment_intent';
+
 /// A payment was blocked by the KYC gate (ORDER_KYC_REQUIRED).
 class KycRequired extends SecurityEvent {
   /// The order whose payment was rejected.
