@@ -5036,6 +5036,8 @@
   "@deliveryErrorCodeMismatch": {"description": "Delivery error (T-1, DELIVERY_CODE_MISMATCH): the server refused a typed handoff code"},
   "deliveryErrorCodeLocked": "Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the farmer to show a new code.",
   "@deliveryErrorCodeLocked": {"description": "Delivery error (T-1, DELIVERY_CODE_LOCKED): five wrong typed codes"},
+  "deliveryDisputeNotConfirmed": "Dispute not sent. Confirm it's you to send it.",
+  "@deliveryDisputeNotConfirmed": {"description": "Dispute screen on web (FUP-43): the server asked for the password again (AUTH_040) and the prompt was cancelled, so the dispute was not sent"},
   "deliveryErrorCodeGpsRequired": "A typed code needs your location. Turn on location and try again.",
   "@deliveryErrorCodeGpsRequired": {"description": "Delivery error (T-1, DELIVERY_CODE_GPS_REQUIRED): a paid delivery's typed code came without GPS"},
   "tripModeStopSharing": "Stop sharing",
