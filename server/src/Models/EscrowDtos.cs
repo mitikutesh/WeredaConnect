@@ -691,10 +691,17 @@ public sealed record EscrowSummaryDto
     public string? ExpiresAt { get; init; }
 
     /// <summary>
+    /// When the delivery was confirmed (as on <see cref="EscrowDto.DeliveryConfirmedAt"/>); null before.
+    /// FUP-97: a confirmed hold waits for its release, so a client never reads its past
+    /// <see cref="ExpiresAt"/> as a refund.
+    /// </summary>
+    public string? DeliveryConfirmedAt { get; init; }
+
+    /// <summary>
     /// True while the money is still held but on its way back to the buyer: the
     /// order was cancelled or rejected (refund scheduled), or the hold expired
-    /// and the refund sweep has not run yet. Clients label such rows
-    /// "Refund pending", never "Funds held safely". SIM-20.
+    /// before its delivery was confirmed and the refund sweep has not run yet.
+    /// Clients label such rows "Refund pending", never "Funds held safely". SIM-20, FUP-97.
     /// </summary>
     public bool RefundPending { get; init; }
 

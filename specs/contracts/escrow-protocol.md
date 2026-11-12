@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.13.0
+2.16.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -745,6 +745,7 @@ Get the authenticated user's payment history.
       "createdAt": "2026-02-17T10:00:00Z",
       "completedAt": "2026-02-19T10:00:00Z",
       "expiresAt": "2026-02-24T10:00:00Z",
+      "deliveryConfirmedAt": "2026-02-18T10:00:00Z",
       "refundPending": false,
       "refundReason": null
     }
@@ -761,7 +762,9 @@ Commission rate (2.4.0, FUP-129): each row carries the escrow's stored `commissi
 
 Expected payout (1.33.0, FRD-13): an `escrowed` row of `role=farmer` or `role=trucker` carries `releaseNotBefore` (see `EscrowDto`); a buyer's row never does.
 
-Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowed` but the money is on its way back to the buyer: the order was cancelled or rejected (the server scheduled the refund, `refundReason` says why, `expiresAt` is set to that moment) or the hold passed its `expiresAt`; the hourly sweep refunds it. Clients label such rows "Refund pending" and never "Funds held safely"; a row without a delivery shows its `orderId` as the reference. Both fields are also on `EscrowDto`.
+Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowed` but the money is on its way back to the buyer: the order was cancelled or rejected (the server scheduled the refund, `refundReason` says why, `expiresAt` is set to that moment) or the hold passed its `expiresAt` before its delivery was confirmed; the hourly sweep refunds it. Clients label such rows "Refund pending" and never "Funds held safely"; a row without a delivery shows its `orderId` as the reference. Both fields are also on `EscrowDto`.
+
+Delivery confirmed (2.16.0, FUP-97): each row carries `deliveryConfirmedAt` (see `EscrowDto`) once the delivery is confirmed; it is omitted before, and by servers before 2.16.0. A confirmed hold waits for its release (the dispute window, then the payout delay of 1.33.0), which can end after its `expiresAt`; the refund sweep never takes it, so a past `expiresAt` alone never makes it `refundPending`. Clients that read a cached row past its `expiresAt` as a refund (the SIM-20 fallback) skip a row with `deliveryConfirmedAt`. See "Additions in 2.16.0".
 
 #### Error Responses
 
@@ -801,12 +804,12 @@ Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowe
 | `createdAt` | string (ISO 8601) | Yes | Server-generated | When escrow was initiated |
 | `updatedAt` | string (ISO 8601) | Yes | Auto-updated | Last state change timestamp |
 | `expiresAt` | string (ISO 8601) | Yes | createdAt + 7 days | Auto-refund deadline |
-| `deliveryConfirmedAt` | string (ISO 8601) | No | Set by F-12 | When delivery was confirmed |
+| `deliveryConfirmedAt` | string (ISO 8601) | No | Set by F-12; also on `GET /escrow/history` rows since 2.16.0 (FUP-97) | When delivery was confirmed |
 | `disputeWindowEndsAt` | string (ISO 8601) | No | deliveryConfirmedAt + 48h | Dispute deadline |
 | `releaseNotBefore` | string (ISO 8601) | No | Farmer and trucker responses while `escrowed`, and admin responses (1.33.0, FRD-13); `>= disputeWindowEndsAt` | Earliest time the hourly auto-release may pay the escrow out; for an escrow confirmed before 1.33.0 its `disputeWindowEndsAt`; null before the delivery is confirmed |
 | `releasedAt` | string (ISO 8601) | No | Set on release | When funds were released |
 | `refundedAt` | string (ISO 8601) | No | Set on refund | When funds were refunded |
-| `refundPending` | boolean | Yes | `status = escrowed` and (`refundReason` set or `expiresAt` passed) | Money still held but going back to the buyer; label "Refund pending" (SIM-20) |
+| `refundPending` | boolean | Yes | `status = escrowed` and (`refundReason` set, or a ledger escrow's crop leg `refunded` (2.2.0), or `expiresAt` passed with neither `deliveryConfirmedAt` (2.16.0) nor `holdCapReachedAt` (1.13.0)) | Money still held but going back to the buyer; label "Refund pending" (SIM-20). Never for a confirmed hold waiting for its release unless a refund was decided on it (FUP-97) |
 | `refundReason` | string | No | Set when a cancelled/rejected order schedules its refund; since 2.11.0 also `delivery_timeout` while the 7 day sweep refunds a stale order it cancelled | Why the refund was scheduled |
 | `holdReason` | string | No | Admin responses only (1.7.0; written from 1.22.0, FRD-03) | `fraud_confirmed` (1.29.0, FRD-05), `account_suspended` (1.22.0), `risk_critical` (1.27.0, FRD-04) |
 | `heldAt` | string (ISO 8601) | No | Admin responses only | When the sweep held the escrow |
@@ -5115,6 +5118,44 @@ The same check runs before the retry of a refund that failed after the sweep's o
   escrow whose crop leg is already decided, or a `dispute_resolved` escrow, on an order still before
   pickup (bad data only; neither is reachable through the app).
 
+## Additions in 2.16.0 (a confirmed hold is never "Refund pending", FUP-97)
+
+2.14.0 and 2.15.0 are other changes' numbers.
+
+A confirmed delivery's money waits for its release: the dispute window (48 hours from the confirm),
+then the payout delay of 1.33.0 (FRD-13, up to a day more). A delivery confirmed late in the hold
+makes that wait end after the escrow's `expiresAt`. The refund sweep never takes a confirmed escrow
+(the release sweep pays it), but before 2.16.0 the SIM-20 rule read a past `expiresAt` as a refund on
+its way: the escrow read "Refund pending" for every party, and the farmer's and the trucker's apps hid
+the expected payout day of 1.33.0.
+
+**Server.** `refundPending` on `EscrowDto` and on the `GET /escrow/history` rows, in this order:
+
+| The escrow | `refundPending` |
+|---|---|
+| not `escrowed` | false |
+| `refundReason` set (an order cancel or reject, an admin refund, the admin queue, the 7 day sweep's cancel) | true, confirmed or not |
+| a ledger escrow whose crop leg is `refunded` (2.2.0) | true, confirmed or not |
+| at its 21-day cap (`holdCapReachedAt`, 1.13.0) | false |
+| `deliveryConfirmedAt` set (new) | false |
+| otherwise | true once `expiresAt` has passed |
+
+An empty `deliveryConfirmedAt` is no confirmation, as in the refund arm's condition (2.11.0).
+
+**History rows.** `GET /escrow/history` rows gain `deliveryConfirmedAt` (additive, optional), for
+every party: omitted before the confirm and by servers before 2.16.0.
+
+**Clients** (mobile and web). A row reads "Refund pending" when the server says so, or (the SIM-20
+fallback, for a cached row whose expiry passed since it was read, or a row from an older server) when
+it is `escrowed`, past its `expiresAt` and has no `deliveryConfirmedAt`. The mobile cache keeps a
+confirmation it already has when a history row carries none (a confirmation is never undone). With a
+confirmed hold no longer read as a refund, the payee's "Payout expected on" line shows again while the
+money is held.
+
+No endpoint, status, amount, settlement or timing change. Apps built before 2.16.0 do not read
+`deliveryConfirmedAt` and keep the old fallback, so until they are updated they still read a confirmed
+hold past its `expiresAt` as "Refund pending" (the server flag they also read is now false).
+
 ---
 
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
@@ -5461,6 +5502,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.16.0 | 2026-11-12 | A confirmed hold is never "Refund pending" (FUP-97, §Additions in 2.16.0): `refundPending` on `EscrowDto` and the history rows is false for an `escrowed` escrow with `deliveryConfirmedAt` whose `expiresAt` has passed (the refund sweep never takes it; it waits for the dispute window and the FRD-13 payout delay); a refund decided on it (`refundReason`, a refunded ledger crop leg) still reads true. `GET /escrow/history` rows carry `deliveryConfirmedAt` (additive, optional). The mobile and web fallback (an escrowed row past its expiry) skips a confirmed row, so the payee's expected payout day shows again. No endpoint, status, amount or timing change. 2.14.0 and 2.15.0 are other changes' numbers |
 | 2.13.0 | 2026-11-12 | The last two cancel-then-arm writers (FUP-210, FUP-211; closes two of the 2.11.0 known limits): the order cron's commitment deadline cancels (`farmer_response_expired`, `transport_not_arranged`) and the funding's stock loss end (`listing_out_of_stock`) write the order and the refund arm in one transaction (an escrow held for review fenced, not armed); money frozen or moving writes nothing (the cron's order waits an hour, `ORDER_DEADLINE_REFUND_WAITING`; the funding's order stays `funded` with `ORDER_STOCK_DECREMENT_FAILED ... status=escrow_busy`); a cron read or write that fails writes nothing, retries next run and logs the alarmed `ORDER_ESCROW_REFUND_SCHEDULE_FAILED reason=escrow_unreadable|cancel_not_written`. The hourly refund sweep gives an `escrow_refunded` cancel's listing stock back before its refund, fail closed, as for the pickup deadline cancel, so an admin refund whose restore failed after its cancel never refunds ahead of the stock. No endpoint, field, amount or client change (`order-lifecycle.md` 2.13.0). 2.12.0 is another change's number |
 | 2.12.0 | 2026-11-12 | Manual payout claims and one leg per reference (FUP-05, §Additions in 2.12.0). `POST /admin/payouts/{escrowId}/{ref}/claim` and `/unclaim` (admin group): a 30 minute claim per leg on the escrow row or the ledger row, taken by a conditional write, never taken over; the record refuses another admin's live claim (`409 ESCROW_046`, also in the write's condition) and ends the claim; each record writes a `payout-ref#{REFERENCE}` item in escrow-idempotency in its transaction, and a reference recorded on another leg is `409 ESCROW_047` naming where. The list shows each leg's live claim. Complete, claim and unclaim share the route `POST /admin/payouts/{escrowId}/{ref}/{action}`, which also accepts ledger refs (the record route refused them before). Audit rows for claims, releases and refused references. The admin page requires the claim before the reference field appears, renews it, treats a lapsed claim of its own as lost and reloads the queue every 30 seconds; the list keeps a lapsed claim for 24 hours (`claimLive: false`); a claim write that meets a record's transaction is retried once, then answers `409`. The admin Lambda gains GetItem on escrow-idempotency. No change to amounts, statuses, the close or the overdue alarm. 2.11.0 is another branch's number |
 | 2.11.0 | 2026-11-12 | The other cancel-then-refund writers (FUP-53, closes the 1.25.0 known limits): the funded order's reject or cancel in sync, the admin refund's cancel before pickup and the 7 day sweep's cancel of a stale order each write the order and the refund arm in one transaction (the sweep's arm `refundReason: delivery_timeout`); money frozen or moving refuses the close (`ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.`, `409 ESCROW_INVALID_TRANSITION` for the admin, a skip for the sweep) with nothing written; `POST /escrow/dispute` freezes in one transaction with a check that its order is not `cancelled` or `rejected` (refused with the existing scheduled-refund answer, key freed); the settlement lock, the expiry push and the fraud hold are sent again on `TransactionConflictException`, at most 3 writes. No endpoint, field, amount or client change (`order-lifecycle.md` 2.12.0, `sync-protocol.md` 1.51.0). 2.10.0 is another change's number |

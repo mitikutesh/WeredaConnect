@@ -269,6 +269,9 @@ class EscrowDetailResponse {
   final int version;
   final String? telebirrRef;
   final Map<String, dynamic>? dispute;
+
+  /// When the delivery was confirmed; null before (FUP-97).
+  final String? deliveryConfirmedAt;
   final String? disputeWindowEndsAt;
 
   /// FRD-13: earliest payout (ISO 8601); sent to the farmer and the trucker
@@ -300,6 +303,7 @@ class EscrowDetailResponse {
     this.refundPending = false,
     this.refundReason,
     this.dispute,
+    this.deliveryConfirmedAt,
     this.disputeWindowEndsAt,
     this.releaseNotBefore,
     this.releasedAt,
@@ -342,6 +346,7 @@ class EscrowDetailResponse {
       version: (json['version'] as num?)?.toInt() ?? 1,
       telebirrRef: json['telebirrRef'] as String?,
       dispute: json['dispute'] as Map<String, dynamic>?,
+      deliveryConfirmedAt: json['deliveryConfirmedAt'] as String?,
       disputeWindowEndsAt: json['disputeWindowEndsAt'] as String?,
       releaseNotBefore: json['releaseNotBefore'] as String?,
       releasedAt: json['releasedAt'] as String?,
@@ -415,6 +420,10 @@ class EscrowSummary {
   /// order's refund is scheduled.
   final String? expiresAt;
 
+  /// When the delivery was confirmed; null before, and from servers before
+  /// FUP-97. A confirmed hold past [expiresAt] still waits for its payout.
+  final String? deliveryConfirmedAt;
+
   /// SIM-20: the money is still held but on its way back to the buyer. Such a
   /// row is labelled "Refund pending", never "Funds held safely".
   final bool refundPending;
@@ -441,6 +450,7 @@ class EscrowSummary {
     this.counterpartyName,
     this.completedAt,
     this.expiresAt,
+    this.deliveryConfirmedAt,
     this.refundPending = false,
     this.refundReason,
     this.releaseNotBefore,
@@ -467,6 +477,7 @@ class EscrowSummary {
       counterpartyName: json['counterpartyName'] as String?,
       completedAt: json['completedAt'] as String?,
       expiresAt: json['expiresAt'] as String?,
+      deliveryConfirmedAt: json['deliveryConfirmedAt'] as String?,
       refundPending: json['refundPending'] as bool? ?? false,
       refundReason: json['refundReason'] as String?,
       releaseNotBefore: json['releaseNotBefore'] as String?,

@@ -6806,7 +6806,8 @@ public sealed partial class EscrowService
     /// rejected order schedules its refund by stamping refundReason and expiring
     /// the hold (ScheduleRefundForOrderAsync); a 7-day timeout expires it too.
     /// Either way the hourly sweep refunds it, so it must not read as "held
-    /// safely" in the meantime.
+    /// safely" in the meantime. FUP-97: a past expiry alone never makes a
+    /// confirmed escrow pending, since the sweep never refunds one.
     /// </summary>
     internal static bool IsRefundPending(Dictionary<string, object> item)
     {
@@ -6829,6 +6830,14 @@ public sealed partial class EscrowService
         // ESC-06: a hold at its 21-day cap keeps its past expiry while an admin decides; it is not
         // on its way back to the buyer.
         if (!string.IsNullOrEmpty(GetStringOrNull(item, AdminQueueFields.HoldCapReachedAt)))
+        {
+            return false;
+        }
+
+        // FUP-97: a confirmed delivery's money waits for its release (the dispute window, then the
+        // FRD-13 payout delay), which can end after the expiry; the refund sweep skips it. A refund
+        // decided on it anyway (refundReason, a refunded crop leg) was answered above.
+        if (!string.IsNullOrEmpty(GetStringOrNull(item, "deliveryConfirmedAt")))
         {
             return false;
         }
@@ -6893,6 +6902,8 @@ public sealed partial class EscrowService
             CreatedAt = GetString(item, "createdAt"),
             CompletedAt = GetStringOrNull(item, "completedAt"),
             ExpiresAt = GetStringOrNull(item, "expiresAt"),
+            // FUP-97: lets an offline client tell a confirmed hold past its expiry from a refund.
+            DeliveryConfirmedAt = GetStringOrNull(item, "deliveryConfirmedAt"),
             RefundPending = IsRefundPending(item),
             RefundReason = GetStringOrNull(item, "refundReason"),
             // FRD-13: a farmer's or trucker's history row is their own payout; the buyer's carries no date.
