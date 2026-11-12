@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/reputation/data/reputation_cache.dart';
 import 'package:wereda_connect/features/reputation/domain/models/own_reputation.dart';
 import 'package:wereda_connect/features/reputation/domain/models/reputation_event.dart';
@@ -192,9 +193,33 @@ class ReputationRepository {
     }
   }
 
+  /// The user's own rating aggregate from the server,
+  /// `GET /ratings?rateeId={self}&limit=1` (rating-api.md; the ratee may
+  /// read their own). Profile checks "no rating" in the reputation answer
+  /// against it (see `loadOwnRating`).
+  ///
+  /// Unlike the rating repositories' `getRatingSummary`, which answer an
+  /// empty summary for a failed request too, this throws on any failure:
+  /// offline, a timeout, an error status (a 5xx, a 429), or an answer
+  /// without a readable `summary`. So a count of 0 from here is the
+  /// server's own answer.
+  Future<RatingSummary> fetchOwnRatingSummary(String userId) async {
+    final data = await _api.get<Map<String, dynamic>>(
+      '/ratings',
+      queryParameters: {'rateeId': userId, 'limit': '1'},
+    );
+    final summary = data['summary'];
+    final average = summary is Map ? summary['average'] : null;
+    final count = summary is Map ? summary['count'] : null;
+    if (average is! num || count is! num || count < 0) {
+      throw const ServerException('Unexpected ratings answer.', 200);
+    }
+    return RatingSummary(average: average.toDouble(), count: count.toInt());
+  }
+
   /// The user's own rating aggregate as last saved by
-  /// [saveOwnRatingSummary], or null. Profile checks "no rating" in the
-  /// reputation answer against it (see `loadOwnRating`).
+  /// [saveOwnRatingSummary], or null. Only an answer of
+  /// [fetchOwnRatingSummary] is ever saved.
   Future<SavedRatingSummary?> readOwnRatingSummary(String userId) async {
     final cached = await _cache.readRating(userId);
     if (cached == null) return null;

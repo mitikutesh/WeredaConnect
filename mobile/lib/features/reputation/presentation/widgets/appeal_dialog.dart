@@ -83,6 +83,11 @@ class _AppealDialogState extends State<AppealDialog> {
   bool _draftRead = false;
   AppealFailure? _failure;
 
+  /// The server said the event takes no appeal any more (closed, or another
+  /// appeal exists). Kept once seen, whatever the form shows afterwards (a
+  /// photo picked, another send), so closing clears the draft.
+  bool _appealOver = false;
+
   @override
   void initState() {
     super.initState();
@@ -100,9 +105,7 @@ class _AppealDialogState extends State<AppealDialog> {
 
   @override
   void dispose() {
-    final over =
-        _failure == AppealFailure.closed || _failure == AppealFailure.exists;
-    if (over) {
+    if (_appealOver) {
       // The server takes no appeal for this event any more: a draft would
       // only sit on the device until logout.
       unawaited(
@@ -158,6 +161,10 @@ class _AppealDialogState extends State<AppealDialog> {
       if (mounted) Navigator.of(context).pop(appeal);
     } on AppealException catch (e) {
       if (!mounted) return;
+      if (e.failure == AppealFailure.closed ||
+          e.failure == AppealFailure.exists) {
+        _appealOver = true;
+      }
       setState(() {
         _sending = false;
         _failure = e.failure;

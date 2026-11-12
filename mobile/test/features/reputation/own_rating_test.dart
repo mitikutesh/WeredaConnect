@@ -12,6 +12,9 @@ class _MockRatingRepository extends Mock implements BaseRatingRepository {}
 
 /// ESC-31: the signed-in user's own rating for Profile. Role visibility:
 /// only the caller's own id is ever asked about, and a buyer asks nothing.
+///
+/// "None yet" only when the server really answered count 0; whenever the
+/// app cannot be sure, unknown (the tile keeps the dash).
 void main() {
   late MockReputationRepository reputation;
   late _MockRatingRepository ratings;
@@ -48,6 +51,32 @@ void main() {
         ),
       );
 
+  void ratingsAnswer(double average, int count) =>
+      when(() => reputation.fetchOwnRatingSummary('u-1')).thenAnswer(
+        (_) async => RatingSummary(average: average, count: count),
+      );
+
+  void ratingsFail(Object error) =>
+      when(() => reputation.fetchOwnRatingSummary('u-1'))
+          .thenAnswer((_) => Future.error(error));
+
+  void savedSummary(double average, int count, Duration age) =>
+      when(() => reputation.readOwnRatingSummary('u-1')).thenAnswer(
+        (_) async => (
+          average: average,
+          count: count,
+          fetchedAt: now.subtract(age),
+        ),
+      );
+
+  void verifyNothingSaved() => verifyNever(
+        () => reputation.saveOwnRatingSummary(
+          any(),
+          average: any(named: 'average'),
+          count: any(named: 'count'),
+        ),
+      );
+
   test('a buyer makes no call and has nothing to show', () async {
     // Buyers are never rated: no "None yet" that promises a rating.
     expect(await load(UserRole.buyer), isNull);
@@ -67,20 +96,20 @@ void main() {
         expect(rating!.average, 4.8);
         expect(rating.count, 12);
         expect(rating.penaltiesEnabled, isTrue);
+        verifyNever(() => reputation.fetchOwnRatingSummary(any()));
         verifyZeroInteractions(ratings);
       });
 
       // The server sends count 0 for a rated user whose row the rating
       // backfill has not reached: the ratings themselves know better.
-      test('reputation says 0, ratings say 12: the 12 are shown', () async {
+      test('reputation count 0, ratings answer 12: the 12 are shown', () async {
         unrated();
-        when(() => ratings.getRatingSummary('u-1')).thenAnswer(
-          (_) async => const RatingSummary(average: 4.6, count: 12),
-        );
+        ratingsAnswer(4.6, 12);
 
         final rating = await load(role);
 
-        expect(rating!.hasRating, isTrue);
+        expect(rating!.known, isTrue);
+        expect(rating.hasRating, isTrue);
         expect(rating.average, 4.6);
         expect(rating.count, 12);
         // Kept from the reputation answer.
@@ -88,50 +117,111 @@ void main() {
         verify(
           () => reputation.saveOwnRatingSummary('u-1', average: 4.6, count: 12),
         ).called(1);
+        // Only ever the user's own id.
+        verify(() => reputation.fetchOwnRatingSummary('u-1')).called(1);
       });
 
-      test('none yet only when the ratings also say 0', () async {
+      test('reputation count 0, ratings answer count 0: "None yet", saved',
+          () async {
         unrated();
-        when(() => ratings.getRatingSummary('u-1'))
-            .thenAnswer((_) async => RatingSummary.empty);
+        ratingsAnswer(0, 0);
 
         final rating = await load(role);
 
         expect(rating, isNotNull);
         expect(rating!.known, isTrue);
         expect(rating.hasRating, isFalse);
-        verify(() => ratings.getRatingSummary('u-1')).called(1);
+        verify(
+          () => reputation.saveOwnRatingSummary('u-1', average: 0, count: 0),
+        ).called(1);
       });
 
-      test('the rating read is asked at most every 30 minutes', () async {
-        unrated(fetchedAt: now.subtract(const Duration(minutes: 20)));
-        when(() => reputation.readOwnRatingSummary('u-1')).thenAnswer(
-          (_) async => (
-            average: 4.6,
-            count: 12,
-            fetchedAt: now.subtract(const Duration(minutes: 20)),
+      test(
+          'a truly unrated user whose reputation came from the saved copy: '
+          '"None yet" once the ratings read answers 0', () async {
+        // The reputation answer is the saved one, 10 minutes old (not
+        // stale): the ratings read is a real one, so its 0 is believed.
+        unrated(fetchedAt: now.subtract(const Duration(minutes: 10)));
+        ratingsAnswer(0, 0);
+
+        final rating = await load(role);
+
+        expect(rating!.known, isTrue);
+        expect(rating.hasRating, isFalse);
+        verify(
+          () => reputation.saveOwnRatingSummary('u-1', average: 0, count: 0),
+        ).called(1);
+      });
+
+      // The case the rating repositories got wrong: they answer "empty" for
+      // a failed request, which a rated user on 3G would have seen as
+      // "None yet" for 30 minutes.
+      for (final error in const <Object>[
+        NetworkException(),
+        TimeoutException(),
+        ServerException('Internal error', 503),
+        RateLimitException(),
+      ]) {
+        test(
+            'reputation count 0, ratings read fails (${error.runtimeType}): '
+            'unknown, nothing saved', () async {
+          unrated();
+          ratingsFail(error);
+
+          final rating = await load(role);
+
+          expect(rating!.known, isFalse);
+          expect(rating.hasRating, isFalse);
+          expect(rating.penaltiesEnabled, isTrue);
+          verifyNothingSaved();
+          // The failure-blind summary is never asked on this path.
+          verifyZeroInteractions(ratings);
+        });
+      }
+
+      test('a summary that cannot be saved is still shown', () async {
+        unrated();
+        ratingsAnswer(4.6, 12);
+        when(
+          () => reputation.saveOwnRatingSummary(
+            any(),
+            average: any(named: 'average'),
+            count: any(named: 'count'),
           ),
-        );
+        ).thenThrow(StateError('storage'));
 
         final rating = await load(role);
 
         expect(rating!.average, 4.6);
         expect(rating.count, 12);
-        verifyZeroInteractions(ratings);
+      });
+
+      test('the rating read is asked at most every 30 minutes', () async {
+        unrated(fetchedAt: now.subtract(const Duration(minutes: 20)));
+        savedSummary(4.6, 12, const Duration(minutes: 20));
+
+        final rating = await load(role);
+
+        expect(rating!.average, 4.6);
+        expect(rating.count, 12);
+        verifyNever(() => reputation.fetchOwnRatingSummary(any()));
+      });
+
+      test('a saved real 0 inside 30 minutes: "None yet", no call', () async {
+        unrated();
+        savedSummary(0, 0, const Duration(minutes: 20));
+
+        final rating = await load(role);
+
+        expect(rating!.known, isTrue);
+        expect(rating.hasRating, isFalse);
+        verifyNever(() => reputation.fetchOwnRatingSummary(any()));
       });
 
       test('an older saved answer is asked again', () async {
         unrated();
-        when(() => reputation.readOwnRatingSummary('u-1')).thenAnswer(
-          (_) async => (
-            average: 4.6,
-            count: 12,
-            fetchedAt: now.subtract(const Duration(minutes: 31)),
-          ),
-        );
-        when(() => ratings.getRatingSummary('u-1')).thenAnswer(
-          (_) async => const RatingSummary(average: 4.5, count: 13),
-        );
+        savedSummary(4.6, 12, const Duration(minutes: 31));
+        ratingsAnswer(4.5, 13);
 
         final rating = await load(role);
 
@@ -139,45 +229,61 @@ void main() {
         expect(rating.count, 13);
       });
 
-      test('offline with a saved reputation: the last known rating, no call',
+      test('an older saved rating and a failed read: the last known rating',
           () async {
-        unrated(stale: true, fetchedAt: now.subtract(const Duration(hours: 5)));
-        when(() => reputation.readOwnRatingSummary('u-1')).thenAnswer(
-          (_) async => (
-            average: 4.6,
-            count: 12,
-            fetchedAt: now.subtract(const Duration(hours: 5)),
-          ),
-        );
+        unrated();
+        savedSummary(4.6, 12, const Duration(hours: 2));
+        ratingsFail(const NetworkException());
 
         final rating = await load(role);
 
         expect(rating!.average, 4.6);
-        verifyZeroInteractions(ratings);
+        expect(rating.count, 12);
+        verifyNothingSaved();
       });
 
-      test(
-          'an empty rating answer that may be a failed request is unknown, '
-          'never "none"', () async {
-        // The reputation answer is the saved one (10 minutes old), so an
-        // empty rating answer now proves nothing: the rating repositories
-        // answer empty for a failed request too.
-        unrated(fetchedAt: now.subtract(const Duration(minutes: 10)));
-        when(() => ratings.getRatingSummary('u-1'))
-            .thenAnswer((_) async => RatingSummary.empty);
+      test('an older saved 0 and a failed read: unknown, never "None yet"',
+          () async {
+        unrated();
+        savedSummary(0, 0, const Duration(hours: 2));
+        ratingsFail(const ServerException('Internal error', 500));
 
         final rating = await load(role);
 
         expect(rating!.known, isFalse);
-        expect(rating.hasRating, isFalse);
+        verifyNothingSaved();
+      });
+
+      test('offline with a saved reputation: the last known rating, no call',
+          () async {
+        unrated(stale: true, fetchedAt: now.subtract(const Duration(hours: 5)));
+        savedSummary(4.6, 12, const Duration(hours: 5));
+
+        final rating = await load(role);
+
+        expect(rating!.average, 4.6);
+        verifyNever(() => reputation.fetchOwnRatingSummary(any()));
+        verifyZeroInteractions(ratings);
+      });
+
+      test('offline with an older saved 0: unknown, no call', () async {
+        unrated(stale: true, fetchedAt: now.subtract(const Duration(hours: 5)));
+        savedSummary(0, 0, const Duration(hours: 5));
+
+        final rating = await load(role);
+
+        expect(rating!.known, isFalse);
         expect(rating.penaltiesEnabled, isTrue);
-        verifyNever(
-          () => reputation.saveOwnRatingSummary(
-            any(),
-            average: any(named: 'average'),
-            count: any(named: 'count'),
-          ),
-        );
+        verifyNever(() => reputation.fetchOwnRatingSummary(any()));
+      });
+
+      test('offline with nothing saved: unknown, no call', () async {
+        unrated(stale: true, fetchedAt: now.subtract(const Duration(hours: 5)));
+
+        final rating = await load(role);
+
+        expect(rating!.known, isFalse);
+        verifyNever(() => reputation.fetchOwnRatingSummary(any()));
       });
 
       test('reputation unreadable: the own rating aggregate alone', () async {

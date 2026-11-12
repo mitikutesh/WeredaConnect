@@ -659,51 +659,21 @@ void main() {
       expect(find.widgetWithText(OutlinedButton, 'Appeal'), findsOneWidget);
     });
 
-    testWidgets(
-        'while sending, a tap outside does not close the form, so the '
-        'answer is not lost', (tester) async {
-      answer(ownReputation(tier: 'warning', points: 4), events: [appealable]);
-      final sending = Completer<ReputationAppeal>();
-      when(
-        () => repository.submitAppeal(
-          userId: any(named: 'userId'),
-          eventId: any(named: 'eventId'),
-          text: any(named: 'text'),
-          photo: any(named: 'photo'),
-          photoContentType: any(named: 'photoContentType'),
-        ),
-      ).thenAnswer((_) => sending.future);
-      await open(tester);
-      await openAppeal(tester);
-      await tester.enterText(
-        find.byKey(const Key('reputation_appeal_text')),
-        'The road was closed.',
-      );
-      await tester.pump();
-      await tester.tap(find.byKey(const Key('reputation_appeal_send')));
-      await tester.pump();
-
-      await tester.tapAt(const Offset(5, 5));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-
-      expect(find.byKey(const Key('reputation_appeal_dialog')), findsOneWidget);
-
-      sending.complete(ReputationAppeal.sent);
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('reputation_appeal_dialog')), findsNothing);
-      expect(
-        find.text('Appeal sent. Our team will review it.'),
-        findsOneWidget,
-      );
-      expect(find.widgetWithText(OutlinedButton, 'Appeal'), findsNothing);
-    });
-
-    for (final failure in [AppealFailure.closed, AppealFailure.exists]) {
-      testWidgets('${failure.name}: closing the form clears the draft',
-          (tester) async {
+    for (final (gesture, dismiss)
+        in <(String, Future<void> Function(WidgetTester))>[
+      ('a tap outside', (tester) => tester.tapAt(const Offset(5, 5))),
+      (
+        'the back button',
+        (tester) async {
+          await tester.binding.handlePopRoute();
+        },
+      ),
+    ]) {
+      testWidgets(
+          'while sending, $gesture does not close the form, so the answer '
+          'is not lost', (tester) async {
         answer(ownReputation(tier: 'warning', points: 4), events: [appealable]);
+        final sending = Completer<ReputationAppeal>();
         when(
           () => repository.submitAppeal(
             userId: any(named: 'userId'),
@@ -712,7 +682,7 @@ void main() {
             photo: any(named: 'photo'),
             photoContentType: any(named: 'photoContentType'),
           ),
-        ).thenThrow(AppealException(failure));
+        ).thenAnswer((_) => sending.future);
         await open(tester);
         await openAppeal(tester);
         await tester.enterText(
@@ -721,20 +691,84 @@ void main() {
         );
         await tester.pump();
         await tester.tap(find.byKey(const Key('reputation_appeal_send')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Cancel'));
+        await tester.pump();
+
+        await dismiss(tester);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(
+          find.byKey(const Key('reputation_appeal_dialog')),
+          findsOneWidget,
+        );
+        // Still on My reputation behind it.
+        expect(find.byType(MyReputationScreen), findsOneWidget);
+
+        sending.complete(ReputationAppeal.sent);
         await tester.pumpAndSettle();
 
-        verify(() => repository.saveAppealDraft('f-1', 'CANCEL#ord-1', ''))
-            .called(1);
-        verifyNever(
-          () => repository.saveAppealDraft(
-            'f-1',
-            'CANCEL#ord-1',
-            'The road was closed.',
-          ),
+        expect(find.byKey(const Key('reputation_appeal_dialog')), findsNothing);
+        expect(
+          find.text('Appeal sent. Our team will review it.'),
+          findsOneWidget,
         );
+        expect(find.widgetWithText(OutlinedButton, 'Appeal'), findsNothing);
       });
+    }
+
+    for (final failure in [AppealFailure.closed, AppealFailure.exists]) {
+      for (final photoAfter in [false, true]) {
+        testWidgets(
+            '${failure.name}${photoAfter ? ', then a photo picked' : ''}: '
+            'closing the form clears the draft', (tester) async {
+          answer(
+            ownReputation(tier: 'warning', points: 4),
+            events: [appealable],
+          );
+          when(
+            () => repository.submitAppeal(
+              userId: any(named: 'userId'),
+              eventId: any(named: 'eventId'),
+              text: any(named: 'text'),
+              photo: any(named: 'photo'),
+              photoContentType: any(named: 'photoContentType'),
+            ),
+          ).thenThrow(AppealException(failure));
+          await open(
+            tester,
+            pickPhoto: () async =>
+                Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]),
+          );
+          await openAppeal(tester);
+          await tester.enterText(
+            find.byKey(const Key('reputation_appeal_text')),
+            'The road was closed.',
+          );
+          await tester.pump();
+          await tester.tap(find.byKey(const Key('reputation_appeal_send')));
+          await tester.pumpAndSettle();
+          if (photoAfter) {
+            // A photo clears the message on the form, not what the server
+            // said about the event.
+            await tester
+                .tap(find.byKey(const Key('reputation_appeal_add_photo')));
+            await tester.pumpAndSettle();
+            expect(find.text('Photo added'), findsOneWidget);
+          }
+          await tester.tap(find.text('Cancel'));
+          await tester.pumpAndSettle();
+
+          verify(() => repository.saveAppealDraft('f-1', 'CANCEL#ord-1', ''))
+              .called(1);
+          verifyNever(
+            () => repository.saveAppealDraft(
+              'f-1',
+              'CANCEL#ord-1',
+              'The road was closed.',
+            ),
+          );
+        });
+      }
     }
 
     testWidgets('a kept draft comes back', (tester) async {

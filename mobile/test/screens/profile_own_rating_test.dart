@@ -87,6 +87,9 @@ void main() {
         .thenAnswer((_) async => RatingSummary.empty);
     when(() => reputation.readOwnRatingSummary(any()))
         .thenAnswer((_) async => null);
+    // Unless a test answers it, the own ratings read fails.
+    when(() => reputation.fetchOwnRatingSummary(any()))
+        .thenAnswer((_) => Future.error(const NetworkException()));
     when(
       () => reputation.saveOwnRatingSummary(
         any(),
@@ -168,38 +171,66 @@ void main() {
         expect(find.text('Rating'), findsOneWidget);
       });
 
+      void unrated() => when(() => reputation.loadOwn('user-1')).thenAnswer(
+            (_) async => snapshot(
+              ownReputation(penaltiesEnabled: false, rated: false),
+              fetchedAt: DateTime.now().toUtc(),
+            ),
+          );
+
       testWidgets(
-          'no ratings yet (the reputation and the ratings agree): a neutral '
-          'word, not a dash', (tester) async {
-        when(() => reputation.loadOwn('user-1')).thenAnswer(
-          (_) async => snapshot(
-            ownReputation(penaltiesEnabled: false, rated: false),
-            fetchedAt: DateTime.now().toUtc(),
-          ),
-        );
+          'reputation count 0, ratings answer count 0: "None yet" (a neutral '
+          'word, not a dash), and saved', (tester) async {
+        unrated();
+        when(() => reputation.fetchOwnRatingSummary('user-1'))
+            .thenAnswer((_) async => RatingSummary.empty);
         await pumpProfile(tester, role);
 
         expect(ratingTile(tester), 'None yet');
-        verify(() => ratings.getRatingSummary('user-1')).called(1);
+        verify(() => reputation.fetchOwnRatingSummary('user-1')).called(1);
+        verify(
+          () => reputation.saveOwnRatingSummary(
+            'user-1',
+            average: 0,
+            count: 0,
+          ),
+        ).called(1);
       });
 
       // A rated user whose row the server's rating backfill has not reached
       // reads count 0 on /reputation/me: never "None yet" for them.
-      testWidgets('reputation says 0, ratings say 12: the average is shown',
+      testWidgets('reputation count 0, ratings answer 12: the average is shown',
           (tester) async {
-        when(() => reputation.loadOwn('user-1')).thenAnswer(
-          (_) async => snapshot(
-            ownReputation(penaltiesEnabled: false, rated: false),
-            fetchedAt: DateTime.now().toUtc(),
-          ),
-        );
-        when(() => ratings.getRatingSummary('user-1')).thenAnswer(
+        unrated();
+        when(() => reputation.fetchOwnRatingSummary('user-1')).thenAnswer(
           (_) async => const RatingSummary(average: 4.7, count: 12),
         );
         await pumpProfile(tester, role);
 
         expect(ratingTile(tester), '4.7');
         expect(find.text('None yet'), findsNothing);
+      });
+
+      testWidgets(
+          'reputation count 0, ratings request fails: the dash stays and '
+          'nothing is saved', (tester) async {
+        unrated();
+        when(() => reputation.fetchOwnRatingSummary('user-1')).thenAnswer(
+          (_) => Future.error(const ServerException('Internal error', 503)),
+        );
+        await pumpProfile(tester, role);
+
+        expect(ratingTile(tester), '-');
+        expect(find.text('None yet'), findsNothing);
+        verifyNever(
+          () => reputation.saveOwnRatingSummary(
+            any(),
+            average: any(named: 'average'),
+            count: any(named: 'count'),
+          ),
+        );
+        // The rating repository's summary (empty on failure) is not asked.
+        verifyNever(() => ratings.getRatingSummary(any()));
       });
 
       testWidgets('the dash stays while the rating is being read',
@@ -299,6 +330,7 @@ void main() {
       expect(find.text('None yet'), findsNothing);
       expect(myReputationRow, findsNothing);
       verifyNever(() => reputation.loadOwn(any(), force: any(named: 'force')));
+      verifyNever(() => reputation.fetchOwnRatingSummary(any()));
       verifyNever(() => ratings.getRatingSummary(any()));
     });
   });

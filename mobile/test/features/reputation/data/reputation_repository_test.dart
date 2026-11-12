@@ -742,6 +742,92 @@ void main() {
     });
   });
 
+  group('fetchOwnRatingSummary (the server read Profile trusts)', () {
+    void answerRatings(Map<String, dynamic> body) => when(
+          () => api.get<Map<String, dynamic>>(
+            '/ratings',
+            queryParameters: {'rateeId': 'f-1', 'limit': '1'},
+          ),
+        ).thenAnswer((_) async => body);
+
+    test('the summary as the server answered it, for the own id only',
+        () async {
+      answerRatings({
+        'ratings': <Object>[],
+        'summary': {'average': 4.6, 'count': 12, 'rateeRole': 'farmer'},
+      });
+
+      final summary = await repository.fetchOwnRatingSummary('f-1');
+
+      expect(summary.average, 4.6);
+      expect(summary.count, 12);
+      verify(
+        () => api.get<Map<String, dynamic>>(
+          '/ratings',
+          queryParameters: {'rateeId': 'f-1', 'limit': '1'},
+        ),
+      ).called(1);
+    });
+
+    test('a real "no ratings" answer is count 0', () async {
+      answerRatings({
+        'ratings': <Object>[],
+        'summary': {'average': 0, 'count': 0},
+      });
+
+      final summary = await repository.fetchOwnRatingSummary('f-1');
+
+      expect(summary.count, 0);
+      expect(summary.average, 0);
+    });
+
+    // The rating repositories answer "empty" for these; this read must not,
+    // or Profile would say "None yet" to a rated user on a bad connection.
+    for (final error in const <ApiException>[
+      NetworkException(),
+      TimeoutException(),
+      ServerException('Internal error', 503),
+      RateLimitException(),
+    ]) {
+      test('${error.runtimeType} is thrown, never an empty summary', () async {
+        when(
+          () => api.get<Map<String, dynamic>>(
+            '/ratings',
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenThrow(error);
+
+        await expectLater(
+          repository.fetchOwnRatingSummary('f-1'),
+          throwsA(same(error)),
+        );
+      });
+    }
+
+    for (final body in <Map<String, dynamic>>[
+      {},
+      {'ratings': <Object>[], 'summary': null},
+      {
+        'summary': {'average': 4.6},
+      },
+      {
+        'summary': {'average': 4.6, 'count': '12'},
+      },
+      {
+        'summary': {'count': 0},
+      },
+    ]) {
+      test('an answer without a readable summary throws: $body', () async {
+        answerRatings(body);
+
+        await expectLater(
+          repository.fetchOwnRatingSummary('f-1'),
+          throwsA(isA<ServerException>()),
+        );
+      });
+    }
+  });
+
   group('photoContentTypeOf', () {
     test('JPEG, WebP and anything else', () {
       expect(

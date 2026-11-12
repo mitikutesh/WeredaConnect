@@ -1039,11 +1039,16 @@ platform pair).
 - **Profile**: the Rating tile shows a farmer's or trucker's own `ratingAverage` (the raw buyers'
   average, as My reputation does). When the answer carries no rating (a new user, or a rated user
   whose row has no `ratingsAggregatedAt` yet, section 2 "As built"), the app asks the user's own
-  `GET /ratings?rateeId={self}&limit=1` aggregate, at most every 30 minutes, and shows that; the
-  neutral "None yet" is shown only when both say 0, and the dash while unknown (also when
-  `/reputation/me` cannot be read and nothing is saved, after trying the same aggregate). A buyer
-  is never rated: the dash as before, no call. The My reputation row shows for a farmer or trucker
-  only while `penaltiesEnabled` is true.
+  `GET /ratings?rateeId={self}&limit=1` aggregate and shows that. This read treats any failure
+  (offline, a timeout, a 5xx, a 429, an answer without a readable `summary`) as a failure, never
+  as "no ratings". Only an answer the server gave is saved, and asked again after 30 minutes; the
+  neutral "None yet" is shown only when the server answered `summary.count: 0`. When the read
+  fails, or the reputation answer is the offline copy, nothing is saved: a saved rating still
+  shows as the last known one, a saved 0 older than 30 minutes does not, and otherwise the tile
+  keeps the dash. When `/reputation/me` cannot be read and nothing is saved, the same aggregate
+  is tried and shown only when it has ratings, else the dash. A buyer is never rated: the dash as
+  before, no call. The My reputation row shows for a farmer or trucker only while
+  `penaltiesEnabled` is true.
 - **Errors**: an appeal refused with `REPUTATION_VALIDATION`, `AUTH_025` or `ACCOUNT_004`, and a
   load the server answered with an error, read as the generic error text, never as a connection
   problem. After `REPUTATION_APPEAL_CLOSED` or `REPUTATION_APPEAL_EXISTS` the kept draft is removed.

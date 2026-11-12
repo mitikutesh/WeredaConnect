@@ -44,11 +44,14 @@ class OwnRating {
 ///   user whose row the server's rating backfill has not reached
 ///   (`rating-api.md` "Stored aggregate" step 4). So "no rating" there is
 ///   checked against the user's own `GET /ratings?rateeId={self}` aggregate
-///   through [ratings], which still counts every rating and which the
-///   server allows the ratee. That answer is kept for 30 minutes too. "None
-///   yet" is said only when both agree.
+///   (`ReputationRepository.fetchOwnRatingSummary`), which still counts
+///   every rating, which the server allows the ratee, and which throws on
+///   any failure instead of answering "empty". Only a real answer is saved,
+///   and asked again after 30 minutes. "None yet" is said only when the
+///   server answered count 0; a failed read keeps the dash and saves
+///   nothing.
 /// - When `/reputation/me` cannot be read and nothing is saved, the same
-///   aggregate alone.
+///   aggregate alone through [ratings], shown only when it has ratings.
 ///
 /// Only ever [userId]'s own data. Never throws: null means there is nothing
 /// to say (a buyer, or offline with nothing saved), which is not the same
@@ -82,36 +85,40 @@ Future<OwnRating?> loadOwnRating({
     // The reputation answer shows no rating: ask the ratings themselves,
     // at most every 30 minutes.
     final saved = await reputation.readOwnRatingSummary(userId);
-    final current = clock().toUtc();
     if (saved != null) {
-      final age = current.difference(saved.fetchedAt);
+      final age = clock().toUtc().difference(saved.fetchedAt);
       if (!age.isNegative && age < ReputationRepository.refreshInterval) {
         return _withSummary(saved.average, saved.count, penaltiesEnabled);
       }
     }
-    // The rating repositories answer "empty" both for no ratings and for a
-    // failed request, so an empty answer counts as "none" only when the
-    // reputation answer itself just came from the server.
-    final fresh = !own.stale &&
-        current.difference(own.fetchedAt).abs() < const Duration(minutes: 1);
-    if (ratings != null && !own.stale) {
+    if (!own.stale) {
+      RatingSummary? summary;
       try {
-        final summary = await ratings.getRatingSummary(userId);
-        if (summary.count > 0 || fresh) {
+        // Throws on any failure, so a count of 0 here is the server's own
+        // answer: only that is saved and shown as "None yet".
+        summary = await reputation.fetchOwnRatingSummary(userId);
+      } on Object catch (e) {
+        debugPrint('[OwnRating] rating summary read failed: $e');
+      }
+      if (summary != null) {
+        try {
           await reputation.saveOwnRatingSummary(
             userId,
             average: summary.average,
             count: summary.count,
           );
-          return _withSummary(summary.average, summary.count, penaltiesEnabled);
+        } on Object catch (e) {
+          debugPrint('[OwnRating] rating summary not saved: $e');
         }
-      } on Object catch (e) {
-        debugPrint('[OwnRating] rating summary read failed: $e');
+        return _withSummary(summary.average, summary.count, penaltiesEnabled);
       }
     }
-    // Offline, or nothing certain: the last known answer, else unknown (the
-    // tile keeps the dash) with what the reputation answer still tells.
-    if (saved != null) {
+    // Offline, or the ratings could not be read: nothing is saved. A saved
+    // rating still shows as the last known one (as the saved reputation
+    // does). A saved 0 past its 30 minutes is not repeated, since ratings
+    // may have come in since: unknown, the tile keeps the dash, with what
+    // the reputation answer still tells.
+    if (saved != null && saved.count > 0) {
       return _withSummary(saved.average, saved.count, penaltiesEnabled);
     }
     return OwnRating(known: false, penaltiesEnabled: penaltiesEnabled);
