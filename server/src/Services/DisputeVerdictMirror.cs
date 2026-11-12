@@ -1,4 +1,5 @@
 using System.Globalization;
+using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 
@@ -60,6 +61,18 @@ public sealed record DisputeVerdictMirrorResult
 
     /// <summary>The order as last read (null when there is none); FRD-03 and the override flag use its version.</summary>
     public Dictionary<string, object>? OrderItem { get; init; }
+
+    /// <summary>
+    /// FUP-53: the order cancel landed in one transaction with the caller's refund arm
+    /// (<see cref="DisputeVerdictMirror.CancelBeforeRefundAsync"/>), whatever the later steps did.
+    /// </summary>
+    public bool RefundArmed { get; init; }
+
+    /// <summary>
+    /// FUP-53: the order cancel was refused because the caller's refund arm was (the escrow is no
+    /// longer a plain hold). Nothing was written to the order or the escrow.
+    /// </summary>
+    public bool RefundArmRefused { get; init; }
 
     /// <summary>
     /// <c>order:&lt;reason&gt;,delivery:&lt;reason&gt;</c> for every leg that did not reach the
@@ -363,9 +376,15 @@ public sealed class DisputeVerdictMirror
     /// refund depends on did not land), <see cref="VerdictLegOutcome.Unknown"/> (a read failed),
     /// <see cref="VerdictLegOutcome.Mismatch"/> (the goods are moving or the order is anything else) or
     /// <see cref="VerdictLegOutcome.None"/> (no order). Never moves an order toward a dispute. Never throws.
+    /// FUP-53: with <paramref name="refundArm"/> (the escrow's refund arm,
+    /// <see cref="IEscrowRepository.BuildRefundArm"/>) the order cancel and the arm are one transaction:
+    /// <see cref="DisputeVerdictMirrorResult.RefundArmed"/> when it landed, and
+    /// <see cref="DisputeVerdictMirrorResult.RefundArmRefused"/> (order leg
+    /// <see cref="VerdictLegOutcome.Blocked"/>, nothing written to the order) when the escrow refused it.
     /// </summary>
     public async Task<DisputeVerdictMirrorResult> CancelBeforeRefundAsync(
-        Dictionary<string, object> escrow, ILambdaContext? context = null)
+        Dictionary<string, object> escrow, ILambdaContext? context = null,
+        IReadOnlyList<TransactWriteItem>? refundArm = null)
     {
         var escrowId = Str(escrow, "escrowId") ?? "";
         var (orderId, deliveryId, order, delivery, readError) = await ReadLegsAsync(escrow);
@@ -400,7 +419,7 @@ public sealed class DisputeVerdictMirror
 
         var transactionId = string.IsNullOrEmpty(orderId) ? escrowId : orderId;
         return await CancelBeforePickupAsync(order, orderId, VerdictLegOutcome.Cancelled, delivery, deliveryId, deliveryPlan,
-            transactionId, context, AdminRefundAuditTag);
+            transactionId, context, AdminRefundAuditTag, refundArm);
     }
 
     /// <summary>Order statuses a disposition may close: the order is live and not delivered yet.</summary>
@@ -910,7 +929,8 @@ public sealed class DisputeVerdictMirror
     private async Task<DisputeVerdictMirrorResult> CancelBeforePickupAsync(
         Dictionary<string, object>? order, string? orderId, VerdictLegOutcome orderPlan,
         Dictionary<string, object>? delivery, string? deliveryId, VerdictLegOutcome deliveryPlan,
-        string transactionId, ILambdaContext? context, string auditTag)
+        string transactionId, ILambdaContext? context, string auditTag,
+        IReadOnlyList<TransactWriteItem>? refundArm = null)
     {
         var deliveryOutcome = deliveryPlan;
         string? deliveryReason = null;
@@ -963,12 +983,22 @@ public sealed class DisputeVerdictMirror
             return Result(orderPlan, null, deliveryOutcome, deliveryReason, orderId, deliveryId, order);
         }
 
-        var (orderOutcome, orderReason, cancelled) = await CancelOrderAsync(order!, orderId!, deliveryId, context, auditTag);
-        return Result(orderOutcome, orderReason, deliveryOutcome, deliveryReason, orderId, deliveryId, cancelled ?? order);
+        var armed = false;
+        var (orderOutcome, orderReason, cancelled) = await CancelOrderAsync(
+            order!, orderId!, deliveryId, context, auditTag, refundArm, () => armed = true);
+        return Result(orderOutcome, orderReason, deliveryOutcome, deliveryReason, orderId, deliveryId, cancelled ?? order) with
+        {
+            RefundArmed = armed,
+            RefundArmRefused = orderReason == RefundArmRefusedReason
+        };
     }
 
+    /// <summary>FUP-53: the order leg's reason when the refund arm refused the cancel's transaction.</summary>
+    private const string RefundArmRefusedReason = "cancel:escrow_changed";
+
     private async Task<(VerdictLegOutcome, string?, Dictionary<string, object>?)> CancelOrderAsync(
-        Dictionary<string, object> order, string orderId, string? cancelledDeliveryId, ILambdaContext? context, string auditTag)
+        Dictionary<string, object> order, string orderId, string? cancelledDeliveryId, ILambdaContext? context, string auditTag,
+        IReadOnlyList<TransactWriteItem>? refundArm = null, Action? onArmed = null)
     {
         try
         {
@@ -986,12 +1016,38 @@ public sealed class DisputeVerdictMirror
                     return (VerdictLegOutcome.Mismatch, $"mismatch:{status}", order);
                 }
 
-                var update = await _orderRepo!.UpdateAsync(orderId, new Dictionary<string, object>
+                var cancelFields = new Dictionary<string, object>
                 {
                     { "status", "cancelled" },
                     { "cancelledAt", DateTime.UtcNow.ToString("o") },
                     { "cancelReason", "escrow_refunded" }
-                }, Int(order, "version"));
+                };
+                AuthResult<Dictionary<string, object>> update;
+                if (refundArm is { Count: > 0 })
+                {
+                    // FUP-53: the cancel and the caller's refund arm land together or not at all.
+                    var write = await _orderRepo!.TryUpdateWithAsync(orderId, cancelFields, Int(order, "version"), status, refundArm);
+                    switch (write.Outcome)
+                    {
+                        case OrderLinkedWriteOutcome.LinkedItemRefused:
+                            // The escrow is no longer a plain hold: nothing was written, the order stays live.
+                            return (VerdictLegOutcome.Blocked, RefundArmRefusedReason, order);
+                        case OrderLinkedWriteOutcome.OrderNotFound:
+                            return (VerdictLegOutcome.Missing, "missing", null);
+                        case OrderLinkedWriteOutcome.Written:
+                            onArmed?.Invoke();
+                            update = AuthResult<Dictionary<string, object>>.Success(write.Order ?? order);
+                            break;
+                        default:
+                            update = AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict.");
+                            break;
+                    }
+                }
+                else
+                {
+                    update = await _orderRepo!.UpdateAsync(orderId, cancelFields, Int(order, "version"));
+                }
+
                 if (update.IsSuccess)
                 {
                     await TransactionAuditWriter.EmitAsync(_txAuditRepo, context, orderId, "order", orderId,

@@ -244,6 +244,7 @@ public partial class SyncFunction
         // The write. A trucker accept confirms the booking in the same transaction: the trip must
         // still hold this order's quintals and still be open for it.
         Dictionary<string, object>? written;
+        Dictionary<string, object>? closedWithRefund = null;
         if (decision.Effect == CommitmentEffect.ConfirmBooking)
         {
             var confirm = await WriteTruckerAcceptAsync(operation, existingOrder, trip, fields, version, nowUtc, acceptFence, context);
@@ -256,9 +257,23 @@ public partial class SyncFunction
         }
         else
         {
-            var updateResult = acceptFence != null
-                ? await _orderRepo.UpdateUnlessEscrowHeldAsync(orderId, fields, version, acceptFence)
-                : await _orderRepo.UpdateAsync(orderId, fields, version);
+            // FUP-53: the farmer's reject and the refund arm on the order's escrow are one transaction.
+            if (decision.NewStatus == "rejected")
+            {
+                var close = await TryCloseOrderWithRefundAsync(operation, fields, version, priorStatus, "order_rejected", context);
+                if (close.Stop != null)
+                {
+                    return close.Stop;
+                }
+
+                closedWithRefund = close.Written;
+            }
+
+            var updateResult = closedWithRefund != null
+                ? AuthResult<Dictionary<string, object>>.Success(closedWithRefund)
+                : acceptFence != null
+                    ? await _orderRepo.UpdateUnlessEscrowHeldAsync(orderId, fields, version, acceptFence)
+                    : await _orderRepo.UpdateAsync(orderId, fields, version);
             if (!updateResult.IsSuccess && updateResult.Error?.Code == OrderRepository.EscrowHeldCode)
             {
                 return OrderValidationError(operation, OrderUnderReviewMessage);
@@ -283,7 +298,12 @@ public partial class SyncFunction
         // Side effects after the write, each idempotent and best-effort.
         if (appliedStatus == "rejected")
         {
-            await TryScheduleOrderEscrowRefundAsync(orderId, "order_rejected", context);
+            // FUP-53: already armed with the order write, unless no record held the money then.
+            if (closedWithRefund == null)
+            {
+                await TryScheduleOrderEscrowRefundAsync(orderId, "order_rejected", context);
+            }
+
             await TryRestoreListingStockAsync(existingOrder, context);
         }
 

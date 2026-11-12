@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.50.0
+1.51.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -1303,10 +1303,30 @@ it as the buyer's.
 
 ---
 
+## A funded order's reject or cancel and its refund (1.51.0, FUP-53)
+
+Server only; no client change. The `funded → rejected|cancelled` write (the farmer's reject, the buyer's
+cancel while it is allowed, and the commitment `farmerResponse: decline`) and the refund arm on the
+order's escrow are one transaction (`escrow-protocol.md` 2.11.0). New answers to that operation, all
+with nothing written:
+
+| Answer | When | Client |
+|---|---|---|
+| `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` | The money is frozen by a dispute, being settled, in the manual payout queue or past a confirmed delivery | Permanent like every `ORDER_*` refusal: the local change is undone; the 1.49.0 payment text is shown where the client reads the phrase |
+| `The order's payment could not be read. Please try again later.` | The escrow read failed | Unprefixed, retried |
+| `The order's payment changed while the order was updated. Please try again later.` | The escrow kept changing over 3 writes | Unprefixed, retried |
+| `The order could not be updated right now. Please try again later.` | The transaction was cancelled by a conflicting transaction or throttling | Unprefixed, retried |
+
+A `conflict` (the order moved) and a success answer as before. With nothing in the way the success,
+`serverVersion` and `serverData` are the same as before.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.51.0 | 2026-11-12 | A funded order's reject or cancel and its refund arm are one transaction (FUP-53, `escrow-protocol.md` 2.11.0, `order-lifecycle.md` 2.12.0): money frozen or moving answers `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` (permanent), and three unprefixed retryable texts cover a failed escrow read, an escrow that kept changing and a cancelled transaction; nothing is written on any of them. Server only. |
 | 1.50.0 | 2026-11-12 | `farmerReliability` retired (ESC-30, `match-api.md` 1.4.0): dropped from client payloads like the owner fields and no longer stamped on a crop create. |
 | 1.49.0 | 2026-11-12 | Refusal texts the clients read, client only (FUP-77, FUP-83): `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` has its own text (the phrase is now relied on by the clients); an `ORDER_KYC_REQUIRED` reason token the client does not know is explained only, with no Fayda action; `buyer_phone` has its own error text on every surface. 1.48.0 is taken by another branch |
 | 1.48.0 | 2026-11-11 | Suspended accounts and reputation gates (ESC-29, `reputation-api.md` 1.2.0, `auth-api.md` 2.15.0). Not flagged: a batch from a suspended account answers HTTP `403 AUTH_025` for the whole request from the caller row the server already reads, nothing applied, no idempotency key stored; clients with ESC-29 keep the queue without a retry and end the session, older builds keep the queue and are signed out at their next token refresh. Behind `reputationPenalties` (off everywhere): the server now sends `REPUTATION_RESTRICTED` on a restricted caller's `crop_listing` create, `trip` create and order accept, and on an `order` create whose listing farmer or trip trucker is restricted or suspended (an unreadable owner row answers an unprefixed retryable text); a client without `X-App-Build` gets the sentence as `SYNC_VALIDATION` or `ORDER_VALIDATION`. The owner fields (`ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct`, `ownerReputationAt`) are dropped from client payloads and returned in `serverData` only with `reputationPublicTags` on. |
