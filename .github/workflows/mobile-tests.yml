@@ -71,7 +71,10 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    # Pinned: on ubuntu-26.04 (where ubuntu-latest is moving) the Linux desktop build fails in
+    # flutter_secure_storage_linux's bundled json.hpp, which the newer compiler rejects.
+    # Unpin after that plugin is upgraded (Dependabot PR #205).
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:

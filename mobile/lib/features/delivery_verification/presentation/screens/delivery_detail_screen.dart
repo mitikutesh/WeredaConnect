@@ -12,6 +12,7 @@ import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/initiate_payment_screen.dart';
 import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
@@ -85,7 +86,10 @@ class DeliveryDetailScreen extends StatelessWidget {
             SnackBar(content: Text(l10n.deliveryCancel)),
           );
           Navigator.of(context).pop();
-        } else if (state is DeliveryError) {
+        } else if (state is DeliveryError &&
+            state.code != DeliveryErrorCode.stepUpRequired) {
+          // The step-up of a dispute is answered by the dispute screen on
+          // top of this one (FUP-43).
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(

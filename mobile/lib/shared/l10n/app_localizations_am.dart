@@ -5041,6 +5041,10 @@ class AppLocalizationsAm extends AppLocalizations {
       'ለዚህ ርክክብ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ QR ኮዱን ይቃኙ፣ ወይም ገበሬው አዲስ ኮድ እንዲያሳይ ይጠይቁ።';
 
   @override
+  String get deliveryDisputeNotConfirmed =>
+      'ክርክሩ አልተላከም። ለመላክ እርስዎ መሆንዎን ያረጋግጡ።';
+
+  @override
   String get deliveryErrorCodeGpsRequired =>
       'የተተየበ ኮድ አካባቢዎን ይፈልጋል። የቦታ አገልግሎትን አብርተው እንደገና ይሞክሩ።';
 

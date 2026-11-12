@@ -5227,6 +5227,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Geejjiba kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa koodii QR iskaanii godhi, yookaan qonnaan bulaan koodii haaraa akka agarsiisu gaafadhu.';
 
   @override
+  String get deliveryDisputeNotConfirmed =>
+      'Komiin hin ergamne. Erguuf isin ta\'uu keessan mirkaneessaa.';
+
+  @override
   String get deliveryErrorCodeGpsRequired =>
       'Koodiin barreeffame bakka kee barbaada. Tajaajila bakkaa banitii irra deebi\'ii yaali.';
 
