@@ -5435,6 +5435,16 @@ table, index or env var.
   the corrected leg under its old reference, which then refuses the real leg's record. Correct legs after the
   backfill run, not during it (FUP-311).
 - As for the record (1.8.0), the server cannot check a reference against Telebirr: the admin reads the portal.
+- A crosswise mistake (leg A recorded with B's reference and B with A's) cannot be corrected one leg at a time:
+  each correction is refused `ESCROW_047` by the other leg's item. Correct one leg to a placeholder the portal
+  never issues (for example `FIX-{escrowId}-A`, with the reason saying so), then the other leg to its real
+  reference, then the first leg to its real reference (FUP-313).
+- A stale item that names this leg under the new reference while the leg carries another one (the FUP-311
+  backfill race) makes the correction retry and answer `409 ESCROW_036`; delete the backfill marker, rerun the
+  backfill after the run in progress, or ask an engineer (FUP-311).
+- The transaction-audit row is written after the transaction; if the Lambda stops between the two, a replay
+  answers `alreadyCorrected` and does not write it. The escrow-audit row is part of the transaction, so the
+  correction is always on the escrow's trail.
 
 ---
 
