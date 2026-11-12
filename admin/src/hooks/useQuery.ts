@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { DisputeEvidence } from "@/lib/evidence";
+import type { LedgerPage, StuckOrderPage, StuckSource } from "@/lib/legs";
 import type { DeliveryTrail } from "@/lib/trail";
 
 // Dashboard
@@ -32,6 +33,44 @@ export function useEscrowAudit(id: string) {
     queryKey: ["admin", "escrows", id, "audit"],
     queryFn: () => api.get(`/admin/escrows/${id}/audit`),
     enabled: !!id,
+  });
+}
+
+/**
+ * ESC-24: the ledger rows of an escrow (ESC-20), 50 a page in ref order. Read only. Asked only for
+ * an escrow on the ledger: one of the legacy model has no rows.
+ */
+export function useEscrowLedger(escrowId: string, enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: ["admin", "escrows", escrowId, "ledger"],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<LedgerPage>(
+        `/admin/escrows/${encodeURIComponent(escrowId)}/ledger?limit=50${
+          pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""
+        }`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+    enabled: enabled && !!escrowId,
+  });
+}
+
+/**
+ * ESC-24: the stuck orders, oldest first. "queue" is the admin stuck-order queue (ESC-06), "deadline"
+ * the orders whose commitment deadline passed and nothing acted on it (ESC-16). A deadline page can
+ * come back short or empty with a nextToken; the page loads the next one on demand.
+ */
+export function useStuckOrders(source: StuckSource) {
+  return useInfiniteQuery({
+    queryKey: ["admin", "orders", "queue", source],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<StuckOrderPage>(
+        `/admin/orders/queue?source=${source}&limit=50${
+          pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""
+        }`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
   });
 }
 

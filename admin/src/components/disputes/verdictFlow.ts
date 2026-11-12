@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useResolveDispute } from "@/hooks/useQuery";
 
-export type Verdict = "farmer_wins" | "buyer_wins";
+/* ESC-24: partial_refund is the per-leg verdict of ESC-20 (action split), on a ledger escrow only. */
+export type Verdict = "farmer_wins" | "buyer_wins" | "partial_refund";
 export type Disposition = "return_to_farmer" | "delivered_anyway" | "settle_now" | "wait_for_delivery";
 
 /* FUP-16: when the order or delivery cannot follow a verdict as it is, the admin chooses what
@@ -9,12 +10,29 @@ export type Disposition = "return_to_farmer" | "delivered_anyway" | "settle_now"
 export const dispositionsFor: Record<Verdict, Disposition[]> = {
   buyer_wins: ["return_to_farmer", "delivered_anyway"],
   farmer_wins: ["settle_now", "wait_for_delivery"],
+  // The order and delivery follow a split as they follow farmer_wins (the goods were delivered).
+  partial_refund: ["settle_now", "wait_for_delivery"],
+};
+
+/** The action the server pairs with each verdict (ResolveDisputeRequest). */
+const actionFor: Record<Verdict, string> = {
+  farmer_wins: "release",
+  buyer_wins: "refund",
+  partial_refund: "split",
+};
+
+/** ESC-24: the amounts of a per-leg verdict (birr, 2 decimals) and the admin's reason, sent as notes. */
+export type SplitVerdict = {
+  farmerAmount: number;
+  truckerAmount: number;
+  buyerRefund: number;
+  notes?: string;
 };
 
 export const REASON_MIN = 10;
 export const REASON_MAX = 500;
 
-export type VerdictChoice = { id: string; verdict: Verdict };
+export type VerdictChoice = { id: string; verdict: Verdict; split?: SplitVerdict };
 
 /**
  * The verdict flow shared by the Disputes list and the dispute page: send the verdict, and when
@@ -27,18 +45,25 @@ export function useDisputeVerdict(t: (key: string) => string) {
   const [notice, setNotice] = useState<string | null>(null);
   const [choice, setChoice] = useState<VerdictChoice | null>(null);
 
-  function submit(id: string, verdict: Verdict, picked?: { disposition: Disposition; reason: string }) {
+  function submit(
+    id: string,
+    verdict: Verdict,
+    picked?: { disposition: Disposition; reason: string },
+    split?: SplitVerdict,
+  ) {
     setResolvingId(id);
     setErrorMsg(null);
     setNotice(null);
     // Server contract (ResolveDisputeRequest) requires `resolution` + `action`.
     // Map the winner to the outcome (farmer wins → release funds; buyer wins → refund).
+    // ESC-24: a per-leg verdict sends its three amounts with action split.
     resolveDispute.mutate(
       {
         id,
         body: {
           resolution: verdict,
-          action: verdict === "farmer_wins" ? "release" : "refund",
+          action: actionFor[verdict],
+          ...(verdict === "partial_refund" ? (split ?? {}) : {}),
           ...(picked ?? {}),
         },
       },
@@ -52,7 +77,7 @@ export function useDisputeVerdict(t: (key: string) => string) {
           const code = (err as { code?: string }).code;
           if (code === "ADMIN_015") {
             // The goods are moving or not delivered yet: the admin chooses what happens.
-            setChoice({ id, verdict });
+            setChoice({ id, verdict, split });
             return;
           }
           const key = code ? `errors.${code}` : "errors.actionFailed";
@@ -69,7 +94,7 @@ export function useDisputeVerdict(t: (key: string) => string) {
     errorMsg,
     notice,
     choice,
-    openChoice: (id: string, verdict: Verdict) => setChoice({ id, verdict }),
+    openChoice: (id: string, verdict: Verdict, split?: SplitVerdict) => setChoice({ id, verdict, split }),
     closeChoice: () => setChoice(null),
   };
 }

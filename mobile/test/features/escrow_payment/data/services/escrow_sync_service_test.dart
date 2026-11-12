@@ -15,6 +15,7 @@ import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
 
@@ -62,6 +63,9 @@ void main() {
     late MockApiClient apiClient;
     late MockConnectivityMonitor connectivityMonitor;
     late EscrowSyncService syncService;
+    late SecurityEvents securityEvents;
+    late List<SecurityEvent> emitted;
+    late StreamSubscription<SecurityEvent> emittedSub;
 
     setUpAll(() async {
       await Isar.initializeIsarCore(download: true);
@@ -88,14 +92,19 @@ void main() {
       // covered by its own test.
       when(() => connectivityMonitor.isConnected())
           .thenAnswer((_) async => true);
+      securityEvents = SecurityEvents.forTesting();
+      emitted = [];
+      emittedSub = securityEvents.events.listen(emitted.add);
       syncService = EscrowSyncService(
         isar: isar,
         apiClient: apiClient,
         connectivityMonitor: connectivityMonitor,
+        securityEvents: securityEvents,
       );
     });
 
     tearDown(() async {
+      await emittedSub.cancel();
       syncService.dispose();
       await isar.close(deleteFromDisk: true);
       if (tempDir.existsSync()) {
@@ -259,6 +268,13 @@ void main() {
         final intent = await isar.paymentIntents.where().findFirst();
         expect(intent!.status, IntentStatus.failed);
         expect(intent.retryCount, 3);
+        // FUP-70: a failed intent leaves the pending list, so its buyer is
+        // told, with a code and never the server text.
+        await Future<void>.delayed(Duration.zero);
+        final event = emitted.whereType<SyncOperationRejected>().single;
+        expect(event.entityType, 'payment_intent');
+        expect(event.userId, 'buyer-001');
+        expect(event.message, 'ESCROW_CLIENT');
       });
 
       test('puts intent back to pendingSync when retries remain', () async {
@@ -276,15 +292,20 @@ void main() {
         final intent = await isar.paymentIntents.where().findFirst();
         expect(intent!.status, IntentStatus.pendingSync);
         expect(intent.retryCount, 1);
+        // Still queued: nothing to explain yet.
+        await Future<void>.delayed(Duration.zero);
+        expect(emitted.whereType<SyncOperationRejected>(), isEmpty);
       });
 
       test(
           'a 422 ESCROW_039 (delivery payment refused on live Telebirr, '
-          'FUP-36) is retried as a failure, never completed', () async {
+          'FUP-36) fails at once with its code, never completed (FUP-70)',
+          () async {
         await _insertTestIntent(isar);
 
         // Nothing was held server-side, so this must never read as a success
-        // the way a 409 does (below); it follows the ordinary retry path.
+        // the way a 409 does (below). The same request always gets the same
+        // answer, so it is not sent again.
         when(
           () => apiClient.post<Map<String, dynamic>>(
             any(),
@@ -299,10 +320,118 @@ void main() {
         );
 
         await syncService.processQueuedIntents();
+        await syncService.processQueuedIntents();
+
+        final intent = await isar.paymentIntents.where().findFirst();
+        expect(intent!.status, IntentStatus.failed);
+        expect(intent.retryCount, 1);
+        // The code, never the server's English text.
+        expect(intent.lastError, 'ESCROW_039');
+        verify(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).called(1);
+      });
+
+      test('a transient failure stores a code, not the server text (FUP-70)',
+          () async {
+        await _insertTestIntent(isar);
+
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const ServerException('Could not read +251911000000', 503),
+        );
+
+        await syncService.processQueuedIntents();
 
         final intent = await isar.paymentIntents.where().findFirst();
         expect(intent!.status, IntentStatus.pendingSync);
         expect(intent.retryCount, 1);
+        expect(intent.lastError, 'ESCROW_014');
+      });
+
+      test('a 503 with the server code keeps that code and the retries',
+          () async {
+        await _insertTestIntent(isar);
+
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(const ServerException('read failed', 503, 'ESCROW_012'));
+
+        await syncService.processQueuedIntents();
+
+        final intent = await isar.paymentIntents.where().findFirst();
+        expect(intent!.status, IntentStatus.pendingSync);
+        expect(intent.lastError, 'ESCROW_012');
+      });
+
+      test(
+          'a 404 ESCROW_008 (the delivery has not synced yet) is retried and '
+          'goes through on the next run', () async {
+        await _insertTestIntent(isar);
+
+        // The payment was queued offline with its delivery; the intent can
+        // reach the server before /sync wrote the delivery.
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const NotFoundException('Delivery not found', 404, 'ESCROW_008'),
+        );
+
+        await syncService.processQueuedIntents();
+
+        var intent = await isar.paymentIntents.where().findFirst();
+        expect(intent!.status, IntentStatus.pendingSync);
+        expect(intent.retryCount, 1);
+        expect(intent.lastError, 'ESCROW_008');
+        await Future<void>.delayed(Duration.zero);
+        expect(emitted.whereType<SyncOperationRejected>(), isEmpty);
+
+        // The delivery is on the server now. No backoff wait in the test.
+        await isar.writeTxn(() async {
+          final current = await isar.paymentIntents.where().findFirst();
+          current!.retryCount = 0;
+          await isar.paymentIntents.put(current);
+        });
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenAnswer(
+          (_) async => {
+            'escrowId': 'esc-001',
+            'deliveryId': 'del-001',
+            'buyerId': 'buyer-001',
+            'farmerId': 'farmer-001',
+            'amount': 15000.0,
+            'commission': 375.0,
+            'farmerPayout': 14625.0,
+            'currency': 'ETB',
+            'status': 'escrowed',
+            'createdAt': '2026-02-19T10:00:00Z',
+            'expiresAt': '2026-02-26T10:00:00Z',
+          },
+        );
+
+        await syncService.processQueuedIntents();
+
+        intent = await isar.paymentIntents.where().findFirst();
+        expect(intent!.status, IntentStatus.completed);
+        await Future<void>.delayed(Duration.zero);
+        expect(emitted.whereType<SyncOperationRejected>(), isEmpty);
       });
 
       test('marks intent completed on 409 conflict, not failed (M4)', () async {

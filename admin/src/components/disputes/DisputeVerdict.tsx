@@ -104,7 +104,8 @@ function DispositionForm({
         <button
           type="button"
           onClick={() =>
-            disposition && flow.submit(choice.id, choice.verdict, { disposition, reason: trimmedReason })
+            disposition &&
+            flow.submit(choice.id, choice.verdict, { disposition, reason: trimmedReason }, choice.split)
           }
           disabled={!disposition || !reasonValid || flow.resolvingId === choice.id}
           className="rounded bg-primary px-3 py-1 text-sm text-white hover:opacity-90 disabled:opacity-50"

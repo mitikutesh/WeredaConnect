@@ -1568,6 +1568,7 @@
   "@escrowErrorDisputeBeforePickup": {
     "description": "Error when a dispute is raised before the goods are picked up (ESCROW_041)"
   },
+  "escrowErrorDisputeRefundScheduled": "Kaffaltii kanaaf maallaqni bitataaf akka deebi'u duraan qabameera, kanaaf amma komiin itti ka'uu hin danda'u. Yoo itti hin walii galle deeggarsa qunnamaa.",
   "escrowErrorInvalidTransition": "Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"
@@ -2572,6 +2573,8 @@
   "otpSentTo": "Koodii lakkoofsa 6 qabu SMS'n gara {phone} ergineerra.",
   "otpCodeHint": "Koodii lakkoofsa 6",
   "otpExpiresAt": "Koodiin sa'aatii {time} irratti dhumata.",
+  "stepUpDisputeMessage": "Nageenya keessaniif, komiin kun ergamuu isaa dura isin ta'uu keessan mirkaneessaa.",
+  "faydaStepUpDisputeMessage": "Komii kana erguuf isin ta'uu keessan Faayidaadhaan mirkaneessaa. Jecha iccitii keessanis gaafatamuu dandeessu.",
   "faydaStepUpMessage": "Kaffaltii kana itti fufuuf isin ta'uu keessan Faayidaadhaan mirkaneessaa. Jecha iccitii keessanis gaafatamuu dandeessu.",
   "stepUpTitle": "Isin ta'uu keessan mirkaneessaa",
   "stepUpPhoneLabel": "Bilbila: {phone}",
@@ -2597,6 +2600,7 @@
   "kycFarmerPhoneMessage": "Lakkoofsi bilbila qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
   "kycFarmerFaydaMessage": "Kaffaltiin qarshii 10,000 ol ta'e qonnaan bulaanis ID Faayidaa mirkanaa'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
   "kycFarmerNotVerifiedMessage": "Eenyummaan qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
+  "kycUnknownReasonMessage": "Mirkaneessi eenyummaa ammallee waan hafeef kaffaltiin kun hin ergamne. Maal akka barbaachisu ilaaluuf appii haaromsaa ykn deeggarsa qunnamaa.",
   "kycUnavailableMessage": "Amma mirkaneessa eenyummaa ilaaluu hin dandeenye, kanaaf kaffaltiin kun hin ergamne. Maaloo booda irra deebi'aa yaalaa.",
   "kycPaymentNotSent": "Kaffaltiin hin ergamne. Eenyummaan keessan hin mirkanoofne.",
   "kycPaymentResubmitted": "Eenyummaan keessan mirkanaa'eera. Kaffaltiin keessan irra deebi'ee ni ergama.",
@@ -2635,6 +2639,7 @@
   "orderTransportFailedBuyerHint": "Midhaan yeroodhaan hin fudhatamne. Ajaja kana haqxanii maallaqa kaffaltan hunda deebifachuu dandeessu.",
   "orderTransportFailedPartyHint": "Midhaan yeroodhaan hin fudhatamne. Bitataan amma ajaja kana haquu danda'a.",
   "cancelOrderTransportFailedBody": "Kan kaffaltan hundi, baasii geejjibaa fi komishinii waltajjii dabalatee, isinii deebi'a.",
+  "errorOrderCancelPaymentBusy": "Kaffaltiin isaa komii irra waan jiruuf ykn xumuramaa waan jiruuf ajajni kun amma haqamuu hin danda'u. Bu'aa isaa eegaa ykn deeggarsa qunnamaa.",
   "errorOrderCancelNotAllowed": "Ajajni kun amma haqamuu hin danda'u. Kan haqamu midhaan yeroodhaan yoo hin fudhatamin fi wanti tokkollee yoo hin fudhatamin qofa.",
   "errorDeadlinePassed": "Yeroon darbeera. Yeroon tarkaanfii kanaa xumurameera.",
   "errorTripNotEligible": "Konkolaataan fe'aa sun amma hin argamu. Irra deebi'aa filadhaa.",
