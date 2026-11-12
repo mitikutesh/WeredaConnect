@@ -2664,39 +2664,73 @@ export class ApiStack extends cdk.Stack {
       },
     );
 
+    // ─── Integrations: one per Lambda (FUP-217) ──────────────────────
+    // CloudFormation refuses a stack of more than 500 resources, and an integration plus an invoke
+    // permission per route had the live-on API stack at 488 to 496. Every route of a Lambda now shares
+    // that Lambda's one integration, and the Lambda has one API Gateway invoke permission instead of
+    // one per route (scopePermissionToRoute false), so a route on an existing Lambda costs one
+    // resource (stack.test.ts fails above 470). The permission's source ARN is `{this API's id}/*/*/*`:
+    // any stage, method and path of this API, no other API; the routes, all defined here, pick the
+    // Lambda. CDK creates each shared integration and its permission under the first route that binds
+    // it, so their logical ids follow that route: today they keep the ids they had as that route's
+    // own. A new route of the same Lambda added before it would move them (a replacement, still deploy
+    // safe: CloudFormation creates the new ones before cleanup deletes the old). Payload 1.0 everywhere (the handlers read the 1.0 event) except /health (2.0). The
+    // admin integration is with the admin routes.
+    const lambdaIntegration = (
+      id: string,
+      fn: WeredaLambda,
+      payloadFormatVersion = apigateway.PayloadFormatVersion.VERSION_1_0,
+    ) =>
+      new integrations.HttpLambdaIntegration(id, fn.function, {
+        payloadFormatVersion,
+        scopePermissionToRoute: false,
+      });
+    const healthInt = lambdaIntegration(
+      "HealthInt",
+      healthCheck,
+      apigateway.PayloadFormatVersion.VERSION_2_0,
+    );
+    const registerInt = lambdaIntegration("RegisterInt", registerFn);
+    const faydaVerifyInt = lambdaIntegration("FaydaVerifyInt", faydaVerifyFn);
+    const verifyOtpInt = lambdaIntegration("VerifyOtpInt", verifyOtpFn);
+    const loginInt = lambdaIntegration("LoginInt", loginFn);
+    const refreshInt = lambdaIntegration("RefreshInt", refreshFn);
+    // SIM-60: payload 1.0 like every other route, so the logout handler sees the JWT claims under
+    // authorizer.claims and can bind the token to the caller.
+    const logoutInt = lambdaIntegration("LogoutInt", logoutFn);
+    const passwordResetInt = lambdaIntegration("ForgotPasswordInt", passwordResetFn);
+    const syncInt = lambdaIntegration("SyncInt", syncFn);
+    const cropInt = lambdaIntegration("CropsListInt", cropFn);
+    const matchInt = lambdaIntegration("MatchInt", matchFn);
+    const deviceTokenInt = lambdaIntegration("DeviceTokensInt", deviceTokenFn);
+    const accountDeletionInt = lambdaIntegration("AccountDeletionInt", accountDeletionFn);
+    const tripInt = lambdaIntegration("TripsListInt", tripFn);
+    const orderInt = lambdaIntegration("OrdersListInt", orderFn);
+    const ratingInt = lambdaIntegration("RatingsListInt", ratingFn);
+    const reputationInt = lambdaIntegration("ReputationMeInt", reputationFn);
+    const messageInt = lambdaIntegration("MessagesListInt", messageFn);
+    const notificationInt = lambdaIntegration("NotificationsListInt", notificationFn);
+    const deliveryInt = lambdaIntegration("DeliveriesListInt", deliveryFn);
+    const escrowInt = lambdaIntegration("EscrowInitiateInt", escrowFn);
+
     // ─── Routes ──────────────────────────────────────────────────────
 
     httpApi.addRoutes({
       path: "/health",
       methods: [apigateway.HttpMethod.GET],
-      integration: new integrations.HttpLambdaIntegration(
-        "HealthInt",
-        healthCheck.function,
-      ),
+      integration: healthInt,
     });
 
     httpApi.addRoutes({
       path: "/auth/register",
       methods: [apigateway.HttpMethod.POST],
-      integration: new integrations.HttpLambdaIntegration(
-        "RegisterInt",
-        registerFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: registerInt,
     });
 
     httpApi.addRoutes({
       path: "/auth/fayda-verify",
       methods: [apigateway.HttpMethod.POST],
-      integration: new integrations.HttpLambdaIntegration(
-        "FaydaVerifyInt",
-        faydaVerifyFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: faydaVerifyInt,
     });
 
     // The server mints state, nonce and PKCE and returns the authorize URL, so the
@@ -2704,13 +2738,7 @@ export class ApiStack extends cdk.Stack {
     httpApi.addRoutes({
       path: "/auth/fayda-start",
       methods: [apigateway.HttpMethod.POST],
-      integration: new integrations.HttpLambdaIntegration(
-        "FaydaStartInt",
-        faydaVerifyFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: faydaVerifyInt,
     });
 
     // Link-later for accounts registered without Fayda (authenticated).
@@ -2718,152 +2746,78 @@ export class ApiStack extends cdk.Stack {
       path: "/user/fayda-start",
       methods: [apigateway.HttpMethod.POST],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "FaydaUserStartInt",
-        faydaVerifyFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: faydaVerifyInt,
     });
 
     httpApi.addRoutes({
       path: "/user/fayda-link",
       methods: [apigateway.HttpMethod.POST],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "FaydaUserLinkInt",
-        faydaVerifyFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: faydaVerifyInt,
     });
 
     httpApi.addRoutes({
       path: "/auth/verify-otp",
       methods: [apigateway.HttpMethod.POST],
-      integration: new integrations.HttpLambdaIntegration(
-        "VerifyOtpInt",
-        verifyOtpFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: verifyOtpInt,
     });
 
     httpApi.addRoutes({
       path: "/auth/resend-otp",
       methods: [apigateway.HttpMethod.POST],
-      integration: new integrations.HttpLambdaIntegration(
-        "ResendOtpInt",
-        verifyOtpFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: verifyOtpInt,
     });
 
     httpApi.addRoutes({
       path: "/auth/login",
       methods: [apigateway.HttpMethod.POST],
-      integration: new integrations.HttpLambdaIntegration(
-        "LoginInt",
-        loginFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: loginInt,
     });
 
     httpApi.addRoutes({
       path: "/auth/refresh",
       methods: [apigateway.HttpMethod.POST],
-      integration: new integrations.HttpLambdaIntegration(
-        "RefreshInt",
-        refreshFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: refreshInt,
     });
 
     httpApi.addRoutes({
       path: "/auth/logout",
       methods: [apigateway.HttpMethod.POST],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "LogoutInt",
-        logoutFn.function,
-        {
-          // SIM-60: payload 1.0 like every other route, so the handler sees the
-          // JWT claims under authorizer.claims and can bind the token to the caller.
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: logoutInt,
     });
 
     httpApi.addRoutes({
       path: "/auth/forgot-password",
       methods: [apigateway.HttpMethod.POST],
-      integration: new integrations.HttpLambdaIntegration(
-        "ForgotPasswordInt",
-        passwordResetFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: passwordResetInt,
     });
 
     httpApi.addRoutes({
       path: "/auth/reset-password",
       methods: [apigateway.HttpMethod.POST],
-      integration: new integrations.HttpLambdaIntegration(
-        "ResetPasswordInt",
-        passwordResetFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: passwordResetInt,
     });
 
     httpApi.addRoutes({
       path: "/sync",
       methods: [apigateway.HttpMethod.POST],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "SyncInt",
-        syncFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: syncInt,
     });
 
     httpApi.addRoutes({
       path: "/crops",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "CropsListInt",
-        cropFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: cropInt,
     });
 
     httpApi.addRoutes({
       path: "/crops/{id}",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "CropsGetInt",
-        cropFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: cropInt,
     });
 
     // crop-listing-api.md 1.6.0: presigned PUT URLs for a listing's photos.
@@ -2871,39 +2825,21 @@ export class ApiStack extends cdk.Stack {
       path: "/crops/{id}/photos",
       methods: [apigateway.HttpMethod.POST],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "CropsPhotosInt",
-        cropFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: cropInt,
     });
 
     httpApi.addRoutes({
       path: "/match",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "MatchInt",
-        matchFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: matchInt,
     });
 
     httpApi.addRoutes({
       path: "/device-tokens",
       methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.DELETE],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "DeviceTokensInt",
-        deviceTokenFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: deviceTokenInt,
     });
 
     // ACC-02: the caller deletes their own account. The browser preflight needs DELETE in the
@@ -2912,39 +2848,21 @@ export class ApiStack extends cdk.Stack {
       path: "/user/account",
       methods: [apigateway.HttpMethod.DELETE],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "AccountDeletionInt",
-        accountDeletionFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: accountDeletionInt,
     });
 
     httpApi.addRoutes({
       path: "/trips",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "TripsListInt",
-        tripFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: tripInt,
     });
 
     httpApi.addRoutes({
       path: "/trips/{id}",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "TripsGetInt",
-        tripFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: tripInt,
     });
 
     // ─── Order Routes (authenticated) ────────────────────────────────
@@ -2953,26 +2871,14 @@ export class ApiStack extends cdk.Stack {
       path: "/orders",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "OrdersListInt",
-        orderFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: orderInt,
     });
 
     httpApi.addRoutes({
       path: "/orders/{id}",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "OrdersGetInt",
-        orderFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: orderInt,
     });
 
     // ─── Rating Routes (authenticated) ───────────────────────────────
@@ -2982,46 +2888,32 @@ export class ApiStack extends cdk.Stack {
       path: "/ratings",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "RatingsListInt",
-        ratingFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: ratingInt,
     });
 
     httpApi.addRoutes({
       path: "/ratings/{id}",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "RatingsGetInt",
-        ratingFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: ratingInt,
     });
 
     // ─── Reputation Routes (authenticated, ESC-29) ───────────────────
     // App user pool only: an admin pool token gets 401 here (admins use the /admin routes, ESC-32).
     // The static /reputation/me wins over /reputation/{userId}.
-    const reputationRoutes: [string, apigateway.HttpMethod, string][] = [
-      ["/reputation/me", apigateway.HttpMethod.GET, "ReputationMeInt"],
-      ["/reputation/me/events", apigateway.HttpMethod.GET, "ReputationEventsInt"],
-      ["/reputation/{userId}", apigateway.HttpMethod.GET, "ReputationPublicInt"],
-      ["/reputation/appeals/photo-url", apigateway.HttpMethod.POST, "ReputationAppealPhotoInt"],
-      ["/reputation/events/{eventId}/appeal", apigateway.HttpMethod.POST, "ReputationAppealInt"],
+    const reputationRoutes: [string, apigateway.HttpMethod][] = [
+      ["/reputation/me", apigateway.HttpMethod.GET],
+      ["/reputation/me/events", apigateway.HttpMethod.GET],
+      ["/reputation/{userId}", apigateway.HttpMethod.GET],
+      ["/reputation/appeals/photo-url", apigateway.HttpMethod.POST],
+      ["/reputation/events/{eventId}/appeal", apigateway.HttpMethod.POST],
     ];
-    for (const [path, method, id] of reputationRoutes) {
+    for (const [path, method] of reputationRoutes) {
       httpApi.addRoutes({
         path,
         methods: [method],
         authorizer: jwtAuthorizer,
-        integration: new integrations.HttpLambdaIntegration(id, reputationFn.function, {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        }),
+        integration: reputationInt,
       });
     }
 
@@ -3032,26 +2924,14 @@ export class ApiStack extends cdk.Stack {
       path: "/messages",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "MessagesListInt",
-        messageFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: messageInt,
     });
 
     httpApi.addRoutes({
       path: "/messages/{id}",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "MessagesGetInt",
-        messageFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: messageInt,
     });
 
     // ─── Notification Routes (authenticated, ESC-21) ─────────────────
@@ -3062,13 +2942,7 @@ export class ApiStack extends cdk.Stack {
       path: "/notifications",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "NotificationsListInt",
-        notificationFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: notificationInt,
     });
 
     // ─── R4.2 Delivery Routes (authenticated) ────────────────────────
@@ -3077,26 +2951,14 @@ export class ApiStack extends cdk.Stack {
       path: "/deliveries",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "DeliveriesListInt",
-        deliveryFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: deliveryInt,
     });
 
     httpApi.addRoutes({
       path: "/deliveries/{id}",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "DeliveriesGetInt",
-        deliveryFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: deliveryInt,
     });
 
     // LT-06: where the truck is, for the delivery's three parties (the handler answers 404 to anyone
@@ -3105,26 +2967,14 @@ export class ApiStack extends cdk.Stack {
       path: "/deliveries/{id}/track",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "DeliveriesTrackInt",
-        deliveryFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: deliveryInt,
     });
 
     httpApi.addRoutes({
       path: "/deliveries/{id}/photos",
       methods: [apigateway.HttpMethod.POST],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "DeliveriesPhotosInt",
-        deliveryFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: deliveryInt,
     });
 
     // ─── R4.3 Escrow Routes (all authenticated) ──────────────────────
@@ -3133,13 +2983,7 @@ export class ApiStack extends cdk.Stack {
       path: "/escrow/initiate",
       methods: [apigateway.HttpMethod.POST],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "EscrowInitiateInt",
-        escrowFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: escrowInt,
     });
 
     // ESC-01: the buyer opens (or gets back) the live Telebirr checkout for a
@@ -3148,13 +2992,7 @@ export class ApiStack extends cdk.Stack {
       path: "/escrow/order-checkout",
       methods: [apigateway.HttpMethod.POST],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "EscrowOrderCheckoutInt",
-        escrowFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: escrowInt,
     });
 
     httpApi.addRoutes({
@@ -3162,26 +3000,14 @@ export class ApiStack extends cdk.Stack {
       methods: [apigateway.HttpMethod.POST],
       // Admin pool only: settlement is an operator action (or the cron, in-process).
       authorizer: adminJwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "EscrowReleaseInt",
-        escrowFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: escrowInt,
     });
 
     httpApi.addRoutes({
       path: "/escrow/dispute",
       methods: [apigateway.HttpMethod.POST],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "EscrowDisputeInt",
-        escrowFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: escrowInt,
     });
 
     httpApi.addRoutes({
@@ -3189,39 +3015,21 @@ export class ApiStack extends cdk.Stack {
       methods: [apigateway.HttpMethod.POST],
       // Admin pool only: settlement is an operator action (or the cron, in-process).
       authorizer: adminJwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "EscrowRefundInt",
-        escrowFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: escrowInt,
     });
 
     httpApi.addRoutes({
       path: "/escrow/{id}",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "EscrowGetInt",
-        escrowFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: escrowInt,
     });
 
     httpApi.addRoutes({
       path: "/escrow/history",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "EscrowHistoryInt",
-        escrowFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: escrowInt,
     });
 
     // F-33: fetch the escrow for a delivery. Distinct 3-segment path so it does
@@ -3230,13 +3038,7 @@ export class ApiStack extends cdk.Stack {
       path: "/escrow/by-delivery/{deliveryId}",
       methods: [apigateway.HttpMethod.GET],
       authorizer: jwtAuthorizer,
-      integration: new integrations.HttpLambdaIntegration(
-        "EscrowByDeliveryInt",
-        escrowFn.function,
-        {
-          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-        },
-      ),
+      integration: escrowInt,
     });
 
     // ─── Telebirr live env wiring + public webhook route (gated) ──────
@@ -3269,13 +3071,7 @@ export class ApiStack extends cdk.Stack {
           methods: [apigateway.HttpMethod.POST],
           // Public: NO authorizer. Telebirr authenticates via its RSA signature,
           // which TelebirrWebhookFunction verifies (+ optional IP allow-list).
-          integration: new integrations.HttpLambdaIntegration(
-            "TelebirrWebhookInt",
-            telebirrWebhookFn.function,
-            {
-              payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-            },
-          ),
+          integration: lambdaIntegration("TelebirrWebhookInt", telebirrWebhookFn),
         });
       }
     }
@@ -3449,13 +3245,10 @@ export class ApiStack extends cdk.Stack {
 
     // ─── Admin Routes (all authenticated) ─────────────────────────────
 
-    const adminIntegration = new integrations.HttpLambdaIntegration(
-      "AdminInt",
-      adminFn.function,
-      {
-        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-      },
-    );
+    // FUP-217: every admin route shares this one integration and the admin Lambda's one invoke
+    // permission (see lambdaIntegration). The id is the first admin route's (GET /admin/dashboard/stats),
+    // so that integration keeps its logical id.
+    const adminInt = lambdaIntegration("Admindashboard_statsGetInt", adminFn);
 
     // GET routes
     const adminGetPaths = [
@@ -3498,20 +3291,11 @@ export class ApiStack extends cdk.Stack {
     ];
 
     for (const path of adminGetPaths) {
-      const integId = `Admin${path
-        .replace("/admin/", "")
-        .replace(/[/{}-]/g, "_")}GetInt`;
       httpApi.addRoutes({
         path,
         methods: [apigateway.HttpMethod.GET],
         authorizer: adminJwtAuthorizer,
-        integration: new integrations.HttpLambdaIntegration(
-          integId,
-          adminFn.function,
-          {
-            payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-          },
-        ),
+        integration: adminInt,
       });
     }
 
@@ -3525,8 +3309,8 @@ export class ApiStack extends cdk.Stack {
       // ESC-02: record an admin-paid manual payout leg ({action} = complete). FUP-05: claim a leg before
       // paying it (claim) and give it back (unclaim); a claim is a conditional UpdateItem on the escrow row
       // or the ledger row (existing grants). One route for the three: with Telebirr live on, this stack
-      // holds 497 of CloudFormation's 500 resources, and each route costs a Route, an Integration and a
-      // Lambda permission. The Lambda answers 404 ADMIN_002 for any other action; admin group checked there.
+      // then held 497 of CloudFormation's 500 resources (FUP-217 has since freed room). The Lambda
+      // answers 404 ADMIN_002 for any other action; admin group checked there.
       "/admin/payouts/{escrowId}/{ref}/{action}",
       // FUP-02: record the manual refund of such a payment (admin group checked in the Lambda).
       // Uses the existing grants: escrow-audit read + write, orders read, transaction-audit write.
@@ -3538,20 +3322,11 @@ export class ApiStack extends cdk.Stack {
     ];
 
     for (const path of adminPostPaths) {
-      const integId = `Admin${path
-        .replace("/admin/", "")
-        .replace(/[/{}-]/g, "_")}PostInt`;
       httpApi.addRoutes({
         path,
         methods: [apigateway.HttpMethod.POST],
         authorizer: adminJwtAuthorizer,
-        integration: new integrations.HttpLambdaIntegration(
-          integId,
-          adminFn.function,
-          {
-            payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
-          },
-        ),
+        integration: adminInt,
       });
     }
 

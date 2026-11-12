@@ -838,7 +838,7 @@
     "ADMIN_021": "The split does not fit what the escrow still holds. Check the amounts: the farmer at most the crop held, the trucker at most the transport held, and the three adding up to what is held.",
     "ADMIN_013": "A payout for this escrow is waiting in the manual payout queue. Settle it there first.",
     "ADMIN_010": "This dispute can no longer be resolved: it is not open, or a settlement is in progress. Reload the page.",
-    "ADMIN_014": "Choose Farmer Wins or Buyer Wins.",
+    "ADMIN_014": "Choose Farmer Wins, Buyer Wins or Decide per leg. A per-leg verdict or a disposition needs a reason of 10 to 500 characters.",
     "ADMIN_015": "The order cannot follow this verdict as it is. Choose what happens to it.",
     "ADMIN_016": "That choice does not fit the order's current state. Reload the page and check the order.",
     "ADMIN_009": "Unknown action.",

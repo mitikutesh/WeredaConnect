@@ -14,6 +14,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/escrow_status_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class MockEscrowBloc extends Mock implements EscrowBloc {}
@@ -35,6 +36,8 @@ Payment _payment(
   PaymentStatus status, {
   String id = 'escrow-order-ord-1',
   DateTime? releaseNotBefore,
+  DateTime? expiresAt,
+  DateTime? deliveryConfirmedAt,
 }) {
   final now = DateTime.now().toUtc();
   return Payment()
@@ -52,7 +55,8 @@ Payment _payment(
     ..status = status
     ..createdAt = now
     ..updatedAt = now
-    ..expiresAt = now.add(const Duration(days: 7))
+    ..expiresAt = expiresAt ?? now.add(const Duration(days: 7))
+    ..deliveryConfirmedAt = deliveryConfirmedAt
     ..disputeWindowEndsAt = now.add(const Duration(hours: 24))
     ..releaseNotBefore = releaseNotBefore
     ..version = 1;
@@ -228,6 +232,94 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Payout expected'), findsNothing);
+    });
+  });
+
+  // FUP-97: the delivery is confirmed and the payout waits for the dispute
+  // window and the payout delay, which end after the hold's expiry. No party
+  // sees "Refund Pending", and the payees keep their payout day.
+  group('a confirmed hold past its expiry', () {
+    Payment confirmedPastExpiry(UserRole role) {
+      final now = DateTime.now().toUtc();
+      return _payment(
+        PaymentStatus.escrowed,
+        expiresAt: now.subtract(const Duration(hours: 1)),
+        deliveryConfirmedAt: now.subtract(const Duration(hours: 26)),
+        releaseNotBefore: role == UserRole.buyer ? null : _releaseNotBefore,
+      );
+    }
+
+    for (final role in UserRole.values) {
+      testWidgets('${role.name}: the detail reads held, not Refund Pending',
+          (tester) async {
+        tallView(tester);
+        signIn(role);
+        when(() => escrowBloc.state).thenReturn(
+          EscrowDetailLoaded(payment: confirmedPastExpiry(role)),
+        );
+
+        await tester.pumpWidget(
+          host(const EscrowStatusScreen(escrowId: 'escrow-order-ord-1')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.widgetWithText(EscrowStatusBadge, 'FUNDS HELD SAFELY'),
+          findsOneWidget,
+        );
+        expect(find.text('REFUND PENDING'), findsNothing);
+        expect(
+          find.text(_expectedText),
+          role == UserRole.buyer ? findsNothing : findsOneWidget,
+        );
+      });
+
+      testWidgets(
+          '${role.name}: the payment list reads held, not Refund '
+          'Pending', (tester) async {
+        signIn(role);
+        when(() => escrowBloc.state).thenReturn(
+          PaymentHistoryLoaded(payments: [confirmedPastExpiry(role)]),
+        );
+
+        await tester.pumpWidget(host(const PaymentHistoryScreen()));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.widgetWithText(EscrowStatusBadge, 'Funds Held Safely'),
+          findsOneWidget,
+        );
+        expect(
+          find.widgetWithText(EscrowStatusBadge, 'Refund Pending'),
+          findsNothing,
+        );
+        expect(
+          find.text(_expectedText),
+          role == UserRole.buyer ? findsNothing : findsOneWidget,
+        );
+      });
+    }
+
+    testWidgets('unconfirmed, the same past expiry still reads Refund Pending',
+        (tester) async {
+      tallView(tester);
+      signIn(UserRole.buyer);
+      when(() => escrowBloc.state).thenReturn(
+        EscrowDetailLoaded(
+          payment: _payment(
+            PaymentStatus.escrowed,
+            expiresAt:
+                DateTime.now().toUtc().subtract(const Duration(hours: 1)),
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        host(const EscrowStatusScreen(escrowId: 'escrow-order-ord-1')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('REFUND PENDING'), findsOneWidget);
     });
   });
 

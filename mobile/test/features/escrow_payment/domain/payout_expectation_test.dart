@@ -7,6 +7,8 @@ Payment _payment(
   PaymentStatus status, {
   DateTime? releaseNotBefore,
   bool refundPending = false,
+  DateTime? expiresAt,
+  DateTime? deliveryConfirmedAt,
 }) {
   final now = DateTime.now().toUtc();
   return Payment()
@@ -22,7 +24,8 @@ Payment _payment(
     ..refundPending = refundPending
     ..createdAt = now
     ..updatedAt = now
-    ..expiresAt = now.add(const Duration(days: 7))
+    ..expiresAt = expiresAt ?? now.add(const Duration(days: 7))
+    ..deliveryConfirmedAt = deliveryConfirmedAt
     ..releaseNotBefore = releaseNotBefore
     ..version = 1;
 }
@@ -67,6 +70,36 @@ void main() {
           PaymentStatus.escrowed,
           releaseNotBefore: at,
           refundPending: true,
+        ),
+        now: before,
+      ),
+      isNull,
+    );
+  });
+
+  test('a confirmed hold past its expiry still expects its payout (FUP-97)',
+      () {
+    final expired = DateTime.now().toUtc().subtract(const Duration(hours: 1));
+
+    expect(
+      expectedPayoutAt(
+        _payment(
+          PaymentStatus.escrowed,
+          releaseNotBefore: at,
+          expiresAt: expired,
+          deliveryConfirmedAt: expired.subtract(const Duration(days: 1)),
+        ),
+        now: before,
+      ),
+      at,
+    );
+    // Unconfirmed, the same past expiry is a refund on its way.
+    expect(
+      expectedPayoutAt(
+        _payment(
+          PaymentStatus.escrowed,
+          releaseNotBefore: at,
+          expiresAt: expired,
         ),
         now: before,
       ),

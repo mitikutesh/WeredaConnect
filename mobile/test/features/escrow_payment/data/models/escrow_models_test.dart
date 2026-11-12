@@ -423,6 +423,43 @@ void main() {
       expect(summary.expiresAt, isNull);
       expect(summary.refundPending, isFalse);
       expect(summary.refundReason, isNull);
+      // Pre-FUP-97 servers send no confirmation on the summary.
+      expect(summary.deliveryConfirmedAt, isNull);
+    });
+
+    test('fromJson reads deliveryConfirmedAt (FUP-97)', () {
+      final summary = EscrowSummary.fromJson(<String, dynamic>{
+        'escrowId': 'esc-003',
+        'deliveryId': 'del-003',
+        'amount': 500.0,
+        'commission': 12.50,
+        'currency': 'ETB',
+        'status': 'escrowed',
+        'createdAt': '2026-02-19T10:00:00Z',
+        'expiresAt': '2026-02-26T10:00:00Z',
+        'deliveryConfirmedAt': '2026-02-25T10:00:00Z',
+        'refundPending': false,
+      });
+
+      expect(summary.deliveryConfirmedAt, '2026-02-25T10:00:00Z');
+      expect(summary.refundPending, isFalse);
+    });
+  });
+
+  group('EscrowDetailResponse deliveryConfirmedAt (FUP-97)', () {
+    test('parses it, null when absent', () {
+      final confirmed = EscrowDetailResponse.fromJson(<String, dynamic>{
+        'escrowId': 'esc-001',
+        'status': 'escrowed',
+        'deliveryConfirmedAt': '2026-02-25T10:00:00Z',
+      });
+      final unconfirmed = EscrowDetailResponse.fromJson(<String, dynamic>{
+        'escrowId': 'esc-002',
+        'status': 'escrowed',
+      });
+
+      expect(confirmed.deliveryConfirmedAt, '2026-02-25T10:00:00Z');
+      expect(unconfirmed.deliveryConfirmedAt, isNull);
     });
   });
 

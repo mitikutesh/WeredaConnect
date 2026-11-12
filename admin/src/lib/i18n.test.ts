@@ -356,3 +356,17 @@ describe("legs and stuck order strings exist in every locale", () => {
     }
   });
 });
+
+/* FUP-173: ADMIN_014 (an invalid verdict request) names the three verdicts by the labels the pages show. */
+describe("ADMIN_014 names the three verdicts", () => {
+  for (const locale of locales) {
+    it(`${locale}`, () => {
+      const text = t("errors.ADMIN_014", locale);
+      for (const label of ["disputes.farmerWins", "disputes.buyerWins", "legs.decidePerLeg"]) {
+        expect(text).toContain(t(label, locale));
+      }
+      expect(text).toContain("10");
+      expect(text).toContain("500");
+    });
+  }
+});

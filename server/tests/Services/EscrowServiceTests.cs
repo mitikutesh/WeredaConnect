@@ -2912,6 +2912,95 @@ public class EscrowServiceTests
         Assert.Equal(expiresAt, summary.ExpiresAt);
         Assert.Equal(refundReason, summary.RefundReason);
         Assert.Equal(refundReason, dto.RefundReason);
+        Assert.Null(summary.DeliveryConfirmedAt);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("admin_refund", true)]
+    public void MapToEscrowSummaryDto_ConfirmedHoldPastItsExpiry_IsNotRefundPending_UnlessARefundIsScheduled(
+        string? refundReason, bool expected)
+    {
+        // FUP-97: a confirmed delivery's money waits for its release (the dispute window, then the
+        // FRD-13 payout delay), which can end after the expiry; the refund sweep never takes it.
+        // A refund decided on it anyway (an admin refund) is still on its way back.
+        var item = MakeEscrowItem(status: "escrowed");
+        item["deliveryConfirmedAt"] = "2020-01-01T00:00:00Z";
+        item["disputeWindowEndsAt"] = "2020-01-03T00:00:00Z";
+        item["expiresAt"] = "2020-01-02T00:00:00Z";
+        item[PayoutDelayPolicy.ReleaseNotBeforeField] = "2099-01-01T00:00:00Z";
+        if (refundReason != null)
+        {
+            item["refundReason"] = refundReason;
+        }
+
+        var buyerRow = EscrowService.MapToEscrowSummaryDto(item, isBuyer: true);
+        var payeeRow = EscrowService.MapToEscrowSummaryDto(item, isBuyer: false);
+        var dto = EscrowService.MapToEscrowDto(item);
+
+        Assert.Equal(expected, buyerRow.RefundPending);
+        Assert.Equal(expected, payeeRow.RefundPending);
+        Assert.Equal(expected, dto.RefundPending);
+        // Every party's row says the delivery is confirmed, so an offline client skips its expiry too.
+        Assert.Equal("2020-01-01T00:00:00Z", buyerRow.DeliveryConfirmedAt);
+        Assert.Equal("2020-01-01T00:00:00Z", payeeRow.DeliveryConfirmedAt);
+        Assert.Equal("2020-01-01T00:00:00Z", dto.DeliveryConfirmedAt);
+        // The payee's payout date is still sent next to it.
+        Assert.Equal("2099-01-01T00:00:00Z", payeeRow.ReleaseNotBefore);
+    }
+
+    [Theory]
+    [InlineData("refund", "2020-01-02T00:00:00Z", true)]
+    [InlineData("refund", "2099-01-02T00:00:00Z", true)]
+    [InlineData("release", "2020-01-02T00:00:00Z", false)]
+    public void MapToEscrowDto_ConfirmedHoldWithAnAdminRefundParkedInTheManualQueue_IsRefundPending(
+        string op, string expiresAt, bool expected)
+    {
+        // FUP-97 review: an admin refund of a delivered order whose gateway outcome is unknown arms no
+        // refundReason and parks in the manual payout queue; its money is on its way back to the buyer.
+        var item = MakeEscrowItem(status: "escrowed");
+        item["deliveryConfirmedAt"] = "2020-01-01T00:00:00Z";
+        item["expiresAt"] = expiresAt;
+        item[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;
+        item[ManualPayoutFields.Op] = op;
+
+        Assert.Equal(expected, EscrowService.MapToEscrowDto(item).RefundPending);
+        Assert.Equal(expected, EscrowService.MapToEscrowSummaryDto(item, isBuyer: true).RefundPending);
+        Assert.Equal(expected, EscrowService.MapToEscrowSummaryDto(item, isBuyer: false).RefundPending);
+    }
+
+    [Fact]
+    public void MapToEscrowSummaryDto_BlankDeliveryConfirmedAt_IsUnconfirmed_SoAPastExpiryIsRefundPending()
+    {
+        // FUP-97: the same reading as the refund arm's condition, where an empty stamp is no confirm.
+        var item = MakeEscrowItem(status: "escrowed");
+        item["deliveryConfirmedAt"] = "";
+        item["expiresAt"] = "2020-01-02T00:00:00Z";
+
+        Assert.True(EscrowService.MapToEscrowSummaryDto(item, isBuyer: true).RefundPending);
+        Assert.True(EscrowService.MapToEscrowDto(item).RefundPending);
+    }
+
+    [Theory]
+    [InlineData("held", false)]
+    [InlineData("refunded", true)]
+    public void MapToEscrowDto_ConfirmedLedgerEscrowPastItsExpiry_IsRefundPending_OnlyWhenItsCropLegIsRefunded(
+        string cropLeg, bool expected)
+    {
+        // FUP-97 on a ledger escrow (ESC-20): the expiry of a confirmed hold is no refund, a refund the
+        // ledger decided is.
+        var item = MakeEscrowItem(status: "escrowed");
+        item[LedgerEscrowFields.SettlementModel] = LedgerEscrowFields.ModelLedger;
+        item[LedgerEscrowFields.LegStatus] = new Dictionary<string, object>
+        {
+            [LedgerEscrowFields.LegCrop] = cropLeg,
+            [LedgerEscrowFields.LegCommission] = cropLeg
+        };
+        item["deliveryConfirmedAt"] = "2020-01-01T00:00:00Z";
+        item["expiresAt"] = "2020-01-02T00:00:00Z";
+
+        Assert.Equal(expected, EscrowService.MapToEscrowDto(item).RefundPending);
+        Assert.Equal(expected, EscrowService.MapToEscrowSummaryDto(item, isBuyer: true).RefundPending);
     }
 
     [Fact]

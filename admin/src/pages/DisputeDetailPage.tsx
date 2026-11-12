@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ArrowLeft, Lock } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -51,8 +51,10 @@ export function DisputeDetailPage() {
   const { t, locale } = useLocale();
   const navigate = useNavigate();
   const { data, isLoading, isError, error } = useEscrowDetail(id || "");
+  const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>("trail");
-  const [splitOpen, setSplitOpen] = useState(false);
+  // FUP-173: the Disputes list's "Decide per leg" link opens the page with the per-leg form shown.
+  const [splitOpen, setSplitOpen] = useState(() => searchParams.get("decide") === "split");
   const verdictFlow = useDisputeVerdict(t);
   const evidence = useDisputeEvidence(id || "");
 

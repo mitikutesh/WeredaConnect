@@ -424,6 +424,9 @@ class EscrowRepository extends BaseEscrowRepository {
             }
             payment.telebirrRef = existing.telebirrRef;
             payment.expiresAt ??= existing.expiresAt;
+            // A confirmation is never undone; servers before FUP-97 send none
+            // on the summary, so a cached one (from the detail) is kept.
+            payment.deliveryConfirmedAt ??= existing.deliveryConfirmedAt;
             payment.disputeWindowEndsAt = existing.disputeWindowEndsAt;
             // releaseNotBefore is NOT kept from the cache: the server sends it
             // to the farmer and the trucker only (FRD-13), so a buyer's
@@ -616,6 +619,8 @@ class EscrowRepository extends BaseEscrowRepository {
       ..createdAt = DateTime.parse(response.createdAt)
       ..updatedAt = DateTime.parse(response.updatedAt)
       ..expiresAt = DateTime.parse(response.expiresAt)
+      ..deliveryConfirmedAt =
+          DateTime.tryParse(response.deliveryConfirmedAt ?? '')
       ..disputeWindowEndsAt = response.disputeWindowEndsAt != null
           ? DateTime.parse(response.disputeWindowEndsAt!)
           : null
@@ -667,6 +672,8 @@ class EscrowRepository extends BaseEscrowRepository {
       ..expiresAt = summary.expiresAt != null
           ? DateTime.tryParse(summary.expiresAt!)
           : null
+      ..deliveryConfirmedAt =
+          DateTime.tryParse(summary.deliveryConfirmedAt ?? '')
       ..status = paymentStatusFromWire(summary.status)
       ..createdAt = DateTime.parse(summary.createdAt)
       ..updatedAt = DateTime.parse(summary.createdAt)

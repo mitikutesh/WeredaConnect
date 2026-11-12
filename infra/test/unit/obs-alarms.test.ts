@@ -444,14 +444,16 @@ describe('FUP-201: the ESC-33 lines nothing counted', () => {
     // The reasons the guard logs are exactly the metrics the stack publishes.
     const logged = [...new Set([...fraud.matchAll(/Skipped\(AttributedSignalOutcome\.(\w+)\)/g)].map((m) => m[1]))].sort();
     expect(logged).toEqual([...REASONS].sort());
-    // The handlers that write attributed signals: sync (the trucker's GPS_ANOMALY, FUP-203 moved it into a
-    // partial file of the sync handler) and, through the reputation hooks (FUP-204), every handler that
-    // records a reputation event: the stream and order-cron's unpark replay.
+    // The handlers that write attributed signals: sync (the trucker's GPS_ANOMALY; FUP-203 moved the call into a
+    // partial file of SyncFunction, so any SyncFunction.*.cs counts) and, through the reputation hooks (FUP-204),
+    // every handler that records a reputation event: the stream and order-cron's unpark replay.
     const callers = serverFilesMatching(/\.RecordAttributedSignalAsync\(/);
-    expect(callers.filter((f) => f.startsWith('Functions/'))).toEqual(['Functions/SyncFunction.TruckerGpsEvidence.cs']);
+    const handlerCallers = callers.filter((f) => f.startsWith('Functions/'));
+    expect(handlerCallers.length).toBeGreaterThan(0);
+    expect([...new Set(handlerCallers.map((f) => path.basename(f).split('.')[0]))]).toEqual(['SyncFunction']);
     expect(callers.filter((f) => f.startsWith('Services/'))).toEqual(['Services/ReputationFraudHooks.cs']);
     const recorders = serverFilesMatching(/new ReputationRecordProcessor\(|new ReputationUnparkJob\(/).filter((f) => f.startsWith('Functions/'));
-    expect(logGroupsOfHandlerFiles(['Functions/SyncFunction.TruckerGpsEvidence.cs', ...recorders]))
+    expect(logGroupsOfHandlerFiles([...handlerCallers, ...recorders]))
       .toEqual([lg('order-cron'), lg('reputation-stream'), lg('sync')]);
   });
 });

@@ -1390,7 +1390,7 @@ In every sweep of `EscrowCronFunction` the risk gate runs before the first money
 | Sweep | Gate position |
 |-------|---------------|
 | `AutoReleaseAsync` | After the eligibility filters (`deliveryConfirmedAt` set, `disputeWindowEndsAt` passed) and before `EscrowService.ReleaseAsync`, so before `ResolvePayoutAsync`, its `release_blocked_kyc` audit entry, the settlement lock and Telebirr |
-| `AutoRefundAsync` | After the confirmed-delivery skips (including the `IsDeliveryConfirmedAndStampAsync` repair), the order read, the progressing-order expiry extension and the not-refundable skip; before `TryCancelRefundedOrderAsync`, `TryRestoreListingStockAsync` and `EscrowService.RefundAsync`. A held escrow never sits behind a cancelled, restocked order |
+| `AutoRefundAsync` | After the confirmed-delivery skips (including the `IsDeliveryConfirmedAndStampAsync` repair), the order read, the progressing-order expiry extension and the not-refundable skip; before `TryCancelRefundedOrderAsync`, `EnsureListingStockRestoredAsync` (FUP-230: the refund waits while it fails) and `EscrowService.RefundAsync`. A held escrow never sits behind a cancelled, restocked order |
 | `SettleResolvedDisputesAsync` | After reading `disputeResolution` (`farmer_wins`, `buyer_wins`; `partial_refund` keeps today's skip) and before `ReleaseAsync` or `RefundAsync` |
 
 `ReleaseAsync` and `RefundAsync` keep refusing `held` for the system caller through their status check (defence in depth). The admin routes are not gated (matrix above). A leg paid after the settlement (the trucker retry, the ledger sweep) asks the payee again at the payout gate (section 17.6).
