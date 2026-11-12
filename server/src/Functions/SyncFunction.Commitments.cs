@@ -780,7 +780,10 @@ public partial class SyncFunction
             {
                 OperationId = operation.OperationId,
                 Status = "error",
-                Message = "TRIP_HAS_BOOKINGS: Crops from this trip are already on the way; it can no longer be cancelled."
+                // FUP-241: an app without X-App-Build gets the sentence as SYNC_VALIDATION.
+                Message = OldClientRefusal.ForClient(
+                    "TRIP_HAS_BOOKINGS: Crops from this trip are already on the way; it can no longer be cancelled.",
+                    _batchAppBuild, "TRIP_HAS_BOOKINGS", operation.EntityType)
             };
         }
 
