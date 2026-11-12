@@ -757,7 +757,8 @@ public partial class OrderCronFunction
     /// ESC-15: settle the commitment deadlines of paid orders. ESC-16: every 15 minutes, over the
     /// orders the sparse <c>DeadlineIndex</c> says are due (<see cref="SweepDueDeadlinesAsync"/>),
     /// each read again before it is decided. Every status transition is a version CAS on the
-    /// row as read (<see cref="IOrderRepository.UpdateAsync"/>), so a party's answer that lands
+    /// row as read (<see cref="IOrderRepository.UpdateAsync"/>; FUP-210: a cancel that refunds goes in
+    /// one transaction with its refund arm, <see cref="CancelWithRefundAsync"/>), so a party's answer that lands
     /// first wins and the cron only logs the conflict. Markers (reminders, pickup overdue) are
     /// stamped without a version bump, conditioned on the status the row was read in.
     /// Gated on <c>COMMITMENTS_ENABLED</c>; refuses to run when a dependency is unconfigured.
@@ -895,14 +896,13 @@ public partial class OrderCronFunction
             { OrderCommitment.FaultPartyField, OrderCommitment.Party.Farmer }
         };
 
-        if (!await ApplyTransitionAsync(order, orderId, fields, "funded", "cancelled",
-                "order_cancelled", "farmer_response_expired", run))
+        var cancel = await CancelWithRefundAsync(order, orderId, fields, "funded", "farmer_response_expired", run, escrow);
+        if (cancel != DeadlineOutcome.Applied)
         {
-            return DeadlineOutcome.Conflict;
+            return cancel;
         }
 
         run.FarmerExpired++;
-        await ScheduleRefundAsync(orderId, run, escrow);
         await RestoreStockAsync(order, orderId, run, crops);
 
         // The farmer never agreed, so no booking was confirmed; the money hold still took the
@@ -1099,14 +1099,14 @@ public partial class OrderCronFunction
             { OrderCommitment.FaultPartyField, OrderCommitment.Party.None }
         };
 
-        if (!await ApplyTransitionAsync(order, orderId, fields, OrderCommitment.AwaitingTransportStatus, "cancelled",
-                "order_cancelled", "transport_not_arranged", run))
+        var cancel = await CancelWithRefundAsync(
+            order, orderId, fields, OrderCommitment.AwaitingTransportStatus, "transport_not_arranged", run, escrow);
+        if (cancel != DeadlineOutcome.Applied)
         {
-            return DeadlineOutcome.Conflict;
+            return cancel;
         }
 
         run.BuyerChoiceExpired++;
-        await ScheduleRefundAsync(orderId, run, escrow);
         await RestoreStockAsync(order, orderId, run, crops);
         return DeadlineOutcome.Applied;
     }
@@ -1371,12 +1371,110 @@ public partial class OrderCronFunction
             return false;
         }
 
+        await NoteTransitionAsync(orderId, fromStatus, toStatus, auditAction, reason, run);
+        return true;
+    }
+
+    /// <summary>An applied transition: logged, and audited as the system actor.</summary>
+    private async Task NoteTransitionAsync(
+        string orderId, string fromStatus, string toStatus, string auditAction, string reason, CommitmentRun run)
+    {
         run.Context.Logger.LogInformation(
             $"Commitment deadlines: order {MoneyAlarmLog.LogId(orderId)} {fromStatus} -> {toStatus} ({reason}).");
         await TransactionAuditWriter.EmitAsync(
             _transactionAuditRepo, run.Context, orderId, "order", orderId,
             auditAction, fromStatus, toStatus, AuditContext.ForSystem(), metadata: reason);
-        return true;
+    }
+
+    /// <summary>FUP-210: plans per deadline cancel that refunds (an escrow can change between the plan and the write).</summary>
+    private const int RefundCancelAttempts = 3;
+
+    /// <summary>FUP-210: the <c>refundReason</c> a deadline cancel arms (the one <see cref="ScheduleRefundAsync"/> arms too).</summary>
+    private const string DeadlineRefundReason = "order_cancelled";
+
+    /// <summary>
+    /// FUP-210: a deadline cancel left for a later run because its refund could not be armed with it
+    /// (the money is frozen or being settled, or kept changing). Nothing was written.
+    /// </summary>
+    internal const string DeadlineRefundWaitingToken = "ORDER_DEADLINE_REFUND_WAITING";
+
+    /// <summary>
+    /// FUP-210: the deadline cancel of a paid order (<c>farmer_response_expired</c>,
+    /// <c>transport_not_arranged</c>) and the refund arm on its money in one DynamoDB transaction
+    /// (<see cref="EscrowService.PlanOrderRefundAsync"/>, <see cref="EscrowService.CloseOrderWithRefundAsync"/>),
+    /// as the funded reject in sync does since FUP-53, so a hold or a settlement can no longer reach the
+    /// escrow between the cancel and the arm and leave the cancelled order's refund unarmed.
+    /// <list type="bullet">
+    /// <item>Plain holds: the cancel (the version and status as read) and the arm on each
+    /// (<c>refundReason: order_cancelled</c>, <c>expiresAt = now</c>) land together, then one
+    /// <c>refund_scheduled</c> row each. An escrow held for review is not armed (its admin decides it)
+    /// and the cancel lands only while it is still held.</item>
+    /// <item>Money frozen or moving (disputed, under a settlement lock, in the manual payout queue):
+    /// <see cref="DeadlineOutcome.Waiting"/> with <see cref="DeadlineRefundWaitingToken"/>, nothing
+    /// written, and the row comes back later. Never a cancel without its arm.</item>
+    /// <item>No escrow record holds the money: the version CAS cancel and the best-effort refund
+    /// schedule after it, as before.</item>
+    /// </list>
+    /// An escrow that changed under the transaction is planned again, at most
+    /// <see cref="RefundCancelAttempts"/> times, then the row waits too. The order having moved is a
+    /// conflict, as before. A read or a transaction that fails throws with nothing written, and the
+    /// row is tried again next run (<see cref="DeadlineRowFailedToken"/>).
+    /// </summary>
+    private async Task<DeadlineOutcome> CancelWithRefundAsync(
+        Dictionary<string, object> order, string orderId, Dictionary<string, object> fields,
+        string fromStatus, string reason, CommitmentRun run, EscrowService escrow)
+    {
+        for (var attempt = 1; attempt <= RefundCancelAttempts; attempt++)
+        {
+            var plan = await escrow.PlanOrderRefundAsync(orderId);
+            if (plan.Readiness == OrderRefundReadiness.Busy)
+            {
+                return RefundWaiting(orderId, reason, "escrow_busy", run);
+            }
+
+            if (plan.Readiness == OrderRefundReadiness.Nothing)
+            {
+                if (!await ApplyTransitionAsync(order, orderId, fields, fromStatus, "cancelled", "order_cancelled", reason, run))
+                {
+                    return DeadlineOutcome.Conflict;
+                }
+
+                await ScheduleRefundAsync(orderId, run, escrow);
+                return DeadlineOutcome.Applied;
+            }
+
+            var write = await escrow.CloseOrderWithRefundAsync(
+                orderId, fields, GetInt(order, "version"), fromStatus, plan, DeadlineRefundReason, "system", AuditContext.ForSystem());
+            switch (write.Outcome)
+            {
+                case OrderLinkedWriteOutcome.Written:
+                    await NoteTransitionAsync(orderId, fromStatus, "cancelled", "order_cancelled", reason, run);
+                    run.Context.Logger.LogInformation(plan.Held.Count > 0
+                        ? $"Order escrow refund scheduled: orderId={MoneyAlarmLog.LogId(orderId)} reason={DeadlineRefundReason}"
+                        : $"No refundable order escrow for orderId={MoneyAlarmLog.LogId(orderId)} ({DeadlineRefundReason}): held for review.");
+                    return DeadlineOutcome.Applied;
+
+                case OrderLinkedWriteOutcome.OrderChanged:
+                case OrderLinkedWriteOutcome.OrderNotFound:
+                    run.Conflicts++;
+                    run.Context.Logger.LogWarning(
+                        $"Commitment deadlines: order {MoneyAlarmLog.LogId(orderId)} changed since it was read ({write.Outcome}); {reason} not applied this run.");
+                    return DeadlineOutcome.Conflict;
+            }
+
+            // LinkedItemRefused: an escrow changed after the plan (a hold, a settlement, a released hold). Plan again.
+        }
+
+        return RefundWaiting(orderId, reason, "escrow_changed", run);
+    }
+
+    /// <summary>FUP-210: log why a deadline cancel waits (<see cref="DeadlineRefundWaitingToken"/>).</summary>
+    private static DeadlineOutcome RefundWaiting(string orderId, string reason, string why, CommitmentRun run)
+    {
+        run.Context.Logger.LogWarning(
+            $"{DeadlineRefundWaitingToken} orderId={MoneyAlarmLog.LogId(orderId)} cancelReason={reason} reason={why}: "
+            + $"the refund could not be armed with the cancel, nothing written; looked at again in {OrderTimings.HoursText(DeadlineRetryAfter)}h.");
+        return DeadlineOutcome.Waiting;
     }
 
     /// <summary>
@@ -1401,7 +1499,9 @@ public partial class OrderCronFunction
 
     /// <summary>
     /// Expire the order's escrow so the hourly refund sweep pays the buyer back. The same alarm
-    /// token as SyncFunction's cancel path: a failure here leaves the buyer's money held.
+    /// token as SyncFunction's cancel path: a failure here leaves the buyer's money held. FUP-210:
+    /// only after a cancel whose plan found no escrow record holding the money; otherwise
+    /// <see cref="CancelWithRefundAsync"/> arms in the cancel's own transaction.
     /// </summary>
     private static async Task ScheduleRefundAsync(string orderId, CommitmentRun run, EscrowService escrow)
     {

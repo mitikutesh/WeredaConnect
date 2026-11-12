@@ -350,6 +350,57 @@ public class EscrowCronHoldCapTests
     }
 
     [Fact]
+    public async Task AdminRefundCancel_WhoseRestoreFailed_GetsItsStockBackBeforeTheSweepRefunds()
+    {
+        // FUP-211: the admin's cancel armed the refund in its own write and its restore failed after
+        // (the admin got 503); the sweep finds the armed refund first and gives the stock back first.
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-3), refundReason: "admin_refund"));
+        OrderIs("cancelled", cancelReason: "escrow_refunded");
+        _crops.RestoreStockAsync("listing-1", OrderId, 5.0).Returns(StockRestoreResult.Restored);
+
+        await RunAsync();
+
+        Received.InOrder(() =>
+        {
+            _crops.RestoreStockAsync("listing-1", OrderId, 5.0);
+            _gateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        });
+        _swept!.AssertServed();
+    }
+
+    [Theory]
+    [InlineData("admin_refund")]
+    [InlineData(EscrowCronFunction.ExpiredOrderRefundReason)]
+    public async Task EscrowRefundedCancel_RestockKeepsFailing_BlocksTheRefundThisRun(string refundReason)
+    {
+        // Fail closed for the sweep's own cancel too (a refund that failed after it is retried here).
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-3), refundReason: refundReason));
+        OrderIs("cancelled", cancelReason: EscrowCronFunction.EscrowRefundedCancelReason);
+        _crops.RestoreStockAsync("listing-1", OrderId, 5.0).Returns(StockRestoreResult.Failed);
+
+        await RunAsync();
+
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        Logs.Should().Contain("ORDER_STOCK_RESTORE_FAILED orderId=ord-1 listingId=listing-1");
+        _swept!.AssertServed();
+    }
+
+    [Theory]
+    [InlineData(StockRestoreResult.AlreadyRestored)]
+    [InlineData(StockRestoreResult.ListingNotFound)]
+    public async Task EscrowRefundedCancel_StockAlreadyBackOrListingGone_Refunds(StockRestoreResult restock)
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-3), refundReason: EscrowCronFunction.ExpiredOrderRefundReason));
+        OrderIs("cancelled", cancelReason: EscrowCronFunction.EscrowRefundedCancelReason);
+        _crops.RestoreStockAsync("listing-1", OrderId, 5.0).Returns(restock);
+
+        await RunAsync();
+
+        await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        Logs.Should().NotContain("ORDER_STOCK_RESTORE_FAILED");
+    }
+
+    [Fact]
     public async Task OtherCancelReasons_DoNotRestockInTheSweep()
     {
         SweepFinds(Escrow(DateTime.UtcNow.AddDays(-3), refundReason: "order_cancelled"));

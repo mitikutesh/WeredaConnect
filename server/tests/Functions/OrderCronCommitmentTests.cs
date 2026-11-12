@@ -52,6 +52,11 @@ public class OrderCronCommitmentTests
         _orders.UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
             .Returns(ci => AuthResult<Dictionary<string, object>>.Success(
                 new Dictionary<string, object> { { "orderId", ci.Arg<string>() } }));
+        // FUP-210: a deadline cancel and its refund arm are one transaction.
+        _orders.TryUpdateWithAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .Returns(ci => new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written,
+                new Dictionary<string, object> { { "orderId", ci.ArgAt<string>(0) } }));
         _orders.TryStampAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(),
                 Arg.Any<IReadOnlyDictionary<string, string>>())
             .Returns(true);
@@ -61,6 +66,8 @@ public class OrderCronCommitmentTests
         _deliveries.TryCancelPendingAsync(Arg.Any<string>()).Returns(true);
         _escrows.QueryByOrderIdAsync(Arg.Any<string>(), Arg.Any<int>())
             .Returns(ci => new List<Dictionary<string, object>> { EscrowedRow(ci.Arg<string>()) });
+        _escrows.GetByIdAsync(Arg.Any<string>(), true)
+            .Returns(ci => EscrowedRow(ci.ArgAt<string>(0)["escrow-order-".Length..]));
     }
 
     // ===== fixture =====
@@ -192,22 +199,44 @@ public class OrderCronCommitmentTests
     private static Dictionary<string, object> Delivery(string status)
         => new() { { "deliveryId", DeliveryId }, { "orderId", OrderId }, { "status", status } };
 
-    private Task AssertRefundScheduled()
-        => _escrows.Received(1).UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
-            Arg.Is<Dictionary<string, object>?>(f =>
-                f != null && f.ContainsKey("expiresAt") && (string)f["refundReason"] == "order_cancelled"));
-
-    private Task AssertNoRefundScheduled()
-        => _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+    /// <summary>
+    /// FUP-210: the refund is armed in the cancel's own transaction (<c>refundReason: order_cancelled</c>,
+    /// <c>expiresAt</c> now), with its <c>refund_scheduled</c> row, and never by a separate write.
+    /// </summary>
+    private async Task AssertRefundScheduled()
+    {
+        _escrows.Received(1).BuildRefundArm(EscrowId, Arg.Any<string>(), "order_cancelled", Arg.Any<string>(), false);
+        await _escrowAudit.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            (string)e["escrowId"] == EscrowId && (string)e["action"] == "refund_scheduled"
+            && (string)e["actor"] == "system" && (string)e["metadata"] == "order_cancelled"));
+        await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    /// <summary>Nothing armed: no separate arm, and no transaction carrying one landed (no <c>refund_scheduled</c> row).</summary>
+    private async Task AssertNoRefundScheduled()
+    {
+        await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _escrowAudit.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            (string)e["action"] == "refund_scheduled"));
+    }
+
+    /// <summary>FUP-210: the deadline cancel with its refund arm, from <paramref name="from"/>.</summary>
+    private Task AssertCancelledWithTheArm(string from, Func<Dictionary<string, object>, bool> fields)
+        => _orders.Received(1).TryUpdateWithAsync(OrderId, Arg.Is<Dictionary<string, object>>(f => fields(f)), 4, from,
+            Arg.Is<IReadOnlyList<TransactWriteItem>>(items => items.Count == 1));
 
     private Task AssertAudited(string action, string from, string to)
         => _txAudit.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
             (string)e["entityId"] == OrderId && (string)e["action"] == action && (string)e["actor"] == "system"
             && (string)e["fromState"] == from && (string)e["toState"] == to));
 
-    private Task AssertNoOrderWrite()
-        => _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    private async Task AssertNoOrderWrite()
+    {
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await _orders.DidNotReceiveWithAnyArgs().TryUpdateWithAsync(default!, default!, default, default!, default!);
+    }
 
     private Task AssertNoStamp()
         => _orders.DidNotReceive().TryStampAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(),
@@ -224,17 +253,19 @@ public class OrderCronCommitmentTests
 
         Assert.Equal(200, actual.StatusCode);
         Assert.Contains("\"farmerExpired\":\"1\"", actual.Body);
-        await _orders.Received(1).UpdateAsync(OrderId, Arg.Is<Dictionary<string, object>>(f =>
+        await AssertCancelledWithTheArm("funded", f =>
             (string)f["status"] == "cancelled"
             && (string)f["cancelReason"] == "farmer_response_expired"
             && (string)f[OrderCommitment.FarmerResponseField] == OrderCommitment.Response.Expired
             && (string)f[OrderCommitment.CancelledByField] == OrderCommitment.Party.System
             && (string)f[OrderCommitment.FaultPartyField] == OrderCommitment.Party.Farmer
-            && f.ContainsKey("cancelledAt")), 4);
+            && f.ContainsKey("cancelledAt"));
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
         await AssertAudited("order_cancelled", "funded", "cancelled");
         await AssertRefundScheduled();
         await _crops.Received(1).TryRestoreStockAsync(ListingId, OrderId, Quintals);
         await _trips.Received(1).TryReleaseCapacityAsync(TripId, OrderId, Quintals);
+        Assert.Contains($"Order escrow refund scheduled: orderId={OrderId} reason=order_cancelled", Logs);
     }
 
     [Fact]
@@ -244,8 +275,7 @@ public class OrderCronCommitmentTests
 
         await RunAsync();
 
-        await _orders.Received(1).UpdateAsync(OrderId, Arg.Is<Dictionary<string, object>>(f =>
-            (string)f["status"] == "cancelled"), 4);
+        await AssertCancelledWithTheArm("funded", f => (string)f["status"] == "cancelled");
         await AssertRefundScheduled();
         await _trips.DidNotReceive().TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
     }
@@ -259,7 +289,7 @@ public class OrderCronCommitmentTests
 
         await RunAsync();
 
-        await _orders.Received(1).UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4);
+        await AssertCancelledWithTheArm("funded", _ => true);
         await _trips.DidNotReceive().TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
     }
 
@@ -458,11 +488,11 @@ public class OrderCronCommitmentTests
         var actual = await RunAsync();
 
         Assert.Contains("\"buyerChoiceExpired\":\"1\"", actual.Body);
-        await _orders.Received(1).UpdateAsync(OrderId, Arg.Is<Dictionary<string, object>>(f =>
+        await AssertCancelledWithTheArm(OrderCommitment.AwaitingTransportStatus, f =>
             (string)f["status"] == "cancelled"
             && (string)f["cancelReason"] == "transport_not_arranged"
             && (string)f[OrderCommitment.CancelledByField] == OrderCommitment.Party.System
-            && (string)f[OrderCommitment.FaultPartyField] == OrderCommitment.Party.None), 4);
+            && (string)f[OrderCommitment.FaultPartyField] == OrderCommitment.Party.None);
         await AssertAudited("order_cancelled", OrderCommitment.AwaitingTransportStatus, "cancelled");
         await AssertRefundScheduled();
         await _crops.Received(1).TryRestoreStockAsync(ListingId, OrderId, Quintals);
@@ -640,8 +670,9 @@ public class OrderCronCommitmentTests
     [Fact]
     public async Task VersionConflict_IsLoggedNotThrown_AndNoMoneyMoves()
     {
-        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4)
-            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "version moved"));
+        _orders.TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4, Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .Returns(new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged));
         Serve("funded", FarmerPendingOrder(deadlineInHours: -1));
 
         var actual = await RunAsync();
@@ -674,8 +705,9 @@ public class OrderCronCommitmentTests
     }
 
     [Fact]
-    public async Task RefundSchedulingFails_LogsTheMoneyAlarm_AndTheRunGoesOn()
+    public async Task EscrowUnreadable_NothingIsCancelled_AndTheRowIsTriedAgainNextRun()
     {
+        // FUP-210: the cancel waits for a plan of its money; before, it cancelled and the arm failed after.
         _escrows.QueryByOrderIdAsync(Arg.Any<string>(), Arg.Any<int>())
             .ThrowsAsync(new AmazonDynamoDBException("throttled"));
         Serve("funded", FarmerPendingOrder(deadlineInHours: -1));
@@ -683,12 +715,136 @@ public class OrderCronCommitmentTests
         var actual = await RunAsync();
 
         Assert.Equal(200, actual.StatusCode);
+        Assert.Contains("\"farmerExpired\":\"0\"", actual.Body);
+        Assert.Contains("\"rowErrors\":\"1\"", actual.Body);
+        Assert.Contains($"{OrderCronFunction.DeadlineRowFailedToken} orderId={OrderId} reason=[AmazonDynamoDBException]", Logs);
+        Assert.DoesNotContain("ORDER_ESCROW_REFUND_SCHEDULE_FAILED", Logs);
+        await AssertNoOrderWrite();
+        await AssertNoRefundScheduled();
+        await _crops.DidNotReceive().TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+        await _trips.DidNotReceive().TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+    }
+
+    [Fact]
+    public async Task NoEscrowRecord_CancelsAsBefore_AndASeparateScheduleThatFails_LogsTheMoneyAlarm()
+    {
+        // No record holds the money (its create failed at funding): the version CAS cancel, then the
+        // best-effort schedule, which fails here. The run goes on.
+        _escrows.GetByIdAsync(Arg.Any<string>(), true).Returns((Dictionary<string, object>?)null);
+        _escrows.QueryByOrderIdAsync(Arg.Any<string>(), Arg.Any<int>()).Returns(
+            _ => new List<Dictionary<string, object>>(),
+            _ => throw new AmazonDynamoDBException("throttled"));
+        Serve("funded", FarmerPendingOrder(deadlineInHours: -1));
+
+        var actual = await RunAsync();
+
+        Assert.Equal(200, actual.StatusCode);
         Assert.Contains("\"farmerExpired\":\"1\"", actual.Body);
+        await _orders.Received(1).UpdateAsync(OrderId, Arg.Is<Dictionary<string, object>>(f =>
+            (string)f["status"] == "cancelled" && (string)f["cancelReason"] == "farmer_response_expired"), 4);
+        await _orders.DidNotReceiveWithAnyArgs().TryUpdateWithAsync(default!, default!, default, default!, default!);
+        await AssertAudited("order_cancelled", "funded", "cancelled");
         Assert.Contains("ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId=", Logs);
         Assert.Contains("reason=[AmazonDynamoDBException]", Logs);
         // Best effort: the stock still goes back and the truck is still freed.
         await _crops.Received(1).TryRestoreStockAsync(ListingId, OrderId, Quintals);
         await _trips.Received(1).TryReleaseCapacityAsync(TripId, OrderId, Quintals);
+    }
+
+    // ===== FUP-210: the cancel and the refund arm are one write =====
+
+    [Theory]
+    [InlineData("disputed", null, null)]
+    [InlineData("dispute_resolved", null, null)]
+    [InlineData("escrowed", "settlementLock", "refund")]
+    [InlineData("escrowed", "manualPayout", "open")]
+    [InlineData("escrowed", "deliveryConfirmedAt", "2026-11-12T08:00:00.0000000Z")]
+    public async Task MoneyFrozenOrMoving_TheOrderWaits_NothingWritten(string escrowStatus, string? marker, string? value)
+    {
+        var escrow = EscrowedRow(OrderId);
+        escrow["status"] = escrowStatus;
+        if (marker != null)
+        {
+            escrow[marker] = value!;
+        }
+
+        _escrows.GetByIdAsync(EscrowId, true).Returns(escrow);
+        Serve("funded", FarmerPendingOrder(deadlineInHours: -1));
+
+        var actual = await RunAsync();
+
+        Assert.Contains("\"farmerExpired\":\"0\"", actual.Body);
+        Assert.Contains("\"retried\":\"1\"", actual.Body);
+        Assert.Contains($"{OrderCronFunction.DeadlineRefundWaitingToken} orderId={OrderId} cancelReason=farmer_response_expired reason=escrow_busy", Logs);
+        await AssertNoOrderWrite();
+        await AssertNoRefundScheduled();
+        await _txAudit.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        await _crops.DidNotReceive().TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+        await _trips.DidNotReceive().TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+        // Looked at again in an hour, at the version read.
+        await _orders.Received(1).TrySetDeadlineAsync(OrderId, Arg.Any<string>(), 4,
+            Arg.Is<OrderDeadline?>(d => d != null && d.Value.At > DateTime.UtcNow.AddMinutes(55)));
+    }
+
+    [Fact]
+    public async Task EscrowChangedUnderTheWrite_IsPlannedAgain_ThenCancelsAndArms()
+    {
+        // A released hold, say: the first transaction is refused, the second plan arms.
+        _orders.TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4, Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .Returns(
+                new OrderLinkedWriteResult(OrderLinkedWriteOutcome.LinkedItemRefused),
+                new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written, new Dictionary<string, object> { { "orderId", OrderId } }));
+        Serve(OrderCommitment.AwaitingTransportStatus, AwaitingTransportOrder(deadlineInHours: -1));
+
+        var actual = await RunAsync();
+
+        Assert.Contains("\"buyerChoiceExpired\":\"1\"", actual.Body);
+        await _orders.Received(2).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4,
+            OrderCommitment.AwaitingTransportStatus, Arg.Any<IReadOnlyList<TransactWriteItem>>());
+        await _escrowAudit.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e => (string)e["action"] == "refund_scheduled"));
+        await AssertAudited("order_cancelled", OrderCommitment.AwaitingTransportStatus, "cancelled");
+        await _crops.Received(1).TryRestoreStockAsync(ListingId, OrderId, Quintals);
+    }
+
+    [Fact]
+    public async Task EscrowKeepsChanging_TheOrderWaits_AfterThreePlans()
+    {
+        _orders.TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4, Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .Returns(new OrderLinkedWriteResult(OrderLinkedWriteOutcome.LinkedItemRefused));
+        Serve("funded", FarmerPendingOrder(deadlineInHours: -1));
+
+        var actual = await RunAsync();
+
+        Assert.Contains("\"farmerExpired\":\"0\"", actual.Body);
+        Assert.Contains("\"retried\":\"1\"", actual.Body);
+        Assert.Contains($"{OrderCronFunction.DeadlineRefundWaitingToken} orderId={OrderId} cancelReason=farmer_response_expired reason=escrow_changed", Logs);
+        await _orders.Received(3).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4, "funded",
+            Arg.Any<IReadOnlyList<TransactWriteItem>>());
+        await AssertNoRefundScheduled();
+        await _txAudit.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        await _crops.DidNotReceive().TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+    }
+
+    [Fact]
+    public async Task EscrowHeldForReview_CancelsWhileTheHoldStands_AndArmsNothing()
+    {
+        // FRD-03: the held money is its admin's to decide, as before (the separate arm found it held).
+        var held = EscrowedRow(OrderId);
+        held["status"] = "held";
+        _escrows.GetByIdAsync(EscrowId, true).Returns(held);
+        Serve("funded", FarmerPendingOrder(deadlineInHours: -1));
+
+        var actual = await RunAsync();
+
+        Assert.Contains("\"farmerExpired\":\"1\"", actual.Body);
+        _escrows.Received(1).BuildStatusCheck(EscrowId, Arg.Any<string>(), "held");
+        _escrows.DidNotReceiveWithAnyArgs().BuildRefundArm(default!, default!, default!, default!, default);
+        await AssertCancelledWithTheArm("funded", f => (string)f["cancelReason"] == "farmer_response_expired");
+        await AssertNoRefundScheduled();
+        Assert.Contains($"No refundable order escrow for orderId={OrderId} (order_cancelled): held for review.", Logs);
+        await _crops.Received(1).TryRestoreStockAsync(ListingId, OrderId, Quintals);
     }
 
     [Fact]
