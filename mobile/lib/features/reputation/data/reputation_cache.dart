@@ -35,6 +35,7 @@ class ReputationCache {
   static String _userPrefix(String userId) => '$keyPrefix$userId:';
   static String _ownKey(String userId) => '${_userPrefix(userId)}me';
   static String _eventsKey(String userId) => '${_userPrefix(userId)}events';
+  static String _ratingKey(String userId) => '${_userPrefix(userId)}rating';
   static String _draftKey(String userId, String eventId) =>
       '${_userPrefix(userId)}draft:$eventId';
 
@@ -58,6 +59,18 @@ class ReputationCache {
     DateTime fetchedAt,
   ) =>
       _write(_eventsKey(userId), body, fetchedAt);
+
+  /// The user's own rating aggregate (`{average, count}`), kept beside the
+  /// reputation answer for the Profile tile.
+  Future<CachedReputationBody?> readRating(String userId) =>
+      _read(_ratingKey(userId));
+
+  Future<void> writeRating(
+    String userId,
+    Map<String, dynamic> body,
+    DateTime fetchedAt,
+  ) =>
+      _write(_ratingKey(userId), body, fetchedAt);
 
   /// The unsent appeal text for [eventId], or null.
   Future<String?> readDraft(String userId, String eventId) async {

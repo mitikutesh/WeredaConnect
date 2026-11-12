@@ -8,8 +8,12 @@ enum ReputationLoad {
   loading,
   ready,
 
-  /// The request failed and nothing is saved on the device.
+  /// No connection, and nothing is saved on the device.
   unavailable,
+
+  /// The server answered with an error (not a connection problem), and
+  /// nothing is saved on the device.
+  failed,
 }
 
 /// The My reputation screen: the user's own standing and, apart from it,

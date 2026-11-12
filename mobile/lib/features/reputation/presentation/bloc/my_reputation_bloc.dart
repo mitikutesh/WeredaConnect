@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
 import 'package:wereda_connect/features/reputation/presentation/bloc/my_reputation_event.dart';
 import 'package:wereda_connect/features/reputation/presentation/bloc/my_reputation_state.dart';
@@ -57,7 +58,7 @@ class MyReputationBloc extends Bloc<MyReputationEvent, MyReputationState> {
     } on Object catch (e) {
       debugPrint('[MyReputationBloc] own reputation unavailable: $e');
       if (state.reputation == null) {
-        emit(state.copyWith(status: ReputationLoad.unavailable));
+        emit(state.copyWith(status: _loadFailure(e)));
       } else {
         emit(state.copyWith(stale: true));
       }
@@ -89,7 +90,7 @@ class MyReputationBloc extends Bloc<MyReputationEvent, MyReputationState> {
     } on Object catch (e) {
       debugPrint('[MyReputationBloc] events unavailable: $e');
       if (state.eventsStatus != ReputationLoad.ready) {
-        emit(state.copyWith(eventsStatus: ReputationLoad.unavailable));
+        emit(state.copyWith(eventsStatus: _loadFailure(e)));
       }
     }
   }
@@ -119,6 +120,16 @@ class MyReputationBloc extends Bloc<MyReputationEvent, MyReputationState> {
       emit(state.copyWith(loadingMore: false, moreFailed: true));
     }
   }
+
+  /// No connection reads as [ReputationLoad.unavailable] ("connect to the
+  /// internet"); anything the server answered as [ReputationLoad.failed].
+  static ReputationLoad _loadFailure(Object error) =>
+      switch (mapErrorToCode(error)) {
+        AppErrorCode.network ||
+        AppErrorCode.timeout =>
+          ReputationLoad.unavailable,
+        _ => ReputationLoad.failed,
+      };
 
   void _onAppealSent(
     MyReputationAppealSent event,

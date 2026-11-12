@@ -85,6 +85,15 @@ void main() {
     ratings = MockRatingRepository();
     when(() => ratings.getRatingSummary(any()))
         .thenAnswer((_) async => RatingSummary.empty);
+    when(() => reputation.readOwnRatingSummary(any()))
+        .thenAnswer((_) async => null);
+    when(
+      () => reputation.saveOwnRatingSummary(
+        any(),
+        average: any(named: 'average'),
+        count: any(named: 'count'),
+      ),
+    ).thenAnswer((_) async {});
   });
 
   Future<void> pumpProfile(
@@ -159,15 +168,38 @@ void main() {
         expect(find.text('Rating'), findsOneWidget);
       });
 
-      testWidgets('no ratings yet: a neutral word, not a dash', (tester) async {
+      testWidgets(
+          'no ratings yet (the reputation and the ratings agree): a neutral '
+          'word, not a dash', (tester) async {
         when(() => reputation.loadOwn('user-1')).thenAnswer(
           (_) async => snapshot(
             ownReputation(penaltiesEnabled: false, rated: false),
+            fetchedAt: DateTime.now().toUtc(),
           ),
         );
         await pumpProfile(tester, role);
 
         expect(ratingTile(tester), 'None yet');
+        verify(() => ratings.getRatingSummary('user-1')).called(1);
+      });
+
+      // A rated user whose row the server's rating backfill has not reached
+      // reads count 0 on /reputation/me: never "None yet" for them.
+      testWidgets('reputation says 0, ratings say 12: the average is shown',
+          (tester) async {
+        when(() => reputation.loadOwn('user-1')).thenAnswer(
+          (_) async => snapshot(
+            ownReputation(penaltiesEnabled: false, rated: false),
+            fetchedAt: DateTime.now().toUtc(),
+          ),
+        );
+        when(() => ratings.getRatingSummary('user-1')).thenAnswer(
+          (_) async => const RatingSummary(average: 4.7, count: 12),
+        );
+        await pumpProfile(tester, role);
+
+        expect(ratingTile(tester), '4.7');
+        expect(find.text('None yet'), findsNothing);
       });
 
       testWidgets('the dash stays while the rating is being read',
@@ -259,11 +291,12 @@ void main() {
 
   group('buyer', () {
     testWidgets(
-        'buyers are not rated: the neutral word, with no call for a '
+        'buyers are never rated: the dash as before, with no call for a '
         'reputation or a rating', (tester) async {
       await pumpProfile(tester, UserRole.buyer);
 
-      expect(ratingTile(tester), 'None yet');
+      expect(ratingTile(tester), '-');
+      expect(find.text('None yet'), findsNothing);
       expect(myReputationRow, findsNothing);
       verifyNever(() => reputation.loadOwn(any(), force: any(named: 'force')));
       verifyNever(() => ratings.getRatingSummary(any()));

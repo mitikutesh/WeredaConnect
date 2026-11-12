@@ -100,7 +100,16 @@ class _AppealDialogState extends State<AppealDialog> {
 
   @override
   void dispose() {
-    if (!_sent && (_draftRead || _text.text.isNotEmpty)) {
+    final over =
+        _failure == AppealFailure.closed || _failure == AppealFailure.exists;
+    if (over) {
+      // The server takes no appeal for this event any more: a draft would
+      // only sit on the device until logout.
+      unawaited(
+        widget.repository
+            .saveAppealDraft(widget.userId, widget.event.eventId, ''),
+      );
+    } else if (!_sent && (_draftRead || _text.text.isNotEmpty)) {
       unawaited(
         widget.repository.saveAppealDraft(
           widget.userId,
@@ -164,6 +173,7 @@ class _AppealDialogState extends State<AppealDialog> {
         AppealFailure.exists => l10n.reputationAppealExists,
         AppealFailure.unavailable => l10n.reputationAppealUnavailable,
         AppealFailure.photo => l10n.reputationAppealPhotoProblem,
+        AppealFailure.refused => l10n.errorOccurred,
         AppealFailure.notSent => l10n.reputationAppealFailed,
       };
 
@@ -172,6 +182,19 @@ class _AppealDialogState extends State<AppealDialog> {
     final l10n = AppLocalizations.of(context)!;
     final failure = _failure;
     const muted = TextStyle(fontSize: 13, color: AppTheme.mutedSteel);
+    // Not dismissible while sending (a tap outside, the back button): the
+    // appeal would go through with nobody left to take its answer.
+    return PopScope(
+      canPop: !_sending,
+      child: _dialog(l10n, failure, muted),
+    );
+  }
+
+  Widget _dialog(
+    AppLocalizations l10n,
+    AppealFailure? failure,
+    TextStyle muted,
+  ) {
     return AlertDialog(
       key: const Key('reputation_appeal_dialog'),
       title: Text(l10n.reputationAppeal),

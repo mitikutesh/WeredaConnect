@@ -1037,10 +1037,17 @@ platform pair).
   `REPUTATION_APPEAL_CLOSED`, `REPUTATION_EVENT_NOT_FOUND`, `REPUTATION_APPEAL_EXISTS` and
   `REPUTATION_UNAVAILABLE` have their own texts.
 - **Profile**: the Rating tile shows a farmer's or trucker's own `ratingAverage` (the raw buyers'
-  average, as My reputation does; their own `GET /ratings?rateeId={self}` aggregate when
-  `/reputation/me` cannot be read and nothing is saved), a neutral word with no ratings, and the
-  dash while unknown. A buyer is not rated: the neutral word, no call. The My reputation row shows
-  for a farmer or trucker only while `penaltiesEnabled` is true.
+  average, as My reputation does). When the answer carries no rating (a new user, or a rated user
+  whose row has no `ratingsAggregatedAt` yet, section 2 "As built"), the app asks the user's own
+  `GET /ratings?rateeId={self}&limit=1` aggregate, at most every 30 minutes, and shows that; the
+  neutral "None yet" is shown only when both say 0, and the dash while unknown (also when
+  `/reputation/me` cannot be read and nothing is saved, after trying the same aggregate). A buyer
+  is never rated: the dash as before, no call. The My reputation row shows for a farmer or trucker
+  only while `penaltiesEnabled` is true.
+- **Errors**: an appeal refused with `REPUTATION_VALIDATION`, `AUTH_025` or `ACCOUNT_004`, and a
+  load the server answered with an error, read as the generic error text, never as a connection
+  problem. After `REPUTATION_APPEAL_CLOSED` or `REPUTATION_APPEAL_EXISTS` the kept draft is removed.
+  A retry after a failed appeal reuses the photo already uploaded.
 
 ---
 

@@ -139,11 +139,20 @@ class _MyReputationScreenState extends State<MyReputationScreen> {
         ];
       }
       return [
-        FwInfoNote(
-          key: const Key('reputation_unavailable'),
-          icon: Icons.cloud_off_outlined,
-          text: l10n.reputationOfflineNoCopy,
-        ),
+        if (state.status == ReputationLoad.failed)
+          // The server answered with an error: a connection hint would
+          // send the user looking for the wrong thing.
+          FwInfoNote(
+            key: const Key('reputation_failed'),
+            icon: Icons.error_outline,
+            text: l10n.errorOccurred,
+          )
+        else
+          FwInfoNote(
+            key: const Key('reputation_unavailable'),
+            icon: Icons.cloud_off_outlined,
+            text: l10n.reputationOfflineNoCopy,
+          ),
         const SizedBox(height: 12),
         Align(
           alignment: AlignmentDirectional.centerStart,
@@ -193,6 +202,15 @@ class _MyReputationScreenState extends State<MyReputationScreen> {
         Padding(
           padding: EdgeInsets.all(16),
           child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+    if (state.eventsStatus == ReputationLoad.failed) {
+      return [
+        FwInfoNote(
+          key: const Key('reputation_history_failed'),
+          icon: Icons.error_outline,
+          text: l10n.errorOccurred,
         ),
       ];
     }

@@ -493,6 +493,33 @@ void main() {
       verify(() => repository.loadOwn('f-1', force: true)).called(1);
     });
 
+    testWidgets(
+        'a server error is not called a connection problem (own and '
+        'history)', (tester) async {
+      when(() => repository.loadOwn('f-1', force: any(named: 'force')))
+          .thenThrow(const ServerException('not found', 404));
+      await open(tester);
+
+      expect(find.byKey(const Key('reputation_failed')), findsOneWidget);
+      expect(find.text('An error occurred'), findsOneWidget);
+      expect(find.textContaining('Connect to the internet'), findsNothing);
+      expect(find.text('Retry'), findsOneWidget);
+
+      when(() => repository.loadOwn('f-1', force: any(named: 'force')))
+          .thenAnswer((_) async => snapshot(ownReputation()));
+      when(() => repository.loadEvents('f-1'))
+          .thenThrow(const ServerException('boom', 500));
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Good standing'), findsOneWidget);
+      expect(
+        find.byKey(const Key('reputation_history_failed')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Connect to the internet'), findsNothing);
+    });
+
     testWidgets('the history alone unavailable keeps the standing',
         (tester) async {
       when(() => repository.loadOwn('f-1', force: any(named: 'force')))
@@ -632,6 +659,84 @@ void main() {
       expect(find.widgetWithText(OutlinedButton, 'Appeal'), findsOneWidget);
     });
 
+    testWidgets(
+        'while sending, a tap outside does not close the form, so the '
+        'answer is not lost', (tester) async {
+      answer(ownReputation(tier: 'warning', points: 4), events: [appealable]);
+      final sending = Completer<ReputationAppeal>();
+      when(
+        () => repository.submitAppeal(
+          userId: any(named: 'userId'),
+          eventId: any(named: 'eventId'),
+          text: any(named: 'text'),
+          photo: any(named: 'photo'),
+          photoContentType: any(named: 'photoContentType'),
+        ),
+      ).thenAnswer((_) => sending.future);
+      await open(tester);
+      await openAppeal(tester);
+      await tester.enterText(
+        find.byKey(const Key('reputation_appeal_text')),
+        'The road was closed.',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('reputation_appeal_send')));
+      await tester.pump();
+
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byKey(const Key('reputation_appeal_dialog')), findsOneWidget);
+
+      sending.complete(ReputationAppeal.sent);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('reputation_appeal_dialog')), findsNothing);
+      expect(
+        find.text('Appeal sent. Our team will review it.'),
+        findsOneWidget,
+      );
+      expect(find.widgetWithText(OutlinedButton, 'Appeal'), findsNothing);
+    });
+
+    for (final failure in [AppealFailure.closed, AppealFailure.exists]) {
+      testWidgets('${failure.name}: closing the form clears the draft',
+          (tester) async {
+        answer(ownReputation(tier: 'warning', points: 4), events: [appealable]);
+        when(
+          () => repository.submitAppeal(
+            userId: any(named: 'userId'),
+            eventId: any(named: 'eventId'),
+            text: any(named: 'text'),
+            photo: any(named: 'photo'),
+            photoContentType: any(named: 'photoContentType'),
+          ),
+        ).thenThrow(AppealException(failure));
+        await open(tester);
+        await openAppeal(tester);
+        await tester.enterText(
+          find.byKey(const Key('reputation_appeal_text')),
+          'The road was closed.',
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const Key('reputation_appeal_send')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+
+        verify(() => repository.saveAppealDraft('f-1', 'CANCEL#ord-1', ''))
+            .called(1);
+        verifyNever(
+          () => repository.saveAppealDraft(
+            'f-1',
+            'CANCEL#ord-1',
+            'The road was closed.',
+          ),
+        );
+      });
+    }
+
     testWidgets('a kept draft comes back', (tester) async {
       answer(ownReputation(tier: 'warning', points: 4), events: [appealable]);
       when(() => repository.readAppealDraft('f-1', 'CANCEL#ord-1'))
@@ -672,6 +777,8 @@ void main() {
       (AppealFailure.closed, 'This can no longer be appealed.'),
       (AppealFailure.exists, 'An appeal was already sent for this.'),
       (AppealFailure.unavailable, 'Appeals are not available right now.'),
+      // A refused request is not a connection problem.
+      (AppealFailure.refused, 'An error occurred'),
     ]) {
       testWidgets('${failure.name}: "$text"', (tester) async {
         answer(ownReputation(tier: 'warning', points: 4), events: [appealable]);

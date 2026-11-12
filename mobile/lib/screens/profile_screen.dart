@@ -160,11 +160,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _ownRating = rating);
   }
 
-  /// The Rating tile: the user's own average, a neutral word when they
-  /// have no ratings yet, the dash while it is unknown.
+  /// The Rating tile: a farmer's or trucker's own average, a neutral word
+  /// when nobody has rated them yet, and the dash while it is unknown and
+  /// for a buyer (buyers are never rated, so no rating is coming).
   String _ratingText(AppLocalizations l10n) {
     final rating = _ownRating;
-    if (rating == null) return '-';
+    if (rating == null || !rating.known) return '-';
     return rating.hasRating
         ? rating.average!.toStringAsFixed(1)
         : l10n.profileRatingNone;

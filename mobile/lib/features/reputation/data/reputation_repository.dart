@@ -30,6 +30,9 @@ class ReputationEventsResult {
   const ReputationEventsResult({required this.page, this.stale = false});
 }
 
+/// The user's own rating aggregate as last read, and when.
+typedef SavedRatingSummary = ({double average, int count, DateTime fetchedAt});
+
 /// Why an appeal was not taken, for the text the sheet shows.
 enum AppealFailure {
   /// The window passed, the event is no longer active or cannot be appealed
@@ -44,6 +47,12 @@ enum AppealFailure {
 
   /// The photo is too large, of another type, or its upload was refused.
   photo,
+
+  /// The server refused the request itself (`REPUTATION_VALIDATION`), or
+  /// the account can no longer act (`AUTH_025` suspended, `ACCOUNT_004`
+  /// deleted: the session signals end the session for those). Not a
+  /// connection problem, so no connection hint.
+  refused,
 
   /// Offline, a timeout or a server error: the draft is kept, try again.
   notSent,
@@ -183,6 +192,33 @@ class ReputationRepository {
     }
   }
 
+  /// The user's own rating aggregate as last saved by
+  /// [saveOwnRatingSummary], or null. Profile checks "no rating" in the
+  /// reputation answer against it (see `loadOwnRating`).
+  Future<SavedRatingSummary?> readOwnRatingSummary(String userId) async {
+    final cached = await _cache.readRating(userId);
+    if (cached == null) return null;
+    final average = cached.body['average'];
+    final count = cached.body['count'];
+    if (average is! num || count is! num) return null;
+    return (
+      average: average.toDouble(),
+      count: count.toInt(),
+      fetchedAt: cached.fetchedAt,
+    );
+  }
+
+  Future<void> saveOwnRatingSummary(
+    String userId, {
+    required double average,
+    required int count,
+  }) =>
+      _cache.writeRating(
+        userId,
+        {'average': average, 'count': count},
+        _now().toUtc(),
+      );
+
   /// The unsent appeal text for [eventId], kept so a party who writes it
   /// without a connection does not lose it.
   Future<String?> readAppealDraft(String userId, String eventId) =>
@@ -213,7 +249,15 @@ class ReputationRepository {
     }
     String? photoRef;
     if (photo != null) {
-      photoRef = await _uploadPhoto(photo, photoContentType);
+      // A retry after the appeal itself failed sends the same bytes: the
+      // photo already uploaded is reused, not sent again over 3G.
+      if (identical(photo, _uploadedPhoto) && _uploadedPhotoRef != null) {
+        photoRef = _uploadedPhotoRef;
+      } else {
+        photoRef = await _uploadPhoto(photo, photoContentType);
+        _uploadedPhoto = photo;
+        _uploadedPhotoRef = photoRef;
+      }
     }
     final Map<String, dynamic> data;
     try {
@@ -234,10 +278,16 @@ class ReputationRepository {
     final appeal = event is Map && event['appeal'] is Map
         ? ReputationAppeal.fromJson(event['appeal'])
         : ReputationAppeal.sent;
+    _uploadedPhoto = null;
+    _uploadedPhotoRef = null;
     await _cache.writeDraft(userId, eventId, '');
     await _rememberAppeal(userId, eventId, appeal);
     return appeal;
   }
+
+  /// The last photo that reached its upload, by identity, and its ref.
+  Uint8List? _uploadedPhoto;
+  String? _uploadedPhotoRef;
 
   /// The content type of an appeal photo from its first bytes: the server
   /// takes JPEG and WebP only. Null for anything else.
@@ -333,6 +383,10 @@ class ReputationRepository {
           AppealFailure.closed,
         'REPUTATION_APPEAL_EXISTS' => AppealFailure.exists,
         'REPUTATION_UNAVAILABLE' => AppealFailure.unavailable,
+        'REPUTATION_VALIDATION' ||
+        accountSuspendedCode ||
+        accountGoneCode =>
+          AppealFailure.refused,
         _ => AppealFailure.notSent,
       };
 

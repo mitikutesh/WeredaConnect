@@ -514,6 +514,81 @@ void main() {
       );
     });
 
+    test('a retry after the appeal failed reuses the uploaded photo', () async {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/reputation/appeals/photo-url',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'uploadUrl': 'https://bucket.example/put',
+          'photoRef': 'uploads/appeals/f-1/abc.jpg',
+        },
+      );
+      when(
+        () => storage.put<void>(
+          any(),
+          data: any<dynamic>(named: 'data'),
+          options: any(named: 'options'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<void>(
+          requestOptions: RequestOptions(path: '/put'),
+          statusCode: 200,
+        ),
+      );
+      failAppeal(500, 'REPUTATION_SERVER_ERROR');
+      Future<void> send(Uint8List photo) => repository
+          .submitAppeal(
+            userId: 'f-1',
+            eventId: 'CANCEL#ord-1',
+            text: 'See the photo.',
+            photo: photo,
+          )
+          .then((_) {});
+
+      await expectLater(send(jpeg), throwsA(isA<AppealException>()));
+      answerAppeal();
+      await send(jpeg);
+
+      // One upload for the two tries, and the retry carried its ref.
+      verify(
+        () => api.post<Map<String, dynamic>>(
+          '/reputation/appeals/photo-url',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).called(1);
+      verify(
+        () => storage.put<void>(
+          any(),
+          data: any<dynamic>(named: 'data'),
+          options: any(named: 'options'),
+        ),
+      ).called(1);
+      final bodies = verify(
+        () => api.post<Map<String, dynamic>>(
+          path,
+          data: captureAny<dynamic>(named: 'data'),
+        ),
+      ).captured;
+      expect(bodies, hasLength(2));
+      expect(
+        (bodies.last as Map)['photoRef'],
+        'uploads/appeals/f-1/abc.jpg',
+      );
+
+      // Another photo, or the same after a sent appeal, is uploaded.
+      await send(Uint8List.fromList([0xFF, 0xD8, 0xFF, 9, 9]));
+      verify(
+        () => storage.put<void>(
+          any(),
+          data: any<dynamic>(named: 'data'),
+          options: any(named: 'options'),
+        ),
+      ).called(1);
+    });
+
     test('a failed upload sends no appeal', () async {
       when(
         () => api.post<Map<String, dynamic>>(
@@ -565,7 +640,10 @@ void main() {
       (409, 'REPUTATION_APPEAL_EXISTS', AppealFailure.exists),
       (503, 'REPUTATION_UNAVAILABLE', AppealFailure.unavailable),
       (500, 'REPUTATION_SERVER_ERROR', AppealFailure.notSent),
-      (400, 'REPUTATION_VALIDATION', AppealFailure.notSent),
+      // Not connection problems: no "check your connection".
+      (400, 'REPUTATION_VALIDATION', AppealFailure.refused),
+      (403, 'AUTH_025', AppealFailure.refused),
+      (410, 'ACCOUNT_004', AppealFailure.refused),
     ]) {
       test('$code is ${failure.name}, and the draft stays', () async {
         await repository.saveAppealDraft('f-1', 'CANCEL#ord-1', 'The road');
@@ -644,6 +722,23 @@ void main() {
         text: 'The road',
       );
       expect(appeal.status, 'pending');
+    });
+  });
+
+  group('the own rating summary kept for Profile', () {
+    test('saved with its time, read back, and forgotten on logout', () async {
+      expect(await repository.readOwnRatingSummary('f-1'), isNull);
+
+      await repository.saveOwnRatingSummary('f-1', average: 4.6, count: 12);
+
+      final saved = await repository.readOwnRatingSummary('f-1');
+      expect(saved!.average, 4.6);
+      expect(saved.count, 12);
+      expect(saved.fetchedAt, now);
+      expect(await repository.readOwnRatingSummary('f-2'), isNull);
+
+      await ReputationCache().forgetUser('f-1');
+      expect(await repository.readOwnRatingSummary('f-1'), isNull);
     });
   });
 

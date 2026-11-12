@@ -5281,7 +5281,7 @@
   "reputationHistoryNeedsConnection": "Connect to the internet to see your history.",
   "@reputationHistoryNeedsConnection": {"description": "ESC-31 reputation UI (reputation-api.md 1.5.0). The event list could not be loaded and nothing is saved"},
   "profileRatingNone": "None yet",
-  "@profileRatingNone": {"description": "ESC-31 reputation UI (reputation-api.md 1.5.0). The Profile Rating tile when the user has no ratings yet (also for buyers, who are not rated); short, it sits in a narrow tile above the word Rating"},
+  "@profileRatingNone": {"description": "ESC-31 reputation UI (reputation-api.md 1.5.0). The Profile Rating tile when a farmer or trucker has no ratings yet (a buyer is never rated and keeps the dash); short, it sits in a narrow tile above the word Rating"},
   "notifPenaltyRecordedTitle": "Penalty points added",
   "@notifPenaltyRecordedTitle": {"description": "ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox title of penalty_recorded; plain, no blame"},
   "notifPenaltyRecordedBody": "{reason}. Points added: {points}. Open My reputation to see the details or appeal.",

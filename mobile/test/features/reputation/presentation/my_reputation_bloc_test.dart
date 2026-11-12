@@ -45,6 +45,7 @@ void main() {
         () =>
             bloc.state.status != ReputationLoad.loading &&
             (bloc.state.status == ReputationLoad.unavailable ||
+                bloc.state.status == ReputationLoad.failed ||
                 bloc.state.eventsStatus != ReputationLoad.loading),
       );
 
@@ -104,6 +105,28 @@ void main() {
     verifyNever(
       () => repository.loadEvents(any(), nextToken: any(named: 'nextToken')),
     );
+  });
+
+  test('a server error with nothing saved is failed, not offline', () async {
+    when(() => repository.loadOwn('f-1', force: any(named: 'force')))
+        .thenThrow(const ServerException('boom', 500));
+
+    bloc.add(const MyReputationRequested());
+    await settle();
+
+    expect(bloc.state.status, ReputationLoad.failed);
+  });
+
+  test('a server error on the history alone is failed, not offline', () async {
+    answerOwn();
+    when(() => repository.loadEvents('f-1'))
+        .thenThrow(const ServerException('boom', 500));
+
+    bloc.add(const MyReputationRequested());
+    await settle();
+
+    expect(bloc.state.status, ReputationLoad.ready);
+    expect(bloc.state.eventsStatus, ReputationLoad.failed);
   });
 
   test('the saved copy is shown as stale', () async {
