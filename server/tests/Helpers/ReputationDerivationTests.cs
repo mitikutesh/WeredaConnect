@@ -244,6 +244,20 @@ public class ReputationDerivationTests
     }
 
     [Fact]
+    public void R11_OnALegacySelfPickupRow_WithoutFulfillment_TheBuyerReportedIt()
+    {
+        // Funded before the commitments (no fulfillment), no trip and no trucker: the judgement's self-pickup
+        // rule (PickupJudgement.IsSelfPickup) took the buyer's arrival, so the buyer is the reporter.
+        var c = Single(
+            Order(("status", "accepted"), ("farmerResponse", "accepted"), ("fulfillment", ""), ("tripId", ""), ("truckerId", "")),
+            Order(("status", "cancelled"), ("farmerResponse", "no_show"), ("cancelReason", "farmer_no_show"),
+                ("fulfillment", ""), ("tripId", ""), ("truckerId", ""), ("faultParty", "farmer")));
+
+        c.UserId.Should().Be("farmer-1");
+        c.ReportedBy.Should().Be("buyer-1");
+    }
+
+    [Fact]
     public void ABuyerNoShow_IsNoEvent()
         => Derive(
                 Order(("status", "accepted"), ("farmerResponse", "accepted"), ("fulfillment", "self_pickup")),

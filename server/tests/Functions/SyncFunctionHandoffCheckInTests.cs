@@ -323,17 +323,22 @@ public sealed class SyncFunctionHandoffCheckInTests
     // ===== when the window is not open =====
 
     [Theory]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    public async Task WithoutBothFlags_NothingIsTaken(bool commitments, bool classification)
+    [InlineData(false, true, TruckerId)]
+    [InlineData(true, false, TruckerId)]
+    [InlineData(true, false, "stranger-9")]
+    public async Task WithoutBothFlags_TheEntityIsUnsupported_AsBefore_NoReadNoSignal(bool commitments, bool classification, string caller)
     {
         _commitments = commitments;
         _classification = classification;
 
-        var result = await CheckInAsync(TruckerId, Arrival());
+        var result = await CheckInAsync(caller, Arrival());
 
-        MessageOf(result).Should().StartWith($"{PickupJudgement.NotOpenCode}: ");
+        result.GetProperty("status").GetString().Should().Be("error");
+        MessageOf(result).Should().Be("Unsupported entity type: 'handoff_check_in'.");
+        await _orders.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await _orders.DidNotReceive().GetByIdAsync(Arg.Any<string>());
         await NoWriteAsync();
+        await NoSignalAsync();
     }
 
     [Fact]
@@ -382,11 +387,18 @@ public sealed class SyncFunctionHandoffCheckInTests
     }
 
     [Fact]
-    public async Task AFarmersFixFarFromTheFarm_IsRefusedToo()
+    public async Task AFarmersFixFarFromTheFarm_IsKeptUnmeasured_AndTheCropsAreStillReady()
     {
+        // Spec 4.8: the farmer's GPS is optional, so a bad fix must not cost the farmer the defence.
         var result = await CheckInAsync(FarmerId, CropsReady(latitude: FarLat));
 
-        MessageOf(result).Should().StartWith($"{PickupJudgement.TooFarCode}: ");
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        var (kind, entry, whileOpen) = _recorded.Should().ContainSingle().Subject;
+        kind.Should().Be(PickupJudgement.Kind.CropsReady);
+        whileOpen.Should().BeTrue();
+        entry[PickupJudgement.EntryDistanceChecked].Should().Be(false);
+        entry[PickupJudgement.EntryOutOfRange].Should().Be(true);
+        ((double)entry[PickupJudgement.EntryDistanceKm]).Should().BeGreaterThan(5);
     }
 
     [Theory]

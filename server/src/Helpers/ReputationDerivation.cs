@@ -177,7 +177,9 @@ public static class ReputationDerivation
         // arrival check-in (the trucker's, or the self-pickup buyer's), so that party is the reporter.
         if (cancelReason == FarmerNoShowReason && oldStatus != "cancelled")
         {
-            var reporter = row.String(FulfillmentField) == Fulfillment.SelfPickup ? buyerId : row.String("truckerId");
+            var reporter = PickupJudgement.IsSelfPickup(row.String(FulfillmentField), row.String("tripId"), row.String("truckerId"))
+                ? buyerId
+                : row.String("truckerId");
             Add(Candidate(farmerId, Party.Farmer, ReputationSlots.NoShow + orderId, ReputationCodes.NoShow) with
             {
                 ReportedBy = NonEmpty(reporter)

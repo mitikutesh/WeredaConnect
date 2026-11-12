@@ -949,8 +949,10 @@ section names what changes on the order.
 
 A judged no-show whose absent party has a late check-in on record also enters the admin queue as
 `late_pickup_evidence`; so does a late check-in or a real QR scan that reaches the server after the
-judgement. With the flag turned off while orders wait, the cron stamps the P1 marker and clears
-`pickupJudgement`.
+judgement. On a `cancelled` (farmer or buyer no-show) order that entry clears itself once the refund
+leaves, like every entry; only the late QR scan logs an alarmed line, and the late check-in stays as
+evidence on the order and in the audit trail for the party's reputation appeal. With the flag turned
+off while orders wait, the cron stamps the P1 marker and clears `pickupJudgement`.
 
 - **Buyer's deadline cancel** refused for a stamped order while the flag is on (Buyer cancel rules).
 - **Late pickup scan.** A pickup on a judged order (not `scanned`) is refused `ORDER_DEADLINE_PASSED:`,

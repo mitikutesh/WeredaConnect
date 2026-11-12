@@ -115,6 +115,9 @@ public static class PickupJudgement
     public const string EntryDistanceKm = "distanceKm";
     public const string EntryLate = "late";
 
+    /// <summary>A farmer's fix more than 5 km from the farm: kept as evidence, never measured (GPS is optional there).</summary>
+    public const string EntryOutOfRange = "outOfRange";
+
     /// <summary>The check-in radius around the pickup point, as the built pickup GPS rule.</summary>
     public const double RadiusKm = 5.0;
 
@@ -159,9 +162,16 @@ public static class PickupJudgement
 
     /// <summary>A self-pickup order: the buyer takes the trucker's column.</summary>
     public static bool IsSelfPickup(IReadOnlyDictionary<string, object> order)
-        => Str(order, OrderCommitment.FulfillmentField) == OrderCommitment.Fulfillment.SelfPickup
-           || (Str(order, OrderCommitment.FulfillmentField).Length == 0
-               && Str(order, "tripId").Length == 0 && Str(order, "truckerId").Length == 0);
+        => IsSelfPickup(Str(order, OrderCommitment.FulfillmentField), Str(order, "tripId"), Str(order, "truckerId"));
+
+    /// <summary>
+    /// The one self-pickup rule (the check-in's party, the judgement's column and the reputation stream's
+    /// reporter, FUP-204): <c>fulfillment: self_pickup</c>, or a row without <c>fulfillment</c> (funded before
+    /// the commitments) that names no trip and no trucker.
+    /// </summary>
+    public static bool IsSelfPickup(string fulfillment, string tripId, string truckerId)
+        => fulfillment == OrderCommitment.Fulfillment.SelfPickup
+           || (fulfillment.Length == 0 && tripId.Length == 0 && truckerId.Length == 0);
 
     /// <summary>The user who checks in for <paramref name="kind"/> on this order, or empty.</summary>
     public static string PartyOf(IReadOnlyDictionary<string, object> order, string kind) => kind switch
@@ -304,17 +314,27 @@ public static class PickupJudgement
             ? GpsValidator.HaversineDistance(lat, lon, point.Latitude, point.Longitude)
             : null;
 
-    /// <summary>The stored entry of one check-in (<see cref="CheckInsField"/>).</summary>
+    /// <summary>
+    /// The stored entry of one check-in (<see cref="CheckInsField"/>). A fix more than
+    /// <see cref="RadiusKm"/> away (only a farmer's reaches here: an arrival that far is refused) is kept
+    /// with <see cref="EntryOutOfRange"/> and counts as unmeasured.
+    /// </summary>
     public static Dictionary<string, object> Entry(
         ParsedCheckIn checkIn, string callerId, DateTime receivedAt, double? distanceKm, bool late)
     {
+        var outOfRange = distanceKm is { } measured && measured > RadiusKm;
         var entry = new Dictionary<string, object>
         {
             { EntryReceivedAt, OrderCommitment.Iso(receivedAt) },
             { EntryBy, callerId },
-            { EntryDistanceChecked, distanceKm != null },
+            { EntryDistanceChecked, distanceKm != null && !outOfRange },
             { EntryLate, late }
         };
+        if (outOfRange)
+        {
+            entry[EntryOutOfRange] = true;
+        }
+
         if (PlausibleCapturedAt(checkIn.CapturedAt, receivedAt) is { } captured)
         {
             entry[EntryCapturedAt] = OrderCommitment.Iso(captured);

@@ -1354,8 +1354,10 @@ as a delivery with `deliveryType: "self_pickup"`:
   the P1 rules (spec K2). The point is the farm the parties agreed on: a farmer who moves the listing
   afterwards cannot push the trucker's check-in out of range (FUP-204).
 - **The check-in** is the `handoff_check_in` entity of `sync-protocol.md` 1.55.0, with the kinds,
-  parties and payload of the table below. GPS within 5 km of the stamped point (refused
-  `CHECKIN_TOO_FAR` otherwise; `crops_ready` without a fix is taken and stored unmeasured). The
+  parties and payload of the table below. The arrival needs GPS within 5 km of the stamped point
+  (refused `CHECKIN_TOO_FAR` otherwise). The farmer's GPS is optional (spec 4.8): `crops_ready` without
+  a fix, or with one more than 5 km away, is taken and stored unmeasured (`distanceChecked: false`; a far
+  fix is kept with `outOfRange: true` as evidence), so a farmer with a bad fix keeps the defence. The
   window is `pickupDate` minus 24 hours (a self-pickup order has no `pickupDate` and is open from its
   acceptance) to `pickupDeadlineAt`, by the server clock. The entry stored in `checkIns.{kind}`:
   `receivedAt` (server time, the only time the judgement reads), `capturedAt` (the phone's, kept only
@@ -1369,7 +1371,13 @@ as a delivery with `deliveryType: "self_pickup"`:
   distanceChecked, late}`: no coordinates, no accuracy, no sender. The stamped point is never returned.
 - **A late check-in** (received after `pickupDeadlineAt`, or after a no-show judgement) is kept with
   `late: true`, never counted, and answered `CHECKIN_TOO_LATE`. When it contradicts the judgement (the
-  absent party's own check-in), the order enters the admin queue (`late_pickup_evidence`). An order no
+  absent party's own check-in), the order enters the admin queue (`late_pickup_evidence`). After a
+  trucker no-show the order is `awaiting_transport` with the money held, so the entry stays until the
+  money moves on. After a farmer or self-pickup buyer no-show the order is `cancelled` and refunding:
+  the entry clears itself once the refund leaves (as every admin queue entry does) and no alarm reads
+  the late check-in, so the evidence that stays is the late entry on the order and the audit row
+  (`admin_queue_entered` or `late_pickup_evidence`); the party's way back is the reputation appeal of
+  the `NO_SHOW` event (spec I4). Only a late QR scan logs an alarmed line (below). An order no
   longer waiting for its pickup in any other way (picked up, the transport failed, cancelled) answers
   `CHECKIN_NOT_OPEN` and stores nothing.
 - **The judgement** runs in the order cron's `commitment_deadlines`, due at `pickupDeadlineAt` plus one
@@ -1464,7 +1472,8 @@ clock:
   the reason in en, am and om; `sync-protocol.md` gets the rows with the ticket):
   `CHECKIN_VALIDATION` (a missing or out of range field, `entityId` not `{orderId}#{kind}`),
   `CHECKIN_NOT_PARTY` (the caller is not the party for that kind), `CHECKIN_TOO_EARLY` (before
-  `pickupDate` minus 24 hours), `CHECKIN_TOO_FAR` (the fix is more than 5 km away),
+  `pickupDate` minus 24 hours), `CHECKIN_TOO_FAR` (the fix is more than 5 km away; as built, only for
+  `arrived_pickup`),
   `CHECKIN_NOT_OPEN` (the order or delivery is not in a status that takes that kind, or the pickup was
   already judged), `CHECKIN_PHOTO_REQUIRED` (an `arrived_dropoff` without its attached photo).
 
@@ -1585,7 +1594,7 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 2.2.0 | 2026-11-11 | Updates behind a cancel (FUP-128, `sync-protocol.md` 1.45.0): an update that reaches a `cancelled` delivery (or a legacy `deletedAt` row) with a `version` behind the stored one answers `conflict` with the scrubbed row to a caller who may make the change (trucker: `pickedUp`, `inTransit`, an update without a status; buyer: `delivered`; any party: `disputed`; farmer: an update storing `qrNonce`) instead of the `DELIVERY_ALREADY_CANCELLED` error, which stands for anyone else and at the stored version or without one; nothing is written and the transport-cancel pickup alarm still logs. The mobile queue no longer resends that error and puts the delivery back from the server |
 | 2.4.0 | 2026-11-12 | QR gate, a funded order without an escrow row (FUP-66, `escrow-protocol.md` 2.9.0): when neither the order's escrow nor the `DeliveryIndex` finds an escrow, the order is read (strongly consistent) and a `paymentVerifiedAt` on it makes the delivery money-bearing, so a trucker's drop-off with no nonce is `deferred` (then `DELIVERY_NONCE_MISSING` after 14 days) and a typed code needs the leg's GPS. Before, such a delivery passed as cash. A failed order read defers with `QR_GATE_UNDECIDED`, as the escrow reads do. An order never funded, or a delivery without an order, passes as before. Server only; no client change. |
 | 2.5.0 | 2026-11-12 | Each handoff point only from its own handoff (FUP-246, `sync-protocol.md` 1.54.0, `fraud-detection-architecture.md` 3.34.0): `gpsPickup` is written only with the trucker's `pickedUp`, `gpsDropoff` only with the buyer's `delivered`, `disputeReason` only with `disputed`; sent with any other status, on a create or on an update without a status, the field is dropped (not refused) and logged. A buyer's confirm moved the trucker's pickup point, and a dispute both points the admin dispute evidence shows. The impossible delivery time rule reads the pickup side from the row as stored before the confirm. No client change. |
-| 2.6.0 | 2026-11-12 | Arrival check-ins and the pickup judgement BUILT (ESC-34, P.2 "As built"), behind `pickupClassification` (off everywhere, only with `COMMITMENTS_ENABLED`): the accept of a flagged order stamps `pickupJudgement: pending`, an empty `checkIns` map and the farm's point; `handoff_check_in` (`sync-protocol.md` 1.55.0) takes `arrived_pickup` and `crops_ready` between `pickupDate` minus 24 hours and `pickupDeadlineAt` by server receipt, within 5 km of the stamped point, first kept, no version move; the order cron judges at the deadline plus one minute: scan (stamped), trucker no-show (`awaiting_transport`, `trucker_no_show`), farmer no-show (`cancelled`, `farmer_no_show`, full refund), self-pickup buyer no-show (`buyer_no_show`, no points), both present or an unmeasured arrival (admin queue, money held); late check-ins kept as evidence (`CHECKIN_TOO_LATE`, admin queue `late_pickup_evidence` when they contradict the judgement); a pickup scan after the judgement refused `ORDER_DEADLINE_PASSED` (a real QR scan queued for the admin and alarmed); the buyer's deadline cancel refused for a flagged order; FUP-204: the trucker's check-in is measured against the point stamped at acceptance, and a farmer no-show's `NO_SHOW` signal goes through the attribution guard. `order-lifecycle.md` 2.14.0, `data-models.md` 1.14.0, `fraud-detection-architecture.md` 3.36.0, `reputation-architecture.md` 1.8.0 |
+| 2.6.0 | 2026-11-12 | Arrival check-ins and the pickup judgement BUILT (ESC-34, P.2 "As built"), behind `pickupClassification` (off everywhere, only with `COMMITMENTS_ENABLED`): the accept of a flagged order stamps `pickupJudgement: pending`, an empty `checkIns` map and the farm's point; `handoff_check_in` (`sync-protocol.md` 1.55.0) takes `arrived_pickup` and `crops_ready` between `pickupDate` minus 24 hours and `pickupDeadlineAt` by server receipt, the arrival within 5 km of the stamped point (a farmer's far fix stored unmeasured, the farmer's GPS being optional), first kept, no version move; with the flag off the entity stays unsupported; the order cron judges at the deadline plus one minute: scan (stamped), trucker no-show (`awaiting_transport`, `trucker_no_show`), farmer no-show (`cancelled`, `farmer_no_show`, full refund), self-pickup buyer no-show (`buyer_no_show`, no points), both present or an unmeasured arrival (admin queue, money held); late check-ins kept as evidence (`CHECKIN_TOO_LATE`, admin queue `late_pickup_evidence` when they contradict the judgement); a pickup scan after the judgement refused `ORDER_DEADLINE_PASSED` (a real QR scan queued for the admin and alarmed); the buyer's deadline cancel refused for a flagged order; FUP-204: the trucker's check-in is measured against the point stamped at acceptance, and a farmer no-show's `NO_SHOW` signal goes through the attribution guard. `order-lifecycle.md` 2.14.0, `data-models.md` 1.14.0, `fraud-detection-architecture.md` 3.36.0, `reputation-architecture.md` 1.8.0 |
 
 ---
 

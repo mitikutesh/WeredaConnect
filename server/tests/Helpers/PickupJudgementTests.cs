@@ -280,6 +280,19 @@ public class PickupJudgementTests
     }
 
     [Fact]
+    public void AFixOutOfRange_IsKeptButUnmeasured()
+    {
+        var checkIn = new ParsedCheckIn("ord-1", PickupJudgement.Kind.CropsReady, null, 8.85, 38.9785, null);
+
+        var entry = PickupJudgement.Entry(checkIn, "farmer-1", Deadline.AddHours(-2), 10.9, late: false);
+
+        entry[PickupJudgement.EntryDistanceChecked].Should().Be(false);
+        entry[PickupJudgement.EntryOutOfRange].Should().Be(true);
+        entry[PickupJudgement.EntryDistanceKm].Should().Be(10.9);
+        PickupJudgement.Entry(checkIn, "farmer-1", Deadline, 4.9, late: false).Should().NotContainKey(PickupJudgement.EntryOutOfRange);
+    }
+
+    [Fact]
     public void ThePartiesRead_NoCoordinatesNoSenderNoPickupPoint()
     {
         var order = Order(false, Arrived(Deadline.AddHours(-30)), Ready(Deadline.AddHours(1), late: true));

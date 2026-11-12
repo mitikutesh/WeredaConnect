@@ -18,7 +18,8 @@ namespace WeredaConnect.Server.Functions;
 ///   the buyer on a self-pickup order, and "Crops are ready" from the farmer. The first check-in of a kind
 ///   is kept in the order's <c>checkIns</c> map with the server's receipt time; the write moves neither the
 ///   version nor <c>updatedAt</c>. A check-in that reaches the server after the deadline is kept as late
-///   evidence and never counted.
+///   evidence and never counted. With the flag off the entity is unsupported, as before ESC-34: no order
+///   read, no signal, nothing that tells a stranger whether an order exists.
 /// - A pickup scan that reaches a judged order is refused <c>ORDER_DEADLINE_PASSED</c>
 ///   (<see cref="RefuseLatePickupAsync"/>).
 /// The judgement itself runs in the order cron (<see cref="PickupJudgement.Decide"/>).
@@ -119,7 +120,8 @@ public partial class SyncFunction
                     PickupJudgement.EntityType, authenticatedUserId, context);
         }
 
-        if (!PickupJudgementOn || !PickupJudgement.IsStamped(order))
+        // The flag is checked by the dispatch: off, the entity is unsupported, with no read and no signal.
+        if (!PickupJudgement.IsStamped(order))
         {
             return CheckInResult(operation, $"{PickupJudgement.NotOpenCode}: Arrival check-ins are not open for this order.");
         }
@@ -156,8 +158,10 @@ public partial class SyncFunction
             return TransientOrderError(operation, "The farm's location could not be read. Please try again later.");
         }
 
+        // Spec 4.8: the arrival needs GPS within 5 km. The farmer's GPS is optional, so a farmer's fix that
+        // far is kept unmeasured (PickupJudgement.Entry) and "Crops are ready" still stands.
         var distanceKm = PickupJudgement.DistanceKm(checkIn, point);
-        if (distanceKm is { } km && km > PickupJudgement.RadiusKm)
+        if (checkIn.Kind == PickupJudgement.Kind.ArrivedPickup && distanceKm is { } km && km > PickupJudgement.RadiusKm)
         {
             return CheckInResult(operation,
                 $"{PickupJudgement.TooFarCode}: You are {km.ToString("F1", CultureInfo.InvariantCulture)} km from the farm (at most 5 km).");
@@ -195,14 +199,15 @@ public partial class SyncFunction
             }
         }
 
+        var measured = distanceKm is { } within && within <= PickupJudgement.RadiusKm;
         var status = ItemString(order, "status");
         await EmitTxAuditAsync(context, orderId, "order", orderId, "handoff_check_in", status, status,
-            metadata: $"kind={checkIn.Kind};distanceChecked={(distanceKm != null ? "true" : "false")};late={(late ? "true" : "false")}");
+            metadata: $"kind={checkIn.Kind};distanceChecked={(measured ? "true" : "false")};late={(late ? "true" : "false")}");
 
         if (!late)
         {
             context.Logger.LogInformation(
-                $"CHECKIN_RECORDED orderId={MoneyAlarmLog.LogId(orderId)} kind={checkIn.Kind} distanceChecked={distanceKm != null}");
+                $"CHECKIN_RECORDED orderId={MoneyAlarmLog.LogId(orderId)} kind={checkIn.Kind} distanceChecked={measured}");
             return CheckInSuccess(operation, order);
         }
 

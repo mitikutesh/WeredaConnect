@@ -1086,7 +1086,8 @@ public partial class SyncFunction
                 LocationPingRules.EntityType => await ProcessLocationPingAsync(operation, authenticatedUserId, context),
                 DeliveryPhotoKeys.EntityType => await ProcessDeliveryPhotoAsync(operation, authenticatedUserId, context),
                 ListingReportRules.EntityType => await ProcessListingReportAsync(operation, authenticatedUserId, authenticatedRole, context),
-                PickupJudgement.EntityType => await ProcessHandoffCheckInAsync(operation, authenticatedUserId, context),
+                // ESC-34: with the flag off the entity does not exist (the unsupported answer below).
+                PickupJudgement.EntityType when PickupJudgementOn => await ProcessHandoffCheckInAsync(operation, authenticatedUserId, context),
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
