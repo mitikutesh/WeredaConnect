@@ -4,7 +4,6 @@ import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
-import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/sync/order_lead_store.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
@@ -12,7 +11,6 @@ import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
 import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
 import 'package:wereda_connect/shared/services/place_normalizer.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 
 /// On-device matching service for buyer intents.
 ///
@@ -20,9 +18,11 @@ import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 /// Matches crop listings and trips against buyer's declared needs.
 ///
 /// Ethiopian context:
-/// - Works 100% offline on cached Isar data
-/// - Trip matching compares woreda names through the shared
-///   [normalizeWoreda] rule (spelling, diacritics and region suffix agnostic)
+/// - Works 100% offline on cached Isar data and the bundled woreda
+///   centroids
+/// - Trip pairing is [MatchScorer.suggestTrips] (MATCH-01): the exact route
+///   or a neighbouring woreda by centroid distance or by a whole-word name
+///   match, never the reverse way, the same rule as on web
 /// - Commission rate is 5% of the crop cost (platform fee, [OrderPricing])
 class MatchingService extends BaseMatchingService {
   final Isar _isar;
@@ -75,21 +75,30 @@ class MatchingService extends BaseMatchingService {
         )
         .findAll();
 
+    // Drop listings outside the near-miss tolerance bands.
+    final candidates =
+        listings.where((l) => _scorer.isCandidate(intent, l)).toList();
+
+    // One read of the cached open trips per intent, shared by every
+    // candidate. A blank destination can never name a route.
+    final openTrips =
+        candidates.isEmpty || normalizeWoreda(intent.deliveryWoreda).isEmpty
+            ? const <Trip>[]
+            : await _openTripsNotLeft(now);
+
     final results = <CropMatchResult>[];
 
-    for (final listing in listings) {
-      // Drop listings outside the near-miss tolerance bands.
-      if (!_scorer.isCandidate(intent, listing)) continue;
-
+    for (final listing in candidates) {
       // Find trips for this listing → buyer's delivery destination, honouring
       // the buyer's delivery deadline (trips that depart too late are dropped).
-      final trips = await _tripsForListing(
-        listing,
-        intent.deliveryWoreda,
-        intent.quantityNeeded,
-        neededByDate: intent.neededByDate,
+      final trips = _scorer.suggestTrips(
+        openTrips,
+        listingWoreda: listing.locationName,
+        deliveryWoreda: intent.deliveryWoreda,
+        quantityNeeded: intent.quantityNeeded,
         now: now,
         orderLeadHours: orderLeadHours,
+        neededByDate: intent.neededByDate,
       );
 
       // Compute estimated total with cheapest trip
@@ -126,97 +135,56 @@ class MatchingService extends BaseMatchingService {
 
   /// Find available trips from a listing's location to the buyer's destination.
   ///
-  /// Matches trips where:
-  /// - status is open
-  /// - fromWoreda names the listing's woreda ([compareWoredas] exact or
-  ///   whole-word partial, so "Adama, Oromia" meets "Ādama")
-  /// - toWoreda names the buyer's delivery woreda (same rule)
-  /// - departureDate is in the future
-  /// - departureDate is at least the server's order lead ahead when the
-  ///   server runs the commitments (FUP-122, [tripInsideOrderLead])
-  /// - departureDate is on/before [neededByDate] when the buyer set a deadline
-  /// - capacity >= quantityNeeded
+  /// The cached open trips go through [MatchScorer.suggestTrips] (MATCH-01):
+  /// - open, departing today or later in Ethiopia (FUP-85) and at least the
+  ///   server's order lead ahead when it runs the commitments (FUP-122)
+  /// - room left for [quantityNeeded] (ESC-15), so a full trip never shows
+  /// - departing on or before [neededByDate] when the buyer set a deadline
+  /// - starting at the listing's woreda or within 40 km of it, and ending at
+  ///   the delivery woreda or within 40 km of it (centroid distance), the
+  ///   whole-word name match also counting; a trip running the other way is
+  ///   dropped
   ///
-  /// Results sorted by pricePerQuintal ASC (cheapest first); among equally
-  /// priced trips the more reliable trucker comes first (ESC-30,
-  /// [MatchScorer.rankTripSuggestions]).
+  /// Cheapest first; at the same price the exact route before a neighbouring
+  /// woreda, then the more reliable trucker (ESC-30), then the earlier
+  /// departure and the trip id ([MatchScorer.rankTripSuggestions]).
   Future<List<Trip>> findTripsForListing(
     CropListing listing,
     String deliveryWoreda,
     double quantityNeeded, {
     DateTime? neededByDate,
   }) async {
-    return _tripsForListing(
-      listing,
-      deliveryWoreda,
-      quantityNeeded,
+    // A blank origin or destination can never name a route; bail out before
+    // touching Isar (suggestTrips would reject every trip anyway).
+    if (normalizeWoreda(listing.locationName).isEmpty ||
+        normalizeWoreda(deliveryWoreda).isEmpty) {
+      return const <Trip>[];
+    }
+    final now = _clock().toUtc();
+    final orderLeadHours = await _orderLeadHours();
+    return _scorer.suggestTrips(
+      await _openTripsNotLeft(now),
+      listingWoreda: listing.locationName,
+      deliveryWoreda: deliveryWoreda,
+      quantityNeeded: quantityNeeded,
+      now: now,
+      orderLeadHours: orderLeadHours,
       neededByDate: neededByDate,
-      now: _clock().toUtc(),
-      orderLeadHours: await _orderLeadHours(),
     );
   }
 
-  Future<List<Trip>> _tripsForListing(
-    CropListing listing,
-    String deliveryWoreda,
-    double quantityNeeded, {
-    required DateTime now,
-    required int? orderLeadHours,
-    DateTime? neededByDate,
-  }) async {
-    // FUP-85: compare by Ethiopia calendar day, not by instant. A trip's
-    // departureDate is stored as the instant of local midnight, so by
-    // mid-morning it is already "in the past" and the old instant filter
-    // dropped a trip leaving the same day. Keep it eligible until Ethiopia
-    // midnight.
-    final todayStart = startOfDayInEthiopia(now);
-    final fromKey = normalizeWoreda(listing.locationName);
-    final toKey = normalizeWoreda(deliveryWoreda);
-    final deadline = neededByDate?.toUtc();
-
-    // A blank origin or destination can never name a route; bail out before
-    // touching Isar (compareWoredaKeys would reject every trip anyway).
-    if (fromKey.isEmpty || toKey.isEmpty) return const <Trip>[];
-
-    // Isar string filters are case-sensitive and know nothing about the
-    // woreda normalisation, so query all open trips with future departure and
-    // sufficient capacity, then match the route in memory.
-    final candidates = await _isar.trips
-        .filter()
-        .statusEqualTo(TripStatus.open)
-        .departureDateGreaterThan(
-          todayStart.subtract(const Duration(microseconds: 1)),
-        )
-        .capacityGreaterThan(quantityNeeded - 0.01) // inclusive >=
-        .sortByPricePerQuintal()
-        .findAll();
-
-    final matched = candidates.where((trip) {
-      // FUP-85: drop only trips whose departure day is before today in
-      // Ethiopia; a trip leaving today stays eligible all day.
-      if (startOfDayInEthiopia(trip.departureDate).isBefore(todayStart)) {
-        return false;
-      }
-      // FUP-122: with the commitments on, the order create refuses a trip
-      // departing within the lead (24 hours), so it is not suggested.
-      if (tripInsideOrderLead(trip, now, orderLeadHours)) return false;
-      // ESC-15: a booked trip has only its remaining room (the capacity
-      // filter above is the upper bound).
-      if (tripRoomLeft(trip) < quantityNeeded - 0.01) return false;
-      // Date-fit: drop trips departing after the buyer's deadline. This
-      // compares DEPARTURE (not arrival) to the deadline — a proxy, since
-      // trips carry no transit-time estimate; refine if one is added.
-      if (deadline != null && trip.departureDate.isAfter(deadline)) {
-        return false;
-      }
-      return compareWoredaKeys(normalizeWoreda(trip.fromWoreda), fromKey) !=
-              WoredaMatch.none &&
-          compareWoredaKeys(normalizeWoreda(trip.toWoreda), toKey) !=
-              WoredaMatch.none;
-    });
-
-    return _scorer.rankTripSuggestions(matched);
-  }
+  /// The cached open trips whose departure day is not over (FUP-85:
+  /// departureDate >= the start of today in Ethiopia, the same cutoff
+  /// [MatchScorer.suggestTrips] applies). Isar string filters know nothing
+  /// about the woreda normalisation or centroids, so the route, the room and
+  /// the order are decided in memory by the rule web shares (MATCH-01).
+  Future<List<Trip>> _openTripsNotLeft(DateTime now) => _isar.trips
+      .filter()
+      .statusEqualTo(TripStatus.open)
+      .departureDateGreaterThan(
+        tripListingCutoff(now).subtract(const Duration(microseconds: 1)),
+      )
+      .findAll();
 
   /// Compute estimated total cost for a crop purchase with optional transport.
   ///
