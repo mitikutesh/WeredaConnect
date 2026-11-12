@@ -749,7 +749,9 @@ The answer's body has `outcome`, `users`, `ratings`, `skipped`, `leftover`, `fai
 `unindexed`. Rerun until `outcome` is `ok`. When it also has `scanCursor`, the Scan stopped on the
 time budget: pass it on as `"scanFrom":"<scanCursor>"` next to the action so the Scan resumes there
 instead of from the start (without it, the rerun reads the table again and still adds nothing
-twice). A `failed` user is retried by the next run.
+twice). A `failed` user found by the index walk is retried by the next run; one found by the Scan is
+retried only by a run without `scanFrom` (the cursor moves past it). So after a chain of runs with
+`scanFrom` that had any `failed`, finish with one run without `scanFrom`.
 
 Check that none is left (expect `0`):
 

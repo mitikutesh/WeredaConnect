@@ -6,6 +6,7 @@ using Amazon.Lambda.TestUtilities;
 using NSubstitute;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
@@ -162,5 +163,33 @@ public class SyncFunctionRatingHealTests
 
         Assert.Contains("success", response.Body);
         await _ratings.Received(1).CreateAsync("order-1:farmer-1", Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task TheHeal_RunsBeforeTheReputationRefresh_SoTheRefreshReadsTheStamp()
+    {
+        Ratee("farmer-1", "farmer", aggregatedAt: null);
+        var order = new List<string>();
+        _heal.TryStampAsync("farmer-1", "farmer", Arg.Any<ILambdaLogger>()).Returns(_ =>
+        {
+            order.Add("heal");
+            return true;
+        });
+        var events = Substitute.For<IReputationEventRepository>();
+        events.GetUserStateAsync("farmer-1").Returns(_ =>
+        {
+            order.Add("refresh"); // the refresh's first read: the users row
+            return (ReputationUserState?)null;
+        });
+        var fn = new SyncFunction(_meta, _crop, _ddb, "trips", "deliveries", userRepo: _users, orderRepo: _orders, ratingRepo: _ratings)
+        {
+            RatingHeal = _heal,
+            Reputation = new ReputationService(events, ReputationPolicySettings.Defaults)
+        };
+
+        var response = await fn.FunctionHandler(Rate(), _ctx);
+
+        Assert.Contains("success", response.Body);
+        Assert.Equal(new[] { "heal", "refresh" }, order);
     }
 }

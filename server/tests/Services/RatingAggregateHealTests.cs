@@ -341,6 +341,8 @@ public class RatingAggregateHealTests
     [InlineData("5")]
     [InlineData("\"\"")]
     [InlineData("null")]
+    [InlineData("\"   \"")]
+    [InlineData("\"u-5\\u0007\"")]
     public async Task Cron_ABadScanFrom_IsRefused(string value)
     {
         var cron = new OrderCronFunction(Substitute.For<IOrderRepository>()) { RatingBackfill = Backfill() };
@@ -350,6 +352,19 @@ public class RatingAggregateHealTests
 
         response.StatusCode.Should().Be(400);
         response.Body.Should().Contain("ORDER_CRON_VALIDATION").And.Contain("scanFrom");
+        _dynamoDb.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Cron_ATooLongScanFrom_IsRefused()
+    {
+        var cron = new OrderCronFunction(Substitute.For<IOrderRepository>()) { RatingBackfill = Backfill() };
+        var cursor = new string('u', OwnerCopyStampJob.MaxStartAtLength + 1);
+
+        var response = await cron.FunctionHandler(
+            Body($"{{\"action\":\"reputation_backfill_ratings\",\"scanFrom\":\"{cursor}\"}}"), _context);
+
+        response.StatusCode.Should().Be(400);
         _dynamoDb.ReceivedCalls().Should().BeEmpty();
     }
 }
