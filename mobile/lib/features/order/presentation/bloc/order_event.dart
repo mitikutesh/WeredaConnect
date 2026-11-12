@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/models/order_delivery_location.dart';
 
 /// Base class for order events.
@@ -225,6 +226,33 @@ class UpdateDeliveryLocation extends OrderEvent {
 
   @override
   List<Object?> get props => [orderId, buyerId, point];
+}
+
+/// ESC-34 (FUP-285): [userId]'s arrival check-in of [kind] at the farm: the
+/// trucker's (or self-pickup buyer's) "I have arrived" with its GPS [fix],
+/// or the farmer's "Crops are ready", whose fix is optional.
+class CheckInAtPickup extends OrderEvent {
+  final String orderId;
+  final String userId;
+  final String kind;
+  final HandoffCheckInFix? fix;
+
+  const CheckInAtPickup({
+    required this.orderId,
+    required this.userId,
+    required this.kind,
+    this.fix,
+  });
+
+  @override
+  List<Object?> get props => [
+        orderId,
+        userId,
+        kind,
+        fix?.latitude,
+        fix?.longitude,
+        fix?.accuracyM,
+      ];
 }
 
 /// Load a single order by its ID.

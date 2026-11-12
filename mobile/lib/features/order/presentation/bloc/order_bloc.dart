@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
@@ -46,6 +47,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     on<CancelOrder>(_onCancelOrder);
     on<UpdateDropoffNote>(_onUpdateDropoffNote);
     on<UpdateDeliveryLocation>(_onUpdateDeliveryLocation);
+    on<CheckInAtPickup>(_onCheckInAtPickup);
     on<LoadOrderById>(_onLoadOrderById);
   }
 
@@ -269,6 +271,34 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       emit(const DeliveryLocationSaved());
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  /// ESC-34 (FUP-285): the arrival check-in. A repeat sends nothing and
+  /// says it was already given. A refusal on web (sent at once) is said
+  /// through its `CHECKIN_*` code, then the order is read again quietly: a
+  /// late check-in the server kept for review shows on it.
+  Future<void> _onCheckInAtPickup(
+    CheckInAtPickup event,
+    Emitter<OrderState> emit,
+  ) async {
+    emit(const OrderLoading());
+    try {
+      final sent = await _repository.checkIn(
+        event.orderId,
+        event.userId,
+        kind: event.kind,
+        fix: event.fix,
+      );
+      emit(CheckInSaved(kind: event.kind, alreadyGiven: !sent));
+    } on Object catch (e) {
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+      if (e is SyncRejectedException) {
+        await _onReloadOrderQuietly(
+          LoadOrderById(orderId: event.orderId, quiet: true),
+          emit,
+        );
+      }
     }
   }
 

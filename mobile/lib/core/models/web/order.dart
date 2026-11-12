@@ -68,6 +68,33 @@ class Order {
   /// Isar schema).
   double? deliveryLatitude;
   double? deliveryLongitude;
+
+  /// ESC-34: the pickup judgement, when it was made, and the arrival
+  /// check-ins (order-lifecycle 2.15.0; see the Isar schema).
+  String? pickupJudgement;
+  DateTime? pickupJudgedAt;
+  List<OrderCheckIn> checkIns = [];
+
+  /// FUP-285: check-ins made on the phone and not refused. Always empty on
+  /// web, which sends a check-in at once (see the Isar schema).
+  Map<String, QueuedCheckIn> queuedCheckIns = const {};
+}
+
+/// FUP-285: a check-in made on the phone (see the Isar schema).
+class QueuedCheckIn {
+  const QueuedCheckIn({required this.madeAt, this.sent = false});
+
+  final DateTime madeAt;
+  final bool sent;
+}
+
+/// ESC-34: one arrival check-in as the parties read it (see the Isar schema).
+class OrderCheckIn {
+  String kind = '';
+  DateTime? receivedAt;
+  DateTime? capturedAt;
+  bool distanceChecked = false;
+  bool isLate = false;
 }
 
 /// Status of an order in its lifecycle.

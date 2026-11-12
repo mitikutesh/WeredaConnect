@@ -1,5 +1,6 @@
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 
 /// ESC-15: the three-party commitment of a paid order, as the client reads it
@@ -19,6 +20,10 @@ abstract final class CommitmentResponse {
   static const notAsked = 'not_asked';
   static const failedCapacity = 'failed_capacity';
   static const none = 'none';
+
+  /// ESC-34: the party the pickup judgement found absent (order-lifecycle
+  /// 2.15.0): the farmer's or the trucker's answer.
+  static const noShow = 'no_show';
 }
 
 /// The command values a farmer or trucker sends (sync-protocol.md 1.29.0).
@@ -182,13 +187,15 @@ void checkOrderCancelAllowed(Order order, String userId, DateTime nowUtc) {
 }
 
 /// Reads the commitment fields, the order's own places (order-lifecycle
-/// 2.2.0), the buyer's drop-off note (2.5.0, LT-12) and the order's own
-/// drop-off point (2.8.0, LT-14) of a server order map (`GET /orders`,
-/// `/sync` rows) into [order]. Every field is optional: an older server sends
-/// none, and the server leaves the note out for a trucker who has not
-/// committed and the point out for a trucker of an order whose money is not
-/// held, so a row without them clears the device's copy.
+/// 2.2.0), the buyer's drop-off note (2.5.0, LT-12), the order's own
+/// drop-off point (2.8.0, LT-14) and the pickup judgement with its check-ins
+/// (2.15.0, ESC-34, [applyOrderCheckInFields]) of a server order map
+/// (`GET /orders`, `/sync` rows) into [order]. Every field is optional: an
+/// older server sends none, and the server leaves the note out for a trucker
+/// who has not committed and the point out for a trucker of an order whose
+/// money is not held, so a row without them clears the device's copy.
 void applyOrderCommitmentFields(Order order, Map<String, dynamic> m) {
+  applyOrderCheckInFields(order, m);
   order
     ..fulfillment = _string(m['fulfillment'])
     ..farmerResponse = _string(m['farmerResponse'])

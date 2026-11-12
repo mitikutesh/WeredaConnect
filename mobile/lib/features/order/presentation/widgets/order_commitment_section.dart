@@ -168,7 +168,8 @@ class OrderCommitmentSection extends StatelessWidget {
   _Tone get _farmerTone => switch (farmerResponseOf(order)) {
         CommitmentResponse.accepted => _Tone.done,
         CommitmentResponse.declined ||
-        CommitmentResponse.expired =>
+        CommitmentResponse.expired ||
+        CommitmentResponse.noShow =>
           _Tone.failed,
         _ => _Tone.waiting,
       };
@@ -185,7 +186,8 @@ class OrderCommitmentSection extends StatelessWidget {
         CommitmentResponse.declined ||
         CommitmentResponse.expired ||
         CommitmentResponse.failedCapacity ||
-        CommitmentResponse.cancelled =>
+        CommitmentResponse.cancelled ||
+        CommitmentResponse.noShow =>
           _Tone.failed,
         _ => _Tone.idle,
       };
@@ -205,6 +207,9 @@ class OrderCommitmentSection extends StatelessWidget {
         _RowState(l10n.commitmentDeclined, _Tone.failed),
       CommitmentResponse.expired =>
         _RowState(l10n.commitmentExpired, _Tone.failed),
+      // ESC-34: the pickup judgement found the crops not ready.
+      CommitmentResponse.noShow =>
+        _RowState(l10n.commitmentFarmerNoShow, _Tone.failed),
       _ => _waiting(l10n, clock, order.farmerDeadlineAt),
     };
   }
@@ -227,6 +232,9 @@ class OrderCommitmentSection extends StatelessWidget {
               : l10n.commitmentDroppedOut,
           _Tone.failed,
         ),
+      // ESC-34: the pickup judgement found nobody at the farm.
+      CommitmentResponse.noShow =>
+        _RowState(l10n.commitmentTruckerNoShow, _Tone.failed),
       _ => _RowState(l10n.commitmentNotAskedYet, _Tone.idle),
     };
   }
@@ -297,6 +305,8 @@ String? transportFailureLabel(AppLocalizations l10n, String? code) =>
       'trucker_cancelled' => l10n.transportFailureTruckerCancelled,
       'trip_cancelled' => l10n.transportFailureTripCancelled,
       'trip_full' => l10n.transportFailureTripFull,
+      // ESC-34: the pickup judgement (order-lifecycle 2.15.0).
+      'trucker_no_show' => l10n.transportFailureTruckerNoShow,
       _ => null,
     };
 

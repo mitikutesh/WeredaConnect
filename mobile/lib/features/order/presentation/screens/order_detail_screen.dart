@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
@@ -5,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/models/order_dropoff_note.dart';
@@ -12,6 +15,8 @@ import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/sync/sync_executor.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
@@ -19,6 +24,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/device_signing_key_service.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
@@ -42,6 +48,7 @@ import 'package:wereda_connect/features/order/presentation/widgets/delivery_plac
 import 'package:wereda_connect/features/order/presentation/widgets/dropoff_note.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/pickup_check_in_card.dart';
 import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparties_section.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
@@ -63,7 +70,15 @@ import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 class OrderDetailScreen extends StatefulWidget {
   final String orderId;
 
-  const OrderDetailScreen({required this.orderId, super.key});
+  /// FUP-285: where an arrival check-in's GPS fix comes from; the device's
+  /// GPS when null.
+  final GpsCaptureService? gpsService;
+
+  const OrderDetailScreen({
+    required this.orderId,
+    this.gpsService,
+    super.key,
+  });
 
   @override
   State<OrderDetailScreen> createState() => _OrderDetailScreenState();
@@ -96,6 +111,10 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   /// first load shows the spinner or the error in its place.
   Order? _shown;
 
+  /// FUP-285: the phone's sync results ([_onSyncResult]). Null where there
+  /// is no sync executor (web).
+  StreamSubscription<SyncBatchResult>? _syncResults;
+
   @override
   void initState() {
     super.initState();
@@ -103,6 +122,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     // ESC-23: what the device holds shows at once; the server's copy is read
     // once behind it. Not awaited: it never blocks the screen.
     _readFromServer().ignore();
+    try {
+      _syncResults =
+          context.read<SyncExecutor>().onSyncResult.listen(_onSyncResult);
+    } on Object {
+      // No sync executor here (web, tests): nothing is queued to follow.
+    }
     // A bloc that already holds this order may emit nothing new for the
     // listener: check that order once the first frame is up.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -113,6 +138,27 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         _checkHold(current.order);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _syncResults?.cancel();
+    super.dispose();
+  }
+
+  /// FUP-285: a sync ran while a check-in made on this phone waits for the
+  /// server's copy. The queue sends it after a short wait, and a refusal
+  /// rejects it, so the order is read again: a sent one says so, a refused
+  /// one (too far, too early) gives the button back at once instead of
+  /// keeping a stale mark, and after a sync that sent something the
+  /// server's copy, with its receipt time, is read too.
+  void _onSyncResult(SyncBatchResult result) {
+    final order = _shown;
+    if (!mounted || order == null || !hasCheckInAwaitingServer(order)) return;
+    final bloc = context.read<OrderBloc>();
+    if (bloc.isClosed) return;
+    bloc.add(LoadOrderById(orderId: widget.orderId, quiet: true));
+    if (result.succeeded > 0) _readFromServer().ignore();
   }
 
   /// ESC-48: an open order without the parties' phones on this device (the
@@ -249,6 +295,20 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             context
                 .read<OrderBloc>()
                 .add(LoadOrderById(orderId: widget.orderId));
+          } else if (state is CheckInSaved) {
+            // FUP-285: sent, or saved on the phone to send later; the order
+            // then shows the check-in (the server's, or the phone's mark).
+            // A repeat sent nothing: say it was already given.
+            if (state.alreadyGiven) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(l10n.checkInAlreadyGiven)),
+              );
+            } else {
+              showSavedOrSent(context, sent: l10n.checkInSent).ignore();
+            }
+            context
+                .read<OrderBloc>()
+                .add(LoadOrderById(orderId: widget.orderId));
           } else if (state is OrderCancelled) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(l10n.orderCancelledSuccess)),
@@ -283,6 +343,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               holdChecked: _holdChecked,
               busy: state is OrderLoading,
               onRefresh: _onPullToRefresh,
+              gpsService: widget.gpsService,
             );
           }
           return SafeArea(
@@ -352,12 +413,16 @@ class _OrderDetailBody extends StatelessWidget {
   /// Pull to refresh (ESC-23): the server's copy of the order.
   final Future<void> Function() onRefresh;
 
+  /// FUP-285: the arrival check-in's GPS ([OrderDetailScreen.gpsService]).
+  final GpsCaptureService? gpsService;
+
   const _OrderDetailBody({
     required this.order,
     required this.onRefresh,
     this.underReview = false,
     this.holdChecked = true,
     this.busy = false,
+    this.gpsService,
   });
 
   @override
@@ -498,6 +563,15 @@ class _OrderDetailBody extends StatelessWidget {
                         userId: userId,
                         hideViewerDeadline: answerDeadline != null,
                       ),
+
+                      // ── Arrival check-ins (ESC-34, FUP-285) ──────────
+                      if (PickupCheckInCard.showsFor(order))
+                        PickupCheckInCard(
+                          order: order,
+                          userId: userId,
+                          busy: busy,
+                          gpsService: gpsService,
+                        ),
 
                       // Farmer · Answer a new order: what accepting and
                       // rejecting do, above the pinned buttons.

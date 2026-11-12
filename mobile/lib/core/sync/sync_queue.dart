@@ -508,6 +508,31 @@ class SyncQueue {
     return open > 0;
   }
 
+  /// The operations of [entityType] whose entity id starts with
+  /// [entityIdPrefix] that the server has not refused for good ([isRejected]):
+  /// waiting, on their way, failed and retried again, or applied. Oldest
+  /// first. With [userId], only that user's (the `{userId}:` idempotency key
+  /// prefix, as [getPendingOperationsForUser]), so on a shared phone one
+  /// user's operations never show as another's. The order screen reads an
+  /// order's check-ins this way (`{orderId}#{kind}`, FUP-285).
+  Future<List<SyncOperation>> unrejectedOperationsFor(
+    String entityType, {
+    required String entityIdPrefix,
+    String? userId,
+  }) async {
+    final ops = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(entityType)
+        .entityIdStartsWith(entityIdPrefix)
+        .optional(
+          userId != null,
+          (q) => q.idempotencyKeyStartsWith('$userId:'),
+        )
+        .sortByCreatedAt()
+        .findAll();
+    return ops.where((op) => !isRejected(op)).toList();
+  }
+
   /// Whether an operation of the entity still waits to reach the server:
   /// pending, on its way, or failed out of retries (a reconnect sends it
   /// again, [retryFailed]). One the server refused for good ([isRejected])
