@@ -4879,8 +4879,12 @@ order (`order-lifecycle.md` 2.13.0).
   `reason=escrow_changed` and the row waits an hour.
 - The order having moved (a party answered first) is a conflict, as before.
 - A read or a transaction that fails for another reason writes nothing, and the row is tried again at
-  the next run (`ORDER_DEADLINE_ROW_FAILED`). Before, the cancel landed and the arm failed after it
-  (`ORDER_ESCROW_REFUND_SCHEDULE_FAILED`).
+  the next run (`ORDER_DEADLINE_ROW_FAILED`). Before, the cancel landed and the arm failed after it.
+  The buyer's refund waits either way, so the cron still logs the alarmed
+  `ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId=<id> reason=escrow_unreadable|cancel_not_written
+  cancelReason=<reason> error=[<exception>]` (the order-cron filter counts it into
+  `OrderEscrowProblems`), so a read that keeps failing (permissions, a table missing from the env)
+  is not silent.
 
 ### The funding that lost the listing's stock (`listing_out_of_stock`)
 
@@ -4928,10 +4932,14 @@ The same check runs before the retry of a refund that failed after the sweep's o
 - The sweep's own cancel of a stale order still gives the stock back best-effort in the same run and
   refunds even when that restore fails (SIM-13); only a later run, after a refund that failed, restores
   first (FUP-230).
-- `ORDER_STOCK_RESTORE_FAILED` and `ORDER_DEADLINE_REFUND_WAITING` are not alarmed: a restore that keeps
-  failing holds the refund, and money that stays busy holds the deadline cancel, without an alarm of
-  their own (FUP-231). Busy money is watched where it sits: a stale settlement lock is parked in the
-  manual payout queue (1.10.0), whose overdue entries are alarmed, and a dispute waits for its verdict.
+- `ORDER_DEADLINE_REFUND_WAITING`, `ORDER_DEADLINE_ROW_FAILED` and `ORDER_STOCK_RESTORE_FAILED` are not
+  alarmed: money that stays busy holds the deadline cancel, a row that keeps failing for another
+  reason is retried every run, and a restore that keeps failing holds the refund, without an alarm of
+  their own (FUP-231 alarms their repeats). Most busy money is watched where it sits: a stale
+  settlement lock is parked in the manual payout queue (1.10.0), whose overdue entries are alarmed,
+  and a `disputed` escrow waits for its verdict. Busy states with no other watcher only warn: a ledger
+  escrow whose crop leg is already decided, or a `dispute_resolved` escrow, on an order still before
+  pickup (bad data only; neither is reachable through the app).
 
 ---
 
@@ -5279,7 +5287,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
-| 2.13.0 | 2026-11-12 | The last two cancel-then-arm writers (FUP-210, FUP-211; closes two of the 2.11.0 known limits): the order cron's commitment deadline cancels (`farmer_response_expired`, `transport_not_arranged`) and the funding's stock loss end (`listing_out_of_stock`) write the order and the refund arm in one transaction (an escrow held for review fenced, not armed); money frozen or moving writes nothing (the cron's order waits an hour, `ORDER_DEADLINE_REFUND_WAITING`; the funding's order stays `funded` with `ORDER_STOCK_DECREMENT_FAILED ... status=escrow_busy`). The hourly refund sweep gives an `escrow_refunded` cancel's listing stock back before its refund, fail closed, as for the pickup deadline cancel, so an admin refund whose restore failed after its cancel never refunds ahead of the stock. No endpoint, field, amount or client change (`order-lifecycle.md` 2.13.0). 2.12.0 is another change's number |
+| 2.13.0 | 2026-11-12 | The last two cancel-then-arm writers (FUP-210, FUP-211; closes two of the 2.11.0 known limits): the order cron's commitment deadline cancels (`farmer_response_expired`, `transport_not_arranged`) and the funding's stock loss end (`listing_out_of_stock`) write the order and the refund arm in one transaction (an escrow held for review fenced, not armed); money frozen or moving writes nothing (the cron's order waits an hour, `ORDER_DEADLINE_REFUND_WAITING`; the funding's order stays `funded` with `ORDER_STOCK_DECREMENT_FAILED ... status=escrow_busy`); a cron read or write that fails writes nothing, retries next run and logs the alarmed `ORDER_ESCROW_REFUND_SCHEDULE_FAILED reason=escrow_unreadable|cancel_not_written`. The hourly refund sweep gives an `escrow_refunded` cancel's listing stock back before its refund, fail closed, as for the pickup deadline cancel, so an admin refund whose restore failed after its cancel never refunds ahead of the stock. No endpoint, field, amount or client change (`order-lifecycle.md` 2.13.0). 2.12.0 is another change's number |
 | 2.11.0 | 2026-11-12 | The other cancel-then-refund writers (FUP-53, closes the 1.25.0 known limits): the funded order's reject or cancel in sync, the admin refund's cancel before pickup and the 7 day sweep's cancel of a stale order each write the order and the refund arm in one transaction (the sweep's arm `refundReason: delivery_timeout`); money frozen or moving refuses the close (`ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.`, `409 ESCROW_INVALID_TRANSITION` for the admin, a skip for the sweep) with nothing written; `POST /escrow/dispute` freezes in one transaction with a check that its order is not `cancelled` or `rejected` (refused with the existing scheduled-refund answer, key freed); the settlement lock, the expiry push and the fraud hold are sent again on `TransactionConflictException`, at most 3 writes. No endpoint, field, amount or client change (`order-lifecycle.md` 2.12.0, `sync-protocol.md` 1.51.0). 2.10.0 is another change's number |
 | 2.10.0 | 2026-11-12 | ESC-33 (§Additions in 2.10.0), no wire change. Behind `reputationPenalties` (off everywhere): the payout delay also reads the payee's reputation tier from the users row, `low` as `new` and restricted as `flagged`; off, the classes and reads are those of 1.33.0. Behind the same flag a GPS-inconsistent confirm also puts a capped `GPS_ANOMALY` row on the trucker, which can make that trucker a `new` payee on later deliveries. Nothing is live. (2.9.0 is another ticket's version.) |
 | 2.9.0 | 2026-11-12 | The release against the crash recovery (FUP-65): a 1.x release whose `completed` write loses to the hourly crash recovery reads the row and answers its normal success (`completed`, one payout, no second `complete` row, the same success on replay) instead of `500`; the recovery leaves a row released less than 2 minutes ago to its release and treats a lost write as no failure. Unlinked order escrows (FUP-66): the delivery confirmation stamps the order's own escrow when the `DeliveryIndex` names none; the refund sweep's safety net and the admin queue review find the delivery through the order's `activeDeliveryId`, so a confirmed delivery is never refunded; a funded order without an escrow row is not cash at the QR gate (`delivery-verification-api.md` 2.4.0). Server only; no endpoint, field, status or client change. 2.7.0 is another change's number. |

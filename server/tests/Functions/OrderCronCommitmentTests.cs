@@ -705,9 +705,10 @@ public class OrderCronCommitmentTests
     }
 
     [Fact]
-    public async Task EscrowUnreadable_NothingIsCancelled_AndTheRowIsTriedAgainNextRun()
+    public async Task EscrowUnreadable_NothingIsCancelled_TheMoneyAlarmIsLogged_AndTheRowIsTriedAgainNextRun()
     {
         // FUP-210: the cancel waits for a plan of its money; before, it cancelled and the arm failed after.
+        // The buyer's refund waits either way, so the alarmed token is logged as it was then.
         _escrows.QueryByOrderIdAsync(Arg.Any<string>(), Arg.Any<int>())
             .ThrowsAsync(new AmazonDynamoDBException("throttled"));
         Serve("funded", FarmerPendingOrder(deadlineInHours: -1));
@@ -717,12 +718,36 @@ public class OrderCronCommitmentTests
         Assert.Equal(200, actual.StatusCode);
         Assert.Contains("\"farmerExpired\":\"0\"", actual.Body);
         Assert.Contains("\"rowErrors\":\"1\"", actual.Body);
+        Assert.Contains(
+            $"ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId={OrderId} reason=escrow_unreadable cancelReason=farmer_response_expired error=[AmazonDynamoDBException]",
+            Logs);
+        Assert.Equal(1, CountOf(Logs, "ORDER_ESCROW_REFUND_SCHEDULE_FAILED"));
         Assert.Contains($"{OrderCronFunction.DeadlineRowFailedToken} orderId={OrderId} reason=[AmazonDynamoDBException]", Logs);
-        Assert.DoesNotContain("ORDER_ESCROW_REFUND_SCHEDULE_FAILED", Logs);
         await AssertNoOrderWrite();
         await AssertNoRefundScheduled();
         await _crops.DidNotReceive().TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
         await _trips.DidNotReceive().TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+    }
+
+    [Fact]
+    public async Task CancelTransactionFails_NothingIsWritten_TheMoneyAlarmIsLogged_AndTheRowIsTriedAgainNextRun()
+    {
+        _orders.TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4, Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .ThrowsAsync(new AmazonDynamoDBException("access denied"));
+        Serve(OrderCommitment.AwaitingTransportStatus, AwaitingTransportOrder(deadlineInHours: -1));
+
+        var actual = await RunAsync();
+
+        Assert.Equal(200, actual.StatusCode);
+        Assert.Contains("\"buyerChoiceExpired\":\"0\"", actual.Body);
+        Assert.Contains("\"rowErrors\":\"1\"", actual.Body);
+        Assert.Contains(
+            $"ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId={OrderId} reason=cancel_not_written cancelReason=transport_not_arranged error=[AmazonDynamoDBException]",
+            Logs);
+        await AssertNoRefundScheduled();
+        await _txAudit.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        await _crops.DidNotReceive().TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
     }
 
     [Fact]

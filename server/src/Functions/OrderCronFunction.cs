@@ -1418,7 +1418,8 @@ public partial class OrderCronFunction
     /// An escrow that changed under the transaction is planned again, at most
     /// <see cref="RefundCancelAttempts"/> times, then the row waits too. The order having moved is a
     /// conflict, as before. A read or a transaction that fails throws with nothing written, and the
-    /// row is tried again next run (<see cref="DeadlineRowFailedToken"/>).
+    /// row is tried again next run (<see cref="DeadlineRowFailedToken"/>), after the alarmed line of
+    /// <see cref="LogRefundNotArmed"/>.
     /// </summary>
     private async Task<DeadlineOutcome> CancelWithRefundAsync(
         Dictionary<string, object> order, string orderId, Dictionary<string, object> fields,
@@ -1426,7 +1427,17 @@ public partial class OrderCronFunction
     {
         for (var attempt = 1; attempt <= RefundCancelAttempts; attempt++)
         {
-            var plan = await escrow.PlanOrderRefundAsync(orderId);
+            OrderRefundPlan plan;
+            try
+            {
+                plan = await escrow.PlanOrderRefundAsync(orderId);
+            }
+            catch (Exception ex)
+            {
+                LogRefundNotArmed(orderId, reason, "escrow_unreadable", ex, run);
+                throw;
+            }
+
             if (plan.Readiness == OrderRefundReadiness.Busy)
             {
                 return RefundWaiting(orderId, reason, "escrow_busy", run);
@@ -1443,8 +1454,18 @@ public partial class OrderCronFunction
                 return DeadlineOutcome.Applied;
             }
 
-            var write = await escrow.CloseOrderWithRefundAsync(
-                orderId, fields, GetInt(order, "version"), fromStatus, plan, DeadlineRefundReason, "system", AuditContext.ForSystem());
+            OrderLinkedWriteResult write;
+            try
+            {
+                write = await escrow.CloseOrderWithRefundAsync(
+                    orderId, fields, GetInt(order, "version"), fromStatus, plan, DeadlineRefundReason, "system", AuditContext.ForSystem());
+            }
+            catch (Exception ex)
+            {
+                LogRefundNotArmed(orderId, reason, "cancel_not_written", ex, run);
+                throw;
+            }
+
             switch (write.Outcome)
             {
                 case OrderLinkedWriteOutcome.Written:
@@ -1467,6 +1488,18 @@ public partial class OrderCronFunction
 
         return RefundWaiting(orderId, reason, "escrow_changed", run);
     }
+
+    /// <summary>
+    /// FUP-210: the money could not be read, or the cancel with its arm could not be written, for a
+    /// reason other than a refusal: nothing was written, and the row is tried again next run. Logged
+    /// with the alarmed <c>ORDER_ESCROW_REFUND_SCHEDULE_FAILED</c> token (the order-cron filter counts
+    /// it into <c>OrderEscrowProblems</c>), as the failed separate arm was before, so a read that keeps
+    /// failing (permissions, a table missing from the env) does not hold the buyer's refund unseen.
+    /// </summary>
+    private static void LogRefundNotArmed(string orderId, string reason, string why, Exception ex, CommitmentRun run)
+        => run.Context.Logger.LogError(
+            $"ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} reason={why} cancelReason={reason} "
+            + $"error=[{ex.GetType().Name}]: nothing written, the cancel and its refund wait for the next run.");
 
     /// <summary>FUP-210: log why a deadline cancel waits (<see cref="DeadlineRefundWaitingToken"/>).</summary>
     private static DeadlineOutcome RefundWaiting(string orderId, string reason, string why, CommitmentRun run)
