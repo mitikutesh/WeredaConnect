@@ -391,7 +391,8 @@ describe('ApiStack', () => {
     // plus GET /admin/escrows/{id}/ledger and GET /admin/orders/queue (ESC-24) → 76,
     // plus GET and POST /admin/users/{id}/reputation, GET /admin/reputation/appeals and POST
     // /admin/users/{id}/reputation/events/{eventId}/decision (ESC-32) → 80 total. FUP-05: the claim and
-    // unclaim actions share POST /admin/payouts/{escrowId}/{ref}/{action} with complete (no new route).
+    // unclaim actions share POST /admin/payouts/{escrowId}/{ref}/{action} with complete (no new route),
+    // and so does FUP-218's correct.
     template.resourceCountIs('AWS::ApiGatewayV2::Route', 80);
   });
 
@@ -959,7 +960,7 @@ describe('ApiStack', () => {
     }
   });
 
-  test('admin Lambda can put its claim and reference rows and read them, nothing else, on escrow-idempotency (FUP-02, FUP-05)', () => {
+  test('admin Lambda can put its claim and reference rows, read them and delete a corrected reference, nothing else, on escrow-idempotency (FUP-02, FUP-05, FUP-218)', () => {
     // The role's statements overflow into a managed policy, so read both kinds.
     const policies = {
       ...template.findResources('AWS::IAM::Policy'),
@@ -977,8 +978,9 @@ describe('ApiStack', () => {
       .filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'))
       .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
     // TransactWriteItems is authorized per item: a conditional Put needs PutItem only. FUP-05: a refused
-    // duplicate payout reference reads its item to name where the reference is used.
-    expect([...actions].sort()).toEqual(['dynamodb:GetItem', 'dynamodb:PutItem']);
+    // duplicate payout reference reads its item to name where the reference is used. FUP-218: a correction's
+    // transaction deletes the old reference item (a conditional Delete needs DeleteItem only).
+    expect([...actions].sort()).toEqual(['dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:PutItem']);
 
     const admin = Object.values(template.findResources('AWS::Lambda::Function')).find(
       (fn) => fn.Properties?.FunctionName === 'wereda-connect-dev-admin',

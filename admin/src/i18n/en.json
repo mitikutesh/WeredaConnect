@@ -301,7 +301,27 @@
     "claimedByYou": "You are paying this leg (claimed until {time}).",
     "claimedByOther": "Another admin is paying this",
     "claimedByOtherHint": "Claimed by {admin} until {time}. Do not pay it in the portal.",
-    "duplicateRef": "This Telebirr transaction ID is already recorded on escrow {escrowId}, leg {ref}. Check the ID in the portal: one payment cannot be recorded twice."
+    "duplicateRef": "This Telebirr transaction ID is already recorded on escrow {escrowId}, leg {ref}. Check the ID in the portal: one payment cannot be recorded twice.",
+    "openToCorrect": "Open escrow {escrowId} to correct the ID recorded there."
+  },
+  "correctRef": {
+    "action": "Correct reference",
+    "title": "Correct the recorded Telebirr transaction ID",
+    "hint": "Use this only when this leg was recorded with the wrong ID. Nothing is paid or refunded: only the recorded ID changes, and the audit trail keeps both.",
+    "current": "Recorded ID",
+    "newRef": "Correct Telebirr transaction ID",
+    "reason": "Why the recorded ID is wrong",
+    "reasonHint": "10 to 500 characters. It is kept in the audit trail.",
+    "review": "Review",
+    "confirmQuestion": "Replace {oldRef} with {newRef} on this leg?",
+    "confirm": "Yes, correct it",
+    "back": "Back",
+    "cancel": "Cancel",
+    "done": "Reference corrected.",
+    "already": "This leg already carries that ID.",
+    "sameRef": "Enter an ID that differs from the recorded one.",
+    "changed": "This leg changed since the page was loaded. Reload and check its ID before you try again.",
+    "notCorrectable": "This leg cannot be corrected here: it is not recorded yet, or the gateway paid it."
   },
   "listingReports": {
     "title": "Listing Reports",
@@ -728,7 +748,9 @@
     "action_reputation_tagged": "Low reputation tag set (admin)",
     "action_reputation_untagged": "Low reputation tag hidden (admin)",
     "action_reputation_restricted": "Account restricted (admin)",
-    "action_reputation_lifted": "Restriction lifted (admin)"
+    "action_reputation_lifted": "Restriction lifted (admin)",
+    "action_manual_payout_ref_corrected": "Payout reference corrected (admin)",
+    "action_admin_manual_payout_ref_corrected": "Payout reference corrected (admin)"
   },
   "analytics": {
     "title": "Transaction Volume",
@@ -858,7 +880,8 @@
     "REPUTATION_ALREADY_RESTRICTED": "This account already has a restriction. Lift it first, then restrict again.",
     "REPUTATION_UNAVAILABLE": "Reputation penalties are switched off in this environment, so nothing can be changed.",
     "REPUTATION_SERVER_ERROR": "The server could not finish this. Try again in a moment.",
-    "REPUTATION_APPEAL_CHANGED": "The appeal changed after this page was loaded. It has been reloaded: read the appeal, then decide again."
+    "REPUTATION_APPEAL_CHANGED": "The appeal changed after this page was loaded. It has been reloaded: read the appeal, then decide again.",
+    "ESCROW_048": "Give a reason of 10 to 500 characters for the correction."
   },
   "language": {
     "english": "English",
@@ -947,7 +970,10 @@
     "errorFarmerMax": "The farmer can get at most the crop leg held.",
     "errorTruckerAmount": "Enter the trucker's amount: 0 or more, at most 2 decimals.",
     "errorTruckerMax": "The trucker can get at most the transport leg held.",
-    "errorNoTrucker": "This escrow names no trucker to pay, so the transport leg goes back to the buyer."
+    "errorNoTrucker": "This escrow names no trucker to pay, so the transport leg goes back to the buyer.",
+    "manualLegsTitle": "Manual payouts",
+    "manualLegsHint": "The legs of this escrow's manual payout. A leg recorded with the wrong Telebirr transaction ID can be corrected here.",
+    "paidByGateway": "Paid by the gateway"
   },
   "stuckOrders": {
     "title": "Stuck Orders",

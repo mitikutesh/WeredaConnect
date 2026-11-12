@@ -1,7 +1,7 @@
 import { useParams } from "react-router";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { LedgerCard, RecordedSplitRow, TruckerLegRows } from "@/components/escrows/MoneyLegs";
+import { LedgerCard, ManualLegsCard, RecordedSplitRow, TruckerLegRows } from "@/components/escrows/MoneyLegs";
 import { useLocale } from "@/hooks/useLocale";
 import { useEscrowDetail, useEscrowAudit } from "@/hooks/useQuery";
 import { formatETB, formatDateTime } from "@/lib/i18n";
@@ -101,6 +101,8 @@ export function EscrowDetailPage() {
 
         {/* ESC-24: the ledger of an escrow on the ledger (ESC-20); nothing for the legacy model. */}
         <LedgerCard escrow={detail} />
+        {/* FUP-218: the manual payout legs of a legacy escrow, where a reference recorded by mistake is corrected. */}
+        <ManualLegsCard escrow={detail} />
       </div>
     </div>
   );
