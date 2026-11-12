@@ -334,7 +334,9 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           setState(() => _isSubmitting = false);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(localizeErrorCode(state.code, l10n)),
+              content: Text(
+                localizeErrorCode(state.code, l10n, message: state.message),
+              ),
               backgroundColor: AppTheme.statusError,
             ),
           );

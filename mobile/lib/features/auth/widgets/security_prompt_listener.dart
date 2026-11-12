@@ -173,6 +173,8 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
         message: message,
       ),
       l10n,
+      // ESC-31: a reputation refusal names the day the restriction ends.
+      message: message,
     );
   }
 

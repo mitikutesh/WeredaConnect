@@ -386,6 +386,22 @@ const String appUpdateRequiredCode = 'APP_UPDATE_REQUIRED';
 bool isReputationRestrictedMessage(String? message) =>
     message != null && message.startsWith(reputationRestrictedCode);
 
+/// ESC-31: when the restriction of a `REPUTATION_RESTRICTED: until=...:`
+/// refusal ends (reputation-api.md 8.1), read from anywhere in [message] (a
+/// bloc keeps the exception's text, not the bare message). Null when the
+/// text carries no date: `until=review` (an admin review is open, no end
+/// date yet), the `counterparty` form of a refused order create, the
+/// wording for old builds, or anything that does not parse.
+DateTime? reputationRestrictedUntil(String? message) {
+  if (message == null) return null;
+  final match = _reputationRestrictedUntilPattern.firstMatch(message);
+  if (match == null) return null;
+  return DateTime.tryParse(match.group(1)!)?.toUtc();
+}
+
+final RegExp _reputationRestrictedUntilPattern =
+    RegExp('$reputationRestrictedCode: until=(\\S+): ');
+
 /// Whether a /sync per-operation error message refuses a trip change because
 /// of its bookings (`TRIP_HAS_BOOKINGS: ...`).
 bool isTripHasBookingsMessage(String? message) =>

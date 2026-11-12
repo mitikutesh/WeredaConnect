@@ -157,7 +157,11 @@ class _TripBookingsSectionState extends State<TripBookingsSection> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            localizeErrorCode(state.code, AppLocalizations.of(context)!),
+            localizeErrorCode(
+              state.code,
+              AppLocalizations.of(context)!,
+              message: state.message,
+            ),
           ),
         ),
       );

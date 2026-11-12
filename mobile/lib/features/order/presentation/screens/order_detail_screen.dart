@@ -256,7 +256,15 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             Navigator.of(context).pop();
           } else if (state is OrderError) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
+              SnackBar(
+                content: Text(
+                  localizeErrorCode(
+                    state.code,
+                    l10n,
+                    message: state.message,
+                  ),
+                ),
+              ),
             );
           } else if (state is SingleOrderLoaded) {
             _pullForContact(state.order);
