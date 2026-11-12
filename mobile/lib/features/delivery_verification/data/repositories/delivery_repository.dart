@@ -371,6 +371,68 @@ class DeliveryRepository extends BaseDeliveryRepository {
     );
   }
 
+  /// Queue the trucker's drop-off nonce (ESC-35). It is not stored on the
+  /// phone's delivery row (the drop-off store keeps it); the queue sends it
+  /// behind the pickup, and the server waits for the pickup if it comes
+  /// first. The same code already waiting is not queued twice; a [renew]
+  /// drops the drop-off codes still waiting, so an older one never lands
+  /// after it. Nothing for anyone but the delivery's trucker. The server's
+  /// answer comes later, so a queued code reads as sent.
+  @override
+  Future<DropoffCodeRegistration> persistDropoffQrNonce({
+    required String deliveryId,
+    required String nonce,
+    required String truckerId,
+    bool renew = false,
+  }) async {
+    final delivery = await _isar.deliverys
+        .filter()
+        .deliveryIdEqualTo(deliveryId)
+        .findFirst();
+    if (delivery == null ||
+        truckerId.isEmpty ||
+        delivery.truckerId != truckerId) {
+      return DropoffCodeRegistration.notStored;
+    }
+
+    final waiting = [
+      for (final op
+          in await _syncQueue.waitingOperationsFor('delivery', deliveryId))
+        if (_dropoffNonceOf(op.data) case final queued?) (op, queued),
+    ];
+    if (renew) {
+      await _syncQueue
+          .dropWaiting([for (final (op, _) in waiting) op.operationId]);
+    } else if (waiting.any((w) => w.$2 == nonce)) {
+      return DropoffCodeRegistration.sent;
+    }
+
+    await _syncQueue.enqueue(
+      userId: truckerId,
+      entityType: 'delivery',
+      entityId: deliveryId,
+      action: 'update',
+      data: jsonEncode({
+        'dropoffQrNonce': nonce,
+        if (renew) 'dropoffQrRenew': true,
+        'version': delivery.version,
+      }),
+      operationId: _uuid.v4(),
+    );
+    return DropoffCodeRegistration.sent;
+  }
+
+  /// The drop-off nonce a queued operation registers, or null.
+  static String? _dropoffNonceOf(String data) {
+    try {
+      final decoded = jsonDecode(data);
+      final nonce = decoded is Map ? decoded['dropoffQrNonce'] : null;
+      return nonce is String ? nonce : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
   /// Confirm pickup by trucker. Status → pickedUp.
   @override
   Future<void> confirmPickup({

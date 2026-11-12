@@ -550,6 +550,9 @@ public sealed class SyncFunctionHandoffCodeTests
 
         public Task PutNonceAsync(string deliveryId, string nonce) => Task.CompletedTask;
 
+        public Task<DropoffNonceOutcome> PutDropoffNonceAsync(string deliveryId, string nonce, bool renew) =>
+            Task.FromResult(DropoffNonceOutcome.NoPickupNonce);
+
         public Task<DeliveryQrSecret?> GetAsync(string deliveryId) =>
             Task.FromResult<DeliveryQrSecret?>(new DeliveryQrSecret
             {
@@ -561,7 +564,8 @@ public sealed class SyncFunctionHandoffCodeTests
             });
 
         public Task<CodeAttempt> TryTakeCodeAttemptAsync(
-            string deliveryId, string targetStatus, string attemptId, string nonce, int maxAttempts)
+            string deliveryId, string targetStatus, string attemptId, string nonce, int maxAttempts,
+            bool dropoffNonce = false)
         {
             var set = _attempts.TryGetValue(targetStatus, out var s) ? s : _attempts[targetStatus] = new HashSet<string>();
             if (nonce != _nonce)

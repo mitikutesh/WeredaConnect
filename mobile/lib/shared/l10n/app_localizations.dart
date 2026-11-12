@@ -8969,12 +8969,6 @@ abstract class AppLocalizations {
   /// **'You confirmed the pickup with a typed code, so there is no QR to show. The buyer types this code instead.'**
   String get deliveryDropoffCodeOnly;
 
-  /// Trucker (T-3): snackbar when no pickup handoff is kept on this phone
-  ///
-  /// In en, this message translates to:
-  /// **'This phone has no drop-off code for this delivery. It is kept when you scan the farmer\'s QR at pickup on this phone.'**
-  String get deliveryDropoffQrMissing;
-
   /// Delivery error (T-1, DELIVERY_CODE_MISMATCH): the server refused a typed handoff code
   ///
   /// In en, this message translates to:
@@ -8984,7 +8978,7 @@ abstract class AppLocalizations {
   /// Delivery error (T-1, DELIVERY_CODE_LOCKED): five wrong typed codes
   ///
   /// In en, this message translates to:
-  /// **'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the farmer to show a new code.'**
+  /// **'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the person showing it to make a new code.'**
   String get deliveryErrorCodeLocked;
 
   /// Dispute screen on web (FUP-43): the server asked for the password again (AUTH_040) and the prompt was cancelled, so the dispute was not sent
@@ -9053,10 +9047,64 @@ abstract class AppLocalizations {
   /// **'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR if they have one. If not, contact support: they can confirm the handoff with you and the trucker.'**
   String get deliveryErrorCodeLockedDropoff;
 
-  /// Farmer QR screen (T-1): the delivery left pending meanwhile, so no new QR (nonce) is made; the trucker shows the pickup code at the drop-off
+  /// Trucker (ESC-35): note on the drop-off QR screen for the trucker's own code
   ///
   /// In en, this message translates to:
-  /// **'This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.'**
+  /// **'Made on this phone for this delivery. It works offline, and the buyer\'s scan or typed code confirms the delivery. Lost or locked? Make a new code.'**
+  String get deliveryDropoffQrOwnNote;
+
+  /// Trucker (ESC-35): button on the drop-off QR screen that makes a new code (replaces a lost or locked one)
+  ///
+  /// In en, this message translates to:
+  /// **'New drop-off code'**
+  String get deliveryDropoffNewCode;
+
+  /// Trucker (ESC-35): the drop-off code could not be registered with the server (offline web)
+  ///
+  /// In en, this message translates to:
+  /// **'Not on the server yet. It is sent again each time you open this QR while online, and the buyer\'s confirm waits for it.'**
+  String get deliveryDropoffQrNotSent;
+
+  /// Buyer at a trucker's drop-off (ESC-35): the server waits for the trucker's drop-off code to sync
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker\'s drop-off code has not reached the server yet. Ask the trucker to open the drop-off QR while online, then try again.'**
+  String get deliveryErrorDropoffQrPending;
+
+  /// Buyer at a trucker's drop-off (ESC-35, DELIVERY_CODE_LOCKED): five wrong codes for the trucker's own code, which the trucker can renew
+  ///
+  /// In en, this message translates to:
+  /// **'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR instead, or ask the trucker to make a new code.'**
+  String get deliveryErrorDropoffCodeLocked;
+
+  /// Trucker (ESC-35): drop-off QR screen when this phone keeps no drop-off code
+  ///
+  /// In en, this message translates to:
+  /// **'This phone has no drop-off code for this delivery. If you made one on another phone or browser, show that one. Or make a new code here.'**
+  String get deliveryDropoffNoCodeHere;
+
+  /// Trucker (ESC-35): the server keeps another drop-off code for this delivery (DROPOFF_CODE_SUPERSEDED)
+  ///
+  /// In en, this message translates to:
+  /// **'A newer drop-off code was made on another phone or browser, so this one does not work. Show that one, or make a new code here.'**
+  String get deliveryDropoffQrSuperseded;
+
+  /// Trucker (ESC-35): title of the confirmation before New drop-off code
+  ///
+  /// In en, this message translates to:
+  /// **'Make a new drop-off code?'**
+  String get deliveryDropoffNewCodeConfirmTitle;
+
+  /// Trucker (ESC-35): body of the confirmation before New drop-off code
+  ///
+  /// In en, this message translates to:
+  /// **'Any drop-off code shown before, on this or another phone, stops working. Show the buyer only the new one.'**
+  String get deliveryDropoffNewCodeConfirmBody;
+
+  /// Farmer QR screen (T-1): the delivery left pending meanwhile, so no new QR (nonce) is made; the trucker shows a drop-off code of their own (ESC-35)
+  ///
+  /// In en, this message translates to:
+  /// **'This delivery was already picked up, so no new QR code is made. The trucker now shows the buyer a drop-off code of their own.'**
   String get deliveryQrAlreadyPickedUp;
 
   /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Place order: label of the optional field where the buyer names a landmark for the driver

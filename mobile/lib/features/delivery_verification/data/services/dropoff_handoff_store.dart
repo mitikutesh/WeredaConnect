@@ -5,24 +5,31 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
 
-/// What the trucker's phone keeps from a pickup handoff for the drop-off
-/// (usability audit T-3): the farmer's QR token as it was scanned, with its
-/// typed code, or only the code when the trucker typed it at the farm.
+/// What the trucker's phone keeps for the drop-off.
 ///
-/// The buyer's confirm checks the same pickup nonce the trucker scanned
-/// (one nonce for both legs, each leg used once), so showing this token is
-/// how the buyer scans at the drop-off. A separate trucker nonce is a
-/// follow-up.
+/// Since ESC-35 it is the trucker's own drop-off code: a QR token with its
+/// [nonce] (registered with the server, which checks the buyer's confirm
+/// against it) and its typed code. Before, it was the farmer's QR token as
+/// scanned at pickup, or only the code typed at the farm (usability audit
+/// T-3, one nonce for both legs); a phone may still hold one of those for a
+/// delivery picked up on an older version, and it still works.
 @immutable
 class KeptHandoff {
-  const KeptHandoff({this.token, this.code});
+  const KeptHandoff({this.token, this.code, this.nonce});
 
-  /// The farmer's QR token, rendered again as the drop-off QR; null when the
-  /// pickup was confirmed with a typed code.
+  /// The QR token shown as the drop-off QR; null when only a code was kept
+  /// (a pickup typed at the farm before ESC-35).
   final String? token;
 
   /// The nine-digit typed code of the same nonce.
   final String? code;
+
+  /// The trucker's own drop-off nonce (ESC-35); null for the farmer's
+  /// token kept before.
+  final String? nonce;
+
+  /// Whether this is the trucker's own drop-off code.
+  bool get isTruckers => nonce != null && nonce!.isNotEmpty;
 
   bool get isEmpty =>
       (token == null || token!.isEmpty) && (code == null || code!.isEmpty);
@@ -30,15 +37,18 @@ class KeptHandoff {
   Map<String, Object> toJson() => {
         if (token != null) 't': token!,
         if (code != null) 'c': code!,
+        if (nonce != null) 'n': nonce!,
       };
 
   static KeptHandoff? fromJson(Object? json) {
     if (json is! Map) return null;
     final token = json['t'];
     final code = json['c'];
+    final nonce = json['n'];
     final kept = KeptHandoff(
       token: token is String ? token : null,
       code: code is String ? code : null,
+      nonce: nonce is String ? nonce : null,
     );
     return kept.isEmpty ? null : kept;
   }
@@ -95,8 +105,9 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
   /// A truck carries a handful of orders; older ones are long delivered.
   static const maxDeliveries = 20;
 
-  /// The server takes a QR nonce for 14 days from the farmer's first QR
-  /// (`delivery-verification-api.md`, QR Secret Storage): a handoff kept
+  /// The server takes a QR nonce for 14 days from when it was stored (the
+  /// farmer's first QR, or the trucker's drop-off code; ESC-35,
+  /// `delivery-verification-api.md` QR Secret Storage): a handoff kept
   /// longer can no longer confirm anything.
   static const maxAge = Duration(days: 14);
 

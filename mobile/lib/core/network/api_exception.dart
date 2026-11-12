@@ -271,6 +271,23 @@ bool isDeliveryCodeRejectionMessage(String? message) =>
         message.startsWith(deliveryCodeLockedCode) ||
         message.startsWith(deliveryCodeGpsRequiredCode));
 
+/// The buyer's confirm at a trucker's drop-off whose own code (ESC-35,
+/// sync-protocol.md 1.58.0) is involved, told apart from the farmer's code
+/// by the server's text, not by the code alone: the wait for the trucker's
+/// code to sync (`DELIVERY_NONCE_PENDING` also waits for the farmer's QR or
+/// a payment check), and the lock of the trucker's code, which the trucker
+/// renews (`DELIVERY_CODE_LOCKED` also locks the farmer's code).
+const String deliveryDropoffCodePendingText =
+    "DELIVERY_NONCE_PENDING: Waiting for the trucker's drop-off QR code";
+const String deliveryDropoffCodeLockedText =
+    'DELIVERY_CODE_LOCKED: Too many wrong codes for this drop-off.';
+
+/// A trucker's drop-off code the server answered `success` for but did not
+/// keep (ESC-35): another drop-off code is on record (made on another phone
+/// or browser), or the delivery has no pickup code on the server.
+const String dropoffCodeSupersededCode = 'DROPOFF_CODE_SUPERSEDED';
+const String dropoffCodeNotStoredCode = 'DROPOFF_CODE_NOT_STORED';
+
 /// Sync rejection prefix when a change reaches a delivery that is already
 /// cancelled (sync-protocol.md 1.45.0, FUP-128). A party who is behind the
 /// cancel gets a `conflict` with the row; the error is left for a change
