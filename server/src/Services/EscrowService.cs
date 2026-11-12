@@ -6827,6 +6827,15 @@ public sealed partial class EscrowService
             return true;
         }
 
+        // FUP-97: an admin refund parked in the manual payout queue (gateway outcome unknown, no
+        // refundReason armed, as an override refund of a delivered order) is on its way back to the
+        // buyer, confirmed or not, expired or not.
+        if (IsManualPayoutOpen(item)
+            && string.Equals(GetStringOrNull(item, ManualPayoutFields.Op), ManualPayoutFields.OpRefund, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
         // ESC-06: a hold at its 21-day cap keeps its past expiry while an admin decides; it is not
         // on its way back to the buyer.
         if (!string.IsNullOrEmpty(GetStringOrNull(item, AdminQueueFields.HoldCapReachedAt)))

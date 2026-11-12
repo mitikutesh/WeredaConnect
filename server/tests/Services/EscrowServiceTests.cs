@@ -2949,6 +2949,26 @@ public class EscrowServiceTests
         Assert.Equal("2099-01-01T00:00:00Z", payeeRow.ReleaseNotBefore);
     }
 
+    [Theory]
+    [InlineData("refund", "2020-01-02T00:00:00Z", true)]
+    [InlineData("refund", "2099-01-02T00:00:00Z", true)]
+    [InlineData("release", "2020-01-02T00:00:00Z", false)]
+    public void MapToEscrowDto_ConfirmedHoldWithAnAdminRefundParkedInTheManualQueue_IsRefundPending(
+        string op, string expiresAt, bool expected)
+    {
+        // FUP-97 review: an admin refund of a delivered order whose gateway outcome is unknown arms no
+        // refundReason and parks in the manual payout queue; its money is on its way back to the buyer.
+        var item = MakeEscrowItem(status: "escrowed");
+        item["deliveryConfirmedAt"] = "2020-01-01T00:00:00Z";
+        item["expiresAt"] = expiresAt;
+        item[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;
+        item[ManualPayoutFields.Op] = op;
+
+        Assert.Equal(expected, EscrowService.MapToEscrowDto(item).RefundPending);
+        Assert.Equal(expected, EscrowService.MapToEscrowSummaryDto(item, isBuyer: true).RefundPending);
+        Assert.Equal(expected, EscrowService.MapToEscrowSummaryDto(item, isBuyer: false).RefundPending);
+    }
+
     [Fact]
     public void MapToEscrowSummaryDto_BlankDeliveryConfirmedAt_IsUnconfirmed_SoAPastExpiryIsRefundPending()
     {
