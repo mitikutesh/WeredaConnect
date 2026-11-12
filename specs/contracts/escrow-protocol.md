@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.13.0
+2.14.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -217,7 +217,8 @@ exists. The server materializes an escrow record at that moment so
   the initiate API's 100–500,000 ETB band are still recorded (they reflect money
   actually held). Listing-stock restore on refund is implemented (1.2.2, SIM-13): when
   the sweep cancels a stale-funded order, or a participant rejects/cancels a funded
-  order, the listing gets its quintals back (idempotent per order).
+  order, the listing gets its quintals back (idempotent per order). Since 2.14.0
+  (FUP-230) the sweep gives them back before its refund, fail closed.
 
 ---
 
@@ -5005,7 +5006,8 @@ table, index, route resource or env var.
 ### Not in 2.12.0 (known limits)
 
 - References recorded before 2.12.0 have no reference item, so a new record of one of them is not refused
-  (FUP-215, backfill from the escrow rows and done ledger rows).
+  (FUP-215, backfill from the escrow rows and done ledger rows). Built in 2.14.0: the escrow-cron action
+  `backfill_payout_references`, run once per environment.
 - A claim is advisory in the portal: an admin who pays without looking at the page can still pay a leg
   another admin claimed. Their record is refused while the claim lives; the second payment is recovered by
   hand as in 1.8.0.
@@ -5105,7 +5107,7 @@ The same check runs before the retry of a refund that failed after the sweep's o
 ### Not in 2.13.0 (known limits)
 - The sweep's own cancel of a stale order still gives the stock back best-effort in the same run and
   refunds even when that restore fails (SIM-13); only a later run, after a refund that failed, restores
-  first (FUP-230).
+  first (FUP-230). Closed in 2.14.0.
 - `ORDER_DEADLINE_REFUND_WAITING`, `ORDER_DEADLINE_ROW_FAILED` and `ORDER_STOCK_RESTORE_FAILED` are not
   alarmed: money that stays busy holds the deadline cancel, a row that keeps failing for another
   reason is retried every run, and a restore that keeps failing holds the refund, without an alarm of
@@ -5114,6 +5116,97 @@ The same check runs before the retry of a refund that failed after the sweep's o
   and a `disputed` escrow waits for its verdict. Busy states with no other watcher only warn: a ledger
   escrow whose crop leg is already decided, or a `dispute_resolved` escrow, on an order still before
   pickup (bad data only; neither is reachable through the app).
+
+---
+
+## Additions in 2.14.0 (stock before the refund of the sweep's own cancel, FUP-230; payout reference backfill, FUP-215)
+
+Server only. No endpoint, field, status, amount, refund timing or client code change, apart from the
+deferral below when a restore fails.
+
+### The sweep's own cancel gives the stock back before its refund (FUP-230)
+
+Before 2.14.0 the 7 day refund sweep cancelled a stale `funded` or `awaiting_transport` order
+(`cancelReason: escrow_refunded`, the refund armed in the same transaction since 2.11.0), gave the listing
+stock back best-effort and refunded in the same run even when that restore failed or kept conflicting
+(SIM-13). Since 2.13.0 a later run restored first, but only after a refund that failed; a refund that
+succeeded left the quintals off the listing for good.
+
+Now the restore right after the sweep's cancel is the fail-closed restore of 1.13.0 and 2.13.0, idempotent
+per order (the listing's `stockRestoredFor`): nothing to give back, a listing that is gone or stock already
+back counts as done. A restore that keeps conflicting or throws logs `ORDER_STOCK_RESTORE_FAILED orderId=<id>
+listingId=<id> reason=restock:conflict|restock:[<exception>]; refund deferred to the next sweep.` (counted by
+`order-deadline-refund-stalled`, FUP-231) and nothing is refunded this run. The escrow stays `escrowed` with the
+arm of the cancel (`refundReason: delivery_timeout`, `expiresAt` = the cancel), so the next hourly run finds
+the order `cancelled` with `escrow_refunded`, gives the stock back first (2.13.0) and then refunds, once.
+
+- The trip booking release (FUP-123) still runs in the run of the cancel, whether the restore landed or not:
+  the next run finds the order cancelled and does not come back to it.
+- With the restore landed, the refund follows in the same run, as before. The info line `Listing <id>: +<n>
+  quintals restored (order <id> cancelled, before its refund)` now comes from the fail-closed restore.
+- Without a crops table there is nothing to check and the refund goes ahead, as before.
+
+### Backfill of the reference items recorded before 2.12.0 (FUP-215)
+
+The escrow-cron action `backfill_payout_references`: manual only (no schedule, not in the deploy), run by hand
+once per environment (`.ai/deployment.md` 3d). It writes the `payout-ref#{REFERENCE}` item of 2.12.0 for every
+manual payout recorded before it, so a new record of one of those references is refused (`409 ESCROW_047`).
+
+| Recorded leg | Item |
+|---|---|
+| a 1.x leg on the escrow row: `manual{Leg}Ref` with `manual{Leg}PaidBy` other than `gateway` | `escrowId`, `ref` the leg name, `externalRef` the stored reference (trimmed), `recordedBy` the `manual{Leg}PaidBy`, `recordedAt` the `manual{Leg}PaidAt` |
+| a ledger row `done` with a `paidBy` other than `gateway` and a `telebirrRef` | `escrowId`, `ref` the ledger ref, `externalRef` the `telebirrRef` (trimmed), `recordedBy` the `paidBy`, `recordedAt` the `doneAt` (else `updatedAt`) |
+
+The item is the record's own (key `payout-ref#` plus the reference trimmed and upper case, `kind: payout_ref`,
+`expiresAt` = `recordedAt` + 400 days), put with `attribute_not_exists(idempotencyKey)`. A key that is taken is
+read strongly consistent:
+
+- held by the same escrow and leg (a rerun, or a record since 2.12.0): nothing is written (`present`);
+- held by another leg or escrow (one portal reference recorded twice before 2.12.0): never overwritten. Line
+  `PAYOUT_REF_BACKFILL_CONFLICT reference=<REFERENCE> heldBy=<escrowId>/<ref> recordedBy=<admin>
+  alsoOn=<escrowId>/<ref> alsoRecordedBy=<admin>: one portal reference on two legs; a person checks the portal`
+  (warning, not alarmed; a ledger ref is written with `:` for `#`). The first one the Scan meets holds the item.
+  A person checks the portal for both payments and follows the correction procedure of 2.12.0 (FUP-218).
+
+A leg without a readable record time gets no item (`PAYOUT_REF_BACKFILL_SKIPPED escrowId=<id> ref=<leg>
+reason=no_record_time`; bad data only, the record writes the three attributes together). Nothing about money, a
+status, an amount, a version or the audit trail changes.
+
+**Reads.** No index lists recorded legs (the queue marker goes with the close), so the action reads the escrows
+table with one filtered `Scan` (`attribute_exists` of any `manual{Leg}Ref`, or `settlementModel = ledger`;
+projection of the keys and the leg attributes) in pages of 100, and the rows of each ledger escrow with the
+existing strongly consistent `Query` on the ledger table. Cost: the Scan reads every escrow row once, matching or
+not (about one read unit per 8 KB, eventually consistent), plus one Query per ledger escrow and one conditional
+put per recorded leg. No new grant (escrow-cron already reads and writes the escrows table and escrow-idempotency
+and queries the ledger). A `refund#duplicate#` ledger row under a 1.x escrow is not read: before 2.12.0 the record
+route refused every ledger ref (`404 ESCROW_035`), so no ledger row was recorded by an admin before it, and every
+record since writes its own item.
+
+**Bounds.** The run stops starting new escrows after 4 minutes of the 5 minute Lambda (30 seconds kept). A run
+that stopped on time answers `scanCursor` (`{escrowId}|{createdAt}` of the last escrow handled); passing it as
+`scanFrom` resumes the Scan right after it (an unreadable `scanFrom` is `400 ESCROW_CRON_VALIDATION`). A marker
+in escrow-idempotency (`migration:fup-215:backfill_payout_references`, 30 day TTL): `done` once a run read to the
+end of the table with no failure, after which a run reads nothing (`skipped: true`); `retry` after a run with a
+failure (a Scan page, a ledger Query, a put or a read that threw:
+`PAYOUT_REF_BACKFILL_FAILED step=scan|ledger|put|read ...`, a warning, not alarmed), after which only a run
+without `scanFrom` can write `done` (a chain resumed with `scanFrom` cannot
+vouch for the rows the failed run left behind). A conflict or a skipped leg does not hold the marker: a rerun
+cannot settle either. Deleting the marker makes the next run read again; every rerun is safe (the put is
+conditional).
+
+**Answer.** Always `200` (a failure of its own never logs a settlement-failure line, since it moves no money;
+an exception that escapes the run is `500 ESCROW_CRON_ERROR` with `PAYOUT_REF_BACKFILL_FAILED step=run`):
+`action`, `outcome` (`ok` once the whole table was read with no failure and the marker is `done`, or the marker
+was already `done`; else `partial`), `escrows`, `legs`, `ledgerRows`, `written`, `present`, `conflicts`,
+`failed`, `skippedLegs`, `scanDone`, `marker`, `skipped`, `completedAt`, and `scanCursor` when the run stopped
+on time. Summary line `PAYOUT_REF_BACKFILL escrows=<n> legs=<n> ledgerRows=<n> written=<n> present=<n>
+conflicts=<n> failed=<n> skipped=<n> scanDone=<true|false> marker=<status|none> from=<start|scanFrom>`.
+
+### Not in 2.14.0 (known limits)
+
+- The backfill is built, not run: it needs AWS credentials, once per environment (dev, staging, prod).
+- A reference recorded on two legs before 2.12.0 stays on both rows; the backfill only names them. Its
+  correction is the engineer's procedure of 2.12.0 until FUP-218.
 
 ---
 
@@ -5461,6 +5554,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.14.0 | 2026-11-12 | Stock before the refund of the sweep's own cancel (FUP-230, closes the 2.13.0 known limit) and the payout reference backfill (FUP-215, closes the 2.12.0 known limit; §Additions in 2.14.0). The 7 day sweep's cancel of a stale `funded` or `awaiting_transport` order gives the listing stock back fail closed before its refund: a restore that keeps conflicting or throws logs `ORDER_STOCK_RESTORE_FAILED ... refund deferred to the next sweep` and refunds nothing this run (the escrow stays armed; the next run restores first, then refunds); the trip booking release still runs. New manual escrow-cron action `backfill_payout_references`: one filtered Scan of the escrows table and a Query per ledger escrow write the `payout-ref#` item of every admin-recorded 1.x leg and admin-done ledger row recorded before 2.12.0 (conditional put, 400 day TTL from the record); a key held by the same leg is a no-op, one held by another leg is logged (`PAYOUT_REF_BACKFILL_CONFLICT`) and never overwritten; bounded by the marker `migration:fup-215:backfill_payout_references` (`done`, or `retry` after a failure), 4 minute budget, `scanCursor`/`scanFrom` to resume; always `200` with counts and `outcome`. No endpoint, field, amount, grant or client change (`order-lifecycle.md` 2.13.1) |
 | 2.13.0 | 2026-11-12 | The last two cancel-then-arm writers (FUP-210, FUP-211; closes two of the 2.11.0 known limits): the order cron's commitment deadline cancels (`farmer_response_expired`, `transport_not_arranged`) and the funding's stock loss end (`listing_out_of_stock`) write the order and the refund arm in one transaction (an escrow held for review fenced, not armed); money frozen or moving writes nothing (the cron's order waits an hour, `ORDER_DEADLINE_REFUND_WAITING`; the funding's order stays `funded` with `ORDER_STOCK_DECREMENT_FAILED ... status=escrow_busy`); a cron read or write that fails writes nothing, retries next run and logs the alarmed `ORDER_ESCROW_REFUND_SCHEDULE_FAILED reason=escrow_unreadable|cancel_not_written`. The hourly refund sweep gives an `escrow_refunded` cancel's listing stock back before its refund, fail closed, as for the pickup deadline cancel, so an admin refund whose restore failed after its cancel never refunds ahead of the stock. No endpoint, field, amount or client change (`order-lifecycle.md` 2.13.0). 2.12.0 is another change's number |
 | 2.12.0 | 2026-11-12 | Manual payout claims and one leg per reference (FUP-05, §Additions in 2.12.0). `POST /admin/payouts/{escrowId}/{ref}/claim` and `/unclaim` (admin group): a 30 minute claim per leg on the escrow row or the ledger row, taken by a conditional write, never taken over; the record refuses another admin's live claim (`409 ESCROW_046`, also in the write's condition) and ends the claim; each record writes a `payout-ref#{REFERENCE}` item in escrow-idempotency in its transaction, and a reference recorded on another leg is `409 ESCROW_047` naming where. The list shows each leg's live claim. Complete, claim and unclaim share the route `POST /admin/payouts/{escrowId}/{ref}/{action}`, which also accepts ledger refs (the record route refused them before). Audit rows for claims, releases and refused references. The admin page requires the claim before the reference field appears, renews it, treats a lapsed claim of its own as lost and reloads the queue every 30 seconds; the list keeps a lapsed claim for 24 hours (`claimLive: false`); a claim write that meets a record's transaction is retried once, then answers `409`. The admin Lambda gains GetItem on escrow-idempotency. No change to amounts, statuses, the close or the overdue alarm. 2.11.0 is another branch's number |
 | 2.11.0 | 2026-11-12 | The other cancel-then-refund writers (FUP-53, closes the 1.25.0 known limits): the funded order's reject or cancel in sync, the admin refund's cancel before pickup and the 7 day sweep's cancel of a stale order each write the order and the refund arm in one transaction (the sweep's arm `refundReason: delivery_timeout`); money frozen or moving refuses the close (`ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.`, `409 ESCROW_INVALID_TRANSITION` for the admin, a skip for the sweep) with nothing written; `POST /escrow/dispute` freezes in one transaction with a check that its order is not `cancelled` or `rejected` (refused with the existing scheduled-refund answer, key freed); the settlement lock, the expiry push and the fraud hold are sent again on `TransactionConflictException`, at most 3 writes. No endpoint, field, amount or client change (`order-lifecycle.md` 2.12.0, `sync-protocol.md` 1.51.0). 2.10.0 is another change's number |
