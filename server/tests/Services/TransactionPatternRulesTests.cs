@@ -356,19 +356,28 @@ public class TransactionPatternRulesTests
     }
 
     [Fact]
-    public void DeliveryTimeFactsFrom_ReadsOnlyTheWrittenRow()
+    public void DeliveryTimeFactsFrom_TakesThePickupFromTheStoredRow_AndTheDropoffFromTheWrittenOne()
     {
-        var confirmedAt = Now.ToString("o", CultureInfo.InvariantCulture);
-        var row = new Dictionary<string, AttributeValue>
+        // FUP-246: the written row carries a pickup the confirm should never have moved (a point in Addis
+        // Ababa, other times); only the stored row's pickup counts.
+        var stored = new Dictionary<string, AttributeValue>
         {
             ["gpsPickup"] = Point(7.67, 36.83),
-            ["gpsDropoff"] = Point(9.03, 38.74),
             ["pickedUpAt"] = new() { S = Now.AddMinutes(-20).ToString("o", CultureInfo.InvariantCulture) },
-            ["confirmedAt"] = new() { S = confirmedAt },
-            [TransactionPatternRules.PickupCapturedAtField] = new() { S = Now.AddMinutes(-30).ToString("o", CultureInfo.InvariantCulture) }
+            [TransactionPatternRules.PickupCapturedAtField] = new() { S = Now.AddMinutes(-30).ToString("o", CultureInfo.InvariantCulture) },
+            ["gpsDropoff"] = Point(1, 1),
+            ["confirmedAt"] = new() { S = Now.AddDays(-9).ToString("o", CultureInfo.InvariantCulture) }
+        };
+        var written = new Dictionary<string, AttributeValue>
+        {
+            ["gpsPickup"] = Point(9.0, 38.7),
+            ["gpsDropoff"] = Point(9.03, 38.74),
+            ["pickedUpAt"] = new() { S = Now.AddDays(-1).ToString("o", CultureInfo.InvariantCulture) },
+            ["confirmedAt"] = new() { S = Now.ToString("o", CultureInfo.InvariantCulture) },
+            [TransactionPatternRules.PickupCapturedAtField] = new() { S = Now.AddDays(-1).ToString("o", CultureInfo.InvariantCulture) }
         };
 
-        var facts = TransactionPatternRules.DeliveryTimeFactsFrom(row);
+        var facts = TransactionPatternRules.DeliveryTimeFactsFrom(stored, written);
 
         facts.Should().Be(new DeliveryTimeFacts(7.67, 36.83, 9.03, 38.74,
             Now.AddMinutes(-20), Now, Now.AddMinutes(-30)));

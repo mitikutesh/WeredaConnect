@@ -38,4 +38,15 @@ public interface ITripLocationRepository
     /// for the track read. The caller cuts the window it may show.
     /// </summary>
     Task<List<TripLocationRow>> ListByTripAsync(string tripId);
+
+    /// <summary>
+    /// FUP-203: the trip's rows whose sort key lies from <paramref name="fromSortKey"/> to
+    /// <paramref name="toSortKey"/>, both included, in capture order, read strongly consistent, at most
+    /// <paramref name="maxPages"/> pages. <see cref="TripLocationWindow.Complete"/> is false when the read
+    /// stopped at the page cap with rows possibly left.
+    /// </summary>
+    Task<TripLocationWindow> ListBetweenAsync(string tripId, string fromSortKey, string toSortKey, int maxPages);
 }
+
+/// <summary>FUP-203: the rows of one window of a trip, and whether the read reached the window's end.</summary>
+public sealed record TripLocationWindow(List<TripLocationRow> Rows, bool Complete);
