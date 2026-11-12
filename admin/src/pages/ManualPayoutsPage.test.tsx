@@ -639,9 +639,15 @@ describe("ManualPayoutsPage", () => {
     await user.click(within(farmerRow).getByRole("button", { name: "Mark as paid" }));
     await user.click(within(farmerRow).getByRole("button", { name: "Yes, recorded" }));
 
-    expect(screen.getByRole("alert").textContent).toBe(
-      "This Telebirr transaction ID is already recorded on escrow escrow-order-ord-9, leg release#farmer. Check the ID in the portal: one payment cannot be recorded twice.",
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toBe(
+      "This Telebirr transaction ID is already recorded on escrow escrow-order-ord-9, leg release#farmer. Check the ID in the portal: one payment cannot be recorded twice."
+        + "Open escrow escrow-order-ord-9 to correct the ID recorded there.",
     );
+    // FUP-218: if that record is the mistake, its escrow page corrects it.
+    expect(
+      within(alert).getByRole("link", { name: "Open escrow escrow-order-ord-9 to correct the ID recorded there." }).getAttribute("href"),
+    ).toBe("/escrows/escrow-order-ord-9");
   });
 
   it("falls back to the plain duplicate message when the server does not name the place", async () => {
@@ -660,6 +666,7 @@ describe("ManualPayoutsPage", () => {
     expect(screen.getByRole("alert").textContent).toBe(
       "This Telebirr transaction ID is already recorded on another payout. Check the ID in the portal.",
     );
+    expect(screen.queryByRole("link", { name: /to correct the ID/ })).toBeNull();
   });
 
   it("shows the empty state when nothing is waiting", () => {

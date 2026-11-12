@@ -75,6 +75,17 @@ internal static class ManualPayoutFields
     public static string PaidByAttr(string leg) => $"manual{Capitalise(leg)}PaidBy";
     public static string PaidAtAttr(string leg) => $"manual{Capitalise(leg)}PaidAt";
 
+    /// <summary>
+    /// The settlement reference field the close copies a leg's reference into (1.8.0, 1.11.0): the farmer's
+    /// <c>telebirrReleaseRef</c>, the trucker's <c>truckerTelebirrRef</c>, the buyer's <c>telebirrRefundRef</c>.
+    /// </summary>
+    public static string SettlementRefAttr(string leg) => leg switch
+    {
+        LegFarmer => "telebirrReleaseRef",
+        LegTrucker => TruckerPayoutFields.Ref,
+        _ => "telebirrRefundRef"
+    };
+
     private static string Capitalise(string leg)
         => leg.Length == 0 ? leg : char.ToUpperInvariant(leg[0]) + leg[1..];
 }

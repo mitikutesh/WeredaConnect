@@ -506,7 +506,13 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
         };
     }
 
-    private TransactWriteItem AuditPut(LedgerAudit audit)
+    private TransactWriteItem AuditPut(LedgerAudit audit) => AuditPut(_auditTable, audit);
+
+    /// <summary>
+    /// An escrow-audit row as one item of a transaction, at its deterministic key, never overwritten. FUP-218: the
+    /// reference correction writes its row the same way.
+    /// </summary>
+    internal static TransactWriteItem AuditPut(string auditTable, LedgerAudit audit)
     {
         var item = new Dictionary<string, AttributeValue>
         {
@@ -528,7 +534,7 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
         {
             Put = new Put
             {
-                TableName = _auditTable,
+                TableName = auditTable,
                 Item = item,
                 // Append-only: an audit row is never overwritten.
                 ConditionExpression = "attribute_not_exists(#id)",
