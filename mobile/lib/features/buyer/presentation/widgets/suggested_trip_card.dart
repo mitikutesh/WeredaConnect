@@ -5,6 +5,7 @@ import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/low_reputation_pill.dart';
 
 /// A suggested trip on the crop detail screen, as the Buyer · Crop detail
 /// board draws it: a radio, the trucker and the day, the route with the
@@ -20,11 +21,16 @@ class SuggestedTripCard extends StatelessWidget {
   /// (nothing shown, no placeholder) when they have none or it is unknown.
   final double? rating;
 
+  /// ESC-31: shows the "Low reputation" label under the route line (the
+  /// trucker's public tier is low). Off by default: no label, as before.
+  final bool lowReputation;
+
   const SuggestedTripCard({
     required this.trip,
     required this.isSelected,
     required this.onSelect,
     this.rating,
+    this.lowReputation = false,
     super.key,
   });
 
@@ -79,6 +85,10 @@ class SuggestedTripCard extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      if (lowReputation) ...[
+                        const SizedBox(height: 6),
+                        const LowReputationPill(),
+                      ],
                     ],
                   ),
                 ),

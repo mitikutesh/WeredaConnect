@@ -28,6 +28,7 @@ import 'package:wereda_connect/features/order/presentation/screens/payment_instr
 import 'package:wereda_connect/features/order/presentation/widgets/delivery_place.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/dropoff_note.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/reputation/domain/owner_reputation.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_normalizer.dart';
@@ -184,6 +185,13 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   Future<void> _loadTruckerRating() async {
     final truckerId = widget.selectedTrip?.truckerId;
     if (truckerId == null || truckerId.isEmpty) return;
+    // ESC-31: a trip that carries the trucker's reputation copy shows it
+    // from the row, with no call.
+    final reputation = OwnerReputation.ofTrip(widget.selectedTrip!);
+    if (reputation.isPresent) {
+      _truckerRating = reputation.rating;
+      return;
+    }
     try {
       final summary = await context
           .read<RatingBloc>()

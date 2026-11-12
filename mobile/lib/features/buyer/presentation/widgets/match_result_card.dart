@@ -7,6 +7,7 @@ import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
+import 'package:wereda_connect/features/reputation/domain/owner_reputation.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_normalizer.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
@@ -122,6 +123,9 @@ class MatchResultCard extends StatelessWidget {
     final cropType = CropType.fromKey(listing.cropType);
     final hasTrips = result.suggestedTrips.isNotEmpty;
     final reasonChips = _reasonChips(l10n);
+    // ESC-31: the farmer's rating and "Low reputation" label, only when the
+    // listing carries the server's copy (no call per card).
+    final reputation = OwnerReputation.ofListing(listing);
 
     // The Market listing card ("Teff · 50 quintals left", the farmer and the
     // place, the price large, the transport pill), with why it matched, the
@@ -140,6 +144,9 @@ class MatchResultCard extends StatelessWidget {
         },
         price: wholeNumber(listing.pricePerKg.round()),
         priceUnit: l10n.etbPerKg,
+        rating: reputation.rating,
+        ratingCount: reputation.count,
+        lowReputation: reputation.isLow,
         cropKey: listing.cropType,
         onTap: onTap,
         detail: hasTrips
