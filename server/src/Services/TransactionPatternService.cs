@@ -180,6 +180,44 @@ internal sealed class TransactionPatternService
         return One(TransactionPatternRules.DisputeRate(held, disputed, settings));
     }
 
+    /// <summary>
+    /// ESC-33: the buyer decline pattern, checked when a farmer's or a trucker's decline or expiry of
+    /// <paramref name="orderId"/> was recorded as a reputation event (that order counts, whatever the
+    /// lagging index says). Counted: the buyer's other orders created in the last
+    /// <paramref name="windowDays"/> days that were paid (<c>paymentVerifiedAt</c>) and whose
+    /// <c>farmerResponse</c> or <c>truckerResponse</c> is <c>declined</c> or <c>expired</c>. One read of the
+    /// buyer's orders on <c>BuyerIdCreatedAtIndex</c>, newest first, at most the page cap.
+    /// </summary>
+    public async Task<IReadOnlyList<PatternHit>> CheckBuyerDeclinePatternAsync(
+        string buyerId, string orderId, DateTime nowUtc, int minOrders, int windowDays)
+    {
+        if (_orders == null || string.IsNullOrWhiteSpace(buyerId) || string.IsNullOrWhiteSpace(orderId))
+        {
+            return Array.Empty<PatternHit>();
+        }
+
+        var declined = 1;
+        var settings = Settings with { WindowDays = windowDays };
+        foreach (var order in await ReadRecentOrdersAsync(OrderCommitment.Party.Buyer, buyerId, nowUtc, settings))
+        {
+            if (Str(order, "orderId") == orderId || string.IsNullOrEmpty(Str(order, "paymentVerifiedAt")))
+            {
+                continue;
+            }
+
+            if (IsDeclinedOrExpired(Str(order, OrderCommitment.FarmerResponseField))
+                || IsDeclinedOrExpired(Str(order, OrderCommitment.TruckerResponseField)))
+            {
+                declined++;
+            }
+        }
+
+        return One(TransactionPatternRules.BuyerDeclinePattern(declined, minOrders, windowDays));
+    }
+
+    private static bool IsDeclinedOrExpired(string? response) =>
+        response is OrderCommitment.Response.Declined or OrderCommitment.Response.Expired;
+
     /// <summary>The impossible delivery time rule (no read): the facts come from the delivery's written row.</summary>
     public IReadOnlyList<PatternHit> CheckDeliveryTime(DeliveryTimeFacts facts) =>
         One(TransactionPatternRules.ImpossibleDeliveryTime(facts, Settings));

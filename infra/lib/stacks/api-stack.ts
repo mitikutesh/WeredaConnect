@@ -1099,6 +1099,8 @@ export class ApiStack extends cdk.Stack {
         // ESC-29 (reputation-architecture.md 6.3): the owner fields copied onto the party's active rows.
         CROPS_TABLE: props.cropsTable.tableName,
         TRIPS_TABLE: props.tripsTable.tableName,
+        // ESC-33 (section 13): the buyer decline pattern reads the buyer's orders on BuyerIdCreatedAtIndex.
+        ORDERS_TABLE: props.ordersTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
@@ -1126,6 +1128,22 @@ export class ApiStack extends cdk.Stack {
       new iam.PolicyStatement({
         actions: ["dynamodb:Query"],
         resources: [props.deviceTokensTable.tableArn, props.fraudSignalsTable.tableArn],
+      }),
+    );
+    // ESC-33 (reputation-architecture.md section 13): a recorded NO_SHOW or DELIVERY_OVERDUE writes a
+    // fraud signal on the party, and a decline or expiry checks the buyer's orders (one index, Query
+    // only) and may write BUYER_DECLINE_PATTERN on the buyer. PutItem only: signals are never updated
+    // or deleted from here.
+    reputationStreamFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:PutItem"],
+        resources: [props.fraudSignalsTable.tableArn],
+      }),
+    );
+    reputationStreamFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${props.ordersTable.tableArn}/index/BuyerIdCreatedAtIndex`],
       }),
     );
     // ESC-29, the copy refresh: the owner's rows through their owner index (Query), the crop
@@ -1735,6 +1753,9 @@ export class ApiStack extends cdk.Stack {
         // On per environment once its clients parse `held` (FRD-06 on web and in both stores); apps
         // older than that read `escrowed` on the escrow routes (FUP-61, fraud-detection-architecture.md 18.7).
         FRAUD_HOLD_ENABLED: fraudHoldEnabled,
+        // ESC-33: the payout delay stamped by the sweep's stamp repair reads the payee's reputation tier
+        // like the sync stamp does (fraud-detection-architecture.md 17.5). Off: FRD-13's classes.
+        REPUTATION_PENALTIES_ENABLED: reputationPenalties,
         ...(envConfig.isProd || enableTelebirrLive ? {} : { TELEBIRR_MOCK: "true" }),
       },
       timeout: cdk.Duration.minutes(5),

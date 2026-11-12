@@ -1,14 +1,15 @@
 # Reputation Architecture
 
 ## Version
-1.2.0 | 2026-11-11 (ESC-29)
+1.3.0 | 2026-11-12 (ESC-33)
 
 ## Status
 PARTLY BUILT. ESC-28 (the core write side) is built and ships dark: sections 3 (the table and
 its indexes), 5, 6.1, 6.2, 6.4, 7, 8, 9, 12.2 and the ESC-28 monitoring of 14; section 20 lists
 where the build reads the design. ESC-29 (the server reads and gates) is built and ships dark too:
 6.3 (copies), 6.6 (reads) and 10 (gates, visibility, suspension); section 21 lists where that build
-reads the design. PLANNED: 6.5, 11 and 13 (ESC-30 to ESC-33).
+reads the design. ESC-33 (the fraud hooks) is built: section 13, as built in 13.1. PLANNED: 6.5 and
+11 (ESC-30, ESC-32).
 
 **Contracts**: `specs/contracts/reputation-api.md` 1.2.0, `rating-api.md` 1.4.0,
 `user-entity.md` 2.1.0, `notifications-api.md` 1.5.0, `account-deletion.md` 1.6.0.
@@ -695,6 +696,24 @@ Ratings created between step 1 and the backfill were added by their own transact
 Reputation stays separate from the risk score: reputation is public and about reliability, the
 score is private and about fraud (spec 4.11).
 
+### 13.1 As built (ESC-33)
+
+`fraud-detection-architecture.md` 3.32.0 section 15.3 is the specification; where the build reads
+the table above differently:
+
+| Hook | As built |
+|---|---|
+| `NO_SHOW`, `DELIVERY_OVERDUE` | written by `ReputationFraudHooks`, called from `ReputationService.RecordAsync` right after the event's transaction committed (not by the stream Lambda itself), so the unpark replay in order-cron writes them too and a replayed slot never does. Only for an event with points above 0. Weights 15 and 25, hard, once per order, and the two share one score cap of 50 (`RISK_PATTERN_TYPE_CAP`): reliability alone stops at MEDIUM. The events are produced by ESC-34 and ESC-36 (rules R10 to R12); nothing records them yet |
+| buyer griefing | `BUYER_DECLINE_PATTERN` (10, soft, an FRD-09 pattern type: once per order, at most 50). Checked on every recorded `DECLINED_REQUEST` or `RESPONSE_EXPIRED` (R1 to R5, R2 included; with or without points). Counts the buyer's paid orders created in `buyerDeclineSignalDays` whose `farmerResponse` or `truckerResponse` is `declined` or `expired`, plus the order just recorded; `BuyerIdCreatedAtIndex`, at most 2 pages of 50 |
+| repeat restriction | not built (follow-up): `REPUTATION_REPEAT_RESTRICTION` needs its Fraud Review handling decided with ESC-32's admin restrict and lift |
+| payout delay | `PayoutDelayPolicy.ReputationWait` on the stored map: a restriction active now waits as flagged, a stored `low` (or an ended restriction not yet rewritten) as new. One extra GetItem only for a payee the risk score already made new. Read on sync and escrow-cron (`REPUTATION_PENALTIES_ENABLED`) |
+| `GPS_ANOMALY` | on the delivery's trucker behind the attribution guard (one per delivery, one per buyer and trucker, three per trucker in 30 days); a self-pickup keeps it on the buyer. Live, not flagged |
+| silent buyer (P3) | ESC-36 |
+
+A failed hook logs `REPUTATION_FRAUD_HOOK_FAILED` and never fails the event. The reputation-stream
+Lambda gained `ORDERS_TABLE`, Query on the orders `BuyerIdCreatedAtIndex` and PutItem on the
+fraud-signals table.
+
 ---
 
 ## 14. Failure modes
@@ -963,6 +982,7 @@ How the build reads points the design left open:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.3.0 | 2026-11-12 | ESC-33 built: section 13.1 (as built: the hooks run in `ReputationService.RecordAsync` after the commit, the signals' caps, the buyer decline pattern on R1 to R5, the payout delay from the stored map, `GPS_ANOMALY` on the trucker behind the attribution guard; the repeat restriction signal left as a follow-up). |
 | 1.2.0 | 2026-11-11 | ESC-29 built: 6.3, 6.6 and 10 on the server, behind the flags; section 21 (as built: the caller's row read once with its reputation, copies only while `reputationPenalties` is on, copy triggers and the daily job copying before it deletes the heal marker, the heal marker on an admin suspend, the browse check in code, reads from the stored map with a recompute past `nextChangeAt`, no rating for an unstamped row, in-memory event paging, the appeal write, the wording for apps without a build header, the routes the suspension gate covers) |
 | 1.1.0 | 2026-11-07 | ESC-28 built: status PARTLY BUILT; section 20 (as built: copies left to ESC-29 with the heal marker kept, TIER rows on every stored tier change and keyed `TIER#{at}#{cause}`, restriction from the recording time, R8 needs the old `farmerResponse`, R12 on the order's `disputeReason`, reachability only with `timeoutPenalties`, earn-back none without the fraud table, the request cap over the candidate's whole life, `nextChangeAt` with completions and the reliability window, the read-lag check with `lastEventId`, the refresh behind `reputationPenalties`, `catchUpDays`, parking shape, monitoring, inbox key); `activePointsAfter` on penalty rows |
 | 1.0.0 | 2026-11-07 | First design (ESC-27): data model, stream derivation, policy and defaults, service and transaction, daily job, notifications, gates, matching, rollout and backfill, FRD hooks, failure modes, cost, ticket split ESC-28 to ESC-33, decisions R1 to R32. Review fixes before merge: caps and earn-back limits look both ways in time; strongly consistent events read under the version check; R8 and R9 keyed on the old status; suspended, short-window and request caps; crop owner index is `INCLUDE` (BatchGet for status, browse filter in code on the `INCLUDE` path); admins only on `/admin` routes; parked messages hold projected images; stream concurrency at or above the shard count; notify source filtered on `code` |

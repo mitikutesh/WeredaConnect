@@ -297,6 +297,25 @@ internal static class TransactionPatternRules
     }
 
     /// <summary>
+    /// ESC-33, buyer griefing (three-party spec 4.11, reputation-architecture.md section 13): the buyer's
+    /// paid orders that a farmer or a trucker declined or let expire in the last
+    /// <paramref name="windowDays"/> days, the one just recorded included, reach
+    /// <paramref name="minOrders"/>. Both numbers come from the reputation policy
+    /// (<c>buyerDeclineSignalCount</c>, <c>buyerDeclineSignalDays</c>).
+    /// </summary>
+    public static PatternHit? BuyerDeclinePattern(int declinedPaidOrders, int minOrders, int windowDays)
+    {
+        if (minOrders < 1 || declinedPaidOrders < minOrders)
+        {
+            return null;
+        }
+
+        return new PatternHit(FraudDetectionService.BuyerDeclinePatternSignal,
+            $"Farmers or truckers declined or did not answer {declinedPaidOrders} of the buyer's paid orders in "
+            + $"{windowDays} days (the limit is {minOrders}).");
+    }
+
+    /// <summary>
     /// The facts of a confirmed delivery from its written row: <c>gpsPickup</c>, <c>gpsDropoff</c>,
     /// <c>pickedUpAt</c>, <c>confirmedAt</c> and <see cref="PickupCapturedAtField"/>.
     /// </summary>

@@ -43,6 +43,12 @@ public sealed class ReputationService
     private readonly Func<int, Task> _backoff;
     private readonly IReputationCopyWriter? _copies;
 
+    /// <summary>
+    /// ESC-33: reads a buyer's order history for the buyer decline pattern
+    /// (<see cref="ReputationFraudHooks"/>). Null: that hook does not run.
+    /// </summary>
+    internal TransactionPatternService? BuyerPatterns { get; init; }
+
     public ReputationService(
         IReputationEventRepository repo,
         ReputationPolicySettings settings,
@@ -103,6 +109,8 @@ public sealed class ReputationService
                         await TryCopyAsync(user, plan.Write.Map.Aggregate, now, "record", logger);
                     }
 
+                    // ESC-33: the fraud hooks of the event just committed, best effort.
+                    await ReputationFraudHooks.AfterRecordedAsync(_fraud, BuyerPatterns, _settings, plan.Event, now, logger);
                     return ReputationRecordResult.Recorded;
                 case ReputationCommitOutcome.EventExists:
                     return ReputationRecordResult.Replay;

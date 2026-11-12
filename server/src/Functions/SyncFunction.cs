@@ -2493,6 +2493,54 @@ public partial class SyncFunction
     }
 
     /// <summary>
+    /// ESC-33 (fraud-detection-architecture.md sections 14.3 and 15.3): the <c>GPS_ANOMALY</c> signal of a
+    /// confirmed delivery, written after the delivery write succeeded. It lands on the party who moved the
+    /// goods: the delivery's trucker, read from the stored row (never from the request), not the buyer who
+    /// sent the confirm. That is a write onto a user other than the caller, so it goes through the
+    /// attribution guard (<see cref="IFraudDetectionService.RecordAttributedSignalAsync"/>): only for the
+    /// delivery's own buyer, one row per delivery, one per buyer and trucker, three per trucker in 30 days.
+    /// A self-pickup has no trucker and the buyer moved the goods: the signal stays on the buyer, as before.
+    /// Best effort like every signal.
+    /// </summary>
+    private async Task TryRecordGpsAnomalySignalAsync(
+        SyncOperationRequest operation, Dictionary<string, AttributeValue> existing, FraudCheckResult gpsCheck,
+        string? authenticatedUserId, ILambdaContext context)
+    {
+        if (_fraudService == null || string.IsNullOrEmpty(authenticatedUserId))
+        {
+            return;
+        }
+
+        var signalType = gpsCheck.FlagReason ?? FraudDetectionService.GpsAnomalySignal;
+        var truckerId = AttrString(existing, "truckerId");
+        if (AttrString(existing, "deliveryType") == SelfPickupDeliveryType
+            || string.IsNullOrEmpty(truckerId) || truckerId == authenticatedUserId)
+        {
+            await TryRecordFraudSignalAsync(
+                authenticatedUserId, signalType, operation.EntityId, "delivery", gpsCheck.Message, context);
+            return;
+        }
+
+        // Only the delivery's buyer confirms it (the transition check refused anyone else before the write).
+        if (AttrString(existing, "buyerId") != authenticatedUserId
+            || !_batchSignals.Add($"{truckerId}|{signalType}"))
+        {
+            return;
+        }
+
+        try
+        {
+            await _fraudService.RecordAttributedSignalAsync(
+                truckerId, authenticatedUserId, signalType, operation.EntityId, "delivery", gpsCheck.Message);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Failed to record fraud signal {signalType} for delivery {MoneyAlarmLog.LogId(operation.EntityId)}: [{ex.GetType().Name}]");
+        }
+    }
+
+    /// <summary>
     /// FRD-08: record a typed fraud signal on the caller for a refusal, then return the refusal as
     /// built. Best-effort like every signal: the answer is the same whether the write works or not.
     /// A null <paramref name="signalType"/> records nothing.
@@ -5606,6 +5654,8 @@ public partial class SyncFunction
                     }
 
                     // ── GPS fraud detection (F-14) ──
+                    // ESC-33: the flag is set here, the signal is written after the delivery write succeeded.
+                    FraudCheckResult? gpsAnomaly = null;
                     if (_fraudService != null && resolvedNewStatus == "delivered" && operation.Data != null)
                     {
                         double? fraudPickupLat = null, fraudPickupLng = null, fraudDropoffLat = null, fraudDropoffLng = null;
@@ -5660,9 +5710,7 @@ public partial class SyncFunction
                             operation.Data["gpsAnomalyFlag"] = true;
                             context.Logger.LogWarning(
                                 $"GPS anomaly on delivery {MoneyAlarmLog.LogId(operation.EntityId)}: {MoneyAlarmLog.LogText(gpsCheck.Message)}");
-                            await TryRecordFraudSignalAsync(
-                                authenticatedUserId ?? "", gpsCheck.FlagReason ?? "GPS_ANOMALY",
-                                operation.EntityId, "delivery", gpsCheck.Message, context);
+                            gpsAnomaly = gpsCheck;
                         }
                     }
 
@@ -5911,6 +5959,11 @@ public partial class SyncFunction
 
                         await TryRecordDeliveryPatternSignalsAsync(
                             operation, existing, response.Attributes, freeze, authenticatedUserId, context);
+
+                        if (gpsAnomaly != null)
+                        {
+                            await TryRecordGpsAnomalySignalAsync(operation, existing, gpsAnomaly, authenticatedUserId, context);
+                        }
 
                         // ESC-17: the last delivery done (delivered or disputed) finishes its trip.
                         if (operation.Data != null

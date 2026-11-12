@@ -54,6 +54,19 @@ public interface IFraudDetectionService
     Task<bool> HasSignalAsync(string userId, string signalType, string entityId);
 
     /// <summary>
+    /// ESC-33 (fraud-detection-architecture.md section 14.3): write a signal onto
+    /// <paramref name="targetUserId"/> that the request of another user, <paramref name="sourceUserId"/>,
+    /// caused. A truncated score read is CRITICAL, so such a write is bounded before it is made: at most
+    /// one row per target, type and entity, one per source and target, and three per target from all
+    /// sources, each over the table's 30 day life, on top of the one row per user, type and hour of every
+    /// signal. The caller must take both ids from server rows, never from the request. Throws on a failed
+    /// read or write: callers treat it as best effort, like <see cref="RecordFraudSignalAsync"/>.
+    /// </summary>
+    Task<AttributedSignalOutcome> RecordAttributedSignalAsync(
+        string targetUserId, string sourceUserId, string signalType, string entityId,
+        string entityType, string? description);
+
+    /// <summary>
     /// Record a successful listing creation for velocity tracking.
     /// Call AFTER _cropRepo.CreateAsync() succeeds.
     /// </summary>

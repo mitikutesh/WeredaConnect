@@ -318,7 +318,8 @@ describe('ESC-28 reputation core (ApiStack)', () => {
     };
     expect(base('UsersTable')).toEqual(['dynamodb:GetItem', 'dynamodb:UpdateItem']);
     expect(base('DeviceTokensTable')).toEqual(['dynamodb:Query']);
-    expect(base('FraudSignalsTable')).toEqual(['dynamodb:Query']);
+    // ESC-33: the fraud hooks put signal rows (NO_SHOW, DELIVERY_OVERDUE, BUYER_DECLINE_PATTERN).
+    expect(base('FraudSignalsTable')).toEqual(['dynamodb:PutItem', 'dynamodb:Query']);
     expect(base('ReputationEventsTable')).toEqual(['dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:UpdateItem']);
     expect(actionsOn(api, STREAM_FN, 'ReputationParkedQueue')).toEqual(
       expect.arrayContaining(['sqs:SendMessage']),
@@ -326,9 +327,31 @@ describe('ESC-28 reputation core (ApiStack)', () => {
     expect(actionsOn(api, STREAM_FN, 'ReputationParkedQueue')).not.toContain('sqs:ReceiveMessage');
     // The failure destination: the stream mapping sends batch metadata to the reputation DLQ.
     expect(actionsOn(api, STREAM_FN, 'ReputationDlq')).toContain('sqs:SendMessage');
-    // On the orders table, only the stream reads.
+    // On the orders table: the stream reads, and (ESC-33) a Query of the buyer index. Never the base table.
     for (const s of statementsOn(api, STREAM_FN, 'OrdersTable')) {
-      expect(JSON.stringify(s.Resource)).toContain('StreamArn');
+      const resource = JSON.stringify(s.Resource);
+      if (resource.includes('/index/')) {
+        expect(resource).toContain('/index/BuyerIdCreatedAtIndex');
+        expect(resource).not.toContain('/index/*');
+        expect(actionsOf(s)).toEqual(['dynamodb:Query']);
+      } else {
+        expect(resource).toContain('StreamArn');
+      }
+    }
+  });
+
+  test('ESC-33 fraud hooks: reputation-stream knows the orders table, escrow-cron reads the penalties flag', () => {
+    expect(envOf(api, STREAM_FN).ORDERS_TABLE).toBeDefined();
+    const onBuyerIndex = statementsOn(api, STREAM_FN, 'OrdersTable').filter((s) =>
+      JSON.stringify(s.Resource).includes('/index/BuyerIdCreatedAtIndex'),
+    );
+    expect(onBuyerIndex).toHaveLength(1);
+    // The unpark replay (order-cron) writes the same signals and reads the same index.
+    expect(actionsOn(api, ORDER_CRON_FN, 'FraudSignalsTable')).toEqual(expect.arrayContaining(['dynamodb:PutItem', 'dynamodb:Query']));
+    expect(actionsOn(api, ORDER_CRON_FN, 'OrdersTable')).toEqual(expect.arrayContaining(['dynamodb:Query']));
+    for (const envName of ['dev', 'staging', 'prod']) {
+      const stack = stacks(environments[envName]).api;
+      expect([envName, envOf(stack, `wereda-connect-${envName}-escrow-cron`).REPUTATION_PENALTIES_ENABLED]).toEqual([envName, 'false']);
     }
   });
 
