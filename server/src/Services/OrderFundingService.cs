@@ -170,16 +170,17 @@ public sealed class OrderFundingService
     /// ESC-18 (spec A2): end an order whose funding lost the listing's stock. The order moves to
     /// <see cref="OutOfStockStatus"/> with <c>cancelReason: listing_out_of_stock</c>,
     /// <c>cancelledBy: system</c> and <c>faultParty: none</c> (a race the system lost is nobody's
-    /// fault, so the farmer gets no penalty), in one write conditioned on its status. Then, like
-    /// every cancel of a funded order, the escrow refund is scheduled
-    /// (<see cref="EscrowService.ScheduleRefundForOrderAsync"/>; the hourly refund sweep pays the
+    /// fault, so the farmer gets no penalty), in one write conditioned on its status. Like every
+    /// cancel of a funded order, the escrow refund is scheduled (the hourly refund sweep pays the
     /// whole amount back, commission included, once per escrow) and a trip booking an earlier
-    /// attempt may have made is released. No stock is restored: none was taken.
-    /// Returns the ended order, or null when it could not be ended: an order that has moved on
-    /// or whose farmer accepted (checked on the row read and again in the write's condition, so an
-    /// accept that lands in between is never cancelled), or a failed write, is logged with the
-    /// alarmable <c>ORDER_STOCK_DECREMENT_FAILED</c> token, since it now needs stock the listing
-    /// no longer has.
+    /// attempt may have made is released. No stock is restored: none was taken. FUP-210: the end
+    /// and the refund arm are one transaction (<see cref="EndWithRefundAsync"/>); the separate
+    /// schedule (<see cref="EscrowService.ScheduleRefundForOrderAsync"/>) is left for an end that
+    /// armed nothing. Returns the ended order, or null when it could not be ended: an order that
+    /// has moved on or whose farmer accepted (checked on the row read and again in the write's
+    /// condition, so an accept that lands in between is never cancelled), money a dispute or a
+    /// settlement owns (<c>status=escrow_busy</c>), or a failed write, is logged with the alarmable
+    /// <c>ORDER_STOCK_DECREMENT_FAILED</c> token, since it now needs stock the listing no longer has.
     /// </summary>
     private async Task<Dictionary<string, object>?> EndOutOfStockAsync(
         Dictionary<string, object> fundedOrder, bool escrowExists, string actor, AuditContext? auditContext,
@@ -205,21 +206,31 @@ public sealed class OrderFundingService
             { OrderCommitment.FaultPartyField, OrderCommitment.Party.None }
         };
 
-        Dictionary<string, object>? ended = null;
-        string? endedFrom = null;
+        // FUP-210: an escrow whose create failed is created once more before the end (it was after
+        // it), so the end can arm its refund in the same transaction. The order is cancelled next, so
+        // no redelivery or delivery link would create it later.
+        if (!escrowExists && _escrowService != null)
+        {
+            escrowExists = await EnsureEscrowAsync(fundedOrder, actor, auditContext, context);
+        }
+
+        Dictionary<string, object>? ended;
+        string? endedFrom;
+        bool refundArmed;
         try
         {
-            foreach (var from in OutOfStockEndableStatuses)
+            var end = await EndWithRefundAsync(orderId, fields);
+            if (end.EscrowBusy)
             {
-                ended = await _orderRepo.TryAdvanceStatusUnlessAsync(orderId, from, OutOfStockStatus, fields,
-                    OrderCommitment.FarmerResponseField, OrderCommitment.Response.Accepted);
-                if (ended != null)
-                {
-                    endedFrom = from;
-                    break;
-                }
+                // A dispute, a settlement or a manual payout owns the money: the order is not ended
+                // without its refund armed, so it is left funded for a person, like any order not ended.
+                context.Logger.LogError(
+                    $"ORDER_STOCK_DECREMENT_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)} "
+                    + "reason=insufficient_stock status=escrow_busy");
+                return null;
             }
 
+            (ended, endedFrom, refundArmed) = (end.Order, end.From, end.RefundArmed);
             if (ended == null)
             {
                 // Two runs of the same funding (a payment redelivery racing the first delivery) can
@@ -265,12 +276,93 @@ public sealed class OrderFundingService
                 metadata: $"cancelReason={OutOfStockReason};listingId={listingId}");
         }
 
-        await ScheduleOutOfStockRefundAsync(fundedOrder, escrowExists, actor, auditContext, context);
+        if (refundArmed)
+        {
+            context.Logger.LogInformation(
+                $"Order escrow refund scheduled: orderId={MoneyAlarmLog.LogId(orderId)} reason={OutOfStockReason}");
+        }
+        else
+        {
+            await ScheduleOutOfStockRefundAsync(orderId, escrowExists, context);
+        }
 
         // FUP-123: no capacity is reserved after a lost stock race, but a funding attempt that
         // crashed after its reservation left one; give it back. Never throws.
         await TripBookingRelease.ReleaseAsync(_tripRepo, fundedOrder, context);
         return ended;
+    }
+
+    /// <summary>FUP-210: reads and plans per out-of-stock end (the order or an escrow can change between the plan and the write).</summary>
+    private const int OutOfStockEndAttempts = 3;
+
+    /// <summary>
+    /// FUP-210: what <see cref="EndWithRefundAsync"/> did: the order as ended and the status it was
+    /// ended from, whether its refund was armed in the same write, or that the money is busy.
+    /// Nothing ended (all default) when the order is missing, moved on, accepted by its farmer, or
+    /// kept changing: the caller reads it again and decides, as before.
+    /// </summary>
+    private readonly record struct OutOfStockEnd(
+        Dictionary<string, object>? Order, string? From, bool RefundArmed, bool EscrowBusy);
+
+    /// <summary>
+    /// FUP-210: end the order (<see cref="OutOfStockStatus"/>, <paramref name="fields"/>) only while it
+    /// is <c>funded</c> or <c>awaiting_transport</c> and its farmer has not accepted (read strongly
+    /// consistent, then the write conditioned on that version and status), and in the same DynamoDB
+    /// transaction arm the refund of its money (<see cref="EscrowService.PlanOrderRefundAsync"/>,
+    /// <see cref="EscrowService.CloseOrderWithRefundAsync"/>, <c>refundReason: listing_out_of_stock</c>),
+    /// so a hold or a settlement can no longer reach the escrow between the end and the arm. An escrow
+    /// held for review is not armed and the end lands only while it is still held (as before, the
+    /// separate arm then finds nothing to arm). Money frozen or moving ends nothing
+    /// (<see cref="OutOfStockEnd.EscrowBusy"/>). With no escrow record holding the money, the end alone
+    /// (<see cref="IOrderRepository.TryAdvanceStatusUnlessAsync"/>, as before). An order or an escrow
+    /// that changed since the read is read and planned again, at most <see cref="OutOfStockEndAttempts"/>
+    /// times. A read or a write that fails throws, with nothing written.
+    /// </summary>
+    private async Task<OutOfStockEnd> EndWithRefundAsync(string orderId, Dictionary<string, object> fields)
+    {
+        for (var attempt = 1; attempt <= OutOfStockEndAttempts; attempt++)
+        {
+            var current = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+            var status = current == null ? "" : GetString(current, "status");
+            if (current == null
+                || !OutOfStockEndableStatuses.Contains(status)
+                || GetString(current, OrderCommitment.FarmerResponseField) == OrderCommitment.Response.Accepted)
+            {
+                return default;
+            }
+
+            var plan = _escrowService == null ? OrderRefundPlan.Nothing : await _escrowService.PlanOrderRefundAsync(orderId);
+            if (plan.Readiness == OrderRefundReadiness.Busy)
+            {
+                return new OutOfStockEnd(null, null, RefundArmed: false, EscrowBusy: true);
+            }
+
+            if (plan.Readiness == OrderRefundReadiness.Nothing)
+            {
+                var advanced = await _orderRepo.TryAdvanceStatusUnlessAsync(orderId, status, OutOfStockStatus, fields,
+                    OrderCommitment.FarmerResponseField, OrderCommitment.Response.Accepted);
+                if (advanced != null)
+                {
+                    return new OutOfStockEnd(advanced, status, RefundArmed: false, EscrowBusy: false);
+                }
+
+                continue;
+            }
+
+            var closeFields = new Dictionary<string, object>(fields) { ["status"] = OutOfStockStatus };
+            var version = int.TryParse(GetString(current, "version"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 0;
+            var write = await _escrowService!.CloseOrderWithRefundAsync(
+                orderId, closeFields, version, status, plan, OutOfStockReason, "system", AuditContext.ForSystem());
+            if (write.Outcome == OrderLinkedWriteOutcome.Written)
+            {
+                return new OutOfStockEnd(write.Order, status, RefundArmed: plan.Held.Count > 0, EscrowBusy: false);
+            }
+
+            // The order moved (a farmer's accept, another run of this funding) or an escrow changed
+            // since the plan (a hold, a settlement, a released hold): read and plan again.
+        }
+
+        return default;
     }
 
     /// <summary>Pause before looking for an escrow written a moment ago once more (its reads are eventually consistent).</summary>
@@ -280,23 +372,15 @@ public sealed class OrderFundingService
     /// ESC-18: expire the ended order's escrow now (<c>refundReason: listing_out_of_stock</c>) so
     /// the hourly refund sweep pays the buyer back through the gateway path every refund takes.
     /// The escrow was usually written a moment before, and the lookup reads are eventually
-    /// consistent, so an escrow known to exist that is not found is looked for once more. An
-    /// escrow whose create failed is created once more first: the order is cancelled now, so no
-    /// redelivery or delivery link will create it later. The same alarm token as the other cancel
-    /// paths when the refund still cannot be armed: <c>reason=no_escrow</c> means the money is held
-    /// with no escrow record (a person refunds it by hand); any other reason means the 7 day sweep
-    /// refunds the terminal order.
+    /// consistent, so an escrow known to exist that is not found is looked for once more. The same
+    /// alarm token as the other cancel paths when the refund still cannot be armed:
+    /// <c>reason=no_escrow</c> means the money is held with no escrow record (a person refunds it by
+    /// hand); any other reason means the 7 day sweep refunds the terminal order. FUP-210: only when
+    /// the end did not arm the refund itself (no escrow record held the money, one is held for
+    /// review, or another run of this funding ended the order).
     /// </summary>
-    private async Task ScheduleOutOfStockRefundAsync(
-        Dictionary<string, object> fundedOrder, bool escrowExists, string actor, AuditContext? auditContext,
-        ILambdaContext context)
+    private async Task ScheduleOutOfStockRefundAsync(string orderId, bool escrowExists, ILambdaContext context)
     {
-        var orderId = GetString(fundedOrder, "orderId");
-        if (!escrowExists && _escrowService != null)
-        {
-            escrowExists = await EnsureEscrowAsync(fundedOrder, actor, auditContext, context);
-        }
-
         if (!escrowExists || _escrowService == null)
         {
             context.Logger.LogError(

@@ -30,6 +30,9 @@ public class SyncFunctionTripBookingTests
     private const string TripsTable = "test-trips-table";
     private const string DeliveriesTable = "test-deliveries-table";
 
+    /// <summary>What today's apps send in <c>X-App-Build</c>; FUP-241 tests also send none.</summary>
+    private const string CurrentAppBuild = "3";
+
     private static readonly JsonSerializerOptions SerializerOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private readonly IAmazonDynamoDB _dynamoDb = Substitute.For<IAmazonDynamoDB>();
@@ -386,6 +389,95 @@ public class SyncFunctionTripBookingTests
         _advanced.Where(a => a.OrderId == "order-trucker-asked").Should().HaveCount(2);
     }
 
+    // ===== FUP-241: TRIP_HAS_BOOKINGS only to apps that send X-App-Build =====
+
+    [Theory]
+    [InlineData("2", "TRIP_HAS_BOOKINGS")]
+    [InlineData(CurrentAppBuild, "TRIP_HAS_BOOKINGS")]
+    [InlineData(null, "SYNC_VALIDATION")]
+    public async Task BookedTrip_ChangingTheRoute_CodeFollowsTheAppBuild(string? appBuild, string code)
+    {
+        var result = await UpdateTripAsync(
+            new Dictionary<string, object> { { "fromWoreda", "Somewhere Else" }, { "version", 3 } }, appBuild: appBuild);
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().Be(
+            $"{code}: fromWoreda cannot change while orders are booked on this trip (20 quintals).");
+        _tripWrite.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("2", "TRIP_HAS_BOOKINGS")]
+    [InlineData(null, "SYNC_VALIDATION")]
+    public async Task BookedTrip_MovingTheDestinationPoint_CodeFollowsTheAppBuild(string? appBuild, string code)
+    {
+        _trip["destinationLatitude"] = new AttributeValue { N = "9.6" };
+        _trip["destinationLongitude"] = new AttributeValue { N = "41.85" };
+
+        var result = await UpdateTripAsync(new Dictionary<string, object>
+        {
+            { "destinationLatitude", 8.55 }, { "destinationLongitude", 39.27 }, { "version", 3 }
+        }, appBuild: appBuild);
+
+        result.GetProperty("message").GetString().Should().Be(
+            $"{code}: destinationLatitude cannot change while orders are booked on this trip (20 quintals).");
+        _tripWrite.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("2", "TRIP_HAS_BOOKINGS")]
+    [InlineData(null, "SYNC_VALIDATION")]
+    [InlineData("abc", "SYNC_VALIDATION")] // an unreadable header is an old app (ClientAppBuild)
+    public async Task BookedTrip_CapacityBelowTheBookings_CodeFollowsTheAppBuild(string? appBuild, string code)
+    {
+        var result = await UpdateTripAsync(
+            new Dictionary<string, object> { { "capacity", 10.0 }, { "version", 3 } }, appBuild: appBuild);
+
+        result.GetProperty("message").GetString().Should().Be(
+            $"{code}: capacity cannot drop below the 20 quintals already booked.");
+        _tripWrite.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task BookedTrip_NoAppBuild_TheFraudSignalKeepsTheRealCode()
+    {
+        _fraud = Substitute.For<IFraudDetectionService>();
+
+        var result = await UpdateTripAsync(
+            new Dictionary<string, object> { { "capacity", 10.0 }, { "version", 3 } }, appBuild: null);
+
+        result.GetProperty("message").GetString().Should().StartWith("SYNC_VALIDATION: ");
+        await _fraud.Received(1).RecordFraudSignalAsync(TruckerId, FraudDetectionService.ImmutableFieldChangeSignal, TripId, "trip",
+            "TRIP_HAS_BOOKINGS: capacity cannot drop below the 20 quintals already booked.");
+    }
+
+    [Theory]
+    [InlineData("2", "TRIP_HAS_BOOKINGS")]
+    [InlineData(null, "SYNC_VALIDATION")]
+    public async Task TripCancel_WithCropsOnTheRoad_CodeFollowsTheAppBuild(string? appBuild, string code)
+    {
+        _ordersOnTrip.Add(Order("order-1", "in_transit", farmer: "accepted", trucker: "accepted"));
+
+        var update = await UpdateTripAsync(
+            new Dictionary<string, object> { { "status", "cancelled" }, { "version", 3 } }, appBuild: appBuild);
+        var delete = await DeleteTripAsync(appBuild);
+
+        var expected = $"{code}: Crops from this trip are already on the way; it can no longer be cancelled.";
+        update.GetProperty("message").GetString().Should().Be(expected);
+        delete.GetProperty("message").GetString().Should().Be(expected);
+        _tripWrite.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ClientCannotSetMatched_NoAppBuild_KeepsItsCode()
+    {
+        // Only the two FUP-01 codes change for an old app; TRIP_VALIDATION is not one of them.
+        var result = await UpdateTripAsync(
+            new Dictionary<string, object> { { "status", "matched" }, { "version", 3 } }, appBuild: null);
+
+        result.GetProperty("message").GetString().Should().Be("TRIP_VALIDATION: 'matched' is set by the server when the trip is fully booked.");
+    }
+
     // ===== an order create respects the trip =====
 
     [Fact]
@@ -478,7 +570,8 @@ public class SyncFunctionTripBookingTests
 
     // ===== helpers =====
 
-    private Task<JsonElement> UpdateTripAsync(Dictionary<string, object> data, bool enabled = true)
+    private Task<JsonElement> UpdateTripAsync(
+        Dictionary<string, object> data, bool enabled = true, string? appBuild = CurrentAppBuild)
         => SendAsync(TruckerId, "trucker", new SyncOperationRequest
         {
             OperationId = "op-trip-update",
@@ -487,9 +580,9 @@ public class SyncFunctionTripBookingTests
             EntityId = TripId,
             Action = "update",
             Data = data
-        }, enabled);
+        }, enabled, appBuild);
 
-    private Task<JsonElement> DeleteTripAsync()
+    private Task<JsonElement> DeleteTripAsync(string? appBuild = CurrentAppBuild)
         => SendAsync(TruckerId, "trucker", new SyncOperationRequest
         {
             OperationId = "op-trip-delete",
@@ -498,7 +591,7 @@ public class SyncFunctionTripBookingTests
             EntityId = TripId,
             Action = "delete",
             Data = new Dictionary<string, object> { { "version", 3 } }
-        });
+        }, appBuild: appBuild);
 
     private Task<JsonElement> CreateOrderAsync(double quantityKg, bool enabled = true, (string Key, object Value)? extra = null)
     {
@@ -526,7 +619,9 @@ public class SyncFunctionTripBookingTests
         }, enabled);
     }
 
-    private async Task<JsonElement> SendAsync(string userId, string role, SyncOperationRequest operation, bool enabled = true)
+    /// <summary><paramref name="appBuild"/> null sends no <c>X-App-Build</c> (an app before build 2).</summary>
+    private async Task<JsonElement> SendAsync(
+        string userId, string role, SyncOperationRequest operation, bool enabled = true, string? appBuild = CurrentAppBuild)
     {
         var request = new APIGatewayProxyRequest
         {
@@ -536,6 +631,7 @@ public class SyncFunctionTripBookingTests
                 ClientId = "device-001",
                 Operations = new List<SyncOperationRequest> { operation }
             }, SerializerOptions),
+            Headers = appBuild == null ? null : new Dictionary<string, string> { { ClientAppBuild.Header, appBuild } },
             RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
             {
                 Authorizer = new APIGatewayCustomAuthorizerContext { { "userId", userId }, { "custom:role", role } }

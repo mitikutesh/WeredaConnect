@@ -110,6 +110,22 @@ public class ReputationGateTests
     }
 
     [Fact]
+    public void ForClient_UnderReview_AndForAnotherCode_AsBeforeTheSharedHelper()
+    {
+        // FUP-241 moved the body to OldClientRefusal: the review form keeps its sentence, and a code
+        // other than REPUTATION_RESTRICTED is still returned as it came.
+        var review = ReputationGate.CheckOwn(User(reputation: Restricted(null, ReputationCauses.DeliveryOverdue)), Now)!;
+        const string booked = "TRIP_HAS_BOOKINGS: capacity cannot drop below the 20 quintals already booked.";
+
+        ReputationGate.ForClient(review, null, "crop_listing").Should().Be(
+            "SYNC_VALIDATION: Your account can't take new orders while it is under review. Your current orders continue.");
+        ReputationGate.ForClient(review, null, "order").Should().Be(
+            "ORDER_VALIDATION: Your account can't take new orders while it is under review. Your current orders continue.");
+        ReputationGate.ForClient(review, 2, "order").Should().Be(review);
+        ReputationGate.ForClient(booked, null, "trip").Should().Be(booked);
+    }
+
+    [Fact]
     public void OwnerFields_NoMap_AreGood_WithTheStoredRatings()
     {
         var fields = ReputationGate.OwnerFields(User(sum: 9, count: 2), Now, S);

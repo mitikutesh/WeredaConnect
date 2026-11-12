@@ -80,6 +80,13 @@ public class EscrowCronFunction
     internal const string ExpiredOrderRefundReason = "delivery_timeout";
 
     /// <summary>
+    /// The <c>cancelReason</c> of a cancel that was the refund's own: this sweep's cancel of a stale
+    /// order, and an admin refund's cancel before pickup (ESC-09). FUP-211: its stock goes back before
+    /// the refund.
+    /// </summary>
+    internal const string EscrowRefundedCancelReason = "escrow_refunded";
+
+    /// <summary>
     /// ESC-10: order statuses with no trade under way: before payment, funded or awaiting transport but
     /// not accepted, ended (rejected, cancelled, payment_failed) or settled. The auto-release never pays
     /// an escrow whose order is in one; the refund of an /escrow/initiate escrow then follows its delivery alone.
@@ -1220,8 +1227,11 @@ public class EscrowCronFunction
                     // ESC-06: a buyer's transport-failure cancel gives the stock back before the
                     // money (the sync cancel restores it best-effort; this repairs a restore that
                     // did not land). Fails closed like the dispute verdict's cancel-then-refund.
+                    // FUP-211: so does a cancel that was the refund's own (escrow_refunded): an admin
+                    // refund whose restore failed after its cancel armed the refund in the same write,
+                    // and a sweep refund that failed after this sweep's cancel.
                     if (orderStatus == "cancelled"
-                        && GetStringOrNull(fundedOrder!, "cancelReason") == PickupDeadline.CancelReason
+                        && GetStringOrNull(fundedOrder!, "cancelReason") is PickupDeadline.CancelReason or EscrowRefundedCancelReason
                         && !await EnsureListingStockRestoredAsync(fundedOrder!, context))
                     {
                         continue;
@@ -1559,7 +1569,7 @@ public class EscrowCronFunction
             {
                 { "status", "cancelled" },
                 { "cancelledAt", now },
-                { "cancelReason", "escrow_refunded" }
+                { "cancelReason", EscrowRefundedCancelReason }
             }, version, orderStatus, new[] { _escrowRepo.BuildRefundArm(escrowId, escrowCreatedAt, ExpiredOrderRefundReason, now) });
 
             if (write.Outcome == OrderLinkedWriteOutcome.LinkedItemRefused)
@@ -1686,7 +1696,8 @@ public class EscrowCronFunction
     }
 
     /// <summary>
-    /// ESC-06: before the refund of a buyer's transport-failure cancel, make sure the cancelled order's
+    /// ESC-06: before the refund of a buyer's transport-failure cancel (FUP-211: or of an
+    /// <c>escrow_refunded</c> cancel), make sure the cancelled order's
     /// quintals are back on its listing (idempotent per order). The dispute verdict's rules: nothing to
     /// give back (no listing, a quantity that is not positive) or a listing that is gone counts as
     /// done; a restore that keeps conflicting or throws logs <c>ORDER_STOCK_RESTORE_FAILED</c> and
