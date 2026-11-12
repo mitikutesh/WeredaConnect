@@ -187,8 +187,8 @@ public class EscrowCronRiskGateTests
                     _escrows.GetByIdAsync("escrow-order-ord-1", true).Returns(escrow);
                     _escrows.GetByIdAsync("escrow-order-ord-1").Returns(escrow);
                     OrderIs("ord-1", "funded", 4);
-                    _orders.UpdateAsync("ord-1", Arg.Any<Dictionary<string, object>>(), 4)
-                        .Returns(AuthResult<Dictionary<string, object>>.Success(
+                    _orders.TryUpdateWithAsync("ord-1", Arg.Any<Dictionary<string, object>>(), 4, Arg.Any<string>(), Arg.Any<IReadOnlyList<TransactWriteItem>>())
+                        .Returns(new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written,
                             new Dictionary<string, object> { { "status", "cancelled" } }));
                     return ("escrow-order-ord-1", _escrows.StubRefundSweep(escrow));
                 }
@@ -332,7 +332,7 @@ public class EscrowCronRiskGateTests
         if (sweep == "auto-refund")
         {
             await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
-            await _orders.Received(1).UpdateAsync("ord-1", Arg.Any<Dictionary<string, object>>(), 4);
+            await _orders.Received(1).TryUpdateWithAsync("ord-1", Arg.Any<Dictionary<string, object>>(), 4, Arg.Any<string>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
         }
         else
         {

@@ -51,8 +51,28 @@ public interface IEscrowRepository
     /// sweep (<c>expiresAt</c> and <c>updatedAt</c> set to <paramref name="scheduledAt"/>,
     /// <c>refundReason</c>) only while the escrow is a plain hold: <c>escrowed</c>, no settlement
     /// lock, no open manual payout, no confirmed delivery. Adds 1 to <c>version</c> (SIM-29). No I/O.
+    /// FUP-53: <paramref name="allowConfirmedDelivery"/> drops the confirmed delivery condition, for the
+    /// admin refund, which refunds a confirmed escrow as its separate arm always did.
     /// </summary>
-    TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt);
+    TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt, bool allowConfirmedDelivery = false);
+
+    /// <summary>
+    /// FUP-53: <see cref="UpdateStatusAsync"/> (the same write and the same conditions) in one DynamoDB
+    /// transaction with <paramref name="linkedItems"/> (condition checks on other rows): all of it
+    /// lands or none of it. The escrow's own failed condition is reported over a linked item's. A
+    /// transaction cancelled for any other reason (a conflicting transaction, throttling) throws, with
+    /// nothing written.
+    /// </summary>
+    Task<EscrowLinkedWriteOutcome> TryUpdateStatusWithAsync(
+        string escrowId, string createdAt, string newStatus, string expectedCurrentStatus,
+        Dictionary<string, object>? additionalFields, IReadOnlyList<TransactWriteItem> linkedItems);
+
+    /// <summary>
+    /// FUP-53: a transaction item that lets a write land only while this escrow still has
+    /// <paramref name="status"/> (for example an order closed without a refund arm because its escrow
+    /// is <c>held</c> for review). No I/O.
+    /// </summary>
+    TransactWriteItem BuildStatusCheck(string escrowId, string createdAt, string status);
 
     /// <summary>
     /// ESC-06: push an order escrow's <c>expiresAt</c> forward while it is still a plain
@@ -355,3 +375,19 @@ public sealed record CronSweepQuery(
     bool? DeliveryConfirmed = null,
     bool ExcludeLocked = false,
     int PageSize = 100);
+
+/// <summary>
+/// FUP-53: what <see cref="IEscrowRepository.TryUpdateStatusWithAsync"/> did. Only <see cref="Written"/>
+/// wrote anything. <see cref="EscrowRefused"/> is the zero value so an unset result never reads as success.
+/// </summary>
+public enum EscrowLinkedWriteOutcome
+{
+    /// <summary>The escrow's own condition failed (its status moved, a lock, a queue entry, a scheduled refund).</summary>
+    EscrowRefused = 0,
+
+    /// <summary>The escrow and every linked item were written or passed.</summary>
+    Written,
+
+    /// <summary>The escrow was fine and a linked item's condition failed (for example its order is closed).</summary>
+    LinkedItemRefused,
+}

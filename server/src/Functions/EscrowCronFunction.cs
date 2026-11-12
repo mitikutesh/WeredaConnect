@@ -74,6 +74,12 @@ public class EscrowCronFunction
     private const int OrderEscrowExpiryExtensionHours = 48;
 
     /// <summary>
+    /// FUP-53: the <c>refundReason</c> the auto-refund sweep arms with its cancel of a stale funded
+    /// order. It is the refund's trigger, so the refund reads the same with or without the arm.
+    /// </summary>
+    internal const string ExpiredOrderRefundReason = "delivery_timeout";
+
+    /// <summary>
     /// ESC-10: order statuses with no trade under way: before payment, funded or awaiting transport but
     /// not accepted, ended (rejected, cancelled, payment_failed) or settled. The auto-release never pays
     /// an escrow whose order is in one; the refund of an /escrow/initiate escrow then follows its delivery alone.
@@ -1234,7 +1240,9 @@ public class EscrowCronFunction
                     // orders stay refundable).
                     if (refundedOrderWasFunded && fundedOrder != null)
                     {
-                        if (!await TryCancelRefundedOrderAsync(fundedOrder, context))
+                        // FUP-53: the cancel and the refund arm on this escrow are one transaction, so
+                        // a dispute cannot freeze the money between the cancel and the refund below.
+                        if (!await TryCancelRefundedOrderAsync(fundedOrder, orderStatus, escrowId, escrowCreatedAt, context))
                         {
                             continue;
                         }
@@ -1260,7 +1268,12 @@ public class EscrowCronFunction
 
                 context.Logger.LogInformation($"Auto-refunding expired escrow {MoneyAlarmLog.LogId(escrowId)}.");
 
-                var scheduledReason = GetStringOrNull(escrow, "refundReason");
+                // FUP-53: the arm of this sweep's own cancel is not an order exit's reason (a retry of
+                // a refund that failed after the cancel keeps the expiry text).
+                var scheduledReason = GetStringOrNull(escrow, "refundReason") is { } armedReason
+                    && armedReason != ExpiredOrderRefundReason
+                    ? armedReason
+                    : null;
                 var result = await _escrowService.RefundAsync(
                     new RefundEscrowRequest
                     {
@@ -1522,10 +1535,15 @@ public class EscrowCronFunction
     /// write doubles as the race fence: if the farmer accepted in the meantime,
     /// the version moved, the cancel conflicts, and the caller skips the refund
     /// (the next sweep re-reads the order and pushes the expiry instead).
+    /// FUP-53: the cancel is one transaction with the refund arm on the escrow
+    /// (<c>refundReason: delivery_timeout</c>, <c>expiresAt = now</c>), conditioned on the order's
+    /// status as read and on the escrow still being a plain hold. A dispute that froze the money
+    /// since the sweep read it refuses the cancel (nothing written, the next sweep decides again),
+    /// and once the cancel landed no dispute can freeze the refund.
     /// Returns true only when the order is now cancelled.
     /// </summary>
     private async Task<bool> TryCancelRefundedOrderAsync(
-        Dictionary<string, object> order, ILambdaContext context)
+        Dictionary<string, object> order, string orderStatus, string escrowId, string escrowCreatedAt, ILambdaContext context)
     {
         var orderId = GetString(order, "orderId");
         try
@@ -1536,18 +1554,27 @@ public class EscrowCronFunction
                 _ = int.TryParse(vObj?.ToString(), out version);
             }
 
-            var result = await _orderRepo!.UpdateAsync(orderId, new Dictionary<string, object>
+            var now = DateTime.UtcNow.ToString("o");
+            var write = await _orderRepo!.TryUpdateWithAsync(orderId, new Dictionary<string, object>
             {
                 { "status", "cancelled" },
-                { "cancelledAt", DateTime.UtcNow.ToString("o") },
+                { "cancelledAt", now },
                 { "cancelReason", "escrow_refunded" }
-            }, version);
+            }, version, orderStatus, new[] { _escrowRepo.BuildRefundArm(escrowId, escrowCreatedAt, ExpiredOrderRefundReason, now) });
 
-            if (!result.IsSuccess)
+            if (write.Outcome == OrderLinkedWriteOutcome.LinkedItemRefused)
+            {
+                // Not a failure: a dispute, a settlement or a confirmation took the escrow since the read.
+                context.Logger.LogInformation(
+                    $"ESCROW_AUTO_REFUND_SKIPPED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=escrow_changed");
+                return false;
+            }
+
+            if (write.Outcome != OrderLinkedWriteOutcome.Written)
             {
                 context.Logger.LogWarning(
                     $"ORDER_ESCROW_REFUND_ORDER_CANCEL_FAILED orderId={MoneyAlarmLog.LogId(orderId)}: "
-                    + $"{MoneyAlarmLog.LogText(result.Error?.Message)}; refund deferred to the next sweep.");
+                    + $"{write.Outcome}; refund deferred to the next sweep.");
                 return false;
             }
 

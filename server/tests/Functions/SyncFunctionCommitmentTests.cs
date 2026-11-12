@@ -286,6 +286,30 @@ public class SyncFunctionCommitmentTests
         _written["rejectionReason"].Should().Be("Hail damage.");
         await _crops.Received(1).TryRestoreStockAsync(ListingId, OrderId, 5.0);
         await _trips.Received(1).TryReleaseCapacityAsync(TripId, OrderId, 5.0);
+        // FUP-53: the reject and the refund arm are one transaction on the funded order; no second step.
+        await _orders.Received(1).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 2, "funded",
+            Arg.Is<IReadOnlyList<TransactWriteItem>>(l => l.Count == 1 && l[0].Update.UpdateExpression == "arm"));
+        _escrows.Received(1).BuildRefundArm(EscrowId, Arg.Any<string>(), "order_rejected", Arg.Any<string>());
+        await _orders.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
+        await _escrows.DidNotReceiveWithAnyArgs().UpdateStatusAsync(default!, default!, default!);
+        await _escrowAudit.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(a =>
+            a["action"].ToString() == "refund_scheduled" && a["metadata"].ToString() == "order_rejected" && a["actor"].ToString() == "system"));
+    }
+
+    [Fact]
+    public async Task FarmerDecline_WhoseEscrowADisputeFroze_IsRefused_AndNothingIsWritten()
+    {
+        // FUP-53: the money is frozen, so the order must not be closed over it.
+        _escrows.GetByIdAsync(EscrowId, true).Returns(_ => Escrow(status: "disputed"));
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object> { { "farmerResponse", "decline" }, { "version", 2 } });
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().Be("ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.");
+        _written.Should().BeNull();
+        await _crops.DidNotReceiveWithAnyArgs().TryRestoreStockAsync(default!, default!, default);
+        await _trips.DidNotReceiveWithAnyArgs().TryReleaseCapacityAsync(default!, default!, default);
+        _auditRows.Should().BeEmpty();
     }
 
     [Fact]
