@@ -211,7 +211,7 @@ class _FakeOrderRepository extends BaseOrderRepository {
       throw UnimplementedError();
 
   @override
-  Future<void> checkIn(
+  Future<bool> checkIn(
     String orderId,
     String userId, {
     required String kind,

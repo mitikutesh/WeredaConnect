@@ -134,9 +134,10 @@ CheckInChance checkInChanceFor(Order order, String userId, DateTime nowUtc) {
 
 /// The repositories' guard before a check-in is queued or sent. Returns
 /// false when [userId] already gave [kind] (the server keeps the first one,
-/// so nothing is sent again); throws [OrderActionNotAllowedException] when it
-/// is not theirs to give, the order takes none, the window is shut on the
-/// device clock, or an arrival has no usable fix.
+/// so nothing is sent again); throws [CheckInNotAllowedException], with the
+/// check-in text the server would give for the same reason, when it is not
+/// theirs to give, the order takes none, the window is shut on the device
+/// clock, or an arrival has no usable fix.
 bool checkCheckInAllowed(
   Order order,
   String userId,
@@ -145,9 +146,10 @@ bool checkCheckInAllowed(
   DateTime nowUtc,
 ) {
   if (checkInKindFor(order, userId) != kind) {
-    throw const OrderActionNotAllowedException(
+    throw const CheckInNotAllowedException(
       'Only the farmer says the crops are ready, and only the trucker (or '
       'the buyer collecting the order) says they have arrived.',
+      AppErrorCode.checkInNotParty,
     );
   }
   switch (checkInChanceFor(order, userId, nowUtc)) {
@@ -155,20 +157,36 @@ bool checkCheckInAllowed(
       return false;
     case CheckInChance.open:
       break;
-    case CheckInChance.none:
     case CheckInChance.notYet:
+      throw const CheckInNotAllowedException(
+        'Check-ins open 24 hours before the pickup day.',
+        AppErrorCode.checkInTooEarly,
+      );
     case CheckInChance.closed:
-      throw const OrderActionNotAllowedException(
-        'Check-ins are not open for this order now.',
+      throw const CheckInNotAllowedException(
+        'The pickup deadline has passed.',
+        AppErrorCode.checkInClosed,
+      );
+    case CheckInChance.none:
+      throw const CheckInNotAllowedException(
+        'Check-ins are not open for this order.',
+        AppErrorCode.checkInNotOpen,
       );
   }
   if (kind == CheckInKind.arrivedPickup && !isUsableCheckInFix(fix)) {
-    throw const OrderActionNotAllowedException(
+    throw const CheckInNotAllowedException(
       'An arrival needs a GPS fix at the farm.',
+      AppErrorCode.checkInNeedsLocation,
     );
   }
   return true;
 }
+
+/// Whether [order] shows a check-in made on this phone that the server's
+/// copy does not hold yet: waiting to be sent, or sent and not read back.
+/// The order screen reads the order again after each sync while one does.
+bool hasCheckInAwaitingServer(Order order) =>
+    order.queuedCheckIns.keys.any((kind) => checkInOf(order, kind) == null);
 
 /// One GPS fix taken for a check-in.
 class HandoffCheckInFix {

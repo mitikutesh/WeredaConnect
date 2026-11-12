@@ -259,12 +259,70 @@ void main() {
       expect((await checkInOps()).single.entityId, 'ord-1#arrived_pickup');
     });
 
-    test('a second tap queues nothing more', () async {
+    test('a second tap queues nothing more, and says so', () async {
       await putOrder();
-      await repo.checkIn('ord-1', 'farmer-1', kind: CheckInKind.cropsReady);
-      await repo.checkIn('ord-1', 'farmer-1', kind: CheckInKind.cropsReady);
+      expect(
+        await repo.checkIn('ord-1', 'farmer-1', kind: CheckInKind.cropsReady),
+        isTrue,
+      );
+      expect(
+        await repo.checkIn('ord-1', 'farmer-1', kind: CheckInKind.cropsReady),
+        isFalse,
+      );
 
       expect(await checkInOps(), hasLength(1));
+    });
+
+    test("on a shared phone, only the signed-in user's marks show", () async {
+      await putOrder();
+      await repo.checkIn(
+        'ord-1',
+        'trucker-1',
+        kind: CheckInKind.arrivedPickup,
+        fix: _fix,
+      );
+      String? signedIn = 'farmer-1';
+      final shared = OrderRepository(
+        isar: isar,
+        syncQueue: queue,
+        currentUserId: () async => signedIn,
+      );
+
+      // The farmer signed in after the trucker: the trucker's queued
+      // arrival is not shown as if the server had it.
+      expect((await shared.getOrderById('ord-1'))!.queuedCheckIns, isEmpty);
+      signedIn = 'trucker-1';
+      expect(
+        (await shared.getOrderById('ord-1'))!.queuedCheckIns.keys,
+        ['arrived_pickup'],
+      );
+      signedIn = null;
+      expect((await shared.getOrderById('ord-1'))!.queuedCheckIns, isEmpty);
+    });
+
+    test("another user's queued check-in does not block this user's", () async {
+      await putOrder(selfPickup: true);
+      // A check-in of this kind queued under another account on this phone
+      // (the order changed hands, or an older build's operation).
+      await queue.enqueue(
+        userId: 'someone-else',
+        entityType: handoffCheckInEntityType,
+        entityId: handoffCheckInEntityId('ord-1', 'arrived_pickup'),
+        action: 'create',
+        data: '{}',
+        operationId: 'op-other',
+      );
+
+      expect(
+        await repo.checkIn(
+          'ord-1',
+          'buyer-1',
+          kind: CheckInKind.arrivedPickup,
+          fix: _fix,
+        ),
+        isTrue,
+      );
+      expect(await checkInOps(), hasLength(2));
     });
 
     test('refused on the phone: no fix, the wrong party, no stamp, too late',
@@ -275,7 +333,13 @@ void main() {
 
       await expectLater(
         tryIt('trucker-1', CheckInKind.arrivedPickup),
-        throwsA(isA<OrderActionNotAllowedException>()),
+        throwsA(
+          isA<CheckInNotAllowedException>().having(
+            (e) => e.code,
+            'code',
+            AppErrorCode.checkInNeedsLocation,
+          ),
+        ),
       );
       await expectLater(
         tryIt('buyer-1', CheckInKind.arrivedPickup, fix: _fix),
@@ -291,7 +355,13 @@ void main() {
       await putOrder(deadlineIn: const Duration(minutes: -1));
       await expectLater(
         tryIt('farmer-1', CheckInKind.cropsReady),
-        throwsA(isA<OrderActionNotAllowedException>()),
+        throwsA(
+          isA<CheckInNotAllowedException>().having(
+            (e) => e.code,
+            'code',
+            AppErrorCode.checkInClosed,
+          ),
+        ),
       );
 
       expect(await checkInOps(), isEmpty);

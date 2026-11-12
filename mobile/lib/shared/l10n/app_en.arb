@@ -5377,5 +5377,15 @@
   "errorCheckInTooLate": "Your check-in reached the server after the pickup deadline, so it does not count. It was kept for review.",
   "@errorCheckInTooLate": {"description": "ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_LATE: kept on the order as late evidence, never counted"},
   "errorCheckInValidation": "Your check-in was not saved. Try again, and update the app if it keeps happening.",
-  "@errorCheckInValidation": {"description": "ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_VALIDATION, or a CHECKIN_ code this version does not know"}
+  "@errorCheckInValidation": {"description": "ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_VALIDATION, or a CHECKIN_ code this version does not know"},
+  "errorCheckInClosed": "The pickup deadline has passed, so check-ins are closed. Your check-in was not saved.",
+  "@errorCheckInClosed": {"description": "ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. The device clock says the pickup deadline passed before the check-in was sent; nothing was queued or sent"},
+  "checkInLocationBlocked": "Location is blocked for this app. Allow it in the app settings, then try again at the farm.",
+  "@checkInLocationBlocked": {"description": "ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar on the phone: the arrival needs a GPS fix and the location permission was denied for good"},
+  "checkInLocationBlockedWeb": "Location is blocked for this site. Allow it in the browser's site settings, then try again at the farm.",
+  "@checkInLocationBlockedWeb": {"description": "ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar on web: the arrival needs a GPS fix and the browser blocks location for the site"},
+  "checkInOpenSettings": "Open settings",
+  "@checkInOpenSettings": {"description": "ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar action: opens the app's page in the phone settings to allow location"},
+  "checkInAlreadyGiven": "You have already checked in.",
+  "@checkInAlreadyGiven": {"description": "ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar: a repeat tap found the check-in already given, nothing was sent again"}
 }

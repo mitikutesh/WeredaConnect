@@ -274,22 +274,23 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     }
   }
 
-  /// ESC-34 (FUP-285): the arrival check-in. A refusal on web (sent at once)
-  /// is said through its `CHECKIN_*` code, then the order is read again
-  /// quietly: a late check-in the server kept for review shows on it.
+  /// ESC-34 (FUP-285): the arrival check-in. A repeat sends nothing and
+  /// says it was already given. A refusal on web (sent at once) is said
+  /// through its `CHECKIN_*` code, then the order is read again quietly: a
+  /// late check-in the server kept for review shows on it.
   Future<void> _onCheckInAtPickup(
     CheckInAtPickup event,
     Emitter<OrderState> emit,
   ) async {
     emit(const OrderLoading());
     try {
-      await _repository.checkIn(
+      final sent = await _repository.checkIn(
         event.orderId,
         event.userId,
         kind: event.kind,
         fix: event.fix,
       );
-      emit(CheckInSaved(kind: event.kind));
+      emit(CheckInSaved(kind: event.kind, alreadyGiven: !sent));
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
       if (e is SyncRejectedException) {

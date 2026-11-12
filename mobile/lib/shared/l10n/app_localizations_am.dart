@@ -5638,4 +5638,22 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get errorCheckInValidation =>
       'ማረጋገጫዎ አልተቀመጠም። እንደገና ይሞክሩ፤ ደጋግሞ ከሆነ መተግበሪያውን ያዘምኑ።';
+
+  @override
+  String get errorCheckInClosed =>
+      'የማንሳቻው የመጨረሻ ጊዜ ስላለፈ ማረጋገጫ ተዘግቷል። ማረጋገጫዎ አልተቀመጠም።';
+
+  @override
+  String get checkInLocationBlocked =>
+      'ለዚህ መተግበሪያ የቦታ ፈቃድ ተከልክሏል። በመተግበሪያው ቅንብሮች ውስጥ ይፍቀዱ፣ ከዚያ እርሻው ላይ እንደገና ይሞክሩ።';
+
+  @override
+  String get checkInLocationBlockedWeb =>
+      'ለዚህ ድረ ገጽ የቦታ ፈቃድ ተከልክሏል። በአሳሹ የድረ ገጽ ቅንብሮች ውስጥ ይፍቀዱ፣ ከዚያ እርሻው ላይ እንደገና ይሞክሩ።';
+
+  @override
+  String get checkInOpenSettings => 'ቅንብሮችን ክፈት';
+
+  @override
+  String get checkInAlreadyGiven => 'አስቀድመው አረጋግጠዋል።';
 }

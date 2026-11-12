@@ -14,6 +14,7 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
@@ -21,10 +22,12 @@ import 'package:wereda_connect/features/delivery_verification/domain/repositorie
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_detail_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/pickup_check_in_card.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -62,7 +65,19 @@ class FakeGps extends GpsCaptureService {
     calls++;
     return result;
   }
+
+  int settingsOpened = 0;
+
+  @override
+  Future<bool> openAppSettings() async {
+    settingsOpened++;
+    return true;
+  }
 }
+
+class MockSyncExecutor extends Mock implements SyncExecutor {}
+
+class MockOrderRepository extends Mock implements BaseOrderRepository {}
 
 const _tokens = AuthTokens(
   accessToken: 'access',
@@ -138,6 +153,8 @@ void main() {
   late MockConnectivityMonitor monitor;
   late StreamController<OrderState> orderStream;
   late FakeGps gps;
+  late MockSyncExecutor executor;
+  late StreamController<SyncBatchResult> syncResults;
   final en = lookupAppLocalizations(const Locale('en'));
 
   setUpAll(() {
@@ -154,6 +171,9 @@ void main() {
     monitor = MockConnectivityMonitor();
     orderStream = StreamController<OrderState>.broadcast();
     gps = FakeGps(_atFarm);
+    executor = MockSyncExecutor();
+    syncResults = StreamController<SyncBatchResult>.broadcast();
+    when(() => executor.onSyncResult).thenAnswer((_) => syncResults.stream);
     final ratingRepo = MockRatingRepository();
     when(() => ratingBloc.repository).thenReturn(ratingRepo);
     when(() => ratingBloc.stream).thenAnswer((_) => const Stream.empty());
@@ -185,7 +205,10 @@ void main() {
     when(() => monitor.isConnected()).thenAnswer((_) async => true);
   });
 
-  tearDown(() => orderStream.close());
+  tearDown(() async {
+    await orderStream.close();
+    await syncResults.close();
+  });
 
   Future<void> show(
     WidgetTester tester,
@@ -194,6 +217,7 @@ void main() {
     String userId, {
     _Platform platform = _Platform.phone,
     Locale locale = const Locale('en'),
+    OrderBloc? bloc,
   }) async {
     tester.view.physicalSize = const Size(1000, 6000);
     tester.view.devicePixelRatio = 1.0;
@@ -204,7 +228,7 @@ void main() {
     when(() => orderBloc.state).thenReturn(SingleOrderLoaded(order: order));
     final screen = MultiBlocProvider(
       providers: [
-        BlocProvider<OrderBloc>.value(value: orderBloc),
+        BlocProvider<OrderBloc>.value(value: bloc ?? orderBloc),
         BlocProvider<AuthBloc>.value(value: authBloc),
         BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
         BlocProvider<RatingBloc>.value(value: ratingBloc),
@@ -227,6 +251,7 @@ void main() {
             providers: [
               Provider<MarketplaceSync?>.value(value: sync),
               Provider<ConnectivityMonitor>.value(value: monitor),
+              Provider<SyncExecutor>.value(value: executor),
             ],
             child: screen,
           ),
@@ -435,6 +460,48 @@ void main() {
   }
 
   group('phone only', () {
+    testWidgets('location denied for good: says so and offers the settings',
+        (tester) async {
+      gps.result = const GpsCaptureResult.unavailable(
+        GpsCaptureResult.permanentlyDeniedReason,
+      );
+      await show(tester, _order(), UserRole.trucker, 'trucker-001');
+
+      await tap(tester, find.text(en.checkInArrivedButton));
+
+      expect(find.text(en.checkInLocationBlocked), findsOneWidget);
+      expect(find.text(en.checkInNeedsLocation), findsNothing);
+      expect(checkInsSoFar(), isEmpty);
+      await tester.tap(find.text(en.checkInOpenSettings));
+      await tester.pumpAndSettle();
+      expect(gps.settingsOpened, 1);
+    });
+
+    testWidgets('the farmer with location denied for good still checks in',
+        (tester) async {
+      gps.result = const GpsCaptureResult.unavailable(
+        GpsCaptureResult.permanentlyDeniedReason,
+      );
+      await show(tester, _order(), UserRole.farmer, 'farmer-001');
+
+      await tap(tester, find.text(en.checkInCropsReadyButton));
+
+      expect(checkIns().single.fix, isNull);
+      expect(find.text(en.checkInLocationBlocked), findsNothing);
+    });
+
+    testWidgets('a repeat says it was already given, not sent', (tester) async {
+      await show(tester, _order(), UserRole.farmer, 'farmer-001');
+
+      orderStream.add(
+        const CheckInSaved(kind: CheckInKind.cropsReady, alreadyGiven: true),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(en.checkInAlreadyGiven), findsOneWidget);
+      expect(find.text(en.checkInSent), findsNothing);
+    });
+
     testWidgets('offline, the check-in is saved on the phone', (tester) async {
       when(() => monitor.isConnected()).thenAnswer((_) async => false);
       await show(tester, _order(), UserRole.trucker, 'trucker-001');
@@ -481,6 +548,122 @@ void main() {
 
       expect(find.textContaining('Sent', findRichText: true), findsOneWidget);
       expect(find.text(en.checkInCropsReadyButton), findsNothing);
+    });
+  });
+
+  // Review item 1: the phone sends a queued check-in after a short wait
+  // and may refuse it; the order detail follows the sync results while a
+  // check-in made here waits for the server's copy.
+  group('phone: the order follows the sync', () {
+    late MockOrderRepository repo;
+    late List<Order> reads;
+
+    setUp(() {
+      repo = MockOrderRepository();
+      reads = [];
+      when(() => repo.getOrderById('order-001')).thenAnswer(
+        (_) async => reads.length > 1 ? reads.removeAt(0) : reads.first,
+      );
+    });
+
+    /// A real order bloc over [repo], made inside the test's zone so its
+    /// events run as the test pumps.
+    OrderBloc makeBloc() {
+      final bloc = OrderBloc(repository: repo);
+      addTearDown(bloc.close);
+      return bloc;
+    }
+
+    Order queued({bool sent = false}) => _order()
+      ..queuedCheckIns = {
+        'arrived_pickup': QueuedCheckIn(
+          madeAt: DateTime.now().toUtc(),
+          sent: sent,
+        ),
+      };
+
+    testWidgets('a refusal gives the button back at once', (tester) async {
+      reads.addAll([queued(), _order()]);
+      await show(
+        tester,
+        queued(),
+        UserRole.trucker,
+        'trucker-001',
+        bloc: makeBloc(),
+      );
+      expect(
+        find.textContaining('not sent yet', findRichText: true),
+        findsOneWidget,
+      );
+      expect(find.text(en.checkInArrivedButton), findsNothing);
+
+      // The queue sent it and the server refused it (too far): rejected.
+      syncResults.add(
+        const SyncBatchResult(
+          total: 1,
+          failed: 1,
+          status: SyncBatchStatus.partial,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('not sent yet', findRichText: true),
+        findsNothing,
+      );
+      expect(find.text(en.checkInArrivedButton), findsOneWidget);
+    });
+
+    testWidgets(
+        'a sent one stops saying "not sent yet" and the server copy '
+        'is read', (tester) async {
+      reads.addAll([queued(), queued(sent: true)]);
+      await show(
+        tester,
+        queued(),
+        UserRole.trucker,
+        'trucker-001',
+        bloc: makeBloc(),
+      );
+      // The reads on open (the order, the contact) are behind us.
+      clearInteractions(sync);
+
+      syncResults.add(
+        const SyncBatchResult(
+          total: 1,
+          succeeded: 1,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('not sent yet', findRichText: true),
+        findsNothing,
+      );
+      expect(find.textContaining('Sent', findRichText: true), findsOneWidget);
+      verify(() => sync.pullOrder('order-001')).called(greaterThanOrEqualTo(1));
+    });
+
+    testWidgets('no check-in waiting: a sync reads nothing', (tester) async {
+      reads.add(_order());
+      await show(
+        tester,
+        _order(),
+        UserRole.trucker,
+        'trucker-001',
+        bloc: makeBloc(),
+      );
+      verify(() => repo.getOrderById('order-001')).called(1);
+
+      syncResults.add(
+        const SyncBatchResult(
+          total: 1,
+          succeeded: 1,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      verifyNever(() => repo.getOrderById('order-001'));
     });
   });
 
@@ -639,5 +822,52 @@ void main() {
         expect(find.text(l10n.checkInArrivedButton), findsOneWidget);
       });
     }
+  });
+
+  // Review item 2: the button comes when check-ins open and goes at the
+  // deadline while the screen stays open.
+  testWidgets('the card follows the window edges while it is open',
+      (tester) async {
+    var now = DateTime.utc(2026, 11, 19, 5);
+    final order = _order(
+      pickupDate: DateTime.utc(2026, 11, 20, 6),
+      deadline: DateTime.utc(2026, 11, 21, 6),
+    );
+    await tester.pumpWidget(
+      BlocProvider<OrderBloc>.value(
+        value: orderBloc,
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: PickupCheckInCard(
+                order: order,
+                userId: 'farmer-001',
+                gpsService: gps,
+                clock: () => now,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const Key('check_in_opens_at')), findsOneWidget);
+    expect(find.text(en.checkInCropsReadyButton), findsNothing);
+
+    // Check-ins open (pickup day minus 24 hours).
+    now = DateTime.utc(2026, 11, 19, 6, 0, 1);
+    await tester.pump(const Duration(hours: 1));
+    expect(find.text(en.checkInCropsReadyButton), findsOneWidget);
+    expect(find.byKey(const Key('check_in_opens_at')), findsNothing);
+
+    // The deadline passes: no button to be refused on a tap.
+    now = DateTime.utc(2026, 11, 21, 6, 0, 5);
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(hours: 12));
+    }
+    expect(find.text(en.checkInCropsReadyButton), findsNothing);
+    expect(find.text(en.checkInDeadlinePassedNote), findsOneWidget);
   });
 }

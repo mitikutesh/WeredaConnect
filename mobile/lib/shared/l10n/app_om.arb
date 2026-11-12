@@ -3344,5 +3344,10 @@
   "errorCheckInTooEarly": "Ammallee dafee jira: mirkaneessi guyyaa fudhannaa sa'aatii 24 dura banama. Mirkaneessi kee hin olkaa'amne; yeroo sana irra deebi'ii mirkaneessi.",
   "errorCheckInTooFar": "Maasii irraa km 5 ol fagaattee jirta. Mirkaneessi kee hin olkaa'amne; yeroo achi geessu irra deebi'ii mirkaneessi.",
   "errorCheckInTooLate": "Mirkaneessi kee yeroo dhumaa fudhannaa booda sarvarii bira waan ga'eef hin lakkaa'amu. Gamaaggamaaf olkaa'ameera.",
-  "errorCheckInValidation": "Mirkaneessi kee hin olkaa'amne. Irra deebi'ii yaali; yoo itti fufe appii haaromsi."
+  "errorCheckInValidation": "Mirkaneessi kee hin olkaa'amne. Irra deebi'ii yaali; yoo itti fufe appii haaromsi.",
+  "errorCheckInClosed": "Yeroon dhumaa fudhannaa waan darbeef mirkaneessi cufameera. Mirkaneessi kee hin olkaa'amne.",
+  "checkInLocationBlocked": "Appii kanaaf hayyamni bakkaa dhorkameera. Qindaa'ina appii keessatti hayyami, sana booda maasii irratti irra deebi'ii yaali.",
+  "checkInLocationBlockedWeb": "Marsariitii kanaaf hayyamni bakkaa dhorkameera. Qindaa'ina marsariitii brawuzarii keessatti hayyami, sana booda maasii irratti irra deebi'ii yaali.",
+  "checkInOpenSettings": "Qindaa'ina bani",
+  "checkInAlreadyGiven": "Duraan mirkaneessiteetta."
 }

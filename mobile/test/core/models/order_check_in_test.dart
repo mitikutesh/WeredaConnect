@@ -42,6 +42,15 @@ const _fix = HandoffCheckInFix(
   accuracyM: 35,
 );
 
+/// Throws [CheckInNotAllowedException] with [code].
+Matcher _refusedWith(AppErrorCode code) => throwsA(
+      isA<CheckInNotAllowedException>().having((e) => e.code, 'code', code),
+    );
+
+OrderCheckIn _received(String kind, DateTime at) => OrderCheckIn()
+  ..kind = kind
+  ..receivedAt = at;
+
 /// ESC-34, the client part (FUP-285): what the order reads from the server,
 /// whose check-in each party gives, when, and what is sent.
 void main() {
@@ -226,7 +235,7 @@ void main() {
           null,
           open,
         ),
-        throwsA(isA<OrderActionNotAllowedException>()),
+        _refusedWith(AppErrorCode.checkInNeedsLocation),
       );
       expect(
         checkCheckInAllowed(
@@ -249,7 +258,7 @@ void main() {
           _fix,
           open,
         ),
-        throwsA(isA<OrderActionNotAllowedException>()),
+        _refusedWith(AppErrorCode.checkInNotParty),
       );
       expect(
         () => checkCheckInAllowed(
@@ -259,7 +268,7 @@ void main() {
           _fix,
           open,
         ),
-        throwsA(isA<OrderActionNotAllowedException>()),
+        _refusedWith(AppErrorCode.checkInNotParty),
       );
       expect(
         () => checkCheckInAllowed(
@@ -269,7 +278,7 @@ void main() {
           null,
           _deadline.add(const Duration(minutes: 1)),
         ),
-        throwsA(isA<OrderActionNotAllowedException>()),
+        _refusedWith(AppErrorCode.checkInClosed),
       );
       expect(
         () => checkCheckInAllowed(
@@ -279,7 +288,7 @@ void main() {
           null,
           open,
         ),
-        throwsA(isA<OrderActionNotAllowedException>()),
+        _refusedWith(AppErrorCode.checkInNotOpen),
       );
       final given = _order()
         ..queuedCheckIns = {'crops_ready': QueuedCheckIn(madeAt: open)};
@@ -294,6 +303,40 @@ void main() {
         isFalse,
       );
     });
+
+    test('before the window: the too-early text', () {
+      expect(
+        () => checkCheckInAllowed(
+          _order(),
+          'farmer-1',
+          CheckInKind.cropsReady,
+          null,
+          _pickupDate.subtract(const Duration(hours: 25)),
+        ),
+        _refusedWith(AppErrorCode.checkInTooEarly),
+      );
+    });
+
+    test('the refusals read as check-in texts, not the order refusal', () {
+      expect(
+        mapErrorToCode(
+          const CheckInNotAllowedException('x', AppErrorCode.checkInClosed),
+        ),
+        AppErrorCode.checkInClosed,
+      );
+    });
+  });
+
+  test('hasCheckInAwaitingServer: a mark the server copy does not hold', () {
+    final at = DateTime.utc(2026, 11, 20, 5);
+    final order = _order();
+    expect(hasCheckInAwaitingServer(order), isFalse);
+    order.queuedCheckIns = {
+      'arrived_pickup': QueuedCheckIn(madeAt: at, sent: true),
+    };
+    expect(hasCheckInAwaitingServer(order), isTrue);
+    order.checkIns = [_received('arrived_pickup', at)];
+    expect(hasCheckInAwaitingServer(order), isFalse);
   });
 
   group('handoffCheckInData', () {

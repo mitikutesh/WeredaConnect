@@ -115,10 +115,11 @@ abstract class BaseOrderRepository {
   /// farmer's `crops_ready`, whose [fix] is optional and left out when the
   /// server would not take it. Queued on the phone, sent at once on web,
   /// where a refusal throws `SyncRejectedException` with its `CHECKIN_*`
-  /// code. Throws `OrderActionNotAllowedException` when the check-in is not
-  /// this user's to give or not open ([checkCheckInAllowed]); one already
-  /// given is a no-op.
-  Future<void> checkIn(
+  /// code. Throws `CheckInNotAllowedException` when the check-in is not this
+  /// user's to give, not open, or an arrival has no usable fix
+  /// ([checkCheckInAllowed]). Returns true when it was queued or sent, false
+  /// when this user had already given it (nothing is sent again).
+  Future<bool> checkIn(
     String orderId,
     String userId, {
     required String kind,

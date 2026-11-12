@@ -9850,6 +9850,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Your check-in was not saved. Try again, and update the app if it keeps happening.'**
   String get errorCheckInValidation;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. The device clock says the pickup deadline passed before the check-in was sent; nothing was queued or sent
+  ///
+  /// In en, this message translates to:
+  /// **'The pickup deadline has passed, so check-ins are closed. Your check-in was not saved.'**
+  String get errorCheckInClosed;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar on the phone: the arrival needs a GPS fix and the location permission was denied for good
+  ///
+  /// In en, this message translates to:
+  /// **'Location is blocked for this app. Allow it in the app settings, then try again at the farm.'**
+  String get checkInLocationBlocked;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar on web: the arrival needs a GPS fix and the browser blocks location for the site
+  ///
+  /// In en, this message translates to:
+  /// **'Location is blocked for this site. Allow it in the browser\'s site settings, then try again at the farm.'**
+  String get checkInLocationBlockedWeb;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar action: opens the app's page in the phone settings to allow location
+  ///
+  /// In en, this message translates to:
+  /// **'Open settings'**
+  String get checkInOpenSettings;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar: a repeat tap found the check-in already given, nothing was sent again
+  ///
+  /// In en, this message translates to:
+  /// **'You have already checked in.'**
+  String get checkInAlreadyGiven;
 }
 
 class _AppLocalizationsDelegate

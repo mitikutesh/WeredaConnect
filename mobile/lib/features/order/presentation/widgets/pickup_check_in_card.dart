@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
@@ -38,11 +39,15 @@ class PickupCheckInCard extends StatefulWidget {
   /// Where the fix comes from; the device's GPS when null.
   final GpsCaptureService? gpsService;
 
+  /// The time now (UTC); the device clock when null. Tests move it.
+  final DateTime Function()? clock;
+
   const PickupCheckInCard({
     required this.order,
     required this.userId,
     this.busy = false,
     this.gpsService,
+    this.clock,
     super.key,
   });
 
@@ -66,13 +71,65 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
   /// The GPS fix is being taken.
   bool _locating = false;
 
+  /// Fires at the next edge of the viewer's window (it opens, or the
+  /// deadline passes) so the button comes and goes while the screen stays
+  /// open, instead of a tap past the deadline getting refused.
+  Timer? _edge;
+
+  static const Duration _maxEdgeWait = Duration(hours: 12);
+
   Order get _order => widget.order;
+
+  DateTime _now() => (widget.clock?.call() ?? DateTime.now()).toUtc();
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleEdge();
+  }
+
+  @override
+  void didUpdateWidget(PickupCheckInCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _scheduleEdge();
+  }
+
+  @override
+  void dispose() {
+    _edge?.cancel();
+    super.dispose();
+  }
+
+  /// A rebuild at the next window edge of [_order] still ahead: when check-
+  /// ins open, else just after the deadline. None once both passed or the
+  /// order takes no check-ins.
+  void _scheduleEdge() {
+    _edge?.cancel();
+    _edge = null;
+    if (!isPickupJudgementPending(_order)) return;
+    final now = _now();
+    final deadline = _order.pickupDeadlineAt;
+    final edges = [
+      checkInOpensAt(_order),
+      if (deadline != null) deadline.add(const Duration(seconds: 1)),
+    ].whereType<DateTime>().where((at) => at.isAfter(now)).toList()
+      ..sort();
+    if (edges.isEmpty) return;
+    // At most [_maxEdgeWait] at a time: a browser fires a longer timeout at
+    // once (24.8 days overflows it), and a rebuild on the way is harmless.
+    final wait = edges.first.difference(now);
+    _edge = Timer(wait > _maxEdgeWait ? _maxEdgeWait : wait, () {
+      if (!mounted) return;
+      setState(() {});
+      _scheduleEdge();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final clock = clockFormatOf(context);
-    final now = DateTime.now().toUtc();
+    final now = _now();
     final chance = checkInChanceFor(_order, widget.userId, now);
     final ownKind = checkInKindFor(_order, widget.userId);
     final note = _note(l10n, now);
@@ -231,18 +288,35 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
   }
 
   /// Take the fix, then send or queue the check-in. The arrival needs a
-  /// usable fix and says so without one; the farmer's goes without it.
+  /// usable fix and says so without one: a permission denied for good needs
+  /// the app settings (offered on the phone; the browser's site settings on
+  /// web), anything else needs location on. The farmer's goes without it.
   Future<void> _checkIn(String kind) async {
     final bloc = context.read<OrderBloc>();
     final messenger = ScaffoldMessenger.of(context);
     final l10n = AppLocalizations.of(context)!;
+    final gps = widget.gpsService ?? GpsCaptureService();
     setState(() => _locating = true);
-    final fix = await _takeFix(kind);
+    final (:fix, :deniedForever) = await _takeFix(gps, kind);
     if (!mounted) return;
     setState(() => _locating = false);
     if (kind == CheckInKind.arrivedPickup && fix == null) {
       messenger.showSnackBar(
-        SnackBar(content: Text(l10n.checkInNeedsLocation)),
+        deniedForever
+            ? SnackBar(
+                content: Text(
+                  kIsWeb
+                      ? l10n.checkInLocationBlockedWeb
+                      : l10n.checkInLocationBlocked,
+                ),
+                action: kIsWeb
+                    ? null
+                    : SnackBarAction(
+                        label: l10n.checkInOpenSettings,
+                        onPressed: () => gps.openAppSettings().ignore(),
+                      ),
+              )
+            : SnackBar(content: Text(l10n.checkInNeedsLocation)),
       );
       return;
     }
@@ -257,10 +331,13 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
     );
   }
 
-  /// A fix the server takes, or null. The farmer's waits at most
-  /// [farmerCheckInFixWait]. Never throws.
-  Future<HandoffCheckInFix?> _takeFix(String kind) async {
-    final gps = widget.gpsService ?? GpsCaptureService();
+  /// A fix the server takes, or null, and whether the location permission
+  /// was denied for good. The farmer's waits at most [farmerCheckInFixWait].
+  /// Never throws.
+  Future<({HandoffCheckInFix? fix, bool deniedForever})> _takeFix(
+    GpsCaptureService gps,
+    String kind,
+  ) async {
     try {
       var capture = gps.captureCurrentPosition();
       if (kind == CheckInKind.cropsReady) {
@@ -273,16 +350,16 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
       final latitude = result.latitude;
       final longitude = result.longitude;
       if (!result.isAvailable || latitude == null || longitude == null) {
-        return null;
+        return (fix: null, deniedForever: result.permissionDeniedForever);
       }
       final fix = HandoffCheckInFix(
         latitude: latitude,
         longitude: longitude,
         accuracyM: result.accuracy,
       );
-      return isUsableCheckInFix(fix) ? fix : null;
+      return (fix: isUsableCheckInFix(fix) ? fix : null, deniedForever: false);
     } on Object {
-      return null;
+      return (fix: null, deniedForever: false);
     }
   }
 }

@@ -5840,4 +5840,22 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get errorCheckInValidation =>
       'Mirkaneessi kee hin olkaa\'amne. Irra deebi\'ii yaali; yoo itti fufe appii haaromsi.';
+
+  @override
+  String get errorCheckInClosed =>
+      'Yeroon dhumaa fudhannaa waan darbeef mirkaneessi cufameera. Mirkaneessi kee hin olkaa\'amne.';
+
+  @override
+  String get checkInLocationBlocked =>
+      'Appii kanaaf hayyamni bakkaa dhorkameera. Qindaa\'ina appii keessatti hayyami, sana booda maasii irratti irra deebi\'ii yaali.';
+
+  @override
+  String get checkInLocationBlockedWeb =>
+      'Marsariitii kanaaf hayyamni bakkaa dhorkameera. Qindaa\'ina marsariitii brawuzarii keessatti hayyami, sana booda maasii irratti irra deebi\'ii yaali.';
+
+  @override
+  String get checkInOpenSettings => 'Qindaa\'ina bani';
+
+  @override
+  String get checkInAlreadyGiven => 'Duraan mirkaneessiteetta.';
 }

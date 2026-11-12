@@ -53,7 +53,7 @@ void main() {
     fix: _fix,
   );
 
-  void answer(Future<void> Function() body) => when(
+  void answer(Future<bool> Function() body) => when(
         () => repo.checkIn(
           any(),
           any(),
@@ -63,7 +63,7 @@ void main() {
       ).thenAnswer((_) => body());
 
   test('a sent or queued check-in ends in CheckInSaved', () async {
-    answer(() async {});
+    answer(() async => true);
 
     final states = await run(arrival, 2);
 
@@ -106,14 +106,34 @@ void main() {
     });
   }
 
-  test('a local guard refuses without a read', () async {
-    answer(
-      () async => throw const OrderActionNotAllowedException('no fix'),
-    );
+  // A repeat sends nothing: it is not said as sent (review NIT).
+  test('a check-in already given says so, not "sent"', () async {
+    answer(() async => false);
 
     final states = await run(arrival, 2);
 
-    expect((states.last as OrderError).code, AppErrorCode.orderRefused);
-    verifyNever(() => repo.getOrderById(any()));
+    expect(
+      states.last,
+      const CheckInSaved(kind: 'arrived_pickup', alreadyGiven: true),
+    );
   });
+
+  // The local guard says why with the check-in texts, not the generic
+  // order refusal, and reads nothing.
+  for (final code in [
+    AppErrorCode.checkInNotParty,
+    AppErrorCode.checkInTooEarly,
+    AppErrorCode.checkInClosed,
+    AppErrorCode.checkInNotOpen,
+    AppErrorCode.checkInNeedsLocation,
+  ]) {
+    test('the local guard (${code.name}) refuses without a read', () async {
+      answer(() async => throw CheckInNotAllowedException('no', code));
+
+      final states = await run(arrival, 2);
+
+      expect((states.last as OrderError).code, code);
+      verifyNever(() => repo.getOrderById(any()));
+    });
+  }
 }

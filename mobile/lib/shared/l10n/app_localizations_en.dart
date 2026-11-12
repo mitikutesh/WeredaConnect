@@ -5786,4 +5786,22 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get errorCheckInValidation =>
       'Your check-in was not saved. Try again, and update the app if it keeps happening.';
+
+  @override
+  String get errorCheckInClosed =>
+      'The pickup deadline has passed, so check-ins are closed. Your check-in was not saved.';
+
+  @override
+  String get checkInLocationBlocked =>
+      'Location is blocked for this app. Allow it in the app settings, then try again at the farm.';
+
+  @override
+  String get checkInLocationBlockedWeb =>
+      'Location is blocked for this site. Allow it in the browser\'s site settings, then try again at the farm.';
+
+  @override
+  String get checkInOpenSettings => 'Open settings';
+
+  @override
+  String get checkInAlreadyGiven => 'You have already checked in.';
 }

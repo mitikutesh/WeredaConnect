@@ -137,7 +137,10 @@ void main() {
   test("the farmer's crops are ready without a fix", () async {
     serverHas(orderDto());
 
-    await repo.checkIn('ord-1', 'farmer-1', kind: CheckInKind.cropsReady);
+    expect(
+      await repo.checkIn('ord-1', 'farmer-1', kind: CheckInKind.cropsReady),
+      isTrue,
+    );
 
     expect(
       (sentOp()['data'] as Map).keys.toSet(),
@@ -171,7 +174,10 @@ void main() {
       ),
     );
 
-    await repo.checkIn('ord-1', 'farmer-1', kind: CheckInKind.cropsReady);
+    expect(
+      await repo.checkIn('ord-1', 'farmer-1', kind: CheckInKind.cropsReady),
+      isFalse,
+    );
 
     expect(sent, isNull);
   });

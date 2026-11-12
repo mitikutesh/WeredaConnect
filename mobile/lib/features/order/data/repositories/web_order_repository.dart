@@ -512,7 +512,7 @@ class WebOrderRepository extends BaseOrderRepository {
   /// the unsupported-entity answer of a server with `pickupClassification`
   /// off.
   @override
-  Future<void> checkIn(
+  Future<bool> checkIn(
     String orderId,
     String userId, {
     required String kind,
@@ -520,7 +520,7 @@ class WebOrderRepository extends BaseOrderRepository {
   }) async {
     final order = await _currentOrder(orderId);
     final now = DateTime.now().toUtc();
-    if (!checkCheckInAllowed(order, userId, kind, fix, now)) return;
+    if (!checkCheckInAllowed(order, userId, kind, fix, now)) return false;
     final at = now.toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -546,6 +546,7 @@ class WebOrderRepository extends BaseOrderRepository {
       },
     );
     ensureSyncSucceeded(response, events: _securityEvents);
+    return true;
   }
 
   List<Order> _parseOrders(Map<String, dynamic> data) {

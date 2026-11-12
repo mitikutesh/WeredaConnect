@@ -1476,7 +1476,11 @@ without one inside the box above; the farmer's waits at most 5 seconds for a fix
 (a fix the server would refuse is left out). The data is exactly `orderId`, `kind`, `capturedAt` (the
 tap, UTC) and, with a fix, `latitude`, `longitude` and `accuracyM`; no `version`. Mobile queues it (the
 queued operation is the local mark, shown as "saved on this phone" until the order's next read brings
-`checkIns`); web sends it at once. Every `CHECKIN_*` refusal, and the unsupported-entity answer of a
+`checkIns`; only the signed-in user's own queued check-ins show, and while one waits for the server's
+copy the order screen reads the order again after each sync, so a sent one says so and a refused one
+gives its button back at once); web sends it at once. A repeat tap sends nothing and says the check-in
+was already given; the buttons come and go at the window's edges while the screen is open, and the
+local guard refuses with the same texts as the server. Every `CHECKIN_*` refusal, and the unsupported-entity answer of a
 server with the flag off (`Unsupported entity type: 'handoff_check_in'.`), is permanent: mobile rejects
 the operation (never retried, so a stray check-in on a flag-off server cannot loop), takes the mark
 back, reads the order again (a late check-in kept for review shows on it) and says why with one text

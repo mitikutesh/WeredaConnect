@@ -207,6 +207,13 @@ enum AppErrorCode {
   /// `CHECKIN_VALIDATION`, or a `CHECKIN_*` code this build does not know.
   checkInNotSaved,
 
+  /// The local guard: the pickup deadline passed on the device clock, so
+  /// no button is offered any more (FUP-285).
+  checkInClosed,
+
+  /// The local guard: an arrival without a usable GPS fix (FUP-285).
+  checkInNeedsLocation,
+
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
@@ -229,6 +236,15 @@ class OrderActionNotAllowedException implements Exception {
 /// deadline has not passed. Surfaced as [AppErrorCode.orderCancelNotAllowed].
 class OrderCancelNotAllowedException extends OrderActionNotAllowedException {
   const OrderCancelNotAllowedException(super.message);
+}
+
+/// FUP-285: the local guard refused an arrival check-in before anything was
+/// queued or sent. Surfaced as [code], one of the check-in texts (not the
+/// generic [AppErrorCode.orderRefused]).
+class CheckInNotAllowedException extends OrderActionNotAllowedException {
+  const CheckInNotAllowedException(super.message, this.code);
+
+  final AppErrorCode code;
 }
 
 /// The server already holds this rating (one per order and ratee), so the
@@ -339,6 +355,7 @@ AppErrorCode mapErrorToCode(Object error) {
         when isContactLockedMessage(message) =>
       AppErrorCode.contactLocked,
     OrderCancelNotAllowedException() => AppErrorCode.orderCancelNotAllowed,
+    CheckInNotAllowedException(:final code) => code,
     OrderActionNotAllowedException() => AppErrorCode.orderRefused,
     AlreadyRatedException() => AppErrorCode.alreadyRated,
     TimeoutException() => AppErrorCode.timeout,
@@ -457,6 +474,8 @@ String localizeErrorCode(
     AppErrorCode.checkInTooFar => l10n.errorCheckInTooFar,
     AppErrorCode.checkInTooLate => l10n.errorCheckInTooLate,
     AppErrorCode.checkInNotSaved => l10n.errorCheckInValidation,
+    AppErrorCode.checkInClosed => l10n.errorCheckInClosed,
+    AppErrorCode.checkInNeedsLocation => l10n.checkInNeedsLocation,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||

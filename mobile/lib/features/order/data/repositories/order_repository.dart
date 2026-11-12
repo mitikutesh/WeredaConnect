@@ -31,13 +31,19 @@ import 'package:wereda_connect/features/order/domain/repositories/base_order_rep
 class OrderRepository extends BaseOrderRepository {
   final Isar _isar;
   final SyncQueue _syncQueue;
+
+  /// The signed-in user, whose own queued check-ins [getOrderById] shows
+  /// (FUP-285). The app passes it; without it every user's show.
+  final Future<String?> Function()? _currentUserId;
   static const _uuid = Uuid();
 
   OrderRepository({
     required Isar isar,
     required SyncQueue syncQueue,
+    Future<String?> Function()? currentUserId,
   })  : _isar = isar,
-        _syncQueue = syncQueue;
+        _syncQueue = syncQueue,
+        _currentUserId = currentUserId;
 
   /// Get orders for a farmer, optionally filtered by status.
   @override
@@ -130,23 +136,33 @@ class OrderRepository extends BaseOrderRepository {
     return query.filter().statusEqualTo(status).sortByCreatedAtDesc().findAll();
   }
 
-  /// Get a single order by its orderId, with the check-ins made on this
-  /// phone that the server has not refused ([Order.queuedCheckIns], FUP-285).
+  /// Get a single order by its orderId, with the signed-in user's check-ins
+  /// made on this phone that the server has not refused
+  /// ([Order.queuedCheckIns], FUP-285).
   @override
   Future<Order?> getOrderById(String orderId) async {
     final order =
         await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
-    return order == null ? null : _withQueuedCheckIns(order);
+    if (order == null) return null;
+    final currentUserId = _currentUserId;
+    if (currentUserId == null) return _withQueuedCheckIns(order);
+    final userId = await currentUserId();
+    // Signed out: nobody's marks.
+    if (userId == null || userId.isEmpty) return order;
+    return _withQueuedCheckIns(order, userId: userId);
   }
 
   /// [order] with its [Order.queuedCheckIns]: per kind the first check-in of
   /// the queue the server has not refused (the server keeps the first one
   /// too), sent once any of them was applied. A refused one is left out, so
-  /// the local mark goes back as soon as the queue rejects it.
-  Future<Order> _withQueuedCheckIns(Order order) async {
+  /// the local mark goes back as soon as the queue rejects it. With
+  /// [userId], only that user's: on a shared phone another user's check-in
+  /// neither shows nor holds back this user's button.
+  Future<Order> _withQueuedCheckIns(Order order, {String? userId}) async {
     final ops = await _syncQueue.unrejectedOperationsFor(
       handoffCheckInEntityType,
       entityIdPrefix: handoffCheckInEntityId(order.orderId, ''),
+      userId: userId,
     );
     if (ops.isEmpty) return order;
     final queued = <String, QueuedCheckIn>{};
@@ -710,17 +726,21 @@ class OrderRepository extends BaseOrderRepository {
   /// ([getOrderById]), and the server's copy, with the time it received it,
   /// comes with the next read of the order. Every `CHECKIN_*` refusal is
   /// permanent; the sync queue then rejects the operation, which takes the
-  /// mark back, and says why.
+  /// mark back, and says why. Only [userId]'s own queued check-ins count as
+  /// given.
   @override
-  Future<void> checkIn(
+  Future<bool> checkIn(
     String orderId,
     String userId, {
     required String kind,
     HandoffCheckInFix? fix,
   }) async {
-    final order = await _withQueuedCheckIns(await _findOrder(orderId));
+    final order = await _withQueuedCheckIns(
+      await _findOrder(orderId),
+      userId: userId,
+    );
     final now = DateTime.now().toUtc();
-    if (!checkCheckInAllowed(order, userId, kind, fix, now)) return;
+    if (!checkCheckInAllowed(order, userId, kind, fix, now)) return false;
     await _syncQueue.enqueue(
       userId: userId,
       entityType: handoffCheckInEntityType,
@@ -736,6 +756,7 @@ class OrderRepository extends BaseOrderRepository {
       ),
       operationId: _uuid.v4(),
     );
+    return true;
   }
 
   /// [point] when the server takes it (inside Ethiopia's box), else null.

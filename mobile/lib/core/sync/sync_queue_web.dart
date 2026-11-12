@@ -53,6 +53,7 @@ class SyncQueue {
   Future<List<SyncOperation>> unrejectedOperationsFor(
     String entityType, {
     required String entityIdPrefix,
+    String? userId,
   }) async =>
       const [];
 
