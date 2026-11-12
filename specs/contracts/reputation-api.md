@@ -1,15 +1,15 @@
 # Reputation API Contract
 
 ## Version
-1.2.0
+1.3.0
 
 ## Status
-PARTLY BUILT (1.2.0). BUILT in ESC-28: the events, the policy and the aggregate (section 1),
+PARTLY BUILT (1.3.0). BUILT in ESC-28: the events, the policy and the aggregate (section 1),
 the server side of the two notifications (section 10) and the flags and policy parameter
 (section 11). BUILT in ESC-29 (server): the reads (sections 2 to 4), the appeal photo and the appeal
 (5, 6), the copied owner fields (7) and the gates (8). Everything ships dark (all three flags off
-everywhere), except the suspension gate of 8.4, which is not flagged. PLANNED: ESC-30 the matching
-signal; ESC-31 the app; ESC-32 the admin endpoints; ESC-33 the fraud hooks. Each section names its ticket. Design: `specs/architecture/reputation-architecture.md`. Rules and decisions D1 to D9:
+everywhere), except the suspension gate of 8.4, which is not flagged. BUILT in ESC-30: the matching
+signal (section 7, `match-api.md` 1.4.0). PLANNED: ESC-31 the app; ESC-32 the admin endpoints; ESC-33 the fraud hooks. Each section names its ticket. Design: `specs/architecture/reputation-architecture.md`. Rules and decisions D1 to D9:
 `specs/features/three-party-escrow-commitments-reputation.md` 4.11, 5.I and 14.
 
 ## Parties
@@ -55,7 +55,7 @@ The public summary never shows points, events, reasons, appeals or restriction d
 | 1 | Concepts: events, tiers, effective rating, reliability, restriction | ESC-28 (BUILT) |
 | 2 to 4 | Party and buyer reads | ESC-29 (BUILT) |
 | 5, 6 | Appeal photo and appeal | ESC-29 (BUILT) |
-| 7 | Owner fields copied onto crop and trip rows | ESC-29 (copy, BUILT), ESC-30 (matching) |
+| 7 | Owner fields copied onto crop and trip rows | ESC-29 (copy, BUILT), ESC-30 (matching, BUILT) |
 | 8 | Gates: `REPUTATION_RESTRICTED`, hidden restricted parties, suspension | ESC-29 (BUILT) |
 | 9 | Admin endpoints | ESC-32 |
 | 10 | Notifications `penalty_recorded`, `tier_changed` | ESC-28 (server, BUILT), ESC-31 (app) |
@@ -511,6 +511,12 @@ the crop detail screen.
 - **Matching** (ESC-30): `ownerReliabilityPct / 100` replaces `farmerReliability` in
   `MatchScoring` (C#) and `MatchScorer` (Dart), with the neutral 0.7 when absent; trucker
   reliability ranks the trip suggestions. `farmerReliability` stops being written.
+  **As built (1.3.0, `match-api.md` 1.4.0)**: the score uses the field as the caller is given it,
+  so with `reputationPublicTags` off both scorers use the neutral 0.7 for every listing even where
+  a copy is stored; the trip suggestions order equal prices by the trucker's reliability (price
+  stays the first key); the push alert for a new listing scores with the neutral value; the apps
+  store `ownerReliabilityPct` on the cached crop and trip rows (Isar and the web models), the
+  other four owner fields come with ESC-31.
 
 **As built (1.2.0, `Data/ReputationCopyRepository.cs`, `Helpers/OwnerReputationView.cs`)**:
 - The stamp at create and the refresh run only while `reputationPenalties` is on: the reputation
@@ -854,7 +860,9 @@ Error body: `{"error":{"code":"REPUTATION_FORBIDDEN","message":"..."}}`, as ever
 | 1.1.0 | 2026-11-07 | ESC-28 BUILT: section 1 (events from the orders stream, the policy with its caps, tiers, restriction, expiry and earn-back, the aggregate on the users row), section 10 on the server (`penalty_recorded`, `tier_changed`) and section 11 (`reputationPenalties`, `timeoutPenalties`, the SSM policy parameter); everything off by default. Sections 2 to 9 and 13 stay PLANNED (ESC-29 to ESC-33). No endpoint yet |
 | 1.0.0 | 2026-11-07 | New contract, PLANNED (ESC-27 for ESC-28 to ESC-33): event codes, tiers, caps, effective rating, reliability, restriction, expiry and earn-back; `GET /reputation/me`, `GET /reputation/{userId}`, `GET /reputation/me/events`, `POST /reputation/appeals/photo-url`, `POST /reputation/events/{eventId}/appeal`; copied owner fields on crop and trip rows; `REPUTATION_RESTRICTED` gates, hidden restricted parties, the suspension gate; admin panel, appeals queue, decision and tag or restrict endpoints; `penalty_recorded` and `tier_changed`; flags `reputationPenalties`, `timeoutPenalties`, `reputationPublicTags`; `REPUTATION_*` error codes |
 
+| 1.3.0 | 2026-11-12 | ESC-30 BUILT: the matching signal of section 7. `ownerReliabilityPct / 100` is the reliability input of `MatchScoring` and `MatchScorer` (neutral 0.7 when the caller gets no value), the trip suggestions order equal prices by the trucker's reliability, `farmerReliability` is no longer computed or stored (`match-api.md` 1.4.0, `crop-listing-api.md` 1.12.0, `sync-protocol.md` 1.49.0). No endpoint or field change here. |
+
 ---
 
-**Last Updated**: 2026-11-11
-**Version**: 1.2.0
+**Last Updated**: 2026-11-12
+**Version**: 1.3.0

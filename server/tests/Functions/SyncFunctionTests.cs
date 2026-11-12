@@ -144,78 +144,26 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
-    public async Task FunctionHandler_Create_InjectsFarmerReliability_FromListingHistory()
+    public async Task FunctionHandler_Create_NeverWritesFarmerReliability()
     {
-        // Farmer history: 3 sold + 1 expired = 4 resolved → reliability 0.75.
-        Dictionary<string, object> Crop(string status) =>
-            new() { { "cropId", "c" }, { "status", status } };
-        _mockCropRepo.QueryCropsAsync(
-                farmerId: "farmer-001",
-                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-                Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(), Arg.Any<double?>())
-            .Returns((new List<Dictionary<string, object>>
-            {
-                Crop("sold"), Crop("sold"), Crop("sold"), Crop("expired"), Crop("available"),
-            }, (Dictionary<string, AttributeValue>?)null));
-
+        // ESC-30: the listing-conversion reliability is gone. The create reads no listing
+        // history and stores no farmerReliability, not even one a client sends.
         Dictionary<string, object>? capturedData = null;
         _mockCropRepo.CreateAsync("crop-001", Arg.Do<Dictionary<string, object>>(d => capturedData = d))
             .Returns(AuthResult<Dictionary<string, object>>.Success(
                 new Dictionary<string, object> { { "cropId", "crop-001" }, { "version", "1" } }));
 
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
+        var op = MakeCropCreateOp();
+        op.Data!["farmerReliability"] = 1.0;
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        Assert.NotNull(capturedData);
-        Assert.True(capturedData!.ContainsKey("farmerReliability"));
-        Assert.Equal(0.75, Convert.ToDouble(capturedData["farmerReliability"]), 6);
-    }
-
-    [Fact]
-    public async Task FunctionHandler_Create_NoReliability_WhenTooFewResolvedListings()
-    {
-        // Only 2 resolved listings (< MinListingsForReliability=3) → unset (neutral).
-        _mockCropRepo.QueryCropsAsync(
-                farmerId: "farmer-001",
-                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-                Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(), Arg.Any<double?>())
-            .Returns((new List<Dictionary<string, object>>
-            {
-                new() { { "cropId", "c" }, { "status", "sold" } },
-                new() { { "cropId", "c" }, { "status", "available" } },
-            }, (Dictionary<string, AttributeValue>?)null));
-
-        Dictionary<string, object>? capturedData = null;
-        _mockCropRepo.CreateAsync("crop-001", Arg.Do<Dictionary<string, object>>(d => capturedData = d))
-            .Returns(AuthResult<Dictionary<string, object>>.Success(
-                new Dictionary<string, object> { { "cropId", "crop-001" }, { "version", "1" } }));
-
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
-        await _function.FunctionHandler(request, _context);
-
         Assert.NotNull(capturedData);
         Assert.False(capturedData!.ContainsKey("farmerReliability"));
-    }
-
-    [Fact]
-    public async Task FunctionHandler_Create_ReliabilityFailure_DoesNotBlockCreate()
-    {
-        // A reliability read failure must never fail the crop creation.
-        _mockCropRepo.QueryCropsAsync(
-                farmerId: "farmer-001",
-                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-                Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(), Arg.Any<double?>())
-            .ThrowsAsync(new Exception("dynamo down"));
-        _mockCropRepo.CreateAsync("crop-001", Arg.Any<Dictionary<string, object>>())
-            .Returns(AuthResult<Dictionary<string, object>>.Success(
-                new Dictionary<string, object> { { "cropId", "crop-001" }, { "version", "1" } }));
-
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("success", response.Body);
+        await _mockCropRepo.DidNotReceive().QueryCropsAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(), Arg.Any<double?>());
     }
 
     [Fact]

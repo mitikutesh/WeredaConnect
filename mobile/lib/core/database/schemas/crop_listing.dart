@@ -60,11 +60,18 @@ class CropListing {
   /// Supports Amharic, Afan Oromo, and English
   late String description;
 
-  /// Farmer's reliability score in [0, 1] (listing-conversion track record),
-  /// server-injected and denormalized onto the listing. Null when the server
-  /// hasn't supplied it (old listings / farmers with no history); the matcher
-  /// treats null as a neutral default. Never client-set.
+  /// The old listing-conversion reliability in [0, 1]. Kept only so rows the
+  /// server still returns it for parse as before: since ESC-30 the server no
+  /// longer writes it and the matcher no longer reads it (see
+  /// [ownerReliabilityPct]). Never client-set.
   double? farmerReliability;
+
+  /// ESC-30: the farmer's reliability in whole percent (0 to 100), the
+  /// server's `ownerReliabilityPct` copy on the row (reputation-api.md
+  /// section 7). Null when the server sent none: the public reputation flag
+  /// is off, the farmer has fewer than 3 orders, or the row has no copy yet.
+  /// The matcher then uses its neutral value. Never client-set.
+  int? ownerReliabilityPct;
 
   /// Reference to local audio file (voice note)
   /// Format: 'audio/{userId}/{listingId}.m4a'

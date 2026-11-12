@@ -39,7 +39,7 @@ public class MatchScoringTests
         double? lat = null,
         double? lon = null,
         DateTime? created = null,
-        double? reliability = null)
+        int? reliabilityPct = null)
         => new()
         {
             CropType = cropType,
@@ -49,7 +49,7 @@ public class MatchScoringTests
             Latitude = lat,
             Longitude = lon,
             CreatedAt = created ?? Now,
-            FarmerReliability = reliability,
+            OwnerReliabilityPct = reliabilityPct,
         };
 
     [Fact]
@@ -160,14 +160,14 @@ public class MatchScoringTests
     public void ScoreListing_PerfectExactMatch_IsTop()
     {
         // A perfect match from a fully-reliable farmer → 1.0.
-        Assert.Equal(1.0, MatchScoring.ScoreListing(Criteria(), Crop(reliability: 1.0)), 6);
+        Assert.Equal(1.0, MatchScoring.ScoreListing(Criteria(), Crop(reliabilityPct: 100)), 6);
     }
 
     [Fact]
     public void ReliabilityScore_DefaultsToNeutral_WhenUnknown()
     {
         Assert.Equal(MatchScoring.ReliabilityNeutral, MatchScoring.ReliabilityScore(Crop()));
-        Assert.Equal(0.4, MatchScoring.ReliabilityScore(Crop(reliability: 0.4)));
+        Assert.Equal(0.4, MatchScoring.ReliabilityScore(Crop(reliabilityPct: 40)));
     }
 
     [Fact]
@@ -212,6 +212,55 @@ public class MatchScoringTests
         // 0.30 + 0.20*0.333333 + 0.18 + 0.12 + 0.10 + 0.10*0.7 = 0.836667
         var score = MatchScoring.ScoreListing(Criteria(), Crop(price: 110));
         Assert.Equal(0.836667, score, 6);
+    }
+
+    // ESC-30 golden vectors: ownerReliabilityPct / 100 is the reliability signal, absent is the
+    // neutral 0.7. The same table is in match_scorer_test.dart ("reliability golden vectors").
+    // A perfect match otherwise (type, price, geo, quantity, freshness all 1.0), so the score is
+    // 0.90 + 0.10 * reliability.
+    [Theory]
+    [InlineData(null, 0.7, 0.97)]   // absent: flag off, under 3 orders, or a row with no copy
+    [InlineData(0, 0.0, 0.90)]
+    [InlineData(50, 0.5, 0.95)]
+    [InlineData(70, 0.7, 0.97)]     // equal to the neutral value: same score as absent
+    [InlineData(83, 0.83, 0.983)]
+    [InlineData(100, 1.0, 1.0)]
+    [InlineData(-5, 0.0, 0.90)]     // out of range values are clamped
+    [InlineData(150, 1.0, 1.0)]
+    public void ScoreListing_GoldenVector_Reliability(int? reliabilityPct, double signal, double score)
+    {
+        Assert.Equal(signal, MatchScoring.ReliabilityFromPct(reliabilityPct), 12);
+        Assert.Equal(signal, MatchScoring.ReliabilityScore(Crop(reliabilityPct: reliabilityPct)), 12);
+        Assert.Equal(score, MatchScoring.ScoreListing(Criteria(), Crop(reliabilityPct: reliabilityPct)), 9);
+    }
+
+    [Fact]
+    public void ScoreListing_GoldenVector_ReliabilityMovesTheScoreByItsFullWeight()
+    {
+        // A perfect match from a farmer at 20 against one at 100 differs by
+        // WReliability * (1.0 - 0.2) = 0.08.
+        var flaky = MatchScoring.ScoreListing(Criteria(), Crop(reliabilityPct: 20));
+        var proven = MatchScoring.ScoreListing(Criteria(), Crop(reliabilityPct: 100));
+        Assert.Equal(MatchScoring.WReliability * 0.8, proven - flaky, 9);
+    }
+
+    [Fact]
+    public void Ranking_GoldenOrder_WithReliability_IsStableAcrossPlatforms()
+    {
+        // Duplicated verbatim on the Dart side. Four listings equal in everything but the
+        // farmer's reliability, and one pricier listing from a proven farmer: reliability only
+        // reorders listings that are otherwise close.
+        var scores = new Dictionary<string, double>
+        {
+            ["unknown"] = MatchScoring.ScoreListing(Criteria(), Crop()),                                    // 0.97
+            ["proven"] = MatchScoring.ScoreListing(Criteria(), Crop(reliabilityPct: 100)),                  // 1.0
+            ["average"] = MatchScoring.ScoreListing(Criteria(), Crop(reliabilityPct: 50)),                  // 0.95
+            ["flaky"] = MatchScoring.ScoreListing(Criteria(), Crop(reliabilityPct: 0)),                     // 0.90
+            ["proven-pricey"] = MatchScoring.ScoreListing(Criteria(), Crop(price: 110, reliabilityPct: 100)), // 0.866667
+        };
+        var ranked = scores.OrderByDescending(kv => kv.Value).Select(kv => kv.Key).ToArray();
+        Assert.Equal(new[] { "proven", "unknown", "average", "flaky", "proven-pricey" }, ranked);
+        Assert.Equal(0.866667, scores["proven-pricey"], 6);
     }
 
     [Fact]

@@ -156,7 +156,9 @@ public class CropMatchStreamFunction
             LocationName = AttrS(image, "locationName") ?? AttrS(image, "woreda"),
             Latitude = AttrN(image, "latitude"),
             Longitude = AttrN(image, "longitude"),
-            FarmerReliability = AttrN(image, "farmerReliability"),
+            // ESC-30: the alert scores with the neutral reliability. This Lambda does not
+            // know the reputationPublicTags flag, and an alert must not depend on a value
+            // the buyer may not be shown.
             // A stream INSERT is a brand-new crop, so freshness is max by
             // definition; using "now" keeps the alert score from being penalised
             // for parse/clock skew (it differs from GET /match, which scores the

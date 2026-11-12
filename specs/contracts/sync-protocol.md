@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.48.0
+1.49.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -1226,6 +1226,10 @@ them on a create while `reputationPenalties` is on, and returns them in a `serve
 and conflict) only while `reputationPublicTags` is on, with `ownerTier` as the public tier (`good` or
 `low`) and the three numbers as JSON numbers (1.37.0).
 
+**`farmerReliability` (1.49.0, ESC-30).** Server-only like the owner fields: dropped from every
+client payload, and no longer stamped on a crop create (matching reads `ownerReliabilityPct`,
+`match-api.md` 1.4.0). A crop create reads no listing history any more.
+
 ---
 
 ## Listing reports (1.44.0, FUP-67)
@@ -1319,7 +1323,9 @@ Client only, no server change.
 | 1.1.0 | 2026-02-15 | Added: Composite idempotency key format, server-wins conflict resolution details, exponential backoff retry logic, SyncMetadata table schema, implementation status |
 | 1.0.0 | 2026-02-09 | Initial contract: sync request/response, conflict resolution, idempotency |
 
+| 1.49.0 | 2026-11-12 | `farmerReliability` retired (ESC-30, `match-api.md` 1.4.0): dropped from client payloads like the owner fields and no longer stamped on a crop create. |
+
 ---
 
-**Last Updated**: 2026-11-11
-**Version**: 1.48.0
+**Last Updated**: 2026-11-12
+**Version**: 1.49.0
