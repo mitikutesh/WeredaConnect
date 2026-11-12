@@ -68,6 +68,13 @@ class Trip {
   double? bookedQuintals;
   double? remainingQuintals;
 
+  /// ESC-30: the trucker's reliability in whole percent (0 to 100), the
+  /// server's `ownerReliabilityPct` copy on the row (reputation-api.md
+  /// section 7). Null when the server sent none: the public reputation flag
+  /// is off, the trucker has fewer than 3 orders, or the row has no copy yet.
+  /// Orders the trip suggestions among equally priced trips. Never client-set.
+  int? ownerReliabilityPct;
+
   /// Current status of the trip
   @Index()
   @Enumerated(EnumType.name)

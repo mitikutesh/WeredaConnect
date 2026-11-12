@@ -47,6 +47,7 @@ void main() {
       double quantity = 10,
       double pricePerKg = 100,
       String locationName = 'Assosa',
+      int? ownerReliabilityPct,
     }) async {
       await isar.writeTxn(() async {
         await isar.cropListings.putByListingId(
@@ -62,6 +63,7 @@ void main() {
               ..longitude = 0)
             ..locationName = locationName
             ..description = ''
+            ..ownerReliabilityPct = ownerReliabilityPct
             ..status = ListingStatus.active
             ..createdAt = DateTime.now().toUtc()
             ..updatedAt = DateTime.now().toUtc()
@@ -78,6 +80,7 @@ void main() {
       double pricePerQuintal = 10,
       Duration departsIn = const Duration(days: 2),
       DateTime? departureDate,
+      int? ownerReliabilityPct,
     }) async {
       await isar.writeTxn(() async {
         await isar.trips.putByTripId(
@@ -92,6 +95,7 @@ void main() {
                 departureDate ?? DateTime.now().toUtc().add(departsIn)
             ..capacity = capacity
             ..pricePerQuintal = pricePerQuintal
+            ..ownerReliabilityPct = ownerReliabilityPct
             ..status = TripStatus.open
             ..matchedListings = <String>[]
             ..createdAt = DateTime.now().toUtc()
@@ -453,6 +457,101 @@ void main() {
         matches.length,
         reason: 'persisted badge count == visible match count',
       );
+    });
+
+    group('ESC-30: reliability from the cached rows', () {
+      test('a more reliable farmer outranks an equal listing, offline',
+          () async {
+        await putCrop(id: 'crop-flaky', ownerReliabilityPct: 20);
+        await putCrop(id: 'crop-unknown');
+        await putCrop(id: 'crop-proven', ownerReliabilityPct: 100);
+
+        final results = await service.matchListingsForIntent(buildIntent());
+
+        expect(
+          results.map((r) => r.listing.listingId),
+          ['crop-proven', 'crop-unknown', 'crop-flaky'],
+        );
+        // 0.10 * (1.0 - 0.7) and 0.10 * (0.7 - 0.2).
+        expect(
+          results[0].matchScore - results[1].matchScore,
+          closeTo(0.03, 1e-9),
+        );
+        expect(
+          results[1].matchScore - results[2].matchScore,
+          closeTo(0.05, 1e-9),
+        );
+      });
+
+      test('no reliability on any row: equal scores, the old price tie-break',
+          () async {
+        await putCrop(id: 'crop-pricey');
+        await putCrop(id: 'crop-cheap', pricePerKg: 90);
+
+        final results = await service.matchListingsForIntent(buildIntent());
+
+        expect(
+          results.first.matchScore,
+          closeTo(results.last.matchScore, 1e-9),
+        );
+        expect(results.first.listing.listingId, 'crop-cheap');
+      });
+
+      test('trip suggestions: price first, then the more reliable trucker',
+          () async {
+        // The golden vector of rankTripSuggestions, through Isar.
+        await putCrop(id: 'crop-1');
+        Future<void> trip(String id, double price, [int? pct]) => putTrip(
+              id: id,
+              fromWoreda: 'Assosa',
+              pricePerQuintal: price,
+              ownerReliabilityPct: pct,
+            );
+        await trip('pricey-proven', 15, 100);
+        await trip('mid-unknown', 12);
+        await trip('mid-low', 12, 40);
+        await trip('mid-proven', 12, 95);
+        await trip('mid-seventy', 12, 70);
+        await trip('cheap-flaky', 10, 20);
+
+        final results = await service.matchListingsForIntent(buildIntent());
+        final suggested =
+            results.single.suggestedTrips.map((t) => t.tripId).toList();
+
+        expect(suggested, [
+          'cheap-flaky',
+          'mid-proven',
+          'mid-unknown',
+          'mid-seventy',
+          'mid-low',
+          'pricey-proven',
+        ]);
+
+        final listing = (await isar.cropListings.where().findAll()).single;
+        final direct = await service.findTripsForListing(
+          listing,
+          'AddisAbeba',
+          5,
+        );
+        expect(direct.map((t) => t.tripId), suggested);
+      });
+
+      test('no reliability on any trip: the order Isar gave before', () async {
+        await putCrop(id: 'crop-1');
+        await putTrip(id: 'b', fromWoreda: 'Assosa', pricePerQuintal: 12);
+        await putTrip(id: 'c', fromWoreda: 'Assosa');
+        await putTrip(id: 'a', fromWoreda: 'Assosa', pricePerQuintal: 12);
+        await putTrip(id: 'd', fromWoreda: 'Assosa');
+
+        final results = await service.matchListingsForIntent(buildIntent());
+        final before =
+            await isar.trips.where().sortByPricePerQuintal().findAll();
+
+        expect(
+          results.single.suggestedTrips.map((t) => t.tripId),
+          before.map((t) => t.tripId),
+        );
+      });
     });
   });
 }

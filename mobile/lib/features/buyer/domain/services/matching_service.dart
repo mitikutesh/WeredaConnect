@@ -137,7 +137,9 @@ class MatchingService extends BaseMatchingService {
   /// - departureDate is on/before [neededByDate] when the buyer set a deadline
   /// - capacity >= quantityNeeded
   ///
-  /// Results sorted by pricePerQuintal ASC (cheapest first).
+  /// Results sorted by pricePerQuintal ASC (cheapest first); among equally
+  /// priced trips the more reliable trucker comes first (ESC-30,
+  /// [MatchScorer.rankTripSuggestions]).
   Future<List<Trip>> findTripsForListing(
     CropListing listing,
     String deliveryWoreda,
@@ -189,7 +191,7 @@ class MatchingService extends BaseMatchingService {
         .sortByPricePerQuintal()
         .findAll();
 
-    return candidates.where((trip) {
+    final matched = candidates.where((trip) {
       // FUP-85: drop only trips whose departure day is before today in
       // Ethiopia; a trip leaving today stays eligible all day.
       if (startOfDayInEthiopia(trip.departureDate).isBefore(todayStart)) {
@@ -211,7 +213,9 @@ class MatchingService extends BaseMatchingService {
               WoredaMatch.none &&
           compareWoredaKeys(normalizeWoreda(trip.toWoreda), toKey) !=
               WoredaMatch.none;
-    }).toList();
+    });
+
+    return _scorer.rankTripSuggestions(matched);
   }
 
   /// Compute estimated total cost for a crop purchase with optional transport.

@@ -1258,6 +1258,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Komiin kan ka\'uu danda\'u erga meeshaan fe\'amee booda qofa. Sana dura ajaja haqaa, ykn deeggarsa qunnamaa.';
 
   @override
+  String get escrowErrorDisputeRefundScheduled =>
+      'Kaffaltii kanaaf maallaqni bitataaf akka deebi\'u duraan qabameera, kanaaf amma komiin itti ka\'uu hin danda\'u. Yoo itti hin walii galle deeggarsa qunnamaa.';
+
+  @override
   String get escrowErrorInvalidTransition =>
       'Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.';
 
@@ -2872,6 +2876,14 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get stepUpDisputeMessage =>
+      'Nageenya keessaniif, komiin kun ergamuu isaa dura isin ta\'uu keessan mirkaneessaa.';
+
+  @override
+  String get faydaStepUpDisputeMessage =>
+      'Komii kana erguuf isin ta\'uu keessan Faayidaadhaan mirkaneessaa. Jecha iccitii keessanis gaafatamuu dandeessu.';
+
+  @override
   String get faydaStepUpMessage =>
       'Kaffaltii kana itti fufuuf isin ta\'uu keessan Faayidaadhaan mirkaneessaa. Jecha iccitii keessanis gaafatamuu dandeessu.';
 
@@ -2966,6 +2978,10 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get kycFarmerNotVerifiedMessage =>
       'Eenyummaan qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
+
+  @override
+  String get kycUnknownReasonMessage =>
+      'Mirkaneessi eenyummaa ammallee waan hafeef kaffaltiin kun hin ergamne. Maal akka barbaachisu ilaaluuf appii haaromsaa ykn deeggarsa qunnamaa.';
 
   @override
   String get kycUnavailableMessage =>
@@ -3113,6 +3129,10 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get cancelOrderTransportFailedBody =>
       'Kan kaffaltan hundi, baasii geejjibaa fi komishinii waltajjii dabalatee, isinii deebi\'a.';
+
+  @override
+  String get errorOrderCancelPaymentBusy =>
+      'Kaffaltiin isaa komii irra waan jiruuf ykn xumuramaa waan jiruuf ajajni kun amma haqamuu hin danda\'u. Bu\'aa isaa eegaa ykn deeggarsa qunnamaa.';
 
   @override
   String get errorOrderCancelNotAllowed =>

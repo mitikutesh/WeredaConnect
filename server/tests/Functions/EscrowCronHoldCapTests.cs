@@ -505,6 +505,143 @@ public class EscrowCronHoldCapTests
         Logs.Should().NotContain("ADMIN_QUEUE_OVERDUE");
     }
 
+    // ===== FUP-66: an order escrow whose link to its delivery never landed (no deliveryId) =====
+
+    private void ActiveDeliveryIs(string status, string orderId = OrderId)
+        => _deliveries.GetByIdAsync("del-1", true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", "del-1" }, { "orderId", orderId }, { "status", status }, { "confirmedAt", "2026-10-09T08:00:00Z" }
+        });
+
+    [Theory]
+    [InlineData("cancelled")]
+    [InlineData("funded")]
+    [InlineData("in_transit")]
+    [InlineData("delivered")]
+    public async Task Refund_UnlinkedOrderEscrow_DeliveredActiveDelivery_IsStamped_NeverRefunded(string orderStatus)
+    {
+        // The refund sweep's safety net read only the escrow's deliveryId: an unlinked order escrow of a
+        // refundable order was refunded although its delivery was confirmed.
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-8)));
+        OrderIs(orderStatus, activeDeliveryId: "del-1");
+        ActiveDeliveryIs("delivered");
+
+        await RunAsync();
+
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await _escrows.Received(1).UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => (string)f["deliveryConfirmedAt"] == "2026-10-09T08:00:00Z"
+                && f.ContainsKey("disputeWindowEndsAt") && !f.ContainsKey("deliveryId")));
+        await _escrows.DidNotReceive().TryExtendExpiryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        Logs.Should().Contain("delivery del-1 was delivered but escrow was unstamped");
+    }
+
+    [Fact]
+    public async Task Refund_UnlinkedOrderEscrow_StampFails_IsStillNotRefunded_AndAlarmed()
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-8)));
+        OrderIs("cancelled", activeDeliveryId: "del-1");
+        ActiveDeliveryIs("delivered");
+        _escrows.UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new InvalidOperationException("throttled"));
+
+        await RunAsync();
+
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        Logs.Should().Contain("ESCROW_DELIVERY_STAMP_FAILED escrowId=escrow-order-ord-1 deliveryId=del-1 source=escrow-cron");
+    }
+
+    [Theory]
+    [InlineData("inTransit")]
+    [InlineData("cancelled")]
+    public async Task Refund_UnlinkedOrderEscrow_ActiveDeliveryNotDelivered_RefundsAsBefore(string deliveryStatus)
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-8)));
+        OrderIs("cancelled", activeDeliveryId: "del-1");
+        ActiveDeliveryIs(deliveryStatus);
+
+        await RunAsync();
+
+        await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task Refund_UnlinkedOrderEscrow_ActiveDeliveryOfAnotherOrder_IsNotHonoured()
+    {
+        // A delivery that names another order proves nothing about this escrow's order.
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-8)));
+        OrderIs("cancelled", activeDeliveryId: "del-1");
+        ActiveDeliveryIs("delivered", orderId: "ord-other");
+
+        await RunAsync();
+
+        await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await _escrows.DidNotReceive().UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => f.ContainsKey("deliveryConfirmedAt")));
+    }
+
+    [Fact]
+    public async Task Refund_UnlinkedOrderEscrow_OrderWithoutAnActiveDelivery_ReadsNoDelivery_AndRefunds()
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-8)));
+        OrderIs("cancelled");
+
+        await RunAsync();
+
+        await _deliveries.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task Refund_LinkedOrderEscrow_ReadsItsOwnDeliveryOnce_NotTheOrdersActiveOne()
+    {
+        var escrow = Escrow(DateTime.UtcNow.AddDays(-8));
+        escrow["deliveryId"] = "del-linked";
+        SweepFinds(escrow);
+        OrderIs("cancelled", activeDeliveryId: "del-1");
+        _deliveries.GetByIdAsync("del-linked").Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", "del-linked" }, { "orderId", OrderId }, { "status", "cancelled" }
+        });
+
+        await RunAsync();
+
+        await _deliveries.Received(1).GetByIdAsync("del-linked");
+        await _deliveries.DidNotReceive().GetByIdAsync("del-1", Arg.Any<bool>());
+        await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task Report_UnlinkedOrderEscrow_DeliveredActiveDelivery_GetsTheStampRepair()
+    {
+        // The queue's repair needed the escrow's deliveryId too.
+        QueueHas(queuedAt: DateTime.UtcNow.AddHours(-40));
+        EscrowRowIs(Escrow(DateTime.UtcNow.AddDays(-23), holdCapReachedAt: "x"));
+        OrderIs("in_transit", activeDeliveryId: "del-1");
+        ActiveDeliveryIs("delivered");
+
+        await RunAsync();
+
+        await _escrows.Received(1).UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => (string)f["deliveryConfirmedAt"] == "2026-10-09T08:00:00Z"));
+        Logs.Should().NotContain("ADMIN_QUEUE_OVERDUE");
+    }
+
+    [Fact]
+    public async Task Report_UnlinkedOrderEscrow_ActiveDeliveryNotDelivered_IsStillOverdue()
+    {
+        QueueHas(queuedAt: DateTime.UtcNow.AddHours(-30));
+        EscrowRowIs(Escrow(DateTime.UtcNow.AddDays(-23), holdCapReachedAt: "x"));
+        OrderIs("in_transit", activeDeliveryId: "del-1");
+        ActiveDeliveryIs("inTransit");
+
+        await RunAsync();
+
+        Logs.Should().Contain("ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=hold_cap ageHours=30");
+        await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
     [Fact]
     public async Task Report_LinkedDeliveryNotDeliveredYet_IsStillOverdue()
     {
@@ -603,7 +740,7 @@ public class EscrowCronHoldCapTests
 
     private void OrderIs(
         string status, string? queuedAt = null, string? cancelReason = null, double quantity = 500,
-        DateTime? pickupDeadlineAt = null)
+        DateTime? pickupDeadlineAt = null, string? activeDeliveryId = null)
     {
         var order = new Dictionary<string, object>
         {
@@ -624,6 +761,11 @@ public class EscrowCronHoldCapTests
         if (pickupDeadlineAt != null)
         {
             order["pickupDeadlineAt"] = pickupDeadlineAt.Value.ToString("o");
+        }
+
+        if (activeDeliveryId != null)
+        {
+            order["activeDeliveryId"] = activeDeliveryId;
         }
 
         _orders.GetByIdAsync(OrderId).Returns(order);

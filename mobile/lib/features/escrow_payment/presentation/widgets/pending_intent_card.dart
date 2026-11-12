@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/models/payment_intent.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/amount_display.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -58,13 +59,17 @@ class PendingIntentCard extends StatelessWidget {
                   ),
                   if (intent.lastError != null)
                     Text(
-                      intent.lastError!,
+                      // The stored value is an error code (FUP-70). A row
+                      // written by an older build holds English server text:
+                      // the mapper has no entry for it and answers with the
+                      // generic text, so it is never shown raw.
+                      localizeEscrowError(l10n, intent.lastError!, ''),
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
                         color: AppTheme.statusError,
                       ),
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                 ],

@@ -1251,6 +1251,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'A dispute can be opened only after the goods are picked up. Before pickup, cancel the order instead, or contact support.';
 
   @override
+  String get escrowErrorDisputeRefundScheduled =>
+      'A refund to the buyer is already scheduled for this payment, so it can no longer be disputed. Contact support if you disagree.';
+
+  @override
   String get escrowErrorInvalidTransition =>
       'This action is not allowed in the current payment state.';
 
@@ -2851,6 +2855,14 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get stepUpDisputeMessage =>
+      'For your safety, confirm it\'s you before this dispute is sent.';
+
+  @override
+  String get faydaStepUpDisputeMessage =>
+      'Confirm it\'s you with Fayda to send this dispute. You may also be asked for your password.';
+
+  @override
   String get faydaStepUpMessage =>
       'Confirm it\'s you with Fayda to continue with this payment. You may also be asked for your password.';
 
@@ -2941,6 +2953,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get kycFarmerNotVerifiedMessage =>
       'The farmer\'s identity is not verified yet, so this payment was not sent. You can pay once the farmer verifies.';
+
+  @override
+  String get kycUnknownReasonMessage =>
+      'This payment was not sent because an identity check is still missing. Update the app or contact support to see what is needed.';
 
   @override
   String get kycUnavailableMessage =>
@@ -3087,6 +3103,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get cancelOrderTransportFailedBody =>
       'You get back everything you paid, including transport and the platform commission.';
+
+  @override
+  String get errorOrderCancelPaymentBusy =>
+      'This order can\'t be cancelled now because its payment is under dispute or being settled. Wait for the outcome or contact support.';
 
   @override
   String get errorOrderCancelNotAllowed =>

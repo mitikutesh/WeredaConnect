@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.7.0
+2.9.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -2453,7 +2453,7 @@ audit row is written after the `released` write, so a failed audit write cannot 
 escrow unrecorded. Once the settled status is written the payout is on record: an exception after
 it (a leg audit row, the `release` or `refund` row, the `completed` write or its audit row) logs
 `outcome=failed`, never `unknown`, and no queue row follows; the crash-recovery sweep completes a
-`released` escrow.
+`released` escrow. From 2.8.0 (FUP-65) a `completed` write that only lost to that sweep is no failure.
 
 ### The settlement lock
 `TryAcquireSettlementLockAsync` now also writes `settlementLockAt` (ISO time) and `settlementLockId`
@@ -4590,6 +4590,117 @@ transaction, and the money moves through the existing actions.
 
 ---
 
+## Additions in 2.8.0 (client error handling, FUP-70, FUP-77)
+
+Client only (mobile and web), no server change. Old clients are unaffected.
+
+**The server's code wins on `502` and `503`.** The escrow repositories used to read every `502` as
+`ESCROW_013` and every `503` as `ESCROW_014` (the Telebirr texts) without looking at the body. They now
+keep the body's `ESCROW_*` code (or `FRAUD_ACCOUNT_HELD`) on any status, so a `503 ESCROW_012` (a failed
+read, 1.24.0) shows the generic text and not a Telebirr one. Only an answer without such a code falls back:
+`502` to `ESCROW_013`, `503` to `ESCROW_014` (an API Gateway `502 {"message": ...}` has no code).
+
+**The queued delivery payment (mobile intent queue).** A queued `POST /escrow/initiate` now ends its
+retries at once on an answer that cannot change for the same request:
+
+| Answer | Queue |
+|---|---|
+| `400` or `422`, with or without a code (for example `422 ESCROW_039`, `422 ESCROW_010`) | failed at once, not sent again |
+| any other `4xx` that carries an `ESCROW_*` code (for example `403 ESCROW_026`), except `401`, `404`, `408` and `429` | failed at once, not sent again |
+| `403 FRAUD_ACCOUNT_HELD` | failed at once and explained (1.23.0, unchanged) |
+| `409` | completed: the money is already held (unchanged) |
+| `403 AUTH_040`, `AUTH_041` | stays pending for the step-up, no retry spent (unchanged) |
+| `401`, `404`, `408`, `429`, a `4xx` without an `ESCROW_*` code, every `5xx`, network errors, timeouts | retried, 3 attempts (unchanged) |
+
+A `404` is never permanent: a payment queued offline together with its delivery can be sent before `/sync`
+wrote the delivery, and `404 ESCROW_008` then turns into a success on a later run.
+
+The intent stores the error **code** (the server's when it sent one, else a client code for the kind of
+failure: `ESCROW_OFFLINE`, `ESCROW_011`, `ESCROW_013`, `ESCROW_014`, `ESCROW_005`, `ESCROW_CLIENT`), never
+the server's message, and the pending card shows the code's localized text (en, am, om). A value it has no
+text for (an unknown code, or the English text an older build stored) shows the generic text.
+An intent that ends as failed (at once, or after its last retry) leaves the pending list, so its buyer is
+told once in a message with the code's text; another user signed in on the same device is not shown it.
+
+**A dispute on a scheduled refund.** `POST /escrow/dispute` on an escrow whose refund is scheduled keeps
+its `409 ESCROW_INVALID_TRANSITION` (1.25.0). The clients tell it apart by the message, which is now part
+of the contract: it contains `refund to the buyer is scheduled`. They show "A refund to the buyer is already
+scheduled for this payment, so it can no longer be disputed. Contact support if you disagree." (en, am,
+om). Every other `ESCROW_INVALID_TRANSITION` keeps the generic text. A server that rewords the message
+must keep that phrase, or add a code of its own (an old client then falls back to the generic text).
+
+**Step-up prompts on the dispute screen.** `403 AUTH_040` and `403 AUTH_041` on `POST /escrow/dispute` (and
+`AUTH_040` on a delivery dispute) open the same password or Fayda prompt as before, with a text that names
+the dispute instead of "this payment". The background prompt for queued operations keeps the payment text.
+
+## Additions in 2.9.0 (the release against the crash recovery, unlinked order escrows; FUP-65, FUP-66)
+
+Server only. No endpoint, field, status, amount, lock or client change. 2.7.0 is another change's number.
+
+### The release and the crash recovery (FUP-65)
+
+A 1.x release writes `released` (the gateway has paid) and then `completed`. The hourly crash recovery
+completes any `released` row, so it could write `completed` between the two; the release's own
+conditional write then failed and the call answered `500`, although the money was paid and recorded.
+A ledger escrow is not affected (its status moves in one transaction with its row), nor is a manual
+payout close (it already reads the row on a failed condition).
+
+- **The release.** When its `completed` write fails the condition, the release reads the row strongly
+  consistent. A row that is `completed` and carries this release's payout reference
+  (`telebirrReleaseRef`) is this release's success: the normal `200` with `status: completed`, the
+  idempotency record set to `completed` (a replay of the same key answers the same success as a
+  duplicate) and the order follows the money. The release writes no `complete` audit row then: the writer
+  of the `completed` status writes it (the recovery's row has `metadata: crash_recovery`). A row still
+  `released` for this reference, or a re-read that fails, answers `200` with `status: released` and the
+  message "Funds released. The escrow is marked completed by the hourly recovery."; the recovery
+  completes it. Logged: `ESCROW_RELEASE_COMPLETED_ELSEWHERE escrowId=<id> status=<status>` or
+  `ESCROW_RELEASE_COMPLETE_DEFERRED escrowId=<id> error=<type>` (information, no alarm). The gateway is
+  never called again. A row that shows another payout reference or any other status is not this release:
+  the exception escapes as before (`outcome=failed`). Any other failure of the `completed` write keeps
+  the 1.10.0 rule (a plain failure, the recovery completes the row).
+- **The recovery.** A `released` row whose `releasedAt` is less than 2 minutes old is left alone for the
+  run: the release that wrote it completes it within seconds. A row without a readable `releasedAt` is
+  completed as before. A crashed release is therefore completed by the first hourly run that finds it
+  older than 2 minutes. When the recovery's own write fails the condition (the release completed the
+  row since the query), it writes nothing and logs an information line, not an error.
+
+### An order escrow that is not linked to its delivery (FUP-66)
+
+The link of an order escrow (`escrow-order-{orderId}`) to its delivery can fail
+(`ORDER_ESCROW_LINK_FAILED`), and the escrow then has no `deliveryId`. Three places looked for the
+escrow or its delivery through that link only.
+
+- **The stamp at the delivery confirmation (sync).** When the `DeliveryIndex` names no escrow for the
+  confirmed delivery, the order's own escrow is read by its key (strongly consistent) and stamped
+  (`deliveryConfirmedAt`, `disputeWindowEndsAt`, the FRD-13 payout delay) when it names the delivery's
+  order and no other delivery (no `deliveryId`, or this one). An escrow linked to a different delivery is
+  not stamped. The stamp does not link the escrow. Before, such an escrow waited for the hourly
+  order-money sweep's repair (2.1.0), which needs the order to be `delivered`.
+- **The refund sweep's safety net.** For an order escrow without a `deliveryId`, the sweep now checks
+  the order's `activeDeliveryId` (read strongly consistent; the delivery must name the same order). When
+  that delivery is `delivered` the escrow is stamped and not refunded, as for a linked one; a failed
+  stamp still skips the refund and logs `ESCROW_DELIVERY_STAMP_FAILED`. This runs right after the order
+  is read, so it also stamps an in-flight order's escrow when its expiry comes up. Before, an unlinked
+  escrow of an order in a refundable status (`funded`, `awaiting_transport`, `rejected`, `cancelled`) was
+  refunded although its delivery was confirmed. The admin stuck-order queue's review (1.13.0) uses the
+  same lookup.
+- **The QR gate.** `delivery-verification-api.md` 2.4.0: a funded order with no escrow row at all is not
+  cash.
+
+**Old rows and deploy.** Nothing is migrated. A delivery already `delivered` whose unlinked escrow was
+never stamped is stamped by the order-money sweep (order `delivered`) or by the refund sweep when the
+escrow's expiry comes up. A delivery in flight is stamped at its confirmation.
+
+### Not in 2.9.0 (known limits)
+- An exception after the `released` write other than the lost `completed` race (a failed audit write, a
+  transient failure of the `completed` write) still answers `500` for a paid release (FUP-190).
+- An order escrow linked to a cancelled delivery whose re-link to the replacement failed is not stamped
+  through the replacement delivery (FUP-191).
+- A release of the hourly run itself that fails between its `released` and `completed` writes is inside
+  the 2 minute grace, so the recovery of the next run completes it, not the same run's (FUP-192).
+
+---
+
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
 
 > **P.1 to P.9 and P.11 to P.13 are built in 2.2.0** (ESC-20, "Additions in 2.2.0", which says where the
@@ -4934,6 +5045,8 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.9.0 | 2026-11-12 | The release against the crash recovery (FUP-65): a 1.x release whose `completed` write loses to the hourly crash recovery reads the row and answers its normal success (`completed`, one payout, no second `complete` row, the same success on replay) instead of `500`; the recovery leaves a row released less than 2 minutes ago to its release and treats a lost write as no failure. Unlinked order escrows (FUP-66): the delivery confirmation stamps the order's own escrow when the `DeliveryIndex` names none; the refund sweep's safety net and the admin queue review find the delivery through the order's `activeDeliveryId`, so a confirmed delivery is never refunded; a funded order without an escrow row is not cash at the QR gate (`delivery-verification-api.md` 2.4.0). Server only; no endpoint, field, status or client change. 2.7.0 is another change's number. |
+| 2.8.0 | 2026-11-12 | Client error handling, no server change (FUP-70, FUP-77): the clients keep the body's `ESCROW_*` code on `502` and `503` and fall back to `ESCROW_013` and `ESCROW_014` only without one; the mobile intent queue fails a queued delivery payment at once on `400`, `422` and any other `4xx` with an `ESCROW_*` code (not `401`, `404`, `408`, `429`), stores the error code and shows its localized text; the `409 ESCROW_INVALID_TRANSITION` message of a dispute on a scheduled refund (`refund to the buyer is scheduled`) is now relied on by the clients and has its own text; the step-up prompts on the dispute screens name the dispute. 2.6.0 is taken by another branch |
 | 2.7.0 | 2026-11-12 | Admin legs, ledger view and stuck orders (ESC-24), read only: the admin escrow DTO fills `truckerPayout`, `truckerId`, `truckerName`, `legStatus`, `refundedTotal`, `releasedTotal`, `verdictAmounts` and `truckerLeg` (where the transport leg stands); new `GET /admin/escrows/{id}/ledger` (one page of ledger rows, `legacy` with no rows for a 1.x escrow) and `GET /admin/orders/queue?source=queue|deadline` (the admin queue of 1.13.0, or orders more than 30 minutes past a commitment deadline, from `DeadlineIndex`); the Disputes page sends the `partial_refund` split of 2.2.0 from a per-leg form. No amount, settlement, status or timing changes. See "Additions in 2.6.0". |
 | 2.6.0 | 2026-11-12 | The payout gate asks the payee's risk at the moment of payment (FUP-29, O4 of 1.11.0): a system payout to a suspended or CRITICAL farmer or trucker, or to one whose risk score cannot be read, is not made. Covers the system release, the split settlement, the trucker retry, the ledger transport retry and every ledger payout row the ledger sweep calls. The leg stays owed, logs `RISK_SETTLEMENT_SKIPPED` (`sweep=payout-<leg>`) and pays once the flag is gone; nothing is stored on the escrow and no party is told. Admin release, the manual payout record and refunds are unchanged. No endpoint, field or client change. See Additions in 2.6.0 |
 | 2.5.0 | 2026-11-11 | `POST /escrow/release` takes an optional `deliveryId` (FUP-139, closing the release item of FUP-147): an absent, `null` or blank one is accepted and not compared (before, `400 ESCROW_002`, so the admin page sent an order or escrow id in its place for a self-pickup escrow, which has no delivery). Unchanged from 2.2.0: a `deliveryId` that is sent and differs from the one the escrow is linked to is `422 ESCROW_VALIDATION` (`field: deliveryId`), an escrow without a `deliveryId` is released whatever is sent, and the `trigger` is stored as `releaseTrigger`. No request that was accepted is refused now; amounts, conditions, status transitions and timing of a release are unchanged; the cron (in-process) and the admin page send what they sent. Doc fixes: the request table of section 2 still said the `deliveryId` was required and never compared and the `trigger` never stored (the 2.0.0 wording, out of date since 2.2.0), and the 1.21.0 section still listed `GET /admin/fraud-signals?status=..` with the lists that scan and filter (FRD-07 moved it to a Query of the sparse `StatusCreatedAtIndex`). 2.4.0 is taken by another branch |

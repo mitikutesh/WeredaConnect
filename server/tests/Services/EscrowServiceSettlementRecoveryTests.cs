@@ -650,6 +650,109 @@ public class EscrowServiceSettlementRecoveryTests
             EscrowId, CreatedAt, "released", "escrowed", Arg.Any<Dictionary<string, object>?>());
     }
 
+    // ──────────────────────────────────────────────
+    // FUP-65: the crash recovery wins the completed write of a release in flight
+    // ──────────────────────────────────────────────
+
+    private const string GatewayReleaseRef = "GW-release:" + EscrowId;
+
+    private void CompletedWriteLosesItsCondition() =>
+        _escrowRepo.UpdateStatusAsync(EscrowId, CreatedAt, "completed", "released", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new ConditionalCheckFailedException("The conditional request failed"));
+
+    private void RowAfterTheRaceIs(string status, string releaseRef = GatewayReleaseRef)
+    {
+        var row = Escrow(status: status);
+        row["telebirrReleaseRef"] = releaseRef;
+        row["releasedAt"] = "2026-10-05T10:00:00.0000000Z";
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(row);
+    }
+
+    [Theory]
+    [InlineData("admin-1", "admin")]
+    [InlineData(EscrowService.SystemActor, null)]
+    public async Task Release_RecoveryCompletedItFirst_AnswersCompleted_WithOnePayout_AndNoSecondCompleteRow(
+        string actor, string? role)
+    {
+        var order = Substitute.For<IOrderRepository>();
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        CompletedWriteLosesItsCondition();
+        RowAfterTheRaceIs("completed");
+        var service = actor == EscrowService.SystemActor
+            ? _service
+            : new EscrowService(_escrowRepo, _auditRepo, _idempotencyRepo, _gateway, _userRepo, orderRepo: order)
+            {
+                AlarmLog = _alarmLines.Add
+            };
+        order.GetByIdAsync("ord-5", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "ord-5" }, { "status", "delivered" }, { "version", "3" }
+        });
+
+        var result = await service.ReleaseAsync(ReleaseRequest(), actor, role, adminGroupVerified: role != null);
+
+        result.IsSuccess.Should().BeTrue(result.Error?.Message);
+        result.Value!.Status.Should().Be("completed");
+        result.Value.TelebirrRef.Should().Be(GatewayReleaseRef);
+        await _gateway.Received(1).ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, CreatedAt, "completed", "released", Arg.Any<Dictionary<string, object>?>());
+        // The recovery wrote its own complete row; the release row is this call's.
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(e => (string)e["action"] == "complete"));
+        await _auditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e => (string)e["action"] == "release"));
+        // The replay of the same key answers from the idempotency record.
+        await _idempotencyRepo.Received(1).UpdateAsync(ReleaseRequest().IdempotencyKey, "completed");
+        _alarmLines.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Release_ConditionFailsButTheRowIsStillReleasedForThisPayout_AnswersReleased()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        CompletedWriteLosesItsCondition();
+        RowAfterTheRaceIs("released");
+
+        var result = await _service.ReleaseAsync(ReleaseRequest(), EscrowService.SystemActor);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Status.Should().Be("released");
+        await _gateway.Received(1).ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(e => (string)e["action"] == "complete"));
+    }
+
+    [Fact]
+    public async Task Release_ConditionFailsAndTheRowCannotBeRead_AnswersReleased_NeverAFailure()
+    {
+        // The released write of this call landed, so the payout is on record whatever the re-read says.
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        CompletedWriteLosesItsCondition();
+        _escrowRepo.GetByIdAsync(EscrowId, true).ThrowsAsync(new AmazonDynamoDBException("down"));
+
+        var result = await _service.ReleaseAsync(ReleaseRequest(), EscrowService.SystemActor);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Status.Should().Be("released");
+        await _gateway.Received(1).ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Theory]
+    [InlineData("completed", "GW-SOME-OTHER-RELEASE")]
+    [InlineData("refunded", GatewayReleaseRef)]
+    [InlineData("escrowed", GatewayReleaseRef)]
+    public async Task Release_ConditionFailsAndTheRowDoesNotShowThisRelease_StillThrows(string status, string releaseRef)
+    {
+        // Not the recovery's doing: the row is not this release's, so nothing is called a success.
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        CompletedWriteLosesItsCondition();
+        RowAfterTheRaceIs(status, releaseRef);
+
+        var act = () => _service.ReleaseAsync(ReleaseRequest(), EscrowService.SystemActor);
+
+        var thrown = await act.Should().ThrowAsync<ConditionalCheckFailedException>();
+        MoneyAlarmLog.ExceptionOutcome(thrown.Which).Should().Be(MoneyAlarmLog.OutcomeFailed);
+        await _gateway.Received(1).ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
     [Fact]
     public async Task Refund_AuditFailsAfterTheRefundedWrite_IsAPlainFailure()
     {

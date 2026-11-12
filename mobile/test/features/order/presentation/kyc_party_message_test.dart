@@ -35,6 +35,11 @@ const _farmerPhone = 'ORDER_KYC_REQUIRED: farmer_phone: '
 const _unavailable = 'ORDER_KYC_REQUIRED: unavailable: '
     'Identity verification is unavailable right now. Please try again later.';
 
+// A reason token a later server may add; this build does not know it.
+const _unknownToken = 'ORDER_KYC_REQUIRED: trucker_fayda: '
+    'The trucker must verify their Fayda ID.';
+const _unknownReasonText = 'an identity check is still missing';
+
 // Servers older than 1.5.0 sent no token: the wording names the party.
 const _legacyFarmerFayda =
     'ORDER_KYC_REQUIRED: The farmer must verify their Fayda ID.';
@@ -58,7 +63,10 @@ void main() {
   group('the error code says whose verification is missing', () {
     for (final (message, code) in [
       (_buyerFayda, AppErrorCode.kycRequired),
-      (_buyerPhone, AppErrorCode.kycRequired),
+      // FUP-83: the phone refusal has its own code and text.
+      (_buyerPhone, AppErrorCode.kycPhoneRequired),
+      // FUP-83: a token this build does not know only explains.
+      (_unknownToken, AppErrorCode.kycUnknownReason),
       (_farmerFayda, AppErrorCode.kycFarmerRequired),
       (_farmerPhone, AppErrorCode.kycFarmerRequired),
       (_unavailable, AppErrorCode.kycUnavailable),
@@ -73,9 +81,11 @@ void main() {
       });
     }
 
-    test('only the three KYC codes count as a KYC refusal', () {
+    test('only the KYC codes count as a KYC refusal', () {
       const kyc = {
         AppErrorCode.kycRequired,
+        AppErrorCode.kycPhoneRequired,
+        AppErrorCode.kycUnknownReason,
         AppErrorCode.kycFarmerRequired,
         AppErrorCode.kycUnavailable,
       };
@@ -103,8 +113,72 @@ void main() {
           localizeErrorCode(AppErrorCode.kycRequired, l10n),
           l10n.kycRequiredFaydaMessage,
         );
+        // FUP-83: the phone text is exact, the unknown reason has its own.
+        final phone = localizeErrorCode(AppErrorCode.kycPhoneRequired, l10n);
+        expect(phone, l10n.kycRequiredPhoneMessage);
+        expect(phone, isNot(l10n.kycRequiredFaydaMessage));
+        final unknown = localizeErrorCode(AppErrorCode.kycUnknownReason, l10n);
+        expect(unknown, l10n.kycUnknownReasonMessage);
+        expect(unknown.trim(), isNotEmpty);
+        expect(unknown, isNot(l10n.kycRequiredFaydaMessage));
+        expect(unknown, isNot(l10n.kycUnavailableMessage));
       });
     }
+
+    test('en: the phone text names the phone, not the 10,000 ETB rule',
+        () async {
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+      final phone = localizeErrorCode(AppErrorCode.kycPhoneRequired, l10n);
+
+      expect(phone, contains('phone number is not verified'));
+      expect(phone, isNot(contains('10,000')));
+    });
+
+    test('en: the unknown reason text does not ask the buyer to verify',
+        () async {
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+      final unknown = localizeErrorCode(AppErrorCode.kycUnknownReason, l10n);
+
+      expect(unknown, contains(_unknownReasonText));
+      expect(unknown, isNot(contains(_askBuyerToVerify)));
+    });
+  });
+
+  group('the reason token (FUP-83)', () {
+    test('known tokens, legacy wording and the bare code read as before', () {
+      expect(KycReason.fromMessage(_buyerFayda), KycReason.buyerFayda);
+      expect(KycReason.fromMessage(_buyerPhone), KycReason.buyerPhone);
+      expect(KycReason.fromMessage(_farmerFayda), KycReason.farmerFayda);
+      expect(KycReason.fromMessage(_farmerPhone), KycReason.farmerPhone);
+      expect(KycReason.fromMessage(_unavailable), KycReason.unavailable);
+      expect(KycReason.fromMessage(_legacyFarmerFayda), KycReason.farmerFayda);
+      expect(KycReason.fromMessage(_legacyFarmerPhone), KycReason.farmerPhone);
+      expect(KycReason.fromMessage(_legacyBuyer), KycReason.buyerFayda);
+      expect(KycReason.fromMessage(_bare), KycReason.buyerFayda);
+    });
+
+    test('an unknown token is unknown, whatever its text says', () {
+      for (final message in [
+        _unknownToken,
+        'ORDER_KYC_REQUIRED: trucker_phone: Verify your phone number.',
+        'ORDER_KYC_REQUIRED: buyer_address: Verify your Fayda ID.',
+        'sync refused: ORDER_KYC_REQUIRED: agent2_fayda: The farmer must.',
+      ]) {
+        final reason = KycReason.fromMessage(message);
+        expect(reason, KycReason.unknown, reason: message);
+        expect(reason.buyerCanFix, isFalse, reason: message);
+      }
+    });
+
+    test('prose before a colon is not a token', () {
+      expect(
+        KycReason.fromMessage(
+          'ORDER_KYC_REQUIRED: Verify your Fayda ID: it is needed above '
+          '10,000 ETB.',
+        ),
+        KycReason.buyerFayda,
+      );
+    });
 
     test('en: the farmer text names the farmer, not Fayda for the buyer',
         () async {
@@ -225,6 +299,12 @@ void main() {
         _unavailableText,
         AppErrorCode.kycUnavailable
       ),
+      (
+        'unknown reason token',
+        _unknownToken,
+        _unknownReasonText,
+        AppErrorCode.kycUnknownReason,
+      ),
     ]) {
       testWidgets('$label: explains, no Fayda for the buyer, nothing resent',
           (tester) async {
@@ -330,6 +410,7 @@ void main() {
       ('farmer phone', _farmerPhone, _farmerPhoneText),
       ('legacy farmer wording', _legacyFarmerPhone, _farmerPhoneText),
       ('check unavailable', _unavailable, _unavailableText),
+      ('unknown reason token', _unknownToken, _unknownReasonText),
     ]) {
       testWidgets('$label: explains, no Fayda for the buyer, nothing resent',
           (tester) async {
