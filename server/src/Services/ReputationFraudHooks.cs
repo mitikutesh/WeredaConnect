@@ -17,7 +17,8 @@ namespace WeredaConnect.Server.Services;
 ///   party, the order as the entity. Their producers are ESC-34 and ESC-36; when those start writing
 ///   the order fields the derivation reads, the signals follow with no further change;
 /// - a decline or an expiry (<c>DECLINED_REQUEST</c>, <c>RESPONSE_EXPIRED</c>, with or without points):
-///   the buyer decline pattern on the order's buyer, which feeds the FRD-09 pattern set.
+///   the buyer decline pattern on the order's buyer, which feeds the FRD-09 pattern set. It needs the
+///   declines of at least two different farmers or truckers.
 /// </summary>
 internal static class ReputationFraudHooks
 {
@@ -51,7 +52,8 @@ internal static class ReputationFraudHooks
             try
             {
                 var hits = await buyerPatterns.CheckBuyerDeclinePatternAsync(
-                    recorded.BuyerId, recorded.OrderId, nowUtc, settings.BuyerDeclineSignalCount, settings.BuyerDeclineSignalDays);
+                    recorded.BuyerId, recorded.OrderId, recorded.UserId, nowUtc,
+                    settings.BuyerDeclineSignalCount, settings.BuyerDeclineSignalDays);
                 foreach (var hit in hits)
                 {
                     await fraud.RecordFraudSignalAsync(recorded.BuyerId, hit.SignalType, recorded.OrderId, "order", hit.Description);

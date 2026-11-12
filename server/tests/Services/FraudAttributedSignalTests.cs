@@ -13,7 +13,8 @@ namespace WeredaConnect.Server.Tests.Services;
 /// ESC-33 (fraud-detection-architecture.md section 14.3): the guard of a signal written onto a user other
 /// than the caller (<c>GPS_ANOMALY</c> on the delivery's trucker, caused by the buyer's confirm). A truncated
 /// score read is CRITICAL, so the write is bounded first: one row per target and entity, one per source and
-/// target, three per target, over the table's 30 days; an unread partition writes nothing.
+/// target, two per target, over the table's 30 days; an unread partition writes nothing. The two caps are
+/// held by conditional slot rows, so requests that all read "below the cap" still cannot pass it.
 /// </summary>
 public class FraudAttributedSignalTests
 {
@@ -23,11 +24,32 @@ public class FraudAttributedSignalTests
     private readonly IAmazonDynamoDB _ddb = Substitute.For<IAmazonDynamoDB>();
     private readonly List<string> _log = new();
     private readonly List<PutItemRequest> _puts = new();
+    private readonly List<PutItemRequest> _slotPuts = new();
     private readonly List<QueryRequest> _queries = new();
+
+    /// <summary>Slot keys another request already holds: their conditional put fails.</summary>
+    private readonly HashSet<string> _heldSlots = new(StringComparer.Ordinal);
 
     public FraudAttributedSignalTests()
     {
-        _ddb.PutItemAsync(Arg.Do<PutItemRequest>(_puts.Add), Arg.Any<CancellationToken>()).Returns(new PutItemResponse());
+        _ddb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            var put = call.Arg<PutItemRequest>();
+            var key = put.Item["signalKey"].S;
+            if (!key.StartsWith(FraudDetectionService.AttributionSlotPrefix, StringComparison.Ordinal))
+            {
+                _puts.Add(put);
+                return new PutItemResponse();
+            }
+
+            _slotPuts.Add(put);
+            if (!_heldSlots.Add(key))
+            {
+                throw new ConditionalCheckFailedException("held");
+            }
+
+            return new PutItemResponse();
+        });
         Existing();
     }
 
@@ -72,6 +94,52 @@ public class FraudAttributedSignalTests
     }
 
     [Fact]
+    public async Task TheWrite_FirstClaimsTheSourceSlotAndATargetSlot_Conditionally()
+    {
+        await RecordAsync();
+
+        _slotPuts.Select(p => p.Item["signalKey"].S).Should().Equal(
+            $"!attr#GPS_ANOMALY#source#{Buyer}", "!attr#GPS_ANOMALY#slot#1");
+        foreach (var slot in _slotPuts)
+        {
+            slot.Item["userId"].S.Should().Be(Trucker);
+            slot.Item["recordType"].S.Should().Be("attribution_slot");
+            slot.Item.Should().NotContainKey("status", "a slot row is never on the Fraud Review index");
+            slot.ConditionExpression.Should().Be("attribute_not_exists(#k) OR #c <= :now");
+            DateTime.Parse(slot.Item["claimedUntil"].S, null, System.Globalization.DateTimeStyles.RoundtripKind)
+                .Should().BeCloseTo(DateTime.UtcNow.AddDays(30), TimeSpan.FromMinutes(1));
+            long.Parse(slot.Item["expiresAt"].N).Should().BeCloseTo(DateTimeOffset.UtcNow.AddDays(31).ToUnixTimeSeconds(), 60);
+        }
+
+        // Before any ISO timestamp, so no read keyed "signalKey >= since" (the score among them) returns a slot.
+        string.CompareOrdinal(FraudDetectionService.AttributionSlotPrefix, "1970-01-01").Should().BeNegative();
+    }
+
+    [Fact]
+    public async Task TwoConfirmsThatBothReadOneRow_CannotBothPassTheCap()
+    {
+        // The straddling race: each request's Query showed one row (below the cap of two), in two hour
+        // buckets. The slot of the first is already held when the second one asks; only one slot is left.
+        Existing(Row("d-a", "buyer-2"));
+        _heldSlots.Add("!attr#GPS_ANOMALY#slot#1");
+
+        (await RecordAsync(source: "buyer-3", delivery: "del-3")).Should().Be(AttributedSignalOutcome.Written);
+        (await RecordAsync(source: "buyer-4", delivery: "del-4")).Should().Be(AttributedSignalOutcome.TargetCapped);
+
+        _puts.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task TwoConfirmsByOneBuyerThatBothReadNothing_CannotBothWrite()
+    {
+        (await RecordAsync(delivery: "del-1")).Should().Be(AttributedSignalOutcome.Written);
+        // The second request's Query ran before the first wrote: it still sees a clean partition.
+        (await RecordAsync(delivery: "del-2")).Should().Be(AttributedSignalOutcome.SourceCapped);
+
+        _puts.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task TheGuardRead_IsOneConsistentQueryOfTheTargetsPartitionForThatType()
     {
         await RecordAsync();
@@ -111,29 +179,30 @@ public class FraudAttributedSignalTests
     [Fact]
     public async Task AnotherBuyer_StillAddsTheirOwnRow()
     {
-        Existing(Row("del-0", "buyer-2"), Row("del-00", "buyer-3"));
+        Existing(Row("del-0", "buyer-2"));
 
         (await RecordAsync(delivery: "del-2")).Should().Be(AttributedSignalOutcome.Written);
     }
 
     [Fact]
-    public async Task AllBuyersTogether_PutAtMostThreeRowsOnOneTrucker()
+    public async Task AllBuyersTogether_PutAtMostTwoRowsOnOneTrucker()
     {
-        // Three rows are 75, HIGH: other users' confirms alone never make a trucker CRITICAL.
-        Existing(Row("d-a", "buyer-2"), Row("d-bb", "buyer-3"), Row("d-ccc", "buyer-4"));
+        // Two rows are 50, MEDIUM: other users' confirms alone never make a trucker HIGH or CRITICAL.
+        Existing(Row("d-a", "buyer-2"), Row("d-bb", "buyer-3"));
 
         (await RecordAsync(delivery: "del-2")).Should().Be(AttributedSignalOutcome.TargetCapped);
 
         _puts.Should().BeEmpty();
+        _slotPuts.Should().BeEmpty("a request the read already stops claims no slot");
         (FraudDetectionService.AttributedPerTargetCap * FraudDetectionService.SignalWeight("GPS_ANOMALY"))
-            .Should().BeLessThan(FraudDetectionService.DefaultRiskTierCritical);
+            .Should().BeLessThan(FraudDetectionService.DefaultRiskTierHigh);
     }
 
     [Fact]
     public async Task ARowWithoutASource_CountsTowardTheTargetCapOnly()
     {
         // A trucker's own self-reported row (or a legacy one) carries no source.
-        Existing(Row("d-a", null), Row("d-bb", null));
+        Existing(Row("d-a", null));
 
         (await RecordAsync(delivery: "del-2")).Should().Be(AttributedSignalOutcome.Written);
     }
@@ -155,7 +224,7 @@ public class FraudAttributedSignalTests
     [Fact]
     public async Task TheHourLimit_IsReportedNotThrown()
     {
-        _ddb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
+        _ddb.PutItemAsync(Arg.Is<PutItemRequest>(p => !p.Item["signalKey"].S.StartsWith("!attr#")), Arg.Any<CancellationToken>())
             .Returns<PutItemResponse>(_ => throw new ConditionalCheckFailedException("exists"));
 
         (await RecordAsync()).Should().Be(AttributedSignalOutcome.HourLimited);

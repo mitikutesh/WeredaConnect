@@ -60,10 +60,14 @@ public class ReputationFraudHooksTests
         => (service ?? Service()).RecordAsync(candidate, timeoutPenaltiesOn: true, _logger);
 
     private static Dictionary<string, object> Order(
-        string id, int daysAgo, string? farmerResponse = null, string? truckerResponse = null, bool paid = true)
+        string id, int daysAgo, string? farmerResponse = null, string? truckerResponse = null, bool paid = true,
+        string farmer = "farmer-9", string trucker = "trucker-9")
     {
         var createdAt = T0.AddDays(-daysAgo).ToString("o", CultureInfo.InvariantCulture);
-        var order = new Dictionary<string, object> { { "orderId", id }, { "buyerId", "buyer-1" }, { "createdAt", createdAt } };
+        var order = new Dictionary<string, object>
+        {
+            { "orderId", id }, { "buyerId", "buyer-1" }, { "createdAt", createdAt }, { "farmerId", farmer }, { "truckerId", trucker }
+        };
         if (paid)
         {
             order["paymentVerifiedAt"] = createdAt;
@@ -187,7 +191,7 @@ public class ReputationFraudHooksTests
     public async Task TheThirdDeclinedPaidOrderIn30Days_FlagsTheBuyer(string code)
     {
         BuyerOrders(
-            Order("o3", 0, truckerResponse: "declined"), // the order just recorded: counted once, not twice
+            Order("o3", 0, truckerResponse: "declined", trucker: "trucker-1"), // the order just recorded: counted once
             Order("o2", 3, farmerResponse: "declined"),
             Order("o1", 20, truckerResponse: "expired"),
             Order("ok", 5, farmerResponse: "accepted"));
@@ -195,7 +199,7 @@ public class ReputationFraudHooksTests
         (await Record(Candidate(code, "REQUEST#o3"))).Should().Be(ReputationRecordResult.Recorded);
 
         await _fraud.Received(1).RecordFraudSignalAsync("buyer-1", "BUYER_DECLINE_PATTERN", "o3", "order",
-            Arg.Is<string>(d => d.Contains("3 of the buyer's paid orders in 30 days")));
+            Arg.Is<string>(d => d.StartsWith("3 farmers or truckers") && d.Contains("3 of the buyer's paid orders in 30 days")));
         // The party who declined gets no fraud signal for declining.
         await _fraud.DidNotReceive().RecordFraudSignalAsync("trucker-1", Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
     }
@@ -203,7 +207,56 @@ public class ReputationFraudHooksTests
     [Fact]
     public async Task TwoDeclinedPaidOrders_AreBelowTheLimit()
     {
-        BuyerOrders(Order("o2", 3, farmerResponse: "declined"));
+        BuyerOrders(Order("o3", 0, truckerResponse: "declined", trucker: "trucker-1"), Order("o2", 3, farmerResponse: "declined"));
+
+        await Record(Candidate(ReputationCodes.DeclinedRequest, "REQUEST#o3"));
+
+        await _fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+    }
+
+    [Fact]
+    public async Task OnePartyDecliningOneBuyerThreeTimes_DoesNotFlagTheBuyer()
+    {
+        // Three declines, all by the same farmer: that says something about the farmer, not the buyer.
+        BuyerOrders(
+            Order("o3", 0, farmerResponse: "declined", farmer: "farmer-1"),
+            Order("o2", 3, farmerResponse: "declined", farmer: "farmer-1"),
+            Order("o1", 9, farmerResponse: "expired", farmer: "farmer-1"));
+
+        await Record(Candidate(ReputationCodes.DeclinedRequest, "REQUEST#o3", user: "farmer-1", party: "farmer"));
+
+        await _fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+    }
+
+    [Fact]
+    public async Task ASecondPartyAmongTheDeclines_IsEnough()
+    {
+        BuyerOrders(
+            Order("o3", 0, farmerResponse: "declined", farmer: "farmer-1"),
+            Order("o2", 3, farmerResponse: "declined", farmer: "farmer-1"),
+            Order("o1", 9, truckerResponse: "declined", farmer: "farmer-1", trucker: "trucker-7"));
+
+        await Record(Candidate(ReputationCodes.DeclinedRequest, "REQUEST#o3", user: "farmer-1", party: "farmer"));
+
+        await _fraud.Received(1).RecordFraudSignalAsync("buyer-1", "BUYER_DECLINE_PATTERN", "o3", "order",
+            Arg.Is<string>(d => d.StartsWith("2 farmers or truckers")));
+    }
+
+    [Theory]
+    [InlineData(false)] // the read shows the recorded order without a verified payment
+    [InlineData(null)] // the read does not return the recorded order at all
+    public async Task TheRecordedOrder_CountsOnlyWhenTheReadShowsItPaid(bool? paid)
+    {
+        var history = new List<Dictionary<string, object>>
+        {
+            Order("o2", 3, farmerResponse: "declined"), Order("o1", 9, truckerResponse: "expired")
+        };
+        if (paid != null)
+        {
+            history.Add(Order("o3", 0, truckerResponse: "declined", trucker: "trucker-1", paid: paid.Value));
+        }
+
+        BuyerOrders(history.ToArray());
 
         await Record(Candidate(ReputationCodes.DeclinedRequest, "REQUEST#o3"));
 
@@ -214,6 +267,7 @@ public class ReputationFraudHooksTests
     public async Task UnpaidOrdersAndOrdersOutsideTheWindow_DoNotCount()
     {
         BuyerOrders(
+            Order("o3", 0, truckerResponse: "declined", trucker: "trucker-1"),
             Order("unpaid", 2, farmerResponse: "declined", paid: false),
             Order("accepted", 4, farmerResponse: "accepted", truckerResponse: "accepted"),
             Order("o2", 6, farmerResponse: "declined"),
@@ -227,7 +281,7 @@ public class ReputationFraudHooksTests
     [Fact]
     public async Task ThePolicyNumbers_SetTheLimitAndTheWindow()
     {
-        BuyerOrders(Order("o2", 40, farmerResponse: "declined"));
+        BuyerOrders(Order("o3", 0, truckerResponse: "declined", trucker: "trucker-1"), Order("o2", 40, farmerResponse: "declined"));
         var settings = ReputationPolicySettings.Defaults with { BuyerDeclineSignalCount = 2, BuyerDeclineSignalDays = 60 };
 
         await Record(Candidate(ReputationCodes.DeclinedRequest, "REQUEST#o3"), Service(settings));
@@ -240,7 +294,10 @@ public class ReputationFraudHooksTests
     public async Task ADeclineWithNoPoints_StillCountsForTheBuyer()
     {
         // The pair cap zeroes the second decline of one buyer: exactly the case a griefing buyer produces.
-        BuyerOrders(Order("o2", 1, farmerResponse: "declined"), Order("o1", 2, farmerResponse: "declined"));
+        BuyerOrders(
+            Order("o3", 0, farmerResponse: "declined", farmer: "farmer-1"),
+            Order("o2", 1, farmerResponse: "declined"),
+            Order("o1", 2, farmerResponse: "declined", farmer: "farmer-1"));
         await Record(Candidate(ReputationCodes.DeclinedRequest, "REQUEST#o1", user: "farmer-1", party: "farmer"));
         _fraud.ClearReceivedCalls();
 
@@ -288,12 +345,13 @@ public class ReputationFraudHooksTests
     // ===== the pure rule =====
 
     [Theory]
-    [InlineData(2, 3, false)]
-    [InlineData(3, 3, true)]
-    [InlineData(7, 3, true)]
-    [InlineData(1, 0, false)]
-    public void BuyerDeclinePattern_FiresAtTheLimit(int declined, int limit, bool fires)
-        => (TransactionPatternRules.BuyerDeclinePattern(declined, limit, 30) != null).Should().Be(fires);
+    [InlineData(2, 2, 3, false)]
+    [InlineData(3, 2, 3, true)]
+    [InlineData(7, 4, 3, true)]
+    [InlineData(7, 1, 3, false)] // one party behind every decline
+    [InlineData(1, 2, 0, false)]
+    public void BuyerDeclinePattern_FiresAtTheLimit_WithTwoParties(int declined, int parties, int limit, bool fires)
+        => (TransactionPatternRules.BuyerDeclinePattern(declined, parties, limit, 30) != null).Should().Be(fires);
 
     // ===== the score =====
 

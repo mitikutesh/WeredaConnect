@@ -181,38 +181,70 @@ internal sealed class TransactionPatternService
     }
 
     /// <summary>
-    /// ESC-33: the buyer decline pattern, checked when a farmer's or a trucker's decline or expiry of
-    /// <paramref name="orderId"/> was recorded as a reputation event (that order counts, whatever the
-    /// lagging index says). Counted: the buyer's other orders created in the last
-    /// <paramref name="windowDays"/> days that were paid (<c>paymentVerifiedAt</c>) and whose
-    /// <c>farmerResponse</c> or <c>truckerResponse</c> is <c>declined</c> or <c>expired</c>. One read of the
-    /// buyer's orders on <c>BuyerIdCreatedAtIndex</c>, newest first, at most the page cap.
+    /// ESC-33: the buyer decline pattern, checked when the decline or expiry of <paramref name="orderId"/> by
+    /// <paramref name="decliningUserId"/> (a farmer or a trucker) was recorded as a reputation event.
+    /// Counted: the buyer's orders created in the last <paramref name="windowDays"/> days that were paid
+    /// (<c>paymentVerifiedAt</c>) and whose <c>farmerResponse</c> or <c>truckerResponse</c> is
+    /// <c>declined</c> or <c>expired</c>, and how many different farmers and truckers gave those answers.
+    /// The order just recorded counts for its answer whatever the lagging index shows of it, but like every
+    /// other order only when the read shows it paid (it was paid well before it could be declined, so the
+    /// index has that by now; an order the read does not return is not counted). A trucker's answer whose
+    /// row names no trucker adds an order, not a party. One read of the buyer's orders on
+    /// <c>BuyerIdCreatedAtIndex</c>, newest first, at most the page cap.
     /// </summary>
     public async Task<IReadOnlyList<PatternHit>> CheckBuyerDeclinePatternAsync(
-        string buyerId, string orderId, DateTime nowUtc, int minOrders, int windowDays)
+        string buyerId, string orderId, string decliningUserId, DateTime nowUtc, int minOrders, int windowDays)
     {
         if (_orders == null || string.IsNullOrWhiteSpace(buyerId) || string.IsNullOrWhiteSpace(orderId))
         {
             return Array.Empty<PatternHit>();
         }
 
-        var declined = 1;
+        var declined = 0;
+        var parties = new HashSet<string>(StringComparer.Ordinal);
         var settings = Settings with { WindowDays = windowDays };
         foreach (var order in await ReadRecentOrdersAsync(OrderCommitment.Party.Buyer, buyerId, nowUtc, settings))
         {
-            if (Str(order, "orderId") == orderId || string.IsNullOrEmpty(Str(order, "paymentVerifiedAt")))
+            if (string.IsNullOrEmpty(Str(order, "paymentVerifiedAt")))
             {
                 continue;
             }
 
-            if (IsDeclinedOrExpired(Str(order, OrderCommitment.FarmerResponseField))
-                || IsDeclinedOrExpired(Str(order, OrderCommitment.TruckerResponseField)))
+            if (Str(order, "orderId") == orderId)
             {
                 declined++;
+                AddParty(parties, decliningUserId);
+                continue;
+            }
+
+            var byFarmer = IsDeclinedOrExpired(Str(order, OrderCommitment.FarmerResponseField));
+            var byTrucker = IsDeclinedOrExpired(Str(order, OrderCommitment.TruckerResponseField));
+            if (!byFarmer && !byTrucker)
+            {
+                continue;
+            }
+
+            declined++;
+            if (byFarmer)
+            {
+                AddParty(parties, Str(order, "farmerId"));
+            }
+
+            if (byTrucker)
+            {
+                AddParty(parties, Str(order, "truckerId"));
             }
         }
 
-        return One(TransactionPatternRules.BuyerDeclinePattern(declined, minOrders, windowDays));
+        return One(TransactionPatternRules.BuyerDeclinePattern(declined, parties.Count, minOrders, windowDays));
+    }
+
+    private static void AddParty(HashSet<string> parties, string? userId)
+    {
+        if (!string.IsNullOrEmpty(userId))
+        {
+            parties.Add(userId);
+        }
     }
 
     private static bool IsDeclinedOrExpired(string? response) =>

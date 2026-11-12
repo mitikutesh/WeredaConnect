@@ -2493,14 +2493,22 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// ESC-33 (fraud-detection-architecture.md sections 14.3 and 15.3): the <c>GPS_ANOMALY</c> signal of a
-    /// confirmed delivery, written after the delivery write succeeded. It lands on the party who moved the
-    /// goods: the delivery's trucker, read from the stored row (never from the request), not the buyer who
-    /// sent the confirm. That is a write onto a user other than the caller, so it goes through the
-    /// attribution guard (<see cref="IFraudDetectionService.RecordAttributedSignalAsync"/>): only for the
-    /// delivery's own buyer, one row per delivery, one per buyer and trucker, three per trucker in 30 days.
-    /// A self-pickup has no trucker and the buyer moved the goods: the signal stays on the buyer, as before.
-    /// Best effort like every signal.
+    /// ESC-33: whether the <c>GPS_ANOMALY</c> of a confirmed delivery is also written on the delivery's
+    /// trucker. It follows <c>reputationPenalties</c> (off in every environment): the anomaly is judged
+    /// from coordinates the confirming buyer's phone sends, so the trucker row stays dark until the
+    /// evidence comes from the trucker's own phone (TASK FUP-203).
+    /// </summary>
+    internal bool GpsAnomalyOnTrucker { get; init; } = ReputationFlags.PenaltiesEnabled;
+
+    /// <summary>
+    /// The <c>GPS_ANOMALY</c> signal of a confirmed delivery (fraud-detection-architecture.md Rule 4 and
+    /// sections 14.3 and 15.3), written after the delivery write succeeded. It always lands on the caller,
+    /// the buyer whose phone sent the drop-off coordinates, exactly as before ESC-33: a buyer and a trucker
+    /// who fake deliveries together keep adding to the buyer's score. With <see cref="GpsAnomalyOnTrucker"/>
+    /// on, the delivery's trucker (read from the stored row, never from the request) gets a second row
+    /// through the attribution guard (<see cref="IFraudDetectionService.RecordAttributedSignalAsync"/>):
+    /// only for the delivery's own buyer, one row per delivery, one per buyer and trucker, two per trucker in
+    /// 30 days. A self-pickup has no trucker. Best effort like every signal.
     /// </summary>
     private async Task TryRecordGpsAnomalySignalAsync(
         SyncOperationRequest operation, Dictionary<string, AttributeValue> existing, FraudCheckResult gpsCheck,
@@ -2512,18 +2520,21 @@ public partial class SyncFunction
         }
 
         var signalType = gpsCheck.FlagReason ?? FraudDetectionService.GpsAnomalySignal;
+        await TryRecordFraudSignalAsync(
+            authenticatedUserId, signalType, operation.EntityId, "delivery", gpsCheck.Message, context);
+
         var truckerId = AttrString(existing, "truckerId");
-        if (AttrString(existing, "deliveryType") == SelfPickupDeliveryType
+        if (!GpsAnomalyOnTrucker
+            || AttrString(existing, "deliveryType") == SelfPickupDeliveryType
             || string.IsNullOrEmpty(truckerId) || truckerId == authenticatedUserId)
         {
-            await TryRecordFraudSignalAsync(
-                authenticatedUserId, signalType, operation.EntityId, "delivery", gpsCheck.Message, context);
             return;
         }
 
         // Only the delivery's buyer confirms it (the transition check refused anyone else before the write).
+        // One attempt per delivery and batch: a skip for one delivery must not stop the next one's.
         if (AttrString(existing, "buyerId") != authenticatedUserId
-            || !_batchSignals.Add($"{truckerId}|{signalType}"))
+            || !_batchSignals.Add($"{truckerId}|{signalType}|{operation.EntityId}"))
         {
             return;
         }

@@ -9,23 +9,62 @@ namespace WeredaConnect.Server.Tests.Functions;
 
 /// <summary>
 /// ESC-33 (fraud-detection-architecture.md sections 14.3 and 15.3): the <c>GPS_ANOMALY</c> of a confirmed
-/// delivery lands on the delivery's trucker (the stored row's, never an id from the request) through the
-/// attribution guard, not on the buyer who sent the confirm; only after the delivery write succeeded; a
-/// self-pickup keeps it on the buyer. Uses the delivery rig of <see cref="SyncFunctionDeliveryPatternTests"/>.
+/// delivery. It always lands on the confirming buyer, whose phone sent the coordinates, as before ESC-33
+/// (now after the delivery write succeeded). Only with <c>reputationPenalties</c> on does the delivery's
+/// trucker (the stored row's, never an id from the request) get a second row, through the attribution guard.
+/// Uses the delivery rig of the FRD-09 delivery pattern tests.
 /// </summary>
 public partial class SyncFunctionTests
 {
     private const string GpsWhy = "Pickup and dropoff GPS coordinates are identical.";
 
-    private SyncFunction GpsAnomalyFunction()
+    private SyncFunction GpsAnomalyFunction(bool? onTrucker = true)
     {
-        var function = DeliveryPatternFunction();
+        _patternFraud.CheckGpsConsistency(default, default, default, default, default!, default!)
+            .ReturnsForAnyArgs(FraudCheckResult.Allowed());
+        // The F-14 GPS check reads the delivery's trip for its woredas: none on record here.
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-trips-table"))
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() });
+        var patterns = new TransactionPatternService(_mockOrderRepo, null, TransactionPatternSettings.Default);
+        // null: the flag as the Lambda reads it from its environment (unset in tests, as in every environment).
+        var function = onTrucker is { } flag
+            ? new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+                fraudService: _patternFraud, userRepo: _mockUserRepo, orderRepo: _mockOrderRepo)
+            { PatternRules = patterns, GpsAnomalyOnTrucker = flag }
+            : new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+                fraudService: _patternFraud, userRepo: _mockUserRepo, orderRepo: _mockOrderRepo)
+            { PatternRules = patterns };
         _patternFraud.CheckGpsConsistency(default, default, default, default, default!, default!)
             .ReturnsForAnyArgs(FraudCheckResult.Flagged("GPS_ANOMALY", GpsWhy));
         _patternFraud.RecordAttributedSignalAsync(default!, default!, default!, default!, default!, default)
             .ReturnsForAnyArgs(AttributedSignalOutcome.Written);
         return function;
     }
+
+    // ── the flag off: exactly the behaviour before ESC-33 ────────────
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public async Task GpsAnomaly_FlagOff_LandsOnTheConfirmingBuyerOnly_AsBefore(bool? flag)
+    {
+        var body = await ConfirmDeliveryAsync(GpsAnomalyFunction(onTrucker: flag), PlainDeliveredRow());
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _patternFraud.Received(1).RecordFraudSignalAsync("buyer-001", "GPS_ANOMALY", "del-001", "delivery", GpsWhy);
+        await _patternFraud.DidNotReceive().RecordFraudSignalAsync(
+            "trucker-001", Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+        await _patternFraud.DidNotReceiveWithAnyArgs().RecordAttributedSignalAsync(default!, default!, default!, default!, default!, default);
+    }
+
+    [Fact]
+    public void GpsAnomaly_TheTruckerRow_IsOffByDefault()
+    {
+        Assert.False(new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table")
+            .GpsAnomalyOnTrucker);
+    }
+
+    // ── the flag on: the same, plus the guarded row on the trucker ───
 
     /// <summary>A written row with no trip to judge, so only the GPS consistency flag speaks.</summary>
     private static Dictionary<string, AttributeValue> PlainDeliveredRow(string deliveryType = "trucker")
@@ -39,8 +78,36 @@ public partial class SyncFunctionTests
         Assert.Contains("\"status\":\"success\"", body);
         await _patternFraud.Received(1).RecordAttributedSignalAsync(
             "trucker-001", "buyer-001", "GPS_ANOMALY", "del-001", "delivery", GpsWhy);
-        // The buyer who confirmed gets nothing, and nothing bypasses the guard.
-        await _patternFraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+        // The buyer whose phone sent the coordinates keeps their own row, as before ESC-33.
+        await _patternFraud.Received(1).RecordFraudSignalAsync("buyer-001", "GPS_ANOMALY", "del-001", "delivery", GpsWhy);
+        // Nothing reaches the trucker past the guard.
+        await _patternFraud.DidNotReceive().RecordFraudSignalAsync(
+            "trucker-001", Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task GpsAnomaly_TwoDeliveriesOfOneTruckerInOneBatch_EachGetsItsOwnGuardedAttempt()
+    {
+        var function = GpsAnomalyFunction();
+        _patternFraud.RecordAttributedSignalAsync("trucker-001", "buyer-001", "GPS_ANOMALY", "del-001", "delivery", GpsWhy)
+            .Returns(AttributedSignalOutcome.AlreadyRecorded);
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "nonce-frd09");
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>()).Returns(new UpdateItemResponse { Attributes = PlainDeliveredRow() });
+        SyncOperationRequest Confirm(string deliveryId) => MakeDeliveryUpdateOp(new Dictionary<string, object>
+        {
+            { "status", "delivered" }, { "version", 1 }, { "scannedQrNonce", "nonce-frd09" }
+        }) with
+        {
+            OperationId = $"op-{deliveryId}", EntityId = deliveryId, IdempotencyKey = $"buyer-001:delivery:{deliveryId}:update:1"
+        };
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(Confirm("del-001"), Confirm("del-002")), "buyer-001", "buyer"), _context);
+
+        Assert.DoesNotContain("\"status\":\"error\"", response.Body);
+        // A skip for the first delivery does not stop the attempt for the second.
+        await _patternFraud.Received(1).RecordAttributedSignalAsync("trucker-001", "buyer-001", "GPS_ANOMALY", "del-001", "delivery", GpsWhy);
+        await _patternFraud.Received(1).RecordAttributedSignalAsync("trucker-001", "buyer-001", "GPS_ANOMALY", "del-002", "delivery", GpsWhy);
     }
 
     [Fact]
@@ -111,7 +178,10 @@ public partial class SyncFunctionTests
             .ReturnsForAnyArgs(FraudCheckResult.Flagged("GPS_ANOMALY", GpsWhy));
         var function = new SyncFunction(
             _mockSyncMeta, cropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
-            fraudService: _patternFraud, userRepo: _mockUserRepo);
+            fraudService: _patternFraud, userRepo: _mockUserRepo)
+        {
+            GpsAnomalyOnTrucker = true
+        };
         SetupDeliveryQuery(SelfPickupDeliveryItem("pending", 1, "sp-nonce", DateTime.UtcNow.AddDays(-1).ToString("o")));
         // The F-14 GPS check reads the delivery's trip for its woredas: a self-pickup has none.
         _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-trips-table"))
@@ -152,7 +222,11 @@ public partial class SyncFunctionTests
     [Fact]
     public async Task NoGpsAnomaly_WritesNothingOnAnyone()
     {
-        var body = await ConfirmDeliveryAsync(DeliveryPatternFunction(), PlainDeliveredRow());
+        var function = GpsAnomalyFunction();
+        _patternFraud.CheckGpsConsistency(default, default, default, default, default!, default!)
+            .ReturnsForAnyArgs(FraudCheckResult.Allowed());
+
+        var body = await ConfirmDeliveryAsync(function, PlainDeliveredRow());
 
         Assert.Contains("\"status\":\"success\"", body);
         await _patternFraud.DidNotReceiveWithAnyArgs().RecordAttributedSignalAsync(default!, default!, default!, default!, default!, default);

@@ -354,10 +354,21 @@ public sealed class FraudDetectionService : IFraudDetectionService
 
     /// <summary>
     /// ESC-33: rows of one type all sources together may put on one target within the table's 30 day life.
-    /// Three <c>GPS_ANOMALY</c> rows are 75, HIGH: other users' requests alone never take a target to
-    /// CRITICAL (100), and never near the page cap of the score read (a truncated read is CRITICAL).
+    /// Two <c>GPS_ANOMALY</c> rows are 50, MEDIUM: other users' requests alone never take a target to HIGH
+    /// or CRITICAL, and never near the page cap of the score read (a truncated read is CRITICAL).
     /// </summary>
-    internal const int AttributedPerTargetCap = 3;
+    internal const int AttributedPerTargetCap = 2;
+
+    /// <summary>
+    /// ESC-33: sort key prefix of the guard's slot rows in the target's partition. <c>!</c> sorts before
+    /// every ISO timestamp, so no read with the key condition <c>signalKey &gt;= since</c> (the score, the
+    /// existence check, the clean-delivery check, the advisory read) ever returns one; a slot row has no
+    /// <c>status</c>, so it is not on the Fraud Review index either.
+    /// </summary>
+    internal const string AttributionSlotPrefix = "!attr#";
+
+    /// <summary>The <c>recordType</c> of a slot row.</summary>
+    internal const string RecordTypeAttributionSlot = "attribution_slot";
 
     /// <summary>Log line of an attributed signal the guard did not write (not alarmed; ids never logged).</summary>
     internal const string AttributedSignalSkippedToken = "FRAUD_ATTRIBUTED_SIGNAL_SKIPPED";
@@ -445,6 +456,31 @@ public sealed class FraudDetectionService : IFraudDetectionService
         }
 
         if (rows >= AttributedPerTargetCap)
+        {
+            return Skipped(AttributedSignalOutcome.TargetCapped);
+        }
+
+        // The counts above are a read, and two confirms that both read "one below the cap" (in two hour
+        // buckets, so the hour key does not stop the second) could both write. The caps are therefore
+        // enforced by conditional puts of slot rows: one slot per source, AttributedPerTargetCap slots per
+        // target, each held for the 30 days its signal row can count. Only a request that holds both
+        // writes the signal, so the caps hold whatever the interleaving.
+        var now = DateTime.UtcNow;
+        if (!await TryClaimSlotAsync(targetUserId, $"{AttributionSlotPrefix}{signalType}#source#{sourceUserId}", now))
+        {
+            return Skipped(AttributedSignalOutcome.SourceCapped);
+        }
+
+        var slot = 0;
+        for (var n = 1; n <= AttributedPerTargetCap && slot == 0; n++)
+        {
+            if (await TryClaimSlotAsync(targetUserId, $"{AttributionSlotPrefix}{signalType}#slot#{n}", now))
+            {
+                slot = n;
+            }
+        }
+
+        if (slot == 0)
         {
             return Skipped(AttributedSignalOutcome.TargetCapped);
         }
@@ -636,6 +672,47 @@ public sealed class FraudDetectionService : IFraudDetectionService
 
     /// <summary>A buyer and a farmer with several funded orders between them in a few days (a regular customer can do it too).</summary>
     internal const string RepeatedPairSignal = "REPEATED_PAIR";
+
+    /// <summary>
+    /// ESC-33: claim one slot row of the attribution guard, atomically. The put succeeds when the slot does
+    /// not exist or its earlier claim has run out (<c>claimedUntil</c> at or before now); a slot is held for
+    /// <see cref="SignalTtlDays"/> days, as long as the signal row it stands for can count in a score, and
+    /// the table's TTL removes it a day later. A slot stays claimed when the signal write after it is then
+    /// held back (the hour limit) or fails: fewer rows, never more.
+    /// </summary>
+    private async Task<bool> TryClaimSlotAsync(string targetUserId, string slotKey, DateTime nowUtc)
+    {
+        try
+        {
+            await _dynamoDb.PutItemAsync(new PutItemRequest
+            {
+                TableName = _fraudSignalsTable,
+                Item = new Dictionary<string, AttributeValue>
+                {
+                    { "userId", new AttributeValue { S = targetUserId } },
+                    { "signalKey", new AttributeValue { S = slotKey } },
+                    { "recordType", new AttributeValue { S = RecordTypeAttributionSlot } },
+                    { "claimedUntil", new AttributeValue { S = nowUtc.AddDays(SignalTtlDays).ToString("o", CultureInfo.InvariantCulture) } },
+                    { "expiresAt", new AttributeValue { N = new DateTimeOffset(nowUtc).AddDays(SignalTtlDays + 1).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture) } }
+                },
+                ConditionExpression = "attribute_not_exists(#k) OR #c <= :now",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#k", "signalKey" },
+                    { "#c", "claimedUntil" }
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":now", new AttributeValue { S = nowUtc.ToString("o", CultureInfo.InvariantCulture) } }
+                }
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
 
     // ESC-33 (section 15.3): the reputation hooks. Written by ReputationService when the event itself is
     // recorded, so only while reputationPenalties is on.

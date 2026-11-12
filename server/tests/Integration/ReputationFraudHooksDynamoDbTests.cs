@@ -16,7 +16,8 @@ namespace WeredaConnect.Server.Tests.Integration;
 /// <summary>
 /// ESC-33 against real DynamoDB (LocalStack in CI), the requests the mocked tests cannot validate:
 /// the attribution guard's Query (filter, projection, consistent read) and its put with the source
-/// attribute, a flood attempt by one buyer and by several, the reliability signals written by a
+/// attribute, the conditional slot rows that hold the caps (in sequence, in parallel, after a claim ran
+/// out), a flood attempt by one buyer and by several, the reliability signals written by a
 /// recorded reputation event on the real events, users and fraud-signals tables, the buyer decline
 /// pattern read on the orders buyer index, and the score reading every new row.
 /// </summary>
@@ -48,7 +49,7 @@ public sealed class ReputationFraudHooksDynamoDbTests
 
     private static string Iso(DateTime at) => at.ToString("o", CultureInfo.InvariantCulture);
 
-    private async Task<List<Dictionary<string, AttributeValue>>> SignalsOf(string userId)
+    private async Task<List<Dictionary<string, AttributeValue>>> PartitionOf(string userId)
         => (await Ddb.QueryAsync(new QueryRequest
         {
             TableName = _db.FraudSignals,
@@ -56,6 +57,25 @@ public sealed class ReputationFraudHooksDynamoDbTests
             ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":u"] = new() { S = userId } },
             ConsistentRead = true
         })).Items;
+
+    /// <summary>The user's signal rows (the guard's slot rows left out).</summary>
+    private async Task<List<Dictionary<string, AttributeValue>>> SignalsOf(string userId)
+        => (await PartitionOf(userId)).Where(r => r["recordType"].S != FraudDetectionService.RecordTypeAttributionSlot).ToList();
+
+    private async Task<List<string>> SlotsOf(string userId)
+        => (await PartitionOf(userId)).Where(r => r["recordType"].S == FraudDetectionService.RecordTypeAttributionSlot)
+            .Select(r => r["signalKey"].S).OrderBy(k => k, StringComparer.Ordinal).ToList();
+
+    /// <summary>A slot row as the guard writes it, claimed until <paramref name="claimedUntil"/>.</summary>
+    private Task SeedSlotAsync(string userId, string slotKey, DateTime claimedUntil)
+        => Ddb.PutItemAsync(_db.FraudSignals, new Dictionary<string, AttributeValue>
+        {
+            ["userId"] = new() { S = userId },
+            ["signalKey"] = new() { S = slotKey },
+            ["recordType"] = new() { S = FraudDetectionService.RecordTypeAttributionSlot },
+            ["claimedUntil"] = new() { S = Iso(claimedUntil) },
+            ["expiresAt"] = new() { N = new DateTimeOffset(claimedUntil).AddDays(1).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture) }
+        });
 
     /// <summary>A signal row as the writer shapes it, keyed at an earlier hour (the writer keeps one row per hour).</summary>
     private Task SeedSignalAsync(string userId, string type, string entityId, int hoursAgo, string? source)
@@ -99,7 +119,8 @@ public sealed class ReputationFraudHooksDynamoDbTests
         created.IsSuccess.Should().BeTrue();
     }
 
-    private Task SeedOrderAsync(string orderId, string buyerId, DateTime createdAt, string? farmerResponse, bool paid = true)
+    private Task SeedOrderAsync(
+        string orderId, string buyerId, DateTime createdAt, string? farmerResponse, bool paid = true, string? farmerId = null)
     {
         var item = new Dictionary<string, AttributeValue>
         {
@@ -107,7 +128,7 @@ public sealed class ReputationFraudHooksDynamoDbTests
             ["createdAt"] = new() { S = Iso(createdAt) },
             ["status"] = new() { S = "rejected" },
             ["buyerId"] = new() { S = buyerId },
-            ["farmerId"] = new() { S = Id("farmer") },
+            ["farmerId"] = new() { S = farmerId ?? Id("farmer") },
             ["version"] = new() { N = "3" }
         };
         if (paid)
@@ -151,10 +172,15 @@ public sealed class ReputationFraudHooksDynamoDbTests
         row["entityId"].S.Should().Be(Id("del-1"));
         row[FraudDetectionService.SourceUserIdAttribute].S.Should().Be(buyer);
         row["recordType"].S.Should().Be("signal");
-        (await SignalsOf(buyer)).Should().BeEmpty("the buyer who confirmed carries nothing");
+        (await PartitionOf(buyer)).Should().BeEmpty("the guard writes nothing on the source");
+        // The two slot rows the write claimed sit in the trucker's partition, before every signal key.
+        (await SlotsOf(trucker)).Should().Equal($"!attr#GPS_ANOMALY#slot#1", $"!attr#GPS_ANOMALY#source#{buyer}");
+        // No reader keyed on the window sees them: the score, the existence check.
         var score = await Fraud().GetUserRiskScoreAsync(trucker);
         score.Score.Should().Be(25);
         score.Truncated.Should().BeFalse();
+        (await Fraud().HasSignalAsync(trucker, "GPS_ANOMALY", Id("del-1"))).Should().BeTrue();
+        (await Fraud().HasSignalAsync(trucker, "GPS_ANOMALY", Id("del-other"))).Should().BeFalse();
     }
 
     [LocalDynamoDbFact]
@@ -181,25 +207,83 @@ public sealed class ReputationFraudHooksDynamoDbTests
     }
 
     [LocalDynamoDbFact]
-    public async Task ManyBuyersTogether_StopAtThreeRows_SoTheTruckerNeverReachesCriticalOnThem()
+    public async Task ManyBuyersTogether_StopAtTwoRows_SoTheTruckerStaysAtMediumOnThem()
     {
         var trucker = Id("trucker-c");
-        for (var i = 1; i <= 3; i++)
+        for (var i = 1; i <= 2; i++)
         {
             await SeedSignalAsync(trucker, "GPS_ANOMALY", Id($"del-{i}"), hoursAgo: i * 10, source: Id($"buyer-c{i}"));
         }
 
-        // A trucker's row of another type does not count toward the cap of this one.
-        await SeedSignalAsync(trucker, "GPS_JUMP", Id("trip-1"), hoursAgo: 5, source: null);
+        var outcomes = new List<AttributedSignalOutcome>();
+        for (var i = 3; i <= 12; i++)
+        {
+            outcomes.Add(await Fraud().RecordAttributedSignalAsync(trucker, Id($"buyer-c{i}"), "GPS_ANOMALY", Id($"del-{i}"), "delivery", "why"));
+        }
 
-        var outcome = await Fraud().RecordAttributedSignalAsync(trucker, Id("buyer-c4"), "GPS_ANOMALY", Id("del-4"), "delivery", "why");
-
-        outcome.Should().Be(AttributedSignalOutcome.TargetCapped);
-        (await SignalsOf(trucker)).Count(r => r["signalType"].S == "GPS_ANOMALY").Should().Be(3);
+        outcomes.Should().OnlyContain(o => o == AttributedSignalOutcome.TargetCapped);
+        (await SignalsOf(trucker)).Should().HaveCount(2);
         var score = await Fraud().GetUserRiskScoreAsync(trucker);
-        score.Score.Should().Be(85);
-        score.Tier.Should().Be(RiskTier.High);
+        score.Score.Should().Be(50);
+        score.Tier.Should().Be(RiskTier.Medium);
         score.Truncated.Should().BeFalse();
+    }
+
+    [LocalDynamoDbFact]
+    public async Task ConfirmsThatAllReadBelowTheCap_AreStoppedByTheSlots()
+    {
+        // The straddling race, made certain: the first buyer's row is written; the second buyer's is held back by
+        // the hour limit but keeps its slot; so a third buyer's read still shows ONE row, below the cap of two.
+        // Only the conditional slot writes stop it.
+        var trucker = Id("trucker-race");
+        (await Fraud().RecordAttributedSignalAsync(trucker, Id("buyer-r1"), "GPS_ANOMALY", Id("del-1"), "delivery", "why"))
+            .Should().Be(AttributedSignalOutcome.Written);
+        (await Fraud().RecordAttributedSignalAsync(trucker, Id("buyer-r2"), "GPS_ANOMALY", Id("del-2"), "delivery", "why"))
+            .Should().Be(AttributedSignalOutcome.HourLimited);
+
+        (await SignalsOf(trucker)).Should().ContainSingle();
+        (await Fraud().RecordAttributedSignalAsync(trucker, Id("buyer-r3"), "GPS_ANOMALY", Id("del-3"), "delivery", "why"))
+            .Should().Be(AttributedSignalOutcome.TargetCapped);
+        // The same in parallel: ten more buyers at once, none gets through.
+        var parallel = await Task.WhenAll(Enumerable.Range(4, 10).Select(i =>
+            Fraud().RecordAttributedSignalAsync(trucker, Id($"buyer-r{i}"), "GPS_ANOMALY", Id($"del-{i}"), "delivery", "why")));
+
+        parallel.Should().OnlyContain(o => o == AttributedSignalOutcome.TargetCapped);
+        (await SignalsOf(trucker)).Should().ContainSingle();
+        (await Fraud().GetUserRiskScoreAsync(trucker)).Score.Should().Be(25);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task ParallelConfirmsOnACleanTrucker_NeverWriteMoreThanTheCap()
+    {
+        var trucker = Id("trucker-par");
+
+        var outcomes = await Task.WhenAll(Enumerable.Range(1, 12).Select(i =>
+            Fraud().RecordAttributedSignalAsync(trucker, Id($"buyer-p{i}"), "GPS_ANOMALY", Id($"del-{i}"), "delivery", "why")));
+
+        // One hour bucket here (two when the test straddles the hour), so one row; what matters is that at
+        // most two requests held a slot.
+        outcomes.Count(o => o == AttributedSignalOutcome.Written).Should().BeInRange(1, FraudDetectionService.AttributedPerTargetCap);
+        outcomes.Count(o => o is AttributedSignalOutcome.Written or AttributedSignalOutcome.HourLimited)
+            .Should().BeLessThanOrEqualTo(FraudDetectionService.AttributedPerTargetCap);
+        (await SignalsOf(trucker)).Count.Should().BeInRange(1, FraudDetectionService.AttributedPerTargetCap);
+        (await SlotsOf(trucker)).Count(k => k.Contains("#slot#")).Should().Be(FraudDetectionService.AttributedPerTargetCap);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task ASlotWhoseClaimRanOut_IsClaimedAgain_AndALiveOneIsNot()
+    {
+        var (trucker, buyer) = (Id("trucker-exp"), Id("buyer-exp"));
+        await SeedSlotAsync(trucker, "!attr#GPS_ANOMALY#slot#1", DateTime.UtcNow.AddDays(3));
+        await SeedSlotAsync(trucker, "!attr#GPS_ANOMALY#slot#2", DateTime.UtcNow.AddMinutes(-1));
+        await SeedSlotAsync(trucker, $"!attr#GPS_ANOMALY#source#{buyer}", DateTime.UtcNow.AddMinutes(-1));
+
+        (await Fraud().RecordAttributedSignalAsync(trucker, buyer, "GPS_ANOMALY", Id("del-1"), "delivery", "why"))
+            .Should().Be(AttributedSignalOutcome.Written);
+        (await Fraud().RecordAttributedSignalAsync(trucker, Id("buyer-exp2"), "GPS_ANOMALY", Id("del-2"), "delivery", "why"))
+            .Should().Be(AttributedSignalOutcome.TargetCapped);
+
+        (await SignalsOf(trucker)).Should().ContainSingle();
     }
 
     [LocalDynamoDbFact]
@@ -213,6 +297,19 @@ public sealed class ReputationFraudHooksDynamoDbTests
             .Should().Be(AttributedSignalOutcome.HourLimited);
 
         (await SignalsOf(trucker)).Should().ContainSingle();
+    }
+
+    [LocalDynamoDbFact]
+    public async Task TheCallersOwnSignal_NeedsNoGuardAndNoSlot()
+    {
+        var buyer = Id("buyer-self");
+
+        await Fraud().RecordFraudSignalAsync(buyer, "GPS_ANOMALY", Id("del-1"), "delivery", "why");
+
+        var row = (await PartitionOf(buyer)).Should().ContainSingle().Subject;
+        row["signalType"].S.Should().Be("GPS_ANOMALY");
+        row.Should().NotContainKey(FraudDetectionService.SourceUserIdAttribute);
+        (await Fraud().GetUserRiskScoreAsync(buyer)).Score.Should().Be(25);
     }
 
     // ===== the reliability signals of a recorded reputation event =====
@@ -250,7 +347,7 @@ public sealed class ReputationFraudHooksDynamoDbTests
         var now = DateTime.UtcNow;
         await SeedOrderAsync(Id("o1"), buyer, now.AddDays(-12), "declined");
         await SeedOrderAsync(Id("o2"), buyer, now.AddDays(-5), "expired");
-        await SeedOrderAsync(Id("o3"), buyer, now.AddHours(-1), "declined");
+        await SeedOrderAsync(Id("o3"), buyer, now.AddHours(-1), "declined", farmerId: farmer);
         await SeedOrderAsync(Id("unpaid"), buyer, now.AddDays(-2), "declined", paid: false);
         await SeedOrderAsync(Id("old"), buyer, now.AddDays(-45), "declined");
         var orders = new OrderRepository(Ddb, _db.Orders);
@@ -266,10 +363,31 @@ public sealed class ReputationFraudHooksDynamoDbTests
         var row = (await SignalsOf(buyer)).Should().ContainSingle().Subject;
         row["signalType"].S.Should().Be("BUYER_DECLINE_PATTERN");
         row["entityId"].S.Should().Be(Id("o3"));
-        row["description"].S.Should().Contain("3 of the buyer's paid orders in 30 days");
+        row["description"].S.Should().StartWith("2 farmers or truckers").And.Contain("3 of the buyer's paid orders in 30 days");
         (await SignalsOf(farmer)).Should().BeEmpty("declining costs the farmer a reputation point, not a fraud signal");
         var score = await Fraud().GetUserRiskScoreAsync(buyer);
         score.Score.Should().Be(10);
         score.Tier.Should().Be(RiskTier.Low);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task OneFarmerDecliningOneBuyerThreeTimes_FlagsNobody()
+    {
+        var (farmer, buyer) = (Id("farmer-g"), Id("buyer-g"));
+        await SeedUserAsync(farmer, "farmer");
+        var now = DateTime.UtcNow;
+        await SeedOrderAsync(Id("g1"), buyer, now.AddDays(-12), "declined", farmerId: farmer);
+        await SeedOrderAsync(Id("g2"), buyer, now.AddDays(-5), "expired", farmerId: farmer);
+        await SeedOrderAsync(Id("g3"), buyer, now.AddHours(-1), "declined", farmerId: farmer);
+        var orders = new OrderRepository(Ddb, _db.Orders);
+        for (var i = 0; i < 20 && (await orders.QueryOrdersAsync(buyerId: buyer, limit: 50)).Items.Count < 3; i++)
+        {
+            await Task.Delay(100);
+        }
+
+        var candidate = Candidate(farmer, "farmer", ReputationCodes.DeclinedRequest, ReputationSlots.Request, Id("g3"), buyer);
+        (await Reputation().RecordAsync(candidate, timeoutPenaltiesOn: false, _logger)).Should().Be(ReputationRecordResult.Recorded);
+
+        (await PartitionOf(buyer)).Should().BeEmpty();
     }
 }
