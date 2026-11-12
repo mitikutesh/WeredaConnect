@@ -18,6 +18,9 @@ namespace WeredaConnect.Server.Tests.Functions;
 /// amount 0 or more with 2 decimals, the farmer at most the crop leg, the trucker at most the transport
 /// leg, the three adding up to the legs held with the commission kept when the farmer is paid), refused
 /// with <c>400 ADMIN_021</c> naming the field, and recorded with the verdict while the crop leg is held.
+/// FUP-174 (2.15.0): a split that can be recorded needs the admin's reason (<c>notes</c>, 10 to 500 characters),
+/// which lands in its escrow-audit row; the recorded split again on a <c>dispute_resolved</c> escrow is a replay even
+/// after the sweep decided its legs.
 /// </summary>
 public class AdminFunctionSplitVerdictTests
 {
@@ -34,6 +37,33 @@ public class AdminFunctionSplitVerdictTests
     private static AttributeValue S(string value) => new() { S = value };
 
     private static AttributeValue N(string value) => new() { N = value };
+
+    private const string Reason = "Two of the ten bags arrived wet; the rest was fine.";
+
+    /// <summary>
+    /// The split of 9,000 / 1,500 / 6,000 recorded on <see cref="LedgerEscrow"/> with <paramref name="status"/>, after the
+    /// sweep decided its legs (the crop and transport legs released, the commission kept, 6,000 back to the buyer).
+    /// </summary>
+    private static Dictionary<string, AttributeValue> DecidedSplit(string status = "dispute_resolved")
+    {
+        var item = LedgerEscrow(true,
+            ("disputeResolution", S("partial_refund")),
+            ("disputeResolvedAt", S("2026-09-21T10:00:00.0000000Z")),
+            ("disputeResolvedBy", S("admin-1")),
+            ("verdictAmounts", new AttributeValue
+            {
+                M = new Dictionary<string, AttributeValue> { ["farmerAmount"] = N("9000"), ["truckerAmount"] = N("1500"), ["buyerRefund"] = N("6000") }
+            }));
+        item["status"] = S(status);
+        item["legStatus"] = new AttributeValue
+        {
+            M = new Dictionary<string, AttributeValue> { ["crop"] = S("released"), ["transport"] = S("released"), ["commission"] = S("kept") }
+        };
+        item["farmerPayout"] = N("9000");
+        item["refundedTotal"] = N("6000");
+        item["releasedTotal"] = N("10500");
+        return item;
+    }
 
     /// <summary>A disputed ledger escrow: 15,000 crop, 1,500 transport, 750 commission, every leg held.</summary>
     private static Dictionary<string, AttributeValue> LedgerEscrow(bool ledger = true, params (string Key, AttributeValue Value)[] extra)
@@ -96,7 +126,8 @@ public class AdminFunctionSplitVerdictTests
 
         var response = await _function.FunctionHandler(Resolve(new
         {
-            resolution = "partial_refund", action = "split", farmerAmount = 9000.00m, truckerAmount = 1500.00m, buyerRefund = 6000.00m
+            resolution = "partial_refund", action = "split", farmerAmount = 9000.00m, truckerAmount = 1500.00m, buyerRefund = 6000.00m,
+            notes = Reason
         }), _context);
 
         response.StatusCode.Should().Be(200);
@@ -178,10 +209,149 @@ public class AdminFunctionSplitVerdictTests
 
         var response = await _function.FunctionHandler(Resolve(new
         {
-            resolution = "partial_refund", action = "split", farmerAmount = 8000m, truckerAmount = 1500m, buyerRefund = 7000m
+            resolution = "partial_refund", action = "split", farmerAmount = 8000m, truckerAmount = 1500m, buyerRefund = 7000m,
+            notes = Reason
         }), _context);
 
         response.StatusCode.Should().Be(409);
         response.Body.Should().Contain("ADMIN_010").And.Contain("different split");
+    }
+
+    // ──────────────────────────────────────────────
+    // FUP-174: the split's reason
+    // ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  too short  ")]
+    [InlineData("x501")]
+    public async Task ASplitWithoutAReason_IsRefused_Admin014_NamingNotes_AndNothingIsWritten(string? notes)
+    {
+        EscrowReads(LedgerEscrow());
+
+        var response = await _function.FunctionHandler(Resolve(new
+        {
+            resolution = "partial_refund", action = "split", farmerAmount = 9000m, truckerAmount = 1500m, buyerRefund = 6000m,
+            notes = notes == "x501" ? new string('x', 501) : notes
+        }), _context);
+
+        response.StatusCode.Should().Be(400);
+        response.Body.Should().Contain("ADMIN_014").And.Contain("\"field\":\"notes\"");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TheSplitsReason_LandsTrimmedInItsEscrowAuditRow_AfterTheAmounts()
+    {
+        EscrowReads(LedgerEscrow());
+        var function = new AdminFunction(_dynamoDb, "users-test", ordersTable: "", escrowsTable: "escrows-test",
+            deliveriesTable: "", escrowAuditTable: "escrow-audit-test");
+
+        var response = await function.FunctionHandler(Resolve(new
+        {
+            resolution = "partial_refund", action = "split", farmerAmount = 9000m, truckerAmount = 1500m, buyerRefund = 6000m,
+            notes = $"  {Reason}  "
+        }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        await _dynamoDb.Received(1).PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.TableName == "escrow-audit-test"
+                                        && p.Item["action"].S == "admin_dispute_resolved"
+                                        && p.Item["metadata"].S
+                                        == $"partial_refund;farmerAmount=9000;truckerAmount=1500;buyerRefund=6000;reason={Reason}"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("farmer_wins", "release")]
+    [InlineData("buyer_wins", "refund")]
+    public async Task TheSingleVerdicts_StillNeedNoNotes(string resolution, string action)
+    {
+        EscrowReads(LedgerEscrow());
+
+        var response = await _function.FunctionHandler(Resolve(new { resolution, action }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        await _dynamoDb.Received(1).UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    // ──────────────────────────────────────────────
+    // FUP-174: the recorded split again, after the sweep decided its legs
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task TheRecordedSplitAgain_AfterTheSweepDecidedItsLegs_IsAReplay_NotAdmin021()
+    {
+        // An old admin page replays from the Disputes list without notes: a replay records nothing, so it needs none.
+        EscrowReads(DecidedSplit(), DecidedSplit());
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("already resolved"));
+
+        var response = await _function.FunctionHandler(Resolve(new
+        {
+            resolution = "partial_refund", action = "split", farmerAmount = 9000.00m, truckerAmount = 1500m, buyerRefund = 6000m
+        }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        response.Body.Should().Contain("Verdict already recorded.").And.Contain("\"verdictAmounts\"");
+        // The only write tried is the verdict's own, which DynamoDB refuses: still disputed, crop leg still held.
+        await _dynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(u => u.ConditionExpression.StartsWith("#status = :disputed")
+                                           && u.ConditionExpression.EndsWith(" AND " + EscrowRepository.LedgerCropHeldCondition)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(8000.0, 1500.0, 7000.0)]
+    [InlineData(9000.0, 1500.0, 6000.01)]
+    public async Task OtherAmounts_AfterTheSweepDecidedTheLegs_AreStillRefused_Admin021(double farmer, double trucker, double buyer)
+    {
+        EscrowReads(DecidedSplit());
+
+        var response = await _function.FunctionHandler(Resolve(new
+        {
+            resolution = "partial_refund", action = "split",
+            farmerAmount = (decimal)farmer, truckerAmount = (decimal)trucker, buyerRefund = (decimal)buyer, notes = Reason
+        }), _context);
+
+        response.StatusCode.Should().Be(400);
+        response.Body.Should().Contain("ADMIN_021");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("completed")]
+    [InlineData("released")]
+    [InlineData("held")]
+    public async Task TheRecordedSplitAgain_PastDisputeResolved_KeepsTheRefusal_Admin021(string status)
+    {
+        EscrowReads(DecidedSplit(status));
+
+        var response = await _function.FunctionHandler(Resolve(new
+        {
+            resolution = "partial_refund", action = "split", farmerAmount = 9000m, truckerAmount = 1500m, buyerRefund = 6000m
+        }), _context);
+
+        response.StatusCode.Should().Be(400);
+        response.Body.Should().Contain("ADMIN_021");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ASplitOnAnEscrowWithAnotherVerdict_IsStillCheckedAgainstTheLegsHeld()
+    {
+        var other = DecidedSplit();
+        other["disputeResolution"] = S("farmer_wins");
+        EscrowReads(other);
+
+        var response = await _function.FunctionHandler(Resolve(new
+        {
+            resolution = "partial_refund", action = "split", farmerAmount = 9000m, truckerAmount = 1500m, buyerRefund = 6000m
+        }), _context);
+
+        response.StatusCode.Should().Be(400);
+        response.Body.Should().Contain("ADMIN_021");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
     }
 }

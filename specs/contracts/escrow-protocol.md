@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.13.0
+2.15.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -4439,7 +4439,9 @@ in the 1.9.0 conditional write, plus the condition that the crop leg is held; th
 replay, a different one `409 ADMIN_010`. The order and delivery follow it as `farmer_wins` (a split needs
 the goods delivered; the `farmer_wins` dispositions apply), also when `farmerAmount` is 0: an admin who
 wants the order handled on the buyer's side before delivery records `buyer_wins` instead. The response
-carries `verdictAmounts`.
+carries `verdictAmounts`. Since 2.15.0 (FUP-174) a split that can be recorded needs `notes` (the reason),
+and the recorded split again on a `dispute_resolved` escrow is a replay even after its legs are decided
+("Additions in 2.15.0").
 **Built differently from P.8:** the `verdict#...` rows are not written in the verdict's write; the hourly
 verdict sweep settles the split like the other verdicts (risk gate, verdict mirror, identity gate of each
 payee that gets money, then one decision for the three rows), so no money is decided in the admin Lambda
@@ -5114,6 +5116,69 @@ The same check runs before the retry of a refund that failed after the sweep's o
   and a `disputed` escrow waits for its verdict. Busy states with no other watcher only warn: a ledger
   escrow whose crop leg is already decided, or a `dispute_resolved` escrow, on an order still before
   pickup (bad data only; neither is reachable through the app).
+
+## Additions in 2.15.0 (the split verdict's replay and its reason, FUP-174; the Disputes list's per-leg link, FUP-173)
+
+`POST /admin/disputes/{id}/resolve` with `resolution: partial_refund` and `action: split` (2.2.0, P.8).
+
+### The recorded split again after the sweep decided its legs (FUP-174)
+
+The verdict sweep decides a split's legs while the escrow is still `dispute_resolved`: it stays there
+until a farmer payout is `done` (P.5), which on the live gateway means until an admin records it in
+Manual Payouts. Before 2.15.0 the split was checked against the legs held (`400 ADMIN_021`) before the
+replay, so the same split again (a double click, or the admin adding the disposition the order needs)
+was refused once the crop leg was decided, and the disposition could not be recorded.
+
+Now a split whose three amounts equal the escrow's `verdictAmounts`, on an escrow that is
+`dispute_resolved` with `disputeResolution: partial_refund`, is not checked against the legs held. The
+verdict's conditional write (status `disputed`, the crop leg held) still refuses it, and the replay of
+1.9.0 and 1.21.0 answers as for any verdict:
+
+| The escrow | Response |
+|---|---|
+| The order and delivery follow the verdict | `200`, "Verdict already recorded.", with `verdictAmounts` |
+| The order needs a disposition, none sent and none recorded | `422 ADMIN_015` |
+| The order needs a disposition, one sent with its reason | the disposition is recorded (conditional, as 1.21.0) and applied to the order and delivery; `200` |
+
+The replay decides no money: no ledger row, leg, leg amount or total changes, and the escrow's status
+does not move. Every other split keeps its answer: other amounts are `400 ADMIN_021` once the crop leg
+is decided (`409 ADMIN_010` while it is still held), the same split on an escrow with another verdict is
+checked against the legs held, and the same split on an escrow past `dispute_resolved` (`released`,
+`completed`, `refunded`, `held`) keeps `400 ADMIN_021` once its crop leg is decided.
+
+### The split's reason (FUP-174)
+
+A split on a `disputed` escrow (one the request can still record) needs `notes`, the admin's reason:
+10 to 500 characters after trimming, the rule of the disposition reason (1.21.0). Otherwise it is
+`400 ADMIN_014` with `field: notes`, after the amount checks (`ADMIN_021`) and before anything is
+written. The trimmed reason is kept in the verdict's escrow-audit row `admin_dispute_resolved`, last
+because it is free text:
+
+```
+partial_refund;farmerAmount=9000;truckerAmount=1500;buyerRefund=6000;reason=Two of the ten bags arrived wet.
+```
+
+The outcome label keeps its rule (FRD-18: the disposition's reason, else `notes`). A replay of a
+recorded split needs no `notes`, because it records nothing new. `farmer_wins` and `buyer_wins` keep
+`notes` optional and their audit metadata unchanged.
+
+### Clients
+
+- **Admin page builds already deployed:** the per-leg form (2.7.0, ESC-24) requires the reason in the
+  page and sends it as `notes`, trimmed, 10 to 500 characters, so a new split from it is accepted. The
+  Disputes list's awaiting tab replays a recorded split with its own amounts and no `notes` ("Choose
+  what happens"); that request is a replay and is accepted too.
+- **Disputes list (FUP-173):** an open dispute on a ledger escrow whose crop leg is held links to its
+  dispute page with the per-leg form open (`/disputes/{id}?decide=split`), next to Farmer Wins and
+  Buyer Wins. Other rows keep the two single verdicts. The admin string of `ADMIN_014` names the three
+  verdicts and the reason rule (en, am, om).
+- Mobile and web apps do not call this route.
+
+### Not in 2.15.0 (known limits)
+
+- The verdict's escrow-audit row is still written best-effort after the verdict: a failed write logs a
+  warning and a replay does not write it again, so a lost row loses the split's reason with it (the
+  outcome label still carries `notes` when no disposition was chosen). FUP-270.
 
 ---
 

@@ -314,7 +314,8 @@ public sealed class EscrowLedgerDynamoDbTests
             Path = $"/admin/disputes/{escrowId}/resolve",
             Body = JsonSerializer.Serialize(new
             {
-                resolution = "partial_refund", action = "split", farmerAmount = 9000m, truckerAmount = 1500m, buyerRefund = 6000m
+                resolution = "partial_refund", action = "split", farmerAmount = 9000m, truckerAmount = 1500m, buyerRefund = 6000m,
+                notes = "Two of the ten bags arrived wet."
             }),
             RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
             {
@@ -344,8 +345,12 @@ public sealed class EscrowLedgerDynamoDbTests
         var rows = await Ledger.GetRowsAsync(escrowId);
         rows.Should().OnlyContain(r => r.Status == "done");
         EscrowLedgerBook.CheckInvariants(state, rows.Select(r => (r.Ref, r.Amount))).Should().BeNull();
-        var actions = (await AuditAsync(escrowId)).Select(r => (string)r["action"]).ToList();
+        var audit = await AuditAsync(escrowId);
+        var actions = audit.Select(r => (string)r["action"]).ToList();
         actions.Should().Contain("admin_dispute_resolved");
         actions.Count(a => a == "ledger_done").Should().Be(3);
+        // FUP-174: the split's reason is in its escrow-audit row.
+        audit.Single(r => (string)r["action"] == "admin_dispute_resolved")["metadata"].Should()
+            .Be("partial_refund;farmerAmount=9000;truckerAmount=1500;buyerRefund=6000;reason=Two of the ten bags arrived wet.");
     }
 }

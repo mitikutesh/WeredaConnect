@@ -547,6 +547,7 @@ public partial class AdminFunction
 
         // ESC-20 (P.8): a split is checked against the legs still held before anything is recorded.
         VerdictAmounts? split = null;
+        string? splitReason = null;
         if (body.Resolution == DisputeVerdicts.PartialRefund)
         {
             var escrow = DynamoDbHelper.FromItem(item);
@@ -565,13 +566,36 @@ public partial class AdminFunction
                     "A split needs farmerAmount, truckerAmount and buyerRefund.", missing);
             }
 
-            var (_, splitRefusal) = EscrowLedgerBook.PlanSplit(LedgerEscrow.From(escrow), farmerAmount, truckerAmount, buyerRefund, "verdict");
-            if (splitRefusal != null)
+            split = new VerdictAmounts(farmerAmount, truckerAmount, buyerRefund);
+
+            // FUP-174: the same split again on an escrow whose split is recorded and not settled yet is a replay,
+            // which records nothing and may add the disposition. The sweep may have decided the legs already, so
+            // it is not checked against the legs held; the conditional write below still sends it to the replay.
+            var status = item.TryGetValue("status", out var splitStatus) ? splitStatus.S : null;
+            var replaysRecordedSplit = status == "dispute_resolved"
+                                       && item.TryGetValue("disputeResolution", out var recordedVerdict)
+                                       && recordedVerdict.S == DisputeVerdicts.PartialRefund
+                                       && VerdictAmounts.From(escrow) == split;
+            if (!replaysRecordedSplit)
             {
-                return LambdaResponse.Error(400, "ADMIN_021", splitRefusal.Message, splitRefusal.Field);
+                var (_, splitRefusal) = EscrowLedgerBook.PlanSplit(LedgerEscrow.From(escrow), farmerAmount, truckerAmount, buyerRefund, "verdict");
+                if (splitRefusal != null)
+                {
+                    return LambdaResponse.Error(400, "ADMIN_021", splitRefusal.Message, splitRefusal.Field);
+                }
             }
 
-            split = new VerdictAmounts(farmerAmount, truckerAmount, buyerRefund);
+            // FUP-174: a split that can still be recorded carries the admin's reason (notes), kept in its
+            // escrow-audit row. A replay records nothing new, so it needs none.
+            if (status == "disputed")
+            {
+                splitReason = body.Notes?.Trim() ?? "";
+                if (splitReason.Length is < 10 or > 500)
+                {
+                    return LambdaResponse.Error(400, "ADMIN_014",
+                        "notes must be 10 to 500 characters with partial_refund: the reason for the split.", "notes");
+                }
+            }
         }
 
         // FUP-16: decide the order and the delivery before the verdict is written. A verdict they
@@ -735,7 +759,9 @@ public partial class AdminFunction
                     { "metadata", split == null
                         ? body.Resolution
                         : $"{body.Resolution};farmerAmount={UnappliedPayments.FormatAmount(split.FarmerAmount)};"
-                          + $"truckerAmount={UnappliedPayments.FormatAmount(split.TruckerAmount)};buyerRefund={UnappliedPayments.FormatAmount(split.BuyerRefund)}" }
+                          + $"truckerAmount={UnappliedPayments.FormatAmount(split.TruckerAmount)};buyerRefund={UnappliedPayments.FormatAmount(split.BuyerRefund)}"
+                          // FUP-174: the split's reason, last because it is free text.
+                          + (splitReason == null ? "" : $";reason={splitReason}") }
                 });
             }
             catch (Exception ex)
