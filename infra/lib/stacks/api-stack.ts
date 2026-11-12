@@ -3190,8 +3190,10 @@ export class ApiStack extends cdk.Stack {
     // items, which this transaction has none of).
     // FUP-05: a manual payout record writes its reference item (payout-ref#...) the same way, in the
     // record's transaction, and a refused duplicate reads that item (GetItem, strongly consistent) to
-    // name where the reference is used. No update, delete, Query or Scan.
-    props.escrowIdempotencyTable.grant(adminFn.function, "dynamodb:PutItem", "dynamodb:GetItem");
+    // name where the reference is used. FUP-218: the correction of a recorded reference deletes the old
+    // reference item in its transaction (a conditional Delete: DeleteItem), only while the item names the
+    // corrected leg. No update, Query or Scan.
+    props.escrowIdempotencyTable.grant(adminFn.function, "dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:DeleteItem");
     // FRD-07: the read grant covers the table's indexes too, so Fraud Review and the dashboard
     // count Query the sparse StatusCreatedAtIndex instead of scanning the table.
     props.fraudSignalsTable.grantReadWriteData(adminFn.function);
@@ -3300,7 +3302,8 @@ export class ApiStack extends cdk.Stack {
       "/admin/users/{id}/action",
       // ESC-02: record an admin-paid manual payout leg ({action} = complete). FUP-05: claim a leg before
       // paying it (claim) and give it back (unclaim); a claim is a conditional UpdateItem on the escrow row
-      // or the ledger row (existing grants). One route for the three: with Telebirr live on, this stack
+      // or the ledger row (existing grants). FUP-218: correct, the reference of a recorded leg (the
+      // escrow-idempotency DeleteItem grant above). One route for them all: with Telebirr live on, this stack
       // then held 497 of CloudFormation's 500 resources (FUP-217 has since freed room). The Lambda
       // answers 404 ADMIN_002 for any other action; admin group checked there.
       "/admin/payouts/{escrowId}/{ref}/{action}",

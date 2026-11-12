@@ -301,7 +301,27 @@
     "claimedByYou": "Kutaa kana ati kaffalaa jirta (hanga {time} tti qabameera).",
     "claimedByOther": "Bulchaan biraa kaffalaa jira",
     "claimedByOtherHint": "{admin}n hanga {time} tti qabameera. Poortaalii keessatti hin kaffalin.",
-    "duplicateRef": "Eenyummaan daldala Telebirr kun duraanuu escrow {escrowId}, kutaa {ref} irratti galmaa'eera. Eenyummaa sana poortaalii keessatti mirkaneessi: kaffaltiin tokko si'a lama galmaa'uu hin danda'u."
+    "duplicateRef": "Eenyummaan daldala Telebirr kun duraanuu escrow {escrowId}, kutaa {ref} irratti galmaa'eera. Eenyummaa sana poortaalii keessatti mirkaneessi: kaffaltiin tokko si'a lama galmaa'uu hin danda'u.",
+    "openToCorrect": "Eenyummaa achitti galmaa'e sirreessuuf escrow {escrowId} bani."
+  },
+  "correctRef": {
+    "action": "Wabii sirreessi",
+    "title": "Eenyummaa daldala Telebirr galmaa'e sirreessi",
+    "hint": "Kana kan fayyadamtu yoo kutaan kun eenyummaa dogoggoraan galmaa'e qofa. Homtuu hin kaffalamu, hin deebi'u: eenyummaa galmaa'e qofatu jijjiirama, galmeen odiitii lamaanuu ni qabata.",
+    "current": "Eenyummaa galmaa'e",
+    "newRef": "Eenyummaa daldala Telebirr sirrii",
+    "reason": "Eenyummaan galmaa'e maaliif dogoggora akka ta'e",
+    "reasonHint": "Qubee 10 hanga 500. Galmee odiitii keessatti kuufama.",
+    "review": "Ilaali",
+    "confirmQuestion": "Kutaa kana irratti {oldRef} bakka {newRef}n buusi?",
+    "confirm": "Eeyyee, sirreessi",
+    "back": "Deebi'i",
+    "cancel": "Haqi",
+    "done": "Wabiin sirreeffameera.",
+    "already": "Kutaan kun eenyummaa sana duraanuu qaba.",
+    "sameRef": "Eenyummaa kan galmaa'e irraa adda ta'e galchi.",
+    "changed": "Erga fuulli fe'amee kutaan kun jijjiirameera. Irra deebitee yaaluu kee dura fuula irra deebi'ii fe'ii eenyummaa isaa mirkaneessi.",
+    "notCorrectable": "Kutaan kun asitti sirreeffamuu hin danda'u: ammallee hin galmoofne, ykn gateway'n kaffalameera."
   },
   "listingReports": {
     "title": "Gabaasa Tarreewwanii",
@@ -720,7 +740,9 @@
     "action_reputation_tagged": "Mallattoon maqaa gaarii gadi aanaa kaa'ame (bulchaa)",
     "action_reputation_untagged": "Mallattoon maqaa gaarii gadi aanaa dhokfame (bulchaa)",
     "action_reputation_restricted": "Herregni daangeffame (bulchaa)",
-    "action_reputation_lifted": "Daangaan ka'e (bulchaa)"
+    "action_reputation_lifted": "Daangaan ka'e (bulchaa)",
+    "action_manual_payout_ref_corrected": "Wabiin kaffaltii sirreeffame (bulchaa)",
+    "action_admin_manual_payout_ref_corrected": "Wabiin kaffaltii sirreeffame (bulchaa)"
   },
   "analytics": {
     "title": "Hanga Daldala",
@@ -850,7 +872,8 @@
     "REPUTATION_ALREADY_RESTRICTED": "Herregni kun duraan daangaa qaba. Dura kaasi, sana booda irra deebi'ii daangessi.",
     "REPUTATION_UNAVAILABLE": "Naannoo kana keessatti adabbiin maqaa gaarii dhaamaa jira, kanaaf wanti jijjiiramu hin jiru.",
     "REPUTATION_SERVER_ERROR": "Sarvariin kana xumuruu hin dandeenye. Yeroo muraasa booda irra deebi'ii yaali.",
-    "REPUTATION_APPEAL_CHANGED": "Erga fuulli kun fe'amee booda ol'iyyannoon jijjiirameera. Fuulli irra deebi'ee fe'ameera: ol'iyyannoo dubbisi, sana booda irra deebi'ii murteessi."
+    "REPUTATION_APPEAL_CHANGED": "Erga fuulli kun fe'amee booda ol'iyyannoon jijjiirameera. Fuulli irra deebi'ee fe'ameera: ol'iyyannoo dubbisi, sana booda irra deebi'ii murteessi.",
+    "ESCROW_048": "Sirreeffama kanaaf sababa qubee 10 hanga 500 qabu kenni."
   },
   "language": {
     "english": "English",
@@ -939,7 +962,10 @@
     "errorFarmerMax": "Qonnaan bulaan yoo baay'ate kutaa midhaanii qabame argachuu danda'a.",
     "errorTruckerAmount": "Hanga konkolaachisaa galchi: 0 ykn isaa ol, yoo baay'ate deesimaalii 2.",
     "errorTruckerMax": "Konkolaachisaan yoo baay'ate kutaa geejjibaa qabame argachuu danda'a.",
-    "errorNoTrucker": "Eskiroon kun konkolaachisaa kaffalamu hin qabu, kanaaf kutaan geejjibaa bitataaf deebi'a."
+    "errorNoTrucker": "Eskiroon kun konkolaachisaa kaffalamu hin qabu, kanaaf kutaan geejjibaa bitataaf deebi'a.",
+    "manualLegsTitle": "Kaffaltii Harkaan",
+    "manualLegsHint": "Kutaalee kaffaltii harkaa escrow kanaa. Kutaan eenyummaa daldala Telebirr dogoggoraan galmaa'e asitti sirreeffamuu danda'a.",
+    "paidByGateway": "Gateway'n kan kaffalame"
   },
   "stuckOrders": {
     "title": "Ajajawwan Dhaabbatan",

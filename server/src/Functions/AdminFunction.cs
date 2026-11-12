@@ -38,6 +38,7 @@ namespace WeredaConnect.Server.Functions;
 /// - POST /admin/payouts/{escrowId}/{ref}/complete → record an admin-paid leg (admin group only)
 /// - POST /admin/payouts/{escrowId}/{ref}/claim    → claim a leg before paying it (admin group only, FUP-05)
 /// - POST /admin/payouts/{escrowId}/{ref}/unclaim  → give a claimed leg back (admin group only, FUP-05)
+/// - POST /admin/payouts/{escrowId}/{ref}/correct  → replace a recorded leg's portal reference (admin group only, FUP-218)
 /// - GET  /admin/payments/unapplied      → captured payments the webhook did not apply (FUP-02)
 /// - POST /admin/payments/{orderId}/refund-manual → record their manual refund (admin group only)
 /// - GET  /admin/deliveries/{id}/trail → the trip trail of a delivery, dispute evidence (admin group only, LT-13)
@@ -224,6 +225,7 @@ public partial class AdminFunction
                 ("POST", ["admin", "payouts", _, _, "complete"]) => await HandleCompleteManualPayoutAsync(segments[2], segments[3], request, context),
                 ("POST", ["admin", "payouts", _, _, "claim"]) => await HandleClaimManualPayoutAsync(segments[2], segments[3], request, context, claim: true),
                 ("POST", ["admin", "payouts", _, _, "unclaim"]) => await HandleClaimManualPayoutAsync(segments[2], segments[3], request, context, claim: false),
+                ("POST", ["admin", "payouts", _, _, "correct"]) => await HandleCorrectPayoutReferenceAsync(segments[2], segments[3], request, context),
                 ("GET", ["admin", "payments", "unapplied"]) => await HandleListUnappliedPaymentsAsync(request),
                 ("POST", ["admin", "payments", _, "refund-manual"]) => await HandleRecordManualRefundAsync(segments[2], request, context),
                 ("GET", ["admin", "deliveries", _, "trail"]) => await HandleDeliveryTrailAsync(segments[2], request, context),
@@ -1250,7 +1252,11 @@ public partial class AdminFunction
             ManualPayoutClaims = string.IsNullOrEmpty(_escrowIdempotencyTable)
                 ? null
                 : new ManualPayoutClaimRepository(_dynamoDb, _escrowsTable, LedgerTable, _escrowIdempotencyTable),
-            PayoutReferenceTable = _escrowIdempotencyTable
+            PayoutReferenceTable = _escrowIdempotencyTable,
+            // FUP-218: the transaction that corrects a recorded leg's reference and moves its reference item.
+            PayoutReferenceCorrections = string.IsNullOrEmpty(_escrowIdempotencyTable)
+                ? null
+                : new PayoutReferenceCorrectionRepository(_dynamoDb, _escrowsTable, LedgerTable, _escrowIdempotencyTable, _escrowAuditTable)
         };
     }
 
@@ -3686,7 +3692,9 @@ public partial class AdminFunction
             LegStatus = LegStatusOf(item),
             RefundedTotal = LedgerEscrowFields.IsLedger(item) ? GetDecimal(item, LedgerEscrowFields.RefundedTotal) : null,
             ReleasedTotal = LedgerEscrowFields.IsLedger(item) ? GetDecimal(item, LedgerEscrowFields.ReleasedTotal) : null,
-            VerdictAmounts = VerdictAmountsOf(item)
+            VerdictAmounts = VerdictAmountsOf(item),
+            // FUP-218: the 1.x manual payout legs, so a reference recorded by mistake can be corrected.
+            ManualLegs = ManualLegsOf(item)
         };
     }
 

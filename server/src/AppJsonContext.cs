@@ -103,6 +103,11 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(CompleteManualPayoutRequest))]
 [JsonSerializable(typeof(CompleteManualPayoutResponse))]
 [JsonSerializable(typeof(ManualPayoutClaimResponse))]
+// Correction of a recorded payout reference (FUP-218, admin)
+[JsonSerializable(typeof(CorrectPayoutReferenceRequest))]
+[JsonSerializable(typeof(CorrectPayoutReferenceResponse))]
+[JsonSerializable(typeof(AdminManualLegDto))]
+[JsonSerializable(typeof(List<AdminManualLegDto>))]
 // Manual refund of an unapplied payment (FUP-02, admin)
 [JsonSerializable(typeof(UnappliedPaymentDto))]
 [JsonSerializable(typeof(List<UnappliedPaymentDto>))]

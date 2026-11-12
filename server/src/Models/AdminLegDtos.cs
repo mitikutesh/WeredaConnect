@@ -38,6 +38,27 @@ public sealed record AdminTruckerLegDto
     public string? TelebirrRef { get; init; }
 }
 
+/// <summary>
+/// FUP-218: one leg of a 1.x escrow's manual payout (escrow-protocol.md 1.8.0), on the admin escrow DTO. A leg an
+/// admin recorded (<see cref="PaidBy"/> not <c>gateway</c>) can have its reference corrected
+/// (<c>POST /admin/payouts/{escrowId}/{ref}/correct</c>).
+/// </summary>
+public sealed record AdminManualLegDto
+{
+    /// <summary><c>farmer</c>, <c>trucker</c> or <c>buyer</c>.</summary>
+    public required string Ref { get; init; }
+
+    /// <summary><c>pending</c> or <c>paid</c>.</summary>
+    public required string Status { get; init; }
+
+    /// <summary>The recorded portal reference (or the gateway's, for a leg the gateway paid).</summary>
+    public string? ExternalRef { get; init; }
+
+    /// <summary>The admin who recorded the leg, or <c>gateway</c>.</summary>
+    public string? PaidBy { get; init; }
+    public string? PaidAt { get; init; }
+}
+
 /// <summary>ESC-24: <c>GET /admin/escrows/{id}/ledger</c>, one page of an escrow's ledger rows (ESC-20), by ref.</summary>
 public sealed record AdminEscrowLedgerResponse
 {
