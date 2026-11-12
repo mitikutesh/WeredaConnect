@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
@@ -7,9 +9,11 @@ import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/sync/listing_report_rules.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/models/trip.dart';
@@ -22,8 +26,12 @@ import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_trip_card.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/screens/edit_crop_listing_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_photo_views.dart';
 import 'package:wereda_connect/features/listing_report/presentation/report_listing_sheet.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
@@ -38,6 +46,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/low_reputation_pill.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
 /// Full detail view for a single crop listing (the Buyer · Crop detail and
 /// transport board): the crop and price large, the farmer, where it is (with
@@ -79,6 +88,10 @@ class CropListingDetailScreen extends StatefulWidget {
 }
 
 class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
+  /// The listing shown: the one opened, then the farmer's own edit of it as
+  /// saved (SIM-56).
+  late CropListing _listing = widget.listing;
+
   List<Trip>? _suggestedTrips;
   Trip? _selectedTrip;
   bool _tripsLoading = false;
@@ -210,9 +223,9 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
       // On mobile, IsarService.instance.db returns the real Isar instance.
       final matchingService = MatchingService(isar: IsarService.instance.db);
       trips = await matchingService.findTripsForListing(
-        widget.listing,
+        _listing,
         widget.deliveryWoreda!,
-        widget.quantityNeeded ?? widget.listing.quantity,
+        widget.quantityNeeded ?? _listing.quantity,
       );
     } on Object catch (e) {
       // Suggested trips are secondary info, so degrade to an empty list rather
@@ -250,7 +263,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   /// this screen was reached from match results so a covering order marks the
   /// request fulfilled.
   Future<void> _openPlaceOrder({Trip? trip}) async {
-    final farmerName = await _lookupFarmerName(widget.listing.farmerId);
+    final farmerName = await _lookupFarmerName(_listing.farmerId);
     if (!mounted) return;
     final intent = widget.intent;
     final intentBloc = intent != null ? context.read<BuyerIntentBloc>() : null;
@@ -259,7 +272,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
       MaterialPageRoute<bool>(
         builder: (_) {
           final screen = PlaceOrderScreen(
-            listing: widget.listing,
+            listing: _listing,
             farmerName: farmerName,
             selectedTrip: trip,
             intent: intent,
@@ -281,9 +294,9 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     }
   }
 
-  double get _quantity => widget.quantityNeeded ?? widget.listing.quantity;
+  double get _quantity => widget.quantityNeeded ?? _listing.quantity;
 
-  double get _cropCost => _quantity * 100 * widget.listing.pricePerKg;
+  double get _cropCost => _quantity * 100 * _listing.pricePerKg;
 
   double get _transportCost =>
       _selectedTrip != null ? _quantity * _selectedTrip!.pricePerQuintal : 0.0;
@@ -307,7 +320,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
 
   /// The crop's place: the listing's own position under its place name.
   Place? get _listingPlace {
-    final listing = widget.listing;
+    final listing = _listing;
     if (listing.location.latitude == 0 && listing.location.longitude == 0) {
       return null;
     }
@@ -322,7 +335,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final cropType = CropType.fromKey(widget.listing.cropType);
+    final cropType = CropType.fromKey(_listing.cropType);
     final isBuyer = widget.currentUserRole == UserRole.buyer;
     final showTransport = isBuyer && widget.deliveryWoreda != null;
 
@@ -341,25 +354,25 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                     children: [
                       const FwBackButton(),
                       const Spacer(),
-                      _StatusChip(status: widget.listing.status),
+                      _StatusChip(status: _listing.status),
                     ],
                   ),
                   const SizedBox(height: 20),
                   // The photos first: the full 1024 px renditions, read
                   // when the detail opens (the list only has thumbs).
-                  if (widget.listing.photos.isNotEmpty) ...[
-                    CropPhotoGallery(listing: widget.listing),
+                  if (_listing.photos.isNotEmpty) ...[
+                    CropPhotoGallery(listing: _listing),
                     const SizedBox(height: 16),
                   ],
-                  _HeaderSection(cropType: cropType, listing: widget.listing),
+                  _HeaderSection(cropType: cropType, listing: _listing),
                   const SizedBox(height: 14),
 
                   // Who sells it (Crop detail board): name and rating. Not
                   // for a listing without a real name (SIM-33).
-                  if (partyDisplayName(widget.listing.farmerName, l10n)
+                  if (partyDisplayName(_listing.farmerName, l10n)
                       .isNotEmpty) ...[
                     _FarmerCard(
-                      listing: widget.listing,
+                      listing: _listing,
                       showLowLabel: isBuyer,
                     ),
                     const SizedBox(height: 14),
@@ -368,18 +381,18 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                   // Where it is: the crop and the buyer on one drawing when
                   // both places are known, else the place name.
                   _LocationSection(
-                    listing: widget.listing,
+                    listing: _listing,
                     from: _listingPlace,
                     to: isBuyer ? _buyerPlace : null,
                     deliverTo: widget.deliveryWoreda,
                   ),
 
-                  if (widget.listing.description.isNotEmpty) ...[
+                  if (_listing.description.isNotEmpty) ...[
                     const SizedBox(height: 14),
                     Text(l10n.description, style: _sectionTitle),
                     const SizedBox(height: 6),
                     Text(
-                      widget.listing.description,
+                      _listing.description,
                       style: const TextStyle(
                         fontSize: 14,
                         height: 1.5,
@@ -407,11 +420,11 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                     ),
                     // FUP-67: a buyer reports what no check can catch (a
                     // number in a voice note or a photo, a scam).
-                    if (widget.listing.farmerId != widget.currentUserId) ...[
+                    if (_listing.farmerId != widget.currentUserId) ...[
                       const SizedBox(height: 8),
                       ReportListingButton(
                         listingType: ReportedListingType.crop,
-                        listingId: widget.listing.listingId,
+                        listingId: _listing.listingId,
                         reporterId: widget.currentUserId,
                       ),
                     ],
@@ -531,13 +544,243 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     ];
   }
 
+  /// SIM-56: the owner edits or deletes their own active listing.
+  bool _deleting = false;
+
+  /// SIM-56: the farmer's own active listing has Edit (how much is left, the
+  /// price, the description) and Delete. A reserved, sold or expired listing
+  /// has neither: its orders decide what happens to it.
+  Widget? _ownerActions(AppLocalizations l10n) {
+    if (_listing.farmerId != widget.currentUserId ||
+        _listing.status != ListingStatus.active) {
+      return null;
+    }
+    const label = TextStyle(
+      fontFamily: AppTheme.fontFamily,
+      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+    );
+    return FwBottomActions(
+      children: [
+        FilledButton(
+          key: const Key('crop_detail_edit'),
+          onPressed: _deleting ? null : _openEdit,
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(56),
+            textStyle: label,
+          ),
+          child: Text(l10n.edit),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          key: const Key('crop_detail_delete'),
+          onPressed: _deleting ? null : _confirmDelete,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(48),
+            foregroundColor: AppTheme.statusError,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            textStyle:
+                label.copyWith(fontSize: 14, fontWeight: FontWeight.w700),
+          ),
+          child: _deleting
+              ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(l10n.delete),
+        ),
+      ],
+    );
+  }
+
+  /// Opens the edit form on the bloc this screen uses, from the listing as
+  /// it is now: read again first (the phone's copy may have taken the
+  /// server's after a sync conflict while this screen showed an older one),
+  /// and not at all while an earlier change still waits to go out. The saved
+  /// listing replaces the one shown; when the listing changed since the form
+  /// read it (an order took stock), nothing was saved: the listing is read
+  /// again and the farmer told, so they edit what is there now.
+  Future<void> _openEdit() async {
+    final bloc = context.read<CropListingBloc>();
+    final l10n = AppLocalizations.of(context)!;
+    final messenger = ScaffoldMessenger.of(context);
+    if (await _changeWaiting(bloc)) {
+      messenger.showSnackBar(SnackBar(content: Text(l10n.editListingWaiting)));
+      return;
+    }
+    await _reloadListing(bloc);
+    if (!mounted || _listing.status != ListingStatus.active) return;
+    final result = await Navigator.push<EditListingResult>(
+      context,
+      MaterialPageRoute<EditListingResult>(
+        builder: (_) => BlocProvider.value(
+          value: bloc,
+          child: EditCropListingScreen(
+            listing: _listing,
+            farmerId: widget.currentUserId,
+          ),
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    final saved = result.saved;
+    if (saved != null) {
+      setState(() => _listing = saved);
+      return;
+    }
+    if (result.changedElsewhere) {
+      // Offline on web the new copy cannot be read: say so, rather than
+      // that it changed while still showing the old one.
+      final reread = await _reloadListing(bloc);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            reread
+                ? l10n.editListingChanged
+                : localizeErrorCode(AppErrorCode.network, l10n),
+          ),
+        ),
+      );
+    }
+  }
+
+  /// Whether an earlier change of this listing still waits to go out (the
+  /// phone's queue; never on web). A read that fails lets the form open: the
+  /// save checks again.
+  Future<bool> _changeWaiting(CropListingBloc bloc) async {
+    try {
+      return await bloc.repository.hasChangeWaiting(_listing.listingId);
+    } on Object catch (e) {
+      debugPrint('[CropListingDetail] queue read failed: $e');
+      return false;
+    }
+  }
+
+  /// The listing as it is now (the phone's copy, the server's on web). True
+  /// when it was read; kept as shown when it cannot be (offline on web).
+  Future<bool> _reloadListing(CropListingBloc bloc) async {
+    try {
+      final fresh = await bloc.repository.getListingById(_listing.listingId);
+      if (fresh == null) return false;
+      if (mounted) setState(() => _listing = fresh);
+      return true;
+    } on Object catch (e) {
+      debugPrint('[CropListingDetail] listing re-read failed: $e');
+      return false;
+    }
+  }
+
+  /// Asks first, then refuses a listing that orders still need (as the
+  /// server does, rule 10), then deletes it and goes back to My Crops. On
+  /// the phone the delete is saved first and sent later; a refusal then puts
+  /// the listing back (sync-protocol.md 1.17.0).
+  Future<void> _confirmDelete() async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.deleteListingTitle),
+        content: Text(l10n.deleteListingBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(l10n.cancel),
+          ),
+          FilledButton(
+            key: const Key('crop_detail_delete_confirm'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.statusError,
+            ),
+            child: Text(l10n.delete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final bloc = context.read<CropListingBloc>();
+    setState(() => _deleting = true);
+    final ordersInProgress = await _hasOrdersInProgress();
+    if (!mounted) return;
+    if (ordersInProgress != false) {
+      setState(() => _deleting = false);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            ordersInProgress == true
+                ? l10n.errorCropHasActiveOrders
+                : l10n.deleteListingOrdersUnreadable,
+          ),
+        ),
+      );
+      return;
+    }
+    // This delete's own answer: the bloc is app-wide, so another screen's
+    // list load must never be taken for it.
+    final done = Completer<void>();
+    bloc.add(
+      DeleteCropListing(
+        listingId: _listing.listingId,
+        farmerId: widget.currentUserId,
+        done: done,
+      ),
+    );
+    try {
+      await done.future;
+    } on Object catch (e) {
+      if (!mounted) return;
+      setState(() => _deleting = false);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            localizeErrorCode(mapErrorToCode(e), l10n, message: '$e'),
+          ),
+          backgroundColor: AppTheme.statusError,
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
+    showSavedOrSent(context, sent: l10n.listingDeleted).ignore();
+    Navigator.of(context).pop();
+  }
+
+  /// Whether an order this device knows still needs the listing
+  /// ([listingRemovalBlockingOrderStatuses]): true or false, or null when
+  /// the orders cannot be read (offline on web, no order repository). Null
+  /// stops the delete: the server would refuse it too now (rule 10 in every
+  /// environment), but the phone says why in plain words, and on the phone
+  /// the refusal would only come back after the listing left My Crops.
+  Future<bool?> _hasOrdersInProgress() async {
+    try {
+      final orders = await context
+          .read<OrderBloc>()
+          .repository
+          .getOrdersByFarmer(widget.currentUserId);
+      return orders.any(
+        (order) =>
+            order.listingId == _listing.listingId &&
+            listingRemovalBlockingOrderStatuses.contains(order.status),
+      );
+    } on Object catch (e) {
+      debugPrint('[CropListingDetail] order read before delete failed: $e');
+      return null;
+    }
+  }
+
   /// The role's actions pinned at the foot: the buyer places the order
-  /// (with the chosen transport, or without). The owner has none for now
-  /// (editing is future work), and neither has a trucker: a delivery is
+  /// (with the chosen transport, or without); the farmer edits or deletes
+  /// their own active listing (SIM-56). A trucker has none: a delivery is
   /// created from its order, never from a listing (ESC-23).
   Widget? _bottomActions(BuildContext context, AppLocalizations l10n) {
     switch (widget.currentUserRole) {
       case UserRole.farmer:
+        return _ownerActions(l10n);
       case UserRole.trucker:
         return null;
       case UserRole.buyer:
@@ -590,7 +833,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   /// profile's (phone only), else empty. Never the id (FUP-130): the server
   /// stamps the name it knows and the screens label an unnamed farmer.
   Future<String> _lookupFarmerName(String farmerId) async {
-    final listed = partyNameToStore(widget.listing.farmerName);
+    final listed = partyNameToStore(_listing.farmerName);
     if (listed.isNotEmpty || kIsWeb) return listed;
     final isar = IsarService.instance.db;
     final farmer =

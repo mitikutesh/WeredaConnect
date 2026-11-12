@@ -504,6 +504,32 @@ class AppLocalizationsOm extends AppLocalizations {
   String get listingDeleted => 'Tarreen haqameera';
 
   @override
+  String get editListing => 'Tarree Gulaali';
+
+  @override
+  String get editListingNote =>
+      'Hamma hafe, gatii ykn ibsa jijjiiri. Midhaan, suuraawwan ykn bakka jijjiiruuf tarree kana haqiitii irra deebi\'ii galchi.';
+
+  @override
+  String get deleteListingTitle => 'Tarree kana haquu?';
+
+  @override
+  String get deleteListingBody =>
+      'Bittoonni kana booda hin argan. Deebisuun hin danda\'amu.';
+
+  @override
+  String get editListingChanged =>
+      'Tarreen kun erga banattee jijjiirameera, tarii ajajni tokko gariisaa fudhatee jira. Ilaaliitii irra deebi\'ii gulaali.';
+
+  @override
+  String get editListingWaiting =>
+      'Jijjiirama dhumaa tarree kana irratti gootan ammallee hin ergamne. Yeroo interneetii qabdanii erga ergamee booda irra deebi\'aa gulaalaa.';
+
+  @override
+  String get deleteListingOrdersUnreadable =>
+      'Ajajoota tarree kanaa mirkaneessuun hin danda\'amne. Yeroo interneetii qabdan irra deebi\'aa yaalaa.';
+
+  @override
   String get allCrops => 'Hunda';
 
   @override

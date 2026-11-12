@@ -1006,6 +1006,48 @@ abstract class AppLocalizations {
   /// **'Listing deleted'**
   String get listingDeleted;
 
+  /// SIM-56: title of the screen where a farmer edits their own crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Edit listing'**
+  String get editListing;
+
+  /// SIM-56: note at the top of the edit listing screen: what can change, and what needs a new listing
+  ///
+  /// In en, this message translates to:
+  /// **'Change how much is left, the price or the description. To change the crop, the photos or the place, delete this listing and list it again.'**
+  String get editListingNote;
+
+  /// SIM-56: title of the dialog that confirms deleting the farmer's own crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this listing?'**
+  String get deleteListingTitle;
+
+  /// SIM-56: body of the dialog that confirms deleting the farmer's own crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers will no longer see it. This cannot be undone.'**
+  String get deleteListingBody;
+
+  /// SIM-56: snackbar on the listing detail when the farmer's edit was not saved because the listing changed since the edit form opened (version conflict); the detail now shows the listing as it is
+  ///
+  /// In en, this message translates to:
+  /// **'This listing changed since you opened it, maybe an order took some. Check it and edit again.'**
+  String get editListingChanged;
+
+  /// SIM-56: snackbar when the farmer tries to edit a listing while an earlier change of it is still waiting in the phone's sync queue (a second edit on top could undo stock an order took)
+  ///
+  /// In en, this message translates to:
+  /// **'Your last change to this listing has not been sent yet. Edit it again once you are online and it has gone out.'**
+  String get editListingWaiting;
+
+  /// SIM-56: snackbar when the farmer's delete is stopped because the listing's orders could not be read to check none is in progress
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check this listing\'s orders. Try again when you are online.'**
+  String get deleteListingOrdersUnreadable;
+
   /// Filter label for all crop types
   ///
   /// In en, this message translates to:

@@ -613,6 +613,34 @@
   "@listingDeleted": {
     "description": "Message after deleting listing"
   },
+  "editListing": "Edit listing",
+  "@editListing": {
+    "description": "SIM-56: title of the screen where a farmer edits their own crop listing"
+  },
+  "editListingNote": "Change how much is left, the price or the description. To change the crop, the photos or the place, delete this listing and list it again.",
+  "@editListingNote": {
+    "description": "SIM-56: note at the top of the edit listing screen: what can change, and what needs a new listing"
+  },
+  "deleteListingTitle": "Delete this listing?",
+  "@deleteListingTitle": {
+    "description": "SIM-56: title of the dialog that confirms deleting the farmer's own crop listing"
+  },
+  "deleteListingBody": "Buyers will no longer see it. This cannot be undone.",
+  "@deleteListingBody": {
+    "description": "SIM-56: body of the dialog that confirms deleting the farmer's own crop listing"
+  },
+  "editListingChanged": "This listing changed since you opened it, maybe an order took some. Check it and edit again.",
+  "@editListingChanged": {
+    "description": "SIM-56: snackbar on the listing detail when the farmer's edit was not saved because the listing changed since the edit form opened (version conflict); the detail now shows the listing as it is"
+  },
+  "editListingWaiting": "Your last change to this listing has not been sent yet. Edit it again once you are online and it has gone out.",
+  "@editListingWaiting": {
+    "description": "SIM-56: snackbar when the farmer tries to edit a listing while an earlier change of it is still waiting in the phone's sync queue (a second edit on top could undo stock an order took)"
+  },
+  "deleteListingOrdersUnreadable": "Could not check this listing's orders. Try again when you are online.",
+  "@deleteListingOrdersUnreadable": {
+    "description": "SIM-56: snackbar when the farmer's delete is stopped because the listing's orders could not be read to check none is in progress"
+  },
   "allCrops": "All",
   "@allCrops": {
     "description": "Filter label for all crop types"

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -237,6 +238,102 @@ void main() {
       // Listing should be expired now, but getListingsByFarmer returns all
       final loaded = states[1] as CropListingsLoaded;
       expect(loaded.listings.first.status, ListingStatus.expired);
+    });
+
+    /// A listing whose create already reached the server (SIM-56: an edit
+    /// waits for an earlier change of the listing to go out).
+    Future<CropListing> seed() async {
+      final listing = await repository.createListing(
+        photos: testCropPhotos(),
+        farmerId: 'farmer-001',
+        cropType: 'teff',
+        quantity: 50.0,
+        pricePerKg: 45.0,
+        latitude: 9.0,
+        longitude: 38.0,
+        locationName: 'Ada',
+        description: 'Teff',
+      );
+      final queue = SyncQueue(isar);
+      for (final op in await queue.getPendingOperations()) {
+        await queue.markAsSynced(op.operationId);
+      }
+      return listing;
+    }
+
+    test('SIM-56: a delete answers its own completer, then the list reloads',
+        () async {
+      final listing = await seed();
+      final bloc = CropListingBloc(repository: repository);
+      addTearDown(bloc.close);
+      final states = <CropListingState>[];
+      final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
+      final done = Completer<void>();
+
+      bloc.add(
+        DeleteCropListing(
+          listingId: listing.listingId,
+          farmerId: 'farmer-001',
+          done: done,
+        ),
+      );
+      await done.future;
+      await waitForStates(states, 2);
+
+      expect(states[1], isA<CropListingsLoaded>());
+    });
+
+    test('SIM-56: emits [Loading, Updated] and completes the edit', () async {
+      final listing = await seed();
+      final bloc = CropListingBloc(repository: repository);
+      addTearDown(bloc.close);
+      final states = <CropListingState>[];
+      final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
+      final done = Completer<CropListing>();
+
+      bloc.add(
+        UpdateCropListing(
+          listing: listing,
+          farmerId: 'farmer-001',
+          pricePerKg: 50,
+          description: 'Red teff',
+          done: done,
+        ),
+      );
+      final saved = await done.future;
+      await waitForStates(states, 2);
+
+      expect(saved.pricePerKg, 50);
+      expect(saved.quantity, 50.0);
+      expect(states[0], isA<CropListingLoading>());
+      final updated = (states[1] as CropListingUpdated).listing;
+      expect(updated.description, 'Red teff');
+    });
+
+    test('SIM-56: a refused edit fails its completer and emits the error',
+        () async {
+      final listing = await seed();
+      final bloc = CropListingBloc(repository: repository);
+      addTearDown(bloc.close);
+      final states = <CropListingState>[];
+      final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
+      final done = Completer<CropListing>();
+
+      bloc.add(
+        UpdateCropListing(
+          listing: listing,
+          farmerId: 'farmer-002',
+          pricePerKg: 50,
+          done: done,
+        ),
+      );
+
+      await expectLater(done.future, throwsStateError);
+      await waitForStates(states, 2);
+      expect(states[1], isA<CropListingError>());
     });
   });
 }

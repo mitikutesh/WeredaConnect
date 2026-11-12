@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/web_crop_listing_repository.dart';
@@ -414,6 +415,156 @@ void main() {
       await expectLater(
         repository.deleteListing(listingId: 'crop-1', farmerId: 'farmer-1'),
         throwsA(isA<SyncConflictException>()),
+      );
+    });
+  });
+
+  // SIM-56: the farmer's edit goes straight to the server, the changed fields
+  // only, at the version of the listing the form showed.
+  group('WebCropListingRepository.updateListing', () {
+    late _MockApiClient api;
+    late WebCropListingRepository repository;
+    Map<String, dynamic>? sentBody;
+
+    setUp(() {
+      api = _MockApiClient();
+      repository = WebCropListingRepository(
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
+      sentBody = null;
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        sentBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+        return {
+          'results': [
+            {'status': 'success'},
+          ],
+        };
+      });
+    });
+
+    CropListing formCopy({int version = 3}) => CropListing()
+      ..listingId = 'crop-1'
+      ..farmerId = 'farmer-1'
+      ..cropType = 'teff'
+      ..quantity = 10
+      ..pricePerKg = 45
+      ..description = 'Teff'
+      ..status = ListingStatus.active
+      ..version = version;
+
+    Map<String, dynamic> sentOp() =>
+        (sentBody!['operations'] as List).first as Map<String, dynamic>;
+
+    test('sends the changed fields at the version the form showed', () async {
+      final listing = formCopy();
+
+      final saved = await repository.updateListing(
+        listing: listing,
+        farmerId: 'farmer-1',
+        quantity: 42.5,
+        description: 'White teff',
+      );
+
+      final op = sentOp();
+      expect(op['entityType'], 'crop_listing');
+      expect(op['action'], 'update');
+      expect(op['entityId'], 'crop-1');
+      expect(op['data'], {
+        'listingId': 'crop-1',
+        'quantity': 42.5,
+        'description': 'White teff',
+        'version': 3,
+      });
+      expect(saved.quantity, 42.5);
+      expect(saved.pricePerKg, 45);
+      expect(saved.description, 'White teff');
+      expect(saved.version, 4);
+      // No read at save time: the version is the form's.
+      verifyNever(() => api.get<Map<String, dynamic>>(any()));
+    });
+
+    test('changed since the form opened is not overwritten', () async {
+      // My Crops showed 10 quintals at version 2; a buyer's funding took 4
+      // since (version 3 on the server). A price-only edit goes at version 2
+      // without the stock, and the server's conflict fails the save.
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        sentBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+        return {
+          'results': [
+            {'status': 'conflict', 'message': 'Version conflict.'},
+          ],
+        };
+      });
+      final listing = formCopy(version: 2);
+
+      await expectLater(
+        repository.updateListing(
+          listing: listing,
+          farmerId: 'farmer-1',
+          pricePerKg: 50,
+        ),
+        throwsA(isA<SyncConflictException>()),
+      );
+
+      expect(sentOp()['data'], {
+        'listingId': 'crop-1',
+        'pricePerKg': 50,
+        'version': 2,
+      });
+      verifyNever(() => api.get<Map<String, dynamic>>(any()));
+      // The form's copy is left as it was.
+      expect(listing.pricePerKg, 45);
+      expect(listing.version, 2);
+    });
+
+    test("another farmer's listing is refused before anything is sent",
+        () async {
+      await expectLater(
+        repository.updateListing(
+          listing: formCopy(),
+          farmerId: 'farmer-2',
+          pricePerKg: 50,
+        ),
+        throwsStateError,
+      );
+      expect(sentBody, isNull);
+    });
+
+    test('a refusal throws with the server message', () async {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'results': [
+            {
+              'status': 'error',
+              'message': 'CROP_CONTACT_IN_TEXT: Remove the phone number.',
+            },
+          ],
+        },
+      );
+
+      await expectLater(
+        repository.updateListing(
+          listing: formCopy(),
+          farmerId: 'farmer-1',
+          description: 'Call me',
+        ),
+        throwsA(isA<SyncRejectedException>()),
       );
     });
   });

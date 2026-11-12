@@ -508,6 +508,36 @@ class SyncQueue {
     return open > 0;
   }
 
+  /// Whether an operation of the entity still waits to reach the server:
+  /// pending, on its way, or failed out of retries (a reconnect sends it
+  /// again, [retryFailed]). One the server refused for good ([isRejected])
+  /// never goes out again, so it does not count. SIM-56: a buyer request
+  /// deleted or fulfilled on this phone is not brought back from the server
+  /// meanwhile, and a crop listing edit is not queued on top of one.
+  Future<bool> hasWaitingOperationsFor(
+    String entityType,
+    String entityId,
+  ) async {
+    final waiting = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(entityType)
+        .entityIdEqualTo(entityId)
+        .group(
+          (q) => q
+              .statusEqualTo(SyncStatus.pending)
+              .or()
+              .statusEqualTo(SyncStatus.syncing)
+              .or()
+              .group(
+                (failed) => failed
+                    .statusEqualTo(SyncStatus.failed)
+                    .retryCountLessThan(maxRetries, include: true),
+              ),
+        )
+        .count();
+    return waiting > 0;
+  }
+
   /// Replace the payload of a waiting operation, keeping its place in the
   /// queue, its idempotency key and its retries. Used by a preflight that
   /// readied the operation (a handoff photo's upload key, FRD-12), so a

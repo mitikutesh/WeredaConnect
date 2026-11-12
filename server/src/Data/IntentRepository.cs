@@ -217,4 +217,36 @@ public class IntentRepository : IIntentRepository
 
         return results;
     }
+
+    /// <inheritdoc />
+    public async Task<List<Dictionary<string, object>>> QueryByBuyerAsync(string buyerId)
+    {
+        var results = new List<Dictionary<string, object>>();
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null;
+        var pages = 0;
+
+        // One partition, a few rows in practice; the pages are walked anyway (capped) so a
+        // buyer with many requests still gets them all.
+        do
+        {
+            var response = await _dynamoDb.QueryAsync(new QueryRequest
+            {
+                TableName = _tableName,
+                KeyConditionExpression = "buyerId = :b",
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":b", new AttributeValue { S = buyerId } },
+                },
+                ExclusiveStartKey = exclusiveStartKey,
+            });
+
+            results.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
+            exclusiveStartKey = response.LastEvaluatedKey is { Count: > 0 }
+                ? response.LastEvaluatedKey
+                : null;
+        }
+        while (exclusiveStartKey != null && ++pages < MaxQueryPages);
+
+        return results;
+    }
 }

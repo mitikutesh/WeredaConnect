@@ -1,10 +1,10 @@
 # Push Alerts API Contract
 
 ## Version
-1.4.0
+1.5.0
 
 ## Parties
-- **Mobile** (client) — registers device tokens, syncs buyer intents, receives push
+- **Mobile** (client): registers device tokens, syncs buyer intents, reads them back (1.5.0), receives push
 - **Backend** (server) — stores intents/tokens, matches new crops, sends push via SNS→FCM
 
 ## Overview
@@ -131,6 +131,74 @@ mismatch), `INTENT_VALIDATION` (unknown field / invalid value), `INTENT_UNAVAILA
 
 ---
 
+## 2a. List the Buyer's Own Intents (1.5.0, SIM-56)
+
+**Method**: GET /intents
+**Authentication**: Required (Cognito ID token, the mobile JWT authorizer). **Buyer role
+only.** Served by the match Lambda (the `GET /match` integration).
+
+Section 2 only writes intents. Without a read, a web reload (the web app keeps no local
+store) or a new phone showed an empty My Requests while the requests still drove the
+match-on-insert pushes. This read gives them back.
+
+**Request**: no body and no parameters. The partition read is the caller's own id (the JWT
+`sub`); a `buyerId` or any other query parameter is ignored, so a buyer only ever reads their
+own requests (role visibility: own intents).
+
+**Response (200)**:
+```json
+{
+  "intents": [
+    {
+      "intentId": "intent-1",
+      "cropType": "wheat",
+      "quantityNeeded": 10,
+      "maxPricePerKg": 120,
+      "deliveryWoreda": "Adama",
+      "deliveryLatitude": 8.54,
+      "deliveryLongitude": 39.27,
+      "neededByDate": "2026-12-01T00:00:00.000Z",
+      "status": "active",
+      "createdAt": "2026-06-19T10:00:00.0000000Z",
+      "updatedAt": "2026-06-19T10:00:00.0000000Z",
+      "version": 1
+    }
+  ],
+  "count": 1
+}
+```
+
+- Only `active` rows (a row without `status` counts as active). The app deletes a fulfilled
+  request from the server; an `update` that stored `fulfilled` or `expired` is left out too.
+- Newest first by `createdAt`. Every page of the partition is read (capped at 50 pages).
+- `buyerId` is not repeated (every row is the caller's). Absent optional fields
+  (`deliveryLatitude`, `deliveryLongitude`, `neededByDate`, `updatedAt`) are omitted. A row
+  without `intentId` or `cropType` is left out.
+- `quantityNeeded` is in quintals, `maxPricePerKg` in ETB, as the app sent them.
+- Not returned: the app's local-only fields (`placeId`, the match count and the "new
+  matches" snapshot); the app keeps its own copies and recomputes matches.
+
+**Error Codes**:
+- `401 INTENT_UNAUTHORIZED`: no authenticated user
+- `403 INTENT_FORBIDDEN`: the caller is not a buyer (farmer, trucker, or a token without
+  `custom:role`); nothing is read
+- `405 INTENT_VALIDATION`: a method other than GET
+- `503 INTENT_UNAVAILABLE`: intents are not provisioned on this environment
+- `500 INTENT_SERVER_ERROR`: the read failed
+
+**Clients (SIM-56).** Both apps read it when My Requests loads and on its pull to refresh,
+best effort: offline or on any error the list shows what the device has.
+- Mobile (Isar): a server row the phone does not have is added (active, match count 0);
+  a row the phone has is never overwritten (the phone's own changes win); a row with an
+  open `buyer_intent` operation in the sync queue (a delete or fulfil not sent yet) is not
+  added back. Nothing local is removed because the server lacks it (a create still queued,
+  or refused, stays on the phone).
+- Web (memory only): the server's rows fill the session list, except a request deleted or
+  fulfilled in this session; a request created in this session stays even when its sync
+  failed.
+
+---
+
 ## 3. Match-on-insert Alert (server-internal)
 
 Not a client API. When a crop listing is inserted into the crops table, a DynamoDB Stream
@@ -181,6 +249,7 @@ receive the previous user's alerts.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.5.0 | 2026-11-12 | `GET /intents` (section 2a, SIM-56): the buyer reads back their own active requests, keyed by the JWT `sub` (no parameter can name another buyer); buyers only (`403 INTENT_FORBIDDEN` otherwise), `503 INTENT_UNAVAILABLE` without an intents table. Served by the match Lambda, which gains `INTENTS_TABLE` and `dynamodb:Query` on that table only. The apps merge it into My Requests on load and on refresh (mobile adds what the phone lacks, web fills the session list). Additive: no change to section 2 |
 | 1.4.0 | 2026-11-06 | `POST /device-tokens` on a shared phone: when the token's endpoint is bound to another user (their logout's DELETE was skipped offline), that user's row is deleted, then the endpoint is rebound to the caller; a disabled or stale endpoint of the caller is re-enabled; a failed delete fails closed (section 1, FUP-121). No wire change. |
 | 1.3.0 | 2026-10-26 | Overview names `notifications-api.md` for order, delivery and money pushes: same device tokens and platform application, told apart by `data.type` (`message`, `order`, none for match alerts). No wire change here (ESC-21). |
 | 1.2.0 | 2026-10-06 | `POST /device-tokens`: `platform` is an allow-list (`android`, the default); anything else is `400 DEVICE_TOKEN_VALIDATION`. `buyer_intent` update no longer requires an echoed `buyerId`; a mismatching one is still refused (SIM-60). |
@@ -189,5 +258,5 @@ receive the previous user's alerts.
 
 ---
 
-**Last Updated**: 2026-11-06
+**Last Updated**: 2026-11-12
 **Status**: Draft

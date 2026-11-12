@@ -390,10 +390,10 @@ describe('ApiStack', () => {
     // /reputation/appeals/photo-url and /reputation/events/{eventId}/appeal (ESC-29),
     // plus GET /admin/escrows/{id}/ledger and GET /admin/orders/queue (ESC-24) → 76,
     // plus GET and POST /admin/users/{id}/reputation, GET /admin/reputation/appeals and POST
-    // /admin/users/{id}/reputation/events/{eventId}/decision (ESC-32) → 80 total. FUP-05: the claim and
+    // /admin/users/{id}/reputation/events/{eventId}/decision (ESC-32) → 80. FUP-05: the claim and
     // unclaim actions share POST /admin/payouts/{escrowId}/{ref}/{action} with complete (no new route),
-    // and so does FUP-218's correct.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 80);
+    // and so does FUP-218's correct. Plus GET /intents (SIM-56, the buyer's own requests) → 81 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 81);
   });
 
   test('the ledger view and the stuck orders sit on the admin authorizer, on grants the admin Lambda already has (ESC-24)', () => {
@@ -759,6 +759,39 @@ describe('ApiStack', () => {
     expect(roleActions(role, (r) => r.includes('parameter/wereda-connect-dev/pagination-secret'))).toContain(
       'ssm:GetParameter',
     );
+  });
+
+  test('SIM-56: GET /intents sits on the mobile JWT authorizer, on the match Lambda, which only queries intents', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const mobileAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'CognitoAuthorizer')?.[0];
+    expect(mobileAuthorizerId).toBeDefined();
+    const routes = Object.values(template.findResources('AWS::ApiGatewayV2::Route'));
+    const intents = routes.filter((r) => r.Properties.RouteKey === 'GET /intents');
+    expect(intents).toHaveLength(1);
+    expect([intents[0].Properties.AuthorizationType, intents[0].Properties.AuthorizerId]).toEqual([
+      'JWT',
+      { Ref: mobileAuthorizerId },
+    ]);
+
+    // The same integration as GET /match (FUP-217: one per Lambda), payload 1.0.
+    const match = routes.find((r) => r.Properties.RouteKey === 'GET /match');
+    expect(intents[0].Properties.Target).toEqual(match!.Properties.Target);
+    const fnId = lambdaId('wereda-connect-dev-match');
+    const integrations = Object.values(template.findResources('AWS::ApiGatewayV2::Integration')).filter((i) =>
+      JSON.stringify(i.Properties.IntegrationUri).includes(fnId),
+    );
+    expect(integrations).toHaveLength(1);
+    expect(integrations[0].Properties.PayloadFormatVersion).toBe('1.0');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-match',
+      Environment: {
+        Variables: Match.objectLike({ FUNCTION_HANDLER: 'MatchFunction', INTENTS_TABLE: Match.anyValue() }),
+      },
+    });
+    // One Query of the caller's partition; no write, no Scan, no other read.
+    expect(roleActions('MatchFunctionServiceRole', (r) => r.includes('IntentsTable'))).toEqual(['dynamodb:Query']);
   });
 
   test('FUP-124: the messages Lambda has the orders and deliveries tables and only Query on them', () => {

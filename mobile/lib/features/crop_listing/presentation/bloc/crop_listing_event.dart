@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 
+import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/features/crop_listing/domain/crop_photos.dart';
 
 /// Base class for crop listing events.
@@ -84,14 +87,57 @@ class CreateCropListing extends CropListingEvent {
       ];
 }
 
+/// SIM-56: the farmer edits how much is left, the price and the description
+/// of their own [listing], as the form showed it (its version is the edit's
+/// base). A null field is left as it is.
+class UpdateCropListing extends CropListingEvent {
+  final CropListing listing;
+  final String farmerId;
+
+  /// Quintals.
+  final double? quantity;
+  final double? pricePerKg;
+  final String? description;
+
+  /// Completed with the saved listing, or with the error, for the screen that
+  /// asked: the bloc is app-wide, so another screen's load must never be
+  /// taken for this edit's answer.
+  final Completer<CropListing>? done;
+
+  const UpdateCropListing({
+    required this.listing,
+    required this.farmerId,
+    this.quantity,
+    this.pricePerKg,
+    this.description,
+    this.done,
+  });
+
+  @override
+  List<Object?> get props => [
+        listing.listingId,
+        listing.version,
+        farmerId,
+        quantity,
+        pricePerKg,
+        description,
+      ];
+}
+
 /// Event to delete a crop listing.
 class DeleteCropListing extends CropListingEvent {
   final String listingId;
   final String farmerId;
 
+  /// SIM-56: completed once the delete is saved (before the list reloads),
+  /// or with the error, for the screen that asked (see
+  /// [UpdateCropListing.done]).
+  final Completer<void>? done;
+
   const DeleteCropListing({
     required this.listingId,
     required this.farmerId,
+    this.done,
   });
 
   @override

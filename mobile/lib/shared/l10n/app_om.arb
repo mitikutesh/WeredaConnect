@@ -607,6 +607,34 @@
   "@listingDeleted": {
     "description": "Message after deleting listing"
   },
+  "editListing": "Tarree Gulaali",
+  "@editListing": {
+    "description": "SIM-56: title of the screen where a farmer edits their own crop listing"
+  },
+  "editListingNote": "Hamma hafe, gatii ykn ibsa jijjiiri. Midhaan, suuraawwan ykn bakka jijjiiruuf tarree kana haqiitii irra deebi'ii galchi.",
+  "@editListingNote": {
+    "description": "SIM-56: note at the top of the edit listing screen: what can change, and what needs a new listing"
+  },
+  "deleteListingTitle": "Tarree kana haquu?",
+  "@deleteListingTitle": {
+    "description": "SIM-56: title of the dialog that confirms deleting the farmer's own crop listing"
+  },
+  "deleteListingBody": "Bittoonni kana booda hin argan. Deebisuun hin danda'amu.",
+  "@deleteListingBody": {
+    "description": "SIM-56: body of the dialog that confirms deleting the farmer's own crop listing"
+  },
+  "editListingChanged": "Tarreen kun erga banattee jijjiirameera, tarii ajajni tokko gariisaa fudhatee jira. Ilaaliitii irra deebi'ii gulaali.",
+  "@editListingChanged": {
+    "description": "SIM-56: snackbar on the listing detail when the farmer's edit was not saved because the listing changed since the edit form opened (version conflict); the detail now shows the listing as it is"
+  },
+  "editListingWaiting": "Jijjiirama dhumaa tarree kana irratti gootan ammallee hin ergamne. Yeroo interneetii qabdanii erga ergamee booda irra deebi'aa gulaalaa.",
+  "@editListingWaiting": {
+    "description": "SIM-56: snackbar when the farmer tries to edit a listing while an earlier change of it is still waiting in the phone's sync queue (a second edit on top could undo stock an order took)"
+  },
+  "deleteListingOrdersUnreadable": "Ajajoota tarree kanaa mirkaneessuun hin danda'amne. Yeroo interneetii qabdan irra deebi'aa yaalaa.",
+  "@deleteListingOrdersUnreadable": {
+    "description": "SIM-56: snackbar when the farmer's delete is stopped because the listing's orders could not be read to check none is in progress"
+  },
   "allCrops": "Hunda",
   "@allCrops": {
     "description": "Filter label for all crop types"

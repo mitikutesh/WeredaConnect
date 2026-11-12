@@ -30,19 +30,16 @@ public partial class SyncFunction
     /// <c>status: deleted</c>) while any of its orders is in <see cref="ListingHoldingOrderStatuses"/>:
     /// <c>CROP_HAS_ACTIVE_ORDERS</c>, nothing written. The orders come from <c>ListingIdIndex</c>
     /// (one query, every page). An index that cannot be read refuses for now with an unprefixed,
-    /// retryable error. Behind <see cref="CommitmentsEnabled"/>, like <c>TRIP_HAS_BOOKINGS</c>: the
-    /// code reaches clients only once the flag is on (spec K1), and only those that send
-    /// <c>X-App-Build</c>: an older app gets the sentence as <c>SYNC_VALIDATION</c> (FUP-241,
-    /// <see cref="OldClientRefusal"/>). Null when the change may proceed.
+    /// retryable error. SIM-56: with or without <see cref="CommitmentsEnabled"/> (it was behind the
+    /// flag, like <c>TRIP_HAS_BOOKINGS</c>): a deleted listing refuses its delivery create, so a
+    /// funded order on a listing deleted with the flag off had no way to its truck. The code reaches
+    /// only apps that send <c>X-App-Build</c> (all of them handle it since sync-protocol.md 1.17.0);
+    /// an older app gets the sentence as <c>SYNC_VALIDATION</c> (FUP-241,
+    /// <see cref="OldClientRefusal"/>), permanent on every client. Null when the change may proceed.
     /// </summary>
     private async Task<SyncOperationResult?> CheckListingRemovalAllowedAsync(
         SyncOperationRequest operation, ILambdaContext context)
     {
-        if (!CommitmentsEnabled)
-        {
-            return null;
-        }
-
         List<Dictionary<string, object>> orders;
         try
         {
