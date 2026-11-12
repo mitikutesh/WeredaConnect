@@ -223,6 +223,17 @@ public interface IOrderRepository
         string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expectedStrings);
 
     /// <summary>
+    /// ESC-34: store one arrival check-in as <c>checkIns.{kind}</c> WITHOUT bumping <c>version</c> or
+    /// touching <c>updatedAt</c> (a check-in must never make a queued order change conflict), only while
+    /// that kind has no entry yet (the first check-in is kept). With <paramref name="whileOpen"/> also only
+    /// while the order is <c>accepted</c> and its <c>pickupJudgement</c> is still <c>pending</c>, so a
+    /// check-in can never land after the judgement as if it had counted. Returns false when a condition
+    /// failed (the caller reads the row again to say why); other errors throw.
+    /// </summary>
+    Task<bool> TryRecordCheckInAsync(
+        string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen);
+
+    /// <summary>
     /// ESC-09: one page of the <c>StatusCreatedAtIndex</c> partition for <paramref name="status"/>,
     /// oldest first, without the rows the money sweep marked as decided at that status
     /// (<see cref="OrderMoneyFields.SweepSkip"/>). <paramref name="limit"/> is the evaluation limit.

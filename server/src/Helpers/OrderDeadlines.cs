@@ -70,6 +70,12 @@ public static class OrderDeadlines
 
         /// <summary>T7: <c>pickupDeadlineAt</c>; <c>pickupOverdueNotifiedAt</c> is stamped.</summary>
         public const string PickupOverdue = "pickup_overdue";
+
+        /// <summary>
+        /// ESC-34, T7 on an order stamped <c>pickupJudgement: pending</c>: <c>pickupDeadlineAt</c> plus
+        /// <see cref="Helpers.PickupJudgement.SettleMargin"/>; the pickup is judged by the check-ins.
+        /// </summary>
+        public const string PickupJudgement = "pickup_judgement";
     }
 
     /// <summary>Whether <paramref name="key"/> is one of the deadline attributes (never taken from a caller's field map).</summary>
@@ -94,7 +100,10 @@ public static class OrderDeadlines
                 if (Str(order, OrderCommitment.PickupOverdueNotifiedAtField).Length == 0
                     && OrderCommitment.TryParseUtc(Str(order, PickupDeadline.Field), out var pickupBy))
                 {
-                    candidates.Add(new OrderDeadline(pickupBy, Kind.PickupOverdue));
+                    // ESC-34: a judgeable order is judged a moment after its deadline instead.
+                    candidates.Add(Helpers.PickupJudgement.IsPending(order)
+                        ? new OrderDeadline(pickupBy + Helpers.PickupJudgement.SettleMargin, Kind.PickupJudgement)
+                        : new OrderDeadline(pickupBy, Kind.PickupOverdue));
                 }
 
                 break;

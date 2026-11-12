@@ -108,15 +108,22 @@ WEIGHTS = {
     "SUSPENDED_TOKEN_USE": 0, "GPS_JUMP": 10, "GPS_MOCKED": 25, "AMOUNT_ANOMALY": 10,
     "NEW_ACCOUNT_LARGE_AMOUNT": 10, "KYC_THRESHOLD_STRUCTURING": 20, "CANCEL_AFTER_FUND_RATE": 15,
     "DISPUTE_RATE": 10, "IMPOSSIBLE_DELIVERY_TIME": 15,
+    # ESC-33 reputation hooks; NO_SHOW's producer is ESC-34's pickup judgement (fraud spec 15.3).
+    "NO_SHOW": 15, "DELIVERY_OVERDUE": 25,
 }
 DEFAULT_WEIGHT = 10
 PATTERN_TYPES = {"AMOUNT_ANOMALY", "NEW_ACCOUNT_LARGE_AMOUNT", "KYC_THRESHOLD_STRUCTURING",
                  "CANCEL_AFTER_FUND_RATE", "DISPUTE_RATE", "IMPOSSIBLE_DELIVERY_TIME"}
 PER_ENTITY_TYPES = {"ROLE_FORBIDDEN", "IMMUTABLE_FIELD_CHANGE", "QR_HANDOFF_FAILURE",
                     "TELEBIRR_PAYER_MISMATCH", "TELEBIRR_PAYER_REFUSED", "STALE_VERSION_BURST",
-                    "SUSPENDED_TOKEN_USE", "GPS_JUMP", "GPS_MOCKED"} | PATTERN_TYPES
+                    "SUSPENDED_TOKEN_USE", "GPS_JUMP", "GPS_MOCKED", "NO_SHOW", "DELIVERY_OVERDUE"} | PATTERN_TYPES
 CAPPED_TYPES = {"ROLE_FORBIDDEN", "IMMUTABLE_FIELD_CHANGE"} | PATTERN_TYPES
+# Types that share one cap (fraud spec 15.3: missed pickups and late deliveries stop at MEDIUM together).
+CAP_GROUPS = {"NO_SHOW": "group:reliability", "DELIVERY_OVERDUE": "group:reliability"}
 TYPE_CAP = 50
+# FUP-204: a farmer's NO_SHOW rests on another party's check-in and goes through the attribution guard
+# (fraud spec 14.3): at most this many rows on one user from other users' reports in 30 days.
+ATTRIBUTED_PER_TARGET_CAP = 2
 TIER_MEDIUM, TIER_HIGH, TIER_CRITICAL = 30, 60, 100
 
 # Where each signal type comes from in the server (rule, producer).
@@ -135,6 +142,9 @@ RULES = {
     "TELEBIRR_PAYER_REFUSED": ("FRD-08", "TelebirrWebhookFunction.PayerMatchesBuyerAsync, TELEBIRR_REQUIRE_PAYER_MATCH on, weight 5"),
     "GPS_ANOMALY": ("Rule 4", "FraudDetectionService.CheckGpsConsistency, recorded on the caller of the delivered update (the buyer)"),
     "NEW_ACCOUNT_LARGE_AMOUNT": ("FRD-09", "TransactionPatternRules, payment of 5,000 ETB or more from an account under 7 days"),
+    "NO_SHOW": ("ESC-33, ESC-34", "ReputationFraudHooks after a NO_SHOW reputation event: the pickup judgement's trucker no-show "
+                "(R10, written plainly) or farmer no-show (R11, through the attribution guard, the trucker's check-in as the source)"),
+    "DELIVERY_OVERDUE": ("ESC-33, ESC-36", "ReputationFraudHooks after a DELIVERY_OVERDUE reputation event (producer ESC-36, not built)"),
 }
 GATES = {
     "FRAUD_ACCOUNT_HELD": "RiskGatePolicy (FRD-04): CRITICAL refuses crop, trip, order create and payments",
@@ -177,8 +187,8 @@ def risk_score(rows: List[dict]) -> Tuple[int, str]:
         counted[key] = WEIGHTS.get(kind, DEFAULT_WEIGHT)
     per_type: Dict[str, int] = defaultdict(int)
     for (kind, _, _), weight in counted.items():
-        per_type[kind] += weight
-    score = sum(min(v, TYPE_CAP) if k in CAPPED_TYPES else v for k, v in per_type.items())
+        per_type[CAP_GROUPS.get(kind, kind)] += weight
+    score = sum(min(v, TYPE_CAP) if k in CAPPED_TYPES or k in CAP_GROUPS.values() else v for k, v in per_type.items())
     score = max(0, score)
     return score, tier_of(score)
 
@@ -301,8 +311,23 @@ PERSONAS: Dict[str, Persona] = {
             hold="none (LOW); each disputed escrow is frozen by the dispute itself")},
         detection="FRD-09 DISPUTE_RATE (live, 30 percent of 5 or more paid orders); the confirm-then-dispute "
                   "pattern itself is FRD-15 (planned)"),
+    "noshow": Persona(
+        key="noshow", title="No-show at the pickup", threat="a party who commits to a paid order and does not come (ESC-34)",
+        accounts=[],
+        plan=["a paid trip order accepted by the farmer and the trucker with pickupClassification on",
+              "trucker no-show: the farmer says the crops are ready, the trucker never checks in; 48 hours after the "
+              "departure the order cron judges the trucker absent (awaiting_transport): NO_SHOW (15, hard) on the "
+              "trucker, written plainly",
+              "farmer no-show: the trucker checks in at the farm, the farmer never does; the order is cancelled with a "
+              "full refund: NO_SHOW on the farmer through the attribution guard (the trucker as the source, one per "
+              "trucker and farmer, two per farmer in 30 days)"],
+        expect={},
+        detection="ESC-34's pickup judgement and ESC-33's reputation hook (built). Not exercisable on dev: "
+                  "pickupClassification and reputationPenalties are off there, and the judgement runs 48 hours after "
+                  "the trip departs, longer than a run",
+        exercisable=False),
 }
-PERSONA_ORDER = ["spammer", "selftrade", "idor", "gps", "dispute", "payer"]
+PERSONA_ORDER = ["spammer", "selftrade", "idor", "gps", "dispute", "payer", "noshow"]
 
 
 # ── HTTP ──────────────────────────────────────────────────────────────────
@@ -1043,6 +1068,14 @@ def persona_payer(run: Run):
         + ("" if not exists else f" (the route answered HTTP {r.status}, so it is deployed: run against a live-gateway stack)"))
 
 
+def persona_noshow(run: Run):
+    p = "noshow"
+    run.notes[p].append(
+        "the pickup judgement runs only with pickupClassification and reputationPenalties on and 48 hours after the "
+        "trip departs; the replica checks of --self-test cover the NO_SHOW weights, the shared reliability cap and "
+        "the attribution guard's bound")
+
+
 # ── Observation through the admin API ─────────────────────────────────────
 
 
@@ -1403,6 +1436,7 @@ def self_test() -> int:
             check(bool(exp.challenge) and bool(exp.hold), f"{p.key}/{label}: challenge and hold written down")
         check(bool(p.plan) and bool(p.detection), f"{p.key}: plan and detection written down")
     check(not PERSONAS["payer"].exercisable, "payer is marked not exercisable on dev")
+    check(not PERSONAS["noshow"].exercisable, "noshow is marked not exercisable on dev")
     check(len(accounts_for(PERSONA_ORDER)) <= 10, "a full run stays under the 10 registrations per IP per hour")
 
     # Score replica (fraud-detection-architecture.md 14.2, 16)
@@ -1425,6 +1459,12 @@ def self_test() -> int:
     approved = [dict(same_entity[0], resolution="approve", createdAt="2026-11-07T19:00:00Z")] + same_entity
     check(risk_score(approved)[0] == 0, "an approved row clears its entity")
     check(risk_score(expected_rows(["TELEBIRR_PAYER_MISMATCH"])) == (0, "LOW"), "a payer mismatch scores 0")
+    # ESC-34 / FUP-204: NO_SHOW is 15 and hard, once per order, sharing a cap of 50 with DELIVERY_OVERDUE.
+    check(risk_score(expected_rows(["NO_SHOW"])) == (15, "LOW"), "a no-show is 15, LOW")
+    check(risk_score(expected_rows(["NO_SHOW"] * 4 + ["DELIVERY_OVERDUE"] * 2))[0] == 50,
+          "no-shows and overdue deliveries stop at 50 together")
+    check(risk_score(expected_rows(["NO_SHOW"] * ATTRIBUTED_PER_TARGET_CAP)) == (30, "MEDIUM"),
+          "other users' check-ins alone put at most 30 on a farmer")
 
     # Phones and safety guards
     rng = random.Random(17)
@@ -1491,6 +1531,7 @@ def self_test() -> int:
     check(verdict(r, "selftrade") == ("UNEXPECTED SIGNAL", False), "any signal on the self-trader is UNEXPECTED SIGNAL")
     check(verdict(base, "selftrade") == ("NOT DETECTED (no rule today)", True), "a clean self-trader matches")
     check(verdict(base, "payer") == ("NOT EXERCISABLE ON DEV", True), "the payer persona is not exercisable")
+    check(verdict(base, "noshow") == ("NOT EXERCISABLE ON DEV", True), "the noshow persona is not exercisable")
 
     # The server's tier (FRD-07 users[]) decides; the replica only cross-checks
     r = fixture()
@@ -1664,7 +1705,7 @@ def main() -> int:
         return 2
 
     runners = {"spammer": persona_spammer, "selftrade": persona_selftrade, "idor": persona_idor,
-               "payer": persona_payer}
+               "payer": persona_payer, "noshow": persona_noshow}
 
     def attempt(key: str, fn):
         try:

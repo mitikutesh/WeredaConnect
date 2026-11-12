@@ -503,6 +503,9 @@ export class ApiStack extends cdk.Stack {
     const timeoutPenalties = envConfig.timeoutPenalties ? "true" : "false";
     // ESC-29: buyers get the public tier, the effective rating and the reliability (off everywhere).
     const reputationPublicTags = envConfig.reputationPublicTags ? "true" : "false";
+    // ESC-34: the pickup judgement by arrival check-ins (sync takes the check-ins, order-cron judges); off
+    // everywhere until its app build is the minimum. It only works with COMMITMENTS_ENABLED.
+    const pickupClassification = envConfig.pickupClassification ? "true" : "false";
 
     // ESC-28: the reputation policy (points, caps, tiers, windows; reputation-architecture.md 5.9),
     // read once per container by every Lambda that recomputes a reputation: reputation-stream,
@@ -561,6 +564,8 @@ export class ApiStack extends cdk.Stack {
         COMMITMENTS_ENABLED: commitmentsEnabled,
         // ESC-25: order operations from an app below this build are refused (0: off).
         MIN_ORDER_APP_BUILD: minOrderAppBuild,
+        // ESC-34: on, an order accepted under it takes handoff_check_in and is judged at its pickup deadline.
+        PICKUP_CLASSIFICATION_ENABLED: pickupClassification,
         // ESC-28 (rating-api 1.2.0 stored aggregate): a rating create is one transaction with the
         // ratee's ratingSum and ratingCount, then a best-effort reputation refresh that reads the
         // ratee's events and writes the reputation map, the heal marker and the copies.
@@ -2100,6 +2105,9 @@ export class ApiStack extends cdk.Stack {
         // due (DeadlineIndex, Query) every 15 minutes; deadline_repair walks the funded,
         // awaiting_transport and accepted partitions daily to stamp rows without a deadline.
         COMMITMENTS_ENABLED: commitmentsEnabled,
+        // ESC-34: commitment_deadlines judges a pickup by its arrival check-ins (no-show outcomes, the
+        // admin queue); off, such an order gets the P1 marker and its stamp is cleared.
+        PICKUP_CLASSIFICATION_ENABLED: pickupClassification,
         // FRD-15: the relationship_patterns scan writes SELF_TRADE, SHARED_DEVICE_TRADE and
         // REPEATED_PAIR signals (fraud-detection-architecture.md 15.2). Without it, or without
         // USERS_TABLE, the action logs FRAUD_RELATIONSHIP_UNCONFIGURED and writes nothing.

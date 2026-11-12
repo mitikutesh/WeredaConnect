@@ -1,7 +1,7 @@
 # Reputation Architecture
 
 ## Version
-1.7.0 | 2026-11-12 (FUP-203)
+1.8.0 | 2026-11-12 (ESC-34, FUP-204)
 
 ## Status
 PARTLY BUILT. ESC-28 (the core write side) is built and ships dark: sections 3 (the table and
@@ -485,8 +485,8 @@ O is the old image, N the new one. A response field missing from O (an order fro
 | R7 | N.`truckerResponse` = `cancelled`, O = `accepted`, N.`transportFailure` = `trip_cancelled` | `TRIP_CANCELLED_WITH_BOOKINGS` | O.`truckerId` | `TRIP_CANCEL#{O.tripId}` |
 | R8 | N.`status` = `cancelled`, N.`cancelReason` = `farmer_cancelled`, O.`status` = `accepted` | `CANCELLED_AFTER_ACCEPT` or `LATE_CANCEL` | N.`farmerId` | `CANCEL#{orderId}` |
 | R9 | N.`status` = `cancelled`, N.`cancelReason` = `farmer_cancelled`, O.`status` = `awaiting_transport` | `CANCELLED_TRANSPORT_FAILED` | N.`farmerId` | `CANCEL#{orderId}` |
-| R10 (P3) | N.`transportFailure` = `trucker_no_show`, O differs | `NO_SHOW` | O.`truckerId` | `NOSHOW#{orderId}` |
-| R11 (P3) | N.`cancelReason` = `farmer_no_show`, O.`status` not `cancelled` | `NO_SHOW` | N.`farmerId` | `NOSHOW#{orderId}` |
+| R10 (P3) | N.`transportFailure` = `trucker_no_show`, O differs (ESC-34's trucker no-show; it also writes `truckerResponse: no_show`) | `NO_SHOW` | O.`truckerId` | `NOSHOW#{orderId}` |
+| R11 (P3) | N.`cancelReason` = `farmer_no_show`, O.`status` not `cancelled` (ESC-34's farmer no-show). FUP-204: the candidate's `ReportedBy` is the party whose arrival check-in it rests on (N.`buyerId` when N.`fulfillment` is `self_pickup`, else N.`truckerId`), so its fraud signal goes through the attribution guard (13.1) | `NO_SHOW` | N.`farmerId` | `NOSHOW#{orderId}` |
 | R12 (P3) | N.`status` = `disputed`, O differs, the dispute reason is `delivery_overdue` (as ESC-36 names the order field) | `DELIVERY_OVERDUE` | N.`truckerId` | `OVERDUE#{orderId}` |
 | R13 | N.`status` = `settled`, O differs | `ORDER_COMPLETED` | N.`farmerId`; and N.`truckerId` when `fulfillment` is `trucker` and `truckerResponse` is `accepted` | `COMPLETED#{orderId}` |
 
@@ -520,7 +520,9 @@ trucker and order is enough because a failed trucker cannot be asked again, spec
 
 `reputationPenalties` off: every record is acknowledged without a write (log
 `REPUTATION_STREAM_DISABLED` once per container). `timeoutPenalties` off: R2 and R4 record 0
-points (`timeout_penalties_off`). P3 rules also need `pickupClassification`.
+points (`timeout_penalties_off`). P3 rules also need `pickupClassification`: the stream itself does not read it, because only
+ESC-34's pickup judgement writes R10's and R11's values, and it runs only with the flag on (an order accepted while the
+flag was off is never judged).
 
 ### 7.5 Parking failed records
 
@@ -836,7 +838,7 @@ the table above differently:
 
 | Hook | As built |
 |---|---|
-| `NO_SHOW`, `DELIVERY_OVERDUE` | written by `ReputationFraudHooks`, called from `ReputationService.RecordAsync` right after the event's transaction committed (not by the stream Lambda itself), so the unpark replay in order-cron writes them too and a replayed slot never does. Only for an event with points above 0. Weights 15 and 25, hard, once per order, and the two share one score cap of 50 (`RISK_PATTERN_TYPE_CAP`): reliability alone stops at MEDIUM. The events are produced by ESC-34 and ESC-36 (rules R10 to R12); nothing records them yet |
+| `NO_SHOW`, `DELIVERY_OVERDUE` | written by `ReputationFraudHooks`, called from `ReputationService.RecordAsync` right after the event's transaction committed (not by the stream Lambda itself), so the unpark replay in order-cron writes them too and a replayed slot never does. Only for an event with points above 0. Weights 15 and 25, hard, once per order, and the two share one score cap of 50 (`RISK_PATTERN_TYPE_CAP`): reliability alone stops at MEDIUM. The events are produced by ESC-34 (R10, R11: built behind `pickupClassification`) and ESC-36 (R12, not built). FUP-204: a farmer's `NO_SHOW` (R11) goes through the attribution guard, its reporter as the source |
 | buyer griefing | `BUYER_DECLINE_PATTERN` (10, soft, an FRD-09 pattern type: once per order, at most 50). Checked on every recorded `DECLINED_REQUEST` or `RESPONSE_EXPIRED` (R1 to R5, R2 included; with or without points). Counts the buyer's paid orders created in `buyerDeclineSignalDays` whose `farmerResponse` or `truckerResponse` is `declined` or `expired`, the order just recorded included when the read shows it paid, and needs at least 2 different declining farmers or truckers (one party declining one buyer three times flags nobody); `BuyerIdCreatedAtIndex`, at most 2 pages of 50 |
 | repeat restriction | not built (follow-up): `REPUTATION_REPEAT_RESTRICTION` needs its Fraud Review handling decided with ESC-32's admin restrict and lift |
 | payout delay | `PayoutDelayPolicy.ReputationWait` on the stored map: a restriction active now waits as flagged, a stored `low` (or an ended restriction not yet rewritten) as new. One extra GetItem only for a payee the risk score already made new. Read on sync and escrow-cron (`REPUTATION_PENALTIES_ENABLED`) |
@@ -1191,6 +1193,7 @@ How the build reads points the design left open:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.8.0 | 2026-11-12 | ESC-34 built the producer of R10 and R11 (the pickup judgement, behind `pickupClassification`, off everywhere): their order fields are as shipped, plus `truckerResponse` / `farmerResponse` `no_show`, which no rule reads. FUP-204: R11's candidate carries `ReportedBy` (the self-pickup buyer, else the order's trucker), carried to the event in memory only, and the reliability hook writes that event's `NO_SHOW` through the attribution guard (`fraud-detection-architecture.md` 3.36.0, 15.3); R10 rests on the trucker alone. 7.4: the stream needs no `pickupClassification` of its own. |
 | 1.7.0 | 2026-11-12 | FUP-203 built: 13.1 `GPS_ANOMALY`, the trucker's row is judged from the trucker's own check-ins (every check-in of the live-trip window from the pickup to the confirmation at the pickup, against the trip's destination point), never from the buyer's drop-off coordinates, and rides on `reputationPenalties` (no flag of its own); the rollout note no longer waits for it (`fraud-detection-architecture.md` 3.35.0). |
 | 1.6.0 | 2026-11-12 | Monitoring only (FUP-163, FUP-201; no server change): the `REPUTATION_COPY_FAILED` filter also covers the admin log group, and its alarm text names the admin steps; `REPUTATION_FRAUD_HOOK_FAILED` is counted on the reputation-stream and order-cron log groups and any line alarms (`reputation-fraud-hook-failed`). Section 13.1, section 14 and point 13 of section 21 updated. |
 | 1.5.0 | 2026-11-12 | FUP-160 and FUP-161 built (both needed before `reputationPenalties` goes on): new 12.3, the order-cron action `reputation_stamp_owner_copies` (the one-off owner stamp: the owners of the active crop and trip rows from the listing status indexes, no Scan, so owners without a `woreda` are reached; per owner the reputation as read and the copy refresh of 6.3; no users write; behind `reputationPenalties`; time budget with a `startAt` cursor; a rerun writes nothing; how to run it); 12.1 step 6 runs it before `reputationPublicTags` goes on; 8.3, section 4 and 15 list it. 7.5: the unpark long-polls 1 second per receive and stops after two empty replies in a row. Section 21 points 2 and 7 point to them. |

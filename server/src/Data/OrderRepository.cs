@@ -1199,6 +1199,75 @@ public sealed class OrderRepository : IOrderRepository
         return true;
     }
 
+    /// <inheritdoc />
+    public async Task<bool> TryRecordCheckInAsync(
+        string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen)
+    {
+        var names = new Dictionary<string, string>
+        {
+            { "#ci", PickupJudgement.CheckInsField },
+            { "#kind", kind }
+        };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":entry", DynamoDbHelper.ToAttributeValue(entry) }
+        };
+        var open = string.Empty;
+        if (whileOpen)
+        {
+            names["#status"] = "status";
+            names["#pj"] = PickupJudgement.Field;
+            values[":accepted"] = new AttributeValue { S = "accepted" };
+            values[":pending"] = new AttributeValue { S = PickupJudgement.Outcome.Pending };
+            open = " AND #status = :accepted AND #pj = :pending";
+        }
+
+        // The map is stamped (empty) with pickupJudgement, so the entry goes into it. A row whose map is
+        // missing gets the map with this one entry instead; a document path into a missing map would fail.
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, createdAt),
+                UpdateExpression = "SET #ci.#kind = :entry",
+                ConditionExpression = "attribute_exists(orderId) AND attribute_exists(#ci) AND attribute_not_exists(#ci.#kind)" + open,
+                ExpressionAttributeNames = names,
+                ExpressionAttributeValues = values
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // The kind is taken, the order moved on, or the map is missing: try the last one only.
+        }
+
+        var withMap = new Dictionary<string, AttributeValue>(values)
+        {
+            [":map"] = DynamoDbHelper.ToAttributeValue(new Dictionary<string, object> { { kind, entry } })
+        };
+        withMap.Remove(":entry");
+        var mapNames = new Dictionary<string, string>(names);
+        mapNames.Remove("#kind");
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, createdAt),
+                UpdateExpression = "SET #ci = :map",
+                ConditionExpression = "attribute_exists(orderId) AND attribute_not_exists(#ci)" + open,
+                ExpressionAttributeNames = mapNames,
+                ExpressionAttributeValues = withMap
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Order attributes a status or stamp write never takes from its caller's field map: the keys,
     /// the version and timestamp the write owns, the status (set by the write itself or not at all),

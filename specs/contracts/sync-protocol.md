@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.54.0
+1.55.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -34,7 +34,7 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
     {
       "operationId": "uuid-v4",
       "idempotencyKey": "farmer-123:crop_listing:crop-456:create:1707998400000",
-      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message | user | location_ping | delivery_photo | listing_report",
+      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message | user | location_ping | delivery_photo | listing_report | handoff_check_in",
       "entityId": "uuid-v4",
       "action": "create | update | delete",
       "clientVersion": 3,
@@ -1417,10 +1417,66 @@ is never stored.
 
 ---
 
+## Arrival check-ins (1.55.0, ESC-34)
+
+Behind `pickupClassification` (off everywhere; `delivery-verification-api.md` 2.6.0, "Arrival
+check-ins and the pickup judgement"). A new create-only entity `handoff_check_in`:
+
+```json
+{
+  "entityType": "handoff_check_in",
+  "entityId": "ord-101#arrived_pickup",
+  "action": "create",
+  "data": {
+    "orderId": "ord-101",
+    "kind": "arrived_pickup",
+    "capturedAt": "2026-11-20T06:40:00.000Z",
+    "latitude": 8.7523,
+    "longitude": 38.9785,
+    "accuracyM": 35
+  }
+}
+```
+
+- `kind`: `arrived_pickup` (the order's trucker; the buyer of a self-pickup order) with GPS, or
+  `crops_ready` (the order's farmer), GPS optional. `entityId` is `{orderId}#{kind}`. `version` may be
+  echoed and is ignored.
+- Taken only on an order the server stamped `pickupJudgement: pending` at acceptance (the flag on),
+  while it is `accepted`, from `pickupDate` minus 24 hours (a self-pickup order from acceptance) to
+  `pickupDeadlineAt`, by the server clock. The phone's `capturedAt` never decides anything.
+- `success` (with the order's unchanged `version` as `serverVersion`, no `serverData`) when stored, or
+  when a check-in of that kind is already stored (the first one is kept). The write moves neither the
+  order's `version` nor its `updatedAt`, so no queued order operation conflicts with it.
+- Refusals, every one permanent (the client drops the check-in, takes back its local mark and says
+  why; nothing to revert on the server): `CHECKIN_VALIDATION` (payload, `entityId`, an action other
+  than `create`, `arrived_dropoff`, which comes with ESC-36), `CHECKIN_NOT_PARTY` (not the party of
+  that kind; a stranger also gets the `ROLE_FORBIDDEN` signal), `CHECKIN_NOT_OPEN` (flag off, an order
+  accepted without the stamp, an order no longer waiting for its pickup, or unknown), `CHECKIN_TOO_EARLY`,
+  `CHECKIN_TOO_FAR` (more than 5 km from the farm), `CHECKIN_TOO_LATE` (it reached the server after
+  the deadline: kept on the order as late evidence, never counted). An order or listing that cannot
+  be read answers an unprefixed error, which the phone retries.
+- **A pickup refused after the judgement** (FUP-147): a `delivery` update to `pickedUp` (the trucker)
+  or a self-pickup `delivered` (the buyer) on an order whose pickup was judged a no-show, or sent to
+  the admin queue, is refused `ORDER_DEADLINE_PASSED:` and nothing is written. It arrives on a
+  `delivery` operation, and the clients already treat every `ORDER_*` refusal of a delivery operation
+  as permanent: mobile marks it rejected and puts the delivery back from `GET /deliveries/{id}` (its
+  waiting pickup photo is rejected with it, and the live-trip check-ins of the trip stop waiting);
+  web keeps nothing local and shows the refusal text. A real QR scan (the farmer's nonce) also puts
+  the order in the admin queue (`late_pickup_evidence`).
+
+Clients: the server side is built (1.55.0); the mobile and web screens that send check-ins, the
+`CHECKIN_*` refusal handling and texts, and hiding the buyer's deadline cancel on a stamped order are
+FUP-285. Until then no app sends the entity, and the flag must stay off: the server only stamps orders
+while it is on, and it goes on only once the app build that sends check-ins is the minimum
+(`MIN_ORDER_APP_BUILD`).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.55.0 | 2026-11-12 | Arrival check-ins (ESC-34, `delivery-verification-api.md` 2.6.0, `order-lifecycle.md` 2.14.0), behind `pickupClassification` (off everywhere): new create-only entity `handoff_check_in` (`{orderId}#{arrived_pickup\|crops_ready}`), taken only on an order stamped `pickupJudgement: pending`, judged by the server's receipt time, first check-in kept, no version or `updatedAt` move; the `CHECKIN_*` refusals are permanent (`CHECKIN_TOO_LATE` keeps the check-in as late evidence). FUP-147: a pickup scan refused `ORDER_DEADLINE_PASSED` after the judgement arrives on a `delivery` operation and is a permanent delivery refusal that puts the delivery back, on mobile and web, under the existing `ORDER_*` rule. |
 | 1.54.0 | 2026-11-12 | Handoff fields by status (FUP-246, `delivery-verification-api.md` 2.5.0, `fraud-detection-architecture.md` 3.34.0): a `delivery` operation writes `gpsPickup` only with `status: pickedUp`, `gpsDropoff` only with `delivered` and `disputeReason` only with `disputed`; anywhere else (a create, `inTransit`, the other handoffs, a dispute, an update without a status) the field is dropped, not refused, and logged as `DELIVERY_FIELD_DROPPED`. A buyer's confirm can no longer move the trucker's pickup point, nor a dispute rewrite either point. Server only; every shipped client already sends each field only with its own status. |
 | 1.53.0 | 2026-11-12 | The "update the app" banner (FUP-75), client only: the shell shows it above every main screen while the "update required" flag is set, with a Play Store button and a hint on the phone, and on web a reload that first updates the caching service worker, then fetches `main.dart.js` past the browser cache, and does nothing offline; web now raises the flag on an `APP_UPDATE_REQUIRED` refusal; the flag is kept with the build number (survives a restart on the same build, forgotten by another build) and an accepted order operation clears it (see Minimum app version for order operations). No server change. |
 | 1.52.0 | 2026-11-12 | Codes older apps do not know (FUP-241, `crop-listing-api.md` 1.12.1, `trip-listing-api.md` 2.6.1): `TRIP_HAS_BOOKINGS` and `CROP_HAS_ACTIVE_ORDERS` go only to an app that sends `X-App-Build`; an app without it (build 1 or older) gets the same sentence as `SYNC_VALIDATION:`, permanent on every mobile build since March 2026, as `REPUTATION_RESTRICTED` already did (1.48.0, unchanged). Apps with the header get the codes as before. Server only |

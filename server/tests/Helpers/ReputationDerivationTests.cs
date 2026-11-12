@@ -199,6 +199,22 @@ public class ReputationDerivationTests
         c.Code.Should().Be(ReputationCodes.NoShow);
         c.UserId.Should().Be("trucker-1");
         c.EventId.Should().Be("NOSHOW#order-1");
+        // FUP-204: it rests on the trucker's own missing check-in, so nobody else is its reporter.
+        c.ReportedBy.Should().BeNull();
+    }
+
+    [Fact]
+    public void R10_AsESC34WritesIt()
+    {
+        // ESC-34's judgement: truckerResponse no_show with the failure; the slot and the user stand.
+        var c = Single(
+            Order(("status", "accepted"), ("truckerResponse", "accepted")),
+            Order(("status", "awaiting_transport"), ("truckerResponse", "no_show"), ("transportFailure", "trucker_no_show"),
+                ("faultParty", "trucker")));
+
+        c.Code.Should().Be(ReputationCodes.NoShow);
+        c.UserId.Should().Be("trucker-1");
+        c.ReportedBy.Should().BeNull();
     }
 
     [Fact]
@@ -211,7 +227,29 @@ public class ReputationDerivationTests
         c.Code.Should().Be(ReputationCodes.NoShow);
         c.UserId.Should().Be("farmer-1");
         c.EventId.Should().Be("NOSHOW#order-1");
+        // FUP-204: the judgement rests on the trucker's arrival check-in.
+        c.ReportedBy.Should().Be("trucker-1");
     }
+
+    [Fact]
+    public void R11_AsESC34WritesIt_OnASelfPickupOrder_TheBuyerReportedIt()
+    {
+        var c = Single(
+            Order(("status", "accepted"), ("farmerResponse", "accepted"), ("fulfillment", "self_pickup"), ("truckerId", "")),
+            Order(("status", "cancelled"), ("farmerResponse", "no_show"), ("cancelReason", "farmer_no_show"),
+                ("fulfillment", "self_pickup"), ("truckerId", ""), ("faultParty", "farmer")));
+
+        c.UserId.Should().Be("farmer-1");
+        c.ReportedBy.Should().Be("buyer-1");
+    }
+
+    [Fact]
+    public void ABuyerNoShow_IsNoEvent()
+        => Derive(
+                Order(("status", "accepted"), ("farmerResponse", "accepted"), ("fulfillment", "self_pickup")),
+                Order(("status", "cancelled"), ("farmerResponse", "accepted"), ("cancelReason", "buyer_no_show"),
+                    ("fulfillment", "self_pickup"), ("faultParty", "buyer")))
+            .Should().BeEmpty();
 
     [Fact]
     public void R12_DeliveryOverdueDispute()

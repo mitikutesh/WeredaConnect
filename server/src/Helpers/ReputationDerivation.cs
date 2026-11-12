@@ -16,7 +16,8 @@ namespace WeredaConnect.Server.Helpers;
 /// - not events: <c>trip_full</c> and <c>failed_capacity</c> (a race the system caused), the buyer
 ///   and system cancels, a trucker who was never asked, and a farmer's <c>rejected</c> through a
 ///   dispute verdict.
-/// R10 to R12 (P3) read values only ESC-34 and ESC-36 write; nothing writes them yet.
+/// R10 to R12 (P3) read values only ESC-34 and ESC-36 write: ESC-34's pickup judgement writes R10's and
+/// R11's (only behind <c>pickupClassification</c>); R12's waits for ESC-36.
 /// </summary>
 public static class ReputationDerivation
 {
@@ -165,16 +166,22 @@ public static class ReputationDerivation
             }
         }
 
-        // R10 (P3): the trucker was judged a no-show.
+        // R10 (P3): the trucker was judged a no-show. It rests on the trucker's own missing check-in
+        // alone (FUP-204, fraud spec 15.3): no other party's report can cause it.
         if (failure == TruckerNoShowFailure && old.String(TransportFailureField) != TruckerNoShowFailure)
         {
             Add(Candidate(oldTruckerId, Party.Trucker, ReputationSlots.NoShow + orderId, ReputationCodes.NoShow));
         }
 
-        // R11 (P3): the farmer was judged a no-show.
+        // R11 (P3): the farmer was judged a no-show. FUP-204: the judgement rests on the other side's
+        // arrival check-in (the trucker's, or the self-pickup buyer's), so that party is the reporter.
         if (cancelReason == FarmerNoShowReason && oldStatus != "cancelled")
         {
-            Add(Candidate(farmerId, Party.Farmer, ReputationSlots.NoShow + orderId, ReputationCodes.NoShow));
+            var reporter = row.String(FulfillmentField) == Fulfillment.SelfPickup ? buyerId : row.String("truckerId");
+            Add(Candidate(farmerId, Party.Farmer, ReputationSlots.NoShow + orderId, ReputationCodes.NoShow) with
+            {
+                ReportedBy = NonEmpty(reporter)
+            });
         }
 
         // R12 (P3): no delivery by T8.

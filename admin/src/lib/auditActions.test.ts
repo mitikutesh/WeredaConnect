@@ -121,6 +121,10 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "reputation_lifted",
   // FRD-18: the outcome label of a resolved case (Fraud Review decision, dispute verdict, held exit)
   "outcome_label",
+  // ESC-34: an arrival check-in, the pickup judgement, and late pickup evidence on a queued order
+  "handoff_check_in",
+  "pickup_judged",
+  "late_pickup_evidence",
 ];
 
 /** Written by an open PR that has no admin change of its own; labelled here ahead of the merge. */

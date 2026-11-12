@@ -2170,6 +2170,22 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
     }
   });
 
+  test('ESC-34: every environment keeps the pickup judgement off on sync and order-cron', () => {
+    const templates: [string, ReturnType<typeof liveTemplate>][] = [
+      ['dev', liveTemplate(environments['dev'])],
+      ['staging', liveTemplate(environments['staging'])],
+      ['prod', liveTemplate(environments['prod'])],
+    ];
+    for (const [envName, template] of templates) {
+      for (const fn of ['sync', 'order-cron']) {
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          FunctionName: `wereda-connect-${envName}-${fn}`,
+          Environment: { Variables: Match.objectLike({ PICKUP_CLASSIFICATION_ENABLED: 'false' }) },
+        });
+      }
+    }
+  });
+
   test.each(['staging', 'prod'])('ESC-25: %s sync refuses order operations from apps before build 3', (envName) => {
     liveTemplate(environments[envName]).hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: `wereda-connect-${envName}-sync`,

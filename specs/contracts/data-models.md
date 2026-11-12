@@ -1,6 +1,6 @@
 # Data Models Contract
 
-**Version**: 1.13.0
+**Version**: 1.14.0
 **Last Updated**: 2026-11-12
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
@@ -348,7 +348,7 @@ device; the admin reads the rows in the manual payout queue.
 | `respondedAt` | String? | No | The farmer's answer | server |
 | `rejectionReason` | String? | No | The farmer's text on a reject | farmer |
 | `cancelledAt` | String? | No | | server |
-| `cancelReason` | String? | No | The buyer's text, or a server code (`buyer_withdrew`, `transport_failed_buyer_cancelled`, `farmer_cancelled`, `farmer_response_expired`, `transport_not_arranged`, `escrow_refunded`, `account_deleted`, `listing_out_of_stock`) | buyer or server |
+| `cancelReason` | String? | No | The buyer's text, or a server code (`buyer_withdrew`, `transport_failed_buyer_cancelled`, `farmer_cancelled`, `farmer_response_expired`, `transport_not_arranged`, `escrow_refunded`, `account_deleted`, `listing_out_of_stock`, and since 1.14.0 `farmer_no_show`, `buyer_no_show`) | buyer or server |
 | `pickupDeadlineAt` | String? | No | When an accepted order nobody picked up counts as a transport failure (order-lifecycle 1.15.0; on a trip order stamped at the trucker's accept since 2.0.0) | server |
 | `adminQueueReason`, `adminQueuedAt` | String? | No | The admin stuck-order queue (`hold_cap`) | server |
 | `contactOpen` | bool | Yes | Whether the parties may reach each other on this order (computed on every read) | server |
@@ -359,19 +359,22 @@ device; the admin reads the rows in the manual payout queue.
 | `dropoffPlace` | String? | No | The buyer's registered woreda (order-lifecycle 2.2.0) | server, at create |
 | `dropoffNote` | String? | No | The buyer's drop-off landmark ("Merkato, near Anwar Mosque"): one line of at most 80 user-visible characters (extended grapheme clusters), no phone number; returned to the buyer, the farmer and the committed trucker of a held order only (order-lifecycle 2.5.0, LT-12) | buyer, at create and until pickup |
 | `deliveryLatitude`, `deliveryLongitude` | Double? | No | The order's own drop-off point, the centroid of the place the buyer picked: both or neither, latitude 3 to 15, longitude 32.5 to 48.5, trucked orders only (ignored on a self-pickup order); returned to the buyer, the farmer and the order's trucker while the money is held and the trucker is still on the order (not asked yet, asked or committed). Without it the trip's destination point is the drop-off (order-lifecycle 2.9.0, LT-14) | buyer, at create and until pickup |
-| `farmerResponse` | String? | No | `pending`, `accepted`, `declined`, `expired` (2.0.0) | server |
+| `farmerResponse` | String? | No | `pending`, `accepted`, `declined`, `expired` (2.0.0); `no_show` (2.14.0) | server |
 | `farmerRespondedAt`, `farmerDeadlineAt` | String? | No | The farmer's answer and its deadline (2.0.0) | server |
-| `truckerResponse` | String? | No | `none`, `not_asked`, `pending`, `accepted`, `declined`, `expired`, `cancelled`, `failed_capacity` (2.0.0) | server |
+| `truckerResponse` | String? | No | `none`, `not_asked`, `pending`, `accepted`, `declined`, `expired`, `cancelled`, `failed_capacity` (2.0.0); `no_show` (2.14.0) | server |
 | `truckerAskedAt`, `truckerRespondedAt`, `truckerDeadlineAt` | String? | No | When the trucker was asked, answered, and had to answer by (2.0.0) | server |
 | `buyerChoiceDeadlineAt` | String? | No | The buyer's 48 hour window in `awaiting_transport` (2.0.0) | server |
-| `transportFailure` | String? | No | `trucker_declined`, `trucker_expired`, `trucker_cancelled`, `trip_cancelled`, `trip_full` (2.0.0) | server |
+| `transportFailure` | String? | No | `trucker_declined`, `trucker_expired`, `trucker_cancelled`, `trip_cancelled`, `trip_full` (2.0.0); `trucker_no_show` (2.14.0) | server |
 | `declineReason` | String? | No | `date`, `capacity`, `price`, `route`, `crop_not_ready`, `other` (2.0.0) | farmer or trucker, with a `decline` command |
 | `cancelledBy` | String? | No | `buyer`, `farmer`, `trucker`, `system` (2.0.0) | server |
 | `faultParty` | String? | No | `farmer`, `trucker`, `buyer`, `none` (2.0.0) | server |
 | `farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt` | String? | No | Reminder markers 6 hours before a deadline (2.0.0) | order cron |
 | `pickupOverdueNotifiedAt` | String? | No | Stamped when `pickupDeadlineAt` passed on an accepted order (2.0.0) | order cron |
+| `pickupJudgement` | String? | No | ESC-34 (order-lifecycle 2.14.0, behind `pickupClassification`): `pending` from the accept until the pickup is judged, then `scanned`, `trucker_no_show`, `farmer_no_show`, `buyer_no_show`, `both_present_no_scan` or `unchecked_check_in`; absent on orders accepted without the flag | server at the accept, then the order cron |
+| `pickupJudgedAt` | String? | No | When the order cron judged the pickup (2.14.0) | order cron |
+| `checkIns` | Map? | No | The arrival check-ins per kind (`arrived_pickup`, `crops_ready`), each `{receivedAt, capturedAt?, distanceChecked, late}` as returned; stored with the fix and the sender, which are never returned (2.14.0, `delivery-verification-api.md` 2.6.0) | `handoff_check_in` |
 
-Stored on the row but never returned: `paymentSubmittedAt`, `pendingPaymentAt`, `paymentHoldUntil`, the Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`), `cancelNote`, `adminQueue`, `adminQueueEscrowId`, `moneySweepSkip`, `moneySweepSkipAt`, the admin override flags (`refundOverride*`, `disputeOverride*`). Since 1.6.0 the order's next deadline (`nextDeadlineAt`, `nextDeadlineKind`, `deadlineShard`: the sparse `DeadlineIndex` the order cron reads; order-lifecycle 2.8.0) is server-only too: not in the `OrderDto` answers, but the `serverData` of a sync create or update result echoes the stored row and may carry it; clients ignore it. Clients may send only `status` and its companions (`rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId`) and, since order-lifecycle 2.0.0, the commands `farmerResponse` / `truckerResponse` (`accept` or `decline`) with `declineReason`, and since 2.5.0 the buyer's `dropoffNote` and since 2.9.0 `deliveryLatitude` with `deliveryLongitude` (on create, and on update until pickup); everything else above is dropped or refused (`order-lifecycle.md`, Order Update Rules).
+Stored on the row but never returned: `paymentSubmittedAt`, `pendingPaymentAt`, `paymentHoldUntil`, the Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`), `cancelNote`, `adminQueue`, `adminQueueEscrowId`, `moneySweepSkip`, `moneySweepSkipAt`, the farm's point stamped for the check-ins (`pickupLatitude`, `pickupLongitude`, 1.14.0), the admin override flags (`refundOverride*`, `disputeOverride*`). Since 1.6.0 the order's next deadline (`nextDeadlineAt`, `nextDeadlineKind`, `deadlineShard`: the sparse `DeadlineIndex` the order cron reads; order-lifecycle 2.8.0) is server-only too: not in the `OrderDto` answers, but the `serverData` of a sync create or update result echoes the stored row and may carry it; clients ignore it. Clients may send only `status` and its companions (`rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId`) and, since order-lifecycle 2.0.0, the commands `farmerResponse` / `truckerResponse` (`accept` or `decline`) with `declineReason`, and since 2.5.0 the buyer's `dropoffNote` and since 2.9.0 `deliveryLatitude` with `deliveryLongitude` (on create, and on update until pickup); everything else above is dropped or refused (`order-lifecycle.md`, Order Update Rules).
 
 **Indexes (DynamoDB)**: `orderId` (PK); `StatusCreatedAtIndex` (the crons page it by status); the party indexes behind `GET /orders` (`buyerId`, `farmerId`, `truckerId`); the sparse `AdminQueueIndex`.
 
@@ -495,6 +498,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.9.0 | 2026-11-11 | Server escrow row gains the server-only `releaseOrigin` (FUP-137: `auto_release` for a release the hourly auto-release started, written with the release or its manual payout queue entry; read by the clean-delivery credit). No client field changes | @Server |
 | 1.10.0 | 2026-11-11 | Order `farmerName` is never an id (order-lifecycle 2.11.0, FUP-130): the server writes the listing's name or the empty string, whatever the client sent; `truckerName` is the trip's name or absent. No schema change. |
 | 1.11.0 | 2026-11-12 | CropListing and Trip gain `ownerReliabilityPct` on the client (Isar schema and web mirror), parsed from `GET /crops` and `GET /trips` for the offline matcher (ESC-30, `match-api.md` 1.4.0); CropListing `farmerReliability` is deprecated. The other owner fields come with ESC-31 | @Mobile |
+| 1.14.0 | 2026-11-12 | Order gains `pickupJudgement`, `pickupJudgedAt` and `checkIns` (ESC-34, order-lifecycle 2.14.0, behind `pickupClassification`), the stored-only `pickupLatitude` and `pickupLongitude`, the values `no_show` (`farmerResponse`, `truckerResponse`), `trucker_no_show` (`transportFailure`) and the server codes `farmer_no_show` and `buyer_no_show` (`cancelReason`). Server DTO only: the Isar schema and the web mirror get them with the client follow-up (FUP-285) | @Server |
 | 1.13.0 | 2026-11-12 | Server-only manual payout claim fields on the escrow row (`manual{Leg}ClaimedBy`, `ClaimedAt`, `ClaimExpiresAt`) and the ledger row (`claimedBy`, `claimedAt`, `claimExpiresAt`), and the `payout-ref#` reference item in escrow-idempotency (escrow-protocol 2.12.0, FUP-05). No client field changes. 1.12.0 is another branch's number | @Server |
 | 1.12.0 | 2026-11-12 | CropListing and Trip gain the rest of the owner's public reputation copy on the client (Isar schema and web mirror): `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReputationAt` (ESC-31, `reputation-api.md` 1.6.0 section 7). All nullable, server-written, never sent back; one parser reads them in the marketplace pull, the web repositories, the web matcher and the conflict echo, and a row without them clears the stored copy. The user's own reputation is not an Isar entity: it is kept in the key-value store (`reputation-api.md` section 13) | @Mobile |
 

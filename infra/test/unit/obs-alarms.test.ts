@@ -398,11 +398,13 @@ describe('FUP-201: the ESC-33 lines nothing counted', () => {
     expect(onAlarmStatus(template, 'ReputationFraudHookFailed')).toBe(true);
   });
 
-  test('FRAUD_ATTRIBUTED_SIGNAL_SKIPPED: one metric per reason on the sync log group, each its own reason only', () => {
+  test('FRAUD_ATTRIBUTED_SIGNAL_SKIPPED: one metric per reason on the log groups of its callers, each its own reason only', () => {
     const template = monitoringTemplate(false);
     for (const reason of REASONS) {
       const metric = `FraudAttributedSkipped${reason}`;
-      const [filter] = expectRareTokenFilters(template, metric, `"FRAUD_ATTRIBUTED_SIGNAL_SKIPPED" "reason=${reason}"`, [lg('sync')]);
+      // FUP-204: the reputation hooks write attributed rows too, in reputation-stream and order-cron's unpark.
+      const [filter] = expectRareTokenFilters(template, metric, `"FRAUD_ATTRIBUTED_SIGNAL_SKIPPED" "reason=${reason}"`,
+        [lg('sync'), lg('reputation-stream'), lg('order-cron')]);
       expectMatches(filter.Properties.FilterPattern, [skippedLine(reason)], [
         ...REASONS.filter((r) => r !== reason).map(skippedLine),
         ...NEIGHBOURS,
@@ -442,10 +444,15 @@ describe('FUP-201: the ESC-33 lines nothing counted', () => {
     // The reasons the guard logs are exactly the metrics the stack publishes.
     const logged = [...new Set([...fraud.matchAll(/Skipped\(AttributedSignalOutcome\.(\w+)\)/g)].map((m) => m[1]))].sort();
     expect(logged).toEqual([...REASONS].sort());
-    // Only sync writes attributed signals today.
-    const callers = serverFilesMatching(/\.RecordAttributedSignalAsync\(/).filter((f) => f.startsWith('Functions/'));
-    expect(callers).toEqual(['Functions/SyncFunction.cs']);
-    expect(logGroupsOfHandlerFiles(callers)).toEqual([lg('sync')]);
+    // The handlers that write attributed signals: sync (the trucker's GPS_ANOMALY, FUP-203 moved it into a
+    // partial file of the sync handler) and, through the reputation hooks (FUP-204), every handler that
+    // records a reputation event: the stream and order-cron's unpark replay.
+    const callers = serverFilesMatching(/\.RecordAttributedSignalAsync\(/);
+    expect(callers.filter((f) => f.startsWith('Functions/'))).toEqual(['Functions/SyncFunction.TruckerGpsEvidence.cs']);
+    expect(callers.filter((f) => f.startsWith('Services/'))).toEqual(['Services/ReputationFraudHooks.cs']);
+    const recorders = serverFilesMatching(/new ReputationRecordProcessor\(|new ReputationUnparkJob\(/).filter((f) => f.startsWith('Functions/'));
+    expect(logGroupsOfHandlerFiles(['Functions/SyncFunction.TruckerGpsEvidence.cs', ...recorders]))
+      .toEqual([lg('order-cron'), lg('reputation-stream'), lg('sync')]);
   });
 });
 

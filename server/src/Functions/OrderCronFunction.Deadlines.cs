@@ -112,7 +112,7 @@ public partial class OrderCronFunction
             var outcome = GetString(order, "status") switch
             {
                 "funded" => await DecideFundedAsync(order, orderId, run, escrow, crops, trips),
-                "accepted" => await DecideAcceptedAsync(order, orderId, run, trips),
+                "accepted" => await DecideAcceptedAsync(order, orderId, run, escrow, crops, trips),
                 OrderCommitment.AwaitingTransportStatus => await DecideAwaitingTransportAsync(order, orderId, run, escrow, crops),
                 _ => DeadlineOutcome.None
             };
