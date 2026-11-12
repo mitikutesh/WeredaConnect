@@ -9,7 +9,9 @@ import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/security/local_auth_gate.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_qr_issuer.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/handoff_code.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
@@ -39,8 +41,11 @@ import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 /// fix is taken (at most [gpsWaitCap]), so a quick tap cannot skip it; a
 /// phone that gets no fix still confirms a scanned QR without one.
 ///
-/// A trucker's confirmed pickup keeps the farmer's token (or the typed code)
-/// on the phone ([DropoffHandoffStore]) for the drop-off QR (T-3).
+/// A trucker's confirmed pickup makes the trucker's own drop-off code, kept
+/// on the phone ([DropoffHandoffStore]) and registered with the server
+/// ([DropoffQrIssuer], ESC-35). The buyer scans or types it at the drop-off;
+/// the screen then shows the trucker's wait and lock texts, not the
+/// farmer's.
 ///
 /// Confirming a DELIVERY (buyer delivery confirm and buyer self-pickup
 /// confirm) releases the farmer's escrow, so it first asks the device to
@@ -96,7 +101,6 @@ class _QrScanScreenState extends State<QrScanScreen> {
   /// file and went up already.
   Uint8List? _photoPreview;
   String? _scannedNonce;
-  String? _scannedToken;
   bool _isCapturingGps = false;
 
   /// Counts captures, so one started before a reset cannot land after it.
@@ -182,14 +186,15 @@ class _QrScanScreenState extends State<QrScanScreen> {
       _phase = _ScanPhase.verified;
       _typedCode = code;
       _scannedNonce = null;
-      _scannedToken = null;
       _codeError = null;
     });
     _captureGps();
   }
 
-  /// A confirmed pickup of a trucker delivery: keep what the farmer showed,
-  /// so the drop-off QR can show it to the buyer. Never fails the pickup.
+  /// A confirmed pickup of a trucker delivery: the trucker's own drop-off
+  /// code is made, kept on the phone and registered now (ESC-35), so on a
+  /// phone its registration goes in the queue behind the pickup. Never
+  /// fails the pickup: the drop-off QR makes one when it opens without.
   Future<void> _keepHandoff() async {
     final delivery = widget.delivery;
     if (widget.verificationType != VerificationType.pickup ||
@@ -197,19 +202,33 @@ class _QrScanScreenState extends State<QrScanScreen> {
         delivery.truckerId.isEmpty) {
       return;
     }
-    final nonce = _scannedNonce;
-    final handoff = KeptHandoff(
-      token: _scannedToken,
-      code: nonce != null
-          ? HandoffCode.derive(nonce: nonce, deliveryId: delivery.deliveryId)
-          : _typedCode,
-    );
     try {
-      await (widget.handoffStore ?? SecureDropoffHandoffStore())
-          .keep(delivery.truckerId, delivery.deliveryId, handoff);
+      final issuer = DropoffQrIssuer(
+        qrService: widget.qrService,
+        repository: context.read<DeliveryBloc>().repository,
+        store: widget.handoffStore ?? SecureDropoffHandoffStore(),
+      );
+      await issuer.issue(delivery);
     } on Object catch (e) {
-      debugPrint('[QrScan] handoff not kept: $e');
+      debugPrint('[QrScan] drop-off code not made: ${e.runtimeType}');
     }
+  }
+
+  /// The buyer at a trucker's drop-off: since ESC-35 a wait is for the
+  /// trucker's code to sync, and a locked typed code is renewed by the
+  /// trucker, so those two say so; everything else as anywhere.
+  String _errorText(AppLocalizations l10n, String? code) {
+    final truckerDropoff =
+        widget.verificationType == VerificationType.delivery &&
+            widget.delivery.deliveryType !=
+                DeliveryConstants.selfPickupDeliveryType;
+    if (truckerDropoff && code == DeliveryErrorCode.qrPending) {
+      return l10n.deliveryErrorDropoffQrPending;
+    }
+    if (truckerDropoff && code == DeliveryErrorCode.codeLocked) {
+      return l10n.deliveryErrorDropoffCodeLocked;
+    }
+    return localizeDeliveryError(l10n, code);
   }
 
   void _onBarcodeDetected(BarcodeCapture capture) {
@@ -228,7 +247,6 @@ class _QrScanScreenState extends State<QrScanScreen> {
       setState(() {
         _phase = _ScanPhase.verified;
         _scannedNonce = result.nonce;
-        _scannedToken = rawValue;
         _typedCode = null;
       });
       _captureGps();
@@ -357,7 +375,6 @@ class _QrScanScreenState extends State<QrScanScreen> {
       _photoRef = null;
       _photoPreview = null;
       _scannedNonce = null;
-      _scannedToken = null;
       _typedCode = null;
       _codeError = null;
     });
@@ -399,10 +416,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                localizeDeliveryError(
-                  AppLocalizations.of(context)!,
-                  state.code,
-                ),
+                _errorText(AppLocalizations.of(context)!, state.code),
               ),
               backgroundColor: AppTheme.statusError,
             ),

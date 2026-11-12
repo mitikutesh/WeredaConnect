@@ -371,6 +371,39 @@ class DeliveryRepository extends BaseDeliveryRepository {
     );
   }
 
+  /// Queue the trucker's drop-off nonce (ESC-35). It is not stored on the
+  /// phone's delivery row (the drop-off store keeps it); the queue sends it
+  /// behind the pickup, and the server waits for the pickup if it comes
+  /// first. Nothing for anyone but the delivery's trucker.
+  @override
+  Future<void> persistDropoffQrNonce({
+    required String deliveryId,
+    required String nonce,
+    required String truckerId,
+  }) async {
+    final delivery = await _isar.deliverys
+        .filter()
+        .deliveryIdEqualTo(deliveryId)
+        .findFirst();
+    if (delivery == null ||
+        truckerId.isEmpty ||
+        delivery.truckerId != truckerId) {
+      return;
+    }
+
+    await _syncQueue.enqueue(
+      userId: truckerId,
+      entityType: 'delivery',
+      entityId: deliveryId,
+      action: 'update',
+      data: jsonEncode({
+        'dropoffQrNonce': nonce,
+        'version': delivery.version,
+      }),
+      operationId: _uuid.v4(),
+    );
+  }
+
   /// Confirm pickup by trucker. Status → pickedUp.
   @override
   Future<void> confirmPickup({

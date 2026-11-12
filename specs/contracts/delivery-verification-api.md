@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.6.0
+2.7.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -670,7 +670,7 @@ pending → pickedUp      (trucker scans farmer's QR code at pickup; required si
 pending → cancelled       (any participant cancels before pickup, by update or delete)
 pickedUp → inTransit   (trucker departs from pickup location)
 pickedUp → delivered    (buyer confirms the handoff; marking in transit is optional)
-inTransit → delivered   (buyer scans the trucker's drop-off QR, the farmer's pickup token kept on the trucker's phone, 1.22.0)
+inTransit → delivered   (buyer scans or types the trucker's drop-off code: the trucker's own nonce since 2.7.0, ESC-35; else the farmer's pickup token kept on the trucker's phone, 1.22.0)
 delivered → disputed     (any participant raises a dispute within 48 hours; the escrow is frozen first, 1.10.0)
 ```
 
@@ -797,9 +797,13 @@ QR code. As built (2.0.0 doc fix):
 The scanner does not recompute the HMAC (it cannot: the secret includes the farmer's device key).
 Before 2.0.0 this section said it did.
 
-**Drop-off (as built, 1.22.0).** The buyer scans the trucker's drop-off QR, which is the farmer's
+**Drop-off (as built, 2.7.0, ESC-35).** The buyer scans the trucker's drop-off QR, the same payload
+made on the trucker's phone with the trucker's own nonce (`n` starts with `d.`), registered after
+pickup as `dropoffQrNonce` (QR Secret Storage). Any buyer app reads it as it reads the farmer's QR.
+
+**Drop-off (1.22.0, still taken from apps that issue no nonce).** The buyer scans the trucker's drop-off QR, which is the farmer's
 pickup token the trucker's phone kept at pickup (one nonce for both legs, each consumed once). A
-separate nonce issued by the trucker's phone is PLANNED (P.3, ESC-35).
+separate nonce issued by the trucker's phone is built in 2.7.0 (above).
 
 ### QR Expiration
 
@@ -1309,7 +1313,50 @@ as a delivery with `deliveryType: "self_pickup"`:
   buyer scans or types it. One nonce serves both legs, each consumed once, within the same
   14-day freshness from the first QR. Trade-off: the trucker holds the pickup secret after
   pickup (it was on their screen anyway); a separate trucker nonce in the same store is a
-  follow-up. No server change for this part.
+  follow-up. No server change for this part. Superseded by the trucker's own nonce (2.7.0, next
+  item) for every app that issues one; kept for deliveries without one.
+- **The trucker's drop-off nonce (2.7.0, ESC-35)**: right after a confirmed pickup the trucker's
+  phone makes its own nonce (32 random bytes, base64url, behind the tag `d.`, so at most 100
+  characters), keeps it in secure storage with its QR token and typed code, and registers it with
+  a delivery update carrying only `dropoffQrNonce` (plus `version`). On a phone the update is
+  queued behind the pickup; web sends it at once. The phone sends it again whenever the drop-off
+  QR is opened, makes one there when it keeps none (picked up on another phone or an older app),
+  and the trucker's **New drop-off code** makes a new one.
+  - Only the delivery's trucker may set it, on an update without a `status`; anyone else's, or one
+    riding on a status change, is dropped as `qrNonce` is (SIM-41). The update stores the nonce and
+    nothing else: the delivery is not written, its `version` does not move, and the answer is
+    `success` with the current row (scrubbed) and version. Nothing is logged but
+    `DROPOFF_NONCE_NOT_STORED deliveryId=..` when it cannot be stored.
+  - Stored in `delivery-qr-secrets` as `dropoffNonce` with `dropoffIssuedAt`, next to the farmer's
+    nonce only: a row without the farmer's nonce (a delivery picked up before 1.24.0, or no secret
+    store) stores nothing and answers `success`. A different nonce restarts `dropoffIssuedAt` and
+    removes `codeMissesDelivered`; the same nonce again changes neither (only the row's TTL).
+  - Delivery `pending` (the pickup has not reached the server; a pickup in the same batch may be
+    `deferred` for the farmer's nonce): `deferred`, `DELIVERY_NONCE_PENDING: Waiting for the pickup
+    to sync. Will retry automatically.`, nothing stored; refused with `DELIVERY_VALIDATION: The
+    drop-off QR code can only be registered after the pickup.` once 14 days have passed since the
+    later of the delivery's creation and the operation's `timestamp`. `pickedUp` or `inTransit`:
+    stored. `delivered` or `disputed`: nothing stored, `success`. A malformed value (no `d.` tag,
+    nothing after it, longer than 100) is `DELIVERY_VALIDATION: dropoffQrNonce must ...`.
+  - **The buyer's `delivered` on a trucker delivery** is checked against `dropoffNonce` once one is
+    stored (the farmer's token no longer confirms it: `DELIVERY_NONCE_MISMATCH`), else against the
+    farmer's nonce as before. Single use is the same `delivered` leg; freshness counts 14 days from
+    `dropoffIssuedAt` (`DELIVERY_NONCE_EXPIRED: QR code has expired. Ask the trucker for a new
+    drop-off code.`); the typed code is the 1.22.0 derivation keyed by the trucker's nonce, its
+    attempts conditional on that nonce, and its lock answers `DELIVERY_CODE_LOCKED: Too many wrong
+    codes for this drop-off. Scan the trucker's drop-off QR, or ask the trucker for a new code.`,
+    which the trucker's new code clears. `DELIVERY_CODE_LOCKED_DROPOFF` stays for a drop-off without
+    a trucker's nonce. A self-pickup and every pickup use the farmer's nonce only.
+  - **Offline**: a scanned nonce with the `d.` tag while no trucker's nonce is stored (the trucker's
+    phone has not synced yet) is `deferred`, `DELIVERY_NONCE_PENDING: Waiting for the trucker's
+    drop-off QR code to sync. Will retry automatically.`, nothing written and no miss counted, and
+    refused with `DELIVERY_NONCE_MISSING: The trucker's drop-off QR code never reached the server.
+    Ask the trucker for a new drop-off code, or contact support.` 14 days after the later of the
+    delivery's creation and the scan. An untagged wrong scan stays `DELIVERY_NONCE_MISMATCH`; a
+    typed code carries no tag, so one typed before the trucker's nonce synced is checked against the
+    farmer's (a miss), as a code regenerated offline is today.
+  - No flag: shipped buyer apps scan and type the new code the same way, and a trucker app that
+    issues none keeps the 1.22.0 path. The nonce and the code are never logged.
 - **Migration**: an on-record `qrNonce` is used only where the secret store is not
   provisioned. Where it is, only the farmer's stored nonce counts (rows written before SIM-41
   could carry a trucker-authored value). It is always scrubbed from echoed `serverData`.
@@ -1318,7 +1365,7 @@ as a delivery with `deliveryType: "self_pickup"`:
 
 ## Planned in 2.0.0: evidence at pickup and drop-off (P3: ESC-34, ESC-35, ESC-36)
 
-> **PLANNED. Nothing in this section is built at 2.0.0.** ESC-34 builds P.2, ESC-35 builds P.3 and
+> **PLANNED. Nothing in this section is built at 2.0.0.** (P.2 is built in 2.6.0, P.3 in 2.7.0.) ESC-34 builds P.2, ESC-35 builds P.3 and
 > ESC-36 builds P.4. Source: spec `three-party-escrow-commitments-reputation.md` 4.4
 > (`deliveryLatitude`, `deliveryLongitude`), 4.5 (T7, T8, T9), 4.8, section 5 D and E, and the
 > rollout flags of K3. Until a ticket ships, the sections above are the contract. Names marked
@@ -1329,8 +1376,8 @@ as a delivery with `deliveryType: "self_pickup"`:
 | Evidence | Built | Planned |
 |---|---|---|
 | Pickup QR backed by the farmer's server-held nonce, single use, works offline | Yes; every pickup needs it since 1.24.0 (FRD-11) | Unchanged |
-| Typed code when a camera or screen fails | Yes, for both legs: **9 digits**, eight from the nonce and a Damm check digit (1.22.0) | Spec 4.8's "6-digit code" is superseded by the built 9-digit code. ESC-35 derives the drop-off code from the trucker's nonce (P.3) |
-| Drop-off QR the buyer scans | Yes: the farmer's pickup token kept on the trucker's phone (1.22.0) | A separate nonce the trucker's phone issues (P.3, ESC-35) |
+| Typed code when a camera or screen fails | Yes, for both legs: **9 digits**, eight from the nonce and a Damm check digit (1.22.0); the drop-off code from the trucker's nonce since 2.7.0 | Spec 4.8's "6-digit code" is superseded by the built 9-digit code |
+| Drop-off QR the buyer scans | Yes: the trucker's own nonce (2.7.0, ESC-35); the farmer's pickup token kept on the trucker's phone for apps that issue none (1.22.0) | Unchanged |
 | Handoff photos | Pickup by the trucker, drop-off by the buyer (1.25.0, FRD-12) | The trucker's arrival photo at drop-off (P.4, ESC-36) |
 | GPS at the handoffs | Pickup and trucker drop-off checked within 5 km when sent; self-pickup mandatory (GPS Validation) | Check-ins with GPS (P.2, P.4); drop-off checked against the order's delivery location (P.4) |
 | Arrival check-ins | "I have arrived" and "Crops are ready" are BUILT in 2.6.0 behind `pickupClassification` (P.2, ESC-34). Live trip pings (`live-trip-api.md`) start only after pickup and judge nothing | "Arrived at drop-off" (P.4, ESC-36) |
@@ -1497,7 +1544,13 @@ with `ORDER_DEADLINE_PASSED:` (spec 4.8) and the order enters the admin queue
 delivery operation, so the clients must treat that code as a permanent delivery refusal and revert
 the local pickup (the ticket adds the rule to `sync-protocol.md`).
 
-### P.3 A drop-off QR from the trucker (ESC-35)
+### P.3 A drop-off QR from the trucker (BUILT in 2.7.0, ESC-35)
+
+> **BUILT in 2.7.0**, not flagged; the contract is "The trucker's drop-off nonce" under QR Secret
+> Storage. Confirmed: the name `dropoffQrNonce`, the renewable `DELIVERY_CODE_LOCKED`. Added while
+> building: the `d.` tag on the trucker's nonce and the wait for a tagged scan whose nonce has not
+> synced, the wait of a nonce sent before the pickup synced, and the nonce's own freshness
+> (restarted by a new code). The plan as written:
 
 - After pickup the trucker's phone issues its own nonce for the delivery and registers it the way the
   farmer registers `qrNonce`: a trucker update carrying only `dropoffQrNonce` (proposed name, plus
@@ -1512,7 +1565,11 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
   Regenerate: such a delivery answers `DELIVERY_CODE_LOCKED`, and `DELIVERY_CODE_LOCKED_DROPOFF` stays
   for deliveries without a trucker nonce.
 - First step of ESC-35 (survey 4.5): check on a device, Android and web, that a trucker delivery can be
-  confirmed end to end today.
+  confirmed end to end today. Checked in code and tests (no device was available): since 1.22.0 it can
+  be, on both, when the trucker scanned or typed the farmer's QR on the same phone or browser that
+  shows the drop-off QR; it could not when the pickup was confirmed elsewhere (the drop-off QR said
+  "no drop-off code on this phone"), and a locked drop-off code could only go to support. 2.7.0 closes
+  both: the trucker can always make a code, and a new one unlocks it.
 
 ### P.4 Delivery location, drop-off check-in, silent buyer and overdue delivery (ESC-36)
 
@@ -1595,9 +1652,10 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 2.4.0 | 2026-11-12 | QR gate, a funded order without an escrow row (FUP-66, `escrow-protocol.md` 2.9.0): when neither the order's escrow nor the `DeliveryIndex` finds an escrow, the order is read (strongly consistent) and a `paymentVerifiedAt` on it makes the delivery money-bearing, so a trucker's drop-off with no nonce is `deferred` (then `DELIVERY_NONCE_MISSING` after 14 days) and a typed code needs the leg's GPS. Before, such a delivery passed as cash. A failed order read defers with `QR_GATE_UNDECIDED`, as the escrow reads do. An order never funded, or a delivery without an order, passes as before. Server only; no client change. |
 | 2.5.0 | 2026-11-12 | Each handoff point only from its own handoff (FUP-246, `sync-protocol.md` 1.54.0, `fraud-detection-architecture.md` 3.34.0): `gpsPickup` is written only with the trucker's `pickedUp`, `gpsDropoff` only with the buyer's `delivered`, `disputeReason` only with `disputed`; sent with any other status, on a create or on an update without a status, the field is dropped (not refused) and logged. A buyer's confirm moved the trucker's pickup point, and a dispute both points the admin dispute evidence shows. The impossible delivery time rule reads the pickup side from the row as stored before the confirm. No client change. |
 | 2.6.0 | 2026-11-12 | Arrival check-ins and the pickup judgement BUILT (ESC-34, P.2 "As built"), behind `pickupClassification` (off everywhere, only with `COMMITMENTS_ENABLED`): the accept of a flagged order stamps `pickupJudgement: pending`, an empty `checkIns` map and the farm's point; `handoff_check_in` (`sync-protocol.md` 1.55.0) takes `arrived_pickup` and `crops_ready` between `pickupDate` minus 24 hours and `pickupDeadlineAt` by server receipt, the arrival within 5 km of the stamped point (a farmer's far fix stored unmeasured, the farmer's GPS being optional), first kept, no version move; with the flag off the entity stays unsupported; the order cron judges at the deadline plus one minute: scan (stamped), trucker no-show (`awaiting_transport`, `trucker_no_show`), farmer no-show (`cancelled`, `farmer_no_show`, full refund), self-pickup buyer no-show (`buyer_no_show`, no points), both present or an unmeasured arrival (admin queue, money held); late check-ins kept as evidence (`CHECKIN_TOO_LATE`, admin queue `late_pickup_evidence` when they contradict the judgement); a pickup scan after the judgement refused `ORDER_DEADLINE_PASSED` (a real QR scan queued for the admin and alarmed); the buyer's deadline cancel refused for a flagged order; FUP-204: the trucker's check-in is measured against the point stamped at acceptance, and a farmer no-show's `NO_SHOW` signal goes through the attribution guard. `order-lifecycle.md` 2.15.0, `data-models.md` 1.14.0, `fraud-detection-architecture.md` 3.36.0, `reputation-architecture.md` 1.8.0 |
+| 2.7.0 | 2026-11-13 | The trucker's drop-off nonce BUILT (ESC-35, P.3; see QR Secret Storage), not flagged: the trucker's phone makes its own nonce after the pickup (tag `d.`) and registers it with a status-less update carrying only `dropoffQrNonce`, stored in `delivery-qr-secrets` (`dropoffNonce`, `dropoffIssuedAt`) next to the farmer's nonce, never on the delivery, no version move; only the trucker, `deferred` while the delivery is `pending` (refused after 14 days), nothing stored once delivered; the buyer's `delivered` of a trucker delivery is checked against it once stored (scan or typed code, its own 14-day freshness, the `delivered` leg's single use, a lock the trucker's new code clears with `DELIVERY_CODE_LOCKED`), else against the farmer's nonce (1.22.0, unchanged); a tagged scan whose nonce has not synced is `deferred` (refused after 14 days with `DELIVERY_NONCE_MISSING`). Clients: the drop-off QR shows the trucker's own code, made at pickup, sent again on every open, made there when none is kept, renewed by New drop-off code; the buyer's scan screen names the trucker in the wait and lock texts. Survey 4.5 answered in P.3. `sync-protocol.md` 1.58.0 |
 
 ---
 
-**Last Updated**: 2026-11-12
-**Version**: 2.6.0
+**Last Updated**: 2026-11-13
+**Version**: 2.7.0
 **Status**: Draft (Phase R4.2)

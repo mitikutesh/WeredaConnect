@@ -5092,16 +5092,12 @@ class AppLocalizationsAm extends AppLocalizations {
       'ማንሳቱን በተተየበ ኮድ ስላረጋገጡ የሚታይ QR የለም። ገዢው በምትኩ ይህን ኮድ ይተይባል።';
 
   @override
-  String get deliveryDropoffQrMissing =>
-      'ይህ ስልክ ለዚህ ርክክብ የማውረጃ ኮድ የለውም። በማንሳት ጊዜ የገበሬውን QR በዚህ ስልክ ሲቃኙ ይቀመጣል።';
-
-  @override
   String get deliveryErrorCodeMismatch =>
       'የተተየበው ኮድ ከዚህ ርክክብ ጋር አይዛመድም፣ ስለዚህ አልተረጋገጠም። ኮዱን አረጋግጠው እንደገና ይሞክሩ።';
 
   @override
   String get deliveryErrorCodeLocked =>
-      'ለዚህ ርክክብ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ QR ኮዱን ይቃኙ፣ ወይም ገበሬው አዲስ ኮድ እንዲያሳይ ይጠይቁ።';
+      'ለዚህ ርክክብ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ QR ኮዱን ይቃኙ፣ ወይም ኮዱን የሚያሳየው ሰው አዲስ ኮድ እንዲሰራ ይጠይቁ።';
 
   @override
   String get deliveryDisputeNotConfirmed =>
@@ -5144,6 +5140,25 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get deliveryErrorCodeLockedDropoff =>
       'ለዚህ ማውረጃ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። ሹፌሩ የማውረጃ QR ካለው ይቃኙት። ከሌለው ድጋፍ ሰጪን ያግኙ፤ ርክክቡን ከእርስዎና ከሹፌሩ ጋር ማረጋገጥ ይችላሉ።';
+
+  @override
+  String get deliveryDropoffQrOwnNote =>
+      'ለዚህ ርክክብ በዚህ ስልክ የተሰራ ነው። ያለ ኢንተርኔት ይሰራል፣ የገዢው ቅኝት ወይም የተተየበ ኮድ ርክክቡን ያረጋግጣል። ከጠፋ ወይም ከተቆለፈ አዲስ ኮድ ይስሩ።';
+
+  @override
+  String get deliveryDropoffNewCode => 'አዲስ የማውረጃ ኮድ';
+
+  @override
+  String get deliveryDropoffQrNotSent =>
+      'ገና ወደ አገልጋዩ አልደረሰም። ይህን QR በኢንተርኔት ላይ ሆነው በከፈቱ ቁጥር እንደገና ይላካል፤ የገዢው ማረጋገጫም እስኪደርስ ይጠብቃል።';
+
+  @override
+  String get deliveryErrorDropoffQrPending =>
+      'የሹፌሩ የማውረጃ ኮድ ገና ወደ አገልጋዩ አልደረሰም። ሹፌሩ በኢንተርኔት ላይ ሆኖ የማውረጃ QR እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።';
+
+  @override
+  String get deliveryErrorDropoffCodeLocked =>
+      'ለዚህ ማውረጃ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ የሹፌሩን የማውረጃ QR ይቃኙ፣ ወይም ሹፌሩ አዲስ ኮድ እንዲሰራ ይጠይቁ።';
 
   @override
   String get deliveryQrAlreadyPickedUp =>

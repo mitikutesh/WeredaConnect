@@ -166,5 +166,108 @@ public class DeliveryQrSecretRepositoryTests
         secret!.CodeMissesFor("pickedUp").Should().Be(2);
         secret.CodeMissesFor("delivered").Should().Be(1);
         secret.CodeMissesFor("inTransit").Should().Be(0);
+        secret.DropoffNonce.Should().BeNull();
+    }
+
+    // ---- ESC-35: the trucker's drop-off nonce ----
+
+    [Fact]
+    public async Task PutDropoffNonce_ANewNonce_NextToTheFarmersOnly_RestartsItsFreshness_AndClearsTheDropOffMisses()
+    {
+        (await _repo.PutDropoffNonceAsync("del-1", "d.nonce-2")).Should().BeTrue();
+
+        var put = _updates.Should().ContainSingle().Subject;
+        put.TableName.Should().Be(Table);
+        put.Key["deliveryId"].S.Should().Be("del-1");
+        put.UpdateExpression.Should().Be("SET #dn = :dn, #dIssuedAt = :now, #exp = :exp REMOVE #missD");
+        put.ConditionExpression.Should().Be("attribute_exists(#nonce) AND (attribute_not_exists(#dn) OR #dn <> :dn)");
+        put.ExpressionAttributeNames["#nonce"].Should().Be("nonce");
+        put.ExpressionAttributeNames["#dn"].Should().Be("dropoffNonce");
+        put.ExpressionAttributeNames["#dIssuedAt"].Should().Be("dropoffIssuedAt");
+        // Only the drop-off leg's misses go; the pickup's stay as they were.
+        put.ExpressionAttributeNames["#missD"].Should().Be("codeMissesDelivered");
+        put.ExpressionAttributeNames.Values.Should().NotContain("codeMissesPickedUp");
+        put.ExpressionAttributeValues[":dn"].S.Should().Be("d.nonce-2");
+        put.ReturnValuesOnConditionCheckFailure.Should().Be(ReturnValuesOnConditionCheckFailure.ALL_OLD);
+    }
+
+    [Fact]
+    public async Task PutDropoffNonce_TheSameNonceAgain_KeepsItsFreshnessAndMisses()
+    {
+        _dynamoDb.UpdateItemAsync(
+                Arg.Is<UpdateItemRequest>(r => r.UpdateExpression.Contains("REMOVE")), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("same nonce")
+            {
+                Item = new Dictionary<string, AttributeValue>
+                {
+                    { "nonce", new AttributeValue { S = "nonce-1" } },
+                    { "dropoffNonce", new AttributeValue { S = "d.nonce-2" } }
+                }
+            });
+
+        (await _repo.PutDropoffNonceAsync("del-1", "d.nonce-2")).Should().BeTrue();
+
+        var refresh = _updates.Last();
+        refresh.UpdateExpression.Should().Be("SET #exp = :exp");
+        refresh.ConditionExpression.Should().Be("#dn = :dn");
+        refresh.ExpressionAttributeNames.Should().NotContainKey("#missD");
+    }
+
+    [Fact]
+    public async Task PutDropoffNonce_WithoutTheFarmersNonce_StoresNothing()
+    {
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("no row")
+            {
+                Item = new Dictionary<string, AttributeValue>()
+            });
+
+        (await _repo.PutDropoffNonceAsync("del-1", "d.nonce-2")).Should().BeFalse();
+
+        // No second write to refresh a row that is not there.
+        await _dynamoDb.Received(1).UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TakeAttempt_ForTheTruckersCode_IsConditionalOnTheDropOffNonce()
+    {
+        UpdateItemRequest? sent = null;
+        _dynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("new code")
+            {
+                Item = new Dictionary<string, AttributeValue>
+                {
+                    { "nonce", new AttributeValue { S = "d.old" } },
+                    { "dropoffNonce", new AttributeValue { S = "d.new" } }
+                }
+            });
+
+        var attempt = await _repo.TryTakeCodeAttemptAsync("del-1", "delivered", "op-1", "d.old", 5, dropoffNonce: true);
+
+        sent!.ExpressionAttributeNames["#nonce"].Should().Be("dropoffNonce");
+        // Read against the drop-off nonce, so the trucker's new code reads as a changed nonce.
+        attempt.Outcome.Should().Be(CodeAttemptOutcome.NonceChanged);
+    }
+
+    [Fact]
+    public async Task Get_ReadsTheDropOffNonce()
+    {
+        _dynamoDb.GetItemAsync(Arg.Any<GetItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new GetItemResponse
+            {
+                Item = new Dictionary<string, AttributeValue>
+                {
+                    { "deliveryId", new AttributeValue { S = "del-1" } },
+                    { "nonce", new AttributeValue { S = "nonce-1" } },
+                    { "dropoffNonce", new AttributeValue { S = "d.nonce-2" } },
+                    { "dropoffIssuedAt", new AttributeValue { S = "2026-11-12T10:00:00.0000000Z" } }
+                }
+            });
+
+        var secret = await _repo.GetAsync("del-1");
+
+        secret!.Nonce.Should().Be("nonce-1");
+        secret.DropoffNonce.Should().Be("d.nonce-2");
+        secret.DropoffIssuedAt.Should().Be("2026-11-12T10:00:00.0000000Z");
     }
 }

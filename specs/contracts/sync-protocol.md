@@ -1476,10 +1476,37 @@ while it is on, and it goes on only once the app build that sends check-ins is t
 
 ---
 
+## The trucker's drop-off code (1.58.0, ESC-35)
+
+After a confirmed pickup the trucker's app makes its own drop-off nonce (tag `d.`) and registers it
+with a `delivery` update carrying only `dropoffQrNonce` and `version` (`delivery-verification-api.md`
+2.7.0, QR Secret Storage). The buyer's `delivered` is then checked against it, by scan or by its typed
+code. Not flagged: shipped buyer apps scan and type it as before, and a trucker app that sends none
+keeps the 1.22.0 path (the farmer's token).
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `success` with the current row and version (stored, or nothing to store: delivered, disputed, no farmer's nonce on the row) | Synced. The update is queued right behind the pickup and again each time the drop-off QR opens. | Sent at once when the pickup is confirmed and on every open of the drop-off QR. |
+| `deferred` `DELIVERY_NONCE_PENDING: Waiting for the pickup to sync. ...` (the delivery is still `pending` on the server) | Re-queued without a retry; the pickup ahead of it gets there first. | The drop-off QR says the code is not on the server yet and shows it anyway; the next open sends it again. |
+| `DELIVERY_VALIDATION: dropoffQrNonce must ...` or `DELIVERY_VALIDATION: The drop-off QR code can only be registered after the pickup.` (14 days without a pickup) | Unchanged `DELIVERY_*` handling (the apps never send a malformed one). | As for `deferred`. |
+| `DELIVERY_UNAUTHORIZED` (anyone but the trucker; the value is dropped first) | Unchanged. | Unchanged. |
+
+The buyer's confirm:
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `deferred` `DELIVERY_NONCE_PENDING: Waiting for the trucker's drop-off QR code to sync. ...` (a scan tagged `d.` while no trucker's nonce is stored) | Re-queued without a retry, as for any scan. | Shows its own text naming the trucker's drop-off code (`deliveryErrorDropoffQrPending`). |
+| `DELIVERY_NONCE_MISSING: The trucker's drop-off QR code never reached the server. ...` (14 days later) | Permanent and reverted under the existing `DELIVERY_NONCE_MISSING` rule (1.43.0). | Failure with the generic delivery text. |
+| `DELIVERY_CODE_LOCKED: Too many wrong codes for this drop-off. ...` (the trucker's code, renewable) | Permanent and reverted (1.33.0); the shared lock text no longer names the farmer. | Its own text naming the trucker (`deliveryErrorDropoffCodeLocked`). |
+| `DELIVERY_NONCE_EXPIRED: QR code has expired. Ask the trucker for a new drop-off code.` | Unchanged (retryable, 1.43.0). | Unchanged. |
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.58.0 | 2026-11-13 | The trucker's drop-off code (ESC-35, `delivery-verification-api.md` 2.7.0): a `delivery` update carrying only `dropoffQrNonce` from the delivery's trucker stores the trucker's drop-off nonce (nothing else, no version move; dropped from anyone else or with a `status`; `deferred` while the delivery is `pending`, refused `DELIVERY_VALIDATION` after 14 days); the buyer's `delivered` is checked against it once stored, with `DELIVERY_CODE_LOCKED` (renewable) for its lock and a new `deferred` text for a tagged scan whose nonce has not synced (`DELIVERY_NONCE_MISSING` after 14 days). Mobile queues the registration behind the pickup and on every open of the drop-off QR; web sends it at once and again on open. Web names the trucker in the wait and lock texts; the shared lock text no longer names the farmer. 1.56.0 and 1.57.0 are taken by other open branches. |
 | 1.56.0 | 2026-11-12 | `CROP_HAS_ACTIVE_ORDERS` whatever `COMMITMENTS_ENABLED` says (SIM-56, `crop-listing-api.md` 1.13.0 rule 10): a `crop_listing` delete, or an update to `status: deleted`, while an order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted` is refused in staging and prod too (the flag is off there), since a deleted listing refuses its delivery create and stranded such an order. An app without `X-App-Build` gets the `SYNC_VALIDATION:` sentence as before (FUP-241); an unreadable orders index is the same retryable unprefixed error. Clients already handle the code (1.17.0); the apps' own edit and delete now check first (SIM-56). `TRIP_HAS_BOOKINGS` stays behind the flag |
 | 1.55.0 | 2026-11-12 | Arrival check-ins (ESC-34, `delivery-verification-api.md` 2.6.0, `order-lifecycle.md` 2.15.0), behind `pickupClassification` (off everywhere): new create-only entity `handoff_check_in` (`{orderId}#{arrived_pickup\|crops_ready}`), taken only on an order stamped `pickupJudgement: pending` (with the flag off the entity is unsupported, as before: no read, no signal), judged by the server's receipt time, first check-in kept, no version or `updatedAt` move; the `CHECKIN_*` refusals are permanent (`CHECKIN_TOO_LATE` keeps the check-in as late evidence). FUP-147: a pickup scan refused `ORDER_DEADLINE_PASSED` after the judgement arrives on a `delivery` operation and is a permanent delivery refusal that puts the delivery back, on mobile and web, under the existing `ORDER_*` rule. |
 | 1.54.0 | 2026-11-12 | Handoff fields by status (FUP-246, `delivery-verification-api.md` 2.5.0, `fraud-detection-architecture.md` 3.34.0): a `delivery` operation writes `gpsPickup` only with `status: pickedUp`, `gpsDropoff` only with `delivered` and `disputeReason` only with `disputed`; anywhere else (a create, `inTransit`, the other handoffs, a dispute, an update without a status) the field is dropped, not refused, and logged as `DELIVERY_FIELD_DROPPED`. A buyer's confirm can no longer move the trucker's pickup point, nor a dispute rewrite either point. Server only; every shipped client already sends each field only with its own status. |
@@ -1538,5 +1565,5 @@ while it is on, and it goes on only once the app build that sends check-ins is t
 
 ---
 
-**Last Updated**: 2026-11-12
-**Version**: 1.56.0
+**Last Updated**: 2026-11-13
+**Version**: 1.58.0

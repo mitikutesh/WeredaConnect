@@ -37,6 +37,16 @@ abstract class BaseDeliveryRepository {
     required String userId,
   });
 
+  /// Registers the trucker's drop-off nonce (ESC-35): a `/sync` delivery
+  /// update carrying only `dropoffQrNonce`, which the server keeps in the QR
+  /// secret store and checks the buyer's confirm against. Sent again for the
+  /// same nonce it changes nothing. Only the delivery's trucker sends it.
+  Future<void> persistDropoffQrNonce({
+    required String deliveryId,
+    required String nonce,
+    required String truckerId,
+  });
+
   /// [scannedQrNonce] from a scan, or [scannedQrCode], the typed fallback
   /// (T-1, sent as `scannedQrCode` and checked by the server).
   Future<void> confirmPickup({

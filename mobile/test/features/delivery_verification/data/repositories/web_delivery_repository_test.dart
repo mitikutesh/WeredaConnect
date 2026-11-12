@@ -386,6 +386,54 @@ void main() {
     });
   });
 
+  group('persistDropoffQrNonce (ESC-35)', () {
+    setUp(() => stubCurrentVersion(4));
+
+    test('registers the trucker\'s nonce alone, at the current version',
+        () async {
+      answerSync({
+        'results': [
+          {'status': 'success'},
+        ],
+      });
+
+      await repository.persistDropoffQrNonce(
+        deliveryId: 'del-1',
+        nonce: 'd.trucker-nonce',
+        truckerId: 'trucker-1',
+      );
+
+      final op = sentOp();
+      expect(op['entityType'], 'delivery');
+      expect(op['action'], 'update');
+      expect(op['entityId'], 'del-1');
+      expect(op['data'], {'dropoffQrNonce': 'd.trucker-nonce', 'version': 4});
+    });
+
+    test(
+        'a deferral (the pickup not on the server yet) throws, to be sent '
+        'again on the next open', () async {
+      answerSync({
+        'results': [
+          {
+            'status': 'deferred',
+            'message': 'DELIVERY_NONCE_PENDING: Waiting for the pickup to '
+                'sync. Will retry automatically.',
+          },
+        ],
+      });
+
+      await expectLater(
+        repository.persistDropoffQrNonce(
+          deliveryId: 'del-1',
+          nonce: 'd.trucker-nonce',
+          truckerId: 'trucker-1',
+        ),
+        throwsA(isA<SyncDeferredException>()),
+      );
+    });
+  });
+
   // SIM-60: a local file path never travels in the sync op (the server accepts
   // only its own upload key and refuses the whole op otherwise); same rule as
   // the mobile repository.

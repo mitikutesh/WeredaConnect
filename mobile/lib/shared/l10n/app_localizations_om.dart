@@ -5279,16 +5279,12 @@ class AppLocalizationsOm extends AppLocalizations {
       'Fudhachuu koodii barreeffameen waan mirkaneessiteef QR agarsiifamu hin jiru. Bitaan bakka isaa koodii kana barreessa.';
 
   @override
-  String get deliveryDropoffQrMissing =>
-      'Bilbilli kun geejjiba kanaaf koodii buusuu hin qabu. Yeroo fudhachuu QR qonnaan bulaa bilbila kanaan iskaanii gootu kuufama.';
-
-  @override
   String get deliveryErrorCodeMismatch =>
       'Koodiin barreeffame geejjiba kana waliin wal hin simu, kanaaf hin mirkanoofne. Koodii mirkaneessiitii irra deebi\'ii yaali.';
 
   @override
   String get deliveryErrorCodeLocked =>
-      'Geejjiba kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa koodii QR iskaanii godhi, yookaan qonnaan bulaan koodii haaraa akka agarsiisu gaafadhu.';
+      'Geejjiba kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa koodii QR iskaanii godhi, yookaan namni koodii agarsiisu koodii haaraa akka hojjetu gaafadhu.';
 
   @override
   String get deliveryDisputeNotConfirmed =>
@@ -5331,6 +5327,25 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get deliveryErrorCodeLockedDropoff =>
       'Buusuu kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Konkolaachisaan QR buusuu yoo qabaate iskaanii godhi. Yoo hin qabne, deeggarsa qunnami: isaan si fi konkolaachisaa waliin dabarsuu ni mirkaneessu.';
+
+  @override
+  String get deliveryDropoffQrOwnNote =>
+      'Geejjiba kanaaf bilbila kana irratti hojjetame. Interneetii malee hojjata, iskaaniin ykn koodiin barreeffame bitaa geejjiba ni mirkaneessa. Yoo bade ykn cufame, koodii haaraa hojjedhu.';
+
+  @override
+  String get deliveryDropoffNewCode => 'Koodii buusuu haaraa';
+
+  @override
+  String get deliveryDropoffQrNotSent =>
+      'Ammaaf sarvarii hin geenye. Yeroo QR kana interneetii irratti banattu hundaa irra deebi\'ee ergama, mirkaneessi bitaas hanga inni ga\'utti eeggata.';
+
+  @override
+  String get deliveryErrorDropoffQrPending =>
+      'Koodiin buusuu konkolaachisaa hanga ammaatti sarvarii hin geenye. Konkolaachisaan interneetii irratti QR buusuu akka banu gaafadhaa, achiis irra deebi\'aa yaalaa.';
+
+  @override
+  String get deliveryErrorDropoffCodeLocked =>
+      'Buusuu kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa QR buusuu konkolaachisaa iskaanii godhi, yookaan konkolaachisaan koodii haaraa akka hojjetu gaafadhu.';
 
   @override
   String get deliveryQrAlreadyPickedUp =>

@@ -24,17 +24,28 @@ public interface IDeliveryQrSecretRepository
     Task PutNonceAsync(string deliveryId, string nonce);
 
     /// <summary>
+    /// ESC-35: store the trucker's drop-off nonce next to the farmer's pickup nonce; the buyer's
+    /// <c>delivered</c> is then checked against it. Only a row that holds the farmer's nonce takes
+    /// it (every delivery picked up since FRD-11 has one): returns false, nothing written, when
+    /// there is none. A different drop-off nonce (the trucker's new code) restarts its freshness
+    /// and clears the drop-off leg's typed-code misses; the same one again keeps both.
+    /// </summary>
+    Task<bool> PutDropoffNonceAsync(string deliveryId, string nonce);
+
+    /// <summary>
     /// Take one typed-code attempt of <paramref name="targetStatus"/> ("pickedUp" or
     /// "delivered") BEFORE the code is compared (T-1). <paramref name="attemptId"/> names the
     /// operation and the code (<c>HandoffCode.AttemptId</c>). One conditional write, so parallel
     /// guesses cannot pass the cap: taken while the leg holds fewer than
     /// <paramref name="maxAttempts"/> attempts, or when this very attempt is already held (a retry
     /// of the same operation with the same code), and only while the stored nonce is still
-    /// <paramref name="nonce"/>. A taken attempt that turns out wrong stays as a miss; a right one
-    /// is given back with <see cref="ReturnCodeAttemptAsync"/>.
+    /// <paramref name="nonce"/> (the trucker's drop-off nonce when <paramref name="dropoffNonce"/>,
+    /// ESC-35). A taken attempt that turns out wrong stays as a miss; a right one is given back
+    /// with <see cref="ReturnCodeAttemptAsync"/>.
     /// </summary>
     Task<CodeAttempt> TryTakeCodeAttemptAsync(
-        string deliveryId, string targetStatus, string attemptId, string nonce, int maxAttempts);
+        string deliveryId, string targetStatus, string attemptId, string nonce, int maxAttempts,
+        bool dropoffNonce = false);
 
     /// <summary>The typed code was right: give its attempt back, so it never counts as a miss.</summary>
     Task ReturnCodeAttemptAsync(string deliveryId, string targetStatus, string attemptId);
@@ -74,6 +85,12 @@ public sealed record DeliveryQrSecret
 
     /// <summary>When the farmer generated/persisted the nonce (ISO 8601), for freshness.</summary>
     public string? IssuedAt { get; init; }
+
+    /// <summary>ESC-35: the trucker's drop-off nonce, or null while none is stored.</summary>
+    public string? DropoffNonce { get; init; }
+
+    /// <summary>When the current drop-off nonce was stored (ISO 8601), for its freshness.</summary>
+    public string? DropoffIssuedAt { get; init; }
 
     /// <summary>OperationId that consumed the nonce for the "pickedUp" transition, if any.</summary>
     public string? ConsumedPickedUpOp { get; init; }
