@@ -1,16 +1,17 @@
 # Reputation API Contract
 
 ## Version
-1.4.0
+1.5.0
 
 ## Status
-PARTLY BUILT (1.4.0). BUILT in ESC-28: the events, the policy and the aggregate (section 1),
+PARTLY BUILT (1.5.0). BUILT in ESC-28: the events, the policy and the aggregate (section 1),
 the server side of the two notifications (section 10) and the flags and policy parameter
 (section 11). BUILT in ESC-29 (server): the reads (sections 2 to 4), the appeal photo and the appeal
 (5, 6), the copied owner fields (7) and the gates (8). BUILT in ESC-32: the admin endpoints
 (section 9) and the admin app's panel and appeals queue. Everything ships dark (all three flags off
 everywhere), except the suspension gate of 8.4, which is not flagged. BUILT in ESC-30: the matching
-signal (section 7, `match-api.md` 1.4.0). PLANNED: ESC-31 the app; ESC-33 the fraud hooks. Each section names its ticket. Design: `specs/architecture/reputation-architecture.md`. Rules and decisions D1 to D9:
+signal (section 7, `match-api.md` 1.4.0). BUILT in ESC-31 (1.5.0): the app on the phone and the web (the cards of section 7, the
+`until=` of 8.1, the inbox side of section 10, section 13). PLANNED: ESC-33 the fraud hooks. Each section names its ticket. Design: `specs/architecture/reputation-architecture.md`. Rules and decisions D1 to D9:
 `specs/features/three-party-escrow-commitments-reputation.md` 4.11, 5.I and 14.
 
 ## Parties
@@ -59,10 +60,10 @@ The public summary never shows points, events, reasons, appeals or restriction d
 | 7 | Owner fields copied onto crop and trip rows | ESC-29 (copy, BUILT), ESC-30 (matching, BUILT) |
 | 8 | Gates: `REPUTATION_RESTRICTED`, hidden restricted parties, suspension | ESC-29 (BUILT) |
 | 9 | Admin endpoints | ESC-32 (BUILT) |
-| 10 | Notifications `penalty_recorded`, `tier_changed` | ESC-28 (server, BUILT), ESC-31 (app) |
+| 10 | Notifications `penalty_recorded`, `tier_changed` | ESC-28 (server, BUILT), ESC-31 (app, BUILT) |
 | 11 | Feature flags | ESC-28 (BUILT) |
 | 12 | Error codes | all |
-| 13 | Offline and sync | ESC-31 |
+| 13 | Offline and sync | ESC-31 (BUILT) |
 
 Every response body is JSON with camelCase keys. The server omits a field that has no value
 (it never sends `null`); clients treat a missing field as "not set". Timestamps are ISO 8601 UTC
@@ -525,6 +526,27 @@ the crop detail screen.
   store `ownerReliabilityPct` on the cached crop and trip rows (Isar and the web models), the
   other four owner fields come with ESC-31.
 
+**As built in the apps (1.5.0, ESC-31, `data-models.md` 1.12.0)**:
+- All five fields are on the cached crop and trip rows (Isar schemas and web models), read by one
+  parser (`core/models/owner_reputation_wire.dart`) in the marketplace pull, the web crop and trip
+  repositories, the web matcher and the sync conflict echo. Each is nullable; a row without them
+  parses as before and a later row without them clears the stored copy.
+- A card keys on the presence of the copy (`ownerTier` or `ownerReputationAt`), not on a client
+  flag: with `reputationPublicTags` off nothing changes on any screen. `ownerReliabilityPct` alone
+  (stored since ESC-30) does not count as a copy.
+- With the copy: the listing card, the crop detail, the buyer's trip card, the suggested trip, the
+  match card and the Place order transport line show `ownerEffectiveRating` with
+  `ownerRatingCount` (nothing while the count is 0) and make no `GET /ratings` call. The crop
+  detail also shows `ownerReliabilityPct` and "As of {date}" from `ownerReputationAt`. Without the
+  copy the screens that read `GET /ratings` before still do, so no rating disappears.
+- The red "Low reputation" label shows for the public tier `low` (a `restricted` that ever reached
+  a client reads as low too; no other tier name is shown), to buyers only. A farmer on My Crops or
+  their own listing, and a trucker on their own trips, see their rating without the label; their
+  standing is on My reputation.
+- Before an order is placed from a party with the label, the buyer gets one confirm naming the
+  farmer, the trucker or both, with Back and Order anyway. It reads the cached row, so it works
+  offline; 8.2 still refuses a restricted party on the server.
+
 **As built (1.2.0, `Data/ReputationCopyRepository.cs`, `Helpers/OwnerReputationView.cs`)**:
 - The stamp at create and the refresh run only while `reputationPenalties` is on: the reputation
   writes that keep the copy current run only then. With the flag off no row gets the fields.
@@ -565,6 +587,12 @@ REPUTATION_RESTRICTED: until=2026-11-21T09:00:00.000Z: Your account can't take n
 ```
 `until=review` while an admin review is open. Clients that parse only the prefix keep working;
 ESC-31 reads `until` for `errorReputationRestricted`.
+
+**As built in the apps (1.5.0, ESC-31)**: a refusal with a date reads "can't take new orders,
+listings or trips until {date}" (`errorReputationRestrictedUntil`, en, am, om; the Ethiopia
+calendar day), on the phone's sync rejection and on the web create and accept screens.
+`until=review`, the `counterparty` form, the no-build wording and a date that does not parse keep
+the text from before (`errorReputationRestricted`, `errorCounterpartyRestricted`).
 
 **As built (1.2.0, `Helpers/ReputationGate.cs`)**: the gate reads the restriction stored on the
 caller's row (the batch's one strongly consistent read) and its `until`; a restriction whose
@@ -910,6 +938,12 @@ whenever the tier stored on the users row changes (a penalty, the daily job, a r
 `restrictedUntil` is absent while a `DELIVERY_OVERDUE` review is open (`notifications-api.md`
 1.5.0).
 
+**As built in the apps (1.5.0, ESC-31, `notifications-api.md` 1.5.1)**: both types have their own
+inbox title and body in en, am and om (`penalty_recorded` names the event and its points;
+`tier_changed` says what the new tier means in the words of My reputation), and tapping the inbox
+entry opens My reputation on the phone and the web. A tapped push still opens the app, not My
+reputation (TASK FUP-205).
+
 ---
 
 ## 11. Feature flags and policy (ESC-28, BUILT)
@@ -984,6 +1018,30 @@ Error body: `{"error":{"code":"REPUTATION_FORBIDDEN","message":"..."}}`, as ever
   stays for the next sign-in.
 - **Data use**: about 60 bytes of owner fields per card; the per-card rating GETs go away.
 
+**As built (1.5.0, ESC-31, `features/reputation/`)**: one repository for the phone and the web
+(HTTP plus a copy in the app's key-value store, SharedPreferences, so no Isar schema and no
+platform pair).
+- **When it is read**: `GET /reputation/me` when a farmer or trucker opens Profile or My
+  reputation, at most every 30 minutes; pull-to-refresh on My reputation forces it. It is not read
+  at start-up (no call for a user who never opens Profile). A buyer never calls it.
+- **Offline**: the last answer and the first page of events are kept per user and shown with "You're
+  offline. Showing what was saved on {date}"; with nothing saved the screen says to connect.
+  Logout and account deletion remove the user's copy and drafts.
+- **Events**: pages of 20 (`limit=20`), "Show more" for the next; only the first page is kept.
+  With `penaltiesEnabled: false` the screen shows the rating only and asks for no events.
+- **Appeal**: offered where `appeal.canAppeal` is true (the server's rule, so an event decided
+  without a party text can still be appealed once). Text up to 500 characters and an optional
+  JPEG or WebP photo up to 200 KiB through section 5, then section 6, both online. The text is
+  kept on the device as a draft until an appeal is sent, on the phone and the web; the user sends
+  it, the app does not send a draft by itself when the connection returns (TASK FUP-206).
+  `REPUTATION_APPEAL_CLOSED`, `REPUTATION_EVENT_NOT_FOUND`, `REPUTATION_APPEAL_EXISTS` and
+  `REPUTATION_UNAVAILABLE` have their own texts.
+- **Profile**: the Rating tile shows a farmer's or trucker's own `ratingAverage` (the raw buyers'
+  average, as My reputation does; their own `GET /ratings?rateeId={self}` aggregate when
+  `/reputation/me` cannot be read and nothing is saved), a neutral word with no ratings, and the
+  dash while unknown. A buyer is not rated: the neutral word, no call. The My reputation row shows
+  for a farmer or trucker only while `penaltiesEnabled` is true.
+
 ---
 
 ## 14. Invariants
@@ -1009,6 +1067,7 @@ Error body: `{"error":{"code":"REPUTATION_FORBIDDEN","message":"..."}}`, as ever
 
 | Version | Date | Change |
 |---|---|---|
+| 1.5.0 | 2026-11-12 | ESC-31 BUILT (apps, no endpoint or field change): the owner fields on the cached crop and trip rows and on the cards (label for the public tier `low`, effective rating with its count, no per-card `GET /ratings` when the copy is present), the confirm before ordering from a party with the label, `until=` in the restricted error, My reputation (own standing, rating breakdown, events in pages of 20, appeal with optional photo and a kept draft), the Profile rating, the inbox texts and tap for `penalty_recorded` and `tier_changed`. "As built" notes under sections 7, 8.1, 10 and 13 (the read happens on Profile or My reputation, not at start-up; a draft is not sent by itself; a tapped push still opens the app). |
 | 1.4.0 | 2026-11-12 | ESC-32 BUILT: section 9 on the admin Lambda (`GET /admin/users/{userId}/reputation`, `GET /admin/reputation/appeals`, `POST /admin/users/{userId}/reputation/events/{eventId}/decision`, `POST /admin/users/{userId}/reputation`), admin group only, writes behind `reputationPenalties` (reads not gated), one transaction and one audit row per applied write, the copied owner fields refreshed in the request. New: the response shape of 9.1 (`restrictions`, the admin event with `basePoints`, `buyerId`, the appeal text and `appealPhotoUrl`), `appealPhotoUrl` and `tripId` on the queue items, `alreadyApplied` on 9.4, `409 REPUTATION_ALREADY_RESTRICTED`, `seenAppealTextAt` on an uphold with `409 REPUTATION_APPEAL_CHANGED` (an uphold is refused when the appeal is not the one the admin's page showed), `textAt` and `appealTextAt` on the reads, what changed in the audit metadata, the replay rules of 9.3 and 9.4, and the rule of 6.1 that an event upheld before the party sent any text can be appealed once. 8.4: an admin suspend or unsuspend now refreshes the copied owner fields in the same request (TASK FUP-163). (1.3.0 is taken by an open branch) |
 | 1.3.0 | 2026-11-12 | ESC-30 BUILT: the matching signal of section 7. `ownerReliabilityPct / 100` is the reliability input of `MatchScoring` and `MatchScorer` (neutral 0.7 when the caller gets no value), the trip suggestions order equal prices by the trucker's reliability, `farmerReliability` is no longer computed or stored (`match-api.md` 1.4.0, `crop-listing-api.md` 1.12.0, `sync-protocol.md` 1.50.0). No endpoint or field change here. |
 | 1.2.0 | 2026-11-11 | ESC-29 BUILT (server): `GET /reputation/me`, `GET /reputation/{userId}`, `GET /reputation/me/events`, `POST /reputation/appeals/photo-url`, `POST /reputation/events/{eventId}/appeal` on the new `{prefix}-reputation` Lambda; the owner fields stamped at create and copied on change; `REPUTATION_RESTRICTED` on crop create, trip create, accept and on an order to a restricted or suspended owner; restricted owners left out of a buyer's browse and match; the third flag `reputationPublicTags`; all off everywhere. Not flagged: `403 AUTH_025` for a suspended caller on `/sync` and the write routes of 8.4. "As built" notes under sections 2 to 8: the events read while points are active, no rating for a row without `ratingsAggregatedAt`, in-memory paging of the event list, `appealTextAt`, copies only while `reputationPenalties` is on, the browse check in code, the no-build wording, `/escrow/release` and `/escrow/refund` not gated, the heal marker on an admin suspend. Sections 9 and 13 stay PLANNED |
@@ -1018,4 +1077,4 @@ Error body: `{"error":{"code":"REPUTATION_FORBIDDEN","message":"..."}}`, as ever
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.4.0
+**Version**: 1.5.0

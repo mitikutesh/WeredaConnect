@@ -594,6 +594,28 @@ The inbox row id is deterministic (`{recordedAt}#{type}#{eventId}`), the push te
 the one notify Lambda means no new SNS or device-token grants elsewhere. `notifications-api.md`
 gets the two types in ESC-28.
 
+ESC-31 (as built): the inbox entry of either type has its own text and opens My reputation on the
+phone and the web. A tapped push still opens the app (TASK FUP-205).
+
+### 9.1 The app (ESC-31, as built)
+
+`mobile/lib/features/reputation/` holds everything about the user's own reputation, for the phone
+and the web alike:
+
+| Piece | File | Notes |
+|---|---|---|
+| Owner copy on a row | `domain/owner_reputation.dart`, `core/models/owner_reputation_wire.dart` | what cards read; present only when the server sent it |
+| Own reputation and events | `domain/models/` | parsed leniently: the server leaves out empty fields |
+| Repository | `data/reputation_repository.dart` | HTTP only; `/reputation/me` at most every 30 minutes; appeal with the presigned photo upload |
+| Offline copy | `data/reputation_cache.dart` | SharedPreferences per user: last answer, first events page, appeal drafts; cleared by the sign-out forgetter |
+| Screen | `presentation/screens/my_reputation_screen.dart` with `bloc/` | route-local bloc; standing, rating, history, appeal dialog |
+| Profile rating | `domain/own_rating.dart`, `screens/profile_screen.dart` | a buyer makes no call |
+
+There is no Isar entity and no platform pair for it: a read-only copy of two small answers does
+not need a schema, and one code path keeps the phone and the web the same. Farmers and truckers
+only ever read their own reputation here; the only reputation of others any client shows is the
+public copy the server puts on crop and trip rows for buyers.
+
 ---
 
 ## 10. Gates, visibility and suspension (ESC-29)
@@ -653,6 +675,8 @@ gets the two types in ESC-28.
   `/match` reads no trips, so there is no C# twin.
 - The apps store only `ownerReliabilityPct` on the cached crop and trip rows; the other owner
   fields are left to ESC-31.
+- ESC-31 (as built): the apps store all five owner fields and the cards read them from the row
+  (`reputation-api.md` 1.5.0 section 7, "As built in the apps").
 - The push alert Lambda scores with the neutral value (it has no public tags flag).
 - `farmerReliability` is also dropped from client payloads on `/sync`.
 
