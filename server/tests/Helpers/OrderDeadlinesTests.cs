@@ -188,16 +188,37 @@ public class OrderDeadlinesTests
     // ===== T7: the pickup =====
 
     [Fact]
-    public void Accepted_PickupDeadline_UntilTheMarkerIsStamped()
+    public void Accepted_PickupDeadline_UntilTheMarkerIsStamped_ThenTheWaitInTheWatchPartition()
     {
         var pickupBy = Funded.AddDays(3);
         var row = Row("accepted", (PickupDeadline.Field, PickupDeadline.Format(pickupBy)));
 
-        OrderDeadlines.Next(row, OrderTimings.Defaults)
-            .Should().Be(new OrderDeadline(pickupBy, OrderDeadlines.Kind.PickupOverdue));
+        var overdue = OrderDeadlines.Next(row, OrderTimings.Defaults);
+        overdue.Should().Be(new OrderDeadline(pickupBy, OrderDeadlines.Kind.PickupOverdue));
+        overdue!.Value.Shard.Should().Be(OrderDeadlines.Shard, "the sweep stamps the marker");
 
+        // FUP-170: after the notice the order stays indexed at its pickup deadline, where the sweep never reads.
         row[OrderCommitment.PickupOverdueNotifiedAtField] = Iso(pickupBy.AddMinutes(10));
-        OrderDeadlines.Next(row, OrderTimings.Defaults).Should().BeNull();
+        var waiting = OrderDeadlines.Next(row, OrderTimings.Defaults);
+        waiting.Should().Be(new OrderDeadline(pickupBy, OrderDeadlines.Kind.PickupWaiting));
+        waiting!.Value.Shard.Should().Be(OrderDeadlines.WatchShard);
+    }
+
+    [Fact]
+    public void OnlyThePickupWait_IsKeptOutOfTheSweepsPartition()
+    {
+        OrderDeadlines.ShardOf(OrderDeadlines.Kind.PickupWaiting).Should().Be(OrderDeadlines.WatchShard);
+        OrderDeadlines.IsSwept(OrderDeadlines.Kind.PickupWaiting).Should().BeFalse();
+        foreach (var kind in new[]
+                 {
+                     OrderDeadlines.Kind.FarmerReminder, OrderDeadlines.Kind.FarmerResponse, OrderDeadlines.Kind.TruckerReminder,
+                     OrderDeadlines.Kind.TruckerResponse, OrderDeadlines.Kind.BuyerChoiceReminder, OrderDeadlines.Kind.BuyerChoice,
+                     OrderDeadlines.Kind.PickupOverdue
+                 })
+        {
+            OrderDeadlines.ShardOf(kind).Should().Be(OrderDeadlines.Shard, kind);
+            OrderDeadlines.IsSwept(kind).Should().BeTrue(kind);
+        }
     }
 
     [Fact]
@@ -254,6 +275,20 @@ public class OrderDeadlinesTests
         OrderDeadlines.IsStored(row, deadline with { Kind = OrderDeadlines.Kind.FarmerResponse }).Should().BeFalse();
         OrderDeadlines.IsStored(row, deadline with { At = deadline.At.AddSeconds(1) }).Should().BeFalse();
         OrderDeadlines.IsStored(row, null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsStored_ThePickupWait_OnlyInTheWatchPartition()
+    {
+        var pickupBy = Funded.AddDays(3);
+        var waiting = new OrderDeadline(pickupBy, OrderDeadlines.Kind.PickupWaiting);
+        var row = Row("accepted",
+            (OrderDeadlines.AtField, waiting.AtIso), (OrderDeadlines.KindField, waiting.Kind), (OrderDeadlines.ShardField, OrderDeadlines.Shard));
+
+        OrderDeadlines.IsStored(row, waiting).Should().BeFalse("an entry the sweep would read is moved");
+
+        row[OrderDeadlines.ShardField] = OrderDeadlines.WatchShard;
+        OrderDeadlines.IsStored(row, waiting).Should().BeTrue();
     }
 
     [Fact]

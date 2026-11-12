@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.13.1
+2.14.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -645,8 +645,8 @@ deadlines are the server's and the clients only display them.
 
 Every order write keeps the order's next deadline on the row, derived from its status and its own
 stamps (`OrderDeadlines.Next`): `nextDeadlineAt` (ISO 8601 UTC), `nextDeadlineKind` and
-`deadlineShard` (always `0`), all three set together, or all three removed when nothing in the
-table above is pending. The kinds:
+`deadlineShard` (`0`, the partition the sweep reads; `watch` for `pickup_waiting` since 2.14.0), all
+three set together, or all three removed when nothing in the table below is pending. The kinds:
 
 | `nextDeadlineKind` | Status | Due at |
 |---|---|---|
@@ -657,6 +657,14 @@ table above is pending. The kinds:
 | `buyer_choice_reminder` | `awaiting_transport`, no `buyerChoiceReminderAt` | `buyerChoiceDeadlineAt` - 6h |
 | `buyer_choice` | `awaiting_transport` | `buyerChoiceDeadlineAt` (or `updatedAt` + 48h without it) |
 | `pickup_overdue` | `accepted`, no `pickupOverdueNotifiedAt` | `pickupDeadlineAt` |
+| `pickup_waiting` (2.14.0, FUP-170; `deadlineShard = watch`) | `accepted`, `pickupOverdueNotifiedAt` stamped | `pickupDeadlineAt` |
+
+`pickup_waiting` is not a deadline anything acts on: the order waits for its pickup or its cancel
+after the overdue notice went out, and the entry lets the admin's Stuck Orders list it with a Query
+(`escrow-protocol.md` 2.17.0, `GET /admin/orders/queue?source=deadline`). It sits in its own
+partition, `watch`, which the sweep never reads, so the waits never hold up the sweep's oldest-first
+read and the sweep never refunds, cancels or notifies on them. It goes with the order's next write
+that leaves `accepted` (the pickup, a cancel, the drop to `awaiting_transport`), like any other kind.
 
 The earliest pending one is stored. The write that sets it is the write that changes the order (the
 versioned update, the linked and fenced updates, the funding, the status advance, the marker stamp),
@@ -673,6 +681,8 @@ writes moves the deadline with its write; a lost race leaves it to the write tha
 nothing to do gets its correct deadline back; a row that must wait (an unreadable delivery, goods on
 the move under a cancelled trip) comes back an hour later; a row still due by its own state that
 nothing could act on is logged `ORDER_DEADLINE_STUCK` and looked at again an hour later; a row whose
+only pending kind is `pickup_waiting` (an index copy that lagged behind the notice) is moved to the
+`watch` partition, never retried or logged stuck (2.14.0); a row whose
 decision throws is logged `ORDER_DEADLINE_ROW_FAILED` and the run goes on. The summary adds `due`,
 `restamped`, `retried`, `rowErrors` and `stopReason` (`time`, `lambda`, `pages`; outcome `partial`).
 
@@ -680,7 +690,11 @@ decision throws is logged `ORDER_DEADLINE_ROW_FAILED` and the run goes on. The s
 `accepted` partitions of `StatusCreatedAtIndex` (the walk the sweep replaced) and stamps the next
 deadline on every order whose stored one is missing or wrong, conditioned on the version read. It
 decides nothing; the next sweep acts on what it stamped. It backfills the orders already in flight
-when the index was added. `commitment_deadlines` also runs a repair pass itself (1 minute share, after
+when the index was added (and, since 2.14.0, gives the `accepted` orders notified before it their
+`pickup_waiting` entry). Since 2.14.0 it then reads the whole `watch` partition of `DeadlineIndex` (a
+Query) and each order again, and corrects or removes an entry its order no longer gives (an order
+that left `accepted` while its write could not keep the deadline in step), conditioned on the version
+read; those rows count in `read` and `stamped`. `commitment_deadlines` also runs a repair pass itself (1 minute share, after
 the sweep and the departed-trip close) when its container has not finished one in 24 hours, so the
 first run of a new deploy stamps the orders in flight without anyone invoking `deadline_repair`; a
 partial or failed pass (`ORDER_DEADLINE_REPAIR_FAILED`) is not counted and the next run goes on. The
@@ -920,6 +934,7 @@ its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
 
 ## Changelog
 
+- **2.14.0 (2026-11-12)**: The pickup wait stays indexed (FUP-170, `escrow-protocol.md` 2.17.0): an `accepted` order whose `pickupOverdueNotifiedAt` is stamped keeps a `DeadlineIndex` entry, kind `pickup_waiting` at its `pickupDeadlineAt`, in a second partition (`deadlineShard = watch`) that the `commitment_deadlines` sweep never reads, until the write that takes it out of `accepted` (pickup, cancel, `awaiting_transport`). The admin's Stuck Orders lists it under Missed deadlines with a Query; before, it left the index with its notice and showed up only at the 21 day hold cap. The sweep's reads, decisions, refunds and notices are unchanged; a lagging entry of such an order in the sweep's partition is moved, not retried or logged `ORDER_DEADLINE_STUCK`. `deadline_repair` stamps the entry on the orders notified before this version and then reads the `watch` partition to correct or remove the entries their orders no longer give. No status, money, client or field change (the three deadline attributes stay server-only).
 - **2.13.1 (2026-11-12)**: The 7 day refund sweep's own cancel of a stale `funded` or `awaiting_transport` order (`escrow_refunded`) gives the listing stock back fail closed before its refund (FUP-230, `escrow-protocol.md` 2.14.0): a restore that keeps conflicting or throws defers the refund to the next run, which restores first; the trip booking release still runs with the cancel. No status, field or client change.
 - **2.13.0 (2026-11-12)**: The last cancel-then-arm writers (FUP-210, FUP-211, `escrow-protocol.md` 2.13.0): the order cron's `farmer_response_expired` and `transport_not_arranged` cancels and the funding's `listing_out_of_stock` end write the order and the escrow refund arm in one transaction, so a fraud hold or a settlement can no longer leave a cancelled order with its refund unarmed. Money a dispute froze or that is being settled writes nothing: the cron's order waits an hour (`ORDER_DEADLINE_REFUND_WAITING`), the funding's order stays `funded` for a person (`ORDER_STOCK_DECREMENT_FAILED ... status=escrow_busy`). The hourly refund sweep gives an `escrow_refunded` cancel's listing stock back before the refund, fail closed, so an admin refund whose restore failed is never refunded ahead of the stock. With nothing in the way the statuses, audit rows, stock, trip capacity, notifications and refund are as before. No client change.
 - **2.12.0 (2026-11-12)**: Cancel-then-refund races (FUP-53, `escrow-protocol.md` 2.11.0, `sync-protocol.md` 1.51.0): the reject or cancel of a `funded` order through sync, the admin refund's cancel before pickup and the 7 day sweep's cancel of a stale order write the order and the escrow refund arm in one transaction, as the transport-failure cancel does since 1.23.0. Money a dispute froze or that is being settled refuses the close and nothing is written (sync: `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.`, permanent; admin: `409 ESCROW_INVALID_TRANSITION`; sweep: skipped for the run). `POST /escrow/dispute` is refused once the order is `cancelled` or `rejected`, also when that happens between its read and its freeze. With nothing in the way the statuses, audit rows, stock, notifications and refund are as before. No client change.

@@ -382,7 +382,9 @@ public sealed class OrderRepository : IOrderRepository
         // ESC-16: the read above is consistent and the write checks the version, so the deadline is
         // derived from the row as written, except for a marker stamp (no version bump) that lands
         // between the read and the write. No check after the write: such a row is due early at worst,
-        // and the sweep re-reads it and sets its correct deadline when it comes due.
+        // and the sweep re-reads it and sets its correct deadline when it comes due. A `watch` entry
+        // (FUP-170) left on a row that moved on that way is never swept; the daily repair's watch walk
+        // removes it, and the admin listing drops it meanwhile.
         var removeParts = new List<string>();
         var deadline = AppendDeadline(DynamoDbHelper.FromItem(written), updateParts, removeParts, attrNames, attrValues);
         if (deadline.Added)
@@ -1215,8 +1217,13 @@ public sealed class OrderRepository : IOrderRepository
     internal const string DeadlineStampFailedToken = "ORDER_DEADLINE_STAMP_FAILED";
 
     /// <inheritdoc />
-    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDueDeadlinesAsync(
+    public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDueDeadlinesAsync(
         string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
+        => QueryDeadlinePartitionAsync(OrderDeadlines.Shard, dueBefore, limit, exclusiveStartKey);
+
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDeadlinePartitionAsync(
+        string shard, string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
     {
         if (limit < 1 || limit > 100)
         {
@@ -1235,7 +1242,7 @@ public sealed class OrderRepository : IOrderRepository
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
-                { ":shard", new AttributeValue { S = OrderDeadlines.Shard } },
+                { ":shard", new AttributeValue { S = shard } },
                 { ":due", new AttributeValue { S = dueBefore } }
             },
             Limit = limit,
@@ -1354,7 +1361,7 @@ public sealed class OrderRepository : IOrderRepository
         {
             attrValues[":ndAt"] = new AttributeValue { S = due.AtIso };
             attrValues[":ndKind"] = new AttributeValue { S = due.Kind };
-            attrValues[":ndShard"] = new AttributeValue { S = OrderDeadlines.Shard };
+            attrValues[":ndShard"] = new AttributeValue { S = due.Shard };
             setParts.Add("#ndAt = :ndAt");
             setParts.Add("#ndKind = :ndKind");
             setParts.Add("#ndShard = :ndShard");
@@ -1410,7 +1417,7 @@ public sealed class OrderRepository : IOrderRepository
         {
             row[OrderDeadlines.AtField] = due.AtIso;
             row[OrderDeadlines.KindField] = due.Kind;
-            row[OrderDeadlines.ShardField] = OrderDeadlines.Shard;
+            row[OrderDeadlines.ShardField] = due.Shard;
             return;
         }
 
@@ -1426,7 +1433,7 @@ public sealed class OrderRepository : IOrderRepository
         {
             row[OrderDeadlines.AtField] = new AttributeValue { S = due.AtIso };
             row[OrderDeadlines.KindField] = new AttributeValue { S = due.Kind };
-            row[OrderDeadlines.ShardField] = new AttributeValue { S = OrderDeadlines.Shard };
+            row[OrderDeadlines.ShardField] = new AttributeValue { S = due.Shard };
             return;
         }
 

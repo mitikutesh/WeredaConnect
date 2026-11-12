@@ -95,7 +95,8 @@ public sealed record AdminLedgerRowDto
 /// <summary>
 /// ESC-24: <c>GET /admin/orders/queue?source=queue|deadline</c>, one page of stuck orders, oldest first.
 /// <c>queue</c> is the admin stuck-order queue (ESC-06, <c>AdminQueueIndex</c>); <c>deadline</c> the orders whose
-/// commitment deadline (ESC-16, <c>DeadlineIndex</c>) passed and nothing acted on it.
+/// commitment deadline (ESC-16, <c>DeadlineIndex</c>) passed and nothing acted on it, then the accepted orders
+/// waiting for their pickup after its notice went out (FUP-170).
 /// </summary>
 public sealed record AdminStuckOrderListResponse
 {
@@ -119,7 +120,8 @@ public sealed record AdminStuckOrderDto
 
     /// <summary>
     /// <c>hold_cap</c> (held 21 days, ESC-06), or the deadline that passed: <c>farmer_response</c>,
-    /// <c>trucker_response</c>, <c>buyer_choice</c> or <c>pickup_overdue</c> (ESC-16).
+    /// <c>trucker_response</c>, <c>buyer_choice</c> or <c>pickup_overdue</c> (ESC-16), or
+    /// <c>pickup_waiting</c> (the pickup deadline passed and its notice went out, FUP-170).
     /// </summary>
     public required string Reason { get; init; }
 
