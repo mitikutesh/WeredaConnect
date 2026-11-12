@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.16.0
+2.17.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -746,6 +746,7 @@ Get the authenticated user's payment history.
       "createdAt": "2026-02-17T10:00:00Z",
       "completedAt": "2026-02-19T10:00:00Z",
       "expiresAt": "2026-02-24T10:00:00Z",
+      "deliveryConfirmedAt": "2026-02-18T10:00:00Z",
       "refundPending": false,
       "refundReason": null
     }
@@ -762,7 +763,9 @@ Commission rate (2.4.0, FUP-129): each row carries the escrow's stored `commissi
 
 Expected payout (1.33.0, FRD-13): an `escrowed` row of `role=farmer` or `role=trucker` carries `releaseNotBefore` (see `EscrowDto`); a buyer's row never does.
 
-Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowed` but the money is on its way back to the buyer: the order was cancelled or rejected (the server scheduled the refund, `refundReason` says why, `expiresAt` is set to that moment) or the hold passed its `expiresAt`; the hourly sweep refunds it. Clients label such rows "Refund pending" and never "Funds held safely"; a row without a delivery shows its `orderId` as the reference. Both fields are also on `EscrowDto`.
+Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowed` but the money is on its way back to the buyer: the order was cancelled or rejected (the server scheduled the refund, `refundReason` says why, `expiresAt` is set to that moment) or the hold passed its `expiresAt` before its delivery was confirmed; the hourly sweep refunds it. Clients label such rows "Refund pending" and never "Funds held safely"; a row without a delivery shows its `orderId` as the reference. Both fields are also on `EscrowDto`.
+
+Delivery confirmed (2.16.0, FUP-97): each row carries `deliveryConfirmedAt` (see `EscrowDto`) once the delivery is confirmed; it is omitted before, and by servers before 2.16.0. A confirmed hold waits for its release (the dispute window, then the payout delay of 1.33.0), which can end after its `expiresAt`; the refund sweep never takes it, so a past `expiresAt` alone never makes it `refundPending`. Clients that read a cached row past its `expiresAt` as a refund (the SIM-20 fallback) skip a row with `deliveryConfirmedAt`. See "Additions in 2.16.0".
 
 #### Error Responses
 
@@ -802,12 +805,12 @@ Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowe
 | `createdAt` | string (ISO 8601) | Yes | Server-generated | When escrow was initiated |
 | `updatedAt` | string (ISO 8601) | Yes | Auto-updated | Last state change timestamp |
 | `expiresAt` | string (ISO 8601) | Yes | createdAt + 7 days | Auto-refund deadline |
-| `deliveryConfirmedAt` | string (ISO 8601) | No | Set by F-12 | When delivery was confirmed |
+| `deliveryConfirmedAt` | string (ISO 8601) | No | Set by F-12; also on `GET /escrow/history` rows since 2.16.0 (FUP-97) | When delivery was confirmed |
 | `disputeWindowEndsAt` | string (ISO 8601) | No | deliveryConfirmedAt + 48h | Dispute deadline |
 | `releaseNotBefore` | string (ISO 8601) | No | Farmer and trucker responses while `escrowed`, and admin responses (1.33.0, FRD-13); `>= disputeWindowEndsAt` | Earliest time the hourly auto-release may pay the escrow out; for an escrow confirmed before 1.33.0 its `disputeWindowEndsAt`; null before the delivery is confirmed |
 | `releasedAt` | string (ISO 8601) | No | Set on release | When funds were released |
 | `refundedAt` | string (ISO 8601) | No | Set on refund | When funds were refunded |
-| `refundPending` | boolean | Yes | `status = escrowed` and (`refundReason` set or `expiresAt` passed) | Money still held but going back to the buyer; label "Refund pending" (SIM-20) |
+| `refundPending` | boolean | Yes | `status = escrowed` and (`refundReason` set, or a ledger escrow's crop leg `refunded` (2.2.0), or an admin refund parked in the manual payout queue (2.16.0), or `expiresAt` passed with neither `deliveryConfirmedAt` (2.16.0) nor `holdCapReachedAt` (1.13.0)) | Money still held but going back to the buyer; label "Refund pending" (SIM-20). Never for a confirmed hold waiting for its release unless a refund was decided on it (FUP-97) |
 | `refundReason` | string | No | Set when a cancelled/rejected order schedules its refund; since 2.11.0 also `delivery_timeout` while the 7 day sweep refunds a stale order it cancelled | Why the refund was scheduled |
 | `holdReason` | string | No | Admin responses only (1.7.0; written from 1.22.0, FRD-03) | `fraud_confirmed` (1.29.0, FRD-05), `account_suspended` (1.22.0), `risk_critical` (1.27.0, FRD-04) |
 | `heldAt` | string (ISO 8601) | No | Admin responses only | When the sweep held the escrow |
@@ -2261,13 +2264,14 @@ Admin group only (`cognito:groups` contains `admin`), like the manual payout que
 sweep settles a verdict within the hour.
 
 ```json
-{ "resolution": "buyer_wins", "action": "refund", "notes": "optional, not stored" }
+{ "resolution": "buyer_wins", "action": "refund", "notes": "optional for farmer_wins and buyer_wins" }
 ```
 
 | Field | Rule |
 |-------|------|
 | `resolution` | `farmer_wins` or `buyer_wins`, exact; since 2.2.0 also `partial_refund` on a ledger escrow (Additions in 2.2.0, the per-leg verdict) |
 | `action` | `release` for `farmer_wins`, `refund` for `buyer_wins`, `split` for `partial_refund` |
+| `notes` | The admin's reason. Optional with `farmer_wins` and `buyer_wins` (kept on the outcome label since FRD-18). Since 2.15.0 (FUP-174) required with `partial_refund` unless the request replays the recorded split: 10 to 500 characters after trimming (`400 ADMIN_014`, `field: notes`), stored in the `admin_dispute_resolved` escrow-audit row |
 
 The write is conditional on `status = disputed`, no open manual payout and no settlement lock.
 When the condition fails the handler re-reads the escrow (strongly consistent):
@@ -4440,7 +4444,9 @@ in the 1.9.0 conditional write, plus the condition that the crop leg is held; th
 replay, a different one `409 ADMIN_010`. The order and delivery follow it as `farmer_wins` (a split needs
 the goods delivered; the `farmer_wins` dispositions apply), also when `farmerAmount` is 0: an admin who
 wants the order handled on the buyer's side before delivery records `buyer_wins` instead. The response
-carries `verdictAmounts`.
+carries `verdictAmounts`. Since 2.15.0 (FUP-174) a split needs `notes` (the reason) unless it replays
+the recorded split, and the recorded split again on a `dispute_resolved` escrow is a replay even after
+its legs are decided ("Additions in 2.15.0").
 **Built differently from P.8:** the `verdict#...` rows are not written in the verdict's write; the hourly
 verdict sweep settles the split like the other verdicts (risk gate, verdict mirror, identity gate of each
 payee that gets money, then one decision for the three rows), so no money is decided in the admin Lambda
@@ -4600,7 +4606,7 @@ Admin authorizer. The stuck orders, oldest first, 20 a page, at most 50. Never a
   sweep runs): `reason` is `farmer_response`, `trucker_response`, `buyer_choice` or `pickup_overdue`,
   `stuckSince` that deadline. At most 5 index pages are read per request, each asking only for the
   rows still missing, so a page can be short or empty with a `nextToken`.
-  Since 2.16.0 (FUP-170) the walk goes on, after the sweep's partition (`deadlineShard = 0`), into the
+  Since 2.17.0 (FUP-170) the walk goes on, after the sweep's partition (`deadlineShard = 0`), into the
   index's `watch` partition (order-lifecycle.md 2.14.0): the `accepted` orders whose pickup deadline
   passed more than 30 minutes ago and whose overdue notice went out, waiting for their pickup or their
   cancel (`reason: pickup_waiting`, `stuckSince` the pickup deadline). Each partition is read oldest
@@ -4615,7 +4621,7 @@ Admin authorizer. The stuck orders, oldest first, 20 a page, at most 50. Never a
 (`source` is neither value, or a `nextToken` of the other index or of an unknown partition),
 `503 ADMIN_004`.
 
-Until 2.16.0 an `accepted` order whose pickup deadline passed after its overdue notice went out was
+Until 2.17.0 an `accepted` order whose pickup deadline passed after its overdue notice went out was
 not listed (it left `DeadlineIndex` with its notice) and reached `source=queue` only at the 21 day cap.
 Listing it changes nothing about it: no notice, cancel or refund follows from the list.
 The decision actions 1.13.0 announced for ESC-24 are not built: the page links each order to its
@@ -5127,8 +5133,6 @@ The same check runs before the retry of a refund that failed after the sweep's o
   escrow whose crop leg is already decided, or a `dispute_resolved` escrow, on an order still before
   pickup (bad data only; neither is reachable through the app).
 
----
-
 ## Additions in 2.14.0 (stock before the refund of the sweep's own cancel, FUP-230; payout reference backfill, FUP-215)
 
 Server only. No endpoint, field, status, amount, refund timing or client code change, apart from the
@@ -5218,6 +5222,117 @@ conflicts=<n> failed=<n> skipped=<n> scanDone=<true|false> marker=<status|none> 
 - The backfill is built, not run: it needs AWS credentials, once per environment (dev, staging, prod).
 - A reference recorded on two legs before 2.12.0 stays on both rows; the backfill only names them. Its
   correction is the engineer's procedure of 2.12.0 until FUP-218.
+
+---
+
+## Additions in 2.15.0 (the split verdict's replay and its reason, FUP-174; the Disputes list's per-leg link, FUP-173)
+
+`POST /admin/disputes/{id}/resolve` with `resolution: partial_refund` and `action: split` (2.2.0, P.8).
+
+### The recorded split again after the sweep decided its legs (FUP-174)
+
+The verdict sweep decides a split's legs while the escrow is still `dispute_resolved`: it stays there
+until a farmer payout is `done` (P.5), which on the live gateway means until an admin records it in
+Manual Payouts. Before 2.15.0 the split was checked against the legs held (`400 ADMIN_021`) before the
+replay, so the same split again (a double click, or the admin adding the disposition the order needs)
+was refused once the crop leg was decided, and the disposition could not be recorded.
+
+Now a split whose three amounts equal the escrow's `verdictAmounts`, on an escrow that is
+`dispute_resolved` with `disputeResolution: partial_refund`, is not checked against the legs held. The
+verdict's conditional write (status `disputed`, the crop leg held) still refuses it, and the replay of
+1.9.0 and 1.21.0 answers as for any verdict:
+
+| The escrow | Response |
+|---|---|
+| The order and delivery follow the verdict | `200`, "Verdict already recorded.", with `verdictAmounts` |
+| The order needs a disposition, none sent and none recorded | `422 ADMIN_015` |
+| The order needs a disposition, one sent with its reason | the disposition is recorded (conditional, as 1.21.0) and applied to the order and delivery; `200` |
+
+The replay decides no money: no ledger row, leg, leg amount or total changes, and the escrow's status
+does not move. Every other split is checked as a new one: against the legs held first (`400 ADMIN_021`
+once the crop leg is decided), then for its reason (below). Other amounts, the same split on an escrow
+with another verdict, and the same split on an escrow past `dispute_resolved` (`released`, `completed`,
+`refunded`, `held`) are all such splits: `400 ADMIN_021` once the crop leg is decided; while it is still
+held, `400 ADMIN_014` without a reason, and with one the conditional write answers as before (`409
+ADMIN_010` for other amounts, the replay for the same split).
+
+### The split's reason (FUP-174)
+
+Every split that does not replay the recorded split (the rule above) needs `notes`, the admin's
+reason: 10 to 500 characters after trimming, the rule of the disposition reason (1.21.0). Otherwise it
+is `400 ADMIN_014` with `field: notes`, after the checks against the legs held (`ADMIN_021`) and before
+anything is written. The rule does not depend on the status read: that read is eventually consistent,
+and an escrow disputed a moment ago may still read as `escrowed` while the conditional write would
+record the split. The trimmed reason is kept in the verdict's escrow-audit row `admin_dispute_resolved`,
+last because it is free text:
+
+```
+partial_refund;farmerAmount=9000;truckerAmount=1500;buyerRefund=6000;reason=Two of the ten bags arrived wet.
+```
+
+The outcome label keeps its rule (FRD-18: the disposition's reason, else `notes`). A replay of a
+recorded split needs no `notes`, because it records nothing new. `farmer_wins` and `buyer_wins` keep
+`notes` optional and their audit metadata unchanged.
+
+### Clients
+
+- **Admin page builds already deployed:** the per-leg form (2.7.0, ESC-24) requires the reason in the
+  page and sends it as `notes`, trimmed, 10 to 500 characters, so a new split from it is accepted, and
+  its resend with a disposition after `ADMIN_015` carries the same `notes`. The Disputes list's awaiting
+  tab lists `dispute_resolved` escrows and replays a recorded split with its own amounts and no `notes`
+  ("Choose what happens"); that request is a replay and is accepted too.
+- **Disputes list (FUP-173):** an open dispute on a ledger escrow whose crop leg is held links to its
+  dispute page with the per-leg form open (`/disputes/{id}?decide=split`), next to Farmer Wins and
+  Buyer Wins. Other rows keep the two single verdicts. The admin string of `ADMIN_014` names the three
+  verdicts and the reason rule (en, am, om).
+- Mobile and web apps do not call this route.
+
+### Not in 2.15.0 (known limits)
+
+- The verdict's escrow-audit row is still written best-effort after the verdict: a failed write logs a
+  warning and a replay does not write it again, so a lost row loses the split's reason with it (the
+  outcome label still carries `notes` when no disposition was chosen). FUP-271.
+
+---
+
+## Additions in 2.16.0 (a confirmed hold is never "Refund pending", FUP-97)
+
+2.14.0 and 2.15.0 are other changes' numbers.
+
+A confirmed delivery's money waits for its release: the dispute window (48 hours from the confirm),
+then the payout delay of 1.33.0 (FRD-13, up to a day more). A delivery confirmed late in the hold
+makes that wait end after the escrow's `expiresAt`. The refund sweep never takes a confirmed escrow
+(the release sweep pays it), but before 2.16.0 the SIM-20 rule read a past `expiresAt` as a refund on
+its way: the escrow read "Refund pending" for every party, and the farmer's and the trucker's apps hid
+the expected payout day of 1.33.0.
+
+**Server.** `refundPending` on `EscrowDto` and on the `GET /escrow/history` rows, in this order:
+
+| The escrow | `refundPending` |
+|---|---|
+| not `escrowed` | false |
+| `refundReason` set (an order cancel or reject, an admin refund, the admin queue, the 7 day sweep's cancel) | true, confirmed or not |
+| a ledger escrow whose crop leg is `refunded` (2.2.0) | true, confirmed or not |
+| an admin refund parked in the manual payout queue (`manualPayout` `open`, `manualPayoutOp` `refund`; an override refund of a delivered order whose gateway outcome is unknown arms no `refundReason`) | true, confirmed or not, expired or not |
+| at its 21-day cap (`holdCapReachedAt`, 1.13.0) | false |
+| `deliveryConfirmedAt` set (new) | false |
+| otherwise | true once `expiresAt` has passed |
+
+An empty `deliveryConfirmedAt` is no confirmation, as in the refund arm's condition (2.11.0).
+
+**History rows.** `GET /escrow/history` rows gain `deliveryConfirmedAt` (additive, optional), for
+every party: omitted before the confirm and by servers before 2.16.0.
+
+**Clients** (mobile and web). A row reads "Refund pending" when the server says so, or (the SIM-20
+fallback, for a cached row whose expiry passed since it was read, or a row from an older server) when
+it is `escrowed`, past its `expiresAt` and has no `deliveryConfirmedAt`. The mobile cache keeps a
+confirmation it already has when a history row carries none (a confirmation is never undone). With a
+confirmed hold no longer read as a refund, the payee's "Payout expected on" line shows again while the
+money is held.
+
+No endpoint, status, amount, settlement or timing change. Apps built before 2.16.0 do not read
+`deliveryConfirmedAt` and keep the old fallback, so until they are updated they still read a confirmed
+hold past its `expiresAt` as "Refund pending" (the server flag they also read is now false).
 
 ---
 
@@ -5565,7 +5680,9 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
-| 2.16.0 | 2026-11-12 | Stuck Orders lists the pickup waits (FUP-170, closes the 2.7.0 "Not listed" gap). `GET /admin/orders/queue?source=deadline` reads, after the sweep's partition of `DeadlineIndex`, its new `watch` partition (order-lifecycle.md 2.14.0): an `accepted` order whose pickup deadline passed more than 30 minutes ago and whose overdue notice went out is listed with `reason: pickup_waiting` and `stuckSince` its pickup deadline, until its pickup or cancel, with a Query, never a Scan. Each order is listed only from the partition its state gives; the `nextToken` names its partition, and a token of an unknown partition is `400 ADMIN_005`. The admin page labels the new reason in en, am and om. Read only: no notice, cancel, refund, amount or status follows from the list; the sweep never reads the `watch` partition. 2.15.0 is another change's number |
+| 2.17.0 | 2026-11-12 | Stuck Orders lists the pickup waits (FUP-170, closes the 2.7.0 "Not listed" gap). `GET /admin/orders/queue?source=deadline` reads, after the sweep's partition of `DeadlineIndex`, its new `watch` partition (order-lifecycle.md 2.14.0): an `accepted` order whose pickup deadline passed more than 30 minutes ago and whose overdue notice went out is listed with `reason: pickup_waiting` and `stuckSince` its pickup deadline, until its pickup or cancel, with a Query, never a Scan. Each order is listed only from the partition its state gives; the `nextToken` names its partition, and a token of an unknown partition is `400 ADMIN_005`. The admin page labels the new reason in en, am and om. Read only: no notice, cancel, refund, amount or status follows from the list; the sweep never reads the `watch` partition. 2.15.0 is another change's number |
+| 2.16.0 | 2026-11-12 | A confirmed hold is never "Refund pending" (FUP-97, §Additions in 2.16.0): `refundPending` on `EscrowDto` and the history rows is false for an `escrowed` escrow with `deliveryConfirmedAt` whose `expiresAt` has passed (the refund sweep never takes it; it waits for the dispute window and the FRD-13 payout delay); a refund decided on it (`refundReason`, a refunded ledger crop leg, an admin refund parked in the manual payout queue) reads true. `GET /escrow/history` rows carry `deliveryConfirmedAt` (additive, optional). The mobile and web fallback (an escrowed row past its expiry) skips a confirmed row, so the payee's expected payout day shows again. No endpoint, status, amount or timing change. 2.14.0 and 2.15.0 are other changes' numbers |
+| 2.15.0 | 2026-11-12 | The split verdict's replay and its reason (FUP-174) and the Disputes list's per-leg link (FUP-173; §Additions in 2.15.0). `POST /admin/disputes/{id}/resolve` with `partial_refund`: the same split again (equal `verdictAmounts`) on a `dispute_resolved` escrow whose verdict is `partial_refund` is not checked against the legs held, so it reaches the replay after the sweep decided its legs (`200`, `422 ADMIN_015`, or the disposition recorded and applied; no ledger row, leg or total changes) instead of `400 ADMIN_021`. Every other split needs `notes`, 10 to 500 characters after trimming (`400 ADMIN_014`, `field: notes`, after the `ADMIN_021` checks), whatever the status read; the trimmed reason is appended to the `admin_dispute_resolved` escrow-audit row. Admin: "Decide per leg" link on open disputes of a ledger escrow whose crop leg is held (`/disputes/{id}?decide=split`), `ADMIN_014` text names the three verdicts. No app change |
 | 2.14.0 | 2026-11-12 | Stock before the refund of the sweep's own cancel (FUP-230, closes the 2.13.0 known limit) and the payout reference backfill (FUP-215, closes the 2.12.0 known limit; §Additions in 2.14.0). The 7 day sweep's cancel of a stale `funded` or `awaiting_transport` order gives the listing stock back fail closed before its refund: a restore that keeps conflicting or throws logs `ORDER_STOCK_RESTORE_FAILED ... refund deferred to the next sweep` and refunds nothing this run (the escrow stays armed; the next run restores first, then refunds); the trip booking release still runs. New manual escrow-cron action `backfill_payout_references`: one filtered Scan of the escrows table and a Query per ledger escrow write the `payout-ref#` item of every admin-recorded 1.x leg and admin-done ledger row recorded before 2.12.0 (conditional put, 400 day TTL from the record); a key held by the same leg is a no-op, one held by another leg is logged (`PAYOUT_REF_BACKFILL_CONFLICT`) and never overwritten; bounded by the marker `migration:fup-215:backfill_payout_references` (`done`; `retry` after a failure; `pending` once a run from the start begins a new chain after a `retry`), 4 minute budget, `scanCursor`/`scanFrom` to resume; `200` with counts and `outcome` (a row or page failure is counted, not a `500`). No endpoint, field, amount, grant or client change (`order-lifecycle.md` 2.13.1) |
 | 2.13.0 | 2026-11-12 | The last two cancel-then-arm writers (FUP-210, FUP-211; closes two of the 2.11.0 known limits): the order cron's commitment deadline cancels (`farmer_response_expired`, `transport_not_arranged`) and the funding's stock loss end (`listing_out_of_stock`) write the order and the refund arm in one transaction (an escrow held for review fenced, not armed); money frozen or moving writes nothing (the cron's order waits an hour, `ORDER_DEADLINE_REFUND_WAITING`; the funding's order stays `funded` with `ORDER_STOCK_DECREMENT_FAILED ... status=escrow_busy`); a cron read or write that fails writes nothing, retries next run and logs the alarmed `ORDER_ESCROW_REFUND_SCHEDULE_FAILED reason=escrow_unreadable|cancel_not_written`. The hourly refund sweep gives an `escrow_refunded` cancel's listing stock back before its refund, fail closed, as for the pickup deadline cancel, so an admin refund whose restore failed after its cancel never refunds ahead of the stock. No endpoint, field, amount or client change (`order-lifecycle.md` 2.13.0). 2.12.0 is another change's number |
 | 2.12.0 | 2026-11-12 | Manual payout claims and one leg per reference (FUP-05, §Additions in 2.12.0). `POST /admin/payouts/{escrowId}/{ref}/claim` and `/unclaim` (admin group): a 30 minute claim per leg on the escrow row or the ledger row, taken by a conditional write, never taken over; the record refuses another admin's live claim (`409 ESCROW_046`, also in the write's condition) and ends the claim; each record writes a `payout-ref#{REFERENCE}` item in escrow-idempotency in its transaction, and a reference recorded on another leg is `409 ESCROW_047` naming where. The list shows each leg's live claim. Complete, claim and unclaim share the route `POST /admin/payouts/{escrowId}/{ref}/{action}`, which also accepts ledger refs (the record route refused them before). Audit rows for claims, releases and refused references. The admin page requires the claim before the reference field appears, renews it, treats a lapsed claim of its own as lost and reloads the queue every 30 seconds; the list keeps a lapsed claim for 24 hours (`claimLive: false`); a claim write that meets a record's transaction is retried once, then answers `409`. The admin Lambda gains GetItem on escrow-idempotency. No change to amounts, statuses, the close or the overdue alarm. 2.11.0 is another branch's number |
