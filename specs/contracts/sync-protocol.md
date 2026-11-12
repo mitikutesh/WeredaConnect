@@ -1397,7 +1397,8 @@ Anywhere else (a create, which is always `pending`; `inTransit`; `delivered` for
 `disputed` for both points; an update without a status) the field is dropped, not refused: the
 operation is answered as if it had not been sent, and the server logs
 `DELIVERY_FIELD_DROPPED field=<field> status=<status or none> deliveryId=<id>` at Information (no
-personal data). Before, a buyer's confirm could carry `gpsPickup` and move the trucker's pickup point
+personal data). The length check of `disputeReason` (empty or over 500 characters) still runs
+first and refuses such a value on any status. Before, a buyer's confirm could carry `gpsPickup` and move the trucker's pickup point
 (the impossible delivery time rule then wrote `IMPOSSIBLE_DELIVERY_TIME` on an honest trucker), and
 any party's dispute, or the trucker's update without a status, could rewrite both points the admin
 reads as dispute evidence (`fraud-detection-architecture.md` 3.34.0,

@@ -978,7 +978,8 @@ phone under its key; offline and never cached, the tile says it shows when onlin
      trucker's `pickedUp`, `gpsDropoff` only by the buyer's `delivered` (a self-pickup's too). Sent
      with any other status (a create, `inTransit`, the other handoff, a `disputed`, an update without
      a status) the point is dropped, not refused, and logged as `DELIVERY_FIELD_DROPPED`; so is a
-     `disputeReason` sent without `disputed`. The stored points are the evidence the impossible
+     `disputeReason` sent without `disputed` (its length check, empty or over 500 characters, still
+     refuses first). The stored points are the evidence the impossible
      delivery time rule and the admin dispute evidence read, so no later step may move them
 7. **Status Transitions**:
    - Only valid transitions allowed (see Status Transitions above)
