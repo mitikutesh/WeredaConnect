@@ -4,6 +4,8 @@ import { ArrowLeft, Lock } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { DispositionChoiceCard, VerdictMessages } from "@/components/disputes/DisputeVerdict";
+import { SplitVerdictCard } from "@/components/disputes/SplitVerdict";
+import { RecordedSplitRow } from "@/components/escrows/MoneyLegs";
 import { EvidenceError, MessagesTab, PhotosTab, TimelineTab } from "@/components/disputes/EvidenceTabs";
 import { useDisputeVerdict } from "@/components/disputes/verdictFlow";
 import { TripTrailTab } from "@/components/trail/TripTrailTab";
@@ -11,6 +13,7 @@ import { useLocale } from "@/hooks/useLocale";
 import { useDisputeEvidence, useEscrowDetail } from "@/hooks/useQuery";
 import { photosOf } from "@/lib/evidence";
 import { formatDateTime, formatETB } from "@/lib/i18n";
+import { heldLegs } from "@/lib/legs";
 import { fill } from "@/lib/trail";
 import { partyName } from "@/lib/user";
 
@@ -49,6 +52,7 @@ export function DisputeDetailPage() {
   const navigate = useNavigate();
   const { data, isLoading, isError, error } = useEscrowDetail(id || "");
   const [tab, setTab] = useState<Tab>("trail");
+  const [splitOpen, setSplitOpen] = useState(false);
   const verdictFlow = useDisputeVerdict(t);
   const evidence = useDisputeEvidence(id || "");
 
@@ -120,9 +124,29 @@ export function DisputeDetailPage() {
             >
               {t("disputes.buyerWins")}
             </button>
+            {/* ESC-24: the per-leg verdict of ESC-20, only where the server takes a split (a ledger escrow, crop leg held). */}
+            {heldLegs(escrow) && (
+              <button
+                type="button"
+                onClick={() => setSplitOpen(true)}
+                disabled={verdictFlow.resolvingId !== null || splitOpen}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50"
+              >
+                {t("legs.decidePerLeg")}
+              </button>
+            )}
           </div>
           <p className="mt-3 text-xs text-text-muted">{t("disputes.auditNote")}</p>
         </Card>
+        {splitOpen && !verdictFlow.choice && (
+          <SplitVerdictCard
+            escrow={escrow}
+            flow={verdictFlow}
+            t={t}
+            locale={locale}
+            onClose={() => setSplitOpen(false)}
+          />
+        )}
         <DispositionChoiceCard flow={verdictFlow} t={t} />
       </>
     ) : null;
@@ -194,6 +218,7 @@ export function DisputeDetailPage() {
               {String(escrow.deliveryId || "") || t("common.notAvailable")}
             </dd>
           </div>
+          <RecordedSplitRow escrow={escrow} />
         </dl>
       </Card>
 

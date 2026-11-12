@@ -309,3 +309,46 @@ describe("dispute evidence strings exist in every locale", () => {
     }
   });
 });
+
+/* ESC-24: the legs (transport leg, ledger view, per-leg verdict) and the stuck orders page. */
+describe("legs and stuck order strings exist in every locale", () => {
+  const keys = [
+    ...Object.keys(en.legs).map((k) => `legs.${k}`),
+    ...Object.keys(en.stuckOrders).map((k) => `stuckOrders.${k}`),
+    "nav.stuckOrders",
+    "disputes.verdict_partial_refund",
+    "errors.ADMIN_021",
+  ];
+  for (const locale of locales) {
+    it(`${locale} has every legs and stuckOrders key`, () => {
+      const missing = keys.filter((key) => t(key, locale) === key);
+      expect(missing).toEqual([]);
+    });
+  }
+
+  it("keeps the placeholders the pages fill in", () => {
+    for (const locale of locales) {
+      expect(t("legs.splitHeld", locale)).toContain("{amount}");
+      expect(t("stuckOrders.ageHours", locale)).toContain("{hours}");
+      expect(t("stuckOrders.ageDays", locale)).toContain("{days}");
+    }
+  });
+
+  it("labels every value the server sends", () => {
+    const sent = [
+      ...["held", "released", "refunded", "paid", "pending", "blocked", "manual_queue", "none"].map((s) => `legs.truckerState_${s}`),
+      ...["no_trucker", "profile_missing", "phone_unverified", "fayda_required", "trucker_mismatch"].map((r) => `legs.block_${r}`),
+      ...["crop", "transport", "commission"].map((l) => `legs.leg_${l}`),
+      ...["held", "released", "refunded", "kept"].map((s) => `legs.legState_${s}`),
+      ...["release", "refund", "verdict", "shift", "topup"].map((k) => `legs.kind_${k}`),
+      ...["pending", "sent", "done", "failed", "manual"].map((s) => `legs.rowStatus_${s}`),
+      ...["PAYOUT_NOT_SUPPORTED", "GATEWAY_REF_MISSING", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_REFUSED_3", "PAYEE_NOT_VERIFIED"].map(
+        (r) => `legs.manual_${r}`,
+      ),
+      ...["hold_cap", "farmer_response", "trucker_response", "buyer_choice", "pickup_overdue"].map((r) => `stuckOrders.reason_${r}`),
+    ];
+    for (const locale of locales) {
+      expect(sent.filter((key) => t(key, locale) === key)).toEqual([]);
+    }
+  });
+});

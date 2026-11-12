@@ -172,6 +172,37 @@ describe("DisputesPage", () => {
     });
   });
 
+  it("a recorded split awaiting settlement shows its amounts and replays them with the chosen disposition (ESC-24)", async () => {
+    const user = userEvent.setup();
+    const split = recordedVerdict() as Record<string, unknown>;
+    (split.dispute as Record<string, unknown>).resolution = "partial_refund";
+    split.verdictAmounts = { farmerAmount: 9000, truckerAmount: 1500, buyerRefund: 6000 };
+    mocks.awaiting.data = { pages: [{ escrows: [split] }] };
+    render(<DisputesPage />, { wrapper: MemoryRouter });
+
+    await user.click(screen.getByRole("button", { name: "Awaiting settlement" }));
+    expect(within(table()).getByText("Split per leg")).toBeTruthy();
+    expect(
+      within(table()).getByText(
+        "Farmer receives 9,000.00 Birr · Trucker receives 1,500.00 Birr · Buyer is refunded 6,000.00 Birr",
+      ),
+    ).toBeTruthy();
+    await user.click(within(table()).getByRole("button", { name: "Choose what happens" }));
+    await user.click(screen.getByLabelText(/Wait for the delivery/));
+    await user.type(screen.getByLabelText("Reason (kept in the audit trail)"), REASON);
+    await user.click(screen.getByRole("button", { name: "Record the verdict" }));
+
+    expect(lastMutate().vars.body).toEqual({
+      resolution: "partial_refund",
+      action: "split",
+      farmerAmount: 9000,
+      truckerAmount: 1500,
+      buyerRefund: 6000,
+      disposition: "wait_for_delivery",
+      reason: REASON,
+    });
+  });
+
   it("shows ADMIN_016 when the choice does not fit the order", async () => {
     const user = userEvent.setup();
     render(<DisputesPage />, { wrapper: MemoryRouter });

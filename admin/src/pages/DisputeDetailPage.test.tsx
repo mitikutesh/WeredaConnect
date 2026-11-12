@@ -680,3 +680,157 @@ describe("DisputeDetailPage evidence (FRD-14)", () => {
     expect(screen.queryByRole("complementary")).toBeNull();
   });
 });
+
+/* ESC-24: the per-leg verdict of ESC-20 (partial_refund, action split), only on a ledger escrow whose
+ * crop leg is held, with the amounts shown before the confirm and the reason required. */
+describe("DisputeDetailPage per-leg verdict (ESC-24)", () => {
+  const ledgerEscrow = {
+    ...escrow().escrow,
+    amount: 17250,
+    farmerPayout: 15000,
+    truckerPayout: 1500,
+    commission: 750,
+    truckerId: "trucker-1",
+    legStatus: { crop: "held", transport: "held", commission: "held" },
+  };
+
+  beforeEach(() => {
+    mocks.escrow.data = { escrow: ledgerEscrow };
+    mocks.escrow.isLoading = false;
+    mocks.escrow.isError = false;
+    mocks.trail = trailQuery();
+    mocks.trail.isLoading = true;
+    mocks.evidence = trailQuery();
+    mocks.messages = trailQuery();
+    mocks.mutate.mockReset();
+  });
+
+  function lastMutate() {
+    const [vars, opts] = mocks.mutate.mock.calls[mocks.mutate.mock.calls.length - 1];
+    return { vars: vars as { id: string; body: Record<string, unknown> }, opts: opts ?? {} };
+  }
+
+  async function openSplit() {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: "Decide per leg" }));
+    return user;
+  }
+
+  it("a legacy escrow, or one whose crop leg is decided, offers only the two single verdicts", () => {
+    mocks.escrow.data = escrow();
+    const first = renderPage();
+    expect(screen.getByRole("button", { name: "Farmer Wins" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Decide per leg" })).toBeNull();
+    first.unmount();
+
+    mocks.escrow.data = { escrow: { ...ledgerEscrow, legStatus: { crop: "released", transport: "held", commission: "kept" } } };
+    renderPage();
+    expect(screen.queryByRole("button", { name: "Decide per leg" })).toBeNull();
+  });
+
+  it("starts from the full legs, shows the resulting amounts, and needs a reason before the review", async () => {
+    const user = await openSplit();
+
+    expect((screen.getByLabelText("Farmer receives (crop leg), in Birr") as HTMLInputElement).value).toBe("15000.00");
+    expect((screen.getByLabelText("Trucker receives (transport leg), in Birr") as HTMLInputElement).value).toBe("1500.00");
+    const result = screen.getByRole("group", { name: "Resulting amounts" });
+    expect(within(result).getByText("Buyer is refunded").nextElementSibling?.textContent).toBe("0.00 Birr");
+    expect(within(result).getByText("Commission kept by the platform")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Review split" }) as HTMLButtonElement).disabled).toBe(true);
+
+    const farmer = screen.getByLabelText("Farmer receives (crop leg), in Birr");
+    await user.clear(farmer);
+    await user.type(farmer, "9000");
+    expect(within(result).getByText("Buyer is refunded").nextElementSibling?.textContent).toBe("6,000.00 Birr");
+
+    // Nothing for the farmer: the commission goes back to the buyer too.
+    await user.clear(farmer);
+    await user.type(farmer, "0");
+    expect(within(result).getByText("Buyer is refunded").nextElementSibling?.textContent).toBe("15,750.00 Birr");
+    expect(within(result).getByText("Commission returned to the buyer (in the refund)")).toBeTruthy();
+
+    // More than the leg holds is refused before anything is sent.
+    await user.clear(farmer);
+    await user.type(farmer, "15000.01");
+    expect(screen.getByRole("alert").textContent).toContain("The farmer can get at most the crop leg held.");
+    await user.type(screen.getByLabelText("Reason (kept in the audit trail)"), "Half the teff arrived wet.");
+    expect((screen.getByRole("button", { name: "Review split" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("sends the three amounts as partial_refund with action split only after the confirm", async () => {
+    const user = await openSplit();
+    const farmer = screen.getByLabelText("Farmer receives (crop leg), in Birr");
+    await user.clear(farmer);
+    await user.type(farmer, "9000.50");
+    await user.type(screen.getByLabelText("Reason (kept in the audit trail)"), "Half the teff arrived wet.");
+    await user.click(screen.getByRole("button", { name: "Review split" }));
+
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(screen.getByText("Record this verdict? It cannot be changed afterwards.")).toBeTruthy();
+    const result = screen.getByRole("group", { name: "Resulting amounts" });
+    expect(within(result).getByText("Farmer receives").nextElementSibling?.textContent).toBe("9,000.50 Birr");
+    expect(within(result).getByText("Trucker receives").nextElementSibling?.textContent).toBe("1,500.00 Birr");
+    expect(within(result).getByText("Buyer is refunded").nextElementSibling?.textContent).toBe("5,999.50 Birr");
+
+    await user.click(screen.getByRole("button", { name: "Confirm split verdict" }));
+
+    const { vars, opts } = lastMutate();
+    expect(vars).toEqual({
+      id: "escrow-1",
+      body: {
+        resolution: "partial_refund",
+        action: "split",
+        farmerAmount: 9000.5,
+        truckerAmount: 1500,
+        buyerRefund: 5999.5,
+        notes: "Half the teff arrived wet.",
+      },
+    });
+    act(() => {
+      opts.onSuccess?.();
+      opts.onSettled?.();
+    });
+    expect(screen.getByText("Verdict saved.").getAttribute("role")).toBe("status");
+  });
+
+  it("on ADMIN_015 the disposition is sent with the same split", async () => {
+    const user = await openSplit();
+    await user.type(screen.getByLabelText("Reason (kept in the audit trail)"), "The goods were delivered in full.");
+    await user.click(screen.getByRole("button", { name: "Review split" }));
+    await user.click(screen.getByRole("button", { name: "Confirm split verdict" }));
+    act(() => {
+      lastMutate().opts.onError?.({ code: "ADMIN_015" });
+      lastMutate().opts.onSettled?.();
+    });
+
+    expect(screen.getByRole("heading", { name: "The order cannot follow this verdict as it is" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Confirm split verdict" })).toBeNull();
+    await user.click(screen.getByRole("radio", { name: /Wait for the delivery/ }));
+    await user.type(screen.getByLabelText("Reason (kept in the audit trail)"), "The truck arrives tomorrow.");
+    await user.click(screen.getByRole("button", { name: "Record the verdict" }));
+
+    expect(lastMutate().vars.body).toEqual({
+      resolution: "partial_refund",
+      action: "split",
+      farmerAmount: 15000,
+      truckerAmount: 1500,
+      buyerRefund: 0,
+      notes: "The goods were delivered in full.",
+      disposition: "wait_for_delivery",
+      reason: "The truck arrives tomorrow.",
+    });
+  });
+
+  it("an escrow without a trucker to pay sends the transport leg back to the buyer", async () => {
+    mocks.escrow.data = { escrow: { ...ledgerEscrow, truckerId: undefined } };
+    await openSplit();
+
+    const trucker = screen.getByLabelText("Trucker receives (transport leg), in Birr") as HTMLInputElement;
+    expect(trucker.disabled).toBe(true);
+    expect(trucker.value).toBe("0");
+    const result = screen.getByRole("group", { name: "Resulting amounts" });
+    expect(within(result).getByText("Buyer is refunded").nextElementSibling?.textContent).toBe("1,500.00 Birr");
+  });
+});

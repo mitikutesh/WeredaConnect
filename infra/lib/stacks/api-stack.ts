@@ -3404,6 +3404,10 @@ export class ApiStack extends cdk.Stack {
       "/admin/escrows/held",
       "/admin/escrows/{id}",
       "/admin/escrows/{id}/audit",
+      // ESC-24: the escrow's ledger rows, read only (a Query on the ledger table; the grant is ESC-20's).
+      "/admin/escrows/{id}/ledger",
+      // ESC-24: stuck orders, from AdminQueueIndex or DeadlineIndex of the orders table (the read grant covers both).
+      "/admin/orders/queue",
       "/admin/disputes",
       // FRD-14: a dispute's evidence package (admin group checked in the Lambda; messages only
       // with include=messages, each read audited).

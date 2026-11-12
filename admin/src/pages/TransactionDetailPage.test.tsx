@@ -12,10 +12,23 @@ import { TransactionDetailPage } from "./TransactionDetailPage";
 const mocks = vi.hoisted(() => ({
   detail: { data: undefined as unknown, isLoading: false },
   locale: "en" as Locale,
+  ledger: {
+    data: undefined as unknown,
+    isLoading: false,
+    isError: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  },
+  ledgerCalls: [] as { escrowId: string; enabled: boolean }[],
 }));
 
 vi.mock("@/hooks/useQuery", () => ({
   useTransactionDetail: () => mocks.detail,
+  useEscrowLedger: (escrowId: string, enabled: boolean) => {
+    mocks.ledgerCalls.push({ escrowId, enabled });
+    return mocks.ledger;
+  },
 }));
 
 vi.mock("@/hooks/useLocale", async () => {
@@ -236,5 +249,60 @@ describe("TransactionDetailPage handoff photos (FRD-12)", () => {
     renderPage();
 
     expect(screen.getByRole("img", { name: "Suuraa geejjibaa" })).toBeTruthy();
+  });
+});
+
+/* ESC-24: the transaction page shows the transport leg and the ledger of the order's escrow. */
+describe("TransactionDetailPage legs and ledger (ESC-24)", () => {
+  beforeEach(() => {
+    mocks.locale = "en";
+    mocks.ledger.data = undefined;
+    mocks.ledgerCalls.length = 0;
+  });
+
+  function detail(escrow: Record<string, unknown> | null) {
+    return {
+      order: { orderId: "ord-1", status: "disbursing", buyerId: "buyer-1", farmerId: "farmer-1", truckerId: "trucker-1" },
+      escrow,
+      delivery: null,
+      timeline: [],
+    };
+  }
+
+  it("shows the trucker payout, the leg state and the ledger of a ledger escrow", () => {
+    mocks.detail.data = detail({
+      escrowId: "escrow-order-ord-1", status: "released", amount: 17250, farmerPayout: 15000, truckerPayout: 1500, commission: 750,
+      legStatus: { crop: "released", transport: "held", commission: "kept" }, releasedTotal: 15000, refundedTotal: 0,
+      truckerLeg: { state: "held", pending: false, inManualQueue: false },
+    });
+    mocks.ledger.data = {
+      pages: [{ escrowId: "escrow-order-ord-1", settlementModel: "ledger", rows: [
+        { ref: "release#farmer", kind: "release", legs: ["crop"], payeeRole: "farmer", payeeId: "farmer-1", amount: 15000,
+          status: "sent", gatewayRef: "WCLAAA", attempts: 1, reason: "auto_release", actor: "system",
+          createdAt: "2026-11-05T10:00:00Z", updatedAt: "2026-11-05T10:01:00Z" },
+      ] }],
+    };
+
+    renderPage();
+
+    expect(screen.getByText("Trucker payout").nextElementSibling?.textContent).toBe("1,500.00 Birr");
+    expect(screen.getByText("Transport leg")).toBeTruthy();
+    expect(screen.getByRole("table", { name: "Ledger" })).toBeTruthy();
+    expect(screen.getByText("Sent to gateway")).toBeTruthy();
+    expect(mocks.ledgerCalls[0]).toEqual({ escrowId: "escrow-order-ord-1", enabled: true });
+  });
+
+  it("keeps the legacy fields for an escrow without a ledger, and shows no ledger without an escrow", () => {
+    mocks.detail.data = detail({ escrowId: "escrow-old", status: "escrowed", amount: 1000, farmerPayout: 950, commission: 50 });
+    const first = renderPage();
+    expect(screen.getByText("Farmer payout")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Ledger" })).toBeNull();
+    expect(mocks.ledgerCalls.every((call) => !call.enabled)).toBe(true);
+    first.unmount();
+
+    mocks.ledgerCalls.length = 0;
+    mocks.detail.data = detail(null);
+    renderPage();
+    expect(mocks.ledgerCalls).toEqual([]);
   });
 });

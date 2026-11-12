@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.6.0
+2.7.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -4487,6 +4487,107 @@ are never returned to a party.
   the signals; it has no queue entry and cannot be returned to the buyer (FUP-175).
 - A leg left owed by an admin's release is paid later by the system and is asked like any other.
 
+## Additions in 2.7.0 (admin legs, ledger view and stuck orders, ESC-24)
+
+Read only. Nothing here changes an amount, a settlement decision, a status or a deadline. The admin
+sees what the server already stores, and the per-leg verdict of 2.2.0 (P.8) gets its admin page.
+
+### Admin escrow DTO
+
+Every admin route that returns an escrow (`GET /admin/escrows`, `/admin/escrows/{id}`,
+`/admin/escrows/held`, `/admin/disputes`, `/admin/disputes/{id}/evidence`,
+`/admin/transactions/{orderId}`) now fills, next to the fields of before:
+
+| Field | Meaning |
+|---|---|
+| `truckerPayout`, `truckerId` | the transport leg and its trucker (the admin mapper left them out before); absent when the escrow has none |
+| `truckerName` | the trucker's display name (the row's copy, else the users table); admin routes only |
+| `legStatus`, `refundedTotal`, `releasedTotal` | the ledger fields of 2.2.0 (P.11); absent on a 1.x escrow |
+| `verdictAmounts` | `{farmerAmount, truckerAmount, buyerRefund}` of a recorded `partial_refund` verdict; absent otherwise |
+| `truckerLeg` | where the transport leg stands (below); absent when the escrow carries no transport money and no trace of a trucker payout |
+
+`truckerLeg`: `state`, `pending` (`truckerPayoutPending`), `pendingSince`, `blockReason`
+(`truckerPayoutBlockReason`), `inManualQueue` (the queue is open and the trucker leg in it is
+`pending`), `paidAt` (`truckerPaidAt`), `telebirrRef` (`truckerTelebirrRef`). `state` is the first
+that applies: `manual_queue`; `paid` (a paid time or reference); `blocked` (pending with a block
+reason); `pending`; on a ledger escrow the transport leg's `legStatus` (`held`, `released`,
+`refunded`; whether a `released` leg is paid is on its ledger row); on a 1.x escrow `held` while the
+escrow is `initiated`, `escrowed`, `disputed`, `dispute_resolved` or `held`, `refunded` when it is
+`refunded`; else `none`. Party routes never fill these fields.
+
+A trucker leg is paid by the release, the hourly trucker retry or the ledger sweep, or recorded by an
+admin in Manual Payouts (`POST /admin/payouts/{escrowId}/{ref}/complete`, 1.8.0, 1.11.0, P.8). No other
+admin route pays or marks one, and the admin pages offer no other action for it: the escrow and
+transaction pages show the leg and link to Manual Payouts.
+
+### `GET /admin/escrows/{id}/ledger?limit=&nextToken=`
+
+Admin authorizer. One page of the escrow's ledger rows in `ref` order: a strongly consistent Query on
+the escrow's partition of the ledger table, 50 rows by default, at most 100. `200`:
+
+```json
+{
+  "escrowId": "escrow-order-ord-1",
+  "settlementModel": "ledger",
+  "rows": [
+    {
+      "ref": "release#farmer", "kind": "release", "legs": ["crop"],
+      "payeeRole": "farmer", "payeeId": "farmer-1", "payeeName": "Tolosa Gemechu",
+      "amount": 15000, "status": "done", "gatewayRef": "WCL...", "telebirrRef": "TB...",
+      "attempts": 1, "lastCode": null, "manualReason": null, "reason": "auto_release",
+      "actor": "system", "paidBy": "gateway",
+      "createdAt": "...", "updatedAt": "...", "sentAt": "...", "doneAt": "..."
+    }
+  ],
+  "nextToken": null
+}
+```
+
+A 1.x escrow answers `settlementModel: "legacy"` with no rows and no ledger read (its money is on the
+escrow row and in the audit trail, shown as before). Errors: `404 ADMIN_003` (no such escrow),
+`400 ADMIN_005` (a `nextToken` that does not decode or belongs to another escrow or index),
+`503 ADMIN_004` (the ledger table is not wired). The admin Lambda uses the ledger grant of 2.2.0
+(GetItem, Query, UpdateItem); nothing is added.
+
+### `GET /admin/orders/queue?source=queue|deadline&limit=&nextToken=`
+
+Admin authorizer. The stuck orders, oldest first, 20 a page, at most 50. Never a Scan.
+
+- `source=queue` (default): the admin stuck-order queue of 1.13.0 (`AdminQueueIndex`): `reason` is the
+  entry's `adminQueueReason` (`hold_cap`), `stuckSince` its `adminQueuedAt`, `escrowId` its
+  `adminQueueEscrowId`.
+- `source=deadline`: orders whose commitment deadline passed and nothing acted on it. The route reads
+  `DeadlineIndex` (order-lifecycle.md, ESC-16) for rows due before now + 1 hour (the sweep's retry
+  delay, so a row the sweep pushed ahead for a retry is read too), reads each order again, and keeps
+  it when its own deadline, with the reminders taken as sent, passed more than 30 minutes ago (two
+  sweep runs): `reason` is `farmer_response`, `trucker_response`, `buyer_choice` or `pickup_overdue`,
+  `stuckSince` that deadline. At most 5 index pages are read per request, each asking only for the
+  rows still missing, so a page can be short or empty with a `nextToken`.
+
+`200`: `{ "source", "orders": [...], "nextToken", "total", "asOf" }`; each order has `orderId`,
+`status`, `stage`, `reason`, `stuckSince`, `ageHours` (whole hours from `stuckSince` to `asOf`),
+`buyerId`, `buyerName`, `farmerId`, `farmerName`, `truckerId`, `truckerName` (the order row's copies),
+`cropType`, `orderTotal`, `currency`, `escrowId`, `createdAt`, `updatedAt`. Errors: `400 ADMIN_005`
+(`source` is neither value, or a `nextToken` of the other index), `503 ADMIN_004`.
+
+Not listed (no index says so without a Scan): an `accepted` order whose pickup deadline passed after
+its overdue notice went out waits for the buyer's cancel and reaches `source=queue` at the 21 day cap.
+The decision actions 1.13.0 announced for ESC-24 are not built: the page links each order to its
+transaction, and the money moves through the existing actions.
+
+### Admin pages
+
+- **Disputes**: a dispute on a ledger escrow whose crop leg is `held` offers "Decide per leg": the
+  farmer's part of the crop leg and the trucker's part of the transport leg, the buyer's refund
+  computed by the rule of P.8, the amounts shown before the confirm, a reason of 10 to 500 characters
+  sent as `notes`. The page sends `resolution: partial_refund`, `action: split` and the three amounts
+  of P.8, nothing new. A `422 ADMIN_015` asks for the disposition as for `farmer_wins` and resends the
+  same split with it; a recorded split waiting for a disposition is replayed with its recorded amounts.
+  Any other escrow keeps the two single verdicts.
+- **Escrow and transaction detail**: the trucker, the trucker payout, the transport leg's state, a
+  recorded split, and for a ledger escrow the legs and the ledger rows.
+- **Stuck Orders** (`/stuck-orders`): the two sources as tabs.
+
 ---
 
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
@@ -4833,6 +4934,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.7.0 | 2026-11-12 | Admin legs, ledger view and stuck orders (ESC-24), read only: the admin escrow DTO fills `truckerPayout`, `truckerId`, `truckerName`, `legStatus`, `refundedTotal`, `releasedTotal`, `verdictAmounts` and `truckerLeg` (where the transport leg stands); new `GET /admin/escrows/{id}/ledger` (one page of ledger rows, `legacy` with no rows for a 1.x escrow) and `GET /admin/orders/queue?source=queue|deadline` (the admin queue of 1.13.0, or orders more than 30 minutes past a commitment deadline, from `DeadlineIndex`); the Disputes page sends the `partial_refund` split of 2.2.0 from a per-leg form. No amount, settlement, status or timing changes. See "Additions in 2.6.0". |
 | 2.6.0 | 2026-11-12 | The payout gate asks the payee's risk at the moment of payment (FUP-29, O4 of 1.11.0): a system payout to a suspended or CRITICAL farmer or trucker, or to one whose risk score cannot be read, is not made. Covers the system release, the split settlement, the trucker retry, the ledger transport retry and every ledger payout row the ledger sweep calls. The leg stays owed, logs `RISK_SETTLEMENT_SKIPPED` (`sweep=payout-<leg>`) and pays once the flag is gone; nothing is stored on the escrow and no party is told. Admin release, the manual payout record and refunds are unchanged. No endpoint, field or client change. See Additions in 2.6.0 |
 | 2.5.0 | 2026-11-11 | `POST /escrow/release` takes an optional `deliveryId` (FUP-139, closing the release item of FUP-147): an absent, `null` or blank one is accepted and not compared (before, `400 ESCROW_002`, so the admin page sent an order or escrow id in its place for a self-pickup escrow, which has no delivery). Unchanged from 2.2.0: a `deliveryId` that is sent and differs from the one the escrow is linked to is `422 ESCROW_VALIDATION` (`field: deliveryId`), an escrow without a `deliveryId` is released whatever is sent, and the `trigger` is stored as `releaseTrigger`. No request that was accepted is refused now; amounts, conditions, status transitions and timing of a release are unchanged; the cron (in-process) and the admin page send what they sent. Doc fixes: the request table of section 2 still said the `deliveryId` was required and never compared and the `trigger` never stored (the 2.0.0 wording, out of date since 2.2.0), and the 1.21.0 section still listed `GET /admin/fraud-signals?status=..` with the lists that scan and filter (FRD-07 moved it to a Query of the sparse `StatusCreatedAtIndex`). 2.4.0 is taken by another branch |
 | 2.4.0 | 2026-11-11 | One stored `commissionRate` (FUP-129): `POST /escrow/initiate` with a linked order stores the order's rate instead of 0.025, by the same rule as the order-funded path; the legacy rule stores 0.025 on both paths, an order without a rate stores `round4(commission / farmerPayout)`. The initiate response and `GET /escrow/history` rows carry `commissionRate` (additive, optional). Clients read it and fall back to a derivation on the crop leg for an order split. No amount held, paid out or refunded changes. |
@@ -4893,6 +4995,6 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 ---
 
-**Last Updated**: 2026-11-11
+**Last Updated**: 2026-11-12
 **Version**: 2.0.0
 **Status**: Draft (Phase R4)
