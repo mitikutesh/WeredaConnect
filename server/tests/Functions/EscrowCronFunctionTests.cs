@@ -1049,6 +1049,74 @@ public class EscrowCronFunctionTests
         await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
     }
 
+    // FUP-65: the recovery no longer races a release that is still running.
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(30)]
+    [InlineData(110)]
+    public async Task CompleteReleased_ReleasedWithinTheGrace_IsLeftToItsRelease(int secondsAgo)
+    {
+        var escrow = MakeEscrowItem("escrow-fresh-released", status: "released");
+        escrow["releasedAt"] = DateTime.UtcNow.AddSeconds(-secondsAgo).ToString("o");
+        _mockEscrowRepo.StubSweep("escrowed");
+        _mockEscrowRepo.QueryByStatusForCronAsync("released", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"completed\":\"0\"", response.Body);
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), "completed", Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _mockAuditRepo.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not-a-time")]
+    public async Task CompleteReleased_NoReadableReleasedAt_IsCompletedAsBefore(string? releasedAt)
+    {
+        // Old rows and rows of other writers: no age to go by, so no grace.
+        var escrow = MakeEscrowItem("escrow-old-released", status: "released");
+        if (releasedAt != null)
+        {
+            escrow["releasedAt"] = releasedAt;
+        }
+
+        _mockEscrowRepo.StubSweep("escrowed");
+        _mockEscrowRepo.QueryByStatusForCronAsync("released", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("\"completed\":\"1\"", response.Body);
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync(
+            "escrow-old-released", Arg.Any<string>(), "completed", "released", Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task CompleteReleased_TheReleaseCompletedItSinceTheQuery_IsSkippedWithoutAnErrorOrAnAuditRow()
+    {
+        var escrow = MakeEscrowItem("escrow-raced", status: "released");
+        escrow["releasedAt"] = DateTime.UtcNow.AddMinutes(-5).ToString("o");
+        _mockEscrowRepo.StubSweep("escrowed");
+        _mockEscrowRepo.QueryByStatusForCronAsync("released", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.UpdateStatusAsync("escrow-raced", Arg.Any<string>(), "completed", "released", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new ConditionalCheckFailedException("moved on"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"completed\":\"0\"", response.Body);
+        await _mockAuditRepo.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+        var logs = ((TestLambdaLogger)_context.Logger).Buffer.ToString();
+        Assert.Contains("moved on before the write, skipped", logs);
+        Assert.DoesNotContain("failed to complete 'released' escrow", logs);
+    }
+
     [Fact]
     public async Task CompleteReleased_NoStuckEscrows_NoOp()
     {

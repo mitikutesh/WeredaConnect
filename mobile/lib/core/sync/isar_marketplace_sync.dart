@@ -686,6 +686,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
           m['locationName'] as String? ?? m['woreda'] as String? ?? ''
       ..description = m['description'] as String? ?? ''
       ..farmerReliability = (m['farmerReliability'] as num?)?.toDouble()
+      ..ownerReliabilityPct = (m['ownerReliabilityPct'] as num?)?.toInt()
       ..audioNoteRef = m['audioNoteRef'] as String?
       ..photos = parseCropPhotos(m['photos'])
       ..status = _parseListingStatus(m['status'] as String?)
@@ -722,6 +723,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ..pricePerQuintal = (m['pricePerQuintal'] as num?)?.toDouble() ?? 0
       ..bookedQuintals = quintalsFromWire(m['bookedQuintals'])
       ..remainingQuintals = quintalsFromWire(m['remainingQuintals'])
+      ..ownerReliabilityPct = (m['ownerReliabilityPct'] as num?)?.toInt()
       ..status = TripStatus.values.firstWhere(
         (e) => e.name == (m['status'] as String? ?? 'open'),
         orElse: () => TripStatus.open,

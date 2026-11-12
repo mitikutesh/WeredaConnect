@@ -154,6 +154,13 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(ReputationAppealPhotoResponse))]
 [JsonSerializable(typeof(ReputationAppealRequest))]
 [JsonSerializable(typeof(ReputationAppealResponse))]
+// ESC-32: admin reputation endpoints (reputation-api.md section 9)
+[JsonSerializable(typeof(AdminReputationResponse))]
+[JsonSerializable(typeof(AdminReputationAppealsResponse))]
+[JsonSerializable(typeof(AdminReputationDecisionRequest))]
+[JsonSerializable(typeof(AdminReputationDecisionResponse))]
+[JsonSerializable(typeof(AdminReputationActionRequest))]
+[JsonSerializable(typeof(AdminReputationActionResponse))]
 // Message DTOs (in-app chat)
 [JsonSerializable(typeof(MessageDto))]
 [JsonSerializable(typeof(List<MessageDto>))]

@@ -238,7 +238,8 @@ class WebMatchingService extends BaseMatchingService {
   ///   commitments (FUP-122, [tripInsideOrderLead])
   /// - room left (`remainingQuintals`, else capacity) >= quantityNeeded
   /// - departureDate on/before the buyer's deadline when one is set
-  /// - Sorted by pricePerQuintal ascending
+  /// - Ordered by [MatchScorer.rankTripSuggestions]: pricePerQuintal
+  ///   ascending, then the more reliable trucker among equal prices
   ///
   /// NOTE: mobile applies a 0.01 float tolerance on the capacity check
   /// (`capacityGreaterThan(needed - 0.01)`); this strict `<` comparison can
@@ -284,12 +285,9 @@ class WebMatchingService extends BaseMatchingService {
               WoredaMatch.none &&
           compareWoredaKeys(normalizeWoreda(trip.toWoreda), toKey) !=
               WoredaMatch.none;
-    }).toList();
+    });
 
-    matched.sort(
-      (a, b) => a.pricePerQuintal.compareTo(b.pricePerQuintal),
-    );
-    return matched;
+    return _scorer.rankTripSuggestions(matched);
   }
 
   Trip _parseTrip(Map<String, dynamic> m) {
@@ -311,6 +309,7 @@ class WebMatchingService extends BaseMatchingService {
       ..pricePerQuintal = (m['pricePerQuintal'] as num?)?.toDouble() ?? 0
       ..bookedQuintals = quintalsFromWire(m['bookedQuintals'])
       ..remainingQuintals = quintalsFromWire(m['remainingQuintals'])
+      ..ownerReliabilityPct = (m['ownerReliabilityPct'] as num?)?.toInt()
       ..status = TripStatus.values.firstWhere(
         (e) => e.name == (m['status'] as String? ?? 'open'),
         orElse: () => TripStatus.open,
@@ -329,9 +328,10 @@ class WebMatchingService extends BaseMatchingService {
   /// Parse a crop from `GET /crops` into a [CropListing].
   ///
   /// The browse endpoint returns the crop's woreda but may omit GPS
-  /// coordinates and the farmer-reliability signal; the [MatchScorer] degrades
-  /// gracefully in that case (woreda-string geo proxy + neutral reliability),
-  /// so a missing field lowers precision but never breaks matching.
+  /// coordinates and the farmer's `ownerReliabilityPct` (sent only while the
+  /// public reputation flag is on); the [MatchScorer] degrades gracefully in
+  /// that case (woreda-string geo proxy + neutral reliability), so a missing
+  /// field lowers precision but never breaks matching.
   CropListing _parseCrop(Map<String, dynamic> m) {
     return CropListing()
       // API uses "cropId"; sync-created listings echo "listingId".
@@ -351,6 +351,7 @@ class WebMatchingService extends BaseMatchingService {
           m['locationName'] as String? ?? m['woreda'] as String? ?? ''
       ..description = m['description'] as String? ?? ''
       ..farmerReliability = (m['farmerReliability'] as num?)?.toDouble()
+      ..ownerReliabilityPct = (m['ownerReliabilityPct'] as num?)?.toInt()
       ..status = ListingStatus.active
       ..createdAt =
           DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()

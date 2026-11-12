@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.11.0
+1.12.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -349,7 +349,7 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
 | `location` | string | No | Legacy: a free-text place some older listings carry; `/sync` does not accept it |
 | `locationName` | string | No | The place the farmer entered for this listing; clients show it before `woreda` |
 | `deletedAt` | string (ISO 8601) | No | Soft-delete stamp, written by a `delete` and by an `update` to `status: deleted` (1.10.0); a deleted listing is never listed and `GET /crops/{id}` answers 404 for it. A row with `status: deleted` and no stamp is treated the same |
-| `farmerReliability` | number | No | 0 to 1, stamped at create for on-device matching |
+| `farmerReliability` | number | No | Deprecated (1.12.0, ESC-30): no longer stamped at create and not used by matching (`ownerReliabilityPct` is); returned only for a listing that still stores one |
 | `ownerTier` | string | No | 1.11.0 (ESC-29, `reputation-api.md` section 7): the farmer's public reputation tier, `good` or `low`, copied onto the listing by the server. Returned only while `reputationPublicTags` is on; never taken from a client |
 | `ownerEffectiveRating` | number | No | The farmer's rating after the reputation deduction, 1.0 to 5.0 with one decimal; absent with no ratings |
 | `ownerRatingCount` | number | No | How many ratings the farmer has |
@@ -569,8 +569,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.10.0 | 2026-11-11 | Deleted by update, and the infrastructure claims (FUP-132). An `update` to `status: deleted` passed the delete guard (1.7.0) but wrote no `deletedAt`, and every list filters on `deletedAt`, so the listing stayed in the farmer's own `GET /crops`. The update now writes `deletedAt` like a `delete` (kept if already set). Rows already in that state are hidden too: `GET /crops` (farmer's own list, buyer browse), `GET /match` and `GET /crops/{id}` (404) treat `status: deleted` as deleted with or without the stamp, and a delivery create on such a listing is refused like on a stamped one. No client change: the shipped apps delete with the `delete` action. Docs corrected against the CDK code: no CloudFront cache in front of `GET /crops` (none exists, responses are `no-store`, and a shared cache on a role-filtered list would be a visibility risk), no 100 req/s per user or 200 req/s per IP limits; the real limits are the HTTP API stage throttle (25 req/s per route, burst 50, all callers together), 60 sync requests per minute per user (`SYNC_RATE_LIMITED`) and the Lambda reserved concurrency (staging and prod only; dev sets none) |
 | 1.11.0 | 2026-11-11 | Owner reputation and restricted farmers (ESC-29, `reputation-api.md` 1.2.0 sections 7 and 8.3), all off in every environment. With `reputationPublicTags` on, `GET /crops` and `GET /crops/{id}` return `ownerTier` (`good` or `low`), `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt`, copied onto the listing by the server (stamped at create, refreshed when the farmer's reputation changes, without a `version` or `updatedAt` change); a client value is dropped. With `reputationPenalties` on, a buyer's `GET /crops` leaves out the listings of a farmer whose stored tier is `restricted` (a moderation filter like the one for deleted listings; the page is still filled); the farmer's own list, `GET /crops/{id}` and an admin's browse are not filtered, and a restricted farmer's `crop_listing` create is refused with `REPUTATION_RESTRICTED` (`sync-protocol.md` 1.48.0). Role visibility is unchanged: a farmer sees only their own listings, a buyer every listing on the market |
 
+| 1.12.0 | 2026-11-12 | `farmerReliability` retired (ESC-30, `match-api.md` 1.4.0): the server no longer computes it at create (one query on the farmer's listings less) and drops a client value; matching reads `ownerReliabilityPct`. Listings that still store it keep returning it. |
+
 ---
 
-**Last Updated**: 2026-11-11
-**Version**: 1.11.0
+**Last Updated**: 2026-11-12
+**Version**: 1.12.0
 **Status**: Implemented (Phase R3)

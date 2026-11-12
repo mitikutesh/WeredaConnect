@@ -452,7 +452,10 @@ public partial class SyncFunction
         "isFlagged", "flagReason", "gpsAnomalyFlag",
         // ESC-29 (reputation-api.md section 7): the owner's copied reputation, written by the server only.
         OwnerReputationFields.TierField, OwnerReputationFields.EffectiveRatingField, OwnerReputationFields.RatingCountField,
-        OwnerReputationFields.ReliabilityPctField, OwnerReputationFields.AtField
+        OwnerReputationFields.ReliabilityPctField, OwnerReputationFields.AtField,
+        // ESC-30: the old listing-conversion reliability is no longer computed or scored; a
+        // client value is never stored.
+        "farmerReliability"
     };
 
     // FIX-007: Identity fields are immutable after delivery creation
@@ -2593,70 +2596,6 @@ public partial class SyncFunction
         Message = RiskGatePolicy.SyncMessage
     };
 
-    /// <summary>Minimum resolved listings before a farmer gets a computed reliability.</summary>
-    private const int MinListingsForReliability = 3;
-
-    /// <summary>Candidate pages walked when computing farmer reliability.</summary>
-    private const int ReliabilityMaxPages = 3;
-
-    /// <summary>
-    /// Farmer reliability = fraction of the farmer's prior listings that reached
-    /// <c>sold</c>, over all resolved listings (sold or expired). Returns null
-    /// when the farmer has fewer than <see cref="MinListingsForReliability"/>
-    /// resolved listings (→ neutral default in scoring) or on any read failure
-    /// (best-effort: reliability must never block crop creation).
-    ///
-    /// Escrow-free and cheap: one bounded query over the farmer's own crops at
-    /// create time, no per-match reads and no order/escrow coupling.
-    /// </summary>
-    private async Task<double?> ComputeFarmerReliabilityAsync(
-        string farmerId, ILambdaContext context)
-    {
-        try
-        {
-            var sold = 0;
-            var resolved = 0;
-            Dictionary<string, AttributeValue>? startKey = null;
-            var pages = 0;
-
-            do
-            {
-                var (items, lastKey) = await _cropRepo.QueryCropsAsync(
-                    farmerId: farmerId, limit: 100, exclusiveStartKey: startKey);
-
-                foreach (var item in items)
-                {
-                    var status = (item.TryGetValue("status", out var s) ? s?.ToString() : null)
-                        ?? "";
-                    if (string.Equals(status, "sold", StringComparison.OrdinalIgnoreCase))
-                    {
-                        sold++;
-                        resolved++;
-                    }
-                    else if (string.Equals(status, "expired", StringComparison.OrdinalIgnoreCase))
-                    {
-                        resolved++;
-                    }
-                }
-
-                startKey = lastKey;
-            }
-            while (startKey != null && ++pages < ReliabilityMaxPages);
-
-            if (resolved < MinListingsForReliability)
-            {
-                return null;
-            }
-
-            return Math.Clamp((double)sold / resolved, 0.0, 1.0);
-        }
-        catch (Exception ex)
-        {
-            context.Logger.LogWarning($"Reliability compute skipped: [{ex.GetType().Name}]");
-            return null;
-        }
-    }
-
     /// <summary>
     /// Process a crop_listing sync operation (create, update, delete).
     /// Uses version-based conflict detection per sync-protocol.md.
@@ -2818,17 +2757,6 @@ public partial class SyncFunction
 
                     // FIX-010: Force initial status to "available" on create
                     operation.Data["status"] = "available";
-
-                    // Denormalize the farmer's reliability (listing-conversion
-                    // track record) onto the new listing so the matcher can
-                    // fold it into ranking without a per-candidate read.
-                    // Best-effort: a failure just leaves it unset (neutral).
-                    var reliability = await ComputeFarmerReliabilityAsync(
-                        authenticatedUserId!, context);
-                    if (reliability is double rel)
-                    {
-                        operation.Data["farmerReliability"] = rel;
-                    }
 
                     NormalizeCropPhotoIds(operation.Data);
                     StampOwnerReputation(operation.Data);
@@ -5972,7 +5900,7 @@ public partial class SyncFunction
                         {
                             await StampEscrowDeliveryConfirmedAsync(operation.EntityId, now,
                                 existing.TryGetValue("truckerId", out var stampTruckerAttr) ? stampTruckerAttr.S : null,
-                                context);
+                                context, deliveryOrderId);
                         }
 
                         await TryRecordDeliveryPatternSignalsAsync(
@@ -6370,9 +6298,13 @@ public partial class SyncFunction
     /// escrow has none yet). Idempotent: only stamps an
     /// "escrowed" escrow that has not already been confirmed. Best-effort — errors
     /// are logged, never thrown, so a confirmed delivery is never rolled back.
+    /// FUP-66: when the <c>DeliveryIndex</c> names no escrow, the order's own escrow
+    /// (<c>escrow-order-{orderId}</c>) is stamped if its link to the delivery never landed
+    /// (<see cref="FindUnlinkedOrderEscrowAsync"/>).
     /// </summary>
     private async Task StampEscrowDeliveryConfirmedAsync(
-        string deliveryId, string confirmedAt, string? deliveryTruckerId, ILambdaContext context)
+        string deliveryId, string confirmedAt, string? deliveryTruckerId, ILambdaContext context,
+        string? deliveryOrderId = null)
     {
         if (_escrowRepo == null)
         {
@@ -6381,10 +6313,11 @@ public partial class SyncFunction
 
         try
         {
-            var escrow = await _escrowRepo.GetByDeliveryIdAsync(deliveryId);
+            var escrow = await _escrowRepo.GetByDeliveryIdAsync(deliveryId)
+                ?? await FindUnlinkedOrderEscrowAsync(deliveryOrderId, deliveryId);
             if (escrow == null)
             {
-                return; // no escrow linked to this delivery (e.g. cash order)
+                return; // no escrow pays for this delivery (e.g. cash order)
             }
 
             var status = escrow.TryGetValue("status", out var st) ? st?.ToString() : null;
@@ -6450,6 +6383,33 @@ public partial class SyncFunction
                 + $"reason=[{ex.GetType().Name}]: delivery confirmed but its escrow is not marked delivery-confirmed; "
                 + "the hourly order-money sweep retries the stamp.");
         }
+    }
+
+    /// <summary>
+    /// FUP-66: the order's own escrow (<c>escrow-order-{orderId}</c>, strongly consistent) for a
+    /// delivery the <c>DeliveryIndex</c> does not know: the link write failed
+    /// (<c>ORDER_ESCROW_LINK_FAILED</c>) or the index lags. Only an escrow that names this order and
+    /// no other delivery: one linked to a different delivery is left to that delivery. Null when the
+    /// delivery has no order or the order has no such escrow. One read, only on the unlinked path.
+    /// </summary>
+    private async Task<Dictionary<string, object>?> FindUnlinkedOrderEscrowAsync(string? orderId, string deliveryId)
+    {
+        if (_escrowRepo == null || string.IsNullOrEmpty(orderId))
+        {
+            return null;
+        }
+
+        var escrow = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true);
+        if (escrow == null)
+        {
+            return null;
+        }
+
+        var escrowOrderId = escrow.TryGetValue("orderId", out var eo) ? eo?.ToString() : null;
+        var linkedDeliveryId = escrow.TryGetValue("deliveryId", out var ld) ? ld?.ToString() : null;
+        var ownsDelivery = string.IsNullOrEmpty(linkedDeliveryId)
+            || string.Equals(linkedDeliveryId, deliveryId, StringComparison.Ordinal);
+        return string.Equals(escrowOrderId, orderId, StringComparison.Ordinal) && ownsDelivery ? escrow : null;
     }
 
     // ─── Order Processing ─────────────────────────────────────────────────
@@ -8612,8 +8572,11 @@ public partial class SyncFunction
     /// first, found as the dispute freeze finds it (ESC-07): its link to the delivery can fail
     /// (<c>ORDER_ESCROW_LINK_FAILED</c>) or lag, and the <c>DeliveryIndex</c> alone then called the
     /// delivery cash. Otherwise the <c>DeliveryIndex</c> finds an escrow paid through
-    /// <c>POST /escrow/initiate</c>, or one of a legacy delivery without an order. Throws when a read
-    /// fails; the caller defers.
+    /// <c>POST /escrow/initiate</c>, or one of a legacy delivery without an order. FUP-66: when no
+    /// escrow row exists at all, the order's funding decides (<c>paymentVerifiedAt</c>, stamped by every
+    /// funding write and never by a client): a funded order whose escrow could not be created (the
+    /// create and its self-heal both failed) still holds the buyer's money, so it is never cash. One
+    /// more read, only on the path that used to answer cash. Throws when a read fails; the caller defers.
     /// </summary>
     private async Task<bool> HasDeliveryEscrowAsync(Dictionary<string, AttributeValue> delivery, string deliveryId)
     {
@@ -8629,7 +8592,20 @@ public partial class SyncFunction
             return true;
         }
 
-        return await _escrowRepo.GetByDeliveryIdAsync(deliveryId) != null;
+        if (await _escrowRepo.GetByDeliveryIdAsync(deliveryId) != null)
+        {
+            return true;
+        }
+
+        if (string.IsNullOrEmpty(orderId))
+        {
+            return false;
+        }
+
+        var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+        return order != null
+            && order.TryGetValue("paymentVerifiedAt", out var verifiedAt)
+            && !string.IsNullOrEmpty(verifiedAt?.ToString());
     }
 
     /// <summary>

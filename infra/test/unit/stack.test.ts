@@ -388,8 +388,10 @@ describe('ApiStack', () => {
     // plus GET /admin/listing-reports and POST /admin/listing-reports/{listingId}/review (FUP-67) → 69,
     // plus GET /reputation/me, /reputation/me/events and /reputation/{userId}, POST
     // /reputation/appeals/photo-url and /reputation/events/{eventId}/appeal (ESC-29),
-    // plus GET /admin/escrows/{id}/ledger and GET /admin/orders/queue (ESC-24) → 76 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 76);
+    // plus GET /admin/escrows/{id}/ledger and GET /admin/orders/queue (ESC-24) → 76,
+    // plus GET and POST /admin/users/{id}/reputation, GET /admin/reputation/appeals and POST
+    // /admin/users/{id}/reputation/events/{eventId}/decision (ESC-32) → 80 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 80);
   });
 
   test('the ledger view and the stuck orders sit on the admin authorizer, on grants the admin Lambda already has (ESC-24)', () => {
@@ -568,8 +570,11 @@ describe('ApiStack', () => {
     const objectStatements = statements.filter((st) =>
       (Array.isArray(st.Action) ? st.Action : [st.Action]).some((a) => a.startsWith('s3:GetObject')),
     );
+    // ESC-32: the admin Lambda also signs GETs of appeal photos (the reputation panel and queue).
+    const prefixes = functionName === 'wereda-connect-dev-admin' ? ['/uploads/photos/*', '/uploads/appeals/*'] : ['/uploads/photos/*'];
     for (const st of objectStatements) {
-      expect(JSON.stringify(st.Resource)).toContain('/uploads/photos/*');
+      const resource = JSON.stringify(st.Resource);
+      expect([resource, prefixes.some((prefix) => resource.includes(prefix))]).toEqual([resource, true]);
     }
   });
 

@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.49.0
+1.50.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -1227,6 +1227,10 @@ them on a create while `reputationPenalties` is on, and returns them in a `serve
 and conflict) only while `reputationPublicTags` is on, with `ownerTier` as the public tier (`good` or
 `low`) and the three numbers as JSON numbers (1.37.0).
 
+**`farmerReliability` (1.50.0, ESC-30).** Server-only like the owner fields: dropped from every
+client payload, and no longer stamped on a crop create (matching reads `ownerReliabilityPct`,
+`match-api.md` 1.4.0). A crop create reads no listing history any more.
+
 ---
 
 ## Listing reports (1.44.0, FUP-67)
@@ -1303,6 +1307,7 @@ it as the buyer's.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.50.0 | 2026-11-12 | `farmerReliability` retired (ESC-30, `match-api.md` 1.4.0): dropped from client payloads like the owner fields and no longer stamped on a crop create. |
 | 1.49.0 | 2026-11-12 | Refusal texts the clients read, client only (FUP-77, FUP-83): `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` has its own text (the phrase is now relied on by the clients); an `ORDER_KYC_REQUIRED` reason token the client does not know is explained only, with no Fayda action; `buyer_phone` has its own error text on every surface. 1.48.0 is taken by another branch |
 | 1.48.0 | 2026-11-11 | Suspended accounts and reputation gates (ESC-29, `reputation-api.md` 1.2.0, `auth-api.md` 2.15.0). Not flagged: a batch from a suspended account answers HTTP `403 AUTH_025` for the whole request from the caller row the server already reads, nothing applied, no idempotency key stored; clients with ESC-29 keep the queue without a retry and end the session, older builds keep the queue and are signed out at their next token refresh. Behind `reputationPenalties` (off everywhere): the server now sends `REPUTATION_RESTRICTED` on a restricted caller's `crop_listing` create, `trip` create and order accept, and on an `order` create whose listing farmer or trip trucker is restricted or suspended (an unreadable owner row answers an unprefixed retryable text); a client without `X-App-Build` gets the sentence as `SYNC_VALIDATION` or `ORDER_VALIDATION`. The owner fields (`ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct`, `ownerReputationAt`) are dropped from client payloads and returned in `serverData` only with `reputationPublicTags` on. |
 | 1.47.0 | 2026-11-11 | Step-up leftovers, client only (FUP-24, FUP-43): on mobile the remembered pending step-up is tied to the held operations and dropped once they all left the queue or got another answer, kept across a cancelled prompt; on web a delivery dispute answered `AUTH_040:` opens the password prompt and is sent once more as the same operation, and a cancelled prompt leaves it unsent with its own text (en, am, om) |
@@ -1355,4 +1360,4 @@ it as the buyer's.
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.49.0
+**Version**: 1.50.0

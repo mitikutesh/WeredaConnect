@@ -1,7 +1,7 @@
 # Buyer Match API Contract
 
 ## Version
-1.3.0
+1.4.0
 
 ## Parties
 - **Mobile** (client) — buyers matching their purchase intents against crop listings
@@ -134,14 +134,14 @@ GET /match?cropType=wheat&maxPricePerKg=120&quantityNeeded=10&deliveryWoreda=Ada
 | `longitude` | number | No | Crop GPS longitude |
 | `score` | number | Yes | Relevance score in `[0, 1]` (higher = better match) |
 | `isSubstitute` | boolean | Yes | `true` when matched via a substitute crop type, not the exact ask |
-| `farmerReliability` | number | No | Farmer's listing-conversion track record in `[0, 1]`; absent when the server has no history (clients default to the neutral 0.7 in scoring) |
-| `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct`, `ownerReputationAt` | string, number, number, number, string | No | 1.3.0 (ESC-29): the farmer's public reputation as copied onto the listing (`crop-listing-api.md` 1.11.0, `reputation-api.md` section 7); returned only while `reputationPublicTags` is on. They do not change the score (ESC-30 moves the reliability factor to `ownerReliabilityPct`) |
+| `farmerReliability` | number | No | Deprecated (1.4.0, ESC-30): the old listing-conversion value in `[0, 1]`. No longer written and not part of the score; returned only for a listing that still stores one |
+| `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct`, `ownerReputationAt` | string, number, number, number, string | No | 1.3.0 (ESC-29): the farmer's public reputation as copied onto the listing (`crop-listing-api.md` 1.11.0, `reputation-api.md` section 7); returned only while `reputationPublicTags` is on. Since 1.4.0 `ownerReliabilityPct` is the score's reliability input (see the scoring model) |
 
 ---
 
 ## Scoring Model
 
-The relevance score is a transparent weighted sum of five normalised signals
+The relevance score is a transparent weighted sum of six normalised signals
 (NOT a learned model). **Weights, bands, and the substitute map must stay
 identical between `MatchScoring` (server) and `MatchScorer` (mobile).**
 
@@ -152,7 +152,30 @@ identical between `MatchScoring` (server) and `MatchScorer` (mobile).**
 | Geo | 0.18 | Haversine distance decay `1 / (1 + km/50)` when delivery coords + crop GPS are available; else woreda-string proxy on normalised names (same = 1.0, whole-word overlap = 0.6, otherwise 0.3) |
 | Quantity | 0.12 | `min(listingQuantity / quantityNeeded, 1)`; partial fills score lower |
 | Freshness | 0.10 | 1.0 for listings ≤ 7 days old, decaying to a 0.3 floor by 30 days |
-| Reliability | 0.10 | Farmer's listing-conversion track record in [0,1] (server-injected `farmerReliability` on the crop); unknown farmers use the neutral default 0.7 |
+| Reliability | 0.10 | 1.4.0 (ESC-30): the farmer's `ownerReliabilityPct / 100`, clamped to [0, 1] (`reputation-api.md` 1.4 and section 7); a listing whose reader gets no `ownerReliabilityPct` uses the neutral 0.7 |
+
+**Reliability input (1.4.0, ESC-30).** `ownerReliabilityPct` is the farmer's completed orders
+over completed, fault-cancelled and no-show orders in 90 days, in whole percent, copied onto the
+listing by the server. The score uses exactly the value the caller is given for the row, on both
+sides: the server scores `GET /match` with the field as it returns it, the apps score from the
+field as they stored it (the Isar row on the phone, the `GET /crops` row on web).
+
+- **Absent means neutral (0.7).** The field is absent while `reputationPublicTags` is off, for a
+  farmer with fewer than 3 orders in the window, and on a row that has no copy yet. All three
+  score as 0.7, so with the flag off every listing has the same reliability term and the ranking
+  is the one the other five signals give. 0.7 is kept because it is what nearly every listing
+  scored with before (the old `farmerReliability` was null, or 1.0 in rare cases, see below), so
+  turning the flag on only adds signal: 70 and above moves a listing up by at most 0.03, below
+  70 moves it down by at most 0.07.
+- **`farmerReliability` is retired.** It was sold / (sold + expired) over the farmer's listings
+  at create time; `expired` never happens, so it was absent or 1.0. The server no longer computes
+  or stores it (a client value is dropped), and neither scorer reads it. The one ranking change
+  with the flags off: a listing that still stores `farmerReliability` 1.0 loses the 0.03 it had
+  over a listing without the field.
+- **Push alerts** (`CropMatchStreamFunction`) score a new listing with the neutral reliability,
+  whatever the flags.
+- **Role visibility.** Only buyers and admins get scores. A farmer's or trucker's phone holds only
+  their own rows, so no other party's reliability reaches them.
 
 **Candidate eligibility** (before scoring): crop type ∈ {requested type +
 substitutes}, price ≤ budget × 1.15, and quantity ≥ 50% of `quantityNeeded`.
@@ -191,6 +214,13 @@ departing today or later in Ethiopia (Africa/Addis_Ababa), the day rule of FUP-8
 for the quantity. Since `trip-listing-api.md` 2.2.0 the server's open-trips browse uses the
 same cutoff, so the trips the phone caches and the ones the web reads agree, and a trip that
 left is never suggested. No wire change.
+
+**Order of the suggested trips (1.4.0, ESC-30).** Cheapest `pricePerQuintal` first, as before.
+Among trips at the same price the trucker with the higher `ownerReliabilityPct` (`trip-listing-api.md`
+2.6.0) comes first; a trip without the field counts as the neutral 70. Trips equal on both keep
+their previous order. The first suggestion is therefore still a cheapest trip (the estimated total
+uses it), and with `reputationPublicTags` off the order is exactly the old price order. One shared
+function (`MatchScorer.rankTripSuggestions`) orders the trips on the phone and on web.
 
 ---
 
@@ -261,8 +291,10 @@ left is never suggested. No wire change.
 | 1.2.0 | 2026-11-04 | Trips paired with the matches (L-7): the app-side pairing keeps only open trips departing today or later in Ethiopia, the same cutoff `GET /trips` applies since `trip-listing-api.md` 2.2.0. `/match` reads no trips and is unchanged. No wire change. |
 | 1.3.0 | 2026-11-11 | Restricted farmers and owner reputation (ESC-29, `reputation-api.md` 1.2.0 sections 7 and 8.3), off in every environment: with `reputationPenalties` on, a listing whose stored owner tier is `restricted` is no candidate for a buyer; with `reputationPublicTags` on, each match carries `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt`. The score is unchanged. |
 
+| 1.4.0 | 2026-11-12 | Reliability from reputation (ESC-30, `reputation-api.md` 1.3.0 section 7): the score's reliability input is the listing's `ownerReliabilityPct / 100` as the caller is given it, the neutral 0.7 when absent (flag off, under 3 orders, no copy), identical in `MatchScoring` and `MatchScorer`; `farmerReliability` is no longer written or scored (deprecated in `MatchDto`); the app-side trip suggestions order equal prices by the trucker's `ownerReliabilityPct`. No new field on the wire. |
+
 ---
 
-**Last Updated**: 2026-11-11
-**Version**: 1.3.0
+**Last Updated**: 2026-11-12
+**Version**: 1.4.0
 **Status**: Draft

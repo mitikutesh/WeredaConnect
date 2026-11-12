@@ -162,6 +162,33 @@ public class ReputationBrowseTests
         matches.Single(m => m.GetProperty("cropId").GetString() == "crop-low").GetProperty("ownerTier").GetString().Should().Be("low");
     }
 
+    [Theory]
+    [InlineData(true, 0.983, 0.97)]
+    [InlineData(false, 0.97, 0.97)]
+    public async Task Buyer_Match_ScoresWithTheReliabilityTheBuyerIsShown(bool publicTags, double stamped, double unstamped)
+    {
+        // ESC-30: a stamped row holds ownerReliabilityPct 83. With reputationPublicTags on the
+        // score uses 0.83 (0.90 + 0.10 * 0.83); off, the buyer is not shown the value and the
+        // score is the neutral one (0.90 + 0.10 * 0.7), the same as a row with no copy.
+        var function = new MatchFunction(_crops) { HideRestrictedOwners = true, ReputationPublicTags = publicTags };
+        var request = Get("/match", "buyer-1", "buyer");
+        request.QueryStringParameters = new Dictionary<string, string>
+        {
+            { "cropType", "wheat" }, { "deliveryWoreda", "Adama" }, { "quantityNeeded", "10" }, { "maxPricePerKg", "100" }
+        };
+
+        var response = await function.FunctionHandler(request, _ctx);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var matches = JsonDocument.Parse(response.Body).RootElement.GetProperty("matches").EnumerateArray().ToList();
+        double Score(string id) => matches.Single(m => m.GetProperty("cropId").GetString() == id).GetProperty("score").GetDouble();
+        // The fixture rows are old (2026-01-01), so freshness is at its 0.3 floor: minus 0.07.
+        Score("crop-good").Should().BeApproximately(stamped - 0.07, 1e-9);
+        Score("crop-low").Should().BeApproximately(stamped - 0.07, 1e-9);
+        Score("crop-unstamped").Should().BeApproximately(unstamped - 0.07, 1e-9);
+        matches.Any(m => m.TryGetProperty("ownerReliabilityPct", out _)).Should().Be(publicTags);
+    }
+
     // ===== helpers =====
 
     private async Task<List<string?>> CropIds(string userId, string role, bool hide)

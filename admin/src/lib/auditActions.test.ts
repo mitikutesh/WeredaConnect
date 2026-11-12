@@ -105,6 +105,14 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "user_unsuspend",
   "user_verify",
   "user_change_role",
+  // ESC-29 and ESC-32: the party's appeal and the admin reputation actions (entity user)
+  "reputation_appealed",
+  "reputation_excused",
+  "reputation_upheld",
+  "reputation_tagged",
+  "reputation_untagged",
+  "reputation_restricted",
+  "reputation_lifted",
   // FRD-18: the outcome label of a resolved case (Fraud Review decision, dispute verdict, held exit)
   "outcome_label",
 ];

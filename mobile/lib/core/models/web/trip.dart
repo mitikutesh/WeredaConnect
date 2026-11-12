@@ -19,6 +19,9 @@ class Trip {
   /// ESC-15: booked quintals and the room left (server-written; null = none booked).
   double? bookedQuintals;
   double? remainingQuintals;
+
+  /// ESC-30: the trucker's reliability in whole percent (see the Isar schema).
+  int? ownerReliabilityPct;
   late TripStatus status;
   late List<String> matchedListings;
   late DateTime createdAt;

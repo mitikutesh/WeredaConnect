@@ -416,7 +416,7 @@ describe('ESC-28 reputation core (ApiStack)', () => {
 
     const routes = Object.values(api.findResources('AWS::ApiGatewayV2::Route'))
       .map((r) => r.Properties)
-      .filter((r) => String(r.RouteKey).includes('/reputation'));
+      .filter((r) => String(r.RouteKey).includes(' /reputation'));
     expect(routes.map((r) => r.RouteKey).sort()).toEqual([
       'GET /reputation/me',
       'GET /reputation/me/events',
@@ -448,11 +448,69 @@ describe('ESC-28 reputation core (ApiStack)', () => {
     expect(envOf(api, SYNC_FN).REPUTATION_PUBLIC_TAGS_ENABLED).toBe('false');
   });
 
-  test('ESC-29 suspension and deletion: admin may only upsert the heal marker; account deletion removes appeal photos only', () => {
+  test('ESC-32 admin reputation: four routes on the admin authorizer; the admin Lambda reads and writes the events, never scans or deletes', () => {
+    const adminFn = 'wereda-connect-dev-admin';
+    const routes = Object.values(api.findResources('AWS::ApiGatewayV2::Route'))
+      .map((r) => r.Properties)
+      .filter((r) => String(r.RouteKey).includes('/admin/') && String(r.RouteKey).includes('reputation'));
+    expect(routes.map((r) => r.RouteKey).sort()).toEqual([
+      'GET /admin/reputation/appeals',
+      'GET /admin/users/{id}/reputation',
+      'POST /admin/users/{id}/reputation',
+      'POST /admin/users/{id}/reputation/events/{eventId}/decision',
+    ]);
+    // The admin pool's authorizer, the one of the other admin routes: an app user's token gets 401.
+    const [adminUsers] = Object.values(api.findResources('AWS::ApiGatewayV2::Route'))
+      .map((r) => r.Properties)
+      .filter((r) => r.RouteKey === 'GET /admin/users');
+    const [appRoute] = Object.values(api.findResources('AWS::ApiGatewayV2::Route'))
+      .map((r) => r.Properties)
+      .filter((r) => r.RouteKey === 'GET /reputation/me');
+    expect(adminUsers.AuthorizerId).not.toEqual(appRoute.AuthorizerId);
+    for (const route of routes) {
+      expect([route.RouteKey, route.AuthorizationType, route.AuthorizerId]).toEqual([
+        route.RouteKey,
+        'JWT',
+        adminUsers.AuthorizerId,
+      ]);
+    }
+
+    // The events: the user's partition, the decision and system rows, and the appeals queue index only.
+    const statements = statementsOn(api, adminFn, 'ReputationEventsTable');
+    expect([...new Set(statements.flatMap(actionsOf))].sort()).toEqual([
+      'dynamodb:PutItem',
+      'dynamodb:Query',
+      'dynamodb:UpdateItem',
+    ]);
+    const indexed = statements.filter((s) => JSON.stringify(s.Resource).includes('/index/'));
+    expect(indexed).toHaveLength(1);
+    expect(actionsOf(indexed[0])).toEqual(['dynamodb:Query']);
+    expect(JSON.stringify(indexed[0].Resource)).toContain('/index/AppealStatusIndex');
+    expect(JSON.stringify(statements.map((s) => s.Resource))).not.toContain('DueIndex');
+
+    // The copies on the owner's listings: a conditional UpdateItem, never a put or a delete.
+    for (const table of ['CropsTable', 'TripsTable']) {
+      const actions = actionsOn(api, adminFn, table);
+      expect([table, actions.includes('dynamodb:UpdateItem')]).toEqual([table, true]);
+      expect([table, actions.filter((a) => ['dynamodb:PutItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem'].includes(a))]).toEqual([table, []]);
+    }
+
+    // The appeal photos: read only (the presigned GET), under the appeal prefix.
+    const appealPhotos = statementsOn(api, adminFn, 'uploads/appeals/*');
+    expect(appealPhotos.length).toBeGreaterThan(0);
+    for (const action of appealPhotos.flatMap(actionsOf)) {
+      expect(action).toMatch(/^s3:(GetObject\*|GetBucket\*|List\*)$/);
+    }
+
+    // The policy parameter, read only while the flag is on.
+    expect(envOf(api, adminFn).REPUTATION_POLICY_PARAM).toBeDefined();
+    expect(actionsOn(api, adminFn, 'ReputationPolicy')).toEqual(expect.arrayContaining(['ssm:GetParameter']));
+  });
+
+  test('ESC-29 suspension and deletion: the admin flag is off; account deletion removes appeal photos only', () => {
     const adminFn = 'wereda-connect-dev-admin';
     expect(envOf(api, adminFn).REPUTATION_PENALTIES_ENABLED).toBe('false');
     expect(envOf(api, adminFn).REPUTATION_EVENTS_TABLE).toBeDefined();
-    expect(actionsOn(api, adminFn, 'ReputationEventsTable')).toEqual(['dynamodb:UpdateItem']);
     for (const fn of DELETION_FNS) {
       expect([fn, envOf(api, fn).UPLOADS_BUCKET]).toEqual([fn, expect.anything()]);
       // The appeal photo step runs only with the flag on; off, a deletion makes no S3 call.
@@ -640,6 +698,7 @@ describe('ESC-28 reputation core (ApiStack)', () => {
       if (writes.length > 0) writers.add(name);
     }
     // ESC-29: the admin Lambda upserts the heal marker on a suspend; the reputation Lambda stores an appeal.
+    // ESC-32: the admin Lambda also writes decisions, tags and restrictions.
     expect([...writers].sort()).toEqual(
       [...DELETION_FNS, 'wereda-connect-dev-admin', ORDER_CRON_FN, REPUTATION_FN, STREAM_FN, SYNC_FN].sort(),
     );

@@ -239,7 +239,130 @@ public sealed class ReputationEventRepository : IReputationEventRepository
             });
         }
 
+        foreach (var update in write.RowUpdates)
+        {
+            items.Add(new TransactWriteItem { Update = RowUpdate(write.UserId, update) });
+        }
+
         return new TransactWriteItemsRequest { TransactItems = items };
+    }
+
+    /// <summary>
+    /// ESC-32: an admin's change of one row (<see cref="ReputationRowUpdate"/>). The row must exist
+    /// with the status read; the other conditions are added only when asked for. No empty value is
+    /// ever written: an attribute with nothing to store is left out of the expression.
+    /// </summary>
+    private Update RowUpdate(string userId, ReputationRowUpdate update)
+    {
+        var names = new Dictionary<string, string> { ["#st"] = "status", ["#v"] = "version" };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            [":from"] = S(update.FromStatus),
+            [":one"] = N(1)
+        };
+        var conditions = new List<string> { "attribute_exists(eventId)", "#st = :from" };
+        var sets = new List<string> { "#v = if_not_exists(#v, :one) + :one" };
+        var removes = new List<string>();
+
+        void Set(string placeholder, string attribute, string? value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return;
+            }
+
+            names["#" + placeholder] = attribute;
+            values[":" + placeholder] = S(value);
+            sets.Add($"#{placeholder} = :{placeholder}");
+        }
+
+        void Remove(string placeholder, string attribute)
+        {
+            names["#" + placeholder] = attribute;
+            removes.Add("#" + placeholder);
+        }
+
+        if (update.SeenVersion is { } seen)
+        {
+            values[":seen"] = N(seen);
+            conditions.Add("#v = :seen");
+        }
+
+        if (update.RequiredAppealStatus is { } appealStatus)
+        {
+            names["#as"] = "appealStatus";
+            values[":as"] = S(appealStatus);
+            conditions.Add("#as = :as");
+        }
+
+        if (update.CheckAppealTextAt)
+        {
+            names["#textAt"] = "appealTextAt";
+            if (string.IsNullOrEmpty(update.SeenAppealTextAt))
+            {
+                conditions.Add("attribute_not_exists(#textAt)");
+            }
+            else
+            {
+                values[":textAt"] = S(update.SeenAppealTextAt);
+                conditions.Add("#textAt = :textAt");
+            }
+        }
+
+        if (update.RequireNoUntil)
+        {
+            names["#until"] = "until";
+            conditions.Add("attribute_not_exists(#until)");
+        }
+
+        if (update.ToStatus is { } to)
+        {
+            values[":to"] = S(to);
+            sets.Add("#st = :to");
+        }
+
+        Set("decision", "appealDecision", update.AppealDecision);
+        Set("decidedAt", "decidedAt", update.DecidedAt);
+        Set("decidedBy", "decidedBy", update.DecidedBy);
+        Set("note", "decisionNote", update.DecisionNote);
+        Set("liftedAt", "liftedAt", update.LiftedAt);
+        Set("liftedBy", "liftedBy", update.LiftedBy);
+
+        if (update.CloseAppeal)
+        {
+            if (!names.ContainsKey("#as"))
+            {
+                names["#as"] = "appealStatus";
+            }
+
+            removes.Add("#as");
+            Remove("aa", "appealedAt");
+        }
+
+        if (update.SetUntil is { } until && !update.LeaveDueIndex)
+        {
+            names["#until"] = "until";
+            values[":until"] = S(ReputationPolicy.Iso(until));
+            sets.Add("#until = :until");
+            Set("dd", "dueDay", ReputationPolicy.Day(until));
+            Set("da", "dueAt", ReputationPolicy.Iso(until));
+        }
+        else if (update.LeaveDueIndex)
+        {
+            Remove("dd", "dueDay");
+            Remove("da", "dueAt");
+        }
+
+        return new Update
+        {
+            TableName = _eventsTable,
+            Key = EventKey(userId, update.EventId),
+            UpdateExpression = "SET " + string.Join(", ", sets)
+                               + (removes.Count > 0 ? " REMOVE " + string.Join(", ", removes) : string.Empty),
+            ConditionExpression = string.Join(" AND ", conditions),
+            ExpressionAttributeNames = names,
+            ExpressionAttributeValues = values
+        };
     }
 
     /// <summary>
@@ -418,6 +541,40 @@ public sealed class ReputationEventRepository : IReputationEventRepository
 
         return count;
     }
+
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<ReputationEvent> Rows, ReputationAppealCursor? Next)> QueryAppealsAsync(
+        string appealStatus, int limit, ReputationAppealCursor? after)
+    {
+        var page = await _dynamoDb.QueryAsync(BuildAppealsQuery(appealStatus, limit, after));
+        var rows = page.Items.Select(FromItem).ToList();
+        var next = page.LastEvaluatedKey is { Count: > 0 } last
+                   && Str(last, "appealedAt") is { } at && Str(last, "userId") is { } userId && Str(last, "eventId") is { } eventId
+            ? new ReputationAppealCursor(at, userId, eventId)
+            : null;
+        return (rows, next);
+    }
+
+    /// <summary>The appeals queue page (reputation-api.md 9.2): one partition of <c>AppealStatusIndex</c>, oldest first.</summary>
+    internal QueryRequest BuildAppealsQuery(string appealStatus, int limit, ReputationAppealCursor? after) => new()
+    {
+        TableName = _eventsTable,
+        IndexName = AppealStatusIndex,
+        KeyConditionExpression = "#as = :s",
+        ExpressionAttributeNames = new Dictionary<string, string> { ["#as"] = "appealStatus" },
+        ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":s"] = S(appealStatus) },
+        ScanIndexForward = true,
+        Limit = limit,
+        ExclusiveStartKey = after == null
+            ? null
+            : new Dictionary<string, AttributeValue>
+            {
+                ["appealStatus"] = S(appealStatus),
+                ["appealedAt"] = S(after.AppealedAt),
+                ["userId"] = S(after.UserId),
+                ["eventId"] = S(after.EventId)
+            }
+    };
 
     /// <inheritdoc />
     public async Task<ReputationEvent?> GetEventAsync(string userId, string eventId)
@@ -622,6 +779,9 @@ public sealed class ReputationEventRepository : IReputationEventRepository
         Put(item, "appealDecision", e.AppealDecision);
         Put(item, "decidedAt", e.DecidedAt);
         Put(item, "decisionNote", e.DecisionNote);
+        Put(item, "decidedBy", e.DecidedBy);
+        Put(item, "liftedAt", e.LiftedAt);
+        Put(item, "liftedBy", e.LiftedBy);
         Put(item, "dueDay", e.DueDay);
         Put(item, "dueAt", e.DueAt);
         Put(item, "sourceSeq", e.SourceSeq);
@@ -678,6 +838,9 @@ public sealed class ReputationEventRepository : IReputationEventRepository
         AppealDecision = Str(item, "appealDecision"),
         DecidedAt = Str(item, "decidedAt"),
         DecisionNote = Str(item, "decisionNote"),
+        DecidedBy = Str(item, "decidedBy"),
+        LiftedAt = Str(item, "liftedAt"),
+        LiftedBy = Str(item, "liftedBy"),
         DueDay = Str(item, "dueDay"),
         DueAt = Str(item, "dueAt"),
         Version = Int(item, "version") ?? 1,

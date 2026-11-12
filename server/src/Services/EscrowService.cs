@@ -2152,15 +2152,16 @@ public sealed partial class EscrowService
             });
         }
 
-        // 8. Transition to "completed" (optimistic concurrency on "released")
-        await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "completed", "released",
-            new Dictionary<string, object>
-            {
-                { "completedAt", now }
-            });
+        // 8. Transition to "completed" (optimistic concurrency on "released"). FUP-65: the hourly
+        //    crash recovery may write it first; the money is paid and recorded either way, so that
+        //    is this release's success, never a failure.
+        var completion = await CompleteOwnReleaseAsync(request.EscrowId, createdAt, now, releaseResponse.TelebirrRef ?? "");
 
-        // 9. Audit log
-        await AppendAuditAsync(request.EscrowId, "complete", "released", "completed", "system");
+        // 9. Audit log (the writer of the completed status writes its complete row).
+        if (completion == ReleaseCompletion.Written)
+        {
+            await AppendAuditAsync(request.EscrowId, "complete", "released", "completed", "system");
+        }
 
         await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "completed");
 
@@ -2168,20 +2169,83 @@ public sealed partial class EscrowService
         await FollowMoneyAsync(request.EscrowId, "release");
 
         // 10. Return ReleaseEscrowResponse
+        var completed = completion != ReleaseCompletion.Deferred;
         return EscrowResult<ReleaseEscrowResponse>.Success(new ReleaseEscrowResponse
         {
             EscrowId = request.EscrowId,
-            Status = "completed",
+            Status = completed ? "completed" : "released",
             FarmerPayout = farmerPayout,
             TruckerPayout = truckerPayout,
             Commission = commission,
             TelebirrRef = releaseResponse.TelebirrRef,
             TruckerTelebirrRef = truckerReleaseRef,
             ReleasedAt = now,
-            Message = truckerPayout.HasValue
-                ? "Funds released: farmer, trucker, and platform commission split."
-                : "Funds released to farmer's Telebirr account."
+            Message = !completed
+                ? "Funds released. The escrow is marked completed by the hourly recovery."
+                : truckerPayout.HasValue
+                    ? "Funds released: farmer, trucker, and platform commission split."
+                    : "Funds released to farmer's Telebirr account."
         });
+    }
+
+    /// <summary>FUP-65: how the <c>completed</c> write of a release that paid every leg ended.</summary>
+    private enum ReleaseCompletion
+    {
+        /// <summary>This call wrote <c>completed</c>.</summary>
+        Written,
+
+        /// <summary>Another writer (the hourly crash recovery) completed this same release first.</summary>
+        AlreadyCompleted,
+
+        /// <summary>The row is still <c>released</c> (or could not be read): the crash recovery completes it.</summary>
+        Deferred
+    }
+
+    /// <summary>
+    /// FUP-65: <c>released</c> to <c>completed</c> for a release whose payout is already on record
+    /// (the <c>released</c> write landed with <paramref name="releaseRef"/>). The hourly crash
+    /// recovery completes any <c>released</c> row, so it can win this write: a failed condition is
+    /// decided by a strongly consistent re-read, and a row that is <c>completed</c> (or still
+    /// <c>released</c>) for this same payout reference is this release's success, and so is a re-read
+    /// that fails (the row was released by this call and something moved it on). A row that no longer
+    /// shows this release (another reference or status) still throws, and so does any other failure of
+    /// the write (ESC-05: a plain failure, the crash recovery completes the row). Never calls the gateway.
+    /// </summary>
+    private async Task<ReleaseCompletion> CompleteOwnReleaseAsync(
+        string escrowId, string createdAt, string completedAt, string releaseRef)
+    {
+        try
+        {
+            await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "completed", "released",
+                new Dictionary<string, object> { { "completedAt", completedAt } });
+            return ReleaseCompletion.Written;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            Dictionary<string, object>? latest;
+            try
+            {
+                latest = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(
+                    $"ESCROW_RELEASE_COMPLETE_DEFERRED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+                return ReleaseCompletion.Deferred;
+            }
+
+            var status = latest != null ? GetString(latest, "status") : "";
+            var sameRelease = latest != null
+                && string.Equals(GetString(latest, "telebirrReleaseRef"), releaseRef, StringComparison.Ordinal);
+            if (!sameRelease || status is not ("completed" or "released"))
+            {
+                throw;
+            }
+
+            Console.WriteLine(
+                $"ESCROW_RELEASE_COMPLETED_ELSEWHERE escrowId={MoneyAlarmLog.LogId(escrowId)} status={status}");
+            return status == "completed" ? ReleaseCompletion.AlreadyCompleted : ReleaseCompletion.Deferred;
+        }
     }
 
     /// <summary>

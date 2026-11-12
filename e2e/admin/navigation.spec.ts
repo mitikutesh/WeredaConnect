@@ -22,6 +22,7 @@ const protectedRoutes = [
   "/unapplied-payments",
   "/fraud-review",
   "/listing-reports",
+  "/reputation-appeals",
   "/users",
   "/revenue",
   "/transactions",

@@ -41,6 +41,10 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/deliveries/{id}/trail → the trip trail of a delivery, dispute evidence (admin group only, LT-13)
 /// - GET  /admin/escrows/{id}/ledger   → the escrow's ledger rows, read only (ESC-24)
 /// - GET  /admin/orders/queue          → stuck orders: the admin queue or a passed deadline (ESC-24)
+/// - GET  /admin/users/{id}/reputation → a user's reputation, restrictions and events (admin group only, ESC-32)
+/// - POST /admin/users/{id}/reputation → tag, untag, restrict or lift (admin group only, ESC-32)
+/// - POST /admin/users/{id}/reputation/events/{eventId}/decision → excuse or uphold one event (admin group only, ESC-32)
+/// - GET  /admin/reputation/appeals    → the appeals queue (admin group only, ESC-32)
 /// </summary>
 public partial class AdminFunction
 {
@@ -219,6 +223,10 @@ public partial class AdminFunction
                 ("GET", ["admin", "payments", "unapplied"]) => await HandleListUnappliedPaymentsAsync(request),
                 ("POST", ["admin", "payments", _, "refund-manual"]) => await HandleRecordManualRefundAsync(segments[2], request, context),
                 ("GET", ["admin", "deliveries", _, "trail"]) => await HandleDeliveryTrailAsync(segments[2], request, context),
+                ("GET", ["admin", "users", _, "reputation"]) => await HandleGetReputationAsync(segments[2], request, context),
+                ("POST", ["admin", "users", _, "reputation"]) => await HandleReputationActionAsync(segments[2], request, context),
+                ("POST", ["admin", "users", _, "reputation", "events", _, "decision"]) => await HandleReputationDecisionAsync(segments[2], segments[5], request, context),
+                ("GET", ["admin", "reputation", "appeals"]) => await HandleListReputationAppealsAsync(request, context),
                 _ => LambdaResponse.Error(404, "ADMIN_002", "Admin endpoint not found.")
             };
         }
@@ -2309,6 +2317,9 @@ public partial class AdminFunction
         // The DynamoDB flag alone left refreshed and live tokens working: push the
         // change into Cognito so sessions actually end (or the new role is issued).
         var cognitoNote = await ApplyAccountControlAsync(userId, body.Action, attrValues, context);
+
+        // FUP-163: the copies follow in this request, after the sessions were ended (best effort).
+        await RefreshReputationAfterSuspensionAsync(userId, body.Action, context);
 
         AuditLogger.LogAudit("ADMIN", "USER_ACTION",
             userId: actingAdminId, correlationId: AuditLogger.GetCorrelationId(request),
