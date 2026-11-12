@@ -1,7 +1,7 @@
 # Buyer Intent-Matching — Roadmap & Deferred Work
 
 **Status**: Living document
-**Last updated**: 2026-07-07
+**Last updated**: 2026-11-12
 **Related**: [`specs/contracts/match-api.md`](../contracts/match-api.md), [`specs/contracts/match-events.md`](../contracts/match-events.md)
 
 This records the state of the buyer intent-matching algorithm after the
@@ -86,6 +86,33 @@ listings that reached `sold`), computed escrow-free at crop-create time. A
 richer signal — accept rate, on-time completion — would come from the
 order/escrow lifecycle. Deferred because it must not couple the matcher to the
 money path; revisit as a separate, carefully-reviewed change.
+
+### 6. Trip pairing by distance (DONE 2026-11-12, MATCH-01)
+Built: the trips suggested with a matched crop are no longer a woreda-name hard
+filter. Each end of a trip (start against the crop's woreda, end against the
+delivery woreda) is the same place, or within 40 km by centroid distance
+(`WoredaCentroids`, haversine rounded to 0.1 km) with the crop geo decay
+`1 / (1 + km / 50)`, or a whole-word name match (0.6) when a centroid is
+unknown; the route score is the mean of the two ends. Room left must cover the
+quantity (less the order create's 0.01 quintal tolerance) and the departure must
+fit the buyer's window (today or later, outside the order lead, by
+`neededByDate`), else the trip is dropped. Price stays the first ordering key
+(the estimated total uses the first trip), then the route score, then trucker
+reliability, then the earlier departure, then `tripId`. A transparent rule, no
+model, in line with the decision below. One pure function
+(`MatchScorer.suggestTrips`) serves phone and web; `MatchScoring.SuggestTrips`
+mirrors it with the same golden vectors. See `specs/contracts/match-api.md`
+1.5.0. Not built: a trip that only passes through the crop's woreda on its way
+(needs road geometry, not a straight segment; follow-up in TASK.md).
+
+## Decision 2026-10-17: no AI in the intent-matching engine
+Recorded in the TASK.md decision log, restated here because that log points at
+this file. AI is used only for intent capture; the matcher stays the transparent
+weighted sum above. Reasons: matching must run offline on the device, the
+9-type problem is fully covered by the weighted sum, buyers need readable
+reasons for a match, and `MatchEvents` has
+no data yet to train or tune on (items 2 and 3 stay gated on that data).
+Tickets MATCH-01 (built, item 6) and MATCH-02.
 
 ## Explicitly rejected (do not pursue)
 P2P / DHT discovery (needs peers online simultaneously; escrow + role-visibility

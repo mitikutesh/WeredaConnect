@@ -81,6 +81,7 @@ void main() {
       Duration departsIn = const Duration(days: 2),
       DateTime? departureDate,
       int? ownerReliabilityPct,
+      double? remainingQuintals,
     }) async {
       await isar.writeTxn(() async {
         await isar.trips.putByTripId(
@@ -94,6 +95,7 @@ void main() {
             ..departureDate =
                 departureDate ?? DateTime.now().toUtc().add(departsIn)
             ..capacity = capacity
+            ..remainingQuintals = remainingQuintals
             ..pricePerQuintal = pricePerQuintal
             ..ownerReliabilityPct = ownerReliabilityPct
             ..status = TripStatus.open
@@ -499,13 +501,16 @@ void main() {
 
       test('trip suggestions: price first, then the more reliable trucker',
           () async {
-        // The golden vector of rankTripSuggestions, through Isar.
+        // The golden vector of rankTripSuggestions, through Isar. One
+        // departure for all, so equal trips fall to the trip id (MATCH-01).
+        final departs = DateTime.now().toUtc().add(const Duration(days: 2));
         await putCrop(id: 'crop-1');
         Future<void> trip(String id, double price, [int? pct]) => putTrip(
               id: id,
               fromWoreda: 'Assosa',
               pricePerQuintal: price,
               ownerReliabilityPct: pct,
+              departureDate: departs,
             );
         await trip('pricey-proven', 15, 100);
         await trip('mid-unknown', 12);
@@ -521,8 +526,8 @@ void main() {
         expect(suggested, [
           'cheap-flaky',
           'mid-proven',
-          'mid-unknown',
           'mid-seventy',
+          'mid-unknown',
           'mid-low',
           'pricey-proven',
         ]);
@@ -536,21 +541,125 @@ void main() {
         expect(direct.map((t) => t.tripId), suggested);
       });
 
-      test('no reliability on any trip: the order Isar gave before', () async {
+      test(
+          'no reliability on any trip: price, then the earlier departure, '
+          'then the trip id', () async {
+        // MATCH-01: not the order Isar stores them in, so web (API pages)
+        // and the phone agree.
+        final soon = DateTime.now().toUtc().add(const Duration(days: 2));
+        final later = soon.add(const Duration(days: 1));
         await putCrop(id: 'crop-1');
-        await putTrip(id: 'b', fromWoreda: 'Assosa', pricePerQuintal: 12);
-        await putTrip(id: 'c', fromWoreda: 'Assosa');
-        await putTrip(id: 'a', fromWoreda: 'Assosa', pricePerQuintal: 12);
-        await putTrip(id: 'd', fromWoreda: 'Assosa');
+        await putTrip(
+          id: 'b',
+          fromWoreda: 'Assosa',
+          pricePerQuintal: 12,
+          departureDate: soon,
+        );
+        await putTrip(id: 'c', fromWoreda: 'Assosa', departureDate: later);
+        await putTrip(
+          id: 'a',
+          fromWoreda: 'Assosa',
+          pricePerQuintal: 12,
+          departureDate: soon,
+        );
+        await putTrip(id: 'd', fromWoreda: 'Assosa', departureDate: soon);
 
         final results = await service.matchListingsForIntent(buildIntent());
-        final before =
-            await isar.trips.where().sortByPricePerQuintal().findAll();
 
         expect(
           results.single.suggestedTrips.map((t) => t.tripId),
-          before.map((t) => t.tripId),
+          ['d', 'c', 'a', 'b'],
         );
+      });
+    });
+
+    group('MATCH-01: trips by centroid distance', () {
+      // The same scenario runs through WebMatchingService in its own test.
+      final now = DateTime.now().toUtc();
+      final departs = now.add(const Duration(days: 3));
+
+      MatchingService clocked() => MatchingService(
+            isar: isar,
+            orderLeadHours: () async => null,
+            clock: () => now,
+          );
+
+      Future<void> putScenario() async {
+        await putCrop(id: 'crop-hawassa', locationName: 'Hawassa');
+        Future<void> trip(
+          String id,
+          String from,
+          String to,
+          double price, {
+          int? pct,
+          double? remaining,
+          DateTime? departure,
+        }) =>
+            putTrip(
+              id: id,
+              fromWoreda: from,
+              toWoreda: to,
+              pricePerQuintal: price,
+              ownerReliabilityPct: pct,
+              remainingQuintals: remaining,
+              departureDate: departure ?? departs,
+            );
+        await trip('exact', 'Hawassa', 'Addis Ababa', 12);
+        await trip('spelling', 'Hawassa', 'Addis Abeba', 12);
+        await trip('adjacent', 'Shashemene', 'Addis Ababa', 12, pct: 100);
+        await trip('fallback', 'Hawassa Zuria', 'Addis Ababa', 12);
+        await trip('far', 'Jimma', 'Addis Ababa', 9);
+        await trip('full', 'Hawassa', 'Addis Ababa', 9, remaining: 0);
+        await trip(
+          'late',
+          'Hawassa',
+          'Addis Ababa',
+          9,
+          departure: now.add(const Duration(days: 10)),
+        );
+      }
+
+      const expected = ['exact', 'spelling', 'adjacent', 'fallback'];
+
+      test(
+          'an adjacent woreda appears below the exact route; far, full and '
+          'late trips are dropped', () async {
+        await putScenario();
+
+        final results = await clocked().matchListingsForIntent(
+          buildIntent(
+            deliveryWoreda: 'Addis Ababa',
+            neededByDate: now.add(const Duration(days: 5)),
+          ),
+        );
+
+        expect(results, hasLength(1));
+        expect(
+          results.single.suggestedTrips.map((t) => t.tripId),
+          expected,
+          reason: 'Shashemene is 22 km from Hawassa, Jimma 193.6; '
+              '"Addis Abeba" is the Addis Ababa centroid; Hawassa Zuria has '
+              'no centroid and matches by name',
+        );
+        // The estimated total uses the first suggested trip: crop 50000,
+        // commission 2500, transport 5 quintals at 12.
+        expect(results.single.estimatedTotalMin, 52560);
+      });
+
+      test('findTripsForListing returns the same trips', () async {
+        await putScenario();
+        final listing = (await isar.cropListings.getByListingId(
+          'crop-hawassa',
+        ))!;
+
+        final trips = await clocked().findTripsForListing(
+          listing,
+          'Addis Ababa',
+          5,
+          neededByDate: now.add(const Duration(days: 5)),
+        );
+
+        expect(trips.map((t) => t.tripId), expected);
       });
     });
   });

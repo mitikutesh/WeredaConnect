@@ -4,6 +4,7 @@ import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
+import 'package:wereda_connect/features/buyer/domain/woreda_centroids.dart';
 
 /// Pure unit tests for [MatchScorer] — no Isar, no network.
 void main() {
@@ -528,8 +529,9 @@ void main() {
         scorer.rankTripSuggestions(trips).map((t) => t.tripId).toList();
 
     test('golden order: price first, then the more reliable trucker', () {
-      // The same vector runs through MatchingService (Isar) and
-      // WebMatchingService in their own tests.
+      // The same vector runs through MatchingService (Isar),
+      // WebMatchingService and MatchScoringTests.SuggestTrips_GoldenOrder_
+      // ReliabilityAtEqualPrice (C#).
       expect(
         ranked([
           trip('pricey-proven', 15, 100),
@@ -542,20 +544,27 @@ void main() {
         [
           'cheap-flaky', // the cheapest stays first whatever its reliability
           'mid-proven',
+          'mid-seventy', // ties with unknown (both 0.7): the trip id decides
           'mid-unknown', // unknown counts as the neutral 70
-          'mid-seventy', // ties with unknown: input order kept
           'mid-low',
           'pricey-proven',
         ],
       );
     });
 
-    test('no reliability on any trip: exactly the old price order', () {
-      // Flags off. Equal prices keep the order they came in.
+    test('no reliability on any trip: price, then the trip id', () {
+      // Flags off, same departure. MATCH-01: the input order no longer
+      // decides a tie (the phone's cache and the web's pages differ).
       expect(
         ranked([trip('b', 12), trip('c', 10), trip('a', 12), trip('d', 10)]),
-        ['c', 'd', 'b', 'a'],
+        ['c', 'd', 'a', 'b'],
       );
+    });
+
+    test('equal price and reliability: the earlier departure first', () {
+      final later = trip('a-later', 12)
+        ..departureDate = now.add(const Duration(days: 1));
+      expect(ranked([later, trip('z-sooner', 12)]), ['z-sooner', 'a-later']);
     });
 
     test('extreme and out of range values are clamped', () {
@@ -566,7 +575,24 @@ void main() {
           trip('over', 10, 250),
           trip('hundred', 10, 100),
         ]),
-        ['over', 'hundred', 'zero', 'negative'],
+        // 250 and 100 both count as 1.0, 0 and -20 as 0.0: the id decides.
+        ['hundred', 'over', 'negative', 'zero'],
+      );
+    });
+
+    test('route score: at the same price the better route first', () {
+      final routes = {'exact': 1.0, 'near': 0.85, 'named': 0.8};
+      expect(
+        scorer.rankTripSuggestions(
+          [
+            trip('named', 12, 100),
+            trip('near', 12, 100),
+            trip('exact', 12, 0),
+            trip('cheap-near', 10),
+          ],
+          routeScore: (t) => routes[t.tripId] ?? 0.85,
+        ).map((t) => t.tripId),
+        ['cheap-near', 'exact', 'near', 'named'],
       );
     });
 
@@ -575,6 +601,306 @@ void main() {
       final input = [trip('b', 12), trip('a', 10)];
       scorer.rankTripSuggestions(input);
       expect(input.map((t) => t.tripId), ['b', 'a']);
+    });
+  });
+
+  // ── MATCH-01 parity guards (MUST match server MatchScoringTests.cs) ───────
+  // Trip pairing by centroid distance. The coordinates are literal and the
+  // same numbers as the C# vectors (they are the WoredaCentroids entries,
+  // pinned below), so the two implementations see identical inputs.
+  group('trip pairing (MATCH-01)', () {
+    const coords = <String, (double, double)>{
+      'Hawassa': (7.05, 38.47),
+      'Shashemene': (7.20, 38.60),
+      'Addis Ababa': (9.03, 38.74),
+      'Addis Abeba': (9.03, 38.74),
+      'Bishoftu': (8.75, 38.98),
+      'Adama': (8.54, 39.27),
+      'Jimma': (7.67, 36.83),
+    };
+
+    LatLng? at(String name) {
+      final c = coords[name];
+      return c == null
+          ? null
+          : (LatLng()
+            ..latitude = c.$1
+            ..longitude = c.$2);
+    }
+
+    test('the literal coordinates are the shipped centroids', () {
+      for (final MapEntry(key: name, value: (lat, lon)) in coords.entries) {
+        final point = WoredaCentroids.lookup(name);
+        expect(point?.latitude, lat, reason: name);
+        expect(point?.longitude, lon, reason: name);
+      }
+      expect(WoredaCentroids.lookup('Hawassa Zuria'), isNull);
+      expect(WoredaCentroids.lookup('Gimbo'), isNull);
+    });
+
+    test('end score golden vectors (same table as the C# side)', () {
+      // Rows: trip end, its point, wanted place, its point, km (null: a
+      // point unknown), score (null: the end does not serve). Duplicated
+      // verbatim in MatchScoringTests.TripEndScore_GoldenVectors.
+      const vectors = <(
+        String,
+        double?,
+        double?,
+        String,
+        double?,
+        double?,
+        double?,
+        double?,
+      )>[
+        // Same place.
+        ('Hawassa', 7.05, 38.47, 'Hawassa', 7.05, 38.47, 0.0, 1.0),
+        // Neighbouring town, 1 / (1 + 22 / 50).
+        ('Shashemene', 7.20, 38.60, 'Hawassa', 7.05, 38.47, 22.0, 0.694444444),
+        // Inside 40 km.
+        ('Bishoftu', 8.75, 38.98, 'Adama', 8.54, 39.27, 39.5, 0.558659218),
+        // Just outside 40 km.
+        ('Bishoftu', 8.75, 38.98, 'Addis Ababa', 9.03, 38.74, 40.8, null),
+        // Far.
+        ('Jimma', 7.67, 36.83, 'Hawassa', 7.05, 38.47, 193.6, null),
+        // No centroid: the whole-word name match.
+        ('Hawassa Zuria', null, null, 'Hawassa', 7.05, 38.47, null, 0.6),
+        // No centroid, another name.
+        ('Gimbo', null, null, 'Hawassa', 7.05, 38.47, null, null),
+        // Two spellings of one centroid: 0 km.
+        ('Addis Abeba', 9.03, 38.74, 'Addis Ababa', 9.03, 38.74, 0.0, 1.0),
+        // No centroid: the same name after normalising.
+        ('Adama, Oromia', null, null, 'Ādama', null, null, null, 1.0),
+        // A blank name never serves, even with a point.
+        ('', 7.05, 38.47, 'Hawassa', 7.05, 38.47, 0.0, null),
+      ];
+      LatLng? point(double? lat, double? lon) => lat == null || lon == null
+          ? null
+          : (LatLng()
+            ..latitude = lat
+            ..longitude = lon);
+      for (final (tripEnd, tLat, tLon, wanted, wLat, wLon, km, score)
+          in vectors) {
+        final tripPoint = point(tLat, tLon);
+        final wantedPoint = point(wLat, wLon);
+        final reason = '$tripEnd -> $wanted';
+        final actualKm = scorer.tripEndKm(tripPoint, wantedPoint);
+        if (km == null) {
+          expect(actualKm, isNull, reason: reason);
+        } else {
+          expect(actualKm, closeTo(km, 1e-9), reason: reason);
+        }
+        final actual = scorer.tripEndScore(
+          tripEnd,
+          wanted,
+          tripPoint: tripPoint,
+          wantedPoint: wantedPoint,
+        );
+        if (score == null) {
+          expect(actual, isNull, reason: reason);
+        } else {
+          expect(actual, closeTo(score, 1e-9), reason: reason);
+        }
+      }
+    });
+
+    final goldenNow = DateTime.utc(2026, 1, 1, 12);
+    final day2 = DateTime.utc(2026, 1, 2, 21); // Ethiopia midnight, 3 Jan
+    final deadline = DateTime.utc(2026, 1, 5, 21);
+
+    Trip pt(
+      String id,
+      String from,
+      String to,
+      double price, {
+      double? remaining,
+      DateTime? departure,
+      int? reliabilityPct,
+      TripStatus status = TripStatus.open,
+    }) =>
+        Trip()
+          ..tripId = id
+          ..truckerId = 't-$id'
+          ..truckerName = 'Trucker'
+          ..truckerPhone = ''
+          ..fromWoreda = from
+          ..toWoreda = to
+          ..departureDate = departure ?? day2
+          ..capacity = 100
+          ..remainingQuintals = remaining
+          ..pricePerQuintal = price
+          ..ownerReliabilityPct = reliabilityPct
+          ..status = status
+          ..matchedListings = <String>[]
+          ..createdAt = goldenNow
+          ..updatedAt = goldenNow
+          ..version = 1;
+
+    // The golden trip set, in this order on both sides. A crop in Hawassa,
+    // delivered to Addis Ababa, 10 quintals, by 2026-01-05T21:00Z.
+    List<Trip> goldenTrips() => [
+          pt('exact', 'Hawassa', 'Addis Ababa', 12),
+          pt('exact-twin', 'Hawassa', 'Addis Ababa', 12),
+          pt('exact-proven', 'Hawassa', 'Addis Ababa', 12, reliabilityPct: 95),
+          pt(
+            'today',
+            'Hawassa',
+            'Addis Ababa',
+            12,
+            departure: DateTime.utc(2025, 12, 31, 21),
+          ),
+          pt('adjacent', 'Shashemene', 'Addis Ababa', 12, reliabilityPct: 100),
+          pt('adjacent-cheap', 'Shashemene', 'Addis Ababa', 10),
+          pt('fallback', 'Hawassa Zuria', 'Addis Ababa', 12),
+          pt('far', 'Jimma', 'Addis Ababa', 9),
+          pt('unknown', 'Gimbo', 'Addis Ababa', 9),
+          pt('to-bishoftu', 'Hawassa', 'Bishoftu', 9),
+          pt('full', 'Hawassa', 'Addis Ababa', 9, remaining: 0),
+          pt('short', 'Hawassa', 'Addis Ababa', 9, remaining: 9.98),
+          pt('slack', 'Hawassa', 'Addis Ababa', 11, remaining: 9.995),
+          pt(
+            'late',
+            'Hawassa',
+            'Addis Ababa',
+            9,
+            departure: DateTime.utc(2026, 1, 6, 21),
+          ),
+          pt('deadline-day', 'Hawassa', 'Addis Ababa', 13, departure: deadline),
+          pt(
+            'left',
+            'Hawassa',
+            'Addis Ababa',
+            9,
+            departure: DateTime.utc(2025, 12, 30, 21),
+          ),
+          pt(
+            'matched',
+            'Hawassa',
+            'Addis Ababa',
+            9,
+            status: TripStatus.matched,
+          ),
+        ];
+
+    List<String> suggested({
+      int? orderLeadHours,
+      double quantityNeeded = 10,
+      DateTime? neededByDate,
+    }) =>
+        scorer
+            .suggestTrips(
+              goldenTrips(),
+              listingWoreda: 'Hawassa',
+              deliveryWoreda: 'Addis Ababa',
+              quantityNeeded: quantityNeeded,
+              now: goldenNow,
+              orderLeadHours: orderLeadHours,
+              neededByDate: neededByDate ?? deadline,
+              locate: at,
+            )
+            .map((t) => t.tripId)
+            .toList();
+
+    test('golden order (same as the C# SuggestTrips vector)', () {
+      expect(suggested(), [
+        'adjacent-cheap', // price stays the first key
+        'slack', // 9.995 room for 10: inside the 0.01 tolerance
+        'exact-proven', // exact route, reliability 95
+        'today', // exact, neutral: the earlier departure first
+        'exact',
+        'exact-twin', // same as exact in all but the id
+        'adjacent', // 22 km away ranks below exact at the same price
+        'fallback', // no centroid: the whole-word name match, 0.8
+        'deadline-day', // departs on the deadline
+      ]);
+      // Dropped: far (193.6 km), unknown (no centroid, other name),
+      // to-bishoftu (40.8 km from Addis Ababa), full, short, late, left,
+      // matched.
+    });
+
+    test('route score golden vectors', () {
+      final byId = {for (final t in goldenTrips()) t.tripId: t};
+      double? route(String id) => scorer.tripRouteScore(
+            byId[id]!,
+            listingWoreda: 'Hawassa',
+            deliveryWoreda: 'Addis Ababa',
+            locate: at,
+          );
+      expect(route('exact'), 1.0);
+      expect(route('adjacent'), closeTo(0.847222222, 1e-9));
+      expect(route('fallback'), closeTo(0.8, 1e-9));
+      expect(route('far'), isNull);
+      expect(route('unknown'), isNull);
+      expect(route('to-bishoftu'), isNull);
+      // A trip ending 39.5 km from the delivery woreda serves it.
+      expect(
+        scorer.tripRouteScore(
+          pt('to-near', 'Hawassa', 'Bishoftu', 12),
+          listingWoreda: 'Hawassa',
+          deliveryWoreda: 'Adama',
+          locate: at,
+        ),
+        closeTo(0.779329609, 1e-9),
+      );
+    });
+
+    test('with the 24 hour order lead the trip leaving today is dropped', () {
+      expect(suggested(orderLeadHours: 24), [
+        'adjacent-cheap',
+        'slack',
+        'exact-proven',
+        'exact',
+        'exact-twin',
+        'adjacent',
+        'fallback',
+        'deadline-day',
+      ]);
+    });
+
+    test('no positive need: any trip with a quintal of room', () {
+      // The full trip is still dropped; the short one (9.98) now fits.
+      final ids = suggested(quantityNeeded: 0);
+      expect(ids, isNot(contains('full')));
+      expect(ids, contains('short'));
+    });
+
+    test('the input order does not change the result', () {
+      final forward = scorer.suggestTrips(
+        goldenTrips(),
+        listingWoreda: 'Hawassa',
+        deliveryWoreda: 'Addis Ababa',
+        quantityNeeded: 10,
+        now: goldenNow,
+        neededByDate: deadline,
+        locate: at,
+      );
+      final backward = scorer.suggestTrips(
+        goldenTrips().reversed,
+        listingWoreda: 'Hawassa',
+        deliveryWoreda: 'Addis Ababa',
+        quantityNeeded: 10,
+        now: goldenNow,
+        neededByDate: deadline,
+        locate: at,
+      );
+      expect(
+        backward.map((t) => t.tripId),
+        forward.map((t) => t.tripId),
+      );
+    });
+
+    test('by default the centroids come from WoredaCentroids', () {
+      final ids = scorer
+          .suggestTrips(
+            goldenTrips(),
+            listingWoreda: 'Hawassa',
+            deliveryWoreda: 'Addis Ababa',
+            quantityNeeded: 10,
+            now: goldenNow,
+            neededByDate: deadline,
+          )
+          .map((t) => t.tripId)
+          .toList();
+      expect(ids, suggested());
     });
   });
 }

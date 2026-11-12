@@ -1,7 +1,7 @@
 # Buyer Match API Contract
 
 ## Version
-1.4.0
+1.5.0
 
 ## Parties
 - **Mobile** (client) — buyers matching their purchase intents against crop listings
@@ -217,10 +217,58 @@ left is never suggested. No wire change.
 
 **Order of the suggested trips (1.4.0, ESC-30).** Cheapest `pricePerQuintal` first, as before.
 Among trips at the same price the trucker with the higher `ownerReliabilityPct` (`trip-listing-api.md`
-2.6.0) comes first; a trip without the field counts as the neutral 70. Trips equal on both keep
-their previous order. The first suggestion is therefore still a cheapest trip (the estimated total
-uses it), and with `reputationPublicTags` off the order is exactly the old price order. One shared
-function (`MatchScorer.rankTripSuggestions`) orders the trips on the phone and on web.
+2.6.0) comes first; a trip without the field counts as the neutral 70. The first suggestion is
+therefore still a cheapest trip (the estimated total uses it). Since 1.5.0 the route score comes
+between the two, and ties no longer keep their input order (below).
+
+### Trip pairing by distance (1.5.0, MATCH-01)
+
+The route used to be a hard woreda-name filter: a trip from a neighbouring woreda was never
+suggested. One shared, pure function now decides which trips to suggest and in what order:
+`MatchScorer.suggestTrips` on the phone (over the Isar cache) and on web (over
+`GET /trips?status=open`), mirrored in the server's `MatchScoring.SuggestTrips` for parity (the
+server has no caller yet; `/match` still reads no trips). No model, no new field, no network call:
+the phone uses its cached trips and the centroid table it ships (`WoredaCentroids`).
+
+**Eligibility (a trip outside it is dropped, not scored down):**
+
+| Rule | Detail |
+|------|--------|
+| Status | `open` |
+| Departure day | today or later in Ethiopia (FUP-85, the `GET /trips` cutoff) |
+| Order lead | departs at least `orderLeadHours` after now when the server sends a lead (FUP-122) |
+| Room left | `remainingQuintals`, else `capacity`, at least the intent's quantity minus 0.01 quintal (the order create's tolerance); a full trip never appears. With no positive quantity the trip needs 1 quintal of room |
+| Deadline | departs on or before the buyer's `neededByDate` when set (departure, not arrival: trips carry no transit time) |
+
+**Route.** Each end of the trip is scored against the place it should serve: the trip's
+`fromWoreda` against the crop's woreda (`locationName`), its `toWoreda` against the intent's
+`deliveryWoreda`. An end scores the best of:
+
+- 1.0 when the two names are the same place after the shared woreda normalisation;
+- `1 / (1 + km / 50)` (the crop geo decay) when both woredas have a centroid and they are at most
+  **40 km** apart, the distance being the haversine between centroids rounded half away from zero
+  to 0.1 km (so every platform gets the same number);
+- 0.6 for a whole-word name match (the fallback when a centroid is unknown, as for `Hawassa Zuria`).
+
+An end that scores none of these (no centroid and no name match, or more than 40 km away), or a
+blank name, drops the trip. The route score is the mean of the two ends; 1.0 is the exact route.
+The crop's woreda centroid is used, not its GPS fix, because `GET /crops` may omit the fix and
+both apps must see the same input. Examples: Shashemene to Hawassa is 22.0 km (end 0.694, route
+0.847 with an exact destination); Adama to Bishoftu 39.5 km (kept); Addis Ababa to Bishoftu
+40.8 km (dropped); `Addis Abeba` and `Addis Ababa` share one centroid (0 km, scored 1.0). A trip
+that only passes through the crop's woreda on its way is not suggested (follow-up).
+
+**Order.** Cheapest `pricePerQuintal` first (the estimated total still uses the first trip);
+then the higher route score, so the exact route ranks above a neighbouring woreda at the same
+price; then the more reliable trucker (ESC-30); then the earlier departure; then `tripId`
+(ordinal). The order therefore never depends on the order the trips came in, so the phone's
+cache and the web's API pages give the same list.
+
+**Parity.** `match_scorer_test.dart` ("trip pairing (MATCH-01)") and `MatchScoringTests.cs`
+(`TripEndScore_GoldenVectors`, `SuggestTrips_GoldenOrder_IsStableAcrossPlatforms` and the tests
+next to them) carry the same literal coordinates and the same trip set, and assert the same
+distances, scores and order. The two matching services run the same scenario
+(`MATCH-01: trips by centroid distance`).
 
 ---
 
@@ -292,9 +340,10 @@ function (`MatchScorer.rankTripSuggestions`) orders the trips on the phone and o
 | 1.3.0 | 2026-11-11 | Restricted farmers and owner reputation (ESC-29, `reputation-api.md` 1.2.0 sections 7 and 8.3), off in every environment: with `reputationPenalties` on, a listing whose stored owner tier is `restricted` is no candidate for a buyer; with `reputationPublicTags` on, each match carries `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt`. The score is unchanged. |
 
 | 1.4.0 | 2026-11-12 | Reliability from reputation (ESC-30, `reputation-api.md` 1.3.0 section 7): the score's reliability input is the listing's `ownerReliabilityPct / 100` as the caller is given it, the neutral 0.7 when absent (flag off, under 3 orders, no copy), identical in `MatchScoring` and `MatchScorer`; `farmerReliability` is no longer written or scored (deprecated in `MatchDto`); the app-side trip suggestions order equal prices by the trucker's `ownerReliabilityPct`. No new field on the wire. |
+| 1.5.0 | 2026-11-12 | Trip pairing by distance (MATCH-01): a trip is suggested when each end is the same woreda or within 40 km of it by centroid distance (rounded to 0.1 km), the whole-word name match as the fallback when a centroid is unknown; room left must cover the quantity less 0.01 quintal (now also on web), 1 quintal when no quantity; order is price, route score (exact above a neighbouring woreda), trucker reliability, earlier departure, `tripId`, so ties no longer depend on input order. One pure rule, `MatchScorer.suggestTrips`, on phone and web, mirrored in `MatchScoring.SuggestTrips` with shared golden vectors. `/match` unchanged. No wire change. |
 
 ---
 
 **Last Updated**: 2026-11-12
-**Version**: 1.4.0
+**Version**: 1.5.0
 **Status**: Draft

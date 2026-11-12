@@ -490,6 +490,10 @@ void main() {
       );
     });
 
+    // One departure for all, so equal trips fall to the trip id (MATCH-01).
+    final goldenDeparture =
+        DateTime.now().toUtc().add(const Duration(days: 2)).toIso8601String();
+
     List<Map<String, dynamic>> goldenTrips() => [
           for (final (id, price, pct) in const <(String, double, int?)>[
             ('pricey-proven', 15, 100),
@@ -504,6 +508,7 @@ void main() {
               fromWoreda: 'Adama',
               pricePerQuintal: price,
               ownerReliabilityPct: pct,
+              departureDate: goldenDeparture,
             ),
         ];
 
@@ -522,8 +527,8 @@ void main() {
       expect(suggested, [
         'cheap-flaky',
         'mid-proven',
-        'mid-unknown',
         'mid-seventy',
+        'mid-unknown',
         'mid-low',
         'pricey-proven',
       ]);
@@ -536,13 +541,33 @@ void main() {
       expect(direct.map((t) => t.tripId), suggested);
     });
 
-    test('no reliability on any trip: the old price order', () async {
+    test(
+        'no reliability on any trip: price, then the earlier departure, then '
+        'the trip id', () async {
+      // MATCH-01: the order of the API pages no longer decides a tie; the
+      // same vector as on mobile.
+      final soon = DateTime.now().toUtc().add(const Duration(days: 2));
+      final later = soon.add(const Duration(days: 1)).toIso8601String();
       stubCrops([cropDto(cropId: 'wheat-1')]);
       stubTrips([
-        tripDto(tripId: 'b', fromWoreda: 'Adama', pricePerQuintal: 12),
-        tripDto(tripId: 'c', fromWoreda: 'Adama'),
-        tripDto(tripId: 'a', fromWoreda: 'Adama', pricePerQuintal: 12),
-        tripDto(tripId: 'd', fromWoreda: 'Adama'),
+        tripDto(
+          tripId: 'b',
+          fromWoreda: 'Adama',
+          pricePerQuintal: 12,
+          departureDate: soon.toIso8601String(),
+        ),
+        tripDto(tripId: 'c', fromWoreda: 'Adama', departureDate: later),
+        tripDto(
+          tripId: 'a',
+          fromWoreda: 'Adama',
+          pricePerQuintal: 12,
+          departureDate: soon.toIso8601String(),
+        ),
+        tripDto(
+          tripId: 'd',
+          fromWoreda: 'Adama',
+          departureDate: soon.toIso8601String(),
+        ),
       ]);
 
       final results = await service.matchListingsForIntent(
@@ -551,8 +576,99 @@ void main() {
 
       expect(
         results.single.suggestedTrips.map((t) => t.tripId),
-        ['c', 'd', 'b', 'a'],
+        ['d', 'c', 'a', 'b'],
       );
+    });
+  });
+
+  group('MATCH-01: trips by centroid distance', () {
+    // The same scenario as the Isar MatchingService test of this name, so
+    // mobile and web suggest the same trips for the same intent.
+    final now = DateTime.now().toUtc();
+    final departs = now.add(const Duration(days: 3)).toIso8601String();
+
+    late WebMatchingService clocked;
+
+    setUp(() => clocked = WebMatchingService(api: api, clock: () => now));
+
+    Map<String, dynamic> trip(
+      String id,
+      String from,
+      String to,
+      double price, {
+      int? pct,
+      double? remaining,
+      DateTime? departure,
+    }) =>
+        tripDto(
+          tripId: id,
+          fromWoreda: from,
+          toWoreda: to,
+          pricePerQuintal: price,
+          ownerReliabilityPct: pct,
+          departureDate: departure?.toIso8601String() ?? departs,
+        )..addAll({if (remaining != null) 'remainingQuintals': remaining});
+
+    List<Map<String, dynamic>> scenario() => [
+          trip('exact', 'Hawassa', 'Addis Ababa', 12),
+          trip('spelling', 'Hawassa', 'Addis Abeba', 12),
+          trip('adjacent', 'Shashemene', 'Addis Ababa', 12, pct: 100),
+          trip('fallback', 'Hawassa Zuria', 'Addis Ababa', 12),
+          trip('far', 'Jimma', 'Addis Ababa', 9),
+          trip('full', 'Hawassa', 'Addis Ababa', 9, remaining: 0),
+          trip(
+            'late',
+            'Hawassa',
+            'Addis Ababa',
+            9,
+            departure: now.add(const Duration(days: 10)),
+          ),
+        ];
+
+    const expected = ['exact', 'spelling', 'adjacent', 'fallback'];
+
+    test(
+        'an adjacent woreda appears below the exact route; far, full and late '
+        'trips are dropped', () async {
+      stubCrops([cropDto(cropId: 'crop-hawassa', woreda: 'Hawassa')]);
+      stubTrips(scenario());
+
+      final results = await clocked.matchListingsForIntent(
+        intent(deliveryWoreda: 'Addis Ababa')
+          ..neededByDate = now.add(const Duration(days: 5)),
+      );
+
+      expect(results, hasLength(1));
+      expect(results.single.suggestedTrips.map((t) => t.tripId), expected);
+      // The estimated total uses the first suggested trip: crop 50000,
+      // commission 2500, transport 5 quintals at 12. Same as mobile.
+      expect(results.single.estimatedTotalMin, 52560);
+
+      final direct = await clocked.findTripsForListing(
+        results.single.listing,
+        'Addis Ababa',
+        5,
+        neededByDate: now.add(const Duration(days: 5)),
+      );
+      expect(direct.map((t) => t.tripId), expected);
+    });
+
+    test('room within the 0.01 quintal tolerance is enough, as on mobile',
+        () async {
+      // The server's order create accepts an order up to 0.01 quintal over
+      // the room left, so the trip is suggested on web too (it was a strict
+      // comparison on web before MATCH-01).
+      stubCrops([cropDto(cropId: 'crop-hawassa', woreda: 'Hawassa')]);
+      stubTrips([
+        trip('fits', 'Hawassa', 'Addis Ababa', 12, remaining: 4.995),
+        trip('short', 'Hawassa', 'Addis Ababa', 12, remaining: 4.98),
+      ]);
+
+      final results = await clocked.matchListingsForIntent(
+        intent(deliveryWoreda: 'Addis Ababa'),
+      );
+
+      expect(results.single.suggestedTrips.map((t) => t.tripId), ['fits']);
     });
   });
 }
