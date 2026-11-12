@@ -5907,6 +5907,13 @@ public partial class SyncFunction
                         var response = await _dynamoDb.UpdateItemAsync(updateRequest);
                         var result = ScrubDeliveryForClient(CropRepository.FromItem(response.Attributes));
 
+                        // Right after the write, before the steps below that can fail: main wrote this
+                        // signal before the delivery write, so a confirmed delivery must not lose it.
+                        if (gpsAnomaly != null)
+                        {
+                            await TryRecordGpsAnomalySignalAsync(operation, existing, gpsAnomaly, authenticatedUserId, context);
+                        }
+
                         // Audit the delivery transition (who/when; GPS is joined at
                         // read time from the delivery record) for the monitor.
                         if (operation.Data != null
@@ -5970,11 +5977,6 @@ public partial class SyncFunction
 
                         await TryRecordDeliveryPatternSignalsAsync(
                             operation, existing, response.Attributes, freeze, authenticatedUserId, context);
-
-                        if (gpsAnomaly != null)
-                        {
-                            await TryRecordGpsAnomalySignalAsync(operation, existing, gpsAnomaly, authenticatedUserId, context);
-                        }
 
                         // ESC-17: the last delivery done (delivered or disputed) finishes its trip.
                         if (operation.Data != null
