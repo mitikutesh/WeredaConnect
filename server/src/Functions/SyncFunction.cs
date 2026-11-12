@@ -7127,9 +7127,27 @@ public partial class SyncFunction
 
         operation.Data.Remove("version"); // consumed here; the repository handles the check
 
-        var updateResult = acceptFence != null
-            ? await _orderRepo.UpdateUnlessEscrowHeldAsync(operation.EntityId, operation.Data, version, acceptFence)
-            : await _orderRepo.UpdateAsync(operation.EntityId, operation.Data, version);
+        // FUP-53: a funded order's reject or cancel and its refund arm are one transaction.
+        var storedStatus = existingOrder.TryGetValue("status", out var storedStatusObj) ? storedStatusObj?.ToString() : null;
+        var closingStatus = operation.Data.TryGetValue("status", out var closingStatusObj) ? closingStatusObj?.ToString() : null;
+        Dictionary<string, object>? closedWithRefund = null;
+        if (storedStatus == "funded" && closingStatus is "rejected" or "cancelled")
+        {
+            var close = await TryCloseOrderWithRefundAsync(
+                operation, operation.Data, version, "funded", $"order_{closingStatus}", context);
+            if (close.Stop != null)
+            {
+                return close.Stop;
+            }
+
+            closedWithRefund = close.Written;
+        }
+
+        var updateResult = closedWithRefund != null
+            ? AuthResult<Dictionary<string, object>>.Success(closedWithRefund)
+            : acceptFence != null
+                ? await _orderRepo.UpdateUnlessEscrowHeldAsync(operation.EntityId, operation.Data, version, acceptFence)
+                : await _orderRepo.UpdateAsync(operation.EntityId, operation.Data, version);
 
         // FRD-03: a sweep held the escrow between the check and the write; nothing was written.
         if (!updateResult.IsSuccess && updateResult.Error?.Code == OrderRepository.EscrowHeldCode)
@@ -7160,8 +7178,12 @@ public partial class SyncFunction
                 // delivery-confirm/dispute machinery.
                 if (priorStatus == "funded" && appliedStatus is "rejected" or "cancelled")
                 {
-                    await TryScheduleOrderEscrowRefundAsync(
-                        operation.EntityId, $"order_{appliedStatus}", context);
+                    // FUP-53: already armed with the order write, unless no record held the money then.
+                    if (closedWithRefund == null)
+                    {
+                        await TryScheduleOrderEscrowRefundAsync(
+                            operation.EntityId, $"order_{appliedStatus}", context);
+                    }
 
                     // SIM-13: the goods go back on the market with the money going back
                     // to the buyer.
@@ -7693,6 +7715,96 @@ public partial class SyncFunction
             context.Logger.LogError(
                 $"ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} reason=[{ex.GetType().Name}]");
         }
+    }
+
+    /// <summary>FUP-53: plans per funded order close (an escrow can change between the plan and the write).</summary>
+    private const int FundedCloseAttempts = 3;
+
+    /// <summary>
+    /// FUP-53: the reject or cancel of a funded order, written in one transaction with the refund arm
+    /// on its escrow (<see cref="EscrowService.PlanOrderRefundAsync"/>,
+    /// <see cref="EscrowService.CloseOrderWithRefundAsync"/>), so no dispute can freeze the money
+    /// between the order write and the arm. Returns the order as written, or the answer to stop with:
+    /// <c>ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.</c> when a dispute froze
+    /// the money or a settlement owns it (nothing written), a conflict when the order moved, a
+    /// transient error when a read or the write failed or the escrow kept changing. Both null when no
+    /// record holds the money (or no escrow service is wired): the caller writes the order as before
+    /// and schedules the refund after, best-effort.
+    /// </summary>
+    private async Task<(SyncOperationResult? Stop, Dictionary<string, object>? Written)> TryCloseOrderWithRefundAsync(
+        SyncOperationRequest operation, Dictionary<string, object> fields, int version, string expectedStatus,
+        string reason, ILambdaContext context)
+    {
+        if (_orderEscrowService == null)
+        {
+            return (null, null);
+        }
+
+        var orderId = operation.EntityId;
+        for (var attempt = 1; attempt <= FundedCloseAttempts; attempt++)
+        {
+            OrderRefundPlan plan;
+            try
+            {
+                plan = await _orderEscrowService.PlanOrderRefundAsync(orderId);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning(
+                    $"Close of funded order {MoneyAlarmLog.LogId(orderId)}: its escrow could not be read: [{ex.GetType().Name}]");
+                return (TransientOrderError(operation, "The order's payment could not be read. Please try again later."), null);
+            }
+
+            if (plan.Readiness == OrderRefundReadiness.Busy)
+            {
+                context.Logger.LogInformation(
+                    $"Close of funded order {MoneyAlarmLog.LogId(orderId)} refused ({reason}): its escrow is disputed or being settled.");
+                return (CancelNotAllowed(operation, "The payment is being settled or reviewed."), null);
+            }
+
+            if (plan.Readiness == OrderRefundReadiness.Nothing)
+            {
+                return (null, null);
+            }
+
+            OrderLinkedWriteResult write;
+            try
+            {
+                write = await _orderEscrowService.CloseOrderWithRefundAsync(
+                    orderId, fields, version, expectedStatus, plan, reason, "system", _batchAudit);
+            }
+            catch (Exception ex)
+            {
+                // Nothing was written (a conflicting transaction, throttling): the client sends it again.
+                context.Logger.LogWarning(
+                    $"Close of funded order {MoneyAlarmLog.LogId(orderId)}: the write failed: [{ex.GetType().Name}]");
+                return (TransientOrderError(operation, "The order could not be updated right now. Please try again later."), null);
+            }
+
+            switch (write.Outcome)
+            {
+                case OrderLinkedWriteOutcome.Written:
+                    context.Logger.LogInformation(plan.Held.Count > 0
+                        ? $"Order escrow refund scheduled: orderId={MoneyAlarmLog.LogId(orderId)} reason={reason}"
+                        : $"No refundable order escrow for orderId={MoneyAlarmLog.LogId(orderId)} ({reason}): held for review.");
+                    return (null, write.Order);
+
+                case OrderLinkedWriteOutcome.OrderNotFound:
+                    return (TransientOrderError(operation, "Order not found."), null);
+
+                case OrderLinkedWriteOutcome.OrderChanged:
+                    {
+                        var latest = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+                        return (latest == null
+                            ? TransientOrderError(operation, "Order not found.")
+                            : OrderConflict(operation, latest, version), null);
+                    }
+            }
+
+            // LinkedItemRefused: an escrow changed after the plan (a dispute, a hold, a hold released). Plan again.
+        }
+
+        return (TransientOrderError(operation, "The order's payment changed while the order was updated. Please try again later."), null);
     }
 
     /// <summary>
