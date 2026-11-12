@@ -1,7 +1,7 @@
 # Live Trip API Contract
 
 ## Version
-1.1.0
+1.1.1
 
 ## Parties
 - **Mobile / Web** (client): the trucker's phone writes check-ins through `POST /sync`; the buyer's, farmer's and trucker's apps read the track; the admin app reads the trail.
@@ -186,7 +186,8 @@ Push and inbox text in en, am and om; no clock times in the text. `data.type` `o
 3. Other orders on the same trip are never identified in a track response.
 4. Check-ins never move money. Only the existing QR handoffs, admin verdicts and timers do.
 5. Side effects never fail an ingest; each is idempotent (conditional writes).
-6. Only a `fix` with `accuracyM` at most 1,000 has effects by its position (the move to `inTransit`, `truck_nearby`, `GPS_JUMP`, whose neighbours are the trip's fixes within that bound too); a coarser fix is stored and drawn but moves, stamps and flags nothing. `GPS_MOCKED` does not depend on accuracy.
+6. Only a `fix` with `accuracyM` at most 1,000 has effects by its position (the move to `inTransit`, `truck_nearby`, `GPS_JUMP`, whose neighbours are the trip's fixes within that bound too, and the trucker's `GPS_ANOMALY` evidence of invariant 7); a coarser fix is stored and drawn but moves, stamps and flags nothing. `GPS_MOCKED` does not depend on accuracy.
+7. The trucker's check-ins are the only evidence of the trucker's own `GPS_ANOMALY` row (FUP-203, `fraud-detection-architecture.md` Rule 4). Only with `reputationPenalties` on, at a delivery's confirmation the sync Lambda reads the delivery's window (its `pickedUpAt` to the confirmation plus 2 minutes, one strongly consistent Query of the trip's partition). That read is server side: no response carries it, and the row's description holds distances and minutes, never coordinates. `scan`, `start` and `mocked: true` fixes are never that evidence.
 
 ---
 
@@ -194,6 +195,7 @@ Push and inbox text in en, am and om; no clock times in the text. `data.type` `o
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.1 | 2026-11-12 | Section 5, invariant 7 (FUP-203): the trucker's check-ins of a delivery's window are read server side at its confirmation, only with `reputationPenalties` on, as the only evidence of the trucker's own `GPS_ANOMALY` row; invariant 6 lists that effect. No wire change. |
 | 1.1.0 | 2026-11-07 | The order's own drop-off point (LT-14, `order-lifecycle.md` 2.9.0): section 2 `dropoff` is the order's `deliveryLatitude` and `deliveryLongitude` for a caller who may read them (the buyer, the farmer, the order's trucker while the money is held and the trucker is still on the order; not one who declined, expired, dropped out or failed on capacity), else the trip's destination point; one order read serves the note and the point, and a failed read falls back to the trip's point. `otherStops` drop-offs are each at their own order's point, else the trip's. The arrival window, `truck_nearby` (section 4) and the admin trail's `awayStops` (section 3, an unreadable order gives that stop the trip's point) use the same points; `truck_nearby` skips a delivery whose order cannot be read for that check-in rather than judge it by the trip's point. No new field. |
 | 1.0.8 | 2026-11-06 | Section 2 wording: trip create sends `destinationLatitude` and `destinationLongitude` since `trip-listing-api.md` 2.1.0 (the `dropoff` row said no client wrote them); a trip from before that still has no point. No behaviour change. |
 | 1.0.7 | 2026-11-06 | Section 2 as built (LT-12): `dropoff.note` is the order's `dropoffNote` for a caller who may read it (the buyer, the farmer, the committed trucker; `null` for a trucker not committed), in every phase including `ended`; read from the orders table, best effort. Other stops never carry a note. The order's own drop-off point is LT-14. |
