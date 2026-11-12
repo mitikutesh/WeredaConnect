@@ -259,6 +259,44 @@ describe("DisputesPage", () => {
     expect(within(table()).getByRole("link", { name: "escrow-2" }).getAttribute("href")).toBe("/disputes/escrow-2");
   });
 
+  it("links an open dispute on a ledger escrow whose crop leg is held to the per-leg form (FUP-173)", async () => {
+    const user = userEvent.setup();
+    const ledger = {
+      ...openDispute(),
+      escrowId: "escrow/7",
+      farmerPayout: 15000,
+      truckerPayout: 1500,
+      commission: 750,
+      truckerId: "trucker-1",
+      legStatus: { crop: "held", transport: "held", commission: "held" },
+    };
+    const decided = { ...ledger, escrowId: "escrow-8", legStatus: { crop: "released", transport: "held", commission: "kept" } };
+    mocks.disputes.data = { pages: [{ disputes: [openDispute(), ledger, decided] }] };
+    render(<DisputesPage />, { wrapper: MemoryRouter });
+
+    const links = within(table()).getAllByRole("link", { name: "Decide per leg" });
+    // Only the ledger escrow whose crop leg is held: not the 1.x escrow, not the one whose crop leg is decided.
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute("href")).toBe("/disputes/escrow%2F7?decide=split");
+    // The single verdicts stay on every row.
+    expect(within(table()).getAllByRole("button", { name: "Farmer Wins" })).toHaveLength(3);
+
+    await user.click(links[0]);
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("ADMIN_014 names the three verdicts", async () => {
+    const user = userEvent.setup();
+    render(<DisputesPage />, { wrapper: MemoryRouter });
+    await user.click(within(table()).getByRole("button", { name: "Farmer Wins" }));
+
+    failWith("ADMIN_014");
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Choose Farmer Wins, Buyer Wins or Decide per leg. A per-leg verdict or a disposition needs a reason of 10 to 500 characters.",
+    );
+  });
+
   it("cancel closes the choice without sending anything", async () => {
     const user = userEvent.setup();
     render(<DisputesPage />, { wrapper: MemoryRouter });

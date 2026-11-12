@@ -23,13 +23,14 @@ public sealed class DeadlineRefundRaceDynamoDbCollection : ICollectionFixture<Lo
 }
 
 /// <summary>
-/// FUP-210 and FUP-211 against real DynamoDB (LocalStack in CI). FUP-210: the order cron's commitment
+/// FUP-210, FUP-211 and FUP-230 against real DynamoDB (LocalStack in CI). FUP-210: the order cron's commitment
 /// deadlines (<c>farmer_response_expired</c>, <c>transport_not_arranged</c>) and the funding's stock loss
 /// (<c>listing_out_of_stock</c>) cancelled the order and armed its refund in a second write, so a fraud
 /// hold that reached the escrow in between left a cancelled order with no refund armed. Each now writes
 /// the cancel and the arm in one transaction. FUP-211: an admin refund whose stock restore fails after
 /// its committed cancel leaves the refund armed, and the hourly sweep gives the stock back before it
-/// refunds (fail closed). Every interleaving is forced with a hook at the losing point.
+/// refunds (fail closed). FUP-230: so does the sweep's own cancel of a stale order, in the same run. Every
+/// interleaving is forced with a hook at the losing point.
 /// </summary>
 [Collection(DeadlineRefundRaceDynamoDbCollection.Name)]
 [Trait("Category", "Integration")]
@@ -623,10 +624,10 @@ public sealed class DeadlineAndStockLossRefundRaceDynamoDbTests
         EscrowRepo, AuditRepo, IdempotencyRepo, _gateway,
         userRepo: null, OrderRepo, DeliveryRepo, orderCheckoutRepo: null, transactionAuditRepo: TxRepo, cropRepo: cropRepo);
 
-    private async Task<string> SweepAsync(IEscrowRepository escrowRepo, ICropRepository cropRepo)
+    private async Task<string> SweepAsync(IEscrowRepository escrowRepo, ICropRepository cropRepo, ITripRepository? tripRepo = null)
     {
         var cron = new EscrowCronFunction(MoneyService(CropRepo), escrowRepo, AuditRepo, _gateway, DeliveryRepo, OrderRepo,
-            cropRepo: cropRepo, idempotencyRepo: IdempotencyRepo, transactionAuditRepo: TxRepo);
+            cropRepo: cropRepo, idempotencyRepo: IdempotencyRepo, transactionAuditRepo: TxRepo, tripRepo: tripRepo);
         var context = new TestLambdaContext { RemainingTime = TimeSpan.FromMinutes(5) };
         var response = await cron.FunctionHandler(new APIGatewayProxyRequest { Body = "{\"action\":\"auto_release_and_refund\"}" }, context);
         response.StatusCode.Should().Be(200, response.Body);
@@ -682,5 +683,87 @@ public sealed class DeadlineAndStockLossRefundRaceDynamoDbTests
         await SweepAsync(EscrowRepo, CropRepo);
         (await ListingQuantityAsync(trade.ListingId)).Should().Be(3);
         Refunds(trade.EscrowId).Should().Be(1);
+    }
+
+    // ──────────────────────────────────────────────
+    // FUP-230: the sweep's own cancel of a stale order gives the stock back before its refund
+    // ──────────────────────────────────────────────
+
+    /// <summary>The 7 day window of the trade's escrow passed an hour ago.</summary>
+    private async Task ExpireAsync(Trade trade) => await Ddb.UpdateItemAsync(new UpdateItemRequest
+    {
+        TableName = _db.Escrows,
+        Key = new Dictionary<string, AttributeValue> { ["escrowId"] = S(trade.EscrowId), ["createdAt"] = S(EscrowCreatedAt) },
+        UpdateExpression = "SET expiresAt = :past",
+        ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":past"] = S(DateTime.UtcNow.AddHours(-1).ToString("o")) }
+    });
+
+    /// <summary>The trip's booked and remaining quintals (3 and 7 while the order holds its booking).</summary>
+    private async Task<(double Booked, double Remaining)> TripLoadAsync(string tripId)
+    {
+        var trip = await TripRepo.GetByIdAsync(tripId);
+        return (double.Parse(Str(trip, "bookedQuintals")!, CultureInfo.InvariantCulture),
+            double.Parse(Str(trip, "remainingQuintals")!, CultureInfo.InvariantCulture));
+    }
+
+    [LocalDynamoDbTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SweepCancel_RestoreFails_NoRefundThisRun_TheNextRunRestoresFirstThenRefunds(bool buyerChoice)
+    {
+        // A stale funded order (or one parked in awaiting_transport) whose escrow's 7 days passed.
+        var trade = await SeedDueAsync(buyerChoice: buyerChoice, withTrip: !buyerChoice);
+        await ExpireAsync(trade);
+
+        var logs = await SweepAsync(EscrowRepo, BrokenCropRepo, TripRepo);
+
+        // The cancel and the arm landed together (FUP-53); the stock did not come back, so no money moved.
+        var order = await OrderAsync(trade);
+        Str(order, "status").Should().Be("cancelled");
+        Str(order, "cancelReason").Should().Be(EscrowCronFunction.EscrowRefundedCancelReason);
+        var waiting = await EscrowAsync(trade);
+        Str(waiting, "status").Should().Be("escrowed");
+        ShouldBeArmed(waiting, EscrowCronFunction.ExpiredOrderRefundReason);
+        Refunds(trade.EscrowId).Should().Be(0);
+        (await ListingQuantityAsync(trade.ListingId)).Should().Be(0);
+        logs.Should().Contain($"ORDER_STOCK_RESTORE_FAILED orderId={trade.OrderId} listingId={trade.ListingId}")
+            .And.Contain("refund deferred to the next sweep.");
+        if (trade.TripId != null)
+        {
+            // The trip booking went back all the same: the next run sees a cancelled order and never comes back to it.
+            (await TripLoadAsync(trade.TripId)).Should().Be((0d, 10d));
+        }
+
+        // The next run restores first, then refunds, once.
+        await SweepAsync(EscrowRepo, CropRepo, TripRepo);
+
+        (await ListingQuantityAsync(trade.ListingId)).Should().Be(3);
+        Str(await EscrowAsync(trade), "status").Should().Be("refunded");
+        Refunds(trade.EscrowId).Should().Be(1);
+        if (trade.TripId != null)
+        {
+            (await TripLoadAsync(trade.TripId)).Should().Be((0d, 10d));
+        }
+
+        // Idempotent per order: another run gives nothing back twice and refunds nothing more.
+        await SweepAsync(EscrowRepo, CropRepo, TripRepo);
+        (await ListingQuantityAsync(trade.ListingId)).Should().Be(3);
+        Refunds(trade.EscrowId).Should().Be(1);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task SweepCancel_RestoreLands_RefundsInTheSameRun()
+    {
+        var trade = await SeedDueAsync(withTrip: true);
+        await ExpireAsync(trade);
+
+        var logs = await SweepAsync(EscrowRepo, CropRepo, TripRepo);
+
+        Str(await OrderAsync(trade), "cancelReason").Should().Be(EscrowCronFunction.EscrowRefundedCancelReason);
+        (await ListingQuantityAsync(trade.ListingId)).Should().Be(3);
+        Str(await EscrowAsync(trade), "status").Should().Be("refunded");
+        Refunds(trade.EscrowId).Should().Be(1);
+        (await TripLoadAsync(trade.TripId!)).Should().Be((0d, 10d));
+        logs.Should().NotContain($"ORDER_STOCK_RESTORE_FAILED orderId={trade.OrderId}");
     }
 }

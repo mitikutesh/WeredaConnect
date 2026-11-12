@@ -223,6 +223,7 @@ public class EscrowCronFunctionTests
                 { "orderId", "ord-9" }, { "status", "cancelled" }, { "version", "3" }
             }));
         var cropRepo = Substitute.For<ICropRepository>();
+        cropRepo.RestoreStockAsync("crop-9", "ord-9", 5.0).Returns(StockRestoreResult.Restored);
 
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
         var function = new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway,
@@ -235,7 +236,7 @@ public class EscrowCronFunctionTests
         // The order side effects still run first; only the money waits for the admin.
         await orderRepo.Received(1).TryUpdateWithAsync("ord-9",
             Arg.Is<Dictionary<string, object>>(d => (string)d["status"] == "cancelled"), 2, Arg.Any<string>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
-        await cropRepo.ReceivedWithAnyArgs(1).TryRestoreStockAsync(default!, default!, default);
+        await cropRepo.ReceivedWithAnyArgs(1).RestoreStockAsync(default!, default!, default);
         await _mockEscrowRepo.Received(1).TryQueueManualPayoutAsync(
             "escrow-order-ord-9", Arg.Any<string>(), "refund", "PAYOUT_NOT_SUPPORTED", "escrowed",
             Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(l => l.Count == 1 && l[0].Leg == "buyer"), Arg.Any<string>(), Arg.Any<string?>());
@@ -270,6 +271,7 @@ public class EscrowCronFunctionTests
         await orderRepo.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
         await orderRepo.DidNotReceiveWithAnyArgs().TryUpdateWithAsync(default!, default!, default, default!, default!);
         await cropRepo.DidNotReceiveWithAnyArgs().TryRestoreStockAsync(default!, default!, default);
+        await cropRepo.DidNotReceiveWithAnyArgs().RestoreStockAsync(default!, default!, default);
         await deliveryRepo.DidNotReceiveWithAnyArgs().GetByIdAsync(default!);
         await _mockEscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
         await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
@@ -802,14 +804,106 @@ public class EscrowCronFunctionTests
                 { "orderId", "ord-3" }, { "status", "cancelled" }, { "version", "3" }
             }));
         var cropRepo = Substitute.For<ICropRepository>();
-        cropRepo.TryRestoreStockAsync("crop-3", "ord-3", 5.0).Returns(true);
+        cropRepo.RestoreStockAsync("crop-3", "ord-3", 5.0).Returns(StockRestoreResult.Restored);
 
         var function = MakeOrderAwareFunction(orderRepo, cropRepo);
         var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
 
         Assert.Equal(200, response.StatusCode);
-        await cropRepo.Received(1).TryRestoreStockAsync("crop-3", "ord-3", 5.0);
+        Received.InOrder(() =>
+        {
+            cropRepo.RestoreStockAsync("crop-3", "ord-3", 5.0);
+            _mockTelebirrGateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        });
         await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        Assert.Contains("Listing crop-3: +5 quintals restored (order ord-3 cancelled, before its refund)", Logs);
+    }
+
+    [Theory]
+    [InlineData(StockRestoreResult.AlreadyRestored)]
+    [InlineData(StockRestoreResult.ListingNotFound)]
+    public async Task AutoRefund_StaleFundedOrder_StockAlreadyBackOrListingGone_Refunds(StockRestoreResult restock)
+    {
+        // FUP-230: the restore after the sweep's own cancel counts these as done, as the restore-first check does.
+        var orderRepo = TripOrderBehindExpiredEscrow("ord-10", "funded");
+        var cropRepo = Substitute.For<ICropRepository>();
+        cropRepo.RestoreStockAsync("crop-ord-10", "ord-10", 5.0).Returns(restock);
+
+        var function = MakeOrderAwareFunction(orderRepo, cropRepo);
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        Assert.DoesNotContain("ORDER_STOCK_RESTORE_FAILED", Logs);
+    }
+
+    [Theory]
+    [InlineData("funded", false)]
+    [InlineData("funded", true)]
+    [InlineData("awaiting_transport", false)]
+    public async Task AutoRefund_StaleOrderWhoseRestoreFails_DefersTheRefund_ThenTheNextRunRestoresFirstAndRefunds(
+        string status, bool restoreThrows)
+    {
+        // FUP-230: the sweep's own cancel (escrow_refunded, the refund armed in the same write) gives the stock
+        // back fail closed. A restore that keeps conflicting or throws leaves the refund for the next run; the
+        // trip booking is released all the same, since the next run finds the order cancelled and never comes back.
+        var orderRepo = TripOrderBehindExpiredEscrow("ord-9", status);
+        var cropRepo = Substitute.For<ICropRepository>();
+        if (restoreThrows)
+        {
+            cropRepo.RestoreStockAsync("crop-ord-9", "ord-9", 5.0)
+                .ThrowsAsync(new Amazon.DynamoDBv2.AmazonDynamoDBException("throttled"));
+        }
+        else
+        {
+            cropRepo.RestoreStockAsync("crop-ord-9", "ord-9", 5.0).Returns(StockRestoreResult.Failed);
+        }
+
+        var trips = Substitute.For<ITripRepository>();
+        trips.TryReleaseCapacityAsync("trip-ord-9", "ord-9", 5.0).Returns(true);
+
+        var response = await MakeOrderAwareFunction(orderRepo, cropRepo, trips)
+            .FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"refunded\":\"0\"", response.Body);
+        await orderRepo.Received(1).TryUpdateWithAsync("ord-9",
+            Arg.Is<Dictionary<string, object>>(d => (string)d["status"] == "cancelled" && (string)d["cancelReason"] == "escrow_refunded"),
+            2, status, Arg.Any<IReadOnlyList<TransactWriteItem>>());
+        await trips.Received(1).TryReleaseCapacityAsync("trip-ord-9", "ord-9", 5.0);
+        await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        Assert.Contains(
+            restoreThrows
+                ? "ORDER_STOCK_RESTORE_FAILED orderId=ord-9 listingId=crop-ord-9 reason=restock:[AmazonDynamoDBException]; refund deferred to the next sweep."
+                : "ORDER_STOCK_RESTORE_FAILED orderId=ord-9 listingId=crop-ord-9 reason=restock:conflict; refund deferred to the next sweep.",
+            Logs);
+
+        // The next run finds the order cancelled by the refund (the cancel armed the escrow): it restores first,
+        // then refunds, once, and writes no second cancel nor a second trip release.
+        orderRepo.GetByIdAsync("ord-9").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "ord-9" }, { "listingId", "crop-ord-9" }, { "tripId", "trip-ord-9" },
+            { "quantity", 500.0 }, { "status", "cancelled" }, { "cancelReason", "escrow_refunded" }, { "version", "3" }
+        });
+        cropRepo.ClearReceivedCalls();
+        cropRepo.RestoreStockAsync("crop-ord-9", "ord-9", 5.0).Returns(StockRestoreResult.Restored);
+
+        var next = await MakeOrderAwareFunction(orderRepo, cropRepo, trips)
+            .FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, next.StatusCode);
+        Assert.Contains("\"refunded\":\"1\"", next.Body);
+        Received.InOrder(() =>
+        {
+            cropRepo.RestoreStockAsync("crop-ord-9", "ord-9", 5.0);
+            _mockTelebirrGateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        });
+        await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await orderRepo.Received(1).TryUpdateWithAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(),
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
+        await trips.Received(1).TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
     }
 
     [Fact]
@@ -903,7 +997,7 @@ public class EscrowCronFunctionTests
     {
         var orderRepo = TripOrderBehindExpiredEscrow("ord-7", "funded");
         var cropRepo = Substitute.For<ICropRepository>();
-        cropRepo.TryRestoreStockAsync("crop-ord-7", "ord-7", 5.0).Returns(true);
+        cropRepo.RestoreStockAsync("crop-ord-7", "ord-7", 5.0).Returns(StockRestoreResult.Restored);
         var trips = Substitute.For<ITripRepository>();
         trips.TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>())
             .ThrowsAsync(new Amazon.DynamoDBv2.AmazonDynamoDBException("throttled"));
@@ -912,7 +1006,7 @@ public class EscrowCronFunctionTests
         var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
 
         Assert.Equal(200, response.StatusCode);
-        await cropRepo.Received(1).TryRestoreStockAsync("crop-ord-7", "ord-7", 5.0);
+        await cropRepo.Received(1).RestoreStockAsync("crop-ord-7", "ord-7", 5.0);
         await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
         Assert.Contains("TRIP_RELEASE_FAILED tripId=trip-ord-7 orderId=ord-7 reason=[AmazonDynamoDBException]", Logs);
     }
@@ -1768,6 +1862,7 @@ public class EscrowCronFunctionTests
         await orderRepo.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
         await orderRepo.DidNotReceiveWithAnyArgs().TryUpdateWithAsync(default!, default!, default, default!, default!);
         await cropRepo.DidNotReceiveWithAnyArgs().TryRestoreStockAsync(default!, default!, default);
+        await cropRepo.DidNotReceiveWithAnyArgs().RestoreStockAsync(default!, default!, default);
         await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
         await _mockEscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
@@ -1825,6 +1920,7 @@ public class EscrowCronFunctionTests
         await orderRepo.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
         await orderRepo.DidNotReceiveWithAnyArgs().TryUpdateWithAsync(default!, default!, default, default!, default!);
         await cropRepo.DidNotReceiveWithAnyArgs().TryRestoreStockAsync(default!, default!, default);
+        await cropRepo.DidNotReceiveWithAnyArgs().RestoreStockAsync(default!, default!, default);
         await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
         await _mockTelebirrGateway.DidNotReceiveWithAnyArgs().RefundFundsAsync(default!);

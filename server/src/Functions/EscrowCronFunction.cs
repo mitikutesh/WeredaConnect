@@ -17,6 +17,8 @@ namespace WeredaConnect.Server.Functions;
 ///   - park_legacy_trucker_legs (no schedule; the server deploy invokes it, ESC-04): queue the
 ///     trucker legs of escrows completed before ESC-04 without them
 ///   - ledger_sweep (every 15 minutes, ESC-20): call, check or retry the open rows of the escrow ledger
+///   - backfill_payout_references (no schedule; run by hand once per environment, FUP-215): write the
+///     FUP-05 reference item of every manual payout recorded before escrow-protocol 2.12.0
 ///
 /// Accepts APIGatewayProxyRequest for compatibility with the existing Lambda bootstrap.
 /// EventBridge rule passes the action payload in the request body as JSON.
@@ -407,7 +409,18 @@ public class EscrowCronFunction
         CleanDeliveryJournal = CleanDeliveryCredits == null
             ? null
             : new CleanDeliveryCreditJournal(dynamoDb, idempotencyTable);
+        // FUP-215: the reference items live in escrow-idempotency, next to the FUP-05 record's own.
+        PayoutReferences = new PayoutReferenceBackfill(dynamoDb, escrowsTable, idempotencyTable, _escrowService.LedgerRepo);
     }
+
+    /// <summary>
+    /// FUP-215: the one-off <c>backfill_payout_references</c> action (escrow-protocol.md 2.14.0). The Lambda
+    /// wires it; without one (the test constructor) the action answers 503.
+    /// </summary>
+    internal PayoutReferenceBackfill? PayoutReferences { get; init; }
+
+    /// <summary>FUP-215: the backfill's share of the 5 minute run, as the ledger sweep's.</summary>
+    internal TimeSpan PayoutReferenceBackfillSlice { get; init; } = TimeSpan.FromMinutes(4);
 
     /// <summary>
     /// Constructor for testing with mocked dependencies.
@@ -448,11 +461,12 @@ public class EscrowCronFunction
 
         // Parse action from request body
         string? action = null;
+        Dictionary<string, string>? payload = null;
         if (!string.IsNullOrEmpty(request.Body))
         {
             try
             {
-                var payload = JsonSerializer.Deserialize(request.Body, AppJsonContext.Default.DictionaryStringString);
+                payload = JsonSerializer.Deserialize(request.Body, AppJsonContext.Default.DictionaryStringString);
                 payload?.TryGetValue("action", out action);
             }
             catch (JsonException)
@@ -471,7 +485,7 @@ public class EscrowCronFunction
         if (string.IsNullOrEmpty(action))
         {
             return LambdaResponse.Error(400, "ESCROW_CRON_VALIDATION",
-                "Missing 'action' field. Expected: auto_release_and_refund, reconciliation, park_legacy_trucker_legs, ledger_sweep.");
+                "Missing 'action' field. Expected: auto_release_and_refund, reconciliation, park_legacy_trucker_legs, ledger_sweep, backfill_payout_references.");
         }
 
         var safeAction = action.Length > 50 ? action[..50] : action;
@@ -485,8 +499,9 @@ public class EscrowCronFunction
                 "reconciliation" => await HandleReconciliationAsync(context),
                 "park_legacy_trucker_legs" => await HandleParkLegacyTruckerLegsAsync(context),
                 "ledger_sweep" => await HandleLedgerSweepAsync(context),
+                PayoutReferenceBackfill.Action => await HandleBackfillPayoutReferencesAsync(payload, context),
                 _ => LambdaResponse.Error(400, "ESCROW_CRON_VALIDATION",
-                    $"Unknown action '{safeAction}'. Expected: auto_release_and_refund, reconciliation, park_legacy_trucker_legs, ledger_sweep.")
+                    $"Unknown action '{safeAction}'. Expected: auto_release_and_refund, reconciliation, park_legacy_trucker_legs, ledger_sweep, backfill_payout_references.")
             };
         }
         catch (Exception ex)
@@ -1229,7 +1244,8 @@ public class EscrowCronFunction
                     // did not land). Fails closed like the dispute verdict's cancel-then-refund.
                     // FUP-211: so does a cancel that was the refund's own (escrow_refunded): an admin
                     // refund whose restore failed after its cancel armed the refund in the same write,
-                    // and a sweep refund that failed after this sweep's cancel.
+                    // a sweep refund that failed after this sweep's cancel, and (FUP-230) this sweep's
+                    // own restore that failed right after its cancel.
                     if (orderStatus == "cancelled"
                         && GetStringOrNull(fundedOrder!, "cancelReason") is PickupDeadline.CancelReason or EscrowRefundedCancelReason
                         && !await EnsureListingStockRestoredAsync(fundedOrder!, context))
@@ -1257,11 +1273,20 @@ public class EscrowCronFunction
                             continue;
                         }
 
-                        // SIM-13: the cancelled order's goods go back on the market.
-                        await TryRestoreListingStockAsync(fundedOrder, context);
+                        // SIM-13: the cancelled order's goods go back on the market. FUP-230: before the
+                        // money, fail closed like the restore-first check above. A restore that fails
+                        // leaves the refund armed by the cancel; the next run finds the order cancelled
+                        // (escrow_refunded), restores first, then refunds.
+                        var stockBack = await EnsureListingStockRestoredAsync(fundedOrder, context);
 
-                        // FUP-123: and its quintals back on the trip. Best-effort, never blocks the refund.
+                        // FUP-123: and its quintals back on the trip. Best-effort, never blocks the refund,
+                        // and runs even when the restore failed: the next run sees a cancelled order and
+                        // does not come back here.
                         await TripBookingRelease.ReleaseAsync(_tripRepo, fundedOrder, context);
+                        if (!stockBack)
+                        {
+                            continue;
+                        }
                     }
                 }
                 else if (!isInitiateEscrow
@@ -1504,43 +1529,6 @@ public class EscrowCronFunction
     }
 
     /// <summary>
-    /// SIM-13: a cancelled stale-funded order gives its listing stock back. Idempotency
-    /// per order and the race fence live in the repository. Best-effort: the refund
-    /// proceeds regardless, and a failure is logged for the next sweep to notice.
-    /// </summary>
-    private async Task TryRestoreListingStockAsync(
-        Dictionary<string, object> order, ILambdaContext context)
-    {
-        if (_cropRepo == null)
-        {
-            return;
-        }
-
-        var orderId = GetString(order, "orderId");
-        var listingId = GetStringOrNull(order, "listingId");
-        var quintals = double.TryParse(GetStringOrNull(order, "quantity"),
-            System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture,
-            out var kg) ? kg / 100.0 : 0.0;
-        if (string.IsNullOrEmpty(listingId) || quintals <= 0)
-        {
-            return;
-        }
-
-        try
-        {
-            var restored = await _cropRepo.TryRestoreStockAsync(listingId, orderId, quintals);
-            context.Logger.LogInformation(restored
-                ? $"Listing {MoneyAlarmLog.LogId(listingId)}: +{quintals} quintals restored (order {MoneyAlarmLog.LogId(orderId)} cancelled by escrow refund)"
-                : $"Listing {MoneyAlarmLog.LogId(listingId)}: nothing to restore for order {MoneyAlarmLog.LogId(orderId)}");
-        }
-        catch (Exception ex)
-        {
-            context.Logger.LogWarning(
-                $"ORDER_STOCK_RESTORE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)}: [{ex.GetType().Name}]");
-        }
-    }
-
-    /// <summary>
     /// Cancel a stale-funded (or awaiting-transport) order BEFORE refunding its escrow. The version-CAS
     /// write doubles as the race fence: if the farmer accepted in the meantime,
     /// the version moved, the cancel conflicts, and the caller skips the refund
@@ -1697,7 +1685,8 @@ public class EscrowCronFunction
 
     /// <summary>
     /// ESC-06: before the refund of a buyer's transport-failure cancel (FUP-211: or of an
-    /// <c>escrow_refunded</c> cancel), make sure the cancelled order's
+    /// <c>escrow_refunded</c> cancel; FUP-230: also right after this sweep's own cancel), make sure the
+    /// cancelled order's
     /// quintals are back on its listing (idempotent per order). The dispute verdict's rules: nothing to
     /// give back (no listing, a quantity that is not positive) or a listing that is gone counts as
     /// done; a restore that keeps conflicting or throws logs <c>ORDER_STOCK_RESTORE_FAILED</c> and
@@ -1719,6 +1708,13 @@ public class EscrowCronFunction
         try
         {
             var result = await _cropRepo.RestoreStockAsync(listingId, orderId, quintals);
+            if (result == StockRestoreResult.Restored)
+            {
+                context.Logger.LogInformation(
+                    $"Listing {MoneyAlarmLog.LogId(listingId)}: +{quintals.ToString(CultureInfo.InvariantCulture)} quintals restored "
+                    + $"(order {MoneyAlarmLog.LogId(orderId)} cancelled, before its refund)");
+            }
+
             if (result is StockRestoreResult.Restored or StockRestoreResult.AlreadyRestored or StockRestoreResult.ListingNotFound)
             {
                 return true;
@@ -2641,9 +2637,9 @@ public class EscrowCronFunction
 
     private static APIGatewayProxyResponse LegacySummary(
         int statusCode, int found, int parked, int failed, bool truncated, string? marker, bool skipped) => new()
-    {
-        StatusCode = statusCode,
-        Body = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            StatusCode = statusCode,
+            Body = JsonSerializer.Serialize(new Dictionary<string, string>
         {
             { "action", "park_legacy_trucker_legs" },
             { "found", found.ToString() },
@@ -2654,8 +2650,77 @@ public class EscrowCronFunction
             { "skipped", skipped ? "true" : "false" },
             { "completedAt", DateTime.UtcNow.ToString("o") }
         }, AppJsonContext.Default.DictionaryStringString),
-        Headers = new Dictionary<string, string> { { "Content-Type", "application/json" } }
-    };
+            Headers = new Dictionary<string, string> { { "Content-Type", "application/json" } }
+        };
+
+    /// <summary>
+    /// FUP-215 (<c>backfill_payout_references</c>, run by hand, never scheduled): the reference items of the
+    /// manual payouts recorded before escrow-protocol 2.12.0 (<see cref="PayoutReferenceBackfill"/>). Takes the
+    /// optional <c>scanFrom</c> (the <c>scanCursor</c> of an earlier run that stopped on time). Always answers 200
+    /// with the counts and an <c>outcome</c> (<c>ok</c> once the whole table was read with no failure); a failure
+    /// of its own never logs a settlement-failure line, since it moves no money.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleBackfillPayoutReferencesAsync(
+        Dictionary<string, string>? payload, ILambdaContext context)
+    {
+        if (PayoutReferences == null)
+        {
+            return LambdaResponse.Error(503, "ESCROW_CRON_ERROR", "The payout reference backfill is not configured.");
+        }
+
+        string? scanFrom = null;
+        if (payload != null && payload.TryGetValue("scanFrom", out var from) && !string.IsNullOrEmpty(from))
+        {
+            if (PayoutReferenceBackfill.KeyOf(from) == null)
+            {
+                return LambdaResponse.Error(400, "ESCROW_CRON_VALIDATION",
+                    "Invalid 'scanFrom': pass the scanCursor of an earlier run.");
+            }
+
+            scanFrom = from;
+        }
+
+        PayoutReferenceBackfill.Counts counts;
+        try
+        {
+            counts = await PayoutReferences.RunAsync(
+                scanFrom, _runBudget.Slice(PayoutReferenceBackfillSlice, CronRunBudget.DefaultReserve), context);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"{PayoutReferenceBackfill.FailedToken} step=run reason=[{ex.GetType().Name}]");
+            return LambdaResponse.Error(500, "ESCROW_CRON_ERROR", "The payout reference backfill failed; run it again.");
+        }
+
+        var body = new Dictionary<string, string>
+        {
+            { "action", PayoutReferenceBackfill.Action },
+            { "outcome", counts.Outcome },
+            { "escrows", counts.Escrows.ToString(CultureInfo.InvariantCulture) },
+            { "legs", counts.Legs.ToString(CultureInfo.InvariantCulture) },
+            { "ledgerRows", counts.LedgerRows.ToString(CultureInfo.InvariantCulture) },
+            { "written", counts.Written.ToString(CultureInfo.InvariantCulture) },
+            { "present", counts.Present.ToString(CultureInfo.InvariantCulture) },
+            { "conflicts", counts.Conflicts.ToString(CultureInfo.InvariantCulture) },
+            { "failed", counts.Failed.ToString(CultureInfo.InvariantCulture) },
+            { "skippedLegs", counts.Skipped.ToString(CultureInfo.InvariantCulture) },
+            { "scanDone", counts.ScanDone ? "true" : "false" },
+            { "marker", counts.Marker ?? "none" },
+            { "skipped", counts.SkippedRun ? "true" : "false" },
+            { "completedAt", DateTime.UtcNow.ToString("o") }
+        };
+        if (!counts.ScanDone && !counts.SkippedRun && !string.IsNullOrEmpty(counts.Cursor))
+        {
+            body["scanCursor"] = counts.Cursor;
+        }
+
+        return new APIGatewayProxyResponse
+        {
+            StatusCode = 200,
+            Body = JsonSerializer.Serialize(body, AppJsonContext.Default.DictionaryStringString),
+            Headers = new Dictionary<string, string> { { "Content-Type", "application/json" } }
+        };
+    }
 
     private static DateTime? ParseUtc(string? value)
         => DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
