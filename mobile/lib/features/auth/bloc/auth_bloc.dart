@@ -179,6 +179,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthVerifyOtpRequested>(_onVerifyOtp);
     on<AuthResendOtpRequested>(_onResendOtp);
     on<AuthStepUpSucceeded>(_onStepUpSucceeded);
+    on<AuthProfileChanged>(_onProfileChanged);
     on<AuthSessionExpired>(_onSessionExpired);
     on<AuthOtherAccountSignedIn>(_onOtherAccountSignedIn);
 
@@ -1220,6 +1221,19 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     if (current is! AuthAuthenticated) return;
     await _saveActiveTokens(event.tokens);
     emit(current.withTokens(event.tokens));
+  }
+
+  /// SIM-56: the session shows the edited name and woreda (account sheet,
+  /// profile). Only for the account that is signed in; nothing else changes.
+  void _onProfileChanged(
+    AuthProfileChanged event,
+    Emitter<AuthState> emit,
+  ) {
+    final current = state;
+    if (current is! AuthAuthenticated || current.userId != event.userId) {
+      return;
+    }
+    emit(current.withProfile(userName: event.userName, woreda: event.woreda));
   }
 
   /// The refresh token was rejected: the interceptor already wiped the

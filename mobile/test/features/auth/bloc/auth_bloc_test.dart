@@ -739,6 +739,65 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
+    // Profile edit (SIM-56)
+    // -----------------------------------------------------------------------
+    group('Profile edit (SIM-56)', () {
+      Future<AuthBloc> restoredBloc() async {
+        _secureStorageData['current_user_phone'] = '+251911234567';
+        when(() => offlineCache.getCachedTokens('+251911234567'))
+            .thenAnswer((_) async => _testTokens);
+        when(() => offlineCache.getCachedUser('+251911234567'))
+            .thenAnswer((_) async => _testUser);
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+        await collectStates(bloc, const AuthCheckRequested());
+        return bloc;
+      }
+
+      test('the session shows the new name and woreda, nothing else changes',
+          () async {
+        final bloc = await restoredBloc();
+        final before = bloc.state as AuthAuthenticated;
+
+        final states = await collectStates(
+          bloc,
+          const AuthProfileChanged(
+            userId: 'user-001',
+            userName: 'Abebe K.',
+            woreda: 'Meki',
+          ),
+          expectedCount: 1,
+        );
+
+        final after = states.single as AuthAuthenticated;
+        expect(after.userName, 'Abebe K.');
+        expect(after.woreda, 'Meki');
+        expect(after.userId, before.userId);
+        expect(after.role, before.role);
+        expect(after.tokens, before.tokens);
+        expect(after.phoneNumber, before.phoneNumber);
+        expect(after.isOfflineAuth, before.isOfflineAuth);
+        expect(after.isRestoredSession, before.isRestoredSession);
+      });
+
+      test("another account's change is ignored", () async {
+        final bloc = await restoredBloc();
+        final before = bloc.state;
+
+        bloc.add(
+          const AuthProfileChanged(
+            userId: 'user-002',
+            userName: 'Someone',
+            woreda: 'Meki',
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(bloc.state, before);
+      });
+    });
+
+    // -----------------------------------------------------------------------
     // Rate limit error with retryAfterSeconds
     // -----------------------------------------------------------------------
     group('Rate limit error', () {

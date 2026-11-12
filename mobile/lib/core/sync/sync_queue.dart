@@ -538,6 +538,48 @@ class SyncQueue {
     return waiting > 0;
   }
 
+  /// The operations of one entity still waiting to be sent (pending, or
+  /// failed with retries left), oldest first. One on its way is not among
+  /// them. Used to find a queued drop-off code registration (ESC-35).
+  Future<List<SyncOperation>> waitingOperationsFor(
+    String entityType,
+    String entityId,
+  ) async {
+    final found = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(entityType)
+        .entityIdEqualTo(entityId)
+        .group(
+          (q) => q.statusEqualTo(SyncStatus.pending).or().group(
+                (r) => r
+                    .statusEqualTo(SyncStatus.failed)
+                    .retryCountLessThan(maxRetries, include: true),
+              ),
+        )
+        .findAll();
+    found.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return found;
+  }
+
+  /// Delete operations that are no longer wanted while they still wait
+  /// (a drop-off code replaced by a new one, ESC-35). One on its way, sent
+  /// or refused is left alone. Returns how many were deleted.
+  Future<int> dropWaiting(Iterable<String> operationIds) async {
+    final drop = <int>[];
+    for (final id in operationIds.toSet()) {
+      final op = await _findByOperationId(id);
+      if (op == null) continue;
+      final waiting = op.status == SyncStatus.pending ||
+          (op.status == SyncStatus.failed && op.retryCount <= maxRetries);
+      if (waiting) drop.add(op.id);
+    }
+    if (drop.isEmpty) return 0;
+    await _isar.writeTxn(() async {
+      await _isar.syncOperations.deleteAll(drop);
+    });
+    return drop.length;
+  }
+
   /// Replace the payload of a waiting operation, keeping its place in the
   /// queue, its idempotency key and its retries. Used by a preflight that
   /// readied the operation (a handoff photo's upload key, FRD-12), so a

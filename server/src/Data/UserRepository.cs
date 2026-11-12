@@ -104,6 +104,31 @@ public sealed class UserRepository : IUserRepository
         var now = DateTime.UtcNow.ToString("o");
         var newVersion = expectedVersion + 1;
 
+        // SIM-56: a company buyer's companyName is written from the copy too (the profile edit
+        // changes it). Only when the copy has one: no writer clears it, and a farmer's or trucker's
+        // row never gets the attribute.
+        var companySet = user.CompanyName != null ? ", #company = :company" : "";
+
+        // SIM-56: faydaId is the key of FaydaIdIndex and woreda the sort key of RoleWaredaIndex, and
+        // DynamoDB refuses a NULL or empty index key ("Invalid attribute value type"). A row without a
+        // Fayda ID, or without a woreda (FromItem reads a missing one as "", FUP-162), gets the
+        // attribute removed (a no-op when absent) instead (user-entity.md 2.2.0).
+        var hasFayda = !string.IsNullOrEmpty(user.FaydaId);
+        var hasWoreda = !string.IsNullOrEmpty(user.Woreda);
+        var optionalSets = (hasFayda ? ", #fayda = :fayda" : "") + (hasWoreda ? ", #woreda = :woreda" : "");
+        var removes = new List<string>();
+        if (!hasFayda)
+        {
+            removes.Add("#fayda");
+        }
+
+        if (!hasWoreda)
+        {
+            removes.Add("#woreda");
+        }
+
+        var removeClause = removes.Count > 0 ? " REMOVE " + string.Join(", ", removes) : "";
+
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
@@ -112,9 +137,9 @@ public sealed class UserRepository : IUserRepository
                 { "userId", new AttributeValue { S = user.UserId } }
             },
             UpdateExpression = "SET #phone = :phone, #name = :name, #fullName = :fullName, #role = :role, " +
-                               "#woreda = :woreda, #lang = :lang, #verified = :verified, " +
-                               "#photo = :photo, #fayda = :fayda, #faydaV = :faydaV, #faydaVAt = :faydaVAt, #faydaAuthAt = :faydaAuthAt, " +
-                               "#devices = :devices, #updated = :updated, #v = :newVersion",
+                               "#lang = :lang, #verified = :verified, " +
+                               "#photo = :photo, #faydaV = :faydaV, #faydaVAt = :faydaVAt, #faydaAuthAt = :faydaAuthAt, " +
+                               "#devices = :devices, #updated = :updated, #v = :newVersion" + companySet + optionalSets + removeClause,
             // ACC-02: never on a deleting or deleted account, so no profile write can put the
             // personal data back on a tombstone.
             ConditionExpression = "#v = :expectedVersion AND attribute_not_exists(#deletionState)",
@@ -143,11 +168,9 @@ public sealed class UserRepository : IUserRepository
                 { ":name", user.DisplayName != null ? new AttributeValue { S = user.DisplayName } : new AttributeValue { NULL = true } },
                 { ":fullName", user.FullName != null ? new AttributeValue { S = user.FullName } : new AttributeValue { NULL = true } },
                 { ":role", new AttributeValue { S = user.Role } },
-                { ":woreda", new AttributeValue { S = user.Woreda } },
                 { ":lang", new AttributeValue { S = user.PreferredLanguage } },
                 { ":verified", new AttributeValue { BOOL = user.IsPhoneVerified } },
                 { ":photo", user.ProfilePhotoRef != null ? new AttributeValue { S = user.ProfilePhotoRef } : new AttributeValue { NULL = true } },
-                { ":fayda", user.FaydaId != null ? new AttributeValue { S = user.FaydaId } : new AttributeValue { NULL = true } },
                 { ":faydaV", new AttributeValue { BOOL = user.FaydaVerified } },
                 { ":faydaVAt", user.FaydaVerifiedAt != null ? new AttributeValue { S = user.FaydaVerifiedAt } : new AttributeValue { NULL = true } },
                 { ":faydaAuthAt", user.FaydaAuthenticatedAt != null ? new AttributeValue { S = user.FaydaAuthenticatedAt } : new AttributeValue { NULL = true } },
@@ -157,6 +180,22 @@ public sealed class UserRepository : IUserRepository
                 { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString() } }
             }
         };
+
+        if (user.CompanyName != null)
+        {
+            request.ExpressionAttributeNames["#company"] = "companyName";
+            request.ExpressionAttributeValues[":company"] = new AttributeValue { S = user.CompanyName };
+        }
+
+        if (hasFayda)
+        {
+            request.ExpressionAttributeValues[":fayda"] = new AttributeValue { S = user.FaydaId };
+        }
+
+        if (hasWoreda)
+        {
+            request.ExpressionAttributeValues[":woreda"] = new AttributeValue { S = user.Woreda };
+        }
 
         try
         {

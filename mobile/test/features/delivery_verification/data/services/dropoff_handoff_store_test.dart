@@ -108,6 +108,23 @@ void main() {
     expect(await store.read('trucker-1', 'd-2'), isNull);
   });
 
+  test('the trucker\'s own code keeps its nonce (ESC-35)', () async {
+    await SecureDropoffHandoffStore().keep(
+      'trucker-1',
+      'd-1',
+      const KeptHandoff(token: 'tok', code: '757555978', nonce: 'd.n-1'),
+    );
+
+    final read = await SecureDropoffHandoffStore().read('trucker-1', 'd-1');
+    expect(read?.nonce, 'd.n-1');
+    expect(read?.isTruckers, isTrue);
+    // A farmer's token kept before ESC-35 has none.
+    expect(
+      KeptHandoff.fromJson({'t': 'tok', 'c': '757555978'})?.isTruckers,
+      isFalse,
+    );
+  });
+
   test('a typed pickup keeps only its code', () async {
     final store = SecureDropoffHandoffStore();
     await store.keep('t', 'd-1', const KeptHandoff(code: '340404994'));

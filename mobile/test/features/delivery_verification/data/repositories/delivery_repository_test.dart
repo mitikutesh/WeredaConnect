@@ -14,6 +14,7 @@ import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 /// Insert a test delivery directly into Isar.
 Future<Delivery> _insertTestDelivery(
@@ -882,6 +883,152 @@ void main() {
     });
 
     // --- Null delivery (no-op for nonexistent) ---
+
+    group('the trucker\'s drop-off code (ESC-35)', () {
+      test('is queued behind the pickup, alone, and not kept on the row',
+          () async {
+        final delivery = await _insertTestDelivery(isar);
+        await repository.confirmPickup(
+          deliveryId: delivery.deliveryId,
+          truckerId: 'trucker-001',
+          scannedQrNonce: 'farmer-nonce',
+        );
+
+        await repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: 'd.trucker-nonce',
+          truckerId: 'trucker-001',
+        );
+
+        final pending = await syncQueue.getPendingOperations();
+        expect(pending.length, 2);
+        final pickup = jsonDecode(pending.first.data) as Map<String, dynamic>;
+        expect(pickup['status'], 'pickedUp');
+        final register = pending.last;
+        expect(register.entityType, 'delivery');
+        expect(register.entityId, delivery.deliveryId);
+        expect(register.action, 'update');
+        expect(register.idempotencyKey, startsWith('trucker-001:'));
+        expect(jsonDecode(register.data), {
+          'dropoffQrNonce': 'd.trucker-nonce',
+          'version': 2,
+        });
+        final stored = await isar.deliverys
+            .filter()
+            .deliveryIdEqualTo(delivery.deliveryId)
+            .findFirst();
+        expect(stored!.qrNonce, isNot('d.trucker-nonce'));
+      });
+
+      test('nothing for anyone but the delivery\'s trucker', () async {
+        final delivery = await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.pickedUp,
+        );
+
+        for (final userId in ['farmer-001', 'buyer-001', '']) {
+          await repository.persistDropoffQrNonce(
+            deliveryId: delivery.deliveryId,
+            nonce: 'd.trucker-nonce',
+            truckerId: userId,
+          );
+        }
+        await repository.persistDropoffQrNonce(
+          deliveryId: 'nonexistent-id',
+          nonce: 'd.trucker-nonce',
+          truckerId: 'trucker-001',
+        );
+
+        expect(await syncQueue.getPendingOperations(), isEmpty);
+      });
+
+      test('the same code waiting is not queued twice (each open)', () async {
+        final delivery = await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.pickedUp,
+        );
+
+        for (var i = 0; i < 3; i++) {
+          expect(
+            await repository.persistDropoffQrNonce(
+              deliveryId: delivery.deliveryId,
+              nonce: 'd.trucker-nonce',
+              truckerId: 'trucker-001',
+            ),
+            DropoffCodeRegistration.sent,
+          );
+        }
+
+        expect(await syncQueue.getPendingOperations(), hasLength(1));
+      });
+
+      test('a new code drops the older ones still waiting and asks to renew',
+          () async {
+        final delivery = await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.pickedUp,
+        );
+        await repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: 'd.first',
+          truckerId: 'trucker-001',
+        );
+        await repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: 'd.second',
+          truckerId: 'trucker-001',
+          renew: true,
+        );
+        await repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: 'd.third',
+          truckerId: 'trucker-001',
+          renew: true,
+        );
+
+        final pending = await syncQueue.getPendingOperations();
+        expect(pending, hasLength(1));
+        expect(jsonDecode(pending.single.data), {
+          'dropoffQrNonce': 'd.third',
+          'dropoffQrRenew': true,
+          'version': 1,
+        });
+      });
+
+      test('a new code leaves the other operations of the delivery queued',
+          () async {
+        final delivery = await _insertTestDelivery(isar);
+        await repository.confirmPickup(
+          deliveryId: delivery.deliveryId,
+          truckerId: 'trucker-001',
+          scannedQrNonce: 'farmer-nonce',
+        );
+        await repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: 'd.first',
+          truckerId: 'trucker-001',
+        );
+
+        await repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: 'd.second',
+          truckerId: 'trucker-001',
+          renew: true,
+        );
+
+        final pending = await syncQueue.getPendingOperations();
+        expect(pending, hasLength(2));
+        expect(
+          (jsonDecode(pending.first.data) as Map<String, dynamic>)['status'],
+          'pickedUp',
+        );
+        expect(
+          (jsonDecode(pending.last.data)
+              as Map<String, dynamic>)['dropoffQrNonce'],
+          'd.second',
+        );
+      });
+    });
 
     test('confirmPickup on nonexistent delivery does nothing', () async {
       await repository.confirmPickup(

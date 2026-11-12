@@ -60,6 +60,8 @@ import 'package:wereda_connect/features/rating/data/repositories/web_rating_repo
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/web_trip_listing_repository.dart';
+import 'package:wereda_connect/features/account/data/repositories/web_profile_repository.dart';
+import 'package:wereda_connect/features/account/domain/profile_edit.dart';
 
 Future<void> main() async {
   if (kIsWeb) usePathUrlStrategy();
@@ -209,6 +211,10 @@ Future<void> _runWeb({
         // with the last answer kept in localStorage).
         Provider<ReputationRepository>.value(
           value: ReputationRepository(api: api),
+        ),
+        // SIM-56: a profile edit goes straight to /sync on web.
+        Provider<BaseProfileRepository>.value(
+          value: WebProfileRepository(api: api),
         ),
       ],
       child: MultiBlocProvider(

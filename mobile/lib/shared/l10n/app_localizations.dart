@@ -8969,12 +8969,6 @@ abstract class AppLocalizations {
   /// **'You confirmed the pickup with a typed code, so there is no QR to show. The buyer types this code instead.'**
   String get deliveryDropoffCodeOnly;
 
-  /// Trucker (T-3): snackbar when no pickup handoff is kept on this phone
-  ///
-  /// In en, this message translates to:
-  /// **'This phone has no drop-off code for this delivery. It is kept when you scan the farmer\'s QR at pickup on this phone.'**
-  String get deliveryDropoffQrMissing;
-
   /// Delivery error (T-1, DELIVERY_CODE_MISMATCH): the server refused a typed handoff code
   ///
   /// In en, this message translates to:
@@ -8984,7 +8978,7 @@ abstract class AppLocalizations {
   /// Delivery error (T-1, DELIVERY_CODE_LOCKED): five wrong typed codes
   ///
   /// In en, this message translates to:
-  /// **'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the farmer to show a new code.'**
+  /// **'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the person showing it to make a new code.'**
   String get deliveryErrorCodeLocked;
 
   /// Dispute screen on web (FUP-43): the server asked for the password again (AUTH_040) and the prompt was cancelled, so the dispute was not sent
@@ -9053,10 +9047,64 @@ abstract class AppLocalizations {
   /// **'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR if they have one. If not, contact support: they can confirm the handoff with you and the trucker.'**
   String get deliveryErrorCodeLockedDropoff;
 
-  /// Farmer QR screen (T-1): the delivery left pending meanwhile, so no new QR (nonce) is made; the trucker shows the pickup code at the drop-off
+  /// Trucker (ESC-35): note on the drop-off QR screen for the trucker's own code
   ///
   /// In en, this message translates to:
-  /// **'This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.'**
+  /// **'Made on this phone for this delivery. It works offline, and the buyer\'s scan or typed code confirms the delivery. Lost or locked? Make a new code.'**
+  String get deliveryDropoffQrOwnNote;
+
+  /// Trucker (ESC-35): button on the drop-off QR screen that makes a new code (replaces a lost or locked one)
+  ///
+  /// In en, this message translates to:
+  /// **'New drop-off code'**
+  String get deliveryDropoffNewCode;
+
+  /// Trucker (ESC-35): the drop-off code could not be registered with the server (offline web)
+  ///
+  /// In en, this message translates to:
+  /// **'Not on the server yet. It is sent again each time you open this QR while online, and the buyer\'s confirm waits for it.'**
+  String get deliveryDropoffQrNotSent;
+
+  /// Buyer at a trucker's drop-off (ESC-35): the server waits for the trucker's drop-off code to sync
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker\'s drop-off code has not reached the server yet. Ask the trucker to open the drop-off QR while online, then try again.'**
+  String get deliveryErrorDropoffQrPending;
+
+  /// Buyer at a trucker's drop-off (ESC-35, DELIVERY_CODE_LOCKED): five wrong codes for the trucker's own code, which the trucker can renew
+  ///
+  /// In en, this message translates to:
+  /// **'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR instead, or ask the trucker to make a new code.'**
+  String get deliveryErrorDropoffCodeLocked;
+
+  /// Trucker (ESC-35): drop-off QR screen when this phone keeps no drop-off code
+  ///
+  /// In en, this message translates to:
+  /// **'This phone has no drop-off code for this delivery. If you made one on another phone or browser, show that one. Or make a new code here.'**
+  String get deliveryDropoffNoCodeHere;
+
+  /// Trucker (ESC-35): the server keeps another drop-off code for this delivery (DROPOFF_CODE_SUPERSEDED)
+  ///
+  /// In en, this message translates to:
+  /// **'A newer drop-off code was made on another phone or browser, so this one does not work. Show that one, or make a new code here.'**
+  String get deliveryDropoffQrSuperseded;
+
+  /// Trucker (ESC-35): title of the confirmation before New drop-off code
+  ///
+  /// In en, this message translates to:
+  /// **'Make a new drop-off code?'**
+  String get deliveryDropoffNewCodeConfirmTitle;
+
+  /// Trucker (ESC-35): body of the confirmation before New drop-off code
+  ///
+  /// In en, this message translates to:
+  /// **'Any drop-off code shown before, on this or another phone, stops working. Show the buyer only the new one.'**
+  String get deliveryDropoffNewCodeConfirmBody;
+
+  /// Farmer QR screen (T-1): the delivery left pending meanwhile, so no new QR (nonce) is made; the trucker shows a drop-off code of their own (ESC-35)
+  ///
+  /// In en, this message translates to:
+  /// **'This delivery was already picked up, so no new QR code is made. The trucker now shows the buyer a drop-off code of their own.'**
   String get deliveryQrAlreadyPickedUp;
 
   /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Place order: label of the optional field where the buyer names a landmark for the driver
@@ -9694,6 +9742,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You have penalty points. Buyers see nothing yet. Open My reputation for the details.'**
   String get notifTierWarningBody;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Title of the edit screen and the Profile row that opens it
+  ///
+  /// In en, this message translates to:
+  /// **'Edit profile'**
+  String get profileEditTitle;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Subtitle of the Profile row that opens the edit screen
+  ///
+  /// In en, this message translates to:
+  /// **'Name and woreda'**
+  String get profileEditSubtitle;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Note above the form: existing listings, trips and orders keep the name they were made with
+  ///
+  /// In en, this message translates to:
+  /// **'Listings, trips and orders you create from now on show your new name and woreda. The ones you already made keep the old details.'**
+  String get profileEditNote;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar after the web app saved the edit on the server
+  ///
+  /// In en, this message translates to:
+  /// **'Profile saved.'**
+  String get profileEditSaved;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar after the phone app saved the edit and queued it for the server
+  ///
+  /// In en, this message translates to:
+  /// **'Profile saved on this phone. It is sent when you are online.'**
+  String get profileEditSavedQueued;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar when nothing was saved (no connection, a full queue, a refusal)
+  ///
+  /// In en, this message translates to:
+  /// **'Your profile could not be saved. Check your connection and try again.'**
+  String get profileEditFailed;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name, woreda or company name is over 100 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Use 100 characters or fewer.'**
+  String get profileEditTooLong;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name is the one deleted accounts carry
+  ///
+  /// In en, this message translates to:
+  /// **'This name is not available. Choose another.'**
+  String get profileEditNameUnavailable;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar when the server refused the edit for a reason the form did not catch (web): not a connection problem
+  ///
+  /// In en, this message translates to:
+  /// **'These details were not accepted. Check each field and try again.'**
+  String get profileEditRefused;
 }
 
 class _AppLocalizationsDelegate

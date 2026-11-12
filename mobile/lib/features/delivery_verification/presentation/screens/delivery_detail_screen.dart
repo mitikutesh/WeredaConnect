@@ -311,8 +311,8 @@ class DeliveryDetailScreen extends StatelessWidget {
       );
     }
 
-    // Trucker + pickedUp/inTransit → Show drop-off QR (T-3): the farmer's
-    // token kept from the pickup scan, which the buyer's confirm checks.
+    // Trucker + pickedUp/inTransit → Show drop-off QR: the trucker's own
+    // drop-off code (ESC-35), which the buyer's confirm checks.
     if (isTrucker &&
         (delivery.status == DeliveryStatus.pickedUp ||
             delivery.status == DeliveryStatus.inTransit)) {

@@ -154,6 +154,56 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       ..version = 1;
   }
 
+  /// Registers the trucker's drop-off nonce (ESC-35), sent at once as web
+  /// has no queue. Throws when it did not get through (offline, refused, or
+  /// `deferred` because the pickup is not on the server yet), so the caller
+  /// sends it again when the drop-off QR is opened.
+  @override
+  Future<DropoffCodeRegistration> persistDropoffQrNonce({
+    required String deliveryId,
+    required String nonce,
+    required String truckerId,
+    bool renew = false,
+  }) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final response = await _api.post<Map<String, dynamic>>(
+      '/sync',
+      data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
+        'operations': [
+          {
+            'operationId': _uuid.v4(),
+            'entityType': 'delivery',
+            'action': 'update',
+            'entityId': deliveryId,
+            'timestamp': now,
+            'idempotencyKey': 'web_dropoff_nonce_${deliveryId}_$now',
+            'data': {
+              'dropoffQrNonce': nonce,
+              if (renew) 'dropoffQrRenew': true,
+              'version': await _currentVersion(deliveryId),
+            },
+          },
+        ],
+      },
+    );
+    ensureSyncSucceeded(response);
+    // A code the server did not keep still answers success, with a message.
+    final results = response['results'];
+    final first = results is List && results.isNotEmpty ? results.first : null;
+    final message = first is Map ? first['message'] : null;
+    if (message is String) {
+      if (message.startsWith(dropoffCodeSupersededCode)) {
+        return DropoffCodeRegistration.superseded;
+      }
+      if (message.startsWith(dropoffCodeNotStoredCode)) {
+        return DropoffCodeRegistration.notStored;
+      }
+    }
+    return DropoffCodeRegistration.sent;
+  }
+
   /// Registers the farmer's QR nonce with the server: a `/sync` delivery
   /// update carrying only `qrNonce` (the server moves it to the QR secret
   /// store). Web has no sync queue, so without this a QR shown on web could

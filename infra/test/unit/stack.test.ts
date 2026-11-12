@@ -393,8 +393,21 @@ describe('ApiStack', () => {
     // /admin/users/{id}/reputation/events/{eventId}/decision (ESC-32) → 80. FUP-05: the claim and
     // unclaim actions share POST /admin/payouts/{escrowId}/{ref}/{action} with complete (no new route),
     // and so does FUP-218's correct. Plus GET /intents (SIM-56, the buyer's own requests) → 81,
-    // plus POST /admin/orders/{orderId}/{action} (FUP-287, reopen-pickup) → 82 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 82);
+    // plus GET /user/profile (SIM-56) → 82,
+    // plus POST /admin/orders/{orderId}/{action} (FUP-287, reopen-pickup) → 83 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 83);
+  });
+
+  test('GET /user/profile is a JWT route on the sync Lambda\'s integration (SIM-56)', () => {
+    const routes = template.findResources('AWS::ApiGatewayV2::Route');
+    const props = (key: string) =>
+      (Object.values(routes).find((r) => (r as { Properties: { RouteKey: string } }).Properties.RouteKey === key) as
+        { Properties: { AuthorizationType: string; Target: unknown } } | undefined)?.Properties;
+    const profile = props('GET /user/profile');
+    expect(profile).toBeDefined();
+    expect(profile!.AuthorizationType).toBe('JWT');
+    // The same integration as POST /sync: the sync Lambda serves the read, no new integration.
+    expect(profile!.Target).toEqual(props('POST /sync')!.Target);
   });
 
   test('the order action route sits on the admin authorizer and the shared admin integration (FUP-287)', () => {
