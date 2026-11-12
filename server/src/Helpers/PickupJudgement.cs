@@ -471,12 +471,14 @@ public static class PickupJudgement
 
     /// <summary>
     /// A sync result whose order row goes back to a client: the check-ins replaced by
-    /// <see cref="ViewOf"/> and the stamped pickup point left out. Any other result is returned unchanged.
+    /// <see cref="ViewOf"/>, and the stamped pickup point and an admin's re-open stamp (FUP-287,
+    /// <see cref="PickupReopen.Field"/>) left out. Any other result is returned unchanged.
     /// </summary>
     public static Models.SyncOperationResult ForClient(Models.SyncOperationResult result)
     {
         if (result.ServerData is not { } row
-            || !(row.ContainsKey(CheckInsField) || row.ContainsKey(PickupLatitudeField) || row.ContainsKey(PickupLongitudeField)))
+            || !(row.ContainsKey(CheckInsField) || row.ContainsKey(PickupLatitudeField) || row.ContainsKey(PickupLongitudeField)
+                 || row.ContainsKey(PickupReopen.Field)))
         {
             return result;
         }
@@ -484,6 +486,7 @@ public static class PickupJudgement
         var scrubbed = new Dictionary<string, object>(row);
         scrubbed.Remove(PickupLatitudeField);
         scrubbed.Remove(PickupLongitudeField);
+        scrubbed.Remove(PickupReopen.Field);
         scrubbed.Remove(CheckInsField);
         if (ViewOf(row) is { } view)
         {
@@ -510,12 +513,12 @@ public static class PickupJudgement
         return result with { ServerData = scrubbed };
     }
 
-    // ── reading ─────────────────────────────────────────────────────────────
+    // ── reading (also FUP-287's PickupReopen) ───────────────────────────────
 
-    private static string Str(IReadOnlyDictionary<string, object> item, string key)
+    internal static string Str(IReadOnlyDictionary<string, object> item, string key)
         => item.TryGetValue(key, out var value) ? value?.ToString() ?? string.Empty : string.Empty;
 
-    private static bool Bool(IReadOnlyDictionary<string, object> item, string key)
+    internal static bool Bool(IReadOnlyDictionary<string, object> item, string key)
         => item.TryGetValue(key, out var value) && value switch
         {
             bool b => b,
@@ -524,7 +527,7 @@ public static class PickupJudgement
             _ => false
         };
 
-    private static bool TryNumber(IReadOnlyDictionary<string, object> item, string key, out double number)
+    internal static bool TryNumber(IReadOnlyDictionary<string, object> item, string key, out double number)
     {
         number = double.NaN;
         if (!item.TryGetValue(key, out var value) || value == null)

@@ -48,6 +48,23 @@ public interface IOrderRepository
         IReadOnlyList<TransactWriteItem> linkedItems);
 
     /// <summary>
+    /// FUP-287: <see cref="TryUpdateWithAsync"/> that also removes attributes and checks string fields a write
+    /// can change without a version bump (the pickup judgement, the admin queue entry). <paramref name="set"/>
+    /// is written (a <c>status</c> in it too) and <paramref name="remove"/> removed, the version checked and
+    /// incremented, a new <c>updatedAt</c>, the next deadline derived from the row as it will be (ESC-16), and
+    /// the update lands only while every field of <paramref name="expectedStrings"/> still holds its value;
+    /// <paramref name="linkedItems"/> go in the same transaction. Same outcomes as
+    /// <see cref="TryUpdateWithAsync"/>.
+    /// </summary>
+    Task<OrderLinkedWriteResult> TryUpdateGuardedAsync(
+        string orderId,
+        Dictionary<string, object> set,
+        IReadOnlyCollection<string> remove,
+        int expectedVersion,
+        IReadOnlyDictionary<string, string> expectedStrings,
+        IReadOnlyList<TransactWriteItem> linkedItems);
+
+    /// <summary>
     /// FUP-53: a transaction item that lets a write on another table land only while this order exists
     /// and is not closed (<c>cancelled</c> or <c>rejected</c>): the dispute freeze carries it, so a
     /// dispute never lands on the money of an order that was closed since it was read. No I/O.

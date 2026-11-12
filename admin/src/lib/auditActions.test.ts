@@ -128,6 +128,8 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "handoff_check_in",
   "pickup_judged",
   "late_pickup_evidence",
+  // FUP-287: an admin re-opened a judged pickup (entity order; a confirmed handoff also writes picked_up)
+  "admin_pickup_reopened",
 ];
 
 /** Written by an open PR that has no admin change of its own; labelled here ahead of the merge. */

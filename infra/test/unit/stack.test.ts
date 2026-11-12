@@ -392,8 +392,25 @@ describe('ApiStack', () => {
     // plus GET and POST /admin/users/{id}/reputation, GET /admin/reputation/appeals and POST
     // /admin/users/{id}/reputation/events/{eventId}/decision (ESC-32) → 80. FUP-05: the claim and
     // unclaim actions share POST /admin/payouts/{escrowId}/{ref}/{action} with complete (no new route),
-    // and so does FUP-218's correct. Plus GET /intents (SIM-56, the buyer's own requests) → 81 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 81);
+    // and so does FUP-218's correct. Plus GET /intents (SIM-56, the buyer's own requests) → 81,
+    // plus POST /admin/orders/{orderId}/{action} (FUP-287, reopen-pickup) → 82 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 82);
+  });
+
+  test('the order action route sits on the admin authorizer and the shared admin integration (FUP-287)', () => {
+    const routes = template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'POST /admin/orders/{orderId}/{action}' },
+    });
+    const route = Object.values(routes);
+    expect(route).toHaveLength(1);
+    const props = (route[0] as { Properties: Record<string, unknown> }).Properties;
+    expect(props.AuthorizationType).toBe('JWT');
+
+    const statsRoute = Object.values(template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'GET /admin/dashboard/stats' },
+    }))[0] as { Properties: Record<string, unknown> };
+    expect(props.Target).toEqual(statsRoute.Properties.Target);
+    expect(props.AuthorizerId).toEqual(statsRoute.Properties.AuthorizerId);
   });
 
   test('the ledger view and the stuck orders sit on the admin authorizer, on grants the admin Lambda already has (ESC-24)', () => {

@@ -442,6 +442,166 @@ public sealed class OrderRepository : IOrderRepository
     }
 
     /// <inheritdoc />
+    public async Task<OrderLinkedWriteResult> TryUpdateGuardedAsync(
+        string orderId,
+        Dictionary<string, object> set,
+        IReadOnlyCollection<string> remove,
+        int expectedVersion,
+        IReadOnlyDictionary<string, string> expectedStrings,
+        IReadOnlyList<TransactWriteItem> linkedItems)
+    {
+        var existing = await GetItemAsync(orderId, consistentRead: true);
+        if (existing == null)
+        {
+            return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderNotFound);
+        }
+
+        var now = DateTime.UtcNow.ToString("o");
+        var written = new Dictionary<string, AttributeValue>(existing)
+        {
+            ["updatedAt"] = new AttributeValue { S = now },
+            ["version"] = new AttributeValue { N = (expectedVersion + 1).ToString(CultureInfo.InvariantCulture) }
+        };
+
+        var updateParts = new List<string> { "#updated = :updated", "#v = :newVersion" };
+        var removeParts = new List<string>();
+        var attrNames = new Dictionary<string, string> { { "#updated", "updatedAt" }, { "#v", "version" } };
+        var attrValues = new Dictionary<string, AttributeValue>
+        {
+            { ":updated", written["updatedAt"] },
+            { ":newVersion", written["version"] },
+            { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString(CultureInfo.InvariantCulture) } }
+        };
+
+        var i = 0;
+        foreach (var kvp in set)
+        {
+            if (IsKeyOrWriteOwned(kvp.Key))
+            {
+                continue;
+            }
+
+            var value = DynamoDbHelper.ToAttributeValue(kvp.Value);
+            attrNames[$"#f{i}"] = kvp.Key;
+            attrValues[$":f{i}"] = value;
+            updateParts.Add($"#f{i} = :f{i}");
+            written[kvp.Key] = value;
+            i++;
+        }
+
+        var r = 0;
+        foreach (var key in remove)
+        {
+            if (IsKeyOrWriteOwned(key) || set.ContainsKey(key))
+            {
+                continue;
+            }
+
+            attrNames[$"#r{r}"] = key;
+            removeParts.Add($"#r{r}");
+            written.Remove(key);
+            r++;
+        }
+
+        var conditions = new List<string> { "#v = :expectedVersion" };
+        var c = 0;
+        foreach (var (key, value) in expectedStrings)
+        {
+            attrNames[$"#c{c}"] = key;
+            attrValues[$":c{c}"] = new AttributeValue { S = value };
+            conditions.Add($"#c{c} = :c{c}");
+            c++;
+        }
+
+        // ESC-16: the read above is consistent and the write checks the version and the fields written without
+        // a bump, so the deadline is derived from the row as written (as in TryUpdateWithAsync).
+        var deadline = AppendDeadline(DynamoDbHelper.FromItem(written), updateParts, removeParts, attrNames, attrValues);
+        if (deadline.Added)
+        {
+            ApplyDeadline(written, deadline.Next);
+        }
+
+        var items = new List<TransactWriteItem>
+        {
+            new()
+            {
+                Update = new Update
+                {
+                    TableName = _tableName,
+                    Key = OrderKey(orderId, existing["createdAt"].S),
+                    UpdateExpression = UpdateExpression(updateParts, removeParts),
+                    ConditionExpression = string.Join(" AND ", conditions),
+                    ExpressionAttributeNames = attrNames,
+                    ExpressionAttributeValues = attrValues
+                }
+            }
+        };
+        items.AddRange(linkedItems);
+
+        try
+        {
+            await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest { TransactItems = items });
+        }
+        catch (TransactionCanceledException ex)
+        {
+            // As in TryUpdateWithAsync: a linked item that refused decides over the order's own condition.
+            for (var index = 1; index < items.Count; index++)
+            {
+                if (IsConditionFailure(ex.CancellationReasons, index))
+                {
+                    return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.LinkedItemRefused);
+                }
+            }
+
+            if (IsConditionFailure(ex.CancellationReasons, 0))
+            {
+                return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged);
+            }
+
+            throw;
+        }
+
+        return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written, DynamoDbHelper.FromItem(written));
+    }
+
+    /// <summary>FUP-287: the keys and the attributes every versioned write owns (never taken from a caller's set or remove).</summary>
+    private static bool IsKeyOrWriteOwned(string key)
+        => key is "orderId" or "version" or "createdAt" or "updatedAt" || OrderDeadlines.IsDeadlineField(key);
+
+    /// <summary>
+    /// FUP-287: the transaction item that lets the admin's re-open of a judged pickup land only while the order's
+    /// escrow still holds the money as the judgement left it (<see cref="PickupReopen.HoldsMoney"/>): <c>escrowed</c>,
+    /// no refund armed, no settlement lock, no delivery confirmed, never in the manual payout queue (the escrow
+    /// sweep's plain-hold condition, plus the delivery stamp).
+    /// </summary>
+    public static TransactWriteItem EscrowHoldsMoneyCheck(EscrowRowKey escrow) => new()
+    {
+        ConditionCheck = new ConditionCheck
+        {
+            TableName = escrow.TableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "escrowId", new AttributeValue { S = escrow.EscrowId } },
+                { "createdAt", new AttributeValue { S = escrow.CreatedAt } }
+            },
+            ConditionExpression = "#status = :escrowed AND attribute_not_exists(#refundReason) AND attribute_not_exists(#lock) "
+                                  + "AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#confirmed)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#refundReason", "refundReason" },
+                { "#lock", SettlementLockFields.Lock },
+                { "#manualPayout", ManualPayoutFields.Marker },
+                { "#confirmed", "deliveryConfirmedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":escrowed", new AttributeValue { S = "escrowed" } }
+            }
+        }
+    };
+
+    /// <inheritdoc />
     public async Task<Dictionary<string, object>?> GetByIdAsync(string orderId)
     {
         var item = await GetItemAsync(orderId);

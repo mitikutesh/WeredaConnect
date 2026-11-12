@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.6.0
+2.8.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -1426,6 +1426,76 @@ as a delivery with `deliveryType: "self_pickup"`:
   plausible. An honest party who was offline at the farm is protected by the 24 hour grace inside T7
   and, past it, by the late evidence in the admin queue and the reputation appeal (spec I4).
 
+**The admin side (BUILT in 2.8.0, FUP-287).** A late scan stays refused, so the admin reads the
+evidence and, after reconciling a real handoff with the parties, re-opens the judgement instead of
+taking a refund path. Not behind the flag: it only acts on orders the flag judged.
+
+- **The evidence.** `GET /admin/transactions/{orderId}` (admin authorizer, admin role) returns
+  `pickupEvidence` for an order stamped judgeable (absent otherwise): `judgement`, `judgedAt`,
+  `deadlineAt` (`pickupDeadlineAt`), `selfPickup`, the stamped farm point (`pointLatitude`,
+  `pointLongitude`), `checkIns` per kind with everything the server kept (`receivedAt`, `capturedAt`,
+  `by`, `latitude`, `longitude`, `accuracyM`, `distanceKm`, `distanceChecked`, `late`, `outOfRange`),
+  `reopenExits` (the exits the action below takes for the order as read: none, `pending`, or `pending`
+  and `handoff_confirmed`) and `lastReopen` (`at`, `exit`, `fromJudgement`, `deadlineAt`). The `order`
+  of the same answer stays the parties' view (no coordinates, no sender). No party route returns any of
+  it.
+- **The re-open.** `POST /admin/orders/{orderId}/reopen-pickup` (admin authorizer, admin pool's admin
+  group checked in the Lambda: `403 ADMIN_001` otherwise; any other `{action}` is `404 ADMIN_002`) with
+  `{exit, reason, expectedVersion, deadlineHours?}`:
+
+  | Field | Rule (`400 PICKUP_REOPEN_INVALID`, `field` names it) |
+  |---|---|
+  | `exit` | `pending` or `handoff_confirmed` |
+  | `reason` | 10 to 500 characters after trimming; kept in the audit trail only |
+  | `expectedVersion` | the order `version` the admin's page read |
+  | `deadlineHours` | with `pending` only, 1 to 168: the new `pickupDeadlineAt` is now plus that many hours |
+
+  Which judgements re-open (`409 PICKUP_REOPEN_NOT_ALLOWED` otherwise, the message says why): only
+  `both_present_no_scan` and `unchecked_check_in` on an order still `accepted`, the two outcomes that
+  moved nothing. Refused: an order not judged (`pending`, or never stamped), `scanned`, a trucker no-show
+  (its delivery was cancelled and its trip booking released, and the buyer chooses again in
+  `awaiting_transport`), a farmer or self-pickup buyer no-show (`cancelled` with the refund armed in the
+  cancel's transaction, which the hourly sweep sends), and an order that moved on after its judgement
+  (an admin refund, a dispute). A wrong no-show's `NO_SHOW` event is excused on the party's reputation
+  (`reputation-api.md` 9.3). The money must still be held as the judgement left it (`409
+  PICKUP_REOPEN_MONEY_NOT_HELD` otherwise): the order's escrow `escrowed`, no refund armed, no settlement
+  lock, no delivery confirmed, never in the manual payout queue (an escrow `held` for fraud review is
+  decided first); an order without an escrow record has no money to check. A version other than
+  `expectedVersion` is `409 PICKUP_REOPEN_CHANGED`. Nothing is written by any refusal.
+
+  | Exit | Order | Delivery |
+  |---|---|---|
+  | `pending` | stays `accepted`; `pickupJudgement: pending`, `pickupDeadlineAt` now plus `deadlineHours`, `pickupJudgedAt` and `pickupOverdueNotifiedAt` removed; `checkIns` kept as they are (a late one stays late and its party cannot check in again for that kind); the deadline index entry derived from the row: `pickup_judgement` at the new deadline plus one minute, in the swept partition, so the cron judges it again | unchanged (the scan of the new window goes through the normal pickup) |
+  | `handoff_confirmed` | `pickup_confirmed`, `pickupJudgement: scanned` (as a scan leaves an order), `pickupJudgedAt` and the deadline kept; no deadline index entry | the active delivery `pending → pickedUp`, `pickedUpAt` and `updatedAt` the server's time, version plus one; no `gpsPickup`, `pickupCapturedAt` or photo, so the delivery time and trucker GPS fraud rules skip it |
+
+  `handoff_confirmed` is refused for a self-pickup (its handoff is the buyer's `delivered`, which pays
+  the farmer: support settles it with a dispute verdict), for an order without an active delivery and
+  for a delivery that is not `pending`. The drop-off is unchanged: the buyer scans the farmer's token kept
+  on the trucker's phone from the real scan (1.22.0); a trucker without it follows the locked drop-off
+  way out above.
+
+  Both exits remove the judgement's admin queue entry (`both_present_no_scan`, `unchecked_check_in` or
+  `late_pickup_evidence`; a `hold_cap` entry is about the money and stays), bump the order `version`, and
+  stamp the server-only `pickupReopen` map (`at`, `exit`, `fromJudgement`, `fromVersion`, `deadlineAt`;
+  no admin id, no reason). One DynamoDB transaction: the order update conditioned on `expectedVersion`,
+  `status: accepted`, the judgement read and the queue entry read (written without a version bump), the
+  delivery update conditioned on `pending` at its version, and a check that the escrow still holds the
+  money. A condition that fails is `409 PICKUP_REOPEN_CHANGED`. The same request again (the order's
+  `pickupReopen` names the same exit from the same `expectedVersion`) answers `200` with
+  `alreadyApplied: true` and writes nothing. `200`: `{orderId, exit, fromJudgement, status,
+  pickupJudgement, pickupDeadlineAt, deliveryId, version, alreadyApplied, message}`. Audit: the
+  transaction-audit row `admin_pickup_reopened` (actor the admin, `metadata`
+  `exit=...;judgement=...;deadlineAt=...;deliveryId=...;reason=...`) and, for a confirmed handoff, the
+  delivery's `picked_up` row with `handoff=admin`; the structured log `PICKUP_REOPEN` and
+  `PICKUP_REOPENED orderId=... exit=...`.
+- **Reputation.** The two judgements that re-open carry no reputation event (`order-lifecycle.md`
+  2.15.0, "none automatic"), so nothing is undone. No push tells the parties of a `pending` re-open yet
+  (their apps read the new deadline on the next pull; TASK FUP-332).
+- **Admin app.** The transaction page shows the evidence card (the judgement, the deadline, the farm
+  point, each check-in with its times, fix, distance, measurement and lateness) in en, am and om, and
+  the "Re-open the pickup" action when `reopenExits` is not empty: what happened, the new deadline (24,
+  48 or 72 hours), the reason, then a confirm before anything is sent.
+
 **Planning notes (2.0.0).**
 
 
@@ -1595,9 +1665,10 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 2.4.0 | 2026-11-12 | QR gate, a funded order without an escrow row (FUP-66, `escrow-protocol.md` 2.9.0): when neither the order's escrow nor the `DeliveryIndex` finds an escrow, the order is read (strongly consistent) and a `paymentVerifiedAt` on it makes the delivery money-bearing, so a trucker's drop-off with no nonce is `deferred` (then `DELIVERY_NONCE_MISSING` after 14 days) and a typed code needs the leg's GPS. Before, such a delivery passed as cash. A failed order read defers with `QR_GATE_UNDECIDED`, as the escrow reads do. An order never funded, or a delivery without an order, passes as before. Server only; no client change. |
 | 2.5.0 | 2026-11-12 | Each handoff point only from its own handoff (FUP-246, `sync-protocol.md` 1.54.0, `fraud-detection-architecture.md` 3.34.0): `gpsPickup` is written only with the trucker's `pickedUp`, `gpsDropoff` only with the buyer's `delivered`, `disputeReason` only with `disputed`; sent with any other status, on a create or on an update without a status, the field is dropped (not refused) and logged. A buyer's confirm moved the trucker's pickup point, and a dispute both points the admin dispute evidence shows. The impossible delivery time rule reads the pickup side from the row as stored before the confirm. No client change. |
 | 2.6.0 | 2026-11-12 | Arrival check-ins and the pickup judgement BUILT (ESC-34, P.2 "As built"), behind `pickupClassification` (off everywhere, only with `COMMITMENTS_ENABLED`): the accept of a flagged order stamps `pickupJudgement: pending`, an empty `checkIns` map and the farm's point; `handoff_check_in` (`sync-protocol.md` 1.55.0) takes `arrived_pickup` and `crops_ready` between `pickupDate` minus 24 hours and `pickupDeadlineAt` by server receipt, the arrival within 5 km of the stamped point (a farmer's far fix stored unmeasured, the farmer's GPS being optional), first kept, no version move; with the flag off the entity stays unsupported; the order cron judges at the deadline plus one minute: scan (stamped), trucker no-show (`awaiting_transport`, `trucker_no_show`), farmer no-show (`cancelled`, `farmer_no_show`, full refund), self-pickup buyer no-show (`buyer_no_show`, no points), both present or an unmeasured arrival (admin queue, money held); late check-ins kept as evidence (`CHECKIN_TOO_LATE`, admin queue `late_pickup_evidence` when they contradict the judgement); a pickup scan after the judgement refused `ORDER_DEADLINE_PASSED` (a real QR scan queued for the admin and alarmed); the buyer's deadline cancel refused for a flagged order; FUP-204: the trucker's check-in is measured against the point stamped at acceptance, and a farmer no-show's `NO_SHOW` signal goes through the attribution guard. `order-lifecycle.md` 2.15.0, `data-models.md` 1.14.0, `fraud-detection-architecture.md` 3.36.0, `reputation-architecture.md` 1.8.0 |
+| 2.8.0 | 2026-11-13 | The admin side of the pickup judgement (FUP-287, P.2 "The admin side"): `GET /admin/transactions/{orderId}` returns `pickupEvidence` (the judgement, the deadline, the stamped farm point, each check-in with its receipt and capture times, fix, accuracy, distance, `distanceChecked`, `late`, `outOfRange` and sender, the exits the re-open takes and the last re-open), admin only, the parties' `OrderDto` unchanged. New `POST /admin/orders/{orderId}/reopen-pickup` (admin group; `exit`, a `reason` of 10 to 500 characters, `expectedVersion`, `deadlineHours` 1 to 168 with `pending`): only `both_present_no_scan` and `unchecked_check_in` on an `accepted` order whose escrow still simply holds the money; `pending` restamps the judgement with a new `pickupDeadlineAt` (judged again a minute after it, check-ins kept), `handoff_confirmed` moves the pending delivery to `pickedUp` and the order to `pickup_confirmed` (`scanned`), refused for a self-pickup; both remove the judgement's admin queue entry and stamp `pickupReopen`, in one transaction conditioned on what was read; new codes `PICKUP_REOPEN_INVALID`, `PICKUP_REOPEN_NOT_ALLOWED`, `PICKUP_REOPEN_CHANGED`, `PICKUP_REOPEN_MONEY_NOT_HELD`; a replay answers `alreadyApplied`; transaction-audit `admin_pickup_reopened`. No-show judgements are not re-opened (TASK FUP-330, FUP-331). Admin evidence card and action in en, am, om. `order-lifecycle.md` 2.16.0, `data-models.md` 1.15.0. 2.7.0 is another change's number |
 
 ---
 
-**Last Updated**: 2026-11-12
-**Version**: 2.6.0
+**Last Updated**: 2026-11-13
+**Version**: 2.8.0
 **Status**: Draft (Phase R4.2)
