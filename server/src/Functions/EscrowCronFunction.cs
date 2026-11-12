@@ -1147,6 +1147,16 @@ public class EscrowCronFunction
                     var orderStatus = fundedOrder != null
                         ? GetStringOrNull(fundedOrder, "status") : null;
 
+                    // FUP-66: the safety net above needs the escrow's deliveryId. An order escrow
+                    // whose link to its delivery never landed is checked through the order's active
+                    // delivery, so a confirmed delivery is stamped and never refunded here either.
+                    if (fundedOrder != null
+                        && string.IsNullOrEmpty(GetStringOrNull(baseRow!, "deliveryId"))
+                        && await IsDeliveryConfirmedAndStampAsync(baseRow!, context, fundedOrder))
+                    {
+                        continue;
+                    }
+
                     if (orderStatus == null || !RefundableOrderStatuses.Contains(orderStatus))
                     {
                         // ESC-06: never held past funding + 21 days. Before the cap a live trade gets
@@ -1816,11 +1826,12 @@ public class EscrowCronFunction
                 $"Admin queue entry for order {MoneyAlarmLog.LogId(orderId)}: refund {(exitArmed ? "scheduled" : "not scheduled")} "
                 + $"for its {orderStatus} order.");
         }
-        else if (!exitArmed && !string.IsNullOrEmpty(GetStringOrNull(escrow, "deliveryId")))
+        else if (!exitArmed)
         {
-            // The order status can lag its delivery: a linked delivery that is delivered gets the
-            // escrow stamped, so the release sweep sees it again.
-            exitArmed = await IsDeliveryConfirmedAndStampAsync(escrow, context);
+            // The order status can lag its delivery: a delivery that is delivered (the escrow's, or
+            // for an unlinked order escrow the order's active one, FUP-66) gets the escrow stamped,
+            // so the release sweep sees it again.
+            exitArmed = await IsDeliveryConfirmedAndStampAsync(escrow, context, order);
         }
 
         if (exitArmed)
@@ -1870,10 +1881,16 @@ public class EscrowCronFunction
     /// to write the final status and append an audit entry. ESC-04: a released escrow whose
     /// trucker leg is still owed is not stuck: the query leaves it to the trucker retry, and the
     /// repository refuses to complete it.
+    ///
+    /// FUP-65: a row released less than <see cref="ReleasedRecoveryGrace"/> ago is left alone this run:
+    /// the release that wrote it normally completes it itself within seconds, and completing it here
+    /// only races that write. A row without a readable <c>releasedAt</c> is completed as before. A
+    /// lost race (the release completed it between the query and the write) is not a failure.
     /// </summary>
     private async Task<int> CompleteReleasedAsync(ILambdaContext context)
     {
-        var now = DateTime.UtcNow.ToString("o");
+        var nowUtc = DateTime.UtcNow;
+        var now = nowUtc.ToString("o");
         var escrows = await QuerySweepAsync(context, "complete_query",
             () => _escrowRepo.QueryByStatusForCronAsync("released"));
 
@@ -1882,6 +1899,14 @@ public class EscrowCronFunction
         {
             var escrowId = GetString(escrow, "escrowId");
             var createdAt = GetString(escrow, "createdAt");
+
+            if (ParseUtc(GetStringOrNull(escrow, "releasedAt")) is { } releasedAt
+                && nowUtc - releasedAt < ReleasedRecoveryGrace)
+            {
+                context.Logger.LogInformation(
+                    $"Crash-recovery: 'released' escrow {MoneyAlarmLog.LogId(escrowId)} is younger than the grace, left to its release this run.");
+                continue;
+            }
 
             context.Logger.LogInformation(
                 $"Crash-recovery: completing stuck 'released' escrow {MoneyAlarmLog.LogId(escrowId)}.");
@@ -1910,6 +1935,13 @@ public class EscrowCronFunction
                 // ESC-09: every leg is paid now, so the order is settled.
                 await _escrowService.FollowMoneyAsync(escrowId, "crash_recovery", context);
             }
+            catch (ConditionalCheckFailedException)
+            {
+                // FUP-65: its own release (or a manual close) completed it since the query, or a leg
+                // is owed again: the row's writer owns it, nothing is stuck.
+                context.Logger.LogInformation(
+                    $"Crash-recovery: 'released' escrow {MoneyAlarmLog.LogId(escrowId)} moved on before the write, skipped.");
+            }
             catch (Exception ex)
             {
                 context.Logger.LogError(
@@ -1919,6 +1951,12 @@ public class EscrowCronFunction
 
         return completedCount;
     }
+
+    /// <summary>
+    /// FUP-65: how long the crash recovery leaves a fresh <c>released</c> row to the release that wrote
+    /// it (far above any release's remaining run time, far below the hourly schedule).
+    /// </summary>
+    internal TimeSpan ReleasedRecoveryGrace { get; init; } = TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// ESC-20: the ledger sweep (escrow-protocol.md 2.2.0, P.6), every 15 minutes: open rows due now, oldest
@@ -3381,17 +3419,42 @@ public class EscrowCronFunction
     /// true so the caller SKIPS the refund. Returns false when the delivery is not
     /// confirmed (a genuine timeout → refund proceeds). Best-effort: a stamp failure
     /// still returns true so we never refund a delivered order.
+    /// FUP-66: an order escrow (<c>escrow-order-{orderId}</c>) with no <c>deliveryId</c> (the link
+    /// write failed) is checked through <paramref name="order"/>'s active delivery, when the caller
+    /// has the order row: the delivery must name the same order, and it is read strongly consistent.
     /// </summary>
     private async Task<bool> IsDeliveryConfirmedAndStampAsync(
-        Dictionary<string, object> escrow, ILambdaContext context)
+        Dictionary<string, object> escrow, ILambdaContext context, Dictionary<string, object>? order = null)
     {
-        var deliveryId = GetStringOrNull(escrow, "deliveryId");
-        if (_deliveryRepo == null || string.IsNullOrEmpty(deliveryId))
+        if (_deliveryRepo == null)
         {
             return false;
         }
 
-        return await StampIfDeliveredAsync(escrow, await _deliveryRepo.GetByIdAsync(deliveryId), context);
+        var deliveryId = GetStringOrNull(escrow, "deliveryId");
+        if (!string.IsNullOrEmpty(deliveryId))
+        {
+            return await StampIfDeliveredAsync(escrow, await _deliveryRepo.GetByIdAsync(deliveryId), context);
+        }
+
+        var orderId = GetStringOrNull(escrow, "orderId");
+        var activeDeliveryId = order == null ? null : GetStringOrNull(order, "activeDeliveryId");
+        if (string.IsNullOrEmpty(orderId) || string.IsNullOrEmpty(activeDeliveryId)
+            || !string.Equals(GetString(escrow, "escrowId"), $"escrow-order-{orderId}", StringComparison.Ordinal)
+            || !string.Equals(GetStringOrNull(order!, "orderId"), orderId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var delivery = await _deliveryRepo.GetByIdAsync(activeDeliveryId, consistentRead: true);
+        if (delivery == null || !string.Equals(GetStringOrNull(delivery, "orderId"), orderId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // StampIfDeliveredAsync names the escrow's own delivery in its log line.
+        var named = new Dictionary<string, object>(escrow) { ["deliveryId"] = activeDeliveryId };
+        return await StampIfDeliveredAsync(named, delivery, context);
     }
 
     /// <summary>

@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.3.0
+2.4.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -1236,12 +1236,15 @@ as a delivery with `deliveryType: "self_pickup"`:
   `POST /escrow/initiate`, or a legacy delivery without an `orderId`). The order's escrow is
   read first because its link to the delivery can fail (`ORDER_ESCROW_LINK_FAILED`) or lag
   (1.17.0, FUP-42: before, only the `DeliveryIndex` was asked and such a delivery passed with
-  no QR). When either read fails the answer is also `deferred` (`DELIVERY_NONCE_PENDING`,
+  no QR). When neither finds an escrow, the order is read (strongly consistent): an order with
+  `paymentVerifiedAt` was funded, so its delivery carries money even with no escrow row (the
+  create and its self-heal both failed; 2.4.0, FUP-66: before, it passed as cash). When any of
+  these reads fails the answer is also `deferred` (`DELIVERY_NONCE_PENDING`,
   nothing written, never the 14-day refusal), and the server logs
   `QR_GATE_UNDECIDED deliveryId=.. orderId=.. reason=..`, which the order escrow problems
   alarm counts, so a read that keeps failing is seen. Web clients show their QR-pending text
   for this deferral too (accepted: the user tries again and a later retry clears it). The
-  drop-off of a delivery with no escrow (cash) and no nonce passes without a QR, as before: since
+  drop-off of a delivery with no escrow and no funded order (cash) and no nonce passes without a QR, as before: since
   1.24.0 only one picked up without a QR before then can reach it.
 - Only the delivery's farmer may set `qrNonce` (SIM-41). A `qrNonce` sent on create, or on
   an update by anyone else, is silently dropped. Since 1.22.0 the farmer's nonce op stores the
@@ -1491,9 +1494,10 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 2.1.0 | 2026-11-07 | The order's delivery location (LT-14, `order-lifecycle.md` 2.9.0; the first bullet of P.4 built): a trucker delivery's `gpsDropoff` passes within 5 km of either the trip's destination point or the order's own `deliveryLatitude` and `deliveryLongitude` (read strongly consistent, only when the trip's point did not pass); an unreadable order then answers the retryable internal error. The too-far text now reads `Dropoff GPS is <d>km from the drop-off point (max 5km).` (the `DELIVERY_GPS_PROXIMITY` prefix the clients key on is unchanged). The admin dispute evidence's planned drop-off is the nearer of the two points (`escrow-protocol.md` 2.1.1). |
 | 2.3.0 | 2026-11-11 | No id as a name (FUP-130): on create, the order row's name is the fallback for a party without a profile name only when it is a real name; the party's id or any UUID there is ignored, so the create is rejected with `DELIVERY_VALIDATION` (no name known) instead of storing the id. Clients send an empty `farmerName` rather than the id. (2.2.0 is taken by a change on another open branch.) |
 | 2.2.0 | 2026-11-11 | Updates behind a cancel (FUP-128, `sync-protocol.md` 1.45.0): an update that reaches a `cancelled` delivery (or a legacy `deletedAt` row) with a `version` behind the stored one answers `conflict` with the scrubbed row to a caller who may make the change (trucker: `pickedUp`, `inTransit`, an update without a status; buyer: `delivered`; any party: `disputed`; farmer: an update storing `qrNonce`) instead of the `DELIVERY_ALREADY_CANCELLED` error, which stands for anyone else and at the stored version or without one; nothing is written and the transport-cancel pickup alarm still logs. The mobile queue no longer resends that error and puts the delivery back from the server |
+| 2.4.0 | 2026-11-12 | QR gate, a funded order without an escrow row (FUP-66, `escrow-protocol.md` 2.8.0): when neither the order's escrow nor the `DeliveryIndex` finds an escrow, the order is read (strongly consistent) and a `paymentVerifiedAt` on it makes the delivery money-bearing, so a trucker's drop-off with no nonce is `deferred` (then `DELIVERY_NONCE_MISSING` after 14 days) and a typed code needs the leg's GPS. Before, such a delivery passed as cash. A failed order read defers with `QR_GATE_UNDECIDED`, as the escrow reads do. An order never funded, or a delivery without an order, passes as before. Server only; no client change. |
 
 ---
 
-**Last Updated**: 2026-11-11
-**Version**: 2.3.0
+**Last Updated**: 2026-11-12
+**Version**: 2.4.0
 **Status**: Draft (Phase R4.2)

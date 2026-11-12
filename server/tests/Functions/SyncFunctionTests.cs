@@ -2935,8 +2935,157 @@ public partial class SyncFunctionTests
             Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
+    // ---- FUP-66: the delivered stamp for an order escrow the DeliveryIndex does not know ----
+
+    private async Task<IEscrowRepository> ConfirmDeliveryOfOrderAsync(
+        Dictionary<string, object>? orderEscrow, Dictionary<string, object>? indexEscrow = null)
+    {
+        var mockEscrow = Substitute.For<IEscrowRepository>();
+        mockEscrow.GetByDeliveryIdAsync("del-001").Returns(indexEscrow);
+        mockEscrow.GetByIdAsync("escrow-order-ord-66", true).Returns(orderEscrow);
+
+        var function = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, escrowRepo: mockEscrow);
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "nonce-66", orderId: "ord-66");
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-deliver-66",
+            IdempotencyKey = "buyer-001:delivery:del-001:update:deliver-66",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "delivered" },
+                { "version", 1 },
+                { "scannedQrNonce", "nonce-66" }
+            }
+        };
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "buyer-001", "buyer"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        return mockEscrow;
+    }
+
+    private static Dictionary<string, object> OrderEscrow66(
+        string status = "escrowed", string orderId = "ord-66", string? deliveryId = null, string? confirmedAt = null)
+    {
+        var escrow = new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-order-ord-66" }, { "orderId", orderId }, { "source", "order" },
+            { "createdAt", "2026-02-16T10:00:00Z" }, { "status", status }
+        };
+        if (deliveryId != null)
+        {
+            escrow["deliveryId"] = deliveryId;
+        }
+
+        if (confirmedAt != null)
+        {
+            escrow["deliveryConfirmedAt"] = confirmedAt;
+        }
+
+        return escrow;
+    }
+
+    private static Task DidNotStampAsync(IEscrowRepository escrow) => escrow.DidNotReceive().UpdateStatusAsync(
+        Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("del-001")]
+    public async Task DeliveryConfirmed_UnlinkedOrderEscrow_IsStampedByTheOrderKey(string? linkedDeliveryId)
+    {
+        // The link write failed (ORDER_ESCROW_LINK_FAILED) or the index lags: the DeliveryIndex finds
+        // nothing, and the stamp used to stop there, so the escrow was never paid by the auto-release.
+        var escrow = await ConfirmDeliveryOfOrderAsync(OrderEscrow66(deliveryId: linkedDeliveryId));
+
+        await escrow.Received(1).GetByIdAsync("escrow-order-ord-66", true);
+        await escrow.Received(1).UpdateStatusAsync(
+            "escrow-order-ord-66", "2026-02-16T10:00:00Z", "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f =>
+                f.ContainsKey("deliveryConfirmedAt") && f.ContainsKey("disputeWindowEndsAt") && !f.ContainsKey("deliveryId")));
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_LinkedEscrowFoundByTheIndex_TheOrderKeyIsNotRead()
+    {
+        var escrow = await ConfirmDeliveryOfOrderAsync(
+            orderEscrow: null, indexEscrow: OrderEscrow66(deliveryId: "del-001"));
+
+        await escrow.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await escrow.Received(1).UpdateStatusAsync(
+            "escrow-order-ord-66", Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => f.ContainsKey("deliveryConfirmedAt")));
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_OrderEscrowLinkedToAnotherDelivery_IsNotStamped()
+    {
+        await DidNotStampAsync(await ConfirmDeliveryOfOrderAsync(OrderEscrow66(deliveryId: "del-other")));
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_OrderEscrowOfAnotherOrder_IsNotStamped()
+    {
+        await DidNotStampAsync(await ConfirmDeliveryOfOrderAsync(OrderEscrow66(orderId: "ord-other")));
+    }
+
+    [Theory]
+    [InlineData("released", null)]
+    [InlineData("disputed", null)]
+    [InlineData("refunded", null)]
+    [InlineData("escrowed", "2026-02-18T09:00:00Z")]
+    public async Task DeliveryConfirmed_UnlinkedOrderEscrow_NotWaitingOrAlreadyStamped_IsNotStamped(
+        string status, string? confirmedAt)
+    {
+        await DidNotStampAsync(await ConfirmDeliveryOfOrderAsync(OrderEscrow66(status, confirmedAt: confirmedAt)));
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_NoEscrowOfEitherKind_NothingIsStamped()
+    {
+        await DidNotStampAsync(await ConfirmDeliveryOfOrderAsync(orderEscrow: null));
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_OrderKeyReadFails_TheDeliveryStillConfirms_AndTheStampFailureIsAlarmed()
+    {
+        var mockEscrow = Substitute.For<IEscrowRepository>();
+        mockEscrow.GetByDeliveryIdAsync("del-001").Returns((Dictionary<string, object>?)null);
+        mockEscrow.GetByIdAsync("escrow-order-ord-66", true).ThrowsAsync(new TimeoutException("slow"));
+        var function = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, escrowRepo: mockEscrow);
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "nonce-66", orderId: "ord-66");
+
+        var response = await function.FunctionHandler(MakeAuthenticatedRequest(MakeSyncRequest(new SyncOperationRequest
+        {
+            OperationId = "op-deliver-66f",
+            IdempotencyKey = "buyer-001:delivery:del-001:update:deliver-66f",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "delivered" }, { "version", 1 }, { "scannedQrNonce", "nonce-66" }
+            }
+        }), "buyer-001", "buyer"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        Assert.Contains("ESCROW_DELIVERY_STAMP_FAILED deliveryId=del-001 source=sync reason=[TimeoutException]",
+            ((TestLambdaLogger)_context.Logger).Buffer.ToString());
+    }
+
     private void SetupExistingDeliveryWithQrNonce(
-        string deliveryId, string truckerId, string status, int version, string qrNonce)
+        string deliveryId, string truckerId, string status, int version, string qrNonce, string? orderId = null)
     {
         var item = new Dictionary<string, AttributeValue>
         {
@@ -2961,6 +3110,10 @@ public partial class SyncFunctionTests
             { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
             { "version", new AttributeValue { N = version.ToString() } }
         };
+        if (orderId != null)
+        {
+            item["orderId"] = new AttributeValue { S = orderId };
+        }
 
         _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r =>
                 r.TableName == "test-deliveries-table"))
