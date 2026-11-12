@@ -183,9 +183,9 @@ function emptyTrail(): DeliveryTrail {
   };
 }
 
-function renderPage() {
+function renderPage(path = "/disputes/escrow-1") {
   return render(
-    <MemoryRouter initialEntries={["/disputes/escrow-1"]}>
+    <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/disputes/:id" element={<DisputeDetailPage />} />
       </Routes>
@@ -727,6 +727,22 @@ describe("DisputeDetailPage per-leg verdict (ESC-24)", () => {
     mocks.escrow.data = { escrow: { ...ledgerEscrow, legStatus: { crop: "released", transport: "held", commission: "kept" } } };
     renderPage();
     expect(screen.queryByRole("button", { name: "Decide per leg" })).toBeNull();
+  });
+
+  it("opens with the form shown from the Disputes list's per-leg link (FUP-173)", () => {
+    renderPage("/disputes/escrow-1?decide=split");
+
+    expect((screen.getByLabelText("Farmer receives (crop leg), in Birr") as HTMLInputElement).value).toBe("15000.00");
+    expect((screen.getByRole("button", { name: "Decide per leg" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("the per-leg link shows no form where the server takes no split (FUP-173)", () => {
+    mocks.escrow.data = { escrow: { ...ledgerEscrow, legStatus: { crop: "released", transport: "held", commission: "kept" } } };
+    renderPage("/disputes/escrow-1?decide=split");
+
+    expect(screen.queryByLabelText("Farmer receives (crop leg), in Birr")).toBeNull();
+    expect(screen.getByRole("button", { name: "Farmer Wins" })).toBeTruthy();
   });
 
   it("starts from the full legs, shows the resulting amounts, and needs a reason before the review", async () => {
