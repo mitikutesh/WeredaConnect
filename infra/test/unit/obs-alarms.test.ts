@@ -442,9 +442,10 @@ describe('FUP-201: the ESC-33 lines nothing counted', () => {
     // The reasons the guard logs are exactly the metrics the stack publishes.
     const logged = [...new Set([...fraud.matchAll(/Skipped\(AttributedSignalOutcome\.(\w+)\)/g)].map((m) => m[1]))].sort();
     expect(logged).toEqual([...REASONS].sort());
-    // Only sync writes attributed signals today.
+    // Only sync writes attributed signals today (FUP-203 moved the call to a partial file of SyncFunction).
     const callers = serverFilesMatching(/\.RecordAttributedSignalAsync\(/).filter((f) => f.startsWith('Functions/'));
-    expect(callers).toEqual(['Functions/SyncFunction.cs']);
+    expect(callers.length).toBeGreaterThan(0);
+    expect([...new Set(callers.map((f) => path.basename(f).split('.')[0]))]).toEqual(['SyncFunction']);
     expect(logGroupsOfHandlerFiles(callers)).toEqual([lg('sync')]);
   });
 });
