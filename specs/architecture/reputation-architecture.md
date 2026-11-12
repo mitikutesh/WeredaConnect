@@ -640,6 +640,21 @@ gets the two types in ESC-28.
 - The server stops computing `farmerReliability` at crop create (`SyncFunction`); read models keep
   returning a stored value until a later contract drops it.
 
+**As built (ESC-30, `match-api.md` 1.4.0)**:
+- One rule on both sides, `ReliabilityFromPct` (C#) and `reliabilityFromPct` (Dart): absent is
+  0.7, else `pct / 100` clamped to [0, 1]. The golden vectors (absent, 0, 50, 70, 83, 100, minus 5,
+  150) and one ranked order are duplicated in `MatchScoringTests` and `match_scorer_test.dart`.
+- The server scores with the field as the caller is given it (`OwnerReputationView`), so with
+  `reputationPublicTags` off the score is neutral even where a copy is stored, and the server's
+  ranking equals the one the app computes from its rows.
+- Trips: `MatchScorer.rankTripSuggestions` (mobile and web) keeps price as the first key and
+  orders equal prices by the trucker's reliability, unknown as 70, otherwise the previous order.
+  `/match` reads no trips, so there is no C# twin.
+- The apps store only `ownerReliabilityPct` on the cached crop and trip rows; the other owner
+  fields are left to ESC-31.
+- The push alert Lambda scores with the neutral value (it has no public tags flag).
+- `farmerReliability` is also dropped from client payloads on `/sync`.
+
 ---
 
 ## 12. Rollout

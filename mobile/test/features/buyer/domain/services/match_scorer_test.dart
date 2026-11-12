@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
 
 /// Pure unit tests for [MatchScorer] — no Isar, no network.
@@ -36,6 +37,7 @@ void main() {
     double lat = 0,
     double lon = 0,
     DateTime? createdAt,
+    int? ownerReliabilityPct,
     double? farmerReliability,
   }) {
     return CropListing()
@@ -49,6 +51,7 @@ void main() {
         ..longitude = lon)
       ..locationName = locationName
       ..description = ''
+      ..ownerReliabilityPct = ownerReliabilityPct
       ..farmerReliability = farmerReliability
       ..status = ListingStatus.active
       ..createdAt = createdAt ?? now
@@ -316,21 +319,96 @@ void main() {
     });
 
     test('golden vector: reliability moves the score by its full weight', () {
-      // A perfect match with a flaky farmer (reliability 0.2) vs a proven one
-      // (1.0) must differ by exactly wReliability * (1.0 - 0.2) = 0.08.
+      // A perfect match from a farmer at 20 against one at 100 differs by
+      // wReliability * (1.0 - 0.2) = 0.08.
       final flaky = scorer.scoreListing(
         intent(),
-        listing(farmerReliability: 0.2),
+        listing(ownerReliabilityPct: 20),
         now,
       );
       final proven = scorer.scoreListing(
         intent(),
-        listing(farmerReliability: 1.0),
+        listing(ownerReliabilityPct: 100),
         now,
       );
       expect(proven - flaky, closeTo(MatchScorer.wReliability * 0.8, 1e-9));
       // A proven farmer's perfect match reaches the top of the range.
       expect(proven, closeTo(1.0, 1e-9));
+    });
+
+    test('reliability golden vectors (ESC-30, same table as the C# side)', () {
+      // ownerReliabilityPct / 100 is the reliability signal, absent is the
+      // neutral 0.7. A perfect match otherwise, so the score is
+      // 0.90 + 0.10 * reliability. Rows: pct, signal, score.
+      const vectors = <(int?, double, double)>[
+        (null, 0.7, 0.97), // absent: flag off, under 3 orders, no copy yet
+        (0, 0.0, 0.90),
+        (50, 0.5, 0.95),
+        (70, 0.7, 0.97), // equal to the neutral value: same score as absent
+        (83, 0.83, 0.983),
+        (100, 1.0, 1.0),
+        (-5, 0.0, 0.90), // out of range values are clamped
+        (150, 1.0, 1.0),
+      ];
+      for (final (pct, signal, score) in vectors) {
+        expect(scorer.reliabilityFromPct(pct), closeTo(signal, 1e-12));
+        final crop = listing(ownerReliabilityPct: pct);
+        expect(scorer.reliabilityScore(crop), closeTo(signal, 1e-12));
+        expect(
+          scorer.scoreListing(intent(), crop, now),
+          closeTo(score, 1e-9),
+          reason: 'ownerReliabilityPct $pct',
+        );
+      }
+    });
+
+    test('the old farmerReliability no longer moves the score', () {
+      // Rows synced before ESC-30 may still hold it (null or 1.0 in
+      // practice). It is ignored: such a row scores as neutral.
+      final legacy = scorer.scoreListing(
+        intent(),
+        listing(farmerReliability: 1.0),
+        now,
+      );
+      expect(legacy, closeTo(0.97, 1e-9));
+    });
+
+    test('golden ranking order with reliability is identical across platforms',
+        () {
+      // Duplicated verbatim on the C# side. Four listings equal in everything
+      // but the farmer's reliability, and one pricier listing from a proven
+      // farmer: reliability only reorders listings that are otherwise close.
+      final i = intent();
+      final scores = <String, double>{
+        'unknown': scorer.scoreListing(i, listing(), now), // 0.97
+        'proven': scorer.scoreListing(
+          i,
+          listing(ownerReliabilityPct: 100),
+          now,
+        ), // 1.0
+        'average': scorer.scoreListing(
+          i,
+          listing(ownerReliabilityPct: 50),
+          now,
+        ), // 0.95
+        'flaky': scorer.scoreListing(
+          i,
+          listing(ownerReliabilityPct: 0),
+          now,
+        ), // 0.90
+        'proven-pricey': scorer.scoreListing(
+          i,
+          listing(pricePerKg: 110, ownerReliabilityPct: 100),
+          now,
+        ), // 0.866667
+      };
+      final ranked = scores.keys.toList()
+        ..sort((a, b) => scores[b]!.compareTo(scores[a]!));
+      expect(
+        ranked,
+        ['proven', 'unknown', 'average', 'flaky', 'proven-pricey'],
+      );
+      expect(scores['proven-pricey'], closeTo(0.866667, 1e-6));
     });
 
     test('haversine Adama→Mekelle pins radius and units (~0.083)', () {
@@ -425,6 +503,78 @@ void main() {
         ),
         isTrue,
       );
+    });
+  });
+
+  group('rankTripSuggestions (ESC-30)', () {
+    Trip trip(String id, double price, [int? reliabilityPct]) => Trip()
+      ..tripId = id
+      ..truckerId = 't-$id'
+      ..truckerName = 'Trucker'
+      ..truckerPhone = ''
+      ..fromWoreda = 'Adama'
+      ..toWoreda = 'Addis Ababa'
+      ..departureDate = now
+      ..capacity = 100
+      ..pricePerQuintal = price
+      ..ownerReliabilityPct = reliabilityPct
+      ..status = TripStatus.open
+      ..matchedListings = <String>[]
+      ..createdAt = now
+      ..updatedAt = now
+      ..version = 1;
+
+    List<String> ranked(List<Trip> trips) =>
+        scorer.rankTripSuggestions(trips).map((t) => t.tripId).toList();
+
+    test('golden order: price first, then the more reliable trucker', () {
+      // The same vector runs through MatchingService (Isar) and
+      // WebMatchingService in their own tests.
+      expect(
+        ranked([
+          trip('pricey-proven', 15, 100),
+          trip('mid-unknown', 12),
+          trip('mid-low', 12, 40),
+          trip('mid-proven', 12, 95),
+          trip('mid-seventy', 12, 70),
+          trip('cheap-flaky', 10, 20),
+        ]),
+        [
+          'cheap-flaky', // the cheapest stays first whatever its reliability
+          'mid-proven',
+          'mid-unknown', // unknown counts as the neutral 70
+          'mid-seventy', // ties with unknown: input order kept
+          'mid-low',
+          'pricey-proven',
+        ],
+      );
+    });
+
+    test('no reliability on any trip: exactly the old price order', () {
+      // Flags off. Equal prices keep the order they came in.
+      expect(
+        ranked([trip('b', 12), trip('c', 10), trip('a', 12), trip('d', 10)]),
+        ['c', 'd', 'b', 'a'],
+      );
+    });
+
+    test('extreme and out of range values are clamped', () {
+      expect(
+        ranked([
+          trip('zero', 10, 0),
+          trip('negative', 10, -20),
+          trip('over', 10, 250),
+          trip('hundred', 10, 100),
+        ]),
+        ['over', 'hundred', 'zero', 'negative'],
+      );
+    });
+
+    test('an empty list stays empty and the input is not reordered', () {
+      expect(scorer.rankTripSuggestions(const <Trip>[]), isEmpty);
+      final input = [trip('b', 12), trip('a', 10)];
+      scorer.rankTripSuggestions(input);
+      expect(input.map((t) => t.tripId), ['b', 'a']);
     });
   });
 }

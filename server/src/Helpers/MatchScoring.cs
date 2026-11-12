@@ -29,10 +29,12 @@ public sealed record CropCandidate
     public required DateTime CreatedAt { get; init; }
 
     /// <summary>
-    /// Farmer's reliability in [0, 1] (listing-conversion track record),
-    /// denormalized onto the crop. Null when unknown → neutral default.
+    /// ESC-30: the farmer's <c>ownerReliabilityPct</c> (0 to 100, reputation-api.md section 7)
+    /// as the caller is allowed to read it. Null when the caller gets no value (the
+    /// <c>reputationPublicTags</c> flag is off, the farmer has fewer than 3 orders, or the row
+    /// has no copy yet): the score then uses <see cref="MatchScoring.ReliabilityNeutral"/>.
     /// </summary>
-    public double? FarmerReliability { get; init; }
+    public int? OwnerReliabilityPct { get; init; }
 }
 
 /// <summary>
@@ -72,7 +74,12 @@ public static class MatchScoring
     public const double GeoPartial = 0.6;
     public const double GeoHalfScoreKm = 50.0;
 
-    /// <summary>Reliability assumed for a farmer with no track record.</summary>
+    /// <summary>
+    /// Reliability assumed when the owner's <c>reliabilityPct</c> is absent (flag off, fewer than
+    /// 3 orders, a row without the copy). It is the value every listing scored with before
+    /// ESC-30 in practice, so a flags-off ranking is the old neutral ranking, and a known
+    /// reliability only moves a listing up (above 70) or down (below 70) from there.
+    /// </summary>
     public const double ReliabilityNeutral = 0.7;
 
     private const double EarthRadiusKm = 6371.0;
@@ -203,12 +210,19 @@ public static class MatchScoring
     }
 
     /// <summary>
-    /// Farmer reliability signal: the crop's denormalized
-    /// <see cref="CropCandidate.FarmerReliability"/>, or the neutral default
-    /// when unknown.
+    /// ESC-30: an owner's <c>reliabilityPct</c> (0 to 100) as a 0..1 signal, or
+    /// <see cref="ReliabilityNeutral"/> when absent. Out of range values are clamped. The Dart
+    /// scorer's <c>reliabilityFromPct</c> is the same rule.
+    /// </summary>
+    public static double ReliabilityFromPct(int? reliabilityPct)
+        => reliabilityPct is int pct ? Math.Clamp(pct / 100.0, 0.0, 1.0) : ReliabilityNeutral;
+
+    /// <summary>
+    /// Farmer reliability signal: the crop's
+    /// <see cref="CropCandidate.OwnerReliabilityPct"/> through <see cref="ReliabilityFromPct"/>.
     /// </summary>
     public static double ReliabilityScore(CropCandidate crop)
-        => Math.Clamp(crop.FarmerReliability ?? ReliabilityNeutral, 0.0, 1.0);
+        => ReliabilityFromPct(crop.OwnerReliabilityPct);
 
     /// <summary>Overall 0..1 relevance score for a crop against the criteria.</summary>
     public static double ScoreListing(MatchCriteria criteria, CropCandidate crop)

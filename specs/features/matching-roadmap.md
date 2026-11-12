@@ -74,7 +74,13 @@ type-driven (PK=`cropType`) and geo is a **soft** ranking signal, so a geohash
 semantics. Add it only when an area-browse feature needs it — with its own query
 consumer — not for matching.
 
-### 5. Reliability from order outcomes (FUTURE: richer signal)
+### 5. Reliability from order outcomes (DONE 2026-11-12, ESC-30)
+Built: the reliability signal is now the owner's `reliabilityPct` from the reputation system
+(completed orders over completed, fault-cancelled and no-show orders in 90 days), read from the
+`ownerReliabilityPct` copy on the listing; absent means the neutral 0.7. The same value orders
+equally priced trip suggestions. The matcher still reads no order or escrow row. See
+`specs/contracts/match-api.md` 1.4.0. The original note follows.
+
 Reliability today is a listing-conversion proxy (fraction of a farmer's prior
 listings that reached `sold`), computed escrow-free at crop-create time. A
 richer signal — accept rate, on-time completion — would come from the

@@ -1,5 +1,6 @@
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/buyer/domain/woreda_centroids.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_distance_service.dart';
 import 'package:wereda_connect/shared/services/place_normalizer.dart';
@@ -25,9 +26,11 @@ import 'package:wereda_connect/shared/services/place_normalizer.dart';
 ///   intents carry coordinates / a woreda-centroid table exists)
 /// - **quantity**: partial-fill ratio (listing covers what fraction of need)
 /// - **freshness**: listing recency (newer = fresher), decaying to a floor
-/// - **reliability**: farmer's listing-conversion track record (server-injected
-///   onto the listing); unknown farmers score a neutral default so they're
-///   neither rewarded nor punished until they have a history
+/// - **reliability**: the farmer's `ownerReliabilityPct` (completed orders
+///   over completed, fault-cancelled and no-show orders in 90 days, copied
+///   onto the listing by the server, ESC-30); a listing without it scores a
+///   neutral default so a farmer is neither rewarded nor punished until they
+///   have a history
 class MatchScorer {
   const MatchScorer();
 
@@ -39,9 +42,12 @@ class MatchScorer {
   static const double wFreshness = 0.10;
   static const double wReliability = 0.10;
 
-  /// Reliability score assumed for a farmer with no track record (or a listing
-  /// that predates reliability injection). Neutral — mildly below a proven
-  /// farmer, mildly above a flaky one — so new farmers aren't shut out.
+  /// Reliability assumed when the owner's `reliabilityPct` is absent: the
+  /// public reputation flag is off, the owner has fewer than 3 orders, or the
+  /// row has no copy yet. It is the value every listing scored with before
+  /// ESC-30 in practice, so a flags-off ranking is the old neutral ranking,
+  /// and a known reliability only moves a listing up (above 70) or down
+  /// (below 70) from there. Same value as the server's `ReliabilityNeutral`.
   static const double reliabilityNeutral = 0.7;
 
   /// A crop slightly over budget is still shown (with a decayed price score)
@@ -202,10 +208,38 @@ class MatchScorer {
     return decayed.clamp(freshFloor, 1.0);
   }
 
-  /// Farmer reliability signal: the listing's server-injected
-  /// [CropListing.farmerReliability], or [reliabilityNeutral] when absent.
+  /// ESC-30: an owner's `reliabilityPct` (0 to 100) as a 0..1 signal, or
+  /// [reliabilityNeutral] when absent. Out of range values are clamped. The
+  /// server's `MatchScoring.ReliabilityFromPct` is the same rule.
+  double reliabilityFromPct(int? reliabilityPct) => reliabilityPct == null
+      ? reliabilityNeutral
+      : (reliabilityPct / 100.0).clamp(0.0, 1.0);
+
+  /// Farmer reliability signal: the listing's server-written
+  /// [CropListing.ownerReliabilityPct] through [reliabilityFromPct].
   double reliabilityScore(CropListing listing) =>
-      (listing.farmerReliability ?? reliabilityNeutral).clamp(0.0, 1.0);
+      reliabilityFromPct(listing.ownerReliabilityPct);
+
+  /// ESC-30: the order of the trips suggested for a crop, shared by the
+  /// mobile and the web matching service.
+  ///
+  /// Cheapest first, as before. Among trips at the same price the trucker
+  /// with the higher [reliabilityFromPct] comes first (an unknown trucker
+  /// counts as [reliabilityNeutral]). Trips equal on both keep the order they
+  /// came in, so with no reliability on any row (the flag off) the result is
+  /// exactly the old price order, and the first trip is always a cheapest
+  /// one (the estimated total uses it).
+  List<Trip> rankTripSuggestions(Iterable<Trip> trips) {
+    final indexed = trips.indexed.toList()
+      ..sort((a, b) {
+        final byPrice = a.$2.pricePerQuintal.compareTo(b.$2.pricePerQuintal);
+        if (byPrice != 0) return byPrice;
+        final byReliability = reliabilityFromPct(b.$2.ownerReliabilityPct)
+            .compareTo(reliabilityFromPct(a.$2.ownerReliabilityPct));
+        return byReliability != 0 ? byReliability : a.$1.compareTo(b.$1);
+      });
+    return [for (final entry in indexed) entry.$2];
+  }
 
   /// Overall 0..1 relevance score for [listing] against [intent] at [now].
   double scoreListing(BuyerIntent intent, CropListing listing, DateTime now) {

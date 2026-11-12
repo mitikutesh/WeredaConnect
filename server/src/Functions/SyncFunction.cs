@@ -452,7 +452,10 @@ public partial class SyncFunction
         "isFlagged", "flagReason", "gpsAnomalyFlag",
         // ESC-29 (reputation-api.md section 7): the owner's copied reputation, written by the server only.
         OwnerReputationFields.TierField, OwnerReputationFields.EffectiveRatingField, OwnerReputationFields.RatingCountField,
-        OwnerReputationFields.ReliabilityPctField, OwnerReputationFields.AtField
+        OwnerReputationFields.ReliabilityPctField, OwnerReputationFields.AtField,
+        // ESC-30: the old listing-conversion reliability is no longer computed or scored; a
+        // client value is never stored.
+        "farmerReliability"
     };
 
     // FIX-007: Identity fields are immutable after delivery creation
@@ -2534,70 +2537,6 @@ public partial class SyncFunction
         Message = RiskGatePolicy.SyncMessage
     };
 
-    /// <summary>Minimum resolved listings before a farmer gets a computed reliability.</summary>
-    private const int MinListingsForReliability = 3;
-
-    /// <summary>Candidate pages walked when computing farmer reliability.</summary>
-    private const int ReliabilityMaxPages = 3;
-
-    /// <summary>
-    /// Farmer reliability = fraction of the farmer's prior listings that reached
-    /// <c>sold</c>, over all resolved listings (sold or expired). Returns null
-    /// when the farmer has fewer than <see cref="MinListingsForReliability"/>
-    /// resolved listings (→ neutral default in scoring) or on any read failure
-    /// (best-effort: reliability must never block crop creation).
-    ///
-    /// Escrow-free and cheap: one bounded query over the farmer's own crops at
-    /// create time, no per-match reads and no order/escrow coupling.
-    /// </summary>
-    private async Task<double?> ComputeFarmerReliabilityAsync(
-        string farmerId, ILambdaContext context)
-    {
-        try
-        {
-            var sold = 0;
-            var resolved = 0;
-            Dictionary<string, AttributeValue>? startKey = null;
-            var pages = 0;
-
-            do
-            {
-                var (items, lastKey) = await _cropRepo.QueryCropsAsync(
-                    farmerId: farmerId, limit: 100, exclusiveStartKey: startKey);
-
-                foreach (var item in items)
-                {
-                    var status = (item.TryGetValue("status", out var s) ? s?.ToString() : null)
-                        ?? "";
-                    if (string.Equals(status, "sold", StringComparison.OrdinalIgnoreCase))
-                    {
-                        sold++;
-                        resolved++;
-                    }
-                    else if (string.Equals(status, "expired", StringComparison.OrdinalIgnoreCase))
-                    {
-                        resolved++;
-                    }
-                }
-
-                startKey = lastKey;
-            }
-            while (startKey != null && ++pages < ReliabilityMaxPages);
-
-            if (resolved < MinListingsForReliability)
-            {
-                return null;
-            }
-
-            return Math.Clamp((double)sold / resolved, 0.0, 1.0);
-        }
-        catch (Exception ex)
-        {
-            context.Logger.LogWarning($"Reliability compute skipped: [{ex.GetType().Name}]");
-            return null;
-        }
-    }
-
     /// <summary>
     /// Process a crop_listing sync operation (create, update, delete).
     /// Uses version-based conflict detection per sync-protocol.md.
@@ -2759,17 +2698,6 @@ public partial class SyncFunction
 
                     // FIX-010: Force initial status to "available" on create
                     operation.Data["status"] = "available";
-
-                    // Denormalize the farmer's reliability (listing-conversion
-                    // track record) onto the new listing so the matcher can
-                    // fold it into ranking without a per-candidate read.
-                    // Best-effort: a failure just leaves it unset (neutral).
-                    var reliability = await ComputeFarmerReliabilityAsync(
-                        authenticatedUserId!, context);
-                    if (reliability is double rel)
-                    {
-                        operation.Data["farmerReliability"] = rel;
-                    }
 
                     NormalizeCropPhotoIds(operation.Data);
                     StampOwnerReputation(operation.Data);

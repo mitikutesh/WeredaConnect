@@ -1,7 +1,7 @@
 # Data Models Contract
 
-**Version**: 1.10.0
-**Last Updated**: 2026-11-11
+**Version**: 1.11.0
+**Last Updated**: 2026-11-12
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
 
@@ -50,6 +50,8 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `description` | String | Yes | Crop condition/quality | Supports Amharic/Oromo/English |
 | `audioNoteRef` | String? | No | Voice note file reference | Format: `audio/{userId}/{listingId}.m4a` |
 | `photos` | List<CropPhoto> | Yes on new listings | 2 to 4 photos, the first the cover (`crop-listing-api.md` 1.6.0) | Embedded `CropPhoto`: `photoId` (UUID), `thumbUrl` / `fullUrl` (presigned, short-lived; cache by `photoId`), and on the farmer's own device `localPath`, `contentType`, `sizeBytes`, `uploaded`. On the wire: `photoIds` in the sync create, `photos` on reads |
+| `ownerReliabilityPct` | int? | No | The farmer's reliability in whole percent, the server's copy on the row (`reputation-api.md` section 7) | Server-written; null when the server sends none (flag off, under 3 orders, no copy); the matcher's reliability input (`match-api.md` 1.4.0) |
+| `farmerReliability` | double? | No | Deprecated: the old listing-conversion value | No longer written by the server or read by the matcher (1.11.0) |
 | `status` | ListingStatus | Yes | Enum: draft/active/sold/expired | Lifecycle state |
 | `createdAt` | DateTime | Yes | UTC timestamp | Listing creation time |
 | `updatedAt` | DateTime | Yes | UTC timestamp | Last edit time |
@@ -102,6 +104,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `matchedListings` | List<String> | Yes | Crop listing IDs | Empty when open, populated when matched |
 | `bookedQuintals` | double? | No | Quintals held by funded and accepted orders (trip-listing-api 2.0.0) | Server-written; null on older rows |
 | `remainingQuintals` | double? | No | `capacity - bookedQuintals`; null on older rows, read as `capacity` | The free room buyers can order |
+| `ownerReliabilityPct` | int? | No | The trucker's reliability in whole percent, the server's copy on the row (`reputation-api.md` section 7) | Server-written; null when the server sends none; orders equally priced trip suggestions (`match-api.md` 1.4.0) |
 | `bookedOrderIds` | List<String> | No | Orders holding capacity (server row only, not in `TripDto`) | Released when the order leaves the trip |
 | `acceptedOrderIds` | List<String> | No | Orders the trucker accepted (server row only) | Confirmed at the trucker's accept |
 | `createdAt` | DateTime | Yes | UTC timestamp | Trip posted time |
@@ -472,6 +475,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.8.0 | 2026-11-07 | Server escrow ledger (escrow-protocol 2.2.0, ESC-20): the escrow row's ledger fields (`settlementModel`, `legStatus`, `refundedTotal`, `releasedTotal`, `verdictAmounts`, `releaseTrigger`, `refundTrigger`) and the new server-only EscrowLedger row (5a). No Isar or web model change | @Server |
 | 1.9.0 | 2026-11-11 | Server escrow row gains the server-only `releaseOrigin` (FUP-137: `auto_release` for a release the hourly auto-release started, written with the release or its manual payout queue entry; read by the clean-delivery credit). No client field changes | @Server |
 | 1.10.0 | 2026-11-11 | Order `farmerName` is never an id (order-lifecycle 2.11.0, FUP-130): the server writes the listing's name or the empty string, whatever the client sent; `truckerName` is the trip's name or absent. No schema change. |
+| 1.11.0 | 2026-11-12 | CropListing and Trip gain `ownerReliabilityPct` on the client (Isar schema and web mirror), parsed from `GET /crops` and `GET /trips` for the offline matcher (ESC-30, `match-api.md` 1.4.0); CropListing `farmerReliability` is deprecated. The other owner fields come with ESC-31 | @Mobile |
 
 ---
 

@@ -194,7 +194,7 @@ public class MatchFunction
                             continue;
                         }
 
-                        var candidate = ToCandidate(item, criteria.NowUtc);
+                        var candidate = ToCandidate(item, criteria.NowUtc, ReputationPublicTags);
                         if (!MatchScoring.IsCandidate(criteria, candidate))
                         {
                             continue;
@@ -245,7 +245,12 @@ public class MatchFunction
         }
     }
 
-    private static CropCandidate ToCandidate(Dictionary<string, object> item, DateTime nowUtc)
+    /// <summary>
+    /// ESC-30: the reliability the score uses is the one the caller is shown (the owner fields
+    /// through <see cref="OwnerReputationView"/>), so with <c>reputationPublicTags</c> off the
+    /// score is the neutral one and the server ranks exactly as the client does from its rows.
+    /// </summary>
+    private static CropCandidate ToCandidate(Dictionary<string, object> item, DateTime nowUtc, bool publicTags)
     {
         return new CropCandidate
         {
@@ -256,7 +261,7 @@ public class MatchFunction
             Latitude = GetDouble(item, "latitude"),
             Longitude = GetDouble(item, "longitude"),
             CreatedAt = ParseDate(GetStringOrNull(item, "createdAt"), nowUtc),
-            FarmerReliability = GetDouble(item, "farmerReliability"),
+            OwnerReliabilityPct = OwnerReputationView.Of(item, publicTags).ReliabilityPct,
         };
     }
 
@@ -284,7 +289,7 @@ public class MatchFunction
             Longitude = candidate.Longitude,
             Score = score,
             IsSubstitute = isSubstitute,
-            FarmerReliability = candidate.FarmerReliability,
+            FarmerReliability = GetDouble(item, "farmerReliability"),
         };
     }
 

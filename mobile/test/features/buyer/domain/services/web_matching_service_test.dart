@@ -43,8 +43,11 @@ void main() {
     String woreda = 'Adama',
     double quantityKg = 10,
     double pricePerKg = 100.0,
+    int? ownerReliabilityPct,
   }) =>
       {
+        if (ownerReliabilityPct != null)
+          'ownerReliabilityPct': ownerReliabilityPct,
         'cropId': cropId,
         'farmerId': 'f1',
         'farmerName': 'Farmer',
@@ -81,8 +84,11 @@ void main() {
     double capacity = 100,
     double pricePerQuintal = 10,
     String? departureDate,
+    int? ownerReliabilityPct,
   }) =>
       {
+        if (ownerReliabilityPct != null)
+          'ownerReliabilityPct': ownerReliabilityPct,
         'tripId': tripId,
         'truckerId': 't1',
         'truckerName': 'Trucker',
@@ -434,5 +440,119 @@ void main() {
     expect(results, hasLength(1));
     expect(results.single.suggestedTrips, hasLength(1));
     expect(results.single.estimatedTotalMin, 53000);
+  });
+
+  group('ESC-30: reliability from the API rows', () {
+    test('a more reliable farmer outranks an equal listing', () async {
+      stubCrops([
+        cropDto(cropId: 'crop-flaky', ownerReliabilityPct: 20),
+        cropDto(cropId: 'crop-unknown'),
+        cropDto(cropId: 'crop-proven', ownerReliabilityPct: 100),
+      ]);
+      stubNoTrips();
+
+      final results = await service.matchListingsForIntent(intent());
+
+      expect(
+        results.map((r) => r.listing.listingId),
+        ['crop-proven', 'crop-unknown', 'crop-flaky'],
+      );
+      expect(results.first.listing.ownerReliabilityPct, 100);
+      expect(results[1].listing.ownerReliabilityPct, isNull);
+      // 0.10 * (1.0 - 0.7) and 0.10 * (0.7 - 0.2), as on mobile.
+      expect(
+        results[0].matchScore - results[1].matchScore,
+        closeTo(0.03, 1e-9),
+      );
+      expect(
+        results[1].matchScore - results[2].matchScore,
+        closeTo(0.05, 1e-9),
+      );
+    });
+
+    test(
+        'the server sends no reliability (flag off): equal scores, and the '
+        'old farmerReliability is ignored', () async {
+      stubCrops([
+        cropDto(cropId: 'crop-pricey'),
+        {...cropDto(cropId: 'crop-cheap', pricePerKg: 90)},
+        {...cropDto(cropId: 'crop-legacy'), 'farmerReliability': 1.0},
+      ]);
+      stubNoTrips();
+
+      final results = await service.matchListingsForIntent(intent());
+
+      expect(results, hasLength(3));
+      expect(results.first.listing.listingId, 'crop-cheap');
+      expect(
+        results.map((r) => r.matchScore),
+        everyElement(closeTo(results.first.matchScore, 1e-9)),
+      );
+    });
+
+    List<Map<String, dynamic>> goldenTrips() => [
+          for (final (id, price, pct) in const <(String, double, int?)>[
+            ('pricey-proven', 15, 100),
+            ('mid-unknown', 12, null),
+            ('mid-low', 12, 40),
+            ('mid-proven', 12, 95),
+            ('mid-seventy', 12, 70),
+            ('cheap-flaky', 10, 20),
+          ])
+            tripDto(
+              tripId: id,
+              fromWoreda: 'Adama',
+              pricePerQuintal: price,
+              ownerReliabilityPct: pct,
+            ),
+        ];
+
+    test('trip suggestions: price first, then the more reliable trucker',
+        () async {
+      // The golden vector of rankTripSuggestions, the same as on mobile.
+      stubCrops([cropDto(cropId: 'wheat-1')]);
+      stubTrips(goldenTrips());
+
+      final results = await service.matchListingsForIntent(
+        intent(deliveryWoreda: 'Addis Ababa'),
+      );
+      final suggested =
+          results.single.suggestedTrips.map((t) => t.tripId).toList();
+
+      expect(suggested, [
+        'cheap-flaky',
+        'mid-proven',
+        'mid-unknown',
+        'mid-seventy',
+        'mid-low',
+        'pricey-proven',
+      ]);
+
+      final direct = await service.findTripsForListing(
+        results.single.listing,
+        'Addis Ababa',
+        5,
+      );
+      expect(direct.map((t) => t.tripId), suggested);
+    });
+
+    test('no reliability on any trip: the old price order', () async {
+      stubCrops([cropDto(cropId: 'wheat-1')]);
+      stubTrips([
+        tripDto(tripId: 'b', fromWoreda: 'Adama', pricePerQuintal: 12),
+        tripDto(tripId: 'c', fromWoreda: 'Adama'),
+        tripDto(tripId: 'a', fromWoreda: 'Adama', pricePerQuintal: 12),
+        tripDto(tripId: 'd', fromWoreda: 'Adama'),
+      ]);
+
+      final results = await service.matchListingsForIntent(
+        intent(deliveryWoreda: 'Addis Ababa'),
+      );
+
+      expect(
+        results.single.suggestedTrips.map((t) => t.tripId),
+        ['c', 'd', 'b', 'a'],
+      );
+    });
   });
 }

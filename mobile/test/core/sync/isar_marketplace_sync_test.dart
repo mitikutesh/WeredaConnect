@@ -201,6 +201,41 @@ void main() {
       expect(stored.single.status, TripStatus.open);
     });
 
+    test(
+        'ESC-30: the owner reliability of crops and trips is stored for the '
+        'offline matcher, and cleared when the server stops sending it',
+        () async {
+      stubApi(
+        crops: [
+          {..._cropJson(), 'ownerReliabilityPct': 83},
+          _cropJson(cropId: 'crop-2'),
+        ],
+        trips: [
+          {..._tripJson(), 'ownerReliabilityPct': 91},
+          _tripJson(tripId: 'trip-2'),
+        ],
+      );
+      await buildSync().pullAll();
+
+      Future<Map<String, int?>> cropPcts() async => {
+            for (final c in await isar.cropListings.where().findAll())
+              c.listingId: c.ownerReliabilityPct,
+          };
+      Future<Map<String, int?>> tripPcts() async => {
+            for (final t in await isar.trips.where().findAll())
+              t.tripId: t.ownerReliabilityPct,
+          };
+      expect(await cropPcts(), {'crop-1': 83, 'crop-2': null});
+      expect(await tripPcts(), {'trip-1': 91, 'trip-2': null});
+
+      // The flag goes off: the next pull carries no owner field.
+      stubApi(crops: [_cropJson()], trips: [_tripJson()]);
+      await buildSync().pullAll();
+
+      expect((await cropPcts())['crop-1'], isNull);
+      expect((await tripPcts())['trip-1'], isNull);
+    });
+
     group('FUP-122: the order lead from GET /trips', () {
       setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
