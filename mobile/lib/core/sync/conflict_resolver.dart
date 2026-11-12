@@ -1,6 +1,7 @@
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
@@ -143,6 +144,9 @@ class ConflictResolver {
         listing!.description = (serverData['description'] as String?) ?? '';
         listing!.locationName = (serverData['locationName'] as String?) ?? '';
         listing!.audioNoteRef = serverData['audioNoteRef'] as String?;
+        // ESC-31: the owner's reputation copy as the echo carries it (none
+        // while the public reputation flag is off).
+        listing!.readOwnerReputation(serverData);
 
         // Parse status enum. The server's live status is `available`, the
         // app's `active`, as in the crop pull.
@@ -340,6 +344,8 @@ class ConflictResolver {
             quintalsFromWire(serverData['remainingQuintals']);
         trip!.vehiclePlate = serverData['vehiclePlate'] as String?;
         trip!.vehicleDescription = serverData['vehicleDescription'] as String?;
+        // ESC-31: the owner's reputation copy as the echo carries it.
+        trip!.readOwnerReputation(serverData);
 
         // Parse status enum
         final statusStr = serverData['status'] as String;

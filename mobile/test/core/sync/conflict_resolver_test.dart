@@ -666,6 +666,49 @@ void main() {
         expect(created.version, equals(1));
         expect(result['entityType'], equals('crop_listing'));
         expect(result['entityId'], equals('listing-nonexistent'));
+        // ESC-31: an echo without the owner copy leaves it empty.
+        expect(created.ownerTier, isNull);
+        expect(created.ownerReputationAt, isNull);
+
+        // The echo carries the owner copy: stored. The next echo without it
+        // (the flag went off) clears it.
+        await resolver.resolve(
+          operation: operation,
+          serverData: {
+            ...serverData,
+            'ownerTier': 'low',
+            'ownerEffectiveRating': 4.2,
+            'ownerRatingCount': 12,
+            'ownerReliabilityPct': 83,
+            'ownerReputationAt': '2026-11-07T09:00:00.000Z',
+          },
+          serverVersion: 2,
+        );
+        final withCopy = await isar.cropListings
+            .filter()
+            .listingIdEqualTo('listing-nonexistent')
+            .findFirst();
+        expect(withCopy!.ownerTier, 'low');
+        expect(withCopy.ownerEffectiveRating, 4.2);
+        expect(withCopy.ownerRatingCount, 12);
+        expect(withCopy.ownerReliabilityPct, 83);
+        expect(
+          withCopy.ownerReputationAt?.toUtc(),
+          DateTime.utc(2026, 11, 7, 9),
+        );
+
+        await resolver.resolve(
+          operation: operation,
+          serverData: serverData,
+          serverVersion: 3,
+        );
+        final cleared = await isar.cropListings
+            .filter()
+            .listingIdEqualTo('listing-nonexistent')
+            .findFirst();
+        expect(cleared!.ownerTier, isNull);
+        expect(cleared.ownerEffectiveRating, isNull);
+        expect(cleared.ownerReliabilityPct, isNull);
       });
 
       test('throws exception when server data is malformed', () async {
@@ -922,6 +965,33 @@ void main() {
         expect(created.version, equals(1));
         expect(result['entityType'], equals('trip'));
         expect(result['entityId'], equals('trip-nonexistent'));
+        expect(created.ownerTier, isNull);
+
+        // ESC-31: the echo's owner copy is stored with the trip.
+        await resolver.resolve(
+          operation: operation,
+          serverData: {
+            ...serverData,
+            'ownerTier': 'good',
+            'ownerEffectiveRating': 4.7,
+            'ownerRatingCount': 3,
+            'ownerReliabilityPct': 91,
+            'ownerReputationAt': '2026-11-07T09:00:00.000Z',
+          },
+          serverVersion: 2,
+        );
+        final withCopy = await isar.trips
+            .filter()
+            .tripIdEqualTo('trip-nonexistent')
+            .findFirst();
+        expect(withCopy!.ownerTier, 'good');
+        expect(withCopy.ownerEffectiveRating, 4.7);
+        expect(withCopy.ownerRatingCount, 3);
+        expect(withCopy.ownerReliabilityPct, 91);
+        expect(
+          withCopy.ownerReputationAt?.toUtc(),
+          DateTime.utc(2026, 11, 7, 9),
+        );
       });
 
       test('throws exception when server data is malformed', () async {

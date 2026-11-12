@@ -2,6 +2,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/trip_departure.dart';
+import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/trip_listing/data/trip_destination.dart';
@@ -383,6 +384,7 @@ class WebTripListingRepository extends BaseTripListingRepository {
       ..pricePerQuintal = (m['pricePerQuintal'] as num?)?.toDouble() ?? 0
       ..bookedQuintals = quintalsFromWire(m['bookedQuintals'])
       ..remainingQuintals = quintalsFromWire(m['remainingQuintals'])
+      ..readOwnerReputation(m)
       ..status = _parseTripStatus(m['status'] as String?)
       ..matchedListings = (m['matchedListings'] as List<dynamic>?)
               ?.map((e) => e as String)

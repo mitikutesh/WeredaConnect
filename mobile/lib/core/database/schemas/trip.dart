@@ -75,6 +75,24 @@ class Trip {
   /// Orders the trip suggestions among equally priced trips. Never client-set.
   int? ownerReliabilityPct;
 
+  /// ESC-31: the rest of the trucker's public reputation copy on the row
+  /// (reputation-api.md section 7), sent only while the server's public
+  /// reputation flag is on. All null when the server sent none; the cards
+  /// then look as they did before. Never client-set, never sent back.
+  ///
+  /// The public tier: `good` or `low`.
+  String? ownerTier;
+
+  /// The buyers' star average minus the penalty deduction, one decimal.
+  /// Null while the trucker has no ratings.
+  double? ownerEffectiveRating;
+
+  /// How many ratings are behind [ownerEffectiveRating].
+  int? ownerRatingCount;
+
+  /// When the server wrote this copy ("As of {date}" on the detail).
+  DateTime? ownerReputationAt;
+
   /// Current status of the trip
   @Index()
   @Enumerated(EnumType.name)

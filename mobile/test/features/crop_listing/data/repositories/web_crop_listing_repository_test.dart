@@ -47,6 +47,49 @@ void main() {
       expect(listing.quantity, 100);
     });
 
+    test('ESC-31: reads the owner reputation copy when the row carries it',
+        () async {
+      Map<String, dynamic> row(Map<String, dynamic> extra) => {
+            'crop': {
+              'cropId': 'crop-1',
+              'farmerId': 'farmer-1',
+              'cropType': 'teff',
+              'quantityKg': 100,
+              'pricePerKg': 55,
+              'status': 'available',
+              'createdAt': '2026-07-11T00:00:00.000Z',
+              'updatedAt': '2026-07-11T00:00:00.000Z',
+              'version': 1,
+              ...extra,
+            },
+          };
+      when(() => api.get<Map<String, dynamic>>('/crops/crop-1')).thenAnswer(
+        (_) async => row({
+          'ownerTier': 'low',
+          'ownerEffectiveRating': 4.2,
+          'ownerRatingCount': 12,
+          'ownerReliabilityPct': 83,
+          'ownerReputationAt': '2026-11-07T09:00:00.000Z',
+        }),
+      );
+      final listing = (await repository.getListingById('crop-1'))!;
+      expect(listing.ownerTier, 'low');
+      expect(listing.ownerEffectiveRating, 4.2);
+      expect(listing.ownerRatingCount, 12);
+      expect(listing.ownerReliabilityPct, 83);
+      expect(listing.ownerReputationAt, DateTime.utc(2026, 11, 7, 9));
+
+      // The public reputation flag is off: no owner field, as today.
+      when(() => api.get<Map<String, dynamic>>('/crops/crop-1'))
+          .thenAnswer((_) async => row(const {}));
+      final plain = (await repository.getListingById('crop-1'))!;
+      expect(plain.ownerTier, isNull);
+      expect(plain.ownerEffectiveRating, isNull);
+      expect(plain.ownerRatingCount, isNull);
+      expect(plain.ownerReliabilityPct, isNull);
+      expect(plain.ownerReputationAt, isNull);
+    });
+
     test('returns null on failure (offline / 403 / 404)', () async {
       when(() => api.get<Map<String, dynamic>>('/crops/crop-x'))
           .thenThrow(Exception('403 CROP_FORBIDDEN'));
