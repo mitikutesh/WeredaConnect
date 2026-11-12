@@ -21,6 +21,12 @@ public class RatingRepositoryAggregateTests
 {
     private readonly IAmazonDynamoDB _dynamoDb = Substitute.For<IAmazonDynamoDB>();
 
+    public RatingRepositoryAggregateTests()
+    {
+        // FUP-162: the backfill's users Scan (rows without a woreda) finds nobody here.
+        _dynamoDb.ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>()).Returns(new ScanResponse());
+    }
+
     private static Dictionary<string, object> Data(string role = "farmer") => new()
     {
         ["ratingId"] = "order-1:farmer-1",

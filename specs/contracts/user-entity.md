@@ -1,7 +1,7 @@
 # User Entity Contract
 
 ## Version
-2.1.1
+2.1.2
 
 ## Parties
 - **Mobile** (client): caches the signed-in user in Isar (`core/database/schemas/user.dart`) for offline sign-in and display
@@ -93,9 +93,9 @@ Server-only. Never returned in the `user` object: the party reads them through
 | Attribute | Type | Written by | Meaning |
 |---|---|---|---|
 | `reputation` | M | `ReputationService` (the stream Lambda, the daily job, the admin reputation actions) | The aggregate below; absent until the user's first event (an absent map reads as 0 points, `good`, no reliability) |
-| `ratingSum` | N | the rating create transaction (`ADD`), the backfill, the role-change rebuild | Sum of the stars of the ratings received in the current role (`rating-api.md` 1.2.0) |
+| `ratingSum` | N | the rating create transaction (`ADD`) and its heal of an unstamped ratee, the backfill, the role-change rebuild | Sum of the stars of the ratings received in the current role (`rating-api.md` 1.2.0) |
 | `ratingCount` | N | the same | Their count |
-| `ratingsAggregatedAt` | S | registration (new rows start at 0 with it), the one-time backfill | Present once `ratingSum` and `ratingCount` are exact; until then reads fall back to the ratings index |
+| `ratingsAggregatedAt` | S | registration (new rows start at 0 with it), the one-time backfill, the rating create's heal of an unstamped ratee (`rating-api.md` 1.5.0) | Present once `ratingSum` and `ratingCount` are exact; until then reads fall back to the ratings index |
 
 `ratingSum` and `ratingCount` sit at the top level, not inside `reputation` (the spec put them in
 the map): `ADD` creates a missing top-level number, and a rating write then never races the
@@ -238,7 +238,7 @@ A tombstone has no `phoneNumber`, `faydaId` or `woreda`, so it leaves all three 
 | User by Fayda ID | `Query` `FaydaIdIndex`, `Limit 1` |
 | Phones or languages of many users | `BatchGetItem` projecting `userId` and the one attribute, 100 keys per call, up to 3 rounds for unprocessed keys |
 | Admin user list and dashboard counts | `Scan` with filters (admin only, paged) |
-| The rating backfill (ESC-28) | `Query` `RoleWaredaIndex` for `role = farmer` and `role = trucker` |
+| The rating backfill (ESC-28) | `Query` `RoleWaredaIndex` for `role = farmer` and `role = trucker`; then (FUP-162) one filtered `Scan` for the farmers and truckers without `ratingsAggregatedAt` (the rows without a `woreda`), in that manual order-cron action only, resumable with `scanFrom` |
 
 ### Item example
 
@@ -301,7 +301,7 @@ ESC-28 additions on the same row (built in 2.1.0):
 | `AdminFunction` user action | `suspend`: `suspended`, `suspendReason`; `unsuspend`: `suspended: false`, removes `suspendReason`; `verify`: `faydaVerified`; `change_role`: `role`; each with `updatedAt` | `UpdateItem`, `attribute_exists(userId)`; audited (transaction-audit `user_{action}`) | not bumped |
 | Account deletion | section 7 | `UpdateItem` | +1 on the tombstone |
 | `ReputationService` (ESC-28) | `reputation` | section 2 | not bumped |
-| Rating create, backfill (ESC-28); role-change rebuild (PLANNED, ESC-32) | `ratingSum`, `ratingCount`, `ratingsAggregatedAt` | `rating-api.md` 1.3.0 | not bumped |
+| Rating create, backfill (ESC-28); the create's heal of an unstamped ratee and the backfill's users Scan (FUP-162); role-change rebuild (PLANNED, ESC-32) | `ratingSum`, `ratingCount`, `ratingsAggregatedAt` | `rating-api.md` 1.5.0 | not bumped |
 
 `UpdateUserAsync` is a read-modify-write: it `SET`s `phoneNumber`, `displayName`, `fullName`,
 `role`, `woreda`, `preferredLanguage`, `isPhoneVerified`, `profilePhotoRef`, `faydaId`,
@@ -475,6 +475,7 @@ screened.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.1.2 | 2026-11-12 | FUP-162: two more writers of `ratingSum`, `ratingCount` and `ratingsAggregatedAt` for the farmers and truckers the ESC-28 backfill skipped (no `woreda`): the rating create's heal of an unstamped ratee and the backfill's one-off users `Scan` (`rating-api.md` 1.5.0). Shape unchanged |
 | 2.1.1 | 2026-11-11 | ESC-29: `suspended` also refuses `/sync` and the write endpoints of `reputation-api.md` 8.4 (`403 AUTH_025`); the section 2 attributes are now read by `GET /reputation/*`, `GET /ratings`, the `/sync` gates and the owner stamps (`reputation-api.md` 1.2.0, `rating-api.md` 1.4.0), a row without `ratingsAggregatedAt` contributing no rating. Shape unchanged, never returned in the `user` object |
 | 2.1.0 | 2026-11-07 | Section 2 BUILT (ESC-28): `ReputationService` writes the `reputation` map (the stream, the daily job, the refresh after a rating), the rating create `ADD`s `ratingSum` and `ratingCount`, registration starts every new row at 0 with `ratingsAggregatedAt`, the backfill stamps older rows. The map gains `lastEventId` and `lastEventRecordedAt` (the read-lag check). Never returned in the `user` object; no wire change |
 | 2.0.1 | 2026-11-07 | `suspendReason`: an admin's `suspend` with a free-text reason no longer replaces a stored `fraud_confirmed` (FUP-103); the account stays held as confirmed fraud until `unsuspend`. Shape unchanged |

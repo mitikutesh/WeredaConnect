@@ -1,7 +1,7 @@
 # Rating API
 
 ## Version
-1.4.0
+1.5.0
 
 ## Parties
 Mobile, Web, Backend, Infrastructure, Admin
@@ -156,8 +156,34 @@ compute the summary, and browse called it once per farmer card (spec R3). Since
    `ratingCount: 0` and `ratingsAggregatedAt`. As built (1.3.0): the order-cron
    action `reputation_backfill_ratings`, invoked by hand, not flagged; a rerun
    skips stamped users and flagged ratings. A farmer or trucker without a
-   `woreda` is not on `RoleWaredaIndex`: their row stays unstamped and reads keep
-   the 1.1.0 walk for them.
+   `woreda` is not on `RoleWaredaIndex`: up to 1.4.0 their row stayed unstamped
+   and reads kept the 1.1.0 walk for them.
+   As built in 1.5.0 (FUP-162), two more paths stamp those rows, both with the
+   same per-user transaction (each added rating flagged `inAggregate` under
+   `attribute_not_exists`, the stamp under `attribute_not_exists(ratingsAggregatedAt)`,
+   the sum and count `ADD`ed), so a concurrent create, heal or backfill can
+   neither count a rating twice nor lose one; the loser's transaction is
+   cancelled and writes nothing:
+   - **The action's Scan.** After the index walk, a one-off filtered `Scan` of
+     the users table (`role` farmer or trucker, no `ratingsAggregatedAt`, no
+     `deletionState`; projection `userId, role`) backfills the rows the index
+     does not list. It runs only in this manual action, never on a request path,
+     and reads the whole table once (read capacity for every row, matching or
+     not). It keeps to the 4 minute budget: a run that stops in the Scan answers
+     `outcome: partial` with `scanCursor`, and `{"action":
+     "reputation_backfill_ratings", "scanFrom": "<scanCursor>"}` resumes it.
+     The answer gains `unindexed` (users the Scan backfilled).
+   - **The create's heal.** After a successful `/sync` rating create, when the
+     ratee's row (read before the create) has no `ratingsAggregatedAt` and is
+     still in the rated role, the server stamps it in one more transaction: a
+     bounded read of the ratee index (pages of 100, at most 5) for the ratings
+     without `inAggregate`, at most 99 of them. More than that is left to the
+     action. Best effort: the rating stays a `success` whatever the heal does;
+     a failure other than a lost race logs `RATING_AGGREGATE_HEAL_FAILED`. The
+     heal runs before the reputation refresh of step 3, so the refresh reads
+     the stamped aggregate.
+   The reads (`GET /ratings`, `GET /reputation/*`) stay read-only: a ratee with
+   no new rating keeps the walk until the action runs.
 5. **Role change.** An admin `change_role` rebuilds the aggregate for the new
    role (sum of the ratee's ratings with that `rateeRole`, `SET` conditioned on
    the `ratingCount` it read) and flips `inAggregate` accordingly (ESC-32, still
@@ -167,6 +193,9 @@ Built in ESC-28 (1.3.0): `RatingRepository.CreateAsync` (the transaction, the
 `inAggregate: false` fallback, `inAggregate` never taken from a payload nor
 returned), `UserRepository.CreateUserAsync` (the registration stamp),
 `RatingAggregateBackfill` (order-cron `reputation_backfill_ratings`).
+Built in FUP-162 (1.5.0): the users Scan and `scanFrom` of
+`RatingAggregateBackfill`, and `RatingAggregateHeal`, called from
+`SyncFunction` after the create.
 
 The wire shape of the create is unchanged; the mobile and web clients change
 nothing for it.
@@ -248,7 +277,8 @@ As built (1.4.0, `Functions/RatingFunction.cs`):
    `ratingsAggregatedAt`, `ratingSum` and `ratingCount` on their users row equal
    the sum and count of the stars of their ratings with `inAggregate: true`, which
    are exactly their ratings whose `rateeRole` is their current role. Only the
-   rating create transaction, the backfill and the role-change rebuild write them.
+   rating create transaction (and its heal of an unstamped ratee, 1.5.0), the
+   backfill and the role-change rebuild write them.
 8. **Farmers and truckers never read another user's ratings** (1.2.0); buyers
    read only farmers' and truckers'.
 
@@ -262,6 +292,7 @@ As built (1.4.0, `Functions/RatingFunction.cs`):
   returned to clients.
 
 ## Changelog
+- **1.5.0** (2026-11-12): BUILT (FUP-162): the farmers and truckers without `ratingsAggregatedAt` (no `woreda`, so the ESC-28 backfill skipped them) get stamped. `reputation_backfill_ratings` Scans the users table once after the index walk (manual action only; time budget; `scanCursor` in the answer, `scanFrom` in the request to resume; new `unindexed` count), and a successful `/sync` rating create stamps an unstamped ratee's full aggregate (bounded, best effort, before the reputation refresh). Both count each rating once through the per-rating `inAggregate` condition. Create and read wire shapes unchanged; the reads stay read-only.
 - **1.4.0** (2026-11-11): BUILT (ESC-29): the read rules. `GET /ratings` and `GET /ratings/{id}` only for buyers (farmer and trucker ratees) and the ratee, else `403 RATING_FORBIDDEN`, decided from the caller's role claim before any read; new optional `rateeRole` filter (`400 RATING_VALIDATION` for another value), default the ratee's current role; the summary from the users row when the role is current and the row carries `ratingsAggregatedAt`, else the walk filtered by role; `summary.rateeRole`; `summary.effectiveRating` and the `reputation` block behind `reputationPublicTags` (off everywhere). Create unchanged.
 - **1.3.0** (2026-11-07): BUILT (ESC-28): the stored aggregate. The `/sync` rating create is the transaction of "Stored aggregate" (rating, `ADD ratingSum, ratingCount`, heal marker), a changed role puts the rating alone with `inAggregate: false`, registration stamps `ratingSum: 0`, `ratingCount: 0`, `ratingsAggregatedAt`, and the order-cron action `reputation_backfill_ratings` runs the one-time backfill. The best-effort refresh after the commit runs only with `reputationPenalties` on. Read rules stay PLANNED (ESC-29). Create wire shape unchanged.
 - **1.2.0** (2026-11-07): PLANNED (ESC-27 for ESC-28 and ESC-29). Stored aggregate: the create puts the rating and `ADD`s the stars to the ratee's users row (`ratingSum`, `ratingCount`) in one transaction, conditioned on the ratee's role, plus a `HEAL` row for the daily job; a one-time backfill without Scan; a role change rebuilds it; ratings gain the server-only `inAggregate`. Read rules: `GET /ratings` and `GET /ratings/{id}` only for buyers (farmer and trucker ratees) and the ratee, else `403 RATING_FORBIDDEN` (admins use the admin reputation panel); new optional `rateeRole` filter; the summary comes from the users row when aggregated and gains `rateeRole` and `effectiveRating`; new optional `reputation` block (`reputation-api.md` 1.0.0) behind `reputationPublicTags`. Create wire shape unchanged.
