@@ -4923,8 +4923,9 @@ applies), never `500`.
 
 **One route.** API Gateway serves complete, claim and unclaim from one route,
 `POST /admin/payouts/{escrowId}/{ref}/{action}` (it replaces the `.../complete` route): with Telebirr live on
-the API stack holds 497 of CloudFormation's 500 resources, and each route costs a route, an integration and a
-Lambda permission. Any other action answers `404 ADMIN_002`. `{ref}` takes a 1.x leg name or a ledger ref
+the API stack then held 497 of CloudFormation's 500 resources, and each route cost a route, an integration and a
+Lambda permission (since FUP-217 a route on an existing Lambda costs one resource). Any other action answers
+`404 ADMIN_002`. `{ref}` takes a 1.x leg name or a ledger ref
 (`release%23farmer`) on all three; before 2.12.0 the record route answered `404 ESCROW_035` for every ledger
 ref, so a ledger row could not be recorded from the admin app (P.8 said it could).
 

@@ -2091,6 +2091,106 @@ describe('ApiStack (prod security)', () => {
   });
 });
 
+describe('ApiStack resource limit (FUP-217)', () => {
+  // CloudFormation refuses a stack of more than 500 resources, and the live Telebirr gateway (VPC, NAT
+  // instance, webhook Lambda and route) makes the API stack its largest. Fail well before the limit,
+  // so a stage deploy never finds it first.
+  const MAX_RESOURCES = 470;
+
+  function buildTemplate(envConfig: EnvironmentConfig): Template {
+    // analyticsReporting: a CLI synth adds the CDKMetadata resource, and it counts too. This app does
+    // not read cdk.json, so without `@aws-cdk/aws-iam:minimizePolicies` the admin role spills into a
+    // few more managed policies: the count here is 2 to 5 above `cdk synth`'s, on the safe side.
+    const app = new cdk.App({ analyticsReporting: true });
+    const env = { account: '123456789012', region: envConfig.region };
+    const dbStack = new DatabaseStack(app, 'LimitDbStack', { env, envConfig });
+    const apiStack = new ApiStack(app, 'LimitApiStack', {
+      env,
+      envConfig,
+      usersTable: dbStack.usersTable,
+      cropsTable: dbStack.cropsTable,
+      tripsTable: dbStack.tripsTable,
+      rateLimitsTable: dbStack.rateLimitsTable,
+      syncMetadataTable: dbStack.syncMetadataTable,
+      deliveriesTable: dbStack.deliveriesTable,
+      paymentsTable: dbStack.paymentsTable,
+      escrowsTable: dbStack.escrowsTable,
+      escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
+      escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
+      ordersTable: dbStack.ordersTable,
+      fraudSignalsTable: dbStack.fraudSignalsTable,
+      intentsTable: dbStack.intentsTable,
+      deviceTokensTable: dbStack.deviceTokensTable,
+      matchEventsTable: dbStack.matchEventsTable,
+      ratingsTable: dbStack.ratingsTable,
+      messagesTable: dbStack.messagesTable,
+      notificationsTable: dbStack.notificationsTable,
+      tripLocationsTable: dbStack.tripLocationsTable,
+      listingReportsTable: dbStack.listingReportsTable,
+      reputationEventsTable: dbStack.reputationEventsTable,
+      transactionAuditTable: dbStack.transactionAuditTable,
+      uploadsBucket: dbStack.uploadsBucket,
+    });
+    return Template.fromStack(apiStack);
+  }
+
+  // Staging and prod turn the live gateway on at deploy (`-c enableTelebirrLive=true`).
+  const cases: Array<[string, EnvironmentConfig]> = [
+    ['dev', devConfig],
+    ['dev, Telebirr live', { ...devConfig, enableTelebirrLive: true }],
+    ['staging, Telebirr live', { ...environments['staging'], enableTelebirrLive: true }],
+    ['prod, Telebirr live', { ...prodConfig, enableTelebirrLive: true }],
+  ];
+  // One synth per case, shared by both tests.
+  const templates = new Map<string, Template>();
+  const templateFor = (name: string, envConfig: EnvironmentConfig): Template => {
+    if (!templates.has(name)) {
+      templates.set(name, buildTemplate(envConfig));
+    }
+    return templates.get(name)!;
+  };
+
+  test.each(cases)('%s: at most 470 resources', (name, envConfig) => {
+    const resources = Object.keys(templateFor(name, envConfig).toJSON().Resources);
+    expect(resources.length).toBeLessThanOrEqual(MAX_RESOURCES);
+  });
+
+  test.each(cases)('%s: one integration and one invoke permission, scoped to this API, per Lambda', (name, envConfig) => {
+    // A route on a Lambda that is already behind the API then costs one resource, not three.
+    const template = templateFor(name, envConfig);
+    const lambdaOf = (value: unknown) => JSON.stringify(value).match(/"Fn::GetAtt":\["([^"]+)","Arn"\]/)?.[1];
+
+    const integrated = Object.values(template.findResources('AWS::ApiGatewayV2::Integration'))
+      .map((i) => lambdaOf(i.Properties.IntegrationUri));
+    expect(integrated.length).toBeGreaterThan(20);
+    expect(integrated.every((id) => id !== undefined)).toBe(true);
+    expect(new Set(integrated).size).toBe(integrated.length);
+
+    // Every route reaches one of those integrations.
+    const integrationIds = Object.keys(template.findResources('AWS::ApiGatewayV2::Integration'));
+    for (const route of Object.values(template.findResources('AWS::ApiGatewayV2::Route'))) {
+      const target = JSON.stringify(route.Properties.Target).match(/"Ref":"([^"]+)"/)?.[1];
+      expect([route.Properties.RouteKey, integrationIds.includes(target ?? '')]).toEqual([route.Properties.RouteKey, true]);
+    }
+
+    // One API Gateway permission per integrated Lambda. Its source ARN names this API and no other;
+    // any stage, method and path of it (the routes pick the Lambda).
+    const apiIds = Object.keys(template.findResources('AWS::ApiGatewayV2::Api'));
+    expect(apiIds).toHaveLength(1);
+    const permissions = Object.values(
+      template.findResources('AWS::Lambda::Permission', { Properties: { Principal: 'apigateway.amazonaws.com' } }),
+    );
+    expect(permissions.map((p) => lambdaOf(p.Properties.FunctionName)).sort()).toEqual([...integrated].sort());
+    for (const p of permissions) {
+      const parts = p.Properties.SourceArn['Fn::Join'][1] as unknown[];
+      expect(JSON.stringify(parts)).toContain(':execute-api:');
+      expect(parts.slice(-2)).toEqual([{ Ref: apiIds[0] }, '/*/*/*']);
+    }
+  });
+});
+
 describe('ApiStack (staging uses the live Fayda provider)', () => {
   const liveTemplate = (stagingConfig: EnvironmentConfig): Template => {
     const app = new cdk.App();
