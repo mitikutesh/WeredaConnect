@@ -1036,6 +1036,12 @@ abstract class AppLocalizations {
   /// **'This listing changed since you opened it, maybe an order took some. Check it and edit again.'**
   String get editListingChanged;
 
+  /// SIM-56: snackbar when the farmer tries to edit a listing while an earlier change of it is still waiting in the phone's sync queue (a second edit on top could undo stock an order took)
+  ///
+  /// In en, this message translates to:
+  /// **'Your last change to this listing has not been sent yet. Edit it again once you are online and it has gone out.'**
+  String get editListingWaiting;
+
   /// SIM-56: snackbar when the farmer's delete is stopped because the listing's orders could not be read to check none is in progress
   ///
   /// In en, this message translates to:

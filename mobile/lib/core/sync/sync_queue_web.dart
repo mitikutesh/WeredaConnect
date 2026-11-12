@@ -49,8 +49,8 @@ class SyncQueue {
   Future<bool> hasOpenOperationsFor(String entityType, String entityId) async =>
       false;
 
-  /// No queue on web, so nothing is left unsynced (SIM-56).
-  Future<bool> hasUnsyncedOperationsFor(
+  /// No queue on web, so nothing waits (SIM-56).
+  Future<bool> hasWaitingOperationsFor(
     String entityType,
     String entityId,
   ) async =>

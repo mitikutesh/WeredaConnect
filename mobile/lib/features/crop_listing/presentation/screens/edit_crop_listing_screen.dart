@@ -11,6 +11,7 @@ import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
+import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -150,6 +151,14 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
       // Saved and sent, or saved on the phone to send later (E-5).
       showSavedOrSent(context, sent: l10n.listingSaved).ignore();
       navigator.pop(EditListingResult.saved(saved));
+    } on ListingChangeWaitingException {
+      // An earlier change of this listing has not gone out yet (the phone's
+      // queue): saving on top of it could undo an order's stock.
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.editListingWaiting)),
+      );
     } on Object catch (e) {
       if (!mounted) return;
       final code = mapErrorToCode(e);

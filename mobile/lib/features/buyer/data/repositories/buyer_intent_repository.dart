@@ -51,7 +51,7 @@ class BuyerIntentRepository extends BaseBuyerIntentRepository {
           .intentIdEqualTo(intent.intentId)
           .findFirst();
       if (local != null) continue;
-      final unsynced = await _syncQueue?.hasUnsyncedOperationsFor(
+      final unsynced = await _syncQueue?.hasWaitingOperationsFor(
             'buyer_intent',
             intent.intentId,
           ) ??

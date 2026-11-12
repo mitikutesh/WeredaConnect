@@ -471,15 +471,23 @@ truckers never see them.
   that changes nothing sends nothing. The form allows what the server accepts (rules 1 to 3
   and 6b): above 0 and at most 9,999.99 quintals, above 0 and at most 999.99 ETB per kg (two
   decimals), 500 characters and no phone number in the description.
-  - Mobile: when the phone's copy moved on since the form read it (a pull, a revert), the edit
-    is refused on the phone with the same conflict and nothing is queued. Otherwise it is
-    queued first, then saved in Isar (offline-first; a full queue changes nothing and says
-    so). A server conflict takes the server's copy; a refusal (`CROP_CONTACT_IN_TEXT`, a
-    restricted account) reverts the listing from `GET /crops/{id}` (`sync-protocol.md` 1.17.0).
+  - Mobile: the phone's local version bump can carry the same number as the server's stock
+    write, so the version alone cannot tell a stale base there. The edit is therefore refused
+    on the phone, with nothing queued, while an earlier operation of the listing still waits
+    in the queue (pending, on its way, or failed and to be resent; one refused for good does
+    not count): `editListingWaiting`, and the detail does not open the form. It is refused
+    with the same conflict when the phone's copy moved on since the form read it: its
+    version, `quantity`, `pricePerKg`, `description` or `updatedAt` differ (a pull, a revert,
+    a conflict resolved to the server's copy). The detail reads the listing again before it
+    opens the form. Otherwise the edit is queued first, then saved in Isar (offline-first; a
+    full queue changes nothing and says so). A server conflict takes the server's copy; a
+    refusal (`CROP_CONTACT_IN_TEXT`, a restricted account) reverts the listing from
+    `GET /crops/{id}` (`sync-protocol.md` 1.17.0).
   - Web: sends the update straight to the server; a conflict or a refusal fails the save with
     nothing changed.
   - On a conflict the detail reads the listing again and tells the farmer it changed
-    (`editListingChanged`), so the next edit starts from what is there now.
+    (`editListingChanged`), so the next edit starts from what is there now. When that read
+    fails (offline on web) it says there is no connection instead.
 - **Delete** asks first, then checks the farmer's orders the device knows: an order of the
   listing in `payment_submitted`, `funded`, `awaiting_transport` or `accepted` (the rule 10
   set) stops it on the device with `errorCropHasActiveOrders`. When the orders cannot be read

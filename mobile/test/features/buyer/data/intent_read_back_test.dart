@@ -102,7 +102,7 @@ void main() {
       );
       api = _MockApiClient();
       queue = _MockSyncQueue();
-      when(() => queue.hasUnsyncedOperationsFor(any(), any()))
+      when(() => queue.hasWaitingOperationsFor(any(), any()))
           .thenAnswer((_) async => false);
       when(
         () => queue.enqueue(
@@ -160,7 +160,7 @@ void main() {
 
     test('a request with a change not yet accepted is not brought back',
         () async {
-      when(() => queue.hasUnsyncedOperationsFor('buyer_intent', 'deleted'))
+      when(() => queue.hasWaitingOperationsFor('buyer_intent', 'deleted'))
           .thenAnswer((_) async => true);
       serverHas([_row('deleted'), _row('kept')]);
 

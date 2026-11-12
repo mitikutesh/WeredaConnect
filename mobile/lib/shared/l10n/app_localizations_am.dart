@@ -500,6 +500,10 @@ class AppLocalizationsAm extends AppLocalizations {
       'ይህ ዝርዝር ከከፈቱት በኋላ ተቀይሯል፤ ምናልባት ትዕዛዝ ከፊሉን ወስዶ ሊሆን ይችላል። ይመልከቱትና እንደገና ያስተካክሉ።';
 
   @override
+  String get editListingWaiting =>
+      'በዚህ ዝርዝር ላይ ያደረጉት የመጨረሻ ለውጥ ገና አልተላከም። በይነመረብ ሲኖርዎትና ከተላከ በኋላ እንደገና ያስተካክሉት።';
+
+  @override
   String get deleteListingOrdersUnreadable =>
       'የዚህን ዝርዝር ትዕዛዞች ማረጋገጥ አልተቻለም። በይነመረብ ሲኖርዎት እንደገና ይሞክሩ።';
 

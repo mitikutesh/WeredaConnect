@@ -306,6 +306,10 @@ class WebCropListingRepository extends BaseCropListingRepository {
       ..version = listing.version + 1;
   }
 
+  /// No queue on web: an edit goes out at once or fails (SIM-56).
+  @override
+  Future<bool> hasChangeWaiting(String listingId) async => false;
+
   @override
   Future<CropListing?> getListingById(String listingId) async {
     try {

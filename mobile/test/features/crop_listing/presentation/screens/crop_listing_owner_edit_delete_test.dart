@@ -69,6 +69,10 @@ Order _order(OrderStatus status, {String listingId = 'listing-1'}) => Order()
   ..createdAt = DateTime(2026, 11)
   ..version = 1;
 
+const _waitingText =
+    'Your last change to this listing has not been sent yet. Edit it again '
+    'once you are online and it has gone out.';
+
 /// SIM-56: the farmer edits or deletes their own active listing from its
 /// detail; nobody else sees either action.
 void main() {
@@ -98,6 +102,11 @@ void main() {
     );
     cropRepo = _MockCropRepository();
     when(() => cropBloc.repository).thenReturn(cropRepo);
+    // Nothing waits in the queue, and the copy read again before an edit is
+    // the one shown (each test that needs more says so).
+    when(() => cropRepo.hasChangeWaiting(any())).thenAnswer((_) async => false);
+    when(() => cropRepo.getListingById(any()))
+        .thenAnswer((_) async => _listing());
     orderBloc = _MockOrderBloc();
     orders = _MockOrderRepository();
     when(() => orderBloc.repository).thenReturn(orders);
@@ -388,8 +397,11 @@ void main() {
     testWidgets(
         'changed since it opened: nothing saved, the detail reads the '
         'listing again and says so', (tester) async {
+      var reads = 0;
       when(() => cropRepo.getListingById('listing-1')).thenAnswer(
-        (_) async => _listing(quantity: 6, pricePerKg: 60.5)..version = 3,
+        (_) async => reads++ == 0
+            ? _listing()
+            : (_listing(quantity: 6, pricePerKg: 60.5)..version = 3),
       );
       await openEdit(tester);
       await tester.enterText(
@@ -430,6 +442,84 @@ void main() {
       expect(sentEdit().listing.version, 3);
       sentEdit().done!.complete(_listing(quantity: 6, pricePerKg: 61));
       await tester.pumpAndSettle();
+    });
+
+    testWidgets('opens from the listing as it is now, read again first',
+        (tester) async {
+      // The phone's copy took the server's after a sync conflict while the
+      // detail showed the older one.
+      when(() => cropRepo.getListingById('listing-1')).thenAnswer(
+        (_) async => _listing(quantity: 5)..version = 4,
+      );
+      await openEdit(tester);
+
+      expect(find.text('5'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_price')),
+        '50',
+      );
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pump();
+
+      expect(sentEdit().listing.version, 4);
+      expect(sentEdit().listing.quantity, 5);
+      expect(sentEdit().quantity, isNull);
+      sentEdit().done!.complete(_listing(quantity: 5, pricePerKg: 50));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('an earlier change still waiting: no form, the farmer is told',
+        (tester) async {
+      when(() => cropRepo.hasChangeWaiting('listing-1'))
+          .thenAnswer((_) async => true);
+      await openEdit(tester);
+
+      expect(find.byType(EditCropListingScreen), findsNothing);
+      expect(find.text(_waitingText), findsOneWidget);
+      verifyNever(() => cropRepo.getListingById(any()));
+    });
+
+    testWidgets('a save refused because a change waits says so and stays',
+        (tester) async {
+      await openEdit(tester);
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_price')),
+        '50',
+      );
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pump();
+
+      sentEdit().done!.completeError(const ListingChangeWaitingException());
+      await tester.pumpAndSettle();
+
+      expect(find.byType(EditCropListingScreen), findsOneWidget);
+      expect(find.text(_waitingText), findsOneWidget);
+    });
+
+    testWidgets(
+        'changed since it opened and the new copy cannot be read (offline '
+        'on web): the offline message, not "changed"', (tester) async {
+      var reads = 0;
+      when(() => cropRepo.getListingById('listing-1'))
+          .thenAnswer((_) async => reads++ == 0 ? _listing() : null);
+      await openEdit(tester);
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_price')),
+        '52.5',
+      );
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pump();
+
+      sentEdit().done!.completeError(
+            const SyncConflictException('Version conflict.'),
+          );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(EditCropListingScreen), findsNothing);
+      expect(find.text('No internet connection'), findsOneWidget);
+      expect(find.textContaining('This listing changed'), findsNothing);
+      // Still the copy it showed.
+      expect(find.text('45'), findsOneWidget);
     });
 
     testWidgets('nothing changed: Save closes the form, nothing sent',

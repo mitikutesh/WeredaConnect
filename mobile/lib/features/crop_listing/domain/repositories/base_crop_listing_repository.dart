@@ -74,8 +74,12 @@ abstract class BaseCropListingRepository {
   /// an order took stock conflicts instead of putting that stock back
   /// (crop-listing-api.md 1.13.0). Returns the listing as saved.
   ///
-  /// Throws `SyncConflictException` when the listing changed since the form
-  /// read it, [StateError] when it is not [farmerId]'s or not found, and
+  /// Throws [ListingChangeWaitingException] while an earlier change of the
+  /// listing has not reached the server ([hasChangeWaiting]): a second edit
+  /// queued on top could land after an order took stock. Throws
+  /// `SyncConflictException` when the listing changed since the form read it
+  /// (its version, stock, price, description or update time differ),
+  /// [StateError] when it is not [farmerId]'s or not found, and
   /// [ArgumentError] when nothing changes.
   Future<CropListing> updateListing({
     required CropListing listing,
@@ -84,6 +88,12 @@ abstract class BaseCropListingRepository {
     double? pricePerKg,
     String? description,
   });
+
+  /// SIM-56: whether a change of the listing made on this device still waits
+  /// to reach the server (the phone's sync queue: pending, on its way, or
+  /// failed and to be sent again). The farmer edits again once it went out.
+  /// Always false on web, which keeps no queue.
+  Future<bool> hasChangeWaiting(String listingId);
 
   /// The `data` of a SIM-56 edit: the listing id, the changed fields only,
   /// and the base [version]. Shared by the Isar and web repositories.
@@ -147,4 +157,15 @@ abstract class BaseCropListingRepository {
       return true;
     }).toList();
   }
+}
+
+/// SIM-56: an edit refused because an earlier change of the same listing has
+/// not reached the server yet (see [BaseCropListingRepository.updateListing]).
+class ListingChangeWaitingException implements Exception {
+  const ListingChangeWaitingException();
+
+  @override
+  String toString() =>
+      'ListingChangeWaitingException: an earlier change of this listing '
+      'has not reached the server yet.';
 }

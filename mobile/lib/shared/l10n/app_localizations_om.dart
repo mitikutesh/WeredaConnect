@@ -522,6 +522,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Tarreen kun erga banattee jijjiirameera, tarii ajajni tokko gariisaa fudhatee jira. Ilaaliitii irra deebi\'ii gulaali.';
 
   @override
+  String get editListingWaiting =>
+      'Jijjiirama dhumaa tarree kana irratti gootan ammallee hin ergamne. Yeroo interneetii qabdanii erga ergamee booda irra deebi\'aa gulaalaa.';
+
+  @override
   String get deleteListingOrdersUnreadable =>
       'Ajajoota tarree kanaa mirkaneessuun hin danda\'amne. Yeroo interneetii qabdan irra deebi\'aa yaalaa.';
 

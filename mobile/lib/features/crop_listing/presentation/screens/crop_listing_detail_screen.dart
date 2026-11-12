@@ -597,14 +597,23 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     );
   }
 
-  /// Opens the edit form on the bloc this screen uses. The saved listing
-  /// replaces the one shown; when the listing changed since this screen read
-  /// it (an order took stock), nothing was saved: the listing is read again
-  /// and the farmer told, so they edit what is there now.
+  /// Opens the edit form on the bloc this screen uses, from the listing as
+  /// it is now: read again first (the phone's copy may have taken the
+  /// server's after a sync conflict while this screen showed an older one),
+  /// and not at all while an earlier change still waits to go out. The saved
+  /// listing replaces the one shown; when the listing changed since the form
+  /// read it (an order took stock), nothing was saved: the listing is read
+  /// again and the farmer told, so they edit what is there now.
   Future<void> _openEdit() async {
     final bloc = context.read<CropListingBloc>();
     final l10n = AppLocalizations.of(context)!;
     final messenger = ScaffoldMessenger.of(context);
+    if (await _changeWaiting(bloc)) {
+      messenger.showSnackBar(SnackBar(content: Text(l10n.editListingWaiting)));
+      return;
+    }
+    await _reloadListing(bloc);
+    if (!mounted || _listing.status != ListingStatus.active) return;
     final result = await Navigator.push<EditListingResult>(
       context,
       MaterialPageRoute<EditListingResult>(
@@ -624,19 +633,44 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
       return;
     }
     if (result.changedElsewhere) {
-      await _reloadListing(bloc);
-      messenger.showSnackBar(SnackBar(content: Text(l10n.editListingChanged)));
+      // Offline on web the new copy cannot be read: say so, rather than
+      // that it changed while still showing the old one.
+      final reread = await _reloadListing(bloc);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            reread
+                ? l10n.editListingChanged
+                : localizeErrorCode(AppErrorCode.network, l10n),
+          ),
+        ),
+      );
     }
   }
 
-  /// The listing as it is now (the phone's copy, the server's on web).
-  /// Kept as shown when it cannot be read.
-  Future<void> _reloadListing(CropListingBloc bloc) async {
+  /// Whether an earlier change of this listing still waits to go out (the
+  /// phone's queue; never on web). A read that fails lets the form open: the
+  /// save checks again.
+  Future<bool> _changeWaiting(CropListingBloc bloc) async {
+    try {
+      return await bloc.repository.hasChangeWaiting(_listing.listingId);
+    } on Object catch (e) {
+      debugPrint('[CropListingDetail] queue read failed: $e');
+      return false;
+    }
+  }
+
+  /// The listing as it is now (the phone's copy, the server's on web). True
+  /// when it was read; kept as shown when it cannot be (offline on web).
+  Future<bool> _reloadListing(CropListingBloc bloc) async {
     try {
       final fresh = await bloc.repository.getListingById(_listing.listingId);
-      if (fresh != null && mounted) setState(() => _listing = fresh);
+      if (fresh == null) return false;
+      if (mounted) setState(() => _listing = fresh);
+      return true;
     } on Object catch (e) {
       debugPrint('[CropListingDetail] listing re-read failed: $e');
+      return false;
     }
   }
 

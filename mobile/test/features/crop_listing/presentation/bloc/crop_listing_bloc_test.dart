@@ -240,17 +240,26 @@ void main() {
       expect(loaded.listings.first.status, ListingStatus.expired);
     });
 
-    Future<CropListing> seed() => repository.createListing(
-          photos: testCropPhotos(),
-          farmerId: 'farmer-001',
-          cropType: 'teff',
-          quantity: 50.0,
-          pricePerKg: 45.0,
-          latitude: 9.0,
-          longitude: 38.0,
-          locationName: 'Ada',
-          description: 'Teff',
-        );
+    /// A listing whose create already reached the server (SIM-56: an edit
+    /// waits for an earlier change of the listing to go out).
+    Future<CropListing> seed() async {
+      final listing = await repository.createListing(
+        photos: testCropPhotos(),
+        farmerId: 'farmer-001',
+        cropType: 'teff',
+        quantity: 50.0,
+        pricePerKg: 45.0,
+        latitude: 9.0,
+        longitude: 38.0,
+        locationName: 'Ada',
+        description: 'Teff',
+      );
+      final queue = SyncQueue(isar);
+      for (final op in await queue.getPendingOperations()) {
+        await queue.markAsSynced(op.operationId);
+      }
+      return listing;
+    }
 
     test('SIM-56: a delete answers its own completer, then the list reloads',
         () async {

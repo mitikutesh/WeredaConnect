@@ -508,23 +508,34 @@ class SyncQueue {
     return open > 0;
   }
 
-  /// Whether an operation of the entity has not been accepted by the server:
-  /// pending, on its way, or failed (out of retries, which a reconnect
-  /// retries, or refused). SIM-56: a buyer request deleted or fulfilled on
-  /// this phone is not brought back from the server while that change has
-  /// not landed.
-  Future<bool> hasUnsyncedOperationsFor(
+  /// Whether an operation of the entity still waits to reach the server:
+  /// pending, on its way, or failed out of retries (a reconnect sends it
+  /// again, [retryFailed]). One the server refused for good ([isRejected])
+  /// never goes out again, so it does not count. SIM-56: a buyer request
+  /// deleted or fulfilled on this phone is not brought back from the server
+  /// meanwhile, and a crop listing edit is not queued on top of one.
+  Future<bool> hasWaitingOperationsFor(
     String entityType,
     String entityId,
   ) async {
-    final unsynced = await _isar.syncOperations
+    final waiting = await _isar.syncOperations
         .filter()
         .entityTypeEqualTo(entityType)
         .entityIdEqualTo(entityId)
-        .not()
-        .statusEqualTo(SyncStatus.synced)
+        .group(
+          (q) => q
+              .statusEqualTo(SyncStatus.pending)
+              .or()
+              .statusEqualTo(SyncStatus.syncing)
+              .or()
+              .group(
+                (failed) => failed
+                    .statusEqualTo(SyncStatus.failed)
+                    .retryCountLessThan(maxRetries, include: true),
+              ),
+        )
         .count();
-    return unsynced > 0;
+    return waiting > 0;
   }
 
   /// Replace the payload of a waiting operation, keeping its place in the

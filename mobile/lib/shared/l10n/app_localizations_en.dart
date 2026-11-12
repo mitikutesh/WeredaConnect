@@ -519,6 +519,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'This listing changed since you opened it, maybe an order took some. Check it and edit again.';
 
   @override
+  String get editListingWaiting =>
+      'Your last change to this listing has not been sent yet. Edit it again once you are online and it has gone out.';
+
+  @override
   String get deleteListingOrdersUnreadable =>
       'Could not check this listing\'s orders. Try again when you are online.';
 
