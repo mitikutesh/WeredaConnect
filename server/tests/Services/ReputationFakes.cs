@@ -1,5 +1,5 @@
-using System.Text.Json;
 using System.Text;
+using System.Text.Json;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
@@ -177,6 +177,11 @@ internal sealed class FakeReputationRepository : IReputationEventRepository
             return ReputationCommitOutcome.Conflict;
         }
 
+        if (write.RowUpdates.Any(u => !u.Holds(rows.TryGetValue(u.EventId, out var row) ? row : null)))
+        {
+            return ReputationCommitOutcome.Conflict;
+        }
+
         // All conditions hold: apply every item.
         if (write.NewEvent != null)
         {
@@ -225,6 +230,11 @@ internal sealed class FakeReputationRepository : IReputationEventRepository
             Rows[write.UserId].Remove(eventId);
         }
 
+        foreach (var update in write.RowUpdates)
+        {
+            Put(update.Apply(Rows[write.UserId][update.EventId]));
+        }
+
         Committed.Add(write);
         return ReputationCommitOutcome.Committed;
     }
@@ -267,6 +277,24 @@ internal sealed class FakeReputationRepository : IReputationEventRepository
     public Task<int> CountOpenAppealsAsync(string appealStatus, string appealedBefore)
         => Task.FromResult(Rows.Values.SelectMany(r => r.Values)
             .Count(r => r.AppealStatus == appealStatus && string.CompareOrdinal(r.AppealedAt, appealedBefore) < 0));
+
+    /// <summary>The index order: <c>appealedAt</c>, then the table keys.</summary>
+    public Task<(IReadOnlyList<ReputationEvent> Rows, ReputationAppealCursor? Next)> QueryAppealsAsync(
+        string appealStatus, int limit, ReputationAppealCursor? after)
+    {
+        static (string, string, string) Key(ReputationEvent r) => (r.AppealedAt ?? string.Empty, r.UserId, r.EventId);
+        var ordered = Rows.Values.SelectMany(r => r.Values)
+            .Where(r => r.AppealStatus == appealStatus && !string.IsNullOrEmpty(r.AppealedAt))
+            .OrderBy(r => r.AppealedAt, StringComparer.Ordinal)
+            .ThenBy(r => r.UserId, StringComparer.Ordinal)
+            .ThenBy(r => r.EventId, StringComparer.Ordinal)
+            .Where(r => after == null || Comparer<(string, string, string)>.Default.Compare(
+                Key(r), (after.AppealedAt, after.UserId, after.EventId)) > 0)
+            .ToList();
+        var page = ordered.Take(limit).ToList();
+        var next = ordered.Count > limit ? new ReputationAppealCursor(page[^1].AppealedAt!, page[^1].UserId, page[^1].EventId) : null;
+        return Task.FromResult<(IReadOnlyList<ReputationEvent>, ReputationAppealCursor?)>((page, next));
+    }
 }
 
 /// <summary>A clock a test moves by hand.</summary>

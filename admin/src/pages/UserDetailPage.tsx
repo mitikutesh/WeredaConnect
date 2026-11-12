@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams } from "react-router";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { ReputationPanel } from "@/components/reputation/ReputationPanel";
 import { useLocale } from "@/hooks/useLocale";
 import { useUserDetail, useUserAction } from "@/hooks/useQuery";
 import { formatDate } from "@/lib/i18n";
@@ -100,6 +101,13 @@ export function UserDetailPage() {
           <h3 className="mb-4 font-semibold">{t("users.transactionHistory")}</h3>
           <p className="text-sm text-text-muted">{t("common.noData")}</p>
         </Card>
+
+        {/* ESC-32: points, tier, tags, restrictions and events, with the admin actions. */}
+        {id && (
+          <div className="lg:col-span-2">
+            <ReputationPanel userId={id} />
+          </div>
+        )}
       </div>
     </div>
   );

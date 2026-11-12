@@ -23,6 +23,11 @@ vi.mock("@/hooks/useQuery", () => ({
   useUserAction: () => ({ mutate: mocks.mutate, isPending: false }),
 }));
 
+/* ESC-32: the reputation panel has its own tests (ReputationPanel.test.tsx); here it only has to be on the page. */
+vi.mock("@/components/reputation/ReputationPanel", () => ({
+  ReputationPanel: ({ userId }: { userId: string }) => <div data-testid="reputation-panel">{userId}</div>,
+}));
+
 function renderPage() {
   render(
     <MemoryRouter initialEntries={["/users/user-1"]}>
@@ -70,6 +75,12 @@ describe("UserDetailPage", () => {
     renderPage();
 
     expect(screen.getByText("reported by phone")).toBeTruthy();
+  });
+
+  it("shows the reputation panel of the user on the page", () => {
+    renderPage();
+
+    expect(screen.getByTestId("reputation-panel").textContent).toBe("user-1");
   });
 
   it("shows no reason for an active account", () => {

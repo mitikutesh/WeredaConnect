@@ -1,16 +1,17 @@
 # Reputation Architecture
 
 ## Version
-1.2.0 | 2026-11-11 (ESC-29)
+1.3.0 | 2026-11-12 (ESC-32)
 
 ## Status
 PARTLY BUILT. ESC-28 (the core write side) is built and ships dark: sections 3 (the table and
 its indexes), 5, 6.1, 6.2, 6.4, 7, 8, 9, 12.2 and the ESC-28 monitoring of 14; section 20 lists
 where the build reads the design. ESC-29 (the server reads and gates) is built and ships dark too:
 6.3 (copies), 6.6 (reads) and 10 (gates, visibility, suspension); section 21 lists where that build
-reads the design. PLANNED: 6.5, 11 and 13 (ESC-30 to ESC-33).
+reads the design. ESC-32 (the admin actions, 6.5, and the admin app) is built and ships dark:
+section 22. PLANNED: 11 and 13 (ESC-30, ESC-31, ESC-33).
 
-**Contracts**: `specs/contracts/reputation-api.md` 1.2.0, `rating-api.md` 1.4.0,
+**Contracts**: `specs/contracts/reputation-api.md` 1.4.0, `rating-api.md` 1.4.0,
 `user-entity.md` 2.1.0, `notifications-api.md` 1.5.0, `account-deletion.md` 1.6.0.
 **Rules and decisions**: `specs/features/three-party-escrow-commitments-reputation.md` 4.11,
 5.I, 5.K, 14 (D1 to D9). Product rules set by the user, not changed here: a farmer or trucker who
@@ -942,6 +943,7 @@ How the build reads points the design left open:
 4. **Suspend and unsuspend** (6.3, last line): the admin Lambda leaves the day's heal marker and the
    daily job rewrites the copies (the aggregate reads `suspended`), so the copy follows within a day,
    not at once. The order gate reads the live row, so no order reaches a suspended owner meanwhile.
+   (Since ESC-32 the admin Lambda also refreshes the copies in the same request: section 22 point 7.)
 5. **Hidden restricted owners** (section 10): a check in code on the full rows on every read path, in
    the three read Lambdas, for the `buyer` role only. No FilterExpression: the rows are read and
    billed either way, the crop browse refills its page, and one rule covers the `INCLUDE` index.
@@ -974,10 +976,74 @@ How the build reads points the design left open:
 
 ---
 
+## 22. As built (ESC-32)
+
+Code: `Services/ReputationService.Admin.cs` (the read, the decision, the four actions, the refresh
+after a suspension), `Functions/AdminFunction.Reputation.cs` (the four routes of
+`reputation-api.md` section 9, the audit rows, the photo URLs), `Data/ReputationEventRepository.cs`
+(`ReputationRowUpdate` in the transaction, the appeals queue Query), `Models/AdminReputationDtos.cs`;
+infra in `api-stack.ts` (routes, grants, the policy parameter on the admin Lambda); the admin app in
+`admin/src/components/reputation/`, `admin/src/pages/ReputationAppealsPage.tsx`,
+`admin/src/hooks/useAdminReputation.ts`.
+
+How the build reads points the design left open:
+
+1. **Row updates in the transaction** (6.5): an admin change of an existing row is a
+   `ReputationRowUpdate` item next to the users map: SET and REMOVE under the row's own condition
+   (the status read, and when asked the version read, the appeal status read, `appealTextAt` as
+   read, no `until` yet). New rows (`OVERRIDE#{at}`, `RESTRICTION#{at}`, `TIER#{at}#admin`) are put
+   with `attribute_not_exists`. A failed condition cancels all of it and the service plans again
+   from a fresh read, up to 5 times.
+2. **Which row a version protects**: an earn-back bumps the event's `version`, an appeal does not
+   (ESC-29). So a decision conditions on the version (earn-back) and an uphold also on
+   `appealStatus` and `appealTextAt`. An uphold is made on what the admin's page showed: the
+   request carries `seenAppealTextAt`, a stored value that differs is refused
+   (`REPUTATION_APPEAL_CHANGED`) before any write and never retried, and a text that lands between
+   the read and the write fails the condition, after which the next read refuses it the same way.
+   An excuse is not guarded (it only helps the party).
+3. **Restrictions** (5.4): an excuse lifts every points restriction in force when the points fall
+   below `restrictAt`, and the restriction of the excused `DELIVERY_OVERDUE` event (matched by
+   `since` = the event's `recordedAt`, both written by one transaction). An uphold of such a review
+   sets that row's `until` and puts it on `DueIndex`. A lifted row has status `lifted`, `liftedAt`
+   and `liftedBy` and leaves `DueIndex`. An admin `restrict` is refused while any restriction is in
+   force (`REPUTATION_ALREADY_RESTRICTED`); `lift` ends all of them.
+4. **Overrides** (5.3): the new `OVERRIDE#` row is the one in force; every earlier row still
+   `active` becomes `replaced` in the same transaction.
+5. **Replays**: an excuse of an excused row, an uphold of an upheld row with no open appeal, and
+   the same tag, untag or restrict already in force (same end, same reason) write nothing and are
+   not audited again.
+6. **Decided with no party text** (R15): an event upheld before the party wrote anything (only a
+   `DELIVERY_OVERDUE` review can be) may be appealed once inside the appeal window; it then has an
+   open `pending` appeal and takes a new decision. A row with the party's text never reopens.
+7. **Copies at once** (6.3): an admin write that changes a copied field refreshes the owner's
+   active listings in the same request and leaves the heal marker for a failure. The same now
+   holds for an admin suspend or unsuspend (`RefreshAfterSuspensionAsync`, TASK FUP-163): the map
+   is written when the tier changed (a `TIER#{at}#suspension` row) and the copies are rewritten,
+   after the Cognito disable and sign-out so ending the sessions never waits for it (the heal
+   marker is still left right after the profile write);
+   point 4 of section 21 (the daily job) is now only the fallback.
+8. **Reads for admins** (6.6): always one Query of the user's partition and an aggregate computed
+   from it; the stored map is not trusted for the admin view. The reads are not flagged; with
+   `reputationPenalties` off the policy parameter is not read and no write is accepted.
+9. **Audit** (16): one transaction-audit row per applied write, with the tier and points before
+   and after and, in the metadata, what else changed (the tag and the override row, the restriction
+   written or lifted with the end it had, the end given to a reviewed restriction); the appeal text
+   is never in it. A failed audit write is logged by the shared writer
+   and does not undo the action (it is already committed).
+10. **Grants**: on `reputation-events` the admin Lambda may Query the table and
+    `AppealStatusIndex`, and put and update items; no Scan, no delete, no `DueIndex`. On crops and
+    trips it gained `UpdateItem` for the copies. On the uploads bucket it reads `uploads/appeals/*`
+    for the 10 minute photo URLs.
+11. **Not built here**: the rating rebuild after an admin role change (section 18, R19; TASK
+    FUP-196) and a notification to the party when an appeal is decided (TASK FUP-195).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.3.0 | 2026-11-12 | ESC-32 built: 6.5 (the admin actions as one transaction with row updates), the admin reads and the appeals queue; section 22 (as built: row update conditions, restriction lift and review end, overrides replaced, replays, one appeal after a decision without party text, copies refreshed in the request for admin writes and for a suspend or unsuspend, admin grants) |
 | 1.2.0 | 2026-11-11 | ESC-29 built: 6.3, 6.6 and 10 on the server, behind the flags; section 21 (as built: the caller's row read once with its reputation, copies only while `reputationPenalties` is on, copy triggers and the daily job copying before it deletes the heal marker, the heal marker on an admin suspend, the browse check in code, reads from the stored map with a recompute past `nextChangeAt`, no rating for an unstamped row, in-memory event paging, the appeal write, the wording for apps without a build header, the routes the suspension gate covers) |
 | 1.1.0 | 2026-11-07 | ESC-28 built: status PARTLY BUILT; section 20 (as built: copies left to ESC-29 with the heal marker kept, TIER rows on every stored tier change and keyed `TIER#{at}#{cause}`, restriction from the recording time, R8 needs the old `farmerResponse`, R12 on the order's `disputeReason`, reachability only with `timeoutPenalties`, earn-back none without the fraud table, the request cap over the candidate's whole life, `nextChangeAt` with completions and the reliability window, the read-lag check with `lastEventId`, the refresh behind `reputationPenalties`, `catchUpDays`, parking shape, monitoring, inbox key); `activePointsAfter` on penalty rows |
 | 1.0.0 | 2026-11-07 | First design (ESC-27): data model, stream derivation, policy and defaults, service and transaction, daily job, notifications, gates, matching, rollout and backfill, FRD hooks, failure modes, cost, ticket split ESC-28 to ESC-33, decisions R1 to R32. Review fixes before merge: caps and earn-back limits look both ways in time; strongly consistent events read under the version check; R8 and R9 keyed on the old status; suspended, short-window and request caps; crop owner index is `INCLUDE` (BatchGet for status, browse filter in code on the `INCLUDE` path); admins only on `/admin` routes; parked messages hold projected images; stream concurrency at or above the shard count; notify source filtered on `code` |

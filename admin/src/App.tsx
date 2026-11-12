@@ -14,6 +14,7 @@ import { StuckOrdersPage } from "@/pages/StuckOrdersPage";
 import { UnappliedPaymentsPage } from "@/pages/UnappliedPaymentsPage";
 import { FraudReviewPage } from "@/pages/FraudReviewPage";
 import { ListingReportsPage } from "@/pages/ListingReportsPage";
+import { ReputationAppealsPage } from "@/pages/ReputationAppealsPage";
 import { UsersPage } from "@/pages/UsersPage";
 import { UserDetailPage } from "@/pages/UserDetailPage";
 import { RevenuePage } from "@/pages/RevenuePage";
@@ -78,6 +79,7 @@ function AppRoutes() {
         <Route path="unapplied-payments" element={<UnappliedPaymentsPage />} />
         <Route path="fraud-review" element={<FraudReviewPage />} />
         <Route path="listing-reports" element={<ListingReportsPage />} />
+        <Route path="reputation-appeals" element={<ReputationAppealsPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="users/:id" element={<UserDetailPage />} />
         <Route path="revenue" element={<RevenuePage />} />

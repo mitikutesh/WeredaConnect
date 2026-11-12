@@ -66,6 +66,9 @@ public sealed record ReputationOverrideDto
     public required string Tag { get; init; }
     public string? Until { get; init; }
     public string? Reason { get; init; }
+
+    /// <summary>ESC-32: the admin who set it. Only on the admin read (reputation-api.md 9.1), never to the party.</summary>
+    public string? By { get; init; }
 }
 
 /// <summary>ESC-29: the body of <c>GET /reputation/me/events</c> (reputation-api.md section 4).</summary>

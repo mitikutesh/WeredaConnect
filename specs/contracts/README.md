@@ -60,7 +60,7 @@ Each contract file follows this structure:
 | Authentication API | `auth-api.md` | 2.15.0 | Mobile, Backend, Infrastructure |
 | User Entity | `user-entity.md` | 2.1.1 | Mobile, Web, Backend, Admin, Infrastructure |
 | Rating API | `rating-api.md` | 1.4.0 | Mobile, Web, Backend, Infrastructure, Admin |
-| Reputation API (penalty events, tiers, appeals, gates; events, aggregate, reads, appeal and gates BUILT on the server; admin and app PLANNED) | `reputation-api.md` | 1.3.0 | Mobile, Web, Backend, Admin, Infrastructure |
+| Reputation API (penalty events, tiers, appeals, gates; events, aggregate, reads, appeal, gates and admin endpoints BUILT on the server; app PLANNED) | `reputation-api.md` | 1.4.0 | Mobile, Web, Backend, Admin, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.11.0 | Mobile, Backend, Admin |
 | Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.9.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 2.4.0 | Mobile, Web, Backend, Infrastructure, Admin |

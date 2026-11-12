@@ -15,7 +15,7 @@ namespace WeredaConnect.Server.Services;
 /// effective rating, the reliability) refreshes those copies after the commit (6.3), best effort,
 /// and upserts the day's <c>HEAL#</c> marker, so the daily job retries a copy that failed.
 /// </summary>
-public sealed class ReputationService
+public sealed partial class ReputationService
 {
     /// <summary>Attempts of one write before it throws (and the stream parks the record).</summary>
     public const int MaxAttempts = 5;
