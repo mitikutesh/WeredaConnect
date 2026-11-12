@@ -265,9 +265,22 @@ public sealed class FraudDetectionService : IFraudDetectionService
         string userId, string signalType, string? entityId,
         string entityType, string? description)
     {
+        await PutSignalAsync(userId, signalType, entityId, entityType, description, sourceUserId: null);
+    }
+
+    /// <summary>
+    /// The one writer of signal rows. Returns whether a row was written: false for an unconfigured table,
+    /// an empty user id, or the FRD-08 write limit (a row of this user, type and hour exists).
+    /// <paramref name="sourceUserId"/> (ESC-33) is stored only on a row written onto a user other than the
+    /// one whose request caused it, so the attribution guard can count rows per source.
+    /// </summary>
+    private async Task<bool> PutSignalAsync(
+        string userId, string signalType, string? entityId,
+        string entityType, string? description, string? sourceUserId)
+    {
         if (string.IsNullOrEmpty(_fraudSignalsTable) || string.IsNullOrEmpty(userId))
         {
-            return;
+            return false;
         }
 
         var now = DateTime.UtcNow;
@@ -303,6 +316,11 @@ public sealed class FraudDetectionService : IFraudDetectionService
             item["entityId"] = new AttributeValue { S = entityId };
         }
 
+        if (!string.IsNullOrEmpty(sourceUserId))
+        {
+            item[SourceUserIdAttribute] = new AttributeValue { S = sourceUserId };
+        }
+
         try
         {
             await _dynamoDb.PutItemAsync(new PutItemRequest
@@ -313,10 +331,168 @@ public sealed class FraudDetectionService : IFraudDetectionService
             });
             // FRD-16: one line per row written, so the signal metrics count the rows Fraud Review shows.
             AlarmLog(SignalRecordedLine(signalType, entityType));
+            return true;
         }
         catch (ConditionalCheckFailedException)
         {
             // This user already has a row of this type in this hour: the write limit, not a failure.
+            return false;
+        }
+    }
+
+    // ── RecordAttributedSignalAsync ────────────────────────
+    // ESC-33 (section 14.3): the guard of a signal written onto a user other than the caller.
+
+    /// <summary>The signal row attribute naming the user whose request caused a row on another user (ESC-33).</summary>
+    internal const string SourceUserIdAttribute = "sourceUserId";
+
+    /// <summary>
+    /// ESC-33: rows of one type one source may put on one target within the table's 30 day life. One
+    /// confirming buyer adds at most one <c>GPS_ANOMALY</c> (25, LOW on its own) to one trucker.
+    /// </summary>
+    internal const int AttributedPerSourceCap = 1;
+
+    /// <summary>
+    /// ESC-33: rows of one type all sources together may put on one target within the table's 30 day life.
+    /// Two <c>GPS_ANOMALY</c> rows are 50, MEDIUM: other users' requests alone never take a target to HIGH
+    /// or CRITICAL, and never near the page cap of the score read (a truncated read is CRITICAL).
+    /// </summary>
+    internal const int AttributedPerTargetCap = 2;
+
+    /// <summary>
+    /// ESC-33: sort key prefix of the guard's slot rows in the target's partition. <c>!</c> sorts before
+    /// every ISO timestamp, so no read with the key condition <c>signalKey &gt;= since</c> (the score, the
+    /// existence check, the clean-delivery check, the advisory read) ever returns one; a slot row has no
+    /// <c>status</c>, so it is not on the Fraud Review index either.
+    /// </summary>
+    internal const string AttributionSlotPrefix = "!attr#";
+
+    /// <summary>The <c>recordType</c> of a slot row.</summary>
+    internal const string RecordTypeAttributionSlot = "attribution_slot";
+
+    /// <summary>Log line of an attributed signal the guard did not write (not alarmed; ids never logged).</summary>
+    internal const string AttributedSignalSkippedToken = "FRAUD_ATTRIBUTED_SIGNAL_SKIPPED";
+
+    public async Task<AttributedSignalOutcome> RecordAttributedSignalAsync(
+        string targetUserId, string sourceUserId, string signalType, string entityId,
+        string entityType, string? description)
+    {
+        if (string.IsNullOrEmpty(_fraudSignalsTable))
+        {
+            return AttributedSignalOutcome.NotConfigured;
+        }
+
+        if (string.IsNullOrEmpty(targetUserId) || string.IsNullOrEmpty(sourceUserId) || string.IsNullOrEmpty(entityId))
+        {
+            return AttributedSignalOutcome.Invalid;
+        }
+
+        // One consistent Query of the target's partition over the table's life, the type as a filter, at most
+        // DefaultRiskMaxPages pages. Rows left unread: the caps cannot be shown to hold, so nothing is written
+        // (such a partition reads as truncated, CRITICAL, anyway).
+        var since = DateTime.UtcNow.AddDays(-SignalTtlDays).ToString("o", CultureInfo.InvariantCulture);
+        var request = new QueryRequest
+        {
+            TableName = _fraudSignalsTable,
+            KeyConditionExpression = "#u = :uid AND #k >= :since",
+            FilterExpression = "#t = :type",
+            ProjectionExpression = "#k, #e, #s",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#u", "userId" },
+                { "#k", "signalKey" },
+                { "#t", "signalType" },
+                { "#e", "entityId" },
+                { "#s", SourceUserIdAttribute }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":uid", new AttributeValue { S = targetUserId } },
+                { ":since", new AttributeValue { S = since } },
+                { ":type", new AttributeValue { S = signalType } }
+            },
+            ConsistentRead = true
+        };
+
+        var rows = 0;
+        var fromSource = 0;
+        var pages = 0;
+        Dictionary<string, AttributeValue>? startKey = null;
+        do
+        {
+            if (startKey != null)
+            {
+                request.ExclusiveStartKey = startKey;
+            }
+
+            var response = await _dynamoDb.QueryAsync(request);
+            pages++;
+            foreach (var row in response.Items ?? new List<Dictionary<string, AttributeValue>>())
+            {
+                if (row.TryGetValue("entityId", out var entity) && entity.S == entityId)
+                {
+                    return Skipped(AttributedSignalOutcome.AlreadyRecorded);
+                }
+
+                rows++;
+                if (row.TryGetValue(SourceUserIdAttribute, out var source) && source.S == sourceUserId)
+                {
+                    fromSource++;
+                }
+            }
+
+            startKey = response.LastEvaluatedKey is { Count: > 0 } next ? next : null;
+        }
+        while (startKey != null && pages < DefaultRiskMaxPages);
+
+        if (startKey != null && await RowsRemainAsync(targetUserId, since, startKey, newestFirst: false, consistentRead: true))
+        {
+            return Skipped(AttributedSignalOutcome.TargetUnread);
+        }
+
+        if (fromSource >= AttributedPerSourceCap)
+        {
+            return Skipped(AttributedSignalOutcome.SourceCapped);
+        }
+
+        if (rows >= AttributedPerTargetCap)
+        {
+            return Skipped(AttributedSignalOutcome.TargetCapped);
+        }
+
+        // The counts above are a read, and two confirms that both read "one below the cap" (in two hour
+        // buckets, so the hour key does not stop the second) could both write. The caps are therefore
+        // enforced by conditional puts of slot rows: one slot per source, AttributedPerTargetCap slots per
+        // target, each held for the 30 days its signal row can count. Only a request that holds both
+        // writes the signal, so the caps hold whatever the interleaving.
+        var now = DateTime.UtcNow;
+        if (!await TryClaimSlotAsync(targetUserId, $"{AttributionSlotPrefix}{signalType}#source#{sourceUserId}", now))
+        {
+            return Skipped(AttributedSignalOutcome.SourceCapped);
+        }
+
+        var slot = 0;
+        for (var n = 1; n <= AttributedPerTargetCap && slot == 0; n++)
+        {
+            if (await TryClaimSlotAsync(targetUserId, $"{AttributionSlotPrefix}{signalType}#slot#{n}", now))
+            {
+                slot = n;
+            }
+        }
+
+        if (slot == 0)
+        {
+            return Skipped(AttributedSignalOutcome.TargetCapped);
+        }
+
+        return await PutSignalAsync(targetUserId, signalType, entityId, entityType, description, sourceUserId)
+            ? AttributedSignalOutcome.Written
+            : Skipped(AttributedSignalOutcome.HourLimited);
+
+        AttributedSignalOutcome Skipped(AttributedSignalOutcome outcome)
+        {
+            AlarmLog($"{AttributedSignalSkippedToken} signalType={MoneyAlarmLog.Safe(signalType)} reason={outcome}");
+            return outcome;
         }
     }
 
@@ -497,6 +673,62 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// <summary>A buyer and a farmer with several funded orders between them in a few days (a regular customer can do it too).</summary>
     internal const string RepeatedPairSignal = "REPEATED_PAIR";
 
+    /// <summary>
+    /// ESC-33: claim one slot row of the attribution guard, atomically. The put succeeds when the slot does
+    /// not exist or its earlier claim has run out (<c>claimedUntil</c> at or before now); a slot is held for
+    /// <see cref="SignalTtlDays"/> days, as long as the signal row it stands for can count in a score, and
+    /// the table's TTL removes it a day later. A slot stays claimed when the signal write after it is then
+    /// held back (the hour limit) or fails: fewer rows, never more.
+    /// </summary>
+    private async Task<bool> TryClaimSlotAsync(string targetUserId, string slotKey, DateTime nowUtc)
+    {
+        try
+        {
+            await _dynamoDb.PutItemAsync(new PutItemRequest
+            {
+                TableName = _fraudSignalsTable,
+                Item = new Dictionary<string, AttributeValue>
+                {
+                    { "userId", new AttributeValue { S = targetUserId } },
+                    { "signalKey", new AttributeValue { S = slotKey } },
+                    { "recordType", new AttributeValue { S = RecordTypeAttributionSlot } },
+                    { "claimedUntil", new AttributeValue { S = nowUtc.AddDays(SignalTtlDays).ToString("o", CultureInfo.InvariantCulture) } },
+                    { "expiresAt", new AttributeValue { N = new DateTimeOffset(nowUtc).AddDays(SignalTtlDays + 1).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture) } }
+                },
+                ConditionExpression = "attribute_not_exists(#k) OR #c <= :now",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#k", "signalKey" },
+                    { "#c", "claimedUntil" }
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":now", new AttributeValue { S = nowUtc.ToString("o", CultureInfo.InvariantCulture) } }
+                }
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    // ESC-33 (section 15.3): the reputation hooks. Written by ReputationService when the event itself is
+    // recorded, so only while reputationPenalties is on.
+
+    /// <summary>Rule 4 (GPS consistency). ESC-33: on the delivery's trucker, through the attribution guard.</summary>
+    internal const string GpsAnomalySignal = "GPS_ANOMALY";
+
+    /// <summary>A farmer or trucker judged a no-show at pickup (the reputation event <c>NO_SHOW</c> with points).</summary>
+    internal const string NoShowSignal = "NO_SHOW";
+
+    /// <summary>A trucker whose delivery ran past its deadline (the reputation event <c>DELIVERY_OVERDUE</c> with points).</summary>
+    internal const string DeliveryOverdueSignal = "DELIVERY_OVERDUE";
+
+    /// <summary>A buyer whose paid orders farmers and truckers declined or let expire several times in a few weeks.</summary>
+    internal const string BuyerDeclinePatternSignal = "BUYER_DECLINE_PATTERN";
+
     // Weights per fraud-detection-architecture.md §2 Rule 5 and section 15.
     internal static int SignalWeight(string signalType) => signalType switch
     {
@@ -523,6 +755,9 @@ public sealed class FraudDetectionService : IFraudDetectionService
         SelfTradeSignal => 40,
         SharedDeviceTradeSignal => 25,
         RepeatedPairSignal => 5,
+        NoShowSignal => 15,
+        DeliveryOverdueSignal => 25,
+        BuyerDeclinePatternSignal => 10,
         _ => 10
     };
 
@@ -541,17 +776,29 @@ public sealed class FraudDetectionService : IFraudDetectionService
             or GpsJumpSignal or GpsMockedSignal
             or AmountAnomalySignal or NewAccountLargeAmountSignal or CancelAfterFundRateSignal
             or DisputeRateSignal or ImpossibleDeliveryTimeSignal
-            or SharedDeviceTradeSignal or RepeatedPairSignal;
+            or SharedDeviceTradeSignal or RepeatedPairSignal
+            or BuyerDeclinePatternSignal;
 
     /// <summary>
     /// FRD-09: the transaction pattern types. Each is written with the order, escrow, delivery or trip
     /// it observed as the entity, counts once per entity (a retried payment of the same order is one
     /// observation) and is capped per type at <c>RISK_PATTERN_TYPE_CAP</c>, so no pattern alone takes a
-    /// user past MEDIUM.
+    /// user past MEDIUM. ESC-33 adds the buyer decline pattern (the order as the entity), which other
+    /// users' declines write onto the buyer: the same count and cap keep it at MEDIUM on its own.
     /// </summary>
     internal static bool IsPatternSignal(string signalType) =>
         signalType is AmountAnomalySignal or NewAccountLargeAmountSignal or KycThresholdStructuringSignal
-            or CancelAfterFundRateSignal or DisputeRateSignal or ImpossibleDeliveryTimeSignal;
+            or CancelAfterFundRateSignal or DisputeRateSignal or ImpossibleDeliveryTimeSignal
+            or BuyerDeclinePatternSignal;
+
+    /// <summary>
+    /// ESC-33: the two signals a reputation event writes, with the order as the entity. Each counts once per
+    /// order, and the two share one cap of <c>RISK_PATTERN_TYPE_CAP</c> (<see cref="RiskScoreSettings.CapKeyOf"/>),
+    /// so missed pickups and late deliveries alone stop at MEDIUM: reliability is reputation's business
+    /// (points, the tier, the restriction), and the risk score only takes it as one input.
+    /// </summary>
+    internal static bool IsReliabilitySignal(string signalType) =>
+        signalType is NoShowSignal or DeliveryOverdueSignal;
 
     /// <summary>
     /// FRD-15: the relationship types. Each is written on both parties with the funded order as the entity,
@@ -587,7 +834,8 @@ public sealed class FraudDetectionService : IFraudDetectionService
             or StaleVersionBurstSignal or SuspendedTokenUseSignal
             or GpsJumpSignal or GpsMockedSignal
             || IsPatternSignal(signalType)
-            || IsRelationshipSignal(signalType);
+            || IsRelationshipSignal(signalType)
+            || IsReliabilitySignal(signalType);
 
     /// <summary>
     /// FRD-08 types whose counted weight is capped per type over the window (<c>RISK_REJECT_TYPE_CAP</c>):

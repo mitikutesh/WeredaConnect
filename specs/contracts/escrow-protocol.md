@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.9.0
+2.10.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -4042,6 +4042,34 @@ Build 2 and later get the stored value.
 
 ---
 
+## Additions in 2.10.0 (the payout delay reads the reputation tier, ESC-33)
+
+Design: `specs/architecture/fraud-detection-architecture.md` 3.32.0, sections 17.5 and 15.3;
+`reputation-api.md` 1.5.0 section 1.7. No wire change: `releaseNotBefore` is stamped and shown as in
+1.33.0, and the class is still never on the row or in a response.
+
+- Only with `reputationPenalties` on (off in every environment; `REPUTATION_PENALTIES_ENABLED` on the
+  sync and escrow-cron Lambdas). Off, the classes below are exactly those of 1.33.0 and no read is added.
+- The payee's stored `reputation` map on the users row adds to the classes of 1.33.0: a restriction
+  active at the confirm (tier `restricted`, an open `DELIVERY_OVERDUE` review included) is `flagged`
+  (`PAYOUT_DELAY_FLAGGED_HOURS`); a stored tier of `low`, or of `restricted` whose restriction has
+  ended, is `new` (`PAYOUT_DELAY_NEW_HOURS`); `good`, `warning` and no map change nothing. The longer
+  class wins, so the tier never shortens a wait and never shortens the dispute window.
+- The stored map is read as it is (no events read): after points expire it can stay `low` until the
+  daily reputation job rewrites it, at most a day, which only lengthens the wait.
+- Reads: a payee with a risk score of 0 costs the same users row read as before. A payee the risk score
+  already made `new` now has the row read too (one GetItem per payee and batch); when that row is
+  missing or the read fails the payee is `unscored` (the longest delay), as on the trusted path.
+- Money: no amount, payee or verdict changes; only the date of the automatic payout of a `low` or
+  restricted payee. Admin releases, refunds and dispute settlements are not delayed, as in 1.33.0.
+- Also behind `reputationPenalties`, with no escrow change: the fraud signal `GPS_ANOMALY` of a confirmed
+  delivery, which stays on the confirming buyer as before, is then also written on the delivery's trucker
+  (capped: one per delivery, one per buyer and trucker, two per trucker in 30 days; fraud spec 14.3 and
+  15.3). A trucker with such a row in the last 30 days is a `new` payee on deliveries confirmed after it
+  (72 hours instead of 24 by default), as with any counted signal since 1.33.0. The delivery that raised
+  the signal is stamped before the signal is written. With the flag off no trucker gets such a row.
+- Nothing in 2.10.0 is live while `reputationPenalties` is off.
+
 ## Additions in 1.33.0 (payout delay, FRD-13)
 
 Design: `specs/architecture/fraud-detection-architecture.md` 3.10.0, section 17.5. A new or flagged payee waits
@@ -5045,6 +5073,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.10.0 | 2026-11-12 | ESC-33 (§Additions in 2.10.0), no wire change. Behind `reputationPenalties` (off everywhere): the payout delay also reads the payee's reputation tier from the users row, `low` as `new` and restricted as `flagged`; off, the classes and reads are those of 1.33.0. Behind the same flag a GPS-inconsistent confirm also puts a capped `GPS_ANOMALY` row on the trucker, which can make that trucker a `new` payee on later deliveries. Nothing is live. (2.9.0 is another ticket's version.) |
 | 2.9.0 | 2026-11-12 | The release against the crash recovery (FUP-65): a 1.x release whose `completed` write loses to the hourly crash recovery reads the row and answers its normal success (`completed`, one payout, no second `complete` row, the same success on replay) instead of `500`; the recovery leaves a row released less than 2 minutes ago to its release and treats a lost write as no failure. Unlinked order escrows (FUP-66): the delivery confirmation stamps the order's own escrow when the `DeliveryIndex` names none; the refund sweep's safety net and the admin queue review find the delivery through the order's `activeDeliveryId`, so a confirmed delivery is never refunded; a funded order without an escrow row is not cash at the QR gate (`delivery-verification-api.md` 2.4.0). Server only; no endpoint, field, status or client change. 2.7.0 is another change's number. |
 | 2.8.0 | 2026-11-12 | Client error handling, no server change (FUP-70, FUP-77): the clients keep the body's `ESCROW_*` code on `502` and `503` and fall back to `ESCROW_013` and `ESCROW_014` only without one; the mobile intent queue fails a queued delivery payment at once on `400`, `422` and any other `4xx` with an `ESCROW_*` code (not `401`, `404`, `408`, `429`), stores the error code and shows its localized text; the `409 ESCROW_INVALID_TRANSITION` message of a dispute on a scheduled refund (`refund to the buyer is scheduled`) is now relied on by the clients and has its own text; the step-up prompts on the dispute screens name the dispute. 2.6.0 is taken by another branch |
 | 2.7.0 | 2026-11-12 | Admin legs, ledger view and stuck orders (ESC-24), read only: the admin escrow DTO fills `truckerPayout`, `truckerId`, `truckerName`, `legStatus`, `refundedTotal`, `releasedTotal`, `verdictAmounts` and `truckerLeg` (where the transport leg stands); new `GET /admin/escrows/{id}/ledger` (one page of ledger rows, `legacy` with no rows for a 1.x escrow) and `GET /admin/orders/queue?source=queue|deadline` (the admin queue of 1.13.0, or orders more than 30 minutes past a commitment deadline, from `DeadlineIndex`); the Disputes page sends the `partial_refund` split of 2.2.0 from a per-leg form. No amount, settlement, status or timing changes. See "Additions in 2.6.0". |
