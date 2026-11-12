@@ -110,10 +110,64 @@ OrderCheckoutFailed orderCheckoutFailureOf(ApiException e) {
 /// the status alone cannot tell them apart and the UI keys its copy on the code.
 /// `FRAUD_ACCOUNT_HELD` (a 403) is kept too: the account is under review, which
 /// is not "sign in again".
+///
+/// One refinement (FUP-77): a dispute refused because the buyer's refund is
+/// already scheduled comes as the shared `ESCROW_INVALID_TRANSITION`; it is
+/// told apart by the server's text and read as
+/// [escrowDisputeRefundScheduledCode], so the screen can say why.
 String escrowCodeOf(ApiException e, String fallback) {
   final code = e.code;
+  if (code == 'ESCROW_INVALID_TRANSITION' &&
+      e.message.contains(_refundScheduledToken)) {
+    return escrowDisputeRefundScheduledCode;
+  }
   return code != null &&
           (code.startsWith('ESCROW_') || code == fraudAccountHeldCode)
       ? code
       : fallback;
+}
+
+/// Client-side code for `409 ESCROW_INVALID_TRANSITION` on
+/// `POST /escrow/dispute` when the refusal is "a refund to the buyer is
+/// scheduled" (FUP-32). The server has no code of its own for it
+/// (escrow-protocol.md 2.7.0 pins the wording).
+const String escrowDisputeRefundScheduledCode =
+    'ESCROW_INVALID_TRANSITION_REFUND_SCHEDULED';
+
+const String _refundScheduledToken = 'refund to the buyer is scheduled';
+
+/// Whether the server's answer to a queued escrow call can never change for
+/// the same request, so sending it again only burns retries (FUP-70).
+///
+/// The rule the sync executor uses for a refused batch: `400` and `422` are
+/// permanent. Any other `4xx` is permanent only when it carries the server's
+/// own `ESCROW_*` code (a typed refusal such as `403 ESCROW_026` or
+/// `404 ESCROW_008`), and never for `401` (the session is refreshed), `408`
+/// or `429` (retry later). `5xx`, network errors and timeouts stay
+/// retryable. Step-up (`AUTH_040`, `AUTH_041`) and `409` are not failures
+/// and are handled by the caller before this.
+bool isPermanentEscrowRefusal(ApiException e) {
+  final status = e.statusCode;
+  if (status == null || status < 400 || status > 499) return false;
+  if (status == 400 || status == 422) return true;
+  if (status == 401 || status == 408 || status == 429) return false;
+  return e.code?.startsWith('ESCROW_') ?? false;
+}
+
+/// The code a failed queued escrow call is stored and shown under (FUP-70):
+/// the server's own code when it sent one, else a client code for the kind
+/// of failure. Never the server's English text.
+String escrowFailureCodeOf(Object error) {
+  if (error is! ApiException) return 'ESCROW_CLIENT';
+  final fallback = switch (error) {
+    NetworkException() || TimeoutException() => 'ESCROW_OFFLINE',
+    RateLimitException() => 'ESCROW_011',
+    _ => switch (error.statusCode) {
+        502 => 'ESCROW_013',
+        503 => 'ESCROW_014',
+        401 => 'ESCROW_005',
+        _ => 'ESCROW_CLIENT',
+      },
+  };
+  return escrowCodeOf(error, fallback);
 }

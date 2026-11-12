@@ -1210,6 +1210,10 @@ class AppLocalizationsAm extends AppLocalizations {
       'ክርክር ማንሳት የሚቻለው እቃው ከተጫነ በኋላ ብቻ ነው። ከዚያ በፊት ትዕዛዙን ይሰርዙ ወይም ድጋፍ ሰጪን ያግኙ።';
 
   @override
+  String get escrowErrorDisputeRefundScheduled =>
+      'ለዚህ ክፍያ ገንዘቡ ለገዢው እንዲመለስ አስቀድሞ ተይዟል፣ ስለዚህ ከእንግዲህ ክርክር ማንሳት አይቻልም። ካልተስማሙ ድጋፍ ሰጪን ያግኙ።';
+
+  @override
   String get escrowErrorInvalidTransition => 'ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።';
 
   @override
@@ -2767,6 +2771,14 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get stepUpDisputeMessage =>
+      'ለደህንነትዎ ይህ ክርክር ከመላኩ በፊት እርስዎ መሆንዎን ያረጋግጡ።';
+
+  @override
+  String get faydaStepUpDisputeMessage =>
+      'ይህን ክርክር ለመላክ እርስዎ መሆንዎን በፋይዳ ያረጋግጡ። የይለፍ ቃልዎም ሊጠየቅ ይችላል።';
+
+  @override
   String get faydaStepUpMessage =>
       'ይህን ክፍያ ለመቀጠል እርስዎ መሆንዎን በፋይዳ ያረጋግጡ። የይለፍ ቃልዎም ሊጠየቅ ይችላል።';
 
@@ -2852,6 +2864,10 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get kycFarmerNotVerifiedMessage =>
       'የገበሬው ማንነት ገና ስላልተረጋገጠ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።';
+
+  @override
+  String get kycUnknownReasonMessage =>
+      'የማንነት ማረጋገጫ ገና ስለሚቀር ይህ ክፍያ አልተላከም። ምን እንደሚያስፈልግ ለማየት መተግበሪያውን ያዘምኑ ወይም ድጋፍ ሰጪን ያግኙ።';
 
   @override
   String get kycUnavailableMessage =>
@@ -2993,6 +3009,10 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get cancelOrderTransportFailedBody =>
       'የትራንስፖርትና የመድረክ ኮሚሽንን ጨምሮ የከፈሉት ሁሉ ይመለስልዎታል።';
+
+  @override
+  String get errorOrderCancelPaymentBusy =>
+      'ክፍያው በክርክር ላይ ስለሆነ ወይም እየተጠናቀቀ ስለሆነ ይህ ትዕዛዝ አሁን ሊሰረዝ አይችልም። ውጤቱን ይጠብቁ ወይም ድጋፍ ሰጪን ያግኙ።';
 
   @override
   String get errorOrderCancelNotAllowed =>

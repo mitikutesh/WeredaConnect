@@ -12,6 +12,7 @@ import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/escrow_payment/data/models/escrow_models.dart';
+import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
 
 /// Processes queued [PaymentIntent]s when connectivity returns.
@@ -360,7 +361,7 @@ class EscrowSyncService {
         );
         _securityEvents.emit(
           SyncOperationRejected(
-            entityType: 'payment_intent',
+            entityType: paymentIntentEntityType,
             entityId: syncing.deliveryId,
             action: 'initiate',
             message: '$fraudAccountHeldCode: ${e.message}',
@@ -369,34 +370,75 @@ class EscrowSyncService {
         );
         return null;
       }
-      await _handleIntentFailure(syncing, e.message);
+      // FUP-70: a typed refusal (422 ESCROW_039, 403 ESCROW_026, ...) gets
+      // the same answer on every retry, so it fails now. Anything else keeps
+      // the retry budget.
+      await _failAndExplain(
+        syncing,
+        escrowFailureCodeOf(e),
+        permanent: isPermanentEscrowRefusal(e),
+      );
     } on Exception catch (e) {
-      await _handleIntentFailure(syncing, e.toString());
+      await _failAndExplain(syncing, escrowFailureCodeOf(e));
     }
     return null;
   }
 
-  /// Handle a failed intent: increment retry count or mark as failed. A
-  /// [permanent] refusal is marked failed at once.
-  Future<void> _handleIntentFailure(
+  /// [_handleIntentFailure], and when the intent ended as failed (a
+  /// permanent refusal, or the last retry) tell its buyer why. A failed
+  /// intent leaves the pending list, so without this the payment would
+  /// vanish unexplained (FUP-70). The event carries the code only; the
+  /// prompt listener shows its localized text to that buyer.
+  Future<void> _failAndExplain(
     PaymentIntent intent,
-    String errorMessage, {
+    String errorCode, {
     bool permanent = false,
   }) async {
+    final failed = await _handleIntentFailure(
+      intent,
+      errorCode,
+      permanent: permanent,
+    );
+    if (!failed) return;
+    _securityEvents.emit(
+      SyncOperationRejected(
+        entityType: paymentIntentEntityType,
+        entityId: intent.deliveryId,
+        action: 'initiate',
+        message: errorCode,
+        userId: intent.buyerId,
+      ),
+    );
+  }
+
+  /// The `entityType` of the [SyncOperationRejected] events this service
+  /// raises for a queued payment.
+  static const paymentIntentEntityType = 'payment_intent';
+
+  /// Handle a failed intent: increment retry count or mark as failed. A
+  /// [permanent] refusal is marked failed at once. [errorCode] is a code
+  /// ([escrowFailureCodeOf]), which the pending card localizes. Returns
+  /// true when the intent ended as failed.
+  Future<bool> _handleIntentFailure(
+    PaymentIntent intent,
+    String errorCode, {
+    bool permanent = false,
+  }) async {
+    var failed = false;
     await _isar.writeTxn(() async {
       final current = await _isar.paymentIntents.get(intent.id);
       if (current == null) return;
 
       current.retryCount += 1;
       current.lastAttemptAt = DateTime.now().toUtc();
-      // MH7: Store error code only, not full message with potential PII
-      current.lastError = errorMessage.length > 100
-          ? errorMessage.substring(0, 100)
-          : errorMessage;
+      // MH7: Store the error code only, never the server's message (it may
+      // carry PII and is English only).
+      current.lastError = errorCode;
 
       if (permanent || current.retryCount >= maxRetries) {
         // A permanent refusal, or max retries reached: mark as failed
         current.status = IntentStatus.failed;
+        failed = true;
       } else {
         // Put back to pendingSync for next connectivity event
         current.status = IntentStatus.pendingSync;
@@ -404,6 +446,7 @@ class EscrowSyncService {
 
       await _isar.paymentIntents.put(current);
     });
+    return failed;
   }
 
   /// Apply exponential backoff delay.

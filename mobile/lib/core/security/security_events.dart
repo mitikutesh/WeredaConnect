@@ -32,19 +32,30 @@ enum KycReason {
   buyerFayda,
   farmerPhone,
   farmerFayda,
-  unavailable;
+  unavailable,
+
+  /// A reason token this build does not know (for example a future
+  /// `trucker_fayda`). It may be anyone's check, so it is explained only and
+  /// never opens the buyer's Fayda flow (FUP-83).
+  unknown;
 
   /// True when verifying the signed-in buyer can unblock the payment.
   bool get buyerCanFix => this == buyerPhone || this == buyerFayda;
 
   static const _prefix = 'ORDER_KYC_REQUIRED:';
 
+  /// A reason token: lower-case words joined by underscores, as in
+  /// `buyer_phone`. Prose (the wording of older servers) never matches.
+  static final _tokenShape = RegExp(r'^[a-z][a-z0-9]*(_[a-z0-9]+)*$');
+
   /// Reads the reason token; falls back to the wording of servers that
-  /// predate it.
+  /// predate it. A token of the right shape that is not one of ours reads
+  /// as [unknown], never as the buyer.
   static KycReason fromMessage(String message) {
     final at = message.indexOf(_prefix);
     final rest = at < 0 ? message : message.substring(at + _prefix.length);
-    final token = rest.trimLeft().split(':').first.trim();
+    final parts = rest.trimLeft().split(':');
+    final token = parts.first.trim();
     switch (token) {
       case 'buyer_phone':
         return KycReason.buyerPhone;
@@ -56,6 +67,9 @@ enum KycReason {
         return KycReason.farmerFayda;
       case 'unavailable':
         return KycReason.unavailable;
+    }
+    if (parts.length > 1 && _tokenShape.hasMatch(token)) {
+      return KycReason.unknown;
     }
     final text = rest.toLowerCase();
     if (text.contains('unavailable')) return KycReason.unavailable;

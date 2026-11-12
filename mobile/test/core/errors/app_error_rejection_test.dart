@@ -121,6 +121,49 @@ void main() {
       );
     });
 
+    // FUP-77: a dispute froze the money (or it is being settled), so the
+    // pickup rule is the wrong explanation.
+    test('an order cancel refused for its payment names the payment', () {
+      const message =
+          'ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.';
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'order',
+          action: 'update',
+          message: message,
+        ),
+        AppErrorCode.orderCancelPaymentBusy,
+      );
+      // Web: /sync answers the screen directly.
+      expect(
+        mapErrorToCode(const SyncRejectedException(message)),
+        AppErrorCode.orderCancelPaymentBusy,
+      );
+      // Still a permanent order refusal: the queue reverts the local cancel.
+      expect(isRevertableRejectionMessage(message), isTrue);
+      expect(isOrderCancelNotAllowedMessage(message), isTrue);
+      // Only a cancel refusal reads this way.
+      expect(
+        isOrderCancelPaymentBusyMessage(
+          'ORDER_REFUSED: The payment is being settled or reviewed.',
+        ),
+        isFalse,
+      );
+      expect(isOrderCancelPaymentBusyMessage(null), isFalse);
+    });
+
+    test('the payment refusal has its own text in en, am and om', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final text =
+            localizeErrorCode(AppErrorCode.orderCancelPaymentBusy, l10n);
+        expect(text, l10n.errorOrderCancelPaymentBusy, reason: locale);
+        expect(text.trim(), isNotEmpty, reason: locale);
+        expect(text, isNot(l10n.errorOrderCancelNotAllowed), reason: locale);
+        expect(text, isNot(l10n.errorOccurred), reason: locale);
+      }
+    });
+
     // ESC-08: the local cancel was undone, so say why, not "not saved".
     test('a delivery cancel refused after pickup has its own reason', () {
       for (final action in ['update', 'delete']) {

@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.47.0
+1.49.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -315,6 +315,7 @@ Since 1.5.0 the KYC message is `ORDER_KYC_REQUIRED: <reason>: <text>`:
 | `farmer_phone` | the farmer (phone) | explain only; do not send the buyer to Fayda |
 | `farmer_fayda` | the farmer (Fayda, above 10,000 ETB) | explain only; do not send the buyer to Fayda |
 | `unavailable` | nobody (profiles could not be read) | explain, try later |
+| any other token (since 1.49.0) | not known to this client | explain only; no Fayda action, nothing sent again |
 
 A failed, cancelled or refused verification (`FAYDA_005`/`006`/`007`) leaves the payment
 unsent. Clients fall back to the wording ("farmer", "phone") for servers older than 1.5.0.
@@ -1224,10 +1225,42 @@ Client only, no server change.
 
 ---
 
+## Refusal texts the clients read (1.49.0, FUP-77, FUP-83)
+
+Client only, no server change. Two refusals are now told apart by what the server already sends.
+
+**Order cancel refused for its payment.** The buyer's transport-failure cancel is answered
+`ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` when a dispute froze the money, or it
+is being settled or held for review (1.13.0, escrow-protocol.md 1.25.0). The clients read the phrase
+`payment is being settled or reviewed` after the code and show "This order can't be cancelled now because
+its payment is under dispute or being settled. Wait for the outcome or contact support." (en, am, om)
+instead of the pickup rule text. The phrase is now part of the contract: a server that rewords it must keep
+it, or the clients fall back to the pickup rule text. Still permanent, and the local cancel is still undone.
+Every other `ORDER_CANCEL_NOT_ALLOWED` keeps its text.
+
+**`ORDER_KYC_REQUIRED` reason tokens.** In `ORDER_KYC_REQUIRED: <reason>: <text>` (1.5.0) a `<reason>` is
+lower-case words joined by underscores.
+
+- A reason the client does not know (a later server may add one, for example `trucker_fayda`) is explained
+  only: "This payment was not sent because an identity check is still missing. Update the app or contact
+  support to see what is needed." No Fayda action is offered and nothing is sent again, because the check may
+  be another party's. Before, such a token was read as the buyer's and opened the buyer's Fayda flow.
+- `buyer_phone` has its own error text (the phone wording) on every surface. Before, the inline error used
+  the 10,000 ETB Fayda wording; the dialog already used the phone wording. It still offers Fayda, with the
+  phone proof.
+- A message without a token (servers before 1.5.0) is read from its wording as before, and the bare code
+  still reads as the buyer's Fayda.
+
+A new reason token therefore reaches old clients safely only from this version on; clients before it treat
+it as the buyer's.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.49.0 | 2026-11-12 | Refusal texts the clients read, client only (FUP-77, FUP-83): `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` has its own text (the phrase is now relied on by the clients); an `ORDER_KYC_REQUIRED` reason token the client does not know is explained only, with no Fayda action; `buyer_phone` has its own error text on every surface. 1.48.0 is taken by another branch |
 | 1.47.0 | 2026-11-11 | Step-up leftovers, client only (FUP-24, FUP-43): on mobile the remembered pending step-up is tied to the held operations and dropped once they all left the queue or got another answer, kept across a cancelled prompt; on web a delivery dispute answered `AUTH_040:` opens the password prompt and is sent once more as the same operation, and a cancelled prompt leaves it unsent with its own text (en, am, om) |
 | 1.46.0 | 2026-11-11 | Order detail read (ESC-23), client only: the mobile order detail shows the stored order at once and reads `GET /orders/{id}` once per open and on pull to refresh, under the pull rules (not sent while an operation for the order is queued, never to an older `version`); a failed read, `404` and `403` included, is silent and removes nothing. No server change. |
 | 1.45.0 | 2026-11-11 | Changes to a finished delivery or trip (FUP-128, `delivery-verification-api.md` 2.2.0): a delivery update that reaches a cancelled (or legacy soft-deleted) delivery with a version behind the stored one answers `conflict` with the scrubbed row to a caller who may make that change (SIM-28's rule; the trucker or the farmer's `qrNonce` for an update without a status), instead of `DELIVERY_ALREADY_CANCELLED`; at the current version, without one or for anyone else the error stands. The trip side was built in `trip-listing-api.md` 2.4.0. Mobile: `DELIVERY_ALREADY_CANCELLED`, `TRIP_TERMINAL_STATE` and `TRIP_ALREADY_CANCELLED` errors are permanent and revert the delivery or trip (they were retried); the conflict resolver no longer fails on a crop row without `description`, a trip row without `truckerName` or `truckerPhone`, reads a crop's flat `latitude` and `longitude` and maps `available` to `active`. Web unchanged. New conflict resolution rule 7 |
@@ -1277,5 +1310,5 @@ Client only, no server change.
 
 ---
 
-**Last Updated**: 2026-11-11
-**Version**: 1.47.0
+**Last Updated**: 2026-11-12
+**Version**: 1.49.0

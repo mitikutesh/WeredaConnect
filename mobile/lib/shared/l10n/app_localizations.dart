@@ -2392,6 +2392,12 @@ abstract class AppLocalizations {
   /// **'A dispute can be opened only after the goods are picked up. Before pickup, cancel the order instead, or contact support.'**
   String get escrowErrorDisputeBeforePickup;
 
+  /// A dispute was refused because the refund to the buyer is already scheduled for this payment (409 ESCROW_INVALID_TRANSITION with that reason, FUP-77)
+  ///
+  /// In en, this message translates to:
+  /// **'A refund to the buyer is already scheduled for this payment, so it can no longer be disputed. Contact support if you disagree.'**
+  String get escrowErrorDisputeRefundScheduled;
+
   /// Error when escrow state transition is invalid
   ///
   /// In en, this message translates to:
@@ -5212,6 +5218,18 @@ abstract class AppLocalizations {
   /// **'The code expires at {time}.'**
   String otpExpiresAt(String time);
 
+  /// Password step-up dialog (AUTH_040) when the action is a dispute, not a payment (FUP-77)
+  ///
+  /// In en, this message translates to:
+  /// **'For your safety, confirm it\'s you before this dispute is sent.'**
+  String get stepUpDisputeMessage;
+
+  /// Fayda step-up dialog (AUTH_041) when the action is a dispute, not a payment (FUP-77)
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm it\'s you with Fayda to send this dispute. You may also be asked for your password.'**
+  String get faydaStepUpDisputeMessage;
+
   /// Fayda step-up dialog (AUTH_041): this payment needs a fresh Fayda login instead of the password. No amount: the server asks for it above 10,000 ETB and may ask at any amount
   ///
   /// In en, this message translates to:
@@ -5361,6 +5379,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The farmer\'s identity is not verified yet, so this payment was not sent. You can pay once the farmer verifies.'**
   String get kycFarmerNotVerifiedMessage;
+
+  /// KYC dialog and error text when the server names a verification reason this app version does not know. Explains only, no Fayda action (FUP-83)
+  ///
+  /// In en, this message translates to:
+  /// **'This payment was not sent because an identity check is still missing. Update the app or contact support to see what is needed.'**
+  String get kycUnknownReasonMessage;
 
   /// KYC dialog when the server could not run the identity check
   ///
@@ -5589,6 +5613,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You get back everything you paid, including transport and the platform commission.'**
   String get cancelOrderTransportFailedBody;
+
+  /// The server refused to cancel an accepted order (ORDER_CANCEL_NOT_ALLOWED) because its payment is frozen by a dispute, being settled or under review (FUP-77)
+  ///
+  /// In en, this message translates to:
+  /// **'This order can\'t be cancelled now because its payment is under dispute or being settled. Wait for the outcome or contact support.'**
+  String get errorOrderCancelPaymentBusy;
 
   /// The server (ORDER_CANCEL_NOT_ALLOWED) or the app refused to cancel an accepted order: its pickup deadline has not passed, or the crops were picked up (ESC-06)
   ///

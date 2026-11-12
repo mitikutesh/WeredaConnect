@@ -57,7 +57,10 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
   Future<void> _retryAfterStepUp(BuildContext context) async {
     final event = _lastDispute;
     if (event == null) return;
-    final ok = await showStepUpDialog(context);
+    final ok = await showStepUpDialog(
+      context,
+      message: AppLocalizations.of(context)!.stepUpDisputeMessage,
+    );
     if (ok && context.mounted) {
       context.read<EscrowBloc>().add(event);
     }
@@ -70,6 +73,7 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
     if (event == null) return;
     final outcome = await showFaydaStepUpDialog(
       context,
+      message: AppLocalizations.of(context)!.faydaStepUpDisputeMessage,
       verificationScreen: widget.faydaVerificationScreen,
     );
     if (outcome == StepUpOutcome.verified && context.mounted) {

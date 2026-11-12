@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.5.0
+2.7.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -4454,6 +4454,46 @@ not verified gets the manual queue in dev too.
 trucker retry and `truckerPayoutPending`, the row-level `manualPayout*` and `manual{Leg}*` attributes, and
 the `partial_refund` refusal of 1.9.0. 1.x escrows keep all of them.
 
+## Additions in 2.7.0 (client error handling, FUP-70, FUP-77)
+
+Client only (mobile and web), no server change. Old clients are unaffected.
+
+**The server's code wins on `502` and `503`.** The escrow repositories used to read every `502` as
+`ESCROW_013` and every `503` as `ESCROW_014` (the Telebirr texts) without looking at the body. They now
+keep the body's `ESCROW_*` code (or `FRAUD_ACCOUNT_HELD`) on any status, so a `503 ESCROW_012` (a failed
+read, 1.24.0) shows the generic text and not a Telebirr one. Only an answer without such a code falls back:
+`502` to `ESCROW_013`, `503` to `ESCROW_014` (an API Gateway `502 {"message": ...}` has no code).
+
+**The queued delivery payment (mobile intent queue).** A queued `POST /escrow/initiate` now ends its
+retries at once on an answer that cannot change for the same request:
+
+| Answer | Queue |
+|---|---|
+| `400` or `422`, with or without a code (for example `422 ESCROW_039`, `422 ESCROW_010`) | failed at once, not sent again |
+| any other `4xx` that carries an `ESCROW_*` code (for example `403 ESCROW_026`, `404 ESCROW_008`), except `401`, `408` and `429` | failed at once, not sent again |
+| `403 FRAUD_ACCOUNT_HELD` | failed at once and explained (1.23.0, unchanged) |
+| `409` | completed: the money is already held (unchanged) |
+| `403 AUTH_040`, `AUTH_041` | stays pending for the step-up, no retry spent (unchanged) |
+| `401`, `408`, `429`, a `4xx` without an `ESCROW_*` code, every `5xx`, network errors, timeouts | retried, 3 attempts (unchanged) |
+
+The intent stores the error **code** (the server's when it sent one, else a client code for the kind of
+failure: `ESCROW_OFFLINE`, `ESCROW_011`, `ESCROW_013`, `ESCROW_014`, `ESCROW_005`, `ESCROW_CLIENT`), never
+the server's message, and the pending card shows the code's localized text (en, am, om). A value it has no
+text for (an unknown code, or the English text an older build stored) shows the generic text.
+An intent that ends as failed (at once, or after its last retry) leaves the pending list, so its buyer is
+told once in a message with the code's text; another user signed in on the same device is not shown it.
+
+**A dispute on a scheduled refund.** `POST /escrow/dispute` on an escrow whose refund is scheduled keeps
+its `409 ESCROW_INVALID_TRANSITION` (1.25.0). The clients tell it apart by the message, which is now part
+of the contract: it contains `refund to the buyer is scheduled`. They show "A refund to the buyer is already
+scheduled for this payment, so it can no longer be disputed. Contact support if you disagree." (en, am,
+om). Every other `ESCROW_INVALID_TRANSITION` keeps the generic text. A server that rewords the message
+must keep that phrase, or add a code of its own (an old client then falls back to the generic text).
+
+**Step-up prompts on the dispute screen.** `403 AUTH_040` and `403 AUTH_041` on `POST /escrow/dispute` (and
+`AUTH_040` on a delivery dispute) open the same password or Fayda prompt as before, with a text that names
+the dispute instead of "this payment". The background prompt for queued operations keeps the payment text.
+
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
 
 > **P.1 to P.9 and P.11 to P.13 are built in 2.2.0** (ESC-20, "Additions in 2.2.0", which says where the
@@ -4798,6 +4838,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.7.0 | 2026-11-12 | Client error handling, no server change (FUP-70, FUP-77): the clients keep the body's `ESCROW_*` code on `502` and `503` and fall back to `ESCROW_013` and `ESCROW_014` only without one; the mobile intent queue fails a queued delivery payment at once on `400`, `422` and any other `4xx` with an `ESCROW_*` code (not `401`, `408`, `429`), stores the error code and shows its localized text; the `409 ESCROW_INVALID_TRANSITION` message of a dispute on a scheduled refund (`refund to the buyer is scheduled`) is now relied on by the clients and has its own text; the step-up prompts on the dispute screens name the dispute. 2.6.0 is taken by another branch |
 | 2.5.0 | 2026-11-11 | `POST /escrow/release` takes an optional `deliveryId` (FUP-139, closing the release item of FUP-147): an absent, `null` or blank one is accepted and not compared (before, `400 ESCROW_002`, so the admin page sent an order or escrow id in its place for a self-pickup escrow, which has no delivery). Unchanged from 2.2.0: a `deliveryId` that is sent and differs from the one the escrow is linked to is `422 ESCROW_VALIDATION` (`field: deliveryId`), an escrow without a `deliveryId` is released whatever is sent, and the `trigger` is stored as `releaseTrigger`. No request that was accepted is refused now; amounts, conditions, status transitions and timing of a release are unchanged; the cron (in-process) and the admin page send what they sent. Doc fixes: the request table of section 2 still said the `deliveryId` was required and never compared and the `trigger` never stored (the 2.0.0 wording, out of date since 2.2.0), and the 1.21.0 section still listed `GET /admin/fraud-signals?status=..` with the lists that scan and filter (FRD-07 moved it to a Query of the sparse `StatusCreatedAtIndex`). 2.4.0 is taken by another branch |
 | 2.4.0 | 2026-11-11 | One stored `commissionRate` (FUP-129): `POST /escrow/initiate` with a linked order stores the order's rate instead of 0.025, by the same rule as the order-funded path; the legacy rule stores 0.025 on both paths, an order without a rate stores `round4(commission / farmerPayout)`. The initiate response and `GET /escrow/history` rows carry `commissionRate` (additive, optional). Clients read it and fall back to a derivation on the crop leg for an order split. No amount held, paid out or refunded changes. |
 | 2.3.0 | 2026-11-11 | Missing fields on `POST /escrow/initiate` and `POST /escrow/dispute` (FUP-127), as 1.37.0 did for release and refund. Initiate: a missing, `null` or blank `deliveryId` answers `400 ESCROW_002`, `buyerId` or `farmerId` `400 ESCROW_VALIDATION`, a missing or `0` `amount` `400 ESCROW_001`, `currency` `400 ESCROW_004`, `idempotencyKey` `400 ESCROW_003`. Dispute: `escrowId` or `disputedBy` `400 ESCROW_VALIDATION`, `reason` `400 ESCROW_017`, `idempotencyKey` `400 ESCROW_003`. Each carries `field` and is checked right after the body is read (where a malformed body was already answered, so before the caller's role, the live Telebirr refusal `ESCROW_039` and any read). Before, an absent field failed deserialization and answered `400 ESCROW_001 "Invalid JSON in request body."`; a blank one went on to a later refusal (for example `403 ESCROW_006`, `404 ESCROW_008`, `404 ESCROW_016`). A body that is not JSON keeps `400 ESCROW_001 "Invalid JSON in request body."`. No request that was accepted is refused now, and every code is one the apps already map; no app change |

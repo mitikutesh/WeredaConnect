@@ -49,6 +49,10 @@ String localizeEscrowError(
     // FUP-16: a dispute before the goods are picked up.
     'ESCROW_041' => l10n.escrowErrorDisputeBeforePickup,
     'ESCROW_INVALID_TRANSITION' => l10n.escrowErrorInvalidTransition,
+    // FUP-77: a dispute refused because the buyer's refund is scheduled
+    // (escrowCodeOf reads it from the server's text).
+    'ESCROW_INVALID_TRANSITION_REFUND_SCHEDULED' =>
+      l10n.escrowErrorDisputeRefundScheduled,
     'ESCROW_OFFLINE' => l10n.escrowErrorOffline,
     // The account is under review (403 on initiate and order checkout).
     'FRAUD_ACCOUNT_HELD' => l10n.fraudAccountHeld,

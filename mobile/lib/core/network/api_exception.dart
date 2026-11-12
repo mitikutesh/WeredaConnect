@@ -141,6 +141,16 @@ const String orderCancelNotAllowedCode = 'ORDER_CANCEL_NOT_ALLOWED';
 bool isOrderCancelNotAllowedMessage(String? message) =>
     message != null && message.startsWith(orderCancelNotAllowedCode);
 
+/// Whether an order cancel was refused because of the order's money, not
+/// its pickup: a dispute froze the payment, or it is being settled or
+/// reviewed (`ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or
+/// reviewed.`, FUP-32). The server has no code of its own for it, so the
+/// wording tells it apart (sync-protocol.md 1.49.0 pins it); the buyer is
+/// then told about the payment instead of the pickup rule (FUP-77).
+bool isOrderCancelPaymentBusyMessage(String? message) =>
+    isOrderCancelNotAllowedMessage(message) &&
+    message!.contains('payment is being settled or reviewed');
+
 /// Sync rejection prefix when a party tries to cancel a delivery after pickup
 /// (ESC-08, sync-protocol.md 1.11.0).
 const String deliveryCancelNotAllowedCode = 'DELIVERY_CANCEL_NOT_ALLOWED';
