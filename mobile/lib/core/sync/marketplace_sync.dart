@@ -31,7 +31,13 @@ abstract class MarketplaceSync {
   /// still on its way is left alone, and a row is never moved to an older
   /// server version. Never reads another trucker's trips: it is not the
   /// buyer's market pull ([pullTrips]).
-  Future<void> pullOwnTrips({required String truckerId});
+  ///
+  /// FUP-385: true when it stored a trip that is new to the phone or that
+  /// the server changed, so a screen that showed the stored trips first
+  /// reads them again; false when nothing changed or the pull was throttled.
+  /// A call while one for the same trucker is on its way gets that one's
+  /// answer. Errors (offline) propagate.
+  Future<bool> pullOwnTrips({required String truckerId});
 
   /// Fetch the current user's deliveries from the server into local storage.
   ///
