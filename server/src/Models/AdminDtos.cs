@@ -80,10 +80,17 @@ public sealed record AdminDisputeListResponse
 /// <summary>
 /// POST /admin/disputes/{id}/resolve request body.
 /// </summary>
+/// <remarks>
+/// No member is <c>required</c> (escrow-protocol 2.26.0, FUP-148), as on the escrow request bodies
+/// (SIM-27, FUP-127): a missing <c>resolution</c> or <c>action</c> is answered <c>400 ADMIN_014</c> with
+/// its <c>field</c>, like a wrong one, not <c>ADMIN_005</c> "Invalid JSON in request body.". The
+/// source-generated reader does not run the initializers of init properties: an absent member arrives
+/// as null. The initializers only serve code that builds a request itself.
+/// </remarks>
 public sealed record ResolveDisputeRequest
 {
-    public required string Resolution { get; init; }
-    public required string Action { get; init; }
+    public string Resolution { get; init; } = "";
+    public string Action { get; init; } = "";
     public string? Notes { get; init; }
 
     /// <summary>
@@ -250,9 +257,13 @@ public sealed record FraudSignalUserDto
 /// POST /admin/fraud-signals/{id}/action request body. <see cref="Action"/> is <c>approve</c>,
 /// <c>reject</c> or <c>whitelist</c>, exactly (FRD-05).
 /// </summary>
+/// <remarks>
+/// Not <c>required</c> (FUP-148, see <see cref="ResolveDisputeRequest"/>): a missing, null or blank
+/// <c>action</c> is <c>400 ADMIN_009</c> with <c>field: action</c>, not <c>ADMIN_005</c>.
+/// </remarks>
 public sealed record FraudActionRequest
 {
-    public required string Action { get; init; }
+    public string Action { get; init; } = "";
     public string? Notes { get; init; }
 }
 
@@ -384,9 +395,13 @@ public sealed record ProfileFieldChange
 /// <summary>
 /// POST /admin/users/{id}/action request body.
 /// </summary>
+/// <remarks>
+/// Not <c>required</c> (FUP-148, see <see cref="ResolveDisputeRequest"/>): a missing, null or blank
+/// <c>action</c> is <c>400 ADMIN_009</c> with <c>field: action</c>, not <c>ADMIN_005</c>.
+/// </remarks>
 public sealed record UserActionRequest
 {
-    public required string Action { get; init; }
+    public string Action { get; init; } = "";
     public string? Reason { get; init; }
     public string? NewRole { get; init; }
 }

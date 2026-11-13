@@ -151,6 +151,14 @@ internal static class TruckerPayoutFields
     /// </summary>
     public const string PendingSince = "truckerPayoutPendingSince";
 
+    /// <summary>
+    /// FUP-436: the since-time of the owed trucker leg whose overdue line the hourly retry has announced
+    /// (<c>TRUCKER_PAYOUT_NEWLY_OVERDUE</c>): <see cref="PendingSince"/> for a 1.x leg, <c>releasedAt</c> for a ledger
+    /// escrow's transport leg. Server bookkeeping like the FUP-06 marker: no version moves, the payout leaves it,
+    /// and a leg owed again from another time is announced again.
+    /// </summary>
+    public const string OverdueLoggedFor = "truckerPayoutOverdueLoggedFor";
+
     /// <summary>Why the payout gate blocks the trucker, one of the Block* values; audited once per value.</summary>
     public const string BlockReason = "truckerPayoutBlockReason";
 
@@ -185,6 +193,13 @@ internal static class SettlementBlockFields
 {
     public const string Reason = "settlementBlockReason";
     public const string ReasonAt = "settlementBlockReasonAt";
+
+    /// <summary>
+    /// FUP-436: the <see cref="ReasonAt"/> of the stored block whose overdue line the system's release has announced
+    /// (<c>RELEASE_BLOCKED_NEWLY_OVERDUE</c>). Server bookkeeping: no version moves, the writes that remove the
+    /// reason leave it, and a block stored again (a new time) is announced again.
+    /// </summary>
+    public const string OverdueLoggedFor = "settlementBlockOverdueLoggedFor";
 
     public const string GatePayout = "payout";
     public const string GateTrade = "trade";

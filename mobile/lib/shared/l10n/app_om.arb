@@ -1021,7 +1021,7 @@
   "@deliveryGpsNotCaptured": {
     "description": "Placeholder when GPS location was not captured"
   },
-  "deliveryGpsPermissionDenied": "Hayyama Iddoo Didame",
+  "deliveryGpsPermissionDenied": "Hayyamni bakkaa hin kennamne. \"Bakka irra deebi'ii yaali\" tuqiitii hayyami.",
   "@deliveryGpsPermissionDenied": {
     "description": "Location permission was denied by user"
   },
@@ -3207,6 +3207,8 @@
   "deliveryCodeTypedCheckedOnline": "Koodiin barreeffameera. Yeroo bilbilli kee interneetii irra jiru sarvariin ni mirkaneessa.",
   "qrTypedCodeNeedsGps": "Koodiin barreeffame bakka kee barbaada. Tajaajila bakkaa bani, achiis \"Bakka irra deebi'ii yaali\" tuqi.",
   "qrRetryLocation": "Bakka irra deebi'ii yaali",
+  "qrSelfPickupNeedsGps": "Fudhachuu maasii irratti mirkaneessuuf bakki kee barbaachisa.",
+  "qrLocationNoSignal": "Ammaaf mallattoon bakkaa hin argamne. Tajaajilli bakkaa banaa ta'uu mirkaneessi, bakka banaa alaatti bahi, achiis \"Bakka irra deebi'ii yaali\" tuqi.",
   "qrPickupSavedCheckOnline": "Fudhachuun olkaa'ameera. Yeroo bilbilli kee interneetii irra jiru koodiin ni mirkanaa'a.",
   "qrDeliverySavedCheckOnline": "Geejjibni olkaa'ameera. Yeroo bilbilli kee interneetii irra jiru koodiin ni mirkanaa'a.",
   "qrCameraDeniedTitle": "Kaameeraan hin hayyamamne",

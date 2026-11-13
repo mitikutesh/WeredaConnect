@@ -199,6 +199,14 @@ public interface IEscrowRepository
     Task<bool> TryMarkManualPayoutOverdueLoggedAsync(string escrowId, string createdAt, string queuedAt);
 
     /// <summary>
+    /// FUP-436: record that the trucker retry announced the 1.x trucker leg pending since <paramref name="pendingSince"/>
+    /// (<c>truckerPayoutOverdueLoggedFor = truckerPayoutPendingSince</c>), only while the leg is still pending from that
+    /// time and not announced yet. No version or <c>updatedAt</c> moves. False when the condition failed (announced
+    /// already, paid, or pending again from another time); any other failure throws.
+    /// </summary>
+    Task<bool> TryMarkTruckerPayoutOverdueLoggedAsync(string escrowId, string createdAt, string pendingSince);
+
+    /// <summary>
     /// ESC-04: <c>released</c> escrows whose trucker leg is still owed and not queued, from
     /// <c>StatusExpiresIndex</c> (oldest <c>expiresAt</c> first), paging through filtered-empty
     /// pages up to <paramref name="limit"/>.
@@ -353,6 +361,15 @@ public interface IEscrowRepository
     /// <paramref name="storedReason"/>. Returns false when the condition fails.
     /// </summary>
     Task<bool> TryClearSettlementBlockReasonAsync(string escrowId, string createdAt, string storedReason);
+
+    /// <summary>
+    /// FUP-436: record that the system's release announced the block <paramref name="reason"/> stored at
+    /// <paramref name="reasonAt"/> as overdue (<c>settlementBlockOverdueLoggedFor = settlementBlockReasonAt</c>), only
+    /// while the escrow still stores that reason with that time and the block is not announced yet. No version or
+    /// <c>updatedAt</c> moves. False when the condition failed (announced already, settled, cleared or stored again
+    /// since); any other failure throws.
+    /// </summary>
+    Task<bool> TryMarkSettlementBlockOverdueLoggedAsync(string escrowId, string createdAt, string reason, string reasonAt);
 }
 
 /// <summary>FRD-03: what <see cref="IEscrowRepository.TryHoldAsync"/> found.</summary>

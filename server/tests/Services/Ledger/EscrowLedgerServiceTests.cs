@@ -839,6 +839,108 @@ public class EscrowLedgerServiceTests
         _alarms.Count(l => l.StartsWith("MANUAL_PAYOUT_NEWLY_OVERDUE")).Should().Be(1);
     }
 
+    // FUP-436: the same edge line for a row open in pending, sent or failed (LEDGER_ROW_OVERDUE), keyed on createdAt.
+
+    /// <summary>
+    /// A farmer row open in <paramref name="status"/> since <paramref name="age"/> ago, next due in 30 minutes, so
+    /// the sweep's call step leaves it alone and only its overdue report reads it.
+    /// </summary>
+    private LedgerRow SeedOpenRow(string status, TimeSpan age)
+    {
+        const string reference = LedgerRefs.ReleaseFarmer;
+        var row = new LedgerRow
+        {
+            EscrowId = EscrowId,
+            Ref = reference,
+            Kind = LedgerFields.KindRelease,
+            Legs = new[] { LedgerEscrowFields.LegCrop },
+            PayeeRole = LedgerFields.PayeeFarmer,
+            PayeeId = FarmerId,
+            Amount = 15_000m,
+            Status = status,
+            GatewayRef = LedgerRefs.GatewayRef(EscrowId, reference),
+            Reason = "delivery_confirmed",
+            Actor = "system",
+            CreatedAt = (_now - age).ToString("o"),
+            UpdatedAt = _now.ToString("o"),
+            DueAt = (_now + TimeSpan.FromMinutes(30)).ToString("o"),
+            Version = 4
+        };
+        _ledger.Rows[(EscrowId, reference)] = row;
+        return row;
+    }
+
+    [Fact]
+    public async Task AnOpenRowThatBecomesOverdue_IsAnnouncedOnce_WhileTheOverdueLineRepeats()
+    {
+        Seed();
+        var seeded = SeedOpenRow(LedgerFields.StatusPending, TimeSpan.FromHours(25));
+
+        var first = await SweepAsync();
+
+        (first.Overdue, first.NewlyOverdue).Should().Be((1, 1));
+        _alarms.Should().Contain("LEDGER_ROW_OVERDUE escrowId=escrow-order-o1 ref=release.farmer status=pending ageHours=25");
+        _alarms.Should().Contain("LEDGER_ROW_NEWLY_OVERDUE escrowId=escrow-order-o1 ref=release.farmer status=pending ageHours=25");
+        var marked = _ledger.Row(EscrowId, LedgerRefs.ReleaseFarmer);
+        marked.OverdueLoggedFor.Should().Be(seeded.CreatedAt);
+        (marked.Version, marked.UpdatedAt, marked.Status).Should().Be((seeded.Version, seeded.UpdatedAt, seeded.Status));
+
+        _alarms.Clear();
+        _now += TimeSpan.FromMinutes(15);
+        var second = await SweepAsync();
+
+        (second.Overdue, second.NewlyOverdue).Should().Be((1, 0));
+        _alarms.Should().Contain(l => l.StartsWith("LEDGER_ROW_OVERDUE "));
+        _alarms.Should().NotContain(l => l.StartsWith("LEDGER_ROW_NEWLY_OVERDUE"));
+        _ledger.OpenRowOverdueMarkWrites.Should().Be(1); // the marked row is skipped without a write
+        _ledger.OverdueMarkWrites.Should().Be(0); // the manual marker is not touched
+    }
+
+    [Fact]
+    public async Task AnOpenRowAnnouncedOnce_StaysAnnounced_WhenItMovesToAnotherOpenStatus()
+    {
+        // The overdue age counts from createdAt across pending, sent and failed, so a status change is no new episode.
+        Seed();
+        SeedOpenRow(LedgerFields.StatusPending, TimeSpan.FromHours(30));
+        (await SweepAsync()).NewlyOverdue.Should().Be(1);
+        var key = (EscrowId, LedgerRefs.ReleaseFarmer);
+        _ledger.Rows[key] = _ledger.Rows[key] with { Status = LedgerFields.StatusFailed, Version = 5 };
+
+        _alarms.Clear();
+        var counts = await SweepAsync();
+
+        (counts.Overdue, counts.NewlyOverdue).Should().Be((1, 0));
+        _alarms.Should().Contain(l => l.StartsWith("LEDGER_ROW_OVERDUE ") && l.Contains("status=failed"));
+        _alarms.Should().NotContain(l => l.StartsWith("LEDGER_ROW_NEWLY_OVERDUE"));
+    }
+
+    [Fact]
+    public async Task AnOpenRowMarkerThatCannotBeWritten_AnnouncesAnyway_AndTheNextSweepAnnouncesItAgain()
+    {
+        Seed();
+        SeedOpenRow(LedgerFields.StatusSent, TimeSpan.FromHours(26));
+        _ledger.ThrowOnNextOpenRowOverdueMark = new Amazon.DynamoDBv2.Model.ProvisionedThroughputExceededException("throttled");
+
+        (await SweepAsync()).NewlyOverdue.Should().Be(1);
+        _ledger.Row(EscrowId, LedgerRefs.ReleaseFarmer).OverdueLoggedFor.Should().BeNull();
+        (await SweepAsync()).NewlyOverdue.Should().Be(1);
+        (await SweepAsync()).NewlyOverdue.Should().Be(0);
+        _alarms.Count(l => l.StartsWith("LEDGER_ROW_NEWLY_OVERDUE")).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task AYoungOpenRow_IsNeitherMarkedNorAnnounced()
+    {
+        Seed();
+        SeedOpenRow(LedgerFields.StatusFailed, TimeSpan.FromHours(23));
+
+        var counts = await SweepAsync();
+
+        (counts.Overdue, counts.NewlyOverdue).Should().Be((0, 0));
+        _alarms.Should().NotContain(l => l.Contains("OVERDUE"));
+        _ledger.OpenRowOverdueMarkWrites.Should().Be(0);
+    }
+
     // ── Disputes ────────────────────────────────────────────────────────────
 
     [Fact]

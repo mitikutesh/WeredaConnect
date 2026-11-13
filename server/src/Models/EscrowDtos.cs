@@ -91,9 +91,14 @@ public sealed record InitiateEscrowResponse
 /// ESC-01: POST /escrow/order-checkout request body. The server derives everything else
 /// (amount, buyer, merch_order_id) from its own order record.
 /// </summary>
+/// <remarks>
+/// Not <c>required</c> (escrow-protocol 2.26.0, FUP-148), as on <see cref="InitiateEscrowRequest"/>: a
+/// missing <c>orderId</c> arrives as null and is answered <c>400 ESCROW_033 "orderId is required."</c>
+/// with <c>field: orderId</c>, as a null or blank one was, not <c>"Invalid JSON in request body."</c>.
+/// </remarks>
 public sealed record OrderCheckoutRequest
 {
-    public required string OrderId { get; init; }
+    public string OrderId { get; init; } = "";
 }
 
 /// <summary>

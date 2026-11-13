@@ -686,6 +686,9 @@ public sealed partial class EscrowService
         public int Blocked { get; set; }
         public int Skipped { get; set; }
         public int Overdue { get; set; }
+
+        /// <summary>FUP-436: open rows (pending, sent, failed) announced overdue for the first time on this run.</summary>
+        public int NewlyOverdue { get; set; }
         public int ManualOverdue { get; set; }
 
         /// <summary>FUP-06: manual rows announced overdue for the first time on this run.</summary>
@@ -838,7 +841,8 @@ public sealed partial class EscrowService
     /// <summary>
     /// <c>LEDGER_ROW_OVERDUE</c> for every open row older than 24 hours, and the 1.8.0
     /// <c>MANUAL_PAYOUT_OVERDUE</c> line (with the ledger ref) for every manual row waiting that long. FUP-06: the
-    /// first sweep that sees a manual row overdue also logs <c>MANUAL_PAYOUT_NEWLY_OVERDUE</c> for it.
+    /// first sweep that sees a manual row overdue also logs <c>MANUAL_PAYOUT_NEWLY_OVERDUE</c> for it; FUP-436: and
+    /// <c>LEDGER_ROW_NEWLY_OVERDUE</c> for an open row.
     /// </summary>
     private async Task ReportLedgerOverdueAsync(DateTime now, LedgerSweepCounts counts, ILambdaContext? context)
     {
@@ -887,6 +891,11 @@ public sealed partial class EscrowService
                     {
                         counts.Overdue++;
                         AlarmLog(MoneyAlarmLog.LedgerRowOverdue(row.EscrowId, row.Ref, openStatus, ageHours));
+                        if (await IsOpenLedgerRowNewlyOverdueAsync(row, openStatus, context))
+                        {
+                            counts.NewlyOverdue++;
+                            AlarmLog(MoneyAlarmLog.LedgerRowNewlyOverdue(row.EscrowId, row.Ref, openStatus, ageHours));
+                        }
                     }
                 }
             } while (startKey != null && ++pages < 20);
@@ -908,6 +917,32 @@ public sealed partial class EscrowService
         try
         {
             return await LedgerRepo!.TryMarkManualOverdueLoggedAsync(row.EscrowId, row.Ref, row.DueAt);
+        }
+        catch (Exception ex)
+        {
+            context?.Logger.LogWarning(
+                $"Ledger overdue report: the newly overdue marker of {MoneyAlarmLog.LogId(row.EscrowId)} {MoneyAlarmLog.LogRef(row.Ref)} "
+                + $"was not written: [{ex.GetType().Name}]. Announced anyway; the next sweep may announce it again.");
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// FUP-436: true once per row open in <c>pending</c>, <c>sent</c> or <c>failed</c>, keyed on its <c>createdAt</c>
+    /// (its overdue age counts from there, across those statuses): when its marker does not hold it and the
+    /// conditional write that sets it lands (false: another sweep marked it, or the row moved on since the read).
+    /// A write that fails for another reason announces anyway, as <see cref="IsLedgerRowNewlyOverdueAsync"/> does.
+    /// </summary>
+    private async Task<bool> IsOpenLedgerRowNewlyOverdueAsync(LedgerRow row, string openStatus, ILambdaContext? context)
+    {
+        if (row.OverdueLoggedFor == row.CreatedAt)
+        {
+            return false;
+        }
+
+        try
+        {
+            return await LedgerRepo!.TryMarkRowOverdueLoggedAsync(row.EscrowId, row.Ref, openStatus, row.CreatedAt);
         }
         catch (Exception ex)
         {

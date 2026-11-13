@@ -5,33 +5,46 @@ namespace WeredaConnect.Server.Models;
 /// Contains one or more operations to process atomically per-operation.
 /// See: specs/contracts/sync-protocol.md
 /// </summary>
+/// <remarks>
+/// No member is <c>required</c> (sync-protocol 1.64.0, FUP-148), as on the escrow request bodies
+/// (SIM-27, FUP-127): a missing, null or blank member is answered by the handler with
+/// <c>400 SYNC_VALIDATION</c> and that member as <c>field</c>, not "Invalid JSON in request body.".
+/// The source-generated reader does not run the initializers of init properties: an absent member
+/// arrives as null, so the handler checks them before anything reads them. The initializers only
+/// serve code that builds a request itself.
+/// </remarks>
 public sealed record SyncRequest
 {
     /// <summary>
     /// Unique identifier for this sync batch attempt (UUID v4).
     /// </summary>
-    public required string SyncBatchId { get; init; }
+    public string SyncBatchId { get; init; } = "";
 
     /// <summary>
     /// Device identifier for the originating client.
     /// </summary>
-    public required string ClientId { get; init; }
+    public string ClientId { get; init; } = "";
 
     /// <summary>
     /// List of operations to process.
     /// </summary>
-    public required List<SyncOperationRequest> Operations { get; init; }
+    public List<SyncOperationRequest> Operations { get; init; } = [];
 }
 
 /// <summary>
 /// A single sync operation within a batch request.
 /// </summary>
+/// <remarks>
+/// No member is <c>required</c> (sync-protocol 1.64.0, FUP-148), see <see cref="SyncRequest"/>. An
+/// operation missing one of the five identifying members is answered on its own, as an
+/// <c>error</c> result <c>SYNC_VALIDATION: {member} is required.</c>; the rest of the batch goes on.
+/// </remarks>
 public sealed record SyncOperationRequest
 {
     /// <summary>
     /// Unique identifier for this operation (UUID v4).
     /// </summary>
-    public required string OperationId { get; init; }
+    public string OperationId { get; init; } = "";
 
     /// <summary>
     /// Idempotency key to prevent duplicate processing on retry.
@@ -39,22 +52,22 @@ public sealed record SyncOperationRequest
     /// The server scopes it to the authenticated caller before lookup and storage
     /// (Helpers.SyncIdempotencyKey), so the {userId} segment is not trusted.
     /// </summary>
-    public required string IdempotencyKey { get; init; }
+    public string IdempotencyKey { get; init; } = "";
 
     /// <summary>
     /// Entity type being synced: crop_listing, trip, delivery, payment, user.
     /// </summary>
-    public required string EntityType { get; init; }
+    public string EntityType { get; init; } = "";
 
     /// <summary>
     /// Unique identifier of the entity.
     /// </summary>
-    public required string EntityId { get; init; }
+    public string EntityId { get; init; } = "";
 
     /// <summary>
     /// Action to perform: create, update, delete.
     /// </summary>
-    public required string Action { get; init; }
+    public string Action { get; init; } = "";
 
     /// <summary>
     /// Entity data payload (schema depends on entityType).
