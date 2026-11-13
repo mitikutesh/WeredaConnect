@@ -7,7 +7,7 @@ using WeredaConnect.Server.Services;
 namespace WeredaConnect.Server.Functions;
 
 /// <summary>
-/// FUP-330 (delivery-verification-api.md 2.11.0 P.2 "Re-open of a trucker no-show", order-lifecycle.md 2.19.0): an
+/// FUP-330 (delivery-verification-api.md 2.11.0 P.2 "Re-open of a trucker no-show", order-lifecycle.md 2.20.0): an
 /// admin re-opens a judged trucker no-show after reconciling a real late scan, which FUP-287's re-open refuses. The
 /// rules are <see cref="NoShowReopen"/>; this file reads the order, its escrow, its delivery and its trip, writes one
 /// transaction, then excuses the trucker's <c>NO_SHOW</c> through ESC-32's decision path. Admin group only, a reason

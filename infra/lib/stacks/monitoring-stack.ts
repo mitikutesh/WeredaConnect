@@ -375,6 +375,19 @@ export class MonitoringStack extends cdk.Stack {
       defaultValue: 0,
     });
 
+    // FUP-64: a farmer_wins verdict whose admin chose wait_for_delivery a week ago and whose delivery
+    // still has not come. The hourly dispute sweep logs one line per such escrow per run (an age report,
+    // like MANUAL_PAYOUT_OVERDUE). escrow-cron only: only the sweep reports the age; an admin's own
+    // release of the same escrow logs the line too, and it is not counted.
+    new logs.MetricFilter(this, 'EscrowCronVerdictWaitOverdueFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"DISPUTE_VERDICT_WAIT_OVERDUE"'),
+      metricNamespace,
+      metricName: 'DisputeVerdictWaitOverdue',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
     // ESC-13: queue age. The hourly escrow-cron run logs one line per pending manual
     // payout leg older than 24 hours (ESC-02, ReportOverdueManualPayoutsAsync) and one per
     // admin stuck-order queue entry due for 24 hours (ESC-06, ReportAdminQueueAsync; plus
@@ -402,6 +415,17 @@ export class MonitoringStack extends cdk.Stack {
       filterPattern: logs.FilterPattern.literal('"TRUCKER_PAYOUT_OVERDUE"'),
       metricNamespace,
       metricName: 'TruckerPayoutsOverdue',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+    // FUP-41: the hourly sweep's release that the payout identity gate blocks logs one line per escrow
+    // per run once its stored reason is 24 hours old (escrow-protocol 2.19.0). escrow-cron only: it is
+    // the only Lambda that releases as the system, and an admin's own release is not counted.
+    new logs.MetricFilter(this, 'ReleasesBlockedOverdueFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"RELEASE_BLOCKED_OVERDUE"'),
+      metricNamespace,
+      metricName: 'ReleasesBlockedOverdue',
       metricValue: '1',
       defaultValue: 0,
     });
@@ -1133,6 +1157,26 @@ export class MonitoringStack extends cdk.Stack {
         'escrow-settlement-failures. A leg in Manual Payouts is reported by manual-payouts-overdue instead.',
     );
 
+    // FUP-41: a release the payout identity gate blocks was audited once (release_blocked_kyc) and then
+    // waited silently. Level-triggered like the other overdue lines: one line per escrow per hourly run
+    // while the block lasts, so the alarm stays in ALARM (one notification per episode) and clears by
+    // itself 75 to 90 minutes after the payee verifies.
+    const releasesBlockedOverdueAlarm = moneyLogAlarm(
+      'ReleasesBlockedOverdue',
+      'releases-blocked-overdue',
+      'ReleasesBlockedOverdue',
+      'Releases Blocked Overdue',
+      'A release the payout identity gate blocks has waited more than 24 hours (RELEASE_BLOCKED_OVERDUE in ' +
+        'the escrow-cron log group, one line per escrow per hourly run while it lasts, with escrowId, leg, ' +
+        'reason and ageHours since the gate first gave that reason; FUP-41). No money moved: the escrow stays ' +
+        'escrowed (dispute_resolved for a verdict) and the hourly sweep tries again. leg=farmer: the farmer ' +
+        'release; leg=trucker: the trucker of a split verdict. reason=phone_unverified or fayda_required: ask ' +
+        'that party to verify the phone or Fayda in the app; the next hourly run pays. reason=profile_missing: ' +
+        'the payee account is gone; escalate. The escrow page in the admin app shows the reason (Sweep block). ' +
+        'A suspended or CRITICAL payee is reported by risk-settlement-skipped instead. While in ALARM a newly ' +
+        'overdue release is not announced again: read the lines. Never edit the escrow row by hand.',
+    );
+
     // ESC-20: ledger rows that stay open. A row the gateway refused is retried (3 times, then the manual
     // queue), a row whose outcome is unknown is checked with the gateway first, so a row open for a day
     // means something keeps it from both.
@@ -1178,9 +1222,27 @@ export class MonitoringStack extends cdk.Stack {
         'an order that moved since. No money moved; the escrow stays dispute_resolved and the ' +
         'hourly sweep tries again. Open Disputes > Awaiting settlement and record (or send ' +
         'again) a disposition: return_to_farmer or delivered_anyway for buyer_wins, settle_now ' +
-        'or wait_for_delivery for farmer_wins. A recorded wait_for_delivery is not alarmed (it ' +
-        'logs DISPUTE_VERDICT_WAITING_FOR_DELIVERY). If no disposition fits (ADMIN_016), repair ' +
-        'the order by hand (ESC-03, FUP-16).',
+        'or wait_for_delivery for farmer_wins, settle_as_is when none of those fits (FUP-64). A ' +
+        'recorded wait_for_delivery alarms on dispute-verdict-wait-overdue instead. If even ' +
+        'settle_as_is is refused (ADMIN_016: a farmer_wins whose goods never left the farm, came ' +
+        'back, or whose order shows a payout), escalate (ESC-03, FUP-16, FUP-64).',
+    );
+
+    // FUP-64: an age report, one line per waiting escrow per hourly sweep, so the money alarm shape holds
+    // it in ALARM while any wait is overdue (like manual-payouts-overdue).
+    const disputeVerdictWaitOverdueAlarm = moneyLogAlarm(
+      'DisputeVerdictWaitOverdue',
+      'dispute-verdict-wait-overdue',
+      'DisputeVerdictWaitOverdue',
+      'Dispute Verdict Wait Overdue',
+      'A farmer_wins dispute verdict whose admin chose wait_for_delivery has waited seven days or more and ' +
+        'its order is still not delivered (DISPUTE_VERDICT_WAIT_OVERDUE in the escrow-cron log group, one ' +
+        'line per escrow per hourly sweep, with escrowId, op, ageDays and legs). No money moved: the buyer\'s ' +
+        'payment is still held. Open Disputes > Awaiting settlement, check the order and its delivery in ' +
+        '/transactions/<orderId>, and choose again: settle_now once the goods were picked up and the trucker ' +
+        'stopped, or keep waiting. If the order was cancelled meanwhile, the mismatch alarm takes over and ' +
+        'settle_as_is is the exit. A wait whose goods never left the farm has no admin exit: escalate. While ' +
+        'the alarm is in ALARM a newly overdue wait is not announced again: read the lines (FUP-64).',
     );
 
     // FUP-27: before, a failed dispute mirror leg was only an escrow-audit row. Event-driven
@@ -1337,6 +1399,48 @@ export class MonitoringStack extends cdk.Stack {
     });
     orderDeadlineRefundStalledAlarm.addAlarmAction(snsAction);
     orderDeadlineRefundStalledAlarm.addOkAction(snsAction);
+
+    // ESC-36 (spec 4.5 T8: "alarm"): a delivery still on the road 72 hours after its pickup with no drop-off
+    // check-in from the trucker. order-cron logs ORDER_DELIVERY_OVERDUE orderId=.. deliveryId=..
+    // outcome=disputed|queued reason=.. once per order it judges: disputed (the escrow frozen, the order and delivery
+    // disputed as delivery_overdue, the trucker restricted pending review when reputationPenalties is on; or as
+    // dropoff_out_of_range when the trucker came but was out of range of every drop-off point, no restriction) or
+    // queued (the money could not be frozen, so the order waits in the admin queue). DROPOFF_QUEUE_NOT_WRITTEN orderId=.. reason=.. queued=..: a drop-off judgement
+    // that goes to the admin found the order already queued for another reason (the hold cap), so its own reason
+    // is not on the entry. Each line is an order an admin must look at, so any line alarms. Behind
+    // dropoffClassification (off everywhere): no line today. No default: billed only in the hours a line appears.
+    new logs.MetricFilter(this, 'OrderCronDeliveryOverdueFilter', {
+      logGroup: orderCronLogGroup,
+      filterPattern: logs.FilterPattern.anyTerm('ORDER_DELIVERY_OVERDUE', 'DROPOFF_QUEUE_NOT_WRITTEN'),
+      metricNamespace,
+      metricName: 'DeliveryOverdue',
+      metricValue: '1',
+    });
+    const deliveryOverdueAlarm = new cloudwatch.Alarm(this, 'DeliveryOverdue', {
+      alarmName: `${prefix}-delivery-overdue`,
+      alarmDescription:
+        'A delivery was not made by its deadline (ESC-36, T8; runbook: .ai/deployment.md). ORDER_DELIVERY_OVERDUE ' +
+        'orderId=.. deliveryId=.. outcome=disputed: the trucker sent no drop-off check-in within 72 hours of the ' +
+        'pickup; the escrow is frozen and the order is disputed as delivery_overdue. Decide the dispute in Disputes ' +
+        'and the trucker\'s DELIVERY_OVERDUE review in Appeals; reason=dropoff_out_of_range: the trucker came but more ' +
+        'than 5 km from every drop-off point (see the timeline and the arrival photo), no review. outcome=queued: the ' +
+        'money could not be frozen (no escrow, a refund armed, Manual Payouts or a settlement in flight), so nothing ' +
+        'moved and the order waits in Stuck Orders. DROPOFF_QUEUE_NOT_WRITTEN: such an ' +
+        'order was already queued for another reason; decide its drop-off too. Never edit the rows by hand.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'DeliveryOverdue',
+        statistic: 'Sum',
+        period: cdk.Duration.hours(1),
+        label: 'Delivery Overdue',
+      }),
+      threshold: 0,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    deliveryOverdueAlarm.addAlarmAction(snsAction);
+    deliveryOverdueAlarm.addOkAction(snsAction);
 
     const adminQueueOverdueAlarm = moneyLogAlarm(
       'AdminQueueOverdue',
@@ -2499,11 +2603,14 @@ export class MonitoringStack extends cdk.Stack {
           orderEscrowProblemsAlarm,
           manualPayoutsOverdueAlarm,
           truckerPayoutsOverdueAlarm,
+          // FUP-41 releases the payout identity gate blocks for a day
+          releasesBlockedOverdueAlarm,
           // ESC-20 escrow ledger
           ledgerRowsOverdueAlarm,
           ledgerInvariantAlarm,
           adminQueueOverdueAlarm,
           disputeVerdictMismatchAlarm,
+          disputeVerdictWaitOverdueAlarm,
           disputeSettlementBlockedAlarm,
           disputePropagationFailedAlarm,
           escrowDeliveryStampFailuresAlarm,
@@ -2511,6 +2618,8 @@ export class MonitoringStack extends cdk.Stack {
           riskSettlementSkippedAlarm,
           // FUP-231 order cancels and refunds the crons keep retrying
           orderDeadlineRefundStalledAlarm,
+          // ESC-36 a delivery not made by its deadline (T8)
+          deliveryOverdueAlarm,
           accountDeletionStuckAlarm,
           // ESC-21 order notification stream
           notifyDlqAlarm,

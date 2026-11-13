@@ -7,13 +7,15 @@ namespace WeredaConnect.Server.Helpers;
 /// <c>POST /deliveries/{id}/photos</c> (the presigned PUT), the <c>delivery_photo</c> sync operation
 /// (the attach) and the reads that sign a GET (the delivery detail and the admin transaction view).
 ///
-/// Key: <c>uploads/photos/{deliveryId}/{pickup|dropoff}-{ms}.{webp|jpg}</c> in the uploads bucket.
+/// Key: <c>uploads/photos/{deliveryId}/{pickup|dropoff|arrival}-{ms}.{webp|jpg}</c> in the uploads bucket.
 /// The delivery segment is always the delivery the server checked, never a value the caller picks.
 ///
 /// Who takes which photo: the party who confirms that handoff. The pickup photo is the trucker's
 /// (a self-pickup has no trucker, so it has none); the drop-off photo is the buyer's (the buyer's
 /// delivery confirm, or the self-pickup confirm at the farm). The farmer takes none. Every party
-/// of the delivery, and an admin, may see both.
+/// of the delivery, and an admin, may see both. ESC-36: the arrival photo is the trucker's, taken at the
+/// drop-off for the drop-off check-in, taken only with <c>dropoffClassification</c> on (callers pass
+/// <c>allowArrival</c>; with the flag off the type does not exist).
 /// </summary>
 public static partial class DeliveryPhotoKeys
 {
@@ -22,6 +24,9 @@ public static partial class DeliveryPhotoKeys
 
     /// <summary>The photo taken when the goods reach the buyer.</summary>
     public const string Dropoff = "dropoff";
+
+    /// <summary>ESC-36: the trucker's photo at the drop-off, the evidence of the drop-off check-in.</summary>
+    public const string Arrival = "arrival";
 
     /// <summary>
     /// Largest photo the device may upload: 200 KiB, a WebP or JPEG of at most 800 px compressed
@@ -46,21 +51,32 @@ public static partial class DeliveryPhotoKeys
     /// <summary>The one data key of a <see cref="EntityType"/> operation: the uploaded key.</summary>
     public const string PhotoRefField = "photoRef";
 
-    [GeneratedRegex(@"^uploads/photos/([a-zA-Z0-9\-]+)/(pickup|dropoff)-\d+\.(webp|jpg)$")]
+    [GeneratedRegex(@"^uploads/photos/([a-zA-Z0-9\-]+)/(pickup|dropoff|arrival)-\d+\.(webp|jpg)$")]
     private static partial Regex KeyRegex();
 
     /// <summary>The delivery attribute that holds the key of a photo type.</summary>
-    public static string FieldOf(string type) => type == Pickup ? "pickupPhotoRef" : "dropoffPhotoRef";
+    public static string FieldOf(string type) => type switch
+    {
+        Pickup => "pickupPhotoRef",
+        Arrival => "arrivalPhotoRef",
+        _ => "dropoffPhotoRef"
+    };
 
     /// <summary>
     /// The server-only delivery attribute that holds the S3 version id of the attached photo. The
     /// uploads bucket is versioned, so the reads sign that version: a second PUT to the same key
     /// within its presign window adds a version and never replaces the attached evidence.
     /// </summary>
-    public static string VersionFieldOf(string type) => type == Pickup ? "pickupPhotoVersionId" : "dropoffPhotoVersionId";
+    public static string VersionFieldOf(string type) => type switch
+    {
+        Pickup => "pickupPhotoVersionId",
+        Arrival => "arrivalPhotoVersionId",
+        _ => "dropoffPhotoVersionId"
+    };
 
-    /// <summary>True for <c>pickup</c> or <c>dropoff</c>.</summary>
-    public static bool IsType(string? type) => type is Pickup or Dropoff;
+    /// <summary>True for <c>pickup</c> or <c>dropoff</c>; ESC-36: also <c>arrival</c> with <paramref name="allowArrival"/>.</summary>
+    public static bool IsType(string? type, bool allowArrival = false)
+        => type is Pickup or Dropoff || (allowArrival && type == Arrival);
 
     /// <summary>The key of a new photo of <paramref name="deliveryId"/>.</summary>
     public static string Key(string deliveryId, string type, long epochMillis, string contentType)
@@ -69,7 +85,9 @@ public static partial class DeliveryPhotoKeys
     /// <summary>
     /// True when <paramref name="key"/> is a photo key of <paramref name="deliveryId"/> (and of
     /// <paramref name="type"/> when one is given). A local file path, another delivery's key, a
-    /// key of the other type or a pre-1.7.0 <c>photos/...</c> shape is false (FIX-011).
+    /// key of the other type or a pre-1.7.0 <c>photos/...</c> shape is false (FIX-011). ESC-36: an
+    /// <c>arrival</c> key matches only when that type is asked for, so the type-less check of a delivery
+    /// operation's <c>pickupPhotoRef</c> / <c>dropoffPhotoRef</c> answers as before.
     /// </summary>
     public static bool IsKeyOf(string? key, string deliveryId, string? type = null)
     {
@@ -81,7 +99,9 @@ public static partial class DeliveryPhotoKeys
         var match = KeyRegex().Match(key);
         return match.Success
             && string.Equals(match.Groups[1].Value, deliveryId, StringComparison.Ordinal)
-            && (type == null || string.Equals(match.Groups[2].Value, type, StringComparison.Ordinal));
+            && (type == null
+                ? match.Groups[2].Value != Arrival
+                : string.Equals(match.Groups[2].Value, type, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -89,7 +109,7 @@ public static partial class DeliveryPhotoKeys
     /// the photo rather than the delivery, so a photo waiting in a phone's queue never holds back the
     /// delivery's own operations.
     /// </summary>
-    public static bool TryParseEntityId(string? entityId, out string deliveryId, out string type)
+    public static bool TryParseEntityId(string? entityId, out string deliveryId, out string type, bool allowArrival = false)
     {
         deliveryId = type = string.Empty;
         var separator = entityId?.LastIndexOf('#') ?? -1;
@@ -99,7 +119,7 @@ public static partial class DeliveryPhotoKeys
         }
 
         var parsedType = entityId![(separator + 1)..];
-        if (!IsType(parsedType))
+        if (!IsType(parsedType, allowArrival))
         {
             return false;
         }
@@ -115,12 +135,12 @@ public static partial class DeliveryPhotoKeys
 
     /// <summary>
     /// The user id of the delivery party who takes a photo of <paramref name="type"/>: the trucker
-    /// for the pickup, the buyer for the drop-off. Null when the delivery has no such party (a
-    /// self-pickup's pickup).
+    /// for the pickup and (ESC-36) the arrival, the buyer for the drop-off. Null when the delivery has
+    /// no such party (a self-pickup's pickup or arrival).
     /// </summary>
     public static string? AuthorId(string type, string? truckerId, string? buyerId)
     {
-        var author = type == Pickup ? truckerId : buyerId;
+        var author = type is Pickup or Arrival ? truckerId : buyerId;
         return string.IsNullOrEmpty(author) ? null : author;
     }
 }

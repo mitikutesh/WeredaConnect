@@ -19,6 +19,7 @@ namespace WeredaConnect.Server.Helpers;
 /// DISPUTE_VERDICT_ORDER_MISMATCH escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// TRUCKER_PAYOUT_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
+/// RELEASE_BLOCKED_OVERDUE escrowId=&lt;id&gt; leg=&lt;farmer|trucker&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
 /// DISPUTE_NO_ESCROW orderId=&lt;id&gt; deliveryId=&lt;id&gt;
 /// ORDER_MONEY_MISMATCH orderId=&lt;id&gt; escrowId=&lt;id&gt; orderStatus=&lt;s&gt; escrowStatus=&lt;s&gt; reason=&lt;reason&gt;
 /// RISK_SETTLEMENT_SKIPPED escrowId=&lt;id&gt; sweep=&lt;auto-release|auto-refund|dispute|payout-farmer|payout-trucker&gt; reason=&lt;flag_off|user_read_failed|score_unavailable|payee_flagged&gt; holdReason=&lt;reason&gt;
@@ -64,6 +65,15 @@ namespace WeredaConnect.Server.Helpers;
 /// <see cref="QueueAlarmAfter"/>; <c>reason</c> is the payout block (<c>phone_unverified</c>,
 /// <c>fayda_required</c>, <c>profile_missing</c>, <c>no_trucker</c>, <c>trucker_mismatch</c>) or why
 /// the retry did not pay (<c>gateway_refused</c>, <c>queue_failed</c>, <c>in_flight</c>, ...).
+/// </para>
+/// <para>
+/// The release-blocked line (FUP-41) is logged by the escrow service, from escrow-cron only (the only Lambda
+/// that settles as the system), each time an hourly sweep's release meets the payout identity gate again with
+/// the reason the escrow already stores (<c>settlementBlockReason</c> <c>release:payout:&lt;reason&gt;</c> for the
+/// farmer, <c>release:trucker:&lt;reason&gt;</c> for the trucker of a split verdict) and that reason was first
+/// stored at least <see cref="QueueAlarmAfter"/> ago (<c>ageHours</c> counts from <c>settlementBlockReasonAt</c>).
+/// A reason that changes starts the clock again. A risk block (FUP-29) is never stored, so it never logs this
+/// line; <c>RISK_SETTLEMENT_SKIPPED</c> covers it.
 /// </para>
 /// <para>
 /// The mismatch line (ESC-03) is logged by the escrow service each time it refuses to settle a
@@ -125,7 +135,11 @@ public static class MoneyAlarmLog
     public const string AdminQueueOverdueToken = "ADMIN_QUEUE_OVERDUE";
     public const string DisputeVerdictOrderMismatchToken = "DISPUTE_VERDICT_ORDER_MISMATCH";
     public const string DisputeVerdictSettlementBlockedToken = "DISPUTE_VERDICT_SETTLEMENT_BLOCKED";
+    public const string DisputeVerdictWaitOverdueToken = "DISPUTE_VERDICT_WAIT_OVERDUE";
     public const string TruckerPayoutOverdueToken = "TRUCKER_PAYOUT_OVERDUE";
+
+    /// <summary>FUP-41: a release the payout identity gate blocks has waited more than <see cref="QueueAlarmAfter"/>.</summary>
+    public const string ReleaseBlockedOverdueToken = "RELEASE_BLOCKED_OVERDUE";
     public const string DisputeNoEscrowToken = "DISPUTE_NO_ESCROW";
     public const string OrderMoneyMismatchToken = "ORDER_MONEY_MISMATCH";
     public const string RiskSettlementSkippedToken = "RISK_SETTLEMENT_SKIPPED";
@@ -217,6 +231,14 @@ public static class MoneyAlarmLog
     public static string TruckerPayoutOverdue(string? escrowId, string? reason, int ageHours)
         => $"{TruckerPayoutOverdueToken} escrowId={LogId(escrowId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
 
+    /// <summary>
+    /// FUP-41: an hourly sweep's release of this escrow was blocked again by the payout identity gate for
+    /// <paramref name="leg"/> (<c>farmer</c>, or <c>trucker</c> for a split verdict) with the same
+    /// <paramref name="reason"/> for at least <see cref="QueueAlarmAfter"/>.
+    /// </summary>
+    public static string ReleaseBlockedOverdue(string? escrowId, string? leg, string? reason, int ageHours)
+        => $"{ReleaseBlockedOverdueToken} escrowId={LogId(escrowId)} leg={Safe(leg)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
+
     /// <summary>FRD-03: a settlement sweep left an escrow unsettled for this run because of the risk gate.</summary>
     public static string RiskSettlementSkipped(string? escrowId, string? sweep, string? reason, string? holdReason)
         => $"{RiskSettlementSkippedToken} escrowId={LogId(escrowId)} sweep={Safe(sweep)} reason={Safe(reason)} holdReason={Safe(holdReason)}";
@@ -236,6 +258,16 @@ public static class MoneyAlarmLog
     /// <summary>ESC-03: a dispute verdict's settlement failed closed (unreadable order, or a cancel or restock that did not land).</summary>
     public static string DisputeVerdictSettlementBlocked(string? escrowId, string? op, string? legs)
         => $"{DisputeVerdictSettlementBlockedToken} escrowId={LogId(escrowId)} op={Safe(op)} legs={LogId(legs?.Replace(',', '.'))}";
+
+    /// <summary>
+    /// FUP-64: a <c>farmer_wins</c> verdict whose admin chose <c>wait_for_delivery</c> still waits for its delivery a
+    /// week later, logged on every sweep that sees it. <c>ageDays</c> is whole days since the choice, <c>unknown</c>
+    /// when its time cannot be read.
+    /// </summary>
+    public static string DisputeVerdictWaitOverdue(string? escrowId, string? op, TimeSpan? waited, string? legs)
+        => $"{DisputeVerdictWaitOverdueToken} escrowId={LogId(escrowId)} op={Safe(op)} "
+           + $"ageDays={(waited is { } age ? Math.Max(0, (int)age.TotalDays).ToString(System.Globalization.CultureInfo.InvariantCulture) : "unknown")} "
+           + $"legs={LogId(legs?.Replace(',', '.'))}";
 
     /// <summary>
     /// ESC-07: a delivery of a funded order was disputed but no escrow holds its money, so the

@@ -1519,6 +1519,43 @@ public sealed class EscrowRepository : IEscrowRepository
     }
 
     /// <inheritdoc />
+    public async Task<bool> TryRecordDoubleEscrowRefundAsync(
+        string escrowId, string createdAt, string orderId, string by, string reason, string at, string orderEscrowStatus)
+    {
+        // An admin decision kept on the row for the replay; no read returns it, so the version does not move (1.38.0).
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #by = :by, #at = :at, #reason = :reason, #orderEscrowStatus = :orderEscrowStatus",
+            ConditionExpression =
+                "#status = :escrowed AND #orderId = :orderId AND attribute_not_exists(#at) "
+                + "AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#by", DoubleEscrowFields.RefundBy },
+                { "#at", DoubleEscrowFields.RefundAt },
+                { "#reason", DoubleEscrowFields.RefundReason },
+                { "#orderEscrowStatus", DoubleEscrowFields.OrderEscrowStatus },
+                { "#status", "status" },
+                { "#orderId", "orderId" },
+                { "#lock", SettlementLockFields.Lock },
+                { "#manualPayout", ManualPayoutFields.Marker }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":by", new AttributeValue { S = by } },
+                { ":at", new AttributeValue { S = at } },
+                { ":reason", new AttributeValue { S = reason } },
+                { ":orderEscrowStatus", new AttributeValue { S = orderEscrowStatus } },
+                { ":escrowed", new AttributeValue { S = "escrowed" } },
+                { ":orderId", new AttributeValue { S = orderId } }
+            }
+        };
+        return await TryConditionalUpdateAsync(request);
+    }
+
+    /// <inheritdoc />
     public async Task<bool> TryClearSettlementBlockReasonAsync(string escrowId, string createdAt, string storedReason)
     {
         var request = new UpdateItemRequest

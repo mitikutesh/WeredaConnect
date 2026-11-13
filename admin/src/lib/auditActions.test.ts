@@ -66,6 +66,8 @@ const ESCROW_AUDIT_ACTIONS = [
   "manual_payout_claim_released",
   // FUP-218: a recorded reference corrected by an admin
   "manual_payout_ref_corrected",
+  // FUP-41: an admin decided to refund a second payment for an order (then the usual refund row)
+  "double_escrow_refund",
   // Disputes (ESC-03, ESC-07)
   "dispute",
   "dispute_propagation_failed",
@@ -77,7 +79,10 @@ const ESCROW_AUDIT_ACTIONS = [
   "dispute_verdict_mismatch",
   "dispute_verdict_propagation_failed",
   "dispute_settlement_blocked",
+  // Written before escrow-protocol 2.21.0 only (FUP-64 removed the override); old rows keep their label.
   "dispute_order_mismatch_overridden",
+  // FUP-64: the admin settled a verdict no goods disposition fits as it is.
+  "dispute_resolved_settled_as_is",
 ];
 
 /** Transaction-audit rows (TransactionAuditWriter callers) and the synthesised timeline rows. */
@@ -96,7 +101,10 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "delivery_cancelled",
   "dispute",
   "dispute_resolved",
+  // Written before escrow-protocol 2.21.0 only (FUP-64); old rows keep their label.
   "dispute_mismatch_override",
+  // FUP-64: the admin's settle_as_is (entity escrow).
+  "dispute_resolved_settled_as_is",
   "refund_mismatch_override",
   "admin_dispute_resolved",
   "admin_manual_payout",
@@ -132,6 +140,11 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "admin_delivery_cancelled",
   // FUP-287: an admin re-opened a judged pickup (entity order; a confirmed handoff also writes picked_up)
   "admin_pickup_reopened",
+  // ESC-36: the drop-off judgement stamp, and the system's confirm of a silent buyer's delivery
+  "dropoff_judged",
+  "delivery_auto_confirmed",
+  // FUP-41: the double escrow refund decision, on the order's trail (entity escrow)
+  "double_escrow_refund",
 ];
 
 /** Written by an open PR that has no admin change of its own; labelled here ahead of the merge. */

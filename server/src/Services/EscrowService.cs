@@ -220,7 +220,7 @@ public sealed partial class EscrowService
         _deliveryRepo = deliveryRepo;
         _orderCheckoutRepo = orderCheckoutRepo;
         _transactionAuditRepo = transactionAuditRepo;
-        _verdictMirror = new DisputeVerdictMirror(orderRepo, deliveryRepo, transactionAuditRepo, cropRepo, tripRepo);
+        _verdictMirror = new DisputeVerdictMirror(orderRepo, deliveryRepo, transactionAuditRepo, cropRepo, tripRepo, escrowRepo);
         _orderMoneyMirror = new OrderMoneyMirror(orderRepo, deliveryRepo, transactionAuditRepo, _verdictMirror);
     }
 
@@ -1944,7 +1944,7 @@ public sealed partial class EscrowService
             {
                 await NoteSettlementBlockedAsync(escrowItem, currentStatus,
                     SettlementBlockFields.Value("release", SettlementBlockFields.GatePayout, blockReason),
-                    "release_blocked_kyc", PayoutBlockedMetadata(blockReason));
+                    "release_blocked_kyc", PayoutBlockedMetadata(blockReason), overdueLeg: ManualPayoutFields.LegFarmer);
             }
             else
             {
@@ -3408,14 +3408,17 @@ public sealed partial class EscrowService
     /// retries). Logged as <c>DISPUTE_VERDICT_SETTLEMENT_BLOCKED</c> for the money alarm (escrow-cron,
     /// three of four hourly periods) and audited once as <c>dispute_settlement_blocked</c>;</item>
     /// <item>a leg cannot follow the verdict (<c>422 ESCROW_INVALID_TRANSITION</c>, alarm line
-    /// <c>DISPUTE_VERDICT_ORDER_MISMATCH</c>), unless an admin overrides a <c>buyer_wins</c> refund
-    /// with a reason.</item>
+    /// <c>DISPUTE_VERDICT_ORDER_MISMATCH</c>), unless the verdict carries the admin's <c>settle_as_is</c>
+    /// and it still fits (FUP-64, <see cref="SettleAsIsPlanAsync"/>). A recorded <c>wait_for_delivery</c> is
+    /// refused without that alarm until it is older than <see cref="WaitForDeliveryAlarmAfter"/>, then
+    /// with <c>DISPUTE_VERDICT_WAIT_OVERDUE</c> (FUP-64).</item>
     /// </list>
     /// A leg whose write failed does not block the settlement. Failed legs are audited once per
-    /// escrow and action, at the verdict time plus one or two ticks.
+    /// escrow and action, at the verdict time plus one or two ticks. Since 2.21.0 (FUP-64) no
+    /// <c>overrideOrderMismatch</c> refund passes a verdict here.
     /// </summary>
     private async Task<SettlementBlock?> MirrorVerdictAsync(
-        Dictionary<string, object> escrow, string actor, string op, string? overrideReason = null)
+        Dictionary<string, object> escrow, string actor, string op)
     {
         // ESC-20: a split verdict needs the goods delivered, so the order follows it as farmer_wins.
         var resolution = DisputeVerdicts.MirrorDirection(GetStringOrNull(escrow, "disputeResolution"));
@@ -3447,18 +3450,39 @@ public sealed partial class EscrowService
             return null;
         }
 
-        if (result.IsMismatch && overrideReason != null && op == "refund" && resolution == "buyer_wins")
+        if (result.IsMismatch && await SettleAsIsPlanAsync(escrow) is { } asIs)
         {
-            return await RecordMismatchOverrideAsync(escrowId, result, actor, overrideReason);
+            if (asIs.Case == DispositionCase.Unknown)
+            {
+                // The check of the order's other escrows could not be read: nothing is known, so fail closed.
+                return await SettlementBlockedAsync(escrowId, resolvedAt, actor, op, asIs.Legs);
+            }
+
+            if (asIs.SettlesAsIs)
+            {
+                // FUP-64: the admin's audited exit for a verdict no goods disposition fits. The money moves as the
+                // verdict says; the order was closed or flagged by the admin's action and the delivery stays as it is.
+                Console.WriteLine(
+                    $"DISPUTE_VERDICT_SETTLING_AS_IS escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+                return null;
+            }
         }
 
         if (result.IsMismatch && await IsRecordedWaitAsync(escrow, resolution))
         {
             // FUP-16: the admin chose to wait for the delivery. Still refused and audited once, but not
             // alarmed: an hourly alarm line here would keep the mismatch alarm in ALARM for days and hide
-            // a verdict that is really stuck.
-            Console.WriteLine(
-                $"DISPUTE_VERDICT_WAITING_FOR_DELIVERY escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+            // a verdict that is really stuck. FUP-64: a wait older than a week alarms on its own token.
+            var waited = WaitedFor(escrow);
+            if (waited == null || waited >= WaitForDeliveryAlarmAfter)
+            {
+                AlarmLog(MoneyAlarmLog.DisputeVerdictWaitOverdue(escrowId, op, waited, result.FailedLegs));
+            }
+            else
+            {
+                Console.WriteLine(
+                    $"DISPUTE_VERDICT_WAITING_FOR_DELIVERY escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+            }
         }
         else if (result.IsMismatch)
         {
@@ -3487,8 +3511,47 @@ public sealed partial class EscrowService
             ? new SettlementBlock(422, "ESCROW_INVALID_TRANSITION",
                 $"The order or delivery behind this verdict cannot follow it ({result.FailedLegs}). Nothing was settled: "
                 + "bring the order to a status the verdict can follow first, or record a disposition on the verdict "
-                + "(POST /admin/disputes/{id}/resolve).")
+                + "(POST /admin/disputes/{id}/resolve; settle_as_is when no other fits).")
             : null;
+    }
+
+    /// <summary>
+    /// FUP-64: a recorded <c>wait_for_delivery</c> older than this alarms again (<c>DISPUTE_VERDICT_WAIT_OVERDUE</c>,
+    /// every hourly sweep). Seven days: an order escrow is itself stale seven days after funding (<c>expiresAt</c>),
+    /// a delivery normally lands within days of pickup, and a week of hourly sweeps leaves two more before the
+    /// 21 day cap of a progressing order's hold. A wait that long is stuck, not slow.
+    /// </summary>
+    internal static readonly TimeSpan WaitForDeliveryAlarmAfter = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// FUP-64: how long the recorded wait has lasted, from the admin's choice (<c>disputeDispositionAt</c>, else the
+    /// verdict's <c>disputeResolvedAt</c>); null when neither time can be read (the caller alarms then).
+    /// </summary>
+    private static TimeSpan? WaitedFor(Dictionary<string, object> escrow)
+    {
+        var since = GetStringOrNull(escrow, DisputeDispositionFields.At) ?? GetStringOrNull(escrow, "disputeResolvedAt");
+        return DateTime.TryParse(since, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at)
+            ? DateTime.UtcNow - at.ToUniversalTime()
+            : null;
+    }
+
+    /// <summary>
+    /// FUP-64: when the verdict carries the admin's <c>settle_as_is</c> (only on a <c>farmer_wins</c> or <c>buyer_wins</c>
+    /// verdict, never a split), the plan read again now; null otherwise. The settlement goes ahead only when it still
+    /// fits and its order needs no write any more (<see cref="DispositionPlan.SettlesAsIs"/>). Anything else (the legs
+    /// moved to a case another disposition fits, a farmer no longer safe to pay, an order the admin's action did not
+    /// close or flag yet) keeps the refusal and its alarm; an unreadable plan fails closed.
+    /// </summary>
+    private async Task<DispositionPlan?> SettleAsIsPlanAsync(Dictionary<string, object> escrow)
+    {
+        var resolution = GetStringOrNull(escrow, "disputeResolution");
+        if (resolution is not ("farmer_wins" or "buyer_wins")
+            || GetStringOrNull(escrow, DisputeDispositionFields.Disposition) != DisputeDisposition.SettleAsIs)
+        {
+            return null;
+        }
+
+        return await _verdictMirror.PlanDispositionAsync(escrow, resolution);
     }
 
     /// <summary>
@@ -3532,52 +3595,6 @@ public sealed partial class EscrowService
 
         return new SettlementBlock(503, "ESCROW_012",
             "The order behind this verdict could not be read, cancelled or restocked. Nothing was settled; try again.");
-    }
-
-    /// <summary>
-    /// ESC-03: an admin in the admin group refunds a <c>buyer_wins</c> verdict although its order
-    /// cannot follow it (the goods are already moving). The escrow audit records the admin, the
-    /// failed legs and the reason before any money moves (no row, no refund); the transaction
-    /// audit and a flag on the order (its status is left alone) are best-effort.
-    /// </summary>
-    private async Task<SettlementBlock?> RecordMismatchOverrideAsync(
-        string escrowId, DisputeVerdictMirrorResult result, string actor, string reason)
-    {
-        var metadata = $"legs={result.FailedLegs};reason={reason}";
-        try
-        {
-            await AppendAuditAsync(escrowId, "dispute_order_mismatch_overridden", "dispute_resolved", "dispute_resolved",
-                actor, metadata: metadata);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine(
-                $"DISPUTE_VERDICT_OVERRIDE_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
-            return new SettlementBlock(503, "ESCROW_012",
-                "The override could not be recorded. Nothing was settled; try again.");
-        }
-
-        Console.WriteLine(
-            $"DISPUTE_VERDICT_MISMATCH_OVERRIDDEN escrowId={MoneyAlarmLog.LogId(escrowId)} admin={MoneyAlarmLog.LogId(actor)} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
-        var transactionId = string.IsNullOrEmpty(result.OrderId) ? escrowId : result.OrderId;
-        await TransactionAuditWriter.EmitAsync(_transactionAuditRepo, null, transactionId, "escrow", escrowId,
-            "dispute_mismatch_override", "dispute_resolved", "dispute_resolved",
-            _auditContext ?? new AuditContext { Actor = actor, ActorRole = "admin" }, metadata: metadata);
-
-        if (!string.IsNullOrEmpty(result.OrderId)
-            && !await _verdictMirror.FlagOrderAsync(result.OrderId, new Dictionary<string, object>
-            {
-                { "disputeOverrideAt", DateTime.UtcNow.ToString("o") },
-                { "disputeOverrideBy", actor },
-                { "disputeOverrideReason", reason },
-                { "disputeOverrideEscrowId", escrowId }
-            }))
-        {
-            Console.WriteLine(
-                $"DISPUTE_VERDICT_OVERRIDE_FLAG_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(result.OrderId)}");
-        }
-
-        return null;
     }
 
     /// <summary>
@@ -3884,7 +3901,8 @@ public sealed partial class EscrowService
                 "trigger");
         }
 
-        // 1d. ESC-03: refunding a verdict over an order mismatch is an admin-group decision with a reason.
+        // 1d. ESC-09 Part B: refunding over an order mismatch is an admin-group decision with a reason. (FUP-64:
+        //     a dispute verdict no longer takes it; the flag is still checked here, before the escrow is read.)
         string? overrideReason = null;
         if (request.OverrideOrderMismatch)
         {
@@ -3901,6 +3919,12 @@ public sealed partial class EscrowService
                     400, "ESCROW_VALIDATION",
                     "reason must be 10 to 500 characters when overriding an order mismatch.", "reason");
             }
+        }
+
+        // 1e. FUP-41: a double escrow refund is an admin-group decision with a reason.
+        if (request.DoubleEscrow && DoubleEscrowRequestProblem(request, adminGroupVerified) is { } doubleProblem)
+        {
+            return doubleProblem;
         }
 
         // 2. Check idempotency
@@ -3926,6 +3950,13 @@ public sealed partial class EscrowService
         {
             return EscrowResult<RefundEscrowResponse>.Failure(
                 404, "ESCROW_016", "Escrow not found.");
+        }
+
+        // 3a. FUP-41: the escrow must be a second payment of its order; the decision is on record before money moves.
+        if (request.DoubleEscrow
+            && await PrepareDoubleEscrowRefundAsync(escrowItem, request.Reason!.Trim(), authenticatedUserId) is { } doubleAnswer)
+        {
+            return doubleAnswer;
         }
 
         // 4. Validate state: "escrowed", or "dispute_resolved" with a verdict that does not
@@ -3965,9 +3996,10 @@ public sealed partial class EscrowService
         }
 
         // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
-        //      verdict they cannot follow is not settled.
+        //      verdict they cannot follow is not settled. FUP-64: overrideOrderMismatch no longer
+        //      settles a verdict (escrow-protocol.md 2.21.0); the admin records settle_as_is on it instead.
         if (settleFrom == "dispute_resolved"
-            && await MirrorVerdictAsync(escrowItem, authenticatedUserId, "refund", overrideReason) is { } block)
+            && await MirrorVerdictAsync(escrowItem, authenticatedUserId, "refund") is { } block)
         {
             return EscrowResult<RefundEscrowResponse>.Failure(block.HttpStatus, block.Code, block.Message);
         }
@@ -3981,7 +4013,8 @@ public sealed partial class EscrowService
 
         // 4a3. ESC-09 Part B: an admin refund of a plain escrowed escrow ends an order that never got
         //      going first and refuses goods on the move unless overridden, so the order follows the money.
-        if (currentStatus == "escrowed" && authenticatedUserId != SystemActor
+        //      FUP-41: not for a double escrow, whose order belongs to the order's own escrow.
+        if (currentStatus == "escrowed" && authenticatedUserId != SystemActor && !request.DoubleEscrow
             && await PrepareAdminRefundOrderAsync(escrowItem, authenticatedUserId, overrideReason) is { } refundBlock)
         {
             return EscrowResult<RefundEscrowResponse>.Failure(refundBlock.HttpStatus, refundBlock.Code, refundBlock.Message);
@@ -4529,10 +4562,13 @@ public sealed partial class EscrowService
     /// later run. A lost-answer write that the SDK retried is recognised by its time. Best-effort: a failed
     /// write logs <c>SETTLEMENT_BLOCK_AUDIT_FAILED</c> and the next run repairs it. Returns true when this
     /// call stored the reason.
+    /// FUP-41: with <paramref name="overdueLeg"/> (a payout identity gate block of the system's release), a call
+    /// that finds the same reason stored at least <see cref="MoneyAlarmLog.QueueAlarmAfter"/> ago logs
+    /// <c>RELEASE_BLOCKED_OVERDUE</c>, once per call, so once per hourly run while the block lasts.
     /// </summary>
     public async Task<bool> NoteSettlementBlockedAsync(
         Dictionary<string, object> escrow, string expectedStatus, string reason, string auditAction,
-        string metadata, string? alarmAction = null)
+        string metadata, string? alarmAction = null, string? overdueLeg = null)
     {
         var escrowId = GetString(escrow, "escrowId");
         try
@@ -4540,6 +4576,7 @@ public sealed partial class EscrowService
             var storedAt = GetStringOrNull(escrow, SettlementBlockFields.ReasonAt);
             if (GetStringOrNull(escrow, SettlementBlockFields.Reason) == reason && storedAt != null)
             {
+                ReportOverdue(escrowId, storedAt);
                 await AuditBlockOnceAsync(escrowId, storedAt);
                 return false;
             }
@@ -4557,6 +4594,7 @@ public sealed partial class EscrowService
 
                 if (latestAt != reasonAt)
                 {
+                    ReportOverdue(escrowId, latestAt);
                     await AuditBlockOnceAsync(escrowId, latestAt);
                     return false;
                 }
@@ -4569,6 +4607,23 @@ public sealed partial class EscrowService
         {
             Console.WriteLine($"SETTLEMENT_BLOCK_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
             return false;
+        }
+
+        // FUP-41: the same block, first stored a day or more ago (an unreadable time counts as overdue, as the
+        // trucker retry's does). Logged before the audit write, so a failed write never hides it.
+        void ReportOverdue(string id, string at)
+        {
+            if (overdueLeg == null)
+            {
+                return;
+            }
+
+            var age = ParseUtcTimeOrNull(at) is { } since ? DateTime.UtcNow - since : MoneyAlarmLog.QueueAlarmAfter;
+            if (age >= MoneyAlarmLog.QueueAlarmAfter)
+            {
+                AlarmLog(MoneyAlarmLog.ReleaseBlockedOverdue(
+                    id, overdueLeg, reason[(reason.LastIndexOf(':') + 1)..], (int)age.TotalHours));
+            }
         }
 
         // The block's one audit row at its stored time, and the alarm line only from the write that created it.

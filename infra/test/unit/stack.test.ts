@@ -1883,6 +1883,9 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       'reminder-lead-hours': '6',
       'pickup-grace-hours': '48',
       'self-pickup-window-hours': '168',
+      // ESC-36: T8 and T9.
+      'delivery-overdue-hours': '72',
+      'silent-buyer-hours': '48',
     };
     for (const [name, value] of Object.entries(expected)) {
       t.hasResourceProperties('AWS::SSM::Parameter', {
@@ -2379,6 +2382,22 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
     }
   });
 
+  test('ESC-36: every environment keeps the drop-off judgement off on sync, deliveries, order-cron and admin', () => {
+    const templates: [string, ReturnType<typeof liveTemplate>][] = [
+      ['dev', liveTemplate(environments['dev'])],
+      ['staging', liveTemplate(environments['staging'])],
+      ['prod', liveTemplate(environments['prod'])],
+    ];
+    for (const [envName, template] of templates) {
+      for (const fn of ['sync', 'deliveries', 'order-cron', 'admin']) {
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          FunctionName: `wereda-connect-${envName}-${fn}`,
+          Environment: { Variables: Match.objectLike({ DROPOFF_CLASSIFICATION_ENABLED: 'false' }) },
+        });
+      }
+    }
+  });
+
   test.each(['staging', 'prod'])('ESC-25: %s sync refuses order operations from apps before build 3', (envName) => {
     liveTemplate(environments[envName]).hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: `wereda-connect-${envName}-sync`,
@@ -2747,6 +2766,10 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-escrow-ledger-invariant',
     // FUP-231: an order cancel or refund the crons keep retrying (obs-alarms.test.ts).
     'wereda-connect-dev-order-deadline-refund-stalled',
+    // FUP-41: a release the payout identity gate has blocked for a day (release-blocked-alarm.test.ts).
+    'wereda-connect-dev-releases-blocked-overdue',
+    // FUP-64: a recorded wait_for_delivery a week old (dispute-alarms.test.ts).
+    'wereda-connect-dev-dispute-verdict-wait-overdue',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -3387,6 +3410,10 @@ describe('MonitoringStack', () => {
     'LedgerRowsOverdue', 'EscrowLedgerInvariant',
     // FUP-231: a deadline cancel or a refund the crons keep retrying (order-cron and escrow-cron).
     'OrderDeadlineRefundStalled',
+    // FUP-41: a release the payout identity gate has blocked for a day.
+    'ReleasesBlockedOverdue',
+    // FUP-64: a recorded wait_for_delivery a week old (dispute-alarms.test.ts).
+    'DisputeVerdictWaitOverdue',
   ];
   // FUP-81: the other filters of those log groups, each named, so a new filter there must be
   // sorted into one list or the other. The JSON audit filters match a field exactly (client text
@@ -3403,6 +3430,9 @@ describe('MonitoringStack', () => {
     // FUP-201: ESC-33's lost fraud hook (order-cron) and the attribution guard's skips by reason (sync).
     'ReputationFraudHookFailed', 'FraudAttributedSkippedAlreadyRecorded', 'FraudAttributedSkippedTargetUnread',
     'FraudAttributedSkippedSourceCapped', 'FraudAttributedSkippedTargetCapped', 'FraudAttributedSkippedHourLimited',
+    // ESC-36: an overdue delivery (order-cron). A trucker's reliability and an admin's dispute: the money is frozen,
+    // and an order whose money could not be frozen waits in the admin queue, which AdminQueueOverdue alarms.
+    'DeliveryOverdue',
   ];
 
   // The money filters, and the sync's FUP-27 dispute filter: a rate, not money, but an alarm that
@@ -3459,8 +3489,9 @@ describe('MonitoringStack', () => {
     // DisputePropagationFailed (3) and the sync dispute filter (1); ESC-16 added
     // EscrowDeliveryStampFailures (2: sync and escrow-cron); ESC-20 added LedgerRowsOverdue (1: escrow-cron) and
     // EscrowLedgerInvariant (2 here: escrow and escrow-cron; its admin filter is outside these log groups);
-    // FUP-231 added OrderDeadlineRefundStalled (2: order-cron and escrow-cron).
-    expect(patterns.length).toBe(27);
+    // FUP-231 added OrderDeadlineRefundStalled (2: order-cron and escrow-cron); FUP-41 added
+    // ReleasesBlockedOverdue (1: escrow-cron); FUP-64 added DisputeVerdictWaitOverdue (1: escrow-cron).
+    expect(patterns.length).toBe(29);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the

@@ -215,8 +215,61 @@ describe("DisputesPage", () => {
     failWith("ADMIN_016");
 
     expect(screen.getByRole("alert").textContent).toBe(
-      "That choice does not fit the order's current state. Reload the page and check the order.",
+      "That choice does not fit the order's current state. Reload the page and check the order. If no other choice fits, choose Settle as it is; if that is refused too, escalate.",
     );
+  });
+
+  it("offers Settle as it is for a single verdict and sends it with the reason (FUP-64)", async () => {
+    const user = userEvent.setup();
+    const buyerWins = recordedVerdict();
+    (buyerWins.dispute as Record<string, unknown>).resolution = "buyer_wins";
+    mocks.awaiting.data = { pages: [{ escrows: [buyerWins] }] };
+    render(<DisputesPage />, { wrapper: MemoryRouter });
+
+    await user.click(screen.getByRole("button", { name: "Awaiting settlement" }));
+    await user.click(within(table()).getByRole("button", { name: "Choose what happens" }));
+
+    expect(screen.getByText(/none of the other choices fits: settle as it is/)).toBeTruthy();
+    expect(screen.getByLabelText(/Return the goods to the farmer/)).toBeTruthy();
+    expect(screen.getByLabelText(/Only when no other choice fits/)).toBeTruthy();
+    await user.click(screen.getByLabelText(/Settle as it is/));
+    await user.type(screen.getByLabelText("Reason (kept in the audit trail)"), REASON);
+    await user.click(screen.getByRole("button", { name: "Record the verdict" }));
+
+    expect(lastMutate().vars).toEqual({
+      id: "escrow-2",
+      body: { resolution: "buyer_wins", action: "refund", disposition: "settle_as_is", reason: REASON },
+    });
+  });
+
+  it("does not offer Settle as it is for a recorded split (FUP-64)", async () => {
+    const user = userEvent.setup();
+    const split = recordedVerdict() as Record<string, unknown>;
+    (split.dispute as Record<string, unknown>).resolution = "partial_refund";
+    split.verdictAmounts = { farmerAmount: 9000, truckerAmount: 1500, buyerRefund: 6000 };
+    mocks.awaiting.data = { pages: [{ escrows: [split] }] };
+    render(<DisputesPage />, { wrapper: MemoryRouter });
+
+    await user.click(screen.getByRole("button", { name: "Awaiting settlement" }));
+    await user.click(within(table()).getByRole("button", { name: "Choose what happens" }));
+
+    expect(screen.getByLabelText(/Wait for the delivery/)).toBeTruthy();
+    expect(screen.queryByLabelText(/Settle as it is/)).toBeNull();
+    expect(screen.queryByText(/settle as it is/)).toBeNull();
+  });
+
+  it("shows a recorded Settle as it is in the awaiting list (FUP-64)", async () => {
+    const user = userEvent.setup();
+    const settled = recordedVerdict();
+    (settled.dispute as Record<string, unknown>).disposition = "settle_as_is";
+    (settled.dispute as Record<string, unknown>).dispositionReason = "The delivery row is gone; refund as decided.";
+    mocks.awaiting.data = { pages: [{ escrows: [settled] }] };
+    render(<DisputesPage />, { wrapper: MemoryRouter });
+
+    await user.click(screen.getByRole("button", { name: "Awaiting settlement" }));
+
+    expect(within(table()).getByText("Settle as it is")).toBeTruthy();
+    expect(within(table()).getByText("The delivery row is gone; refund as decided.")).toBeTruthy();
   });
 
   it("pages the awaiting list: rows of every page, and Load more fetches the next", async () => {

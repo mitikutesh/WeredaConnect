@@ -42,6 +42,16 @@ describe("photosOf", () => {
     ]);
   });
 
+  it("adds the trucker's arrival photo when the delivery has one (ESC-36)", () => {
+    const photos = photosOf(
+      evidence({ delivery: { pickupPhotoUrl: "https://s/p.webp", arrivalPhotoUrl: "https://s/a.webp" } }),
+    );
+    expect(photos).toEqual([
+      { leg: "pickup", url: "https://s/p.webp" },
+      { leg: "arrival", url: "https://s/a.webp" },
+    ]);
+  });
+
   it("has none without a delivery or a URL", () => {
     expect(photosOf(evidence({ delivery: undefined }))).toEqual([]);
     expect(photosOf(evidence({ delivery: { pickupPhotoUrl: "" } }))).toEqual([]);

@@ -15,6 +15,13 @@ namespace WeredaConnect.Server.Functions;
 public partial class AdminFunction
 {
     /// <summary>
+    /// ESC-36: <c>dropoffClassification</c> with <c>COMMITMENTS_ENABLED</c>. On, a <c>handoff_confirmed</c> re-open of a
+    /// trucked order also stamps the drop-off judgement (T8 and the drop-off points) in its transaction, as the order's
+    /// first move out of <c>accepted</c> after a pickup does in sync, so the order is judged at T8 or T9.
+    /// </summary>
+    internal bool DropoffJudgementOn { get; init; } = OrderCommitment.IsEnabled && DropoffJudgement.IsEnabled;
+
+    /// <summary>
     /// POST /admin/orders/{orderId}/{action}: <c>reopen-pickup</c> with
     /// <c>{exit, reason, expectedVersion, deadlineHours?}</c>, or <c>reopen-no-show</c> (FUP-330, its own file). Any
     /// other action is <c>404 ADMIN_002</c>.
@@ -153,6 +160,13 @@ public partial class AdminFunction
         {
             set["status"] = "pickup_confirmed";
             set[PickupJudgement.Field] = PickupJudgement.Outcome.Scanned;
+            if (DropoffJudgementOn && DropoffJudgement.TakesPickupStamp(order, "accepted", "pickup_confirmed"))
+            {
+                foreach (var (key, value) in await ReopenDropoffStampAsync(order, now, context))
+                {
+                    set[key] = value;
+                }
+            }
         }
 
         // The judgement's queue entry is answered by this action, unless the escrow's hold cap rides on it; an entry
@@ -233,6 +247,35 @@ public partial class AdminFunction
         LogReopen(adminUserId, correlationId, orderId, "success", null, exit);
         return ReopenOk(orderId, exit, write.Order!, alreadyApplied: false,
             exit == PickupReopen.Exit.Pending ? "The pickup is open again until the new deadline." : "The handoff is recorded as picked up.");
+    }
+
+    /// <summary>
+    /// ESC-36: the drop-off stamp of a confirmed handoff: the pickup is now (the delivery's <c>pickedUpAt</c> this
+    /// transaction writes), the order's own point and the trip's destination as they are. A trip that cannot be read
+    /// leaves its point out (the check-in then reads it live); the re-open is never refused for it.
+    /// </summary>
+    private async Task<Dictionary<string, object>> ReopenDropoffStampAsync(Dictionary<string, object> order, DateTime now, ILambdaContext context)
+    {
+        TrackPoint? tripPoint = null;
+        var tripRead = false;
+        var tripId = GetString(order, "tripId");
+        if (tripId.Length > 0 && _tripsTable.Length > 0)
+        {
+            try
+            {
+                var trip = await new TripRepository(_dynamoDb, _tripsTable).GetByIdAsync(tripId);
+                tripPoint = TripTrack.PlannedDropoff(trip, order: null);
+                tripRead = trip != null;
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning(
+                    $"Pickup re-open: the trip of order {MoneyAlarmLog.LogId(GetString(order, "orderId"))} could not be read "
+                    + $"[{ex.GetType().Name}]; the drop-off check-in reads it live.");
+            }
+        }
+
+        return DropoffJudgement.PickupStamp(now, OrderDeliveryLocation.Of(order), tripPoint, tripRead, OrderTimings.Current, now);
     }
 
     /// <summary>400 <c>PICKUP_REOPEN_INVALID</c> naming the first field that is missing or out of range, or null.</summary>

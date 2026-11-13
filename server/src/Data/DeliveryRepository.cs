@@ -526,6 +526,90 @@ public sealed class DeliveryRepository : IDeliveryRepository
     }
 
     /// <inheritdoc />
+    public async Task<bool> TryMarkDropoffDisputedAsync(
+        string deliveryId, string tripId, string fromStatus, string reason, string disputedAt)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            // ESC-07: ADD, never a version from a read. The condition is the status the cron read.
+            UpdateExpression = "SET #status = :disputed, #updated = :now, #by = :system, #reason = :reason, #at = :now ADD #v :one",
+            ConditionExpression = "#status = :from",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }, { "#updated", "updatedAt" }, { "#v", "version" },
+                { "#by", "disputedBy" }, { "#reason", "disputeReason" }, { "#at", "disputedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":disputed", new AttributeValue { S = "disputed" } },
+                { ":from", new AttributeValue { S = fromStatus } },
+                { ":now", new AttributeValue { S = disputedAt } },
+                { ":system", new AttributeValue { S = Helpers.DropoffJudgement.SystemActor } },
+                { ":reason", new AttributeValue { S = reason } },
+                { ":one", new AttributeValue { N = "1" } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryAutoConfirmAsync(
+        string deliveryId, string tripId, string fromStatus, int expectedVersion, string confirmedAt)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            // The buyer's confirm writes status, confirmedAt, updatedAt and the next version; the system's
+            // adds autoConfirmedAt, so every reader can tell who confirmed.
+            UpdateExpression = "SET #status = :delivered, #confirmed = :at, #auto = :at, #updated = :at, #v = :next",
+            ConditionExpression = "#status = :from AND #v = :expected",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }, { "#updated", "updatedAt" }, { "#v", "version" },
+                { "#confirmed", "confirmedAt" }, { "#auto", Helpers.DropoffJudgement.AutoConfirmedAtField }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":delivered", new AttributeValue { S = "delivered" } },
+                { ":from", new AttributeValue { S = fromStatus } },
+                { ":at", new AttributeValue { S = confirmedAt } },
+                { ":expected", new AttributeValue { N = expectedVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":next", new AttributeValue { N = (expectedVersion + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<bool> TryMarkInTransitAsync(string deliveryId, string tripId, int expectedVersion)
     {
         var request = new UpdateItemRequest

@@ -198,6 +198,10 @@ describe("dispute disposition strings exist in every locale", () => {
     "dispositionHint_delivered_anyway",
     "dispositionHint_settle_now",
     "dispositionHint_wait_for_delivery",
+    // FUP-64: the exit of a verdict no goods disposition fits.
+    "caseNoFit",
+    "disposition_settle_as_is",
+    "dispositionHint_settle_as_is",
     "dispositionReason",
     "dispositionReasonHint",
     "confirmDisposition",
@@ -212,6 +216,7 @@ describe("dispute disposition strings exist in every locale", () => {
     "transactions.action_dispute_resolved_delivered_anyway",
     "transactions.action_dispute_resolved_settled_early",
     "transactions.action_dispute_resolved_waiting_for_delivery",
+    "transactions.action_dispute_resolved_settled_as_is",
     "common.cancel",
   ];
   for (const locale of locales) {
@@ -350,6 +355,8 @@ describe("legs and stuck order strings exist in every locale", () => {
         "hold_cap", "farmer_response", "trucker_response", "buyer_choice", "pickup_overdue", "pickup_waiting",
         // ESC-34: the judgement's deadline kind and its queue reasons.
         "pickup_judgement", "both_present_no_scan", "unchecked_check_in", "late_pickup_evidence",
+        // ESC-36: T8 and T9 (deadline kinds and queue reasons of the same names).
+        "delivery_overdue", "silent_buyer", "dropoff_out_of_range",
       ].map((r) => `stuckOrders.reason_${r}`),
     ];
     for (const locale of locales) {

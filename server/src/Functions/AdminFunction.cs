@@ -386,10 +386,37 @@ public partial class AdminFunction
             return LambdaResponse.Error(404, "ADMIN_003", "Escrow not found.");
         }
 
-        var escrow = MapToEscrowDto(DynamoDbHelper.FromItem(item));
+        var fields = DynamoDbHelper.FromItem(item);
+        var escrow = await WithOrderEscrowAsync(MapToEscrowDto(fields), fields);
         await EnrichEscrowNamesAsync(new List<EscrowDto> { escrow });
         var response = new AdminEscrowDetailResponse { Escrow = escrow };
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminEscrowDetailResponse);
+    }
+
+    /// <summary>
+    /// FUP-41: on an escrow that is not order-funded and names an order, the status of the order's own escrow and
+    /// whether this one is therefore a second payment (<see cref="EscrowService.OrderEscrowPaidStatuses"/>, the rule
+    /// the double escrow refund checks again). One read, on the detail route only.
+    /// </summary>
+    private async Task<EscrowDto> WithOrderEscrowAsync(EscrowDto escrow, Dictionary<string, object> item)
+    {
+        if (string.IsNullOrEmpty(escrow.OrderId) || EscrowService.IsOrderFundedEscrow(item))
+        {
+            return escrow;
+        }
+
+        var own = await QuerySingleItemAsync(_escrowsTable, "escrowId", $"escrow-order-{escrow.OrderId}");
+        if (own == null)
+        {
+            return escrow with { DoubleEscrow = false };
+        }
+
+        var ownStatus = GetString(DynamoDbHelper.FromItem(own), "status");
+        return escrow with
+        {
+            OrderEscrowStatus = ownStatus,
+            DoubleEscrow = EscrowService.OrderEscrowPaidStatuses.Contains(ownStatus)
+        };
     }
 
     private async Task<APIGatewayProxyResponse> HandleEscrowAuditAsync(string escrowId, ILambdaContext context)
@@ -515,18 +542,26 @@ public partial class AdminFunction
         }
 
         // FUP-16: a disposition belongs to one verdict and always carries the admin's reason.
+        // FUP-64: settle_as_is goes with farmer_wins and buyer_wins (a split has the ledger's own path).
         var disposition = string.IsNullOrEmpty(body.Disposition) ? null : body.Disposition;
         string? dispositionReason = null;
         if (disposition != null)
         {
-            var dispositionVerdict = DisputeDisposition.VerdictOf(disposition);
-            if (dispositionVerdict == null)
+            if (disposition == DisputeDisposition.SettleAsIs)
+            {
+                if (body.Resolution is not ("farmer_wins" or "buyer_wins"))
+                {
+                    return LambdaResponse.Error(400, "ADMIN_014",
+                        $"disposition 'settle_as_is' goes with farmer_wins or buyer_wins, not {body.Resolution}.", "disposition");
+                }
+            }
+            else if (DisputeDisposition.VerdictOf(disposition) is not { } dispositionVerdict)
             {
                 return LambdaResponse.Error(400, "ADMIN_014",
-                    "disposition must be return_to_farmer, delivered_anyway, settle_now or wait_for_delivery.", "disposition");
+                    "disposition must be return_to_farmer, delivered_anyway, settle_now, wait_for_delivery or settle_as_is.",
+                    "disposition");
             }
-
-            if (dispositionVerdict != direction)
+            else if (dispositionVerdict != direction)
             {
                 return LambdaResponse.Error(400, "ADMIN_014",
                     $"disposition '{disposition}' goes with {dispositionVerdict}, not {body.Resolution}.", "disposition");
@@ -613,7 +648,8 @@ public partial class AdminFunction
         if (item.TryGetValue("status", out var currentStatusAttr) && currentStatusAttr.S == "disputed"
             && !item.ContainsKey(ManualPayoutFields.Marker) && !item.ContainsKey("settlementLock"))
         {
-            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(item), direction);
+            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(item), direction,
+                split: body.Resolution == DisputeVerdicts.PartialRefund);
             if (plan.Case == DispositionCase.Unknown)
             {
                 return LambdaResponse.Error(503, "ESCROW_012",
@@ -622,7 +658,7 @@ public partial class AdminFunction
 
             if (plan.Case != DispositionCase.NotNeeded)
             {
-                if (DispositionRefusal(plan, disposition, direction, replay: false) is { } refusal)
+                if (DispositionRefusal(plan, disposition, direction, body.Resolution, replay: false) is { } refusal)
                 {
                     return refusal;
                 }
@@ -901,7 +937,8 @@ public partial class AdminFunction
         if (latestStatus == "dispute_resolved")
         {
             var mirror = VerdictMirror();
-            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(latest), direction);
+            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(latest), direction,
+                split: resolution == DisputeVerdicts.PartialRefund);
             if (plan.Case == DispositionCase.Unknown)
             {
                 return LambdaResponse.Error(503, "ESCROW_012",
@@ -911,7 +948,7 @@ public partial class AdminFunction
             if (plan.Case != DispositionCase.NotNeeded)
             {
                 var chosen = disposition ?? recordedDisposition;
-                if (DispositionRefusal(plan, chosen, direction, replay: true) is { } refusal)
+                if (DispositionRefusal(plan, chosen, direction, resolution, replay: true) is { } refusal)
                 {
                     return refusal;
                 }
@@ -965,19 +1002,59 @@ public partial class AdminFunction
     /// <summary>
     /// FUP-16: why a verdict whose legs cannot follow it is not recorded (or not changed) with
     /// <paramref name="disposition"/>; null when the disposition resolves it. Nothing is written on a refusal.
+    /// FUP-64: a verdict no goods disposition fits takes <c>settle_as_is</c> when it is safe
+    /// (<see cref="DispositionPlan.SettleAsIsRefusal"/>); otherwise it has no admin exit. A split
+    /// (<paramref name="verdict"/> <c>partial_refund</c>, whose <paramref name="resolution"/> is its mirror direction
+    /// <c>farmer_wins</c>) never takes it: it settles leg by leg through the ledger.
     /// </summary>
     private static APIGatewayProxyResponse? DispositionRefusal(
-        DispositionPlan plan, string? disposition, string resolution, bool replay)
+        DispositionPlan plan, string? disposition, string resolution, string verdict, bool replay)
     {
         if (plan.Case == DispositionCase.NoFit)
         {
-            // A recorded verdict cannot change; before it is recorded the admin can still pick the other one.
+            var exitRefusal = verdict == DisputeVerdicts.PartialRefund ? "split" : plan.SettleAsIsRefusal;
+            if (exitRefusal is { } unsafeReason)
+            {
+                // A recorded verdict cannot change; before it is recorded the admin can still pick the other one.
+                return LambdaResponse.Error(422, "ADMIN_016",
+                    $"The order or delivery behind this verdict cannot follow {verdict} ({plan.Legs}) and no disposition fits: "
+                    + unsafeReason switch
+                    {
+                        "split" => "a split is never settled as it is (it settles leg by leg through the ledger). ",
+                        "double_escrow" => "this escrow is a second payment for an order whose own escrow holds or paid the "
+                                           + "trade's money; it is refunded as a double escrow, never released (FUP-41). ",
+                        "order_paid_out" => "the order already shows a payout, so a release could pay the farmer twice. ",
+                        "goods_returned" => "the goods went back to the farmer, so the farmer is not paid for them. ",
+                        _ => "nothing shows the goods left the farm, so the farmer is not paid for them. "
+                    }
+                    + (replay
+                        ? "Nothing was changed. The verdict is recorded and cannot change: escalate, the order must be repaired by hand."
+                        : "Nothing was recorded: bring the order to a status the verdict can follow, or choose the other verdict."));
+            }
+
+            if (disposition == null)
+            {
+                return LambdaResponse.Error(422, "ADMIN_015",
+                    $"The order or delivery behind this verdict cannot follow {resolution} ({plan.Legs}) and no goods choice fits. "
+                    + "Nothing was changed: choose settle_as_is with a reason (the money settles as the verdict says, the order "
+                    + "is closed as it is).",
+                    "disposition");
+            }
+
+            return disposition == DisputeDisposition.SettleAsIs
+                ? null
+                : LambdaResponse.Error(422, "ADMIN_016",
+                    $"{disposition} does not fit this order ({plan.Legs}); only settle_as_is does. Nothing was changed.",
+                    "disposition");
+        }
+
+        if (disposition == DisputeDisposition.SettleAsIs)
+        {
             return LambdaResponse.Error(422, "ADMIN_016",
-                $"The order or delivery behind this verdict cannot follow {resolution} ({plan.Legs}) and no disposition fits. "
-                + (replay
-                    ? "Nothing was changed. The verdict is recorded and cannot change: the order must be repaired by hand "
-                      + "first (for buyer_wins, the deprecated overrideOrderMismatch refund still settles it)."
-                    : "Nothing was recorded: bring the order to a status the verdict can follow, or choose the other verdict."));
+                "settle_as_is is only for a verdict no other choice fits; choose "
+                + (plan.Case == DispositionCase.GoodsMoving ? "return_to_farmer or delivered_anyway" : "wait_for_delivery or settle_now")
+                + ". Nothing was changed.",
+                "disposition");
         }
 
         if (disposition == null)
@@ -1118,7 +1195,7 @@ public partial class AdminFunction
             }
         }
 
-        var result = await mirror.ApplyDispositionAsync(escrow, resolution, disposition, resolvedAt, context);
+        var result = await mirror.ApplyDispositionAsync(escrow, resolution, disposition, resolvedAt, context, adminUserId, reason);
         if (result.DispositionNotNeeded)
         {
             // The legs moved since the verdict was decided (a handoff landed) and now follow it: the
@@ -1160,6 +1237,9 @@ public partial class AdminFunction
                     "Verdict recorded. The goods count as delivered to the buyer; the settlement sweep refunds the buyer within the hour.",
                 DisputeDisposition.SettleNow =>
                     "Verdict recorded. The delivery is cancelled; the settlement sweep releases the funds to the farmer within the hour.",
+                DisputeDisposition.SettleAsIs => resolution == "buyer_wins"
+                    ? "Verdict recorded as it is. The order is closed where it was live; the settlement sweep refunds the buyer within the hour."
+                    : "Verdict recorded as it is. The order is closed where it was live; the settlement sweep releases the funds to the farmer within the hour.",
                 _ => "Verdict recorded. The funds are released to the farmer once the order is delivered."
             }
         }, AppJsonContext.Default.ResolveDisputeResponse);
@@ -1169,7 +1249,9 @@ public partial class AdminFunction
     private DisputeVerdictMirror VerdictMirror() => new(
         string.IsNullOrEmpty(_ordersTable) ? null : new OrderRepository(_dynamoDb, _ordersTable),
         string.IsNullOrEmpty(_deliveriesTable) ? null : new DeliveryRepository(_dynamoDb, _deliveriesTable),
-        TxAuditRepo());
+        TxAuditRepo(),
+        // FUP-64: the order's other escrows, so settle_as_is never pays a farmer another escrow already paid.
+        escrowRepo: string.IsNullOrEmpty(_escrowsTable) ? null : new EscrowRepository(_dynamoDb, _escrowsTable));
 
     /// <summary>
     /// ESC-03: move the order and delivery behind a dispute verdict to it
@@ -3728,6 +3810,9 @@ public partial class AdminFunction
             HeldBy = GetStringOrNull(item, EscrowHoldFields.HeldBy),
             HeldFromStatus = GetStringOrNull(item, EscrowHoldFields.HeldFromStatus),
             HeldFor = GetStringOrNull(item, EscrowHoldFields.HeldFor),
+            // FUP-41: why the sweeps do not settle it (the double escrow exit and the payout gate runbook read it).
+            SettlementBlockReason = GetStringOrNull(item, SettlementBlockFields.Reason),
+            SettlementBlockReasonAt = GetStringOrNull(item, SettlementBlockFields.ReasonAt),
             Version = GetInt(item, "version", 1),
             // ESC-24: the transport leg and the ledger's view of the money (AdminFunction.Legs.cs).
             TruckerPayout = GetDecimalOrNull(item, "truckerPayout"),
