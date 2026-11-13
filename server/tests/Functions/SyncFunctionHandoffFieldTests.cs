@@ -67,11 +67,14 @@ public partial class SyncFunctionTests
     [Fact]
     public async Task BuyerConfirm_HonestPointsTooFastForTheDistance_StoresTheDropoff_AndStillFlagsTheTrucker()
     {
-        // The trucker's own pickup in Jimma, the buyer's drop-off in Addis Ababa 20 minutes later.
+        // The trucker's own pickup in Jimma, the buyer's drop-off in Addis Ababa (the trip's destination, FUP-265)
+        // 20 minutes later.
         var written = DeliveredRow(DateTime.UtcNow, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(25));
         var write = CaptureDeliveryWrite();
+        var function = DeliveryPatternFunction();
+        GivenGpsTrip(GpsAddis);
 
-        var body = await ConfirmDeliveryAsync(DeliveryPatternFunction(), written,
+        var body = await ConfirmDeliveryAsync(function, written,
             extraData: new() { { "gpsDropoff", GpsData(9.03, 38.74) } });
 
         Assert.Contains("\"status\":\"success\"", body);

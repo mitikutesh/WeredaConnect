@@ -1,9 +1,11 @@
 using System.Globalization;
+using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
@@ -13,8 +15,8 @@ namespace WeredaConnect.Server.Tests.Functions;
 /// <summary>
 /// FRD-09 (fraud-detection-architecture.md 15.1) on delivery updates: the pickup keeps when the phone made the
 /// scan (<c>pickupCapturedAt</c>); a confirm too fast for the distance between the two scans flags the delivery's
-/// trucker; a delivery dispute the buyer raised feeds the buyer's dispute rate. Uses the delivery and dispute
-/// rigs of <see cref="SyncFunctionTests"/>.
+/// trucker, with the buyer's drop-off point bounded by a point the trucker controls (FUP-265); a delivery dispute
+/// the buyer raised feeds the buyer's dispute rate. Uses the delivery and dispute rigs of <see cref="SyncFunctionTests"/>.
 /// </summary>
 public partial class SyncFunctionTests
 {
@@ -113,7 +115,11 @@ public partial class SyncFunctionTests
     [Fact]
     public async Task DeliveryConfirmed_TooFastForTheDistance_FlagsTheTrucker_NotTheBuyerWhoConfirmed()
     {
-        var body = await ConfirmDeliveryAsync(DeliveryPatternFunction(),
+        var function = DeliveryPatternFunction();
+        // FUP-265: the trip's destination point, which the trucker set, bounds the buyer's drop-off point.
+        GivenGpsTrip(GpsAddis);
+
+        var body = await ConfirmDeliveryAsync(function,
             DeliveredRow(DateTime.UtcNow, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(25)));
 
         Assert.Contains("\"status\":\"success\"", body);
@@ -175,6 +181,7 @@ public partial class SyncFunctionTests
     public async Task DeliveryConfirmed_SignalWriteFails_TheConfirmStillSucceeds()
     {
         var function = DeliveryPatternFunction();
+        GivenGpsTrip(GpsAddis);
         _patternFraud.RecordFraudSignalAsync(default!, default!, default, default!, default)
             .ReturnsForAnyArgs(Task.FromException(new InvalidOperationException("put failed")));
 
@@ -182,6 +189,200 @@ public partial class SyncFunctionTests
             DeliveredRow(DateTime.UtcNow, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(25)));
 
         Assert.Contains("\"status\":\"success\"", body);
+        await _patternFraud.Received(1).RecordFraudSignalAsync("trucker-001", "IMPOSSIBLE_DELIVERY_TIME", "del-001",
+            "delivery", Arg.Any<string?>());
+    }
+
+    // ── FUP-265: never a row from a drop-off point the buyer alone controls ──────
+
+    private const string BoundOrderId = "order-fup265";
+
+    /// <summary>The confirmed row of a 20 minute trip from Jimma whose buyer sent <paramref name="dropoff"/>.</summary>
+    private static Dictionary<string, AttributeValue> FastRowTo(TrackPoint dropoff, TimeSpan? serverTrip = null, TimeSpan? captureTrip = null)
+    {
+        var row = DeliveredRow(DateTime.UtcNow, serverTrip ?? TimeSpan.FromMinutes(20), captureTrip ?? TimeSpan.FromMinutes(25));
+        row["gpsDropoff"] = GpsPoint(dropoff.Latitude, dropoff.Longitude);
+        return row;
+    }
+
+    /// <summary>4.7 km past Addis Ababa seen from Jimma, inside the confirm's 5 km of the trip's destination.</summary>
+    private static readonly TrackPoint StretchedPastAddis = new(9.06, 38.77);
+
+    private Task NoDeliveryTimeRowAsync()
+        => _patternFraud.DidNotReceive().RecordFraudSignalAsync(Arg.Any<string>(), "IMPOSSIBLE_DELIVERY_TIME",
+            Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+
+    [Fact]
+    public async Task FUP265_AConfirmOnATripWithoutADestinationPoint_WritesNoRow_HoweverFarTheBuyersPoint()
+    {
+        // 259 km in 20 minutes by the buyer's point alone: an older trip (no destination point) or none on record.
+        var function = DeliveryPatternFunction();
+        GivenGpsTrip(destination: null);
+
+        var body = await ConfirmDeliveryAsync(function, FastRowTo(GpsAddis));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await NoDeliveryTimeRowAsync();
+    }
+
+    [Fact]
+    public async Task FUP265_NoTripOnRecord_WritesNoRow()
+    {
+        var body = await ConfirmDeliveryAsync(DeliveryPatternFunction(), FastRowTo(GpsAddis));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await NoDeliveryTimeRowAsync();
+    }
+
+    [Fact]
+    public async Task FUP265_ABuyerPointStretchedPastTheDestination_CannotTurnAPossibleTripIntoARow()
+    {
+        // 130.5 minutes: 263.5 km to the buyer's point needs 131.8, the trip's destination (258.9 km) 129.4.
+        var function = DeliveryPatternFunction();
+        GivenGpsTrip(GpsAddis);
+
+        var body = await ConfirmDeliveryAsync(function,
+            FastRowTo(StretchedPastAddis, TimeSpan.FromMinutes(130), TimeSpan.FromMinutes(129.5)));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await NoDeliveryTimeRowAsync();
+    }
+
+    [Fact]
+    public async Task FUP265_AReallyImpossibleTrip_IsFlagged_WithTheDistanceToTheTripsDestination()
+    {
+        var function = DeliveryPatternFunction();
+        GivenGpsTrip(GpsAddis);
+
+        var body = await ConfirmDeliveryAsync(function, FastRowTo(StretchedPastAddis));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _patternFraud.Received(1).RecordFraudSignalAsync("trucker-001", "IMPOSSIBLE_DELIVERY_TIME", "del-001", "delivery",
+            Arg.Is<string>(d => d.Contains("with the pickup scan and the trip's destination 258.9 km apart")));
+    }
+
+    [Fact]
+    public async Task FUP265_AnEnRouteDropoffNearerThanTheDestination_IsStillJudged_FromTheBuyersPoint()
+    {
+        // The buyer meets the truck 92.6 km from the farm, the trip going on to Addis Ababa.
+        var function = DeliveryPatternFunction();
+        GivenGpsTrip(GpsAddis);
+
+        var body = await ConfirmDeliveryAsync(function, FastRowTo(new TrackPoint(8.10, 37.55)));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _patternFraud.Received(1).RecordFraudSignalAsync("trucker-001", "IMPOSSIBLE_DELIVERY_TIME", "del-001", "delivery",
+            Arg.Is<string>(d => d.Contains("with the pickup scan and the drop-off scan 92.6 km apart")));
+    }
+
+    /// <summary>The FRD-09 rig with <c>dropoffClassification</c> (and the commitments it needs) on.</summary>
+    private SyncFunction DropoffDeliveryPatternFunction()
+    {
+        DeliveryPatternFunction();
+        return new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            fraudService: _patternFraud, userRepo: _mockUserRepo, orderRepo: _mockOrderRepo)
+        {
+            PatternRules = new TransactionPatternService(_mockOrderRepo, null, TransactionPatternSettings.Default),
+            CommitmentsEnabled = true,
+            DropoffClassificationEnabled = true
+        };
+    }
+
+    /// <summary>The delivery's order, stamped at pickup (ESC-36), with trucker-001's drop-off check-in at <paramref name="checkIn"/>.</summary>
+    private void GivenBoundOrder(TrackPoint? checkIn)
+    {
+        var order = new Dictionary<string, object>
+        {
+            { "orderId", BoundOrderId }, { "buyerId", "buyer-001" }, { "truckerId", "trucker-001" }, { "tripId", "trip-001" },
+            { "status", "in_transit" }, { "activeDeliveryId", "del-001" },
+            { DropoffJudgement.Field, DropoffJudgement.Outcome.Pending }
+        };
+        if (checkIn != null)
+        {
+            order[DropoffJudgement.CheckInField] = PickupJudgement.Entry(
+                new ParsedCheckIn(BoundOrderId, PickupJudgement.Kind.ArrivedDropoff, null, checkIn.Latitude, checkIn.Longitude, 20),
+                "trucker-001", DateTime.UtcNow.AddMinutes(-2), 0.8, late: false);
+        }
+
+        _mockOrderRepo.GetByIdAsync(BoundOrderId, consistentRead: true).Returns(order);
+    }
+
+    private Task<string> ConfirmOrderDeliveryAsync(SyncFunction function, Dictionary<string, AttributeValue> written)
+    {
+        var stored = PickupSide(written);
+        stored["orderId"] = new AttributeValue { S = BoundOrderId };
+        return ConfirmDeliveryAsync(function, written, stored: stored);
+    }
+
+    [Fact]
+    public async Task FUP265_DropoffClassificationOn_TheTruckersOwnCheckIn_BoundsTheBuyersPoint_WithoutATripDestination()
+    {
+        var function = DropoffDeliveryPatternFunction();
+        GivenGpsTrip(destination: null);
+        GivenBoundOrder(checkIn: GpsAddis);
+
+        var body = await ConfirmOrderDeliveryAsync(function, FastRowTo(StretchedPastAddis));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _patternFraud.Received(1).RecordFraudSignalAsync("trucker-001", "IMPOSSIBLE_DELIVERY_TIME", "del-001", "delivery",
+            Arg.Is<string>(d => d.Contains("with the pickup scan and the trucker's drop-off check-in 258.9 km apart")));
+    }
+
+    [Fact]
+    public async Task FUP265_DropoffClassificationOn_ACheckInNearTheFarm_ClearsWhateverTheBuyersPointSays()
+    {
+        // The trucker's own phone checked in 2 km from the pickup: the drop-off was there, not in Addis Ababa.
+        var function = DropoffDeliveryPatternFunction();
+        GivenGpsTrip(GpsAddis);
+        GivenBoundOrder(checkIn: new TrackPoint(7.685, 36.84));
+
+        var body = await ConfirmOrderDeliveryAsync(function, FastRowTo(GpsAddis));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await NoDeliveryTimeRowAsync();
+    }
+
+    [Fact]
+    public async Task FUP265_DropoffClassificationOn_NoCheckIn_FallsBackToTheTripsDestination()
+    {
+        var function = DropoffDeliveryPatternFunction();
+        GivenGpsTrip(GpsAddis);
+        GivenBoundOrder(checkIn: null);
+
+        var body = await ConfirmOrderDeliveryAsync(function, FastRowTo(StretchedPastAddis));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _patternFraud.Received(1).RecordFraudSignalAsync("trucker-001", "IMPOSSIBLE_DELIVERY_TIME", "del-001", "delivery",
+            Arg.Is<string>(d => d.Contains("the trip's destination 258.9 km apart")));
+    }
+
+    [Fact]
+    public async Task FUP265_DropoffClassificationOn_AnOrderReadThatThrows_WritesNoRow_AndTheConfirmStands()
+    {
+        var function = DropoffDeliveryPatternFunction();
+        GivenGpsTrip(GpsAddis);
+        _mockOrderRepo.GetByIdAsync(BoundOrderId, consistentRead: true).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var body = await ConfirmOrderDeliveryAsync(function, FastRowTo(GpsAddis));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await NoDeliveryTimeRowAsync();
+        Assert.Contains("Pattern check delivery_time skipped for delivery", Logs);
+    }
+
+    [Fact]
+    public async Task FUP265_DropoffClassificationOn_ATripTheBuyersPointDoesNotFlag_ReadsNoOrder()
+    {
+        // The bound only shortens the distance: a six hour trip is not judged further, so no read.
+        var function = DropoffDeliveryPatternFunction();
+        GivenBoundOrder(checkIn: GpsAddis);
+
+        var body = await ConfirmOrderDeliveryAsync(function,
+            FastRowTo(GpsAddis, TimeSpan.FromHours(6), TimeSpan.FromHours(6)));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _mockOrderRepo.DidNotReceive().GetByIdAsync(BoundOrderId, consistentRead: true);
+        await NoDeliveryTimeRowAsync();
     }
 
     private async Task<UpdateItemRequest?> PickUpAsync(string? clientTimestamp)

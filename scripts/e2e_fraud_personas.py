@@ -290,7 +290,8 @@ PERSONAS: Dict[str, Persona] = {
     "gps": Persona(
         key="gps", title="GPS spoofer", threat="T4 fake delivery to claim escrow (trucker)",
         accounts=[("gps-trucker", "trucker")],
-        plan=["list a trip Debre Birhan to Dire Dawa; carry a paid order of the support farmer's teff",
+        plan=["list a trip Debre Birhan to Dire Dawa, its destination point in Dire Dawa; carry a paid order of the "
+              "support farmer's teff",
               "pick up at the farm with the farmer's QR",
               "send two check-ins: the first flagged mocked by the phone, the second 50 km away 30 s later",
               "the buyer confirms the drop-off at Dire Dawa minutes after the pickup (about 250 km)"],
@@ -885,9 +886,12 @@ def gps_trip_delivery(run: Run, buyer: Account, persona_buyer: str) -> Optional[
     h_farmer, listing = support_farmer(run)
     trip_id = uid()
     departure = time.strftime("%Y-%m-%dT06:00:00Z", time.gmtime(time.time() + 5 * 86400))
+    # FUP-265: the delivery time rule bounds the buyer's drop-off point by the trip's destination point the
+    # trucker set; a trip without one is not judged.
     require(run.sync1(trucker, "trip", trip_id, "create", {
         "truckerId": trucker.user_id, "truckerName": trucker.name, "fromWoreda": "Debre Birhan",
         "toWoreda": "Dire Dawa", "capacity": 20.0, "pricePerQuintal": 100.0, "departureDate": departure,
+        "destinationLatitude": DIRE_DAWA[0], "destinationLongitude": DIRE_DAWA[1],
         "status": "open"}), "trip create")
     trip = run.get(trucker, f"/trips/{trip_id}").json()
     trip = trip.get("trip") or trip
