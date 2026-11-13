@@ -904,10 +904,12 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// before [page]'s last one. They can stay unread when that last trip is
   /// one this phone already holds as delivered (it read past it before),
   /// with a departure more than [_ownTripSettledAge] before [now], and no
-  /// [stored] trip the server may still move (not delivered, departing
-  /// within that window or later: a booking, a start, the close of a trip
-  /// that left, an admin's re-open, trip-listing-api 2.7.0) was created
-  /// before it and is missing from [listed].
+  /// [stored] trip the server may still move was created before it and is
+  /// missing from [listed]. The server may still move a trip the phone holds
+  /// as `matched` or `inTransit`, whatever its departure (a start, the
+  /// delivered move, an admin's judgement), and an `open` or `cancelled` one
+  /// departing within that window or later (a booking, the close of a trip
+  /// that left, an admin's re-open, trip-listing-api 2.7.0).
   static bool _ownTripPagingDone(
     List<Trip> page,
     List<Trip> listed,
@@ -924,10 +926,16 @@ class IsarMarketplaceSync implements MarketplaceSync {
       return false;
     }
     final listedIds = {for (final t in listed) t.tripId};
+    bool mayMove(Trip t) => switch (t.status) {
+          TripStatus.matched || TripStatus.inTransit => true,
+          TripStatus.open ||
+          TripStatus.cancelled =>
+            !t.departureDate.isBefore(cutoff),
+          TripStatus.delivered => false,
+        };
     return !stored.any(
       (t) =>
-          t.status != TripStatus.delivered &&
-          !t.departureDate.isBefore(cutoff) &&
+          mayMove(t) &&
           t.createdAt.isBefore(last.createdAt) &&
           !listedIds.contains(t.tripId),
     );

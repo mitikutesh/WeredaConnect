@@ -1187,6 +1187,44 @@ void main() {
         });
 
         test(
+            'a trip the phone holds as in transit that left weeks ago, on a '
+            'later page, is read until the server finishes it', () async {
+          // trip-120 left 30 days ago and is still on the road.
+          var trip120 = historyTrip(
+            120,
+            status: 'inTransit',
+            departure: now.subtract(const Duration(days: 30)),
+          );
+          stubPages(
+            () => [
+              for (var i = 0; i < 150; i++)
+                if (i == 120) trip120 else historyTrip(i),
+            ],
+          );
+          final sync = buildSync(clock: clock);
+          await sync.pullOwnTrips(truckerId: 'trucker-1');
+          expect(await statusOf('trip-120'), TripStatus.inTransit);
+
+          // The buyer's late confirm finished it on the server.
+          trip120 = historyTrip(
+            120,
+            version: 4,
+            departure: now.subtract(const Duration(days: 30)),
+          );
+          requests.clear();
+          now = now.add(const Duration(seconds: 31));
+          expect(await sync.pullOwnTrips(truckerId: 'trucker-1'), isTrue);
+          expect(requests, hasLength(3));
+          expect(await statusOf('trip-120'), TripStatus.delivered);
+
+          // Delivered, it no longer keeps the paging going.
+          requests.clear();
+          now = now.add(const Duration(seconds: 31));
+          await sync.pullOwnTrips(truckerId: 'trucker-1');
+          expect(requests, hasLength(1));
+        });
+
+        test(
             'the first page is read again when its last trip left within '
             'the last 14 days', () async {
           stubPages(

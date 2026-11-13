@@ -235,6 +235,59 @@ void main() {
       verify(() => repository.getMostRelevantTrip('trucker-001')).called(1);
       verify(() => repository.getRecentRoutes('trucker-001')).called(1);
     });
+
+    // A fresh login: the store holds no trip of the trucker yet. "No active
+    // trip" while the first pull runs would invite a duplicate post.
+    testWidgets(
+        'with no stored trip the spinner stays until the pull brings the '
+        'trip', (tester) async {
+      Trip? stored;
+      when(() => repository.getMostRelevantTrip('trucker-001'))
+          .thenAnswer((_) async => stored);
+      final landing = Completer<void>();
+      final sync = _FakeOwnTripSync(
+        landing: landing.future,
+        onPull: () => stored = trip(status: TripStatus.matched),
+      );
+      final l10n = lookupAppLocalizations(const Locale('en'));
+
+      await tester.pumpWidget(buildCardWith(sync));
+      await tester.pump();
+      await tester.pump();
+
+      expect(sync.pulls, ['trucker-001']);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text(l10n.noActiveTrip), findsNothing);
+
+      landing.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text('Matched'), findsOneWidget);
+    });
+
+    testWidgets(
+        'with no stored trip and none on the server, "No active trip" shows '
+        'once the pull is done', (tester) async {
+      when(() => repository.getMostRelevantTrip('trucker-001'))
+          .thenAnswer((_) async => null);
+      final landing = Completer<void>();
+      final sync = _FakeOwnTripSync(landing: landing.future);
+      final l10n = lookupAppLocalizations(const Locale('en'));
+
+      await tester.pumpWidget(buildCardWith(sync));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text(l10n.noActiveTrip), findsNothing);
+
+      landing.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text(l10n.noActiveTrip), findsOneWidget);
+    });
   });
 
   testWidgets('a trip on the road without the engine shows its state',
