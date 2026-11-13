@@ -3081,7 +3081,11 @@ public partial class SyncFunction
                     }
 
                     // Conflict — return server's current data
-                    var serverData = await _cropRepo.GetByIdAsync(operation.EntityId);
+                    // FUP-152: a delete that beat this write is read back consistently, so the phone
+                    // gets the deleted row, not the live one an eventually consistent read may return.
+                    var serverData = updateResult.Error?.Code == CropRepository.AlreadyDeletedCode
+                        ? await _cropRepo.GetByIdConsistentAsync(operation.EntityId)
+                        : await _cropRepo.GetByIdAsync(operation.EntityId);
                     var serverVer = serverData != null && serverData.TryGetValue("version", out var sv2)
                         ? int.TryParse(sv2.ToString(), out var svn) ? svn : 0
                         : 0;

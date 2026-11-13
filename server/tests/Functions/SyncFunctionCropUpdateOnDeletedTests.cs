@@ -136,8 +136,10 @@ public class SyncFunctionCropUpdateOnDeletedTests
     public async Task DeletedBetweenTheReadAndTheWrite_TheWriteRefuses_AndTheFarmerGetsTheDeletedRow()
     {
         // The read saw the live listing at version 4; a delete from the farmer's other device landed
-        // before the write, so the repository's condition refused it.
-        _crops.GetByIdAsync(ListingId).Returns(Listing("available", 4), Listing("deleted", 5, stamped: true));
+        // before the write, so the repository's condition refused it. An eventually consistent read
+        // may still return the live row; the answer must come from the consistent read.
+        _crops.GetByIdAsync(ListingId).Returns(Listing("available", 4));
+        _crops.GetByIdConsistentAsync(ListingId).Returns(Listing("deleted", 5, stamped: true));
         _crops.UpdateAsync(ListingId, Arg.Any<Dictionary<string, object>>(), 4).Returns(
             AuthResult<Dictionary<string, object>>.Failure(
                 409, CropRepository.AlreadyDeletedCode, "The listing is already deleted.", "status"));

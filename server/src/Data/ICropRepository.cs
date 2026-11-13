@@ -39,6 +39,12 @@ public interface ICropRepository
     Task<Dictionary<string, object>?> GetByIdAsync(string cropId);
 
     /// <summary>
+    /// FUP-152: <see cref="GetByIdAsync"/> with a strongly consistent read, for the answer to a write
+    /// the table just refused (a delete that landed after the caller's read must be what comes back).
+    /// </summary>
+    Task<Dictionary<string, object>?> GetByIdConsistentAsync(string cropId) => GetByIdAsync(cropId);
+
+    /// <summary>
     /// SIM-13: give the listing back the stock a funded order took, when that order is
     /// rejected, cancelled or refunded. Idempotent per <paramref name="orderId"/> and
     /// race-safe. Returns true only when stock was added by this call.

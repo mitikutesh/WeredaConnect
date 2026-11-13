@@ -168,7 +168,9 @@ public sealed class CropRepository : ICropRepository
             },
             UpdateExpression = "SET " + string.Join(", ", updateParts),
             // FUP-152: never onto a deleted listing (IsDeleted: the stamp or the status), checked in
-            // the write itself, so a delete that lands after the caller's read still wins.
+            // the write itself, so a delete that lands after the caller's read still wins. The status
+            // test is exact while IsDeleted ignores case: every writer stores "deleted" in lower case,
+            // and the stamp, which every delete writes, is checked first.
             ConditionExpression = "#v = :expectedVersion AND attribute_not_exists(#deleted)"
                 + " AND (attribute_not_exists(#st) OR #st <> :deletedStatus)",
             ExpressionAttributeNames = attrNames,
@@ -265,6 +267,13 @@ public sealed class CropRepository : ICropRepository
     public async Task<Dictionary<string, object>?> GetByIdAsync(string cropId)
     {
         var item = await GetItemAsync(cropId);
+        return item != null ? FromItem(item) : null;
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<string, object>?> GetByIdConsistentAsync(string cropId)
+    {
+        var item = await GetItemAsync(cropId, consistentRead: true);
         return item != null ? FromItem(item) : null;
     }
 
