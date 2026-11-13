@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.19.0
+2.20.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -2856,7 +2856,8 @@ repaired on the next run):
 4. LAST, the escrow stamp `holdCapReachedAt` (escrowed to escrowed). It takes the escrow out of both
    sweep windows, so it is written only once the queue owns the order. When the marker write did
    not land and the order is not queued (it moved on since the read), nothing is stamped and the
-   next run decides again.
+   next run decides again. Since 2.20.0 (FUP-334) the stamp is one transaction with a check that the
+   order's entry is still the one written or read (§Additions in 2.20.0).
 
 `StatusExpiresIndex` queries for `escrowed` rows (release and refund sweeps) skip an escrow that
 carries `holdCapReachedAt` unless it also carries `refundReason` (the buyer cancelled after a
@@ -5497,8 +5498,6 @@ table, index or env var.
   answers `alreadyCorrected` and does not write it. The escrow-audit row is part of the transaction, so the
   correction is always on the escrow's trail.
 
----
-
 ## Additions in 2.19.0 (the payout gate's overdue alarm and the double escrow refund, FUP-41)
 
 Closes two 1.15.0 known limits (ESC-10). A release the payout identity gate blocks was audited once and then
@@ -5654,6 +5653,44 @@ transaction-audit; the admin Lambda reads the escrows table.
   through the held exit or the dispute verdict first (FUP-347).
 - The overdue clock restarts when the block reason changes; a payee who moves from one identity rule to the
   next can wait up to a day longer before the alarm fires.
+
+---
+
+## Additions in 2.20.0 (the hold-cap stamp waits on a standing queue entry, FUP-334)
+
+2.19.0 and 2.20.0 are other changes' numbers.
+
+The stamp of 1.13.0 step 4 (`holdCapReachedAt`, which takes an `escrowed` escrow out of both sweep windows)
+was a plain escrow write. When the order was already queued (a pickup judgement's entry, or an earlier run's
+whose stamp did not land), the escrow cron read that entry and then stamped. An entry removed in between left
+a capped escrow with no queue entry: no sweep, no report line, no alarm. Two writers remove an entry: the
+admin's pickup re-open (`delivery-verification-api.md` 2.8.0, FUP-287), which removes a judgement's entry
+while the escrow has no `holdCapReachedAt`, and the report's clear on escrow evidence (1.13.0).
+
+**The stamp.** One DynamoDB transaction: the escrow update as before (`escrowed` to `escrowed`,
+`holdCapReachedAt` set to the entry's `adminQueuedAt`, version + 1) and a `ConditionCheck` on the order row
+that its entry is still the one the cron wrote or read: `adminQueue = open`, the same `adminQueuedAt`, and the
+same `adminQueueEscrowId` (absent still, for an entry read without one, which names the order escrow). It
+applies to both ways in: the `hold_cap` entry the run just wrote, and an entry it found.
+
+| Refused by | Log (info) | Then |
+|---|---|---|
+| the order check: the entry was removed or replaced since the read | `ORDER_ESCROW_HOLD_CAP_STAMP_SKIPPED escrowId=<id> orderId=<id> reason=queue_entry_changed; the next run decides again.` | Nothing is written; the escrow stays in the sweep windows. The next hourly run reads the order again: a refundable order is refunded as before; an order still not refundable and no longer queued gets its own `hold_cap` entry (audited `admin_queue_entered`) and the stamp waits on that one; a new entry this escrow owns is the one the stamp then waits on. |
+| the escrow update: the escrow is no longer `escrowed` since the sweep's read | the same line with `reason=escrow_changed` | Nothing is written; the escrow has left the `escrowed` window, and the report clears the entry on that evidence (1.13.0). |
+
+Neither refusal is a settlement failure: no `ESCROW_SETTLEMENT_FAILED` line and no alarm (before 2.20.0 the
+escrow's refusal threw, and the refund sweep logged it as `auto_refund_exception`). A transaction cancelled for
+another reason (a conflicting write on the order or the escrow, throttling) writes nothing and throws as other
+failed writes of the sweep do; the next run repeats the step.
+
+The escrow-audit row `hold_cap_reached` (step 3) is still written before the stamp, so a stamp that lands is
+never missing it. After a refused stamp it stays for the entry that was removed, and the entry the next run
+writes gets its own row (keyed on its `adminQueuedAt`).
+
+**IAM.** escrow-cron already holds `dynamodb:ConditionCheckItem` on the orders table (`grantReadWriteData`;
+`infra/test/unit/stack.test.ts` pins it). No infra change.
+
+No endpoint, DTO, status, amount, timing or client change. Backend only.
 
 ---
 
@@ -6001,6 +6038,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.20.0 | 2026-11-13 | The hold-cap stamp waits on a standing queue entry (FUP-334, §Additions in 2.20.0). The escrow cron's `holdCapReachedAt` stamp (1.13.0 step 4) is one transaction with a `ConditionCheck` that the order's admin queue entry is still the one it wrote or read (`adminQueue = open`, the same `adminQueuedAt` and `adminQueueEscrowId`), so an entry removed between the read and the stamp (the admin's pickup re-open, FUP-287; a report clear) never leaves a capped escrow with no entry. A refused check, or an escrow no longer `escrowed`, writes nothing and logs the info line `ORDER_ESCROW_HOLD_CAP_STAMP_SKIPPED ... reason=queue_entry_changed|escrow_changed`, with no settlement-failure line or alarm; the escrow stays in the sweep windows and the next run decides again (a no longer queued order gets its own `hold_cap` entry, and the stamp waits on that one). No endpoint, DTO, status, amount or client change; escrow-cron's existing `ConditionCheckItem` on orders covers it. 2.19.0 and 2.20.0 are other changes' numbers |
 | 2.19.0 | 2026-11-13 | The payout gate's overdue alarm and the double escrow refund (FUP-41, closes two 1.15.0 known limits; §Additions in 2.19.0). The hourly sweep's release blocked by the payout identity gate with the reason already stored for 24 hours or more logs `RELEASE_BLOCKED_OVERDUE escrowId=.. leg=<farmer|trucker> reason=.. ageHours=..` on every run (escrow-cron; the 1.x and ledger release and the split verdict; not an admin's release, not a risk block); new metric filter and alarm `releases-blocked-overdue`, level-triggered like the other overdue alarms. `POST /escrow/refund` with `doubleEscrow: true` (admin group, `trigger: admin_override`, a reason of 10 to 500 characters) refunds an `/escrow/initiate` escrow whose order's own escrow holds or paid the money (`escrowed`, `released`, `completed`, `disputed`, `dispute_resolved`, `held`, read strongly consistent on every call), else `409 ESCROW_049`; the decision is recorded by a conditional write on what was read (`doubleEscrowRefund*`, server-only) and audited (`double_escrow_refund`, escrow-audit and transaction-audit) before the existing 1.x refund runs without the order hop; a replay answers the refund made. The sweeps' double escrow check now counts an order escrow that is `completed` (one rule with the refund, plus `initiated`), closing a path that released a second escrow while its order still showed `disbursing`, a second payout to the farmer. Admin escrow DTO: `settlementBlockReason`, `settlementBlockReasonAt`, and on the detail route `orderEscrowStatus` and `doubleEscrow`. Admin: Sweep block row and the Second payment card on the escrow page (en, am, om). No client, route, table or grant change |
 | 2.18.0 | 2026-11-12 | Correcting a recorded payout reference (FUP-218, closes the 2.12.0 known limit; §Additions in 2.18.0). `POST /admin/payouts/{escrowId}/{ref}/correct` (admin group, the existing `{action}` route) with `oldExternalRef`, `externalRef` and a `reason` of 10 to 500 characters (`400 ESCROW_048`): for a 1.x leg or ledger row an admin recorded, one transaction writes the new reference (`manual{Leg}Ref` and the escrow's settlement reference field when it holds the old one, or the ledger row's `telebirrRef` and its escrow's field), deletes the old `payout-ref#` item only while it names this leg, puts the new one only if no leg holds it (`409 ESCROW_047` naming where) and writes the escrow-audit row `manual_payout_ref_corrected`; every item conditioned on what was read (3 attempts, then `409 ESCROW_036`); a replay answers `alreadyCorrected` and writes nothing; transaction-audit `admin_manual_payout_ref_corrected`. No amount, status, paid time or recorder changes. The 1.x close now conditions each settlement reference it copies from another paid leg on that leg still carrying it. Admin escrow DTO: `manualLegs` on a 1.x escrow. Admin: Correct reference on the escrow page (1.x legs and ledger rows an admin recorded), the `ESCROW_047` refusal in Manual Payouts links to the holding escrow. The admin Lambda gains DeleteItem on escrow-idempotency. 2.16.0 and 2.17.0 are other changes' numbers |
 | 2.17.0 | 2026-11-12 | Stuck Orders lists the pickup waits (FUP-170, closes the 2.7.0 "Not listed" gap). `GET /admin/orders/queue?source=deadline` reads, after the sweep's partition of `DeadlineIndex`, its new `watch` partition (order-lifecycle.md 2.14.0): an `accepted` order whose pickup deadline passed more than 30 minutes ago and whose overdue notice went out is listed with `reason: pickup_waiting` and `stuckSince` its pickup deadline, until its pickup or cancel, with a Query, never a Scan. Each order is listed only from the partition its state gives; the `nextToken` names its partition, and a token of an unknown partition is `400 ADMIN_005`. The admin page labels the new reason in en, am and om. Read only: no notice, cancel, refund, amount or status follows from the list; the sweep never reads the `watch` partition. 2.15.0 is another change's number |

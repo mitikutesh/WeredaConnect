@@ -328,6 +328,39 @@ public sealed class OrderRepository : IOrderRepository
     };
 
     /// <inheritdoc />
+    public TransactWriteItem BuildAdminQueueEntryCheck(string orderId, string createdAt, string queuedAt, string? escrowId)
+    {
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":open", new AttributeValue { S = AdminQueueFields.MarkerOpen } },
+            { ":queuedAt", new AttributeValue { S = queuedAt } }
+        };
+        var escrowCondition = "attribute_not_exists(#escrowId)";
+        if (escrowId != null)
+        {
+            escrowCondition = "#escrowId = :escrowId";
+            values[":escrowId"] = new AttributeValue { S = escrowId };
+        }
+
+        return new TransactWriteItem
+        {
+            ConditionCheck = new ConditionCheck
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, createdAt),
+                ConditionExpression = $"#marker = :open AND #queuedAt = :queuedAt AND {escrowCondition}",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#marker", AdminQueueFields.Marker },
+                    { "#queuedAt", AdminQueueFields.QueuedAt },
+                    { "#escrowId", AdminQueueFields.EscrowId }
+                },
+                ExpressionAttributeValues = values
+            }
+        };
+    }
+
+    /// <inheritdoc />
     public async Task<OrderLinkedWriteResult> TryUpdateWithAsync(
         string orderId,
         Dictionary<string, object> data,
