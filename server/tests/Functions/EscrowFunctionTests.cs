@@ -1489,7 +1489,7 @@ public class EscrowFunctionTests
     public async Task OrderCheckout_MissingOrderId_NamesTheField(string body)
     {
         // FUP-148 (escrow-protocol 2.26.0): an absent orderId was "Invalid JSON in request body." with no
-        // field; now it is answered as a null or blank one, before the service is reached.
+        // field; now it is answered as a null or blank one.
         var response = await _function.FunctionHandler(
             MakePostRequest("/escrow/order-checkout", body, BuyerId), _context);
 

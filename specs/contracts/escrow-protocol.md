@@ -1571,7 +1571,7 @@ Success (`200`):
 | `401` | `ESCROW_005` | Not authenticated |
 | `403` | `ESCROW_025` | Caller's role claim is not `buyer` |
 | `403` | `ESCROW_026` | Caller is not the order's buyer |
-| `400` | `ESCROW_033` | `orderId` missing, `null` or blank (`"orderId is required."`, `field: orderId`; from 2.26.0 also an absent `orderId`, which answered `"Invalid JSON in request body."` without a `field`), or the body is not valid JSON (`"Invalid JSON in request body."`, no `field`) |
+| `400` | `ESCROW_033` | `orderId` absent (since 2.26.0; before, `"Invalid JSON in request body."` without a `field`), `null` or blank (`"orderId is required."`, `field: orderId`), or the body is not valid JSON (`"Invalid JSON in request body."`, no `field`) |
 | `404` | `ESCROW_033` | Order not found |
 | `409` | `ESCROW_024` | The order is already funded |
 | `409` | `ESCROW_030` | The order is not waiting for payment (status other than `payment_submitted`), or its payment time ran out (20 hours after `paymentSubmittedAt`) |
