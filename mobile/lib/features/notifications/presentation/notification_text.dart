@@ -51,6 +51,13 @@ const List<String> notificationTypes = [
   // ESC-31 (notifications-api.md 1.5.0): the party's own reputation.
   'penalty_recorded',
   'tier_changed',
+  // FUP-286 and FUP-338 (notifications-api.md 1.6.0): the check-ins.
+  'pickup_reminder',
+  'trucker_arrived',
+  'buyer_arrived',
+  'crops_ready',
+  'delivery_arrived',
+  'delivery_confirm_reminder',
 ];
 
 /// ESC-31: the types about the recipient's own reputation. They name no
@@ -70,6 +77,9 @@ const Set<String> actionRequiredNotificationTypes = {
   'pickup_overdue',
   'payout_blocked',
   'request_reminder',
+  'pickup_reminder',
+  'delivery_arrived',
+  'delivery_confirm_reminder',
 };
 
 /// The inbox title and body of [notification] in the app's language. Names
@@ -83,6 +93,10 @@ const Set<String> actionRequiredNotificationTypes = {
     final value = partyDisplayName(p[key], l10n).trim();
     return value.isEmpty ? role : value;
   }
+
+  // FUP-286 and FUP-338: a judged pickup or drop-off says what was found.
+  final judged = _judgedText(l10n, notification.type, p['reason']);
+  if (judged != null) return judged;
 
   final buyer = name('buyerName', l10n.buyer);
   final farmer = name('farmerName', l10n.farmer);
@@ -235,8 +249,85 @@ const Set<String> actionRequiredNotificationTypes = {
         title: l10n.notifTierChangedTitle,
         body: _tierChangedBody(l10n, p),
       ),
+    'pickup_reminder' => (
+        title: l10n.notifPickupReminderTitle,
+        body: l10n.notifPickupReminderBody,
+      ),
+    'trucker_arrived' => (
+        title: l10n.notifTruckerArrivedTitle,
+        body: l10n.notifTruckerArrivedBody(trucker),
+      ),
+    'buyer_arrived' => (
+        title: l10n.notifBuyerArrivedTitle,
+        body: l10n.notifBuyerArrivedBody(buyer),
+      ),
+    'crops_ready' => (
+        title: l10n.notifCropsReadyTitle,
+        body: l10n.notifCropsReadyBody(farmer),
+      ),
+    'delivery_arrived' => (
+        title: l10n.notifDeliveryArrivedTitle,
+        body: l10n.notifDeliveryArrivedBody(trucker),
+      ),
+    'delivery_confirm_reminder' => (
+        title: l10n.notifDeliveryConfirmReminderTitle,
+        body: l10n.notifDeliveryConfirmReminderBody,
+      ),
     _ => (title: l10n.notifGenericTitle, body: l10n.notifGenericBody),
   };
+}
+
+/// FUP-286 and FUP-338 (notifications-api.md 1.6.0): the words of a judged
+/// pickup or drop-off, by the entry's type and `reason`, as the push says
+/// them. Plain and without blame: what the check-ins show. Null keeps the
+/// type's own words.
+({String title, String body})? _judgedText(
+  AppLocalizations l10n,
+  String type,
+  String? reason,
+) {
+  String? title;
+  String? body;
+  switch ('$type#$reason') {
+    case 'transport_failed#trucker_no_show':
+      title = l10n.notifTruckerNoShowTitle;
+      body = l10n.notifTruckerNoShowBuyerBody;
+    case 'transport_failed_keep_crops#trucker_no_show':
+      title = l10n.notifTruckerNoShowTitle;
+      body = l10n.notifTruckerNoShowFarmerBody;
+    case 'pickup_missed#trucker_no_show':
+      title = l10n.notifPickupCheckInMissedTitle;
+      body = l10n.notifPickupCheckInMissedBody;
+    case 'order_cancelled#farmer_no_show':
+      title = l10n.notifOrderCancelledTitle;
+      body = l10n.notifFarmerNoShowBody;
+    case 'order_cancelled#buyer_no_show':
+      title = l10n.notifOrderCancelledTitle;
+      body = l10n.notifBuyerNoShowBody;
+    case 'pickup_overdue#both_present_no_scan':
+    case 'pickup_overdue#unchecked_check_in':
+    case 'pickup_missed#both_present_no_scan':
+    case 'pickup_missed#unchecked_check_in':
+      title = l10n.notifPickupReviewTitle;
+      body = l10n.notifPickupReviewBody;
+    case 'delivered#auto_confirmed':
+      title = l10n.notifAutoConfirmedTitle;
+      body = l10n.notifAutoConfirmedBuyerBody;
+    case 'delivered_payout_pending#auto_confirmed':
+      title = l10n.notifDeliveredPayoutPendingTitle;
+      body = l10n.notifAutoConfirmedPayeeBody;
+    case 'dispute_opened#delivery_overdue':
+      title = l10n.notifDeliveryReviewTitle;
+      body = l10n.notifDeliveryOverdueBody;
+    case 'dispute_opened#silent_buyer':
+      title = l10n.notifDeliveryReviewTitle;
+      body = l10n.notifSilentBuyerBody;
+    case 'dispute_opened#dropoff_out_of_range':
+      title = l10n.notifDeliveryReviewTitle;
+      body = l10n.notifDropoffOutOfRangeBody;
+  }
+  if (title == null || body == null) return null;
+  return (title: title, body: body);
 }
 
 /// What the party's new tier means for them, in the words My reputation
@@ -307,10 +398,12 @@ ClockLabel? notificationDetailLine(
 /// The icon and colour of an inbox entry's type.
 ({IconData icon, Color color}) notificationStyle(String type) {
   return switch (type) {
-    'order_request' || 'transport_request' || 'request_reminder' => (
-        icon: Icons.assignment_late_outlined,
-        color: AppTheme.statusWarning
-      ),
+    'order_request' ||
+    'transport_request' ||
+    'request_reminder' ||
+    'pickup_reminder' ||
+    'delivery_confirm_reminder' =>
+      (icon: Icons.assignment_late_outlined, color: AppTheme.statusWarning),
     'transport_failed' ||
     'transport_failed_keep_crops' ||
     'payment_failed' ||
@@ -328,7 +421,11 @@ ClockLabel? notificationDetailLine(
     'picked_up' ||
     'handoff_recorded' ||
     'in_transit' ||
-    'truck_nearby' =>
+    'truck_nearby' ||
+    'trucker_arrived' ||
+    'buyer_arrived' ||
+    'crops_ready' ||
+    'delivery_arrived' =>
       (icon: Icons.local_shipping_outlined, color: AppTheme.statusInfo),
     'delivered' ||
     'delivered_payout_pending' ||

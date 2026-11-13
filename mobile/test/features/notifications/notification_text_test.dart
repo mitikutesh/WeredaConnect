@@ -24,10 +24,11 @@ AppNotification _entry(String type, [Map<String, String> params = const {}]) =>
 void main() {
   const locales = [Locale('en'), Locale('am'), Locale('om')];
 
-  test('the type list matches the server (35 types, no repeats)', () {
-    // 33 order types and, since ESC-31, the two reputation types.
-    expect(notificationTypes, hasLength(35));
-    expect(notificationTypes.toSet(), hasLength(35));
+  test('the type list matches the server (41 types, no repeats)', () {
+    // 33 order types, since ESC-31 the two reputation types, and since
+    // FUP-286 and FUP-338 the six check-in types.
+    expect(notificationTypes, hasLength(41));
+    expect(notificationTypes.toSet(), hasLength(41));
     expect(
       notificationTypes.toSet().containsAll(reputationNotificationTypes),
       isTrue,
@@ -296,6 +297,131 @@ void main() {
       )!;
       expect(line.toString(), en.quantityKg('500'));
       expect(line.time24, isNull);
+    });
+
+    test('FUP-338: the drop-off arrival shows T9 as its due time', () {
+      final line = notificationDetailLine(
+        en,
+        enClock,
+        _entry('delivery_arrived', {'deadlineAt': '2026-11-24T10:00:00Z'}),
+      )!;
+      expect(line.toString(), en.actionDueBy('Nov 24 13:00'));
+    });
+  });
+
+  // FUP-286 and FUP-338 (notifications-api.md 1.6.0): the check-ins and the
+  // judged outcomes, in the three languages.
+  group('check-in types and judged outcomes', () {
+    const names = {
+      'buyerName': 'Abebe',
+      'farmerName': 'Chaltu',
+      'truckerName': 'Dawit',
+    };
+
+    test('each check-in type names the counterpart', () {
+      final en = lookupAppLocalizations(const Locale('en'));
+      String body(String type) =>
+          notificationText(en, _entry(type, names)).body;
+
+      expect(body('trucker_arrived'), en.notifTruckerArrivedBody('Dawit'));
+      expect(body('buyer_arrived'), en.notifBuyerArrivedBody('Abebe'));
+      expect(body('crops_ready'), en.notifCropsReadyBody('Chaltu'));
+      expect(body('delivery_arrived'), en.notifDeliveryArrivedBody('Dawit'));
+      for (final type in [
+        'pickup_reminder',
+        'delivery_arrived',
+        'delivery_confirm_reminder',
+      ]) {
+        expect(actionRequiredNotificationTypes, contains(type));
+      }
+    });
+
+    const judged = {
+      'transport_failed': 'trucker_no_show',
+      'transport_failed_keep_crops': 'trucker_no_show',
+      'pickup_missed': 'trucker_no_show',
+      'order_cancelled': 'farmer_no_show',
+      'pickup_overdue': 'both_present_no_scan',
+      'delivered': 'auto_confirmed',
+      'delivered_payout_pending': 'auto_confirmed',
+      'dispute_opened': 'silent_buyer',
+    };
+
+    for (final locale in locales) {
+      final l10n = lookupAppLocalizations(locale);
+      final code = locale.languageCode;
+
+      test('$code: a judged outcome reads its own words', () {
+        judged.forEach((type, reason) {
+          final plain = notificationText(l10n, _entry(type, names));
+          final told = notificationText(
+            l10n,
+            _entry(type, {...names, 'reason': reason}),
+          );
+          expect(told.body, isNot(plain.body), reason: '$type#$reason');
+          expect(told.body.trim(), isNotEmpty, reason: '$type#$reason');
+        });
+      });
+    }
+
+    test('every judged reason has its words', () {
+      final en = lookupAppLocalizations(const Locale('en'));
+      String body(String type, String reason) =>
+          notificationText(en, _entry(type, {'reason': reason})).body;
+
+      expect(
+        body('transport_failed', 'trucker_no_show'),
+        en.notifTruckerNoShowBuyerBody,
+      );
+      expect(
+        body('transport_failed_keep_crops', 'trucker_no_show'),
+        en.notifTruckerNoShowFarmerBody,
+      );
+      expect(
+        body('pickup_missed', 'trucker_no_show'),
+        en.notifPickupCheckInMissedBody,
+      );
+      expect(
+        body('order_cancelled', 'farmer_no_show'),
+        en.notifFarmerNoShowBody,
+      );
+      expect(
+        body('order_cancelled', 'buyer_no_show'),
+        en.notifBuyerNoShowBody,
+      );
+      for (final reason in ['both_present_no_scan', 'unchecked_check_in']) {
+        expect(body('pickup_overdue', reason), en.notifPickupReviewBody);
+        expect(body('pickup_missed', reason), en.notifPickupReviewBody);
+      }
+      expect(
+        body('delivered', 'auto_confirmed'),
+        en.notifAutoConfirmedBuyerBody,
+      );
+      expect(
+        body('delivered_payout_pending', 'auto_confirmed'),
+        en.notifAutoConfirmedPayeeBody,
+      );
+      expect(
+        body('dispute_opened', 'delivery_overdue'),
+        en.notifDeliveryOverdueBody,
+      );
+      expect(
+        body('dispute_opened', 'silent_buyer'),
+        en.notifSilentBuyerBody,
+      );
+      expect(
+        body('dispute_opened', 'dropoff_out_of_range'),
+        en.notifDropoffOutOfRangeBody,
+      );
+      // Any other reason keeps the type's words.
+      expect(
+        body('transport_failed', 'trucker_declined'),
+        en.notifTransportFailedBody,
+      );
+      expect(
+        body('order_cancelled', 'buyer_withdrew'),
+        en.notifOrderCancelledBody,
+      );
     });
   });
 }

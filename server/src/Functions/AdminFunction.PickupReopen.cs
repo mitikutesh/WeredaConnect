@@ -155,6 +155,8 @@ public partial class AdminFunction
             set[PickupDeadline.Field] = deadlineAt!;
             remove.Add(PickupJudgement.JudgedAtField);
             remove.Add(OrderCommitment.PickupOverdueNotifiedAtField);
+            // FUP-286: the new window has its own check-in reminder.
+            remove.Add(PickupJudgement.ReminderAtField);
         }
         else
         {

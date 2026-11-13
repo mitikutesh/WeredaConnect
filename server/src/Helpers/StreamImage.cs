@@ -62,6 +62,16 @@ public readonly struct StreamImage
     /// <summary>Whether the attribute is present with any type.</summary>
     public bool Has(string key) => _element is { } image && image.TryGetProperty(key, out _);
 
+    /// <summary>
+    /// FUP-338: the map attribute (<c>{"M":{...}}</c>) as an image of its own, so its entries read like the
+    /// row's; an image that does not exist when the attribute is absent or not a map.
+    /// </summary>
+    public StreamImage Map(string key)
+        => _element is { } image && image.TryGetProperty(key, out var attr) && attr.ValueKind == JsonValueKind.Object
+           && attr.TryGetProperty("M", out var map)
+            ? new StreamImage(map)
+            : new StreamImage(null);
+
     /// <summary>The attribute's value as text for a string or number attribute (null when absent).</summary>
     public string? Text(string key)
     {
