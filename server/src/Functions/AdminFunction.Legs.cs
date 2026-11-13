@@ -239,7 +239,9 @@ public partial class AdminFunction
         foreach (var reminder in new[]
                  {
                      OrderCommitment.FarmerReminderAtField, OrderCommitment.TruckerReminderAtField,
-                     OrderCommitment.BuyerChoiceReminderAtField
+                     OrderCommitment.BuyerChoiceReminderAtField,
+                     // FUP-286 and FUP-338: the check-in reminders before a judgement.
+                     PickupJudgement.ReminderAtField, DropoffJudgement.ReminderAtField
                  })
         {
             if (string.IsNullOrEmpty(GetStringOrNull(probe, reminder)))

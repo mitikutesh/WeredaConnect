@@ -441,4 +441,100 @@ public class PushTextTests
         (omTitle + omBody).Should().NotMatchRegex("[ሀ-፿]");
         omBody.Should().Contain("42,500 Birrii");
     }
+
+    // ===== FUP-286 and FUP-338: the words of a judged pickup or drop-off =====
+
+    public static IEnumerable<object[]> ReasonsAndLanguages()
+        => PushText.ReasonKeys.SelectMany(key => PushText.Languages.Select(language => new object[] { key, language }));
+
+    private static (string Type, string Reason) Split(string key)
+    {
+        var cut = key.IndexOf('#');
+        return (key[..cut], key[(cut + 1)..]);
+    }
+
+    [Fact]
+    public void TheReasonTexts_AreTheContractsJudgedOutcomes()
+    {
+        PushText.ReasonKeys.Should().BeEquivalentTo(
+            "transport_failed#trucker_no_show", "transport_failed_keep_crops#trucker_no_show", "pickup_missed#trucker_no_show",
+            "order_cancelled#farmer_no_show", "order_cancelled#buyer_no_show",
+            "pickup_overdue#both_present_no_scan", "pickup_overdue#unchecked_check_in",
+            "pickup_missed#both_present_no_scan", "pickup_missed#unchecked_check_in",
+            "delivered#auto_confirmed", "delivered_payout_pending#auto_confirmed",
+            "dispute_opened#delivery_overdue", "dispute_opened#silent_buyer", "dispute_opened#dropoff_out_of_range");
+        PushText.ReasonKeys.Select(k => Split(k).Type).Should().OnlyContain(type => NotificationTypes.All.Contains(type));
+    }
+
+    [Theory]
+    [MemberData(nameof(ReasonsAndLanguages))]
+    public void EveryReason_InEveryLanguage_HasItsOwnCleanText_ThatFits(string key, string language)
+    {
+        var (type, reason) = Split(key);
+        var typical = new Dictionary<string, string>(Full) { [P.Reason] = reason };
+
+        foreach (var p in new[]
+                 {
+                     typical, new Dictionary<string, string>(Longest) { [P.Reason] = reason },
+                     new Dictionary<string, string> { [P.Reason] = reason }
+                 })
+        {
+            var (title, body) = PushText.Render(type, language, p);
+            foreach (var text in new[] { title, body })
+            {
+                text.Should().NotBeNullOrWhiteSpace();
+                text.Should().NotContainAny("{", "}", "[", "]");
+                text.Should().NotContain("  ");
+                text.Should().Be(text.Trim());
+            }
+
+            body.Length.Should().BeLessThan(140, $"{key}/{language} body: {body}");
+            title.Length.Should().BeLessThanOrEqualTo(PushText.MaxTitleLength);
+        }
+
+        foreach (var deadline in new[] { "2026-10-27T02:59:00Z", "2026-10-27T14:59:00Z" })
+        {
+            PushText.Render(type, language, new Dictionary<string, string>(typical) { [P.DeadlineAt] = deadline }).Body
+                .Should().NotEndWith("…", $"{key}/{language}: a typical order fits whatever the part of the day");
+        }
+
+        // Its own words, not the type's.
+        PushText.Render(type, language, typical).Body.Should().NotBe(PushText.Render(type, language, Full).Body);
+    }
+
+    [Fact]
+    public void AReasonWithoutWordsOfItsOwn_KeepsTheTypesText()
+    {
+        var other = new Dictionary<string, string>(Full) { [P.Reason] = "trucker_declined" };
+
+        PushText.Render(NotificationTypes.TransportFailed, "en", other)
+            .Should().Be(PushText.Render(NotificationTypes.TransportFailed, "en", Full));
+        PushText.Render(NotificationTypes.TransportFailed, "en", new Dictionary<string, string>(Full) { [P.Reason] = "trucker_no_show" })
+            .Title.Should().Be("The trucker did not check in");
+    }
+
+    [Fact]
+    public void DeliveryArrived_SaysWhenTheDeliveryMayBeConfirmed_InEachLanguage_WithoutPromisingIt()
+    {
+        var p = new Dictionary<string, string>(Full) { [P.DeadlineAt] = "2026-11-24T10:00:00.0000000Z" };
+
+        var en = PushText.Render(NotificationTypes.DeliveryArrived, "en", p);
+        en.Body.Should().Be(
+            "Trucker Dawit Kebede has arrived. Please confirm or report a problem by 24 Nov 13:00; after that it may be confirmed for you.");
+        PushText.Render(NotificationTypes.DeliveryArrived, "am", p).Body.Should().Contain("24 ኖቬም ከቀኑ 7:00").And.Contain("ሊረጋገጥ ይችላል");
+        PushText.Render(NotificationTypes.DeliveryArrived, "om", p).Body.Should().Contain("24 Sad 7:00 waaree booda")
+            .And.Contain("danda'a");
+
+        PushText.Render(NotificationTypes.DeliveryConfirmReminder, "en", p).Body.Should().Contain("by 24 Nov 13:00");
+    }
+
+    [Fact]
+    public void TheCheckInTexts_NameTheCounterpart()
+    {
+        PushText.Render(NotificationTypes.TruckerArrived, "en", Full).Body.Should().StartWith("Trucker Dawit Kebede has arrived");
+        PushText.Render(NotificationTypes.BuyerArrived, "en", Full).Body.Should().StartWith("Buyer Abebe Tesfaye has arrived");
+        PushText.Render(NotificationTypes.CropsReady, "en", Full).Body.Should().StartWith("Farmer Chaltu Gemechu says the crops");
+        PushText.Render(NotificationTypes.PickupReminder, "en", Full).Body
+            .Should().Be("The pickup check-in for 500 kg teff closes at 27 Oct 18:00. Please open the order and check in.");
+    }
 }

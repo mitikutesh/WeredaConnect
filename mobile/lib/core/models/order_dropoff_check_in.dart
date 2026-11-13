@@ -103,6 +103,18 @@ DateTime? silentBuyerConfirmsAt(Order order) {
       countedDropoffCheckIn(order)?.receivedAt?.add(silentBuyerWindow);
 }
 
+/// The next moment after [nowUtc] at which what the drop-off check-in of
+/// [order] shows changes: a second after T9 once the trucker's check-in
+/// counts ([silentBuyerConfirmsAt]), else a second after T8. Null once it
+/// passed or the order waits for no drop-off judgement.
+DateTime? nextDropoffCheckInEdge(Order order, DateTime nowUtc) {
+  if (!isDropoffJudgementPending(order)) return null;
+  final due = silentBuyerConfirmsAt(order) ?? order.dropoffDeadlineAt;
+  if (due == null) return null;
+  final at = due.add(const Duration(seconds: 1));
+  return at.isAfter(nowUtc) ? at : null;
+}
+
 /// [CheckInChance] of [userId]'s drop-off check-in on [order] at [nowUtc]
 /// (the device clock; the server decides with its own). There is no
 /// [CheckInChance.notYet]: the window opens with the pickup.

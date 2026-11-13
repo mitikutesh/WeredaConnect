@@ -6286,6 +6286,30 @@ abstract class AppLocalizations {
   /// **'Check the delivery'**
   String get actionCheckDelivery;
 
+  /// FUP-327 (ESC-34 arrival check-ins on Home). am and om machine drafted, native review owed. Action card, trucker (the buyer on a self-pickup order): the arrival check-in at the farm is open and not given yet; the order's button reads I have arrived; due at the pickup deadline
+  ///
+  /// In en, this message translates to:
+  /// **'Check in when you reach the farm'**
+  String get actionCheckInAtFarm;
+
+  /// FUP-327 (ESC-34 arrival check-ins on Home). am and om machine drafted, native review owed. Action card, farmer: the Crops are ready check-in is open and not given yet; due at the pickup deadline
+  ///
+  /// In en, this message translates to:
+  /// **'Check in when the crops are ready'**
+  String get actionCropsReady;
+
+  /// FUP-371 (ESC-36 drop-off check-in on Home). am and om machine drafted, native review owed. Action card, trucker: the drop-off check-in is open and not given yet; the order's button reads Arrived at drop-off; due at the delivery deadline
+  ///
+  /// In en, this message translates to:
+  /// **'Check in when you reach the drop-off'**
+  String get actionCheckInAtDropoff;
+
+  /// FUP-371 (ESC-36 drop-off check-in on Home). am and om machine drafted, native review owed. Action card, buyer: the trucker checked in at the drop-off; the card's due time is when the delivery may be confirmed for the buyer if they say nothing (T9)
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm the delivery'**
+  String get actionConfirmDelivery;
+
   /// Deadline of an action card or inbox entry (Ethiopia time)
   ///
   /// In en, this message translates to:
@@ -9742,6 +9766,174 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You have penalty points. Buyers see nothing yet. Open My reputation for the details.'**
   String get notifTierWarningBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of pickup_reminder: the pickup check-in closes soon and the reader has not checked in
+  ///
+  /// In en, this message translates to:
+  /// **'Check in for the pickup'**
+  String get notifPickupReminderTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of pickup_reminder; the detail line shows when it closes
+  ///
+  /// In en, this message translates to:
+  /// **'The pickup check-in closes soon. Please open the order and check in.'**
+  String get notifPickupReminderBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of trucker_arrived, to the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker has arrived'**
+  String get notifTruckerArrivedTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of trucker_arrived: the trucker's I have arrived at the farm was received
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} has arrived to collect the order. Please have the crops and your QR code ready.'**
+  String notifTruckerArrivedBody(String trucker);
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of buyer_arrived, to the farmer of a self-pickup
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer has arrived'**
+  String get notifBuyerArrivedTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of buyer_arrived: the collecting buyer's I have arrived at the farm was received
+  ///
+  /// In en, this message translates to:
+  /// **'{buyer} has arrived to collect the order. Please have the crops and your QR code ready.'**
+  String notifBuyerArrivedBody(String buyer);
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of crops_ready, to the trucker or the buyer collecting
+  ///
+  /// In en, this message translates to:
+  /// **'The crops are ready'**
+  String get notifCropsReadyTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of crops_ready: the farmer's Crops are ready was received
+  ///
+  /// In en, this message translates to:
+  /// **'{farmer} says the crops are ready for pickup.'**
+  String notifCropsReadyBody(String farmer);
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of delivery_arrived, to the buyer
+  ///
+  /// In en, this message translates to:
+  /// **'The truck has arrived'**
+  String get notifDeliveryArrivedTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of delivery_arrived: the trucker checked in at the drop-off; the detail line shows T9. Must not read as a promise
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} has checked in at the drop-off. Please confirm the delivery or report a problem. If you do neither by the time below, it may be confirmed for you.'**
+  String notifDeliveryArrivedBody(String trucker);
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of delivery_confirm_reminder, to the buyer before T9
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm your delivery'**
+  String get notifDeliveryConfirmReminderTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of delivery_confirm_reminder; the detail line shows T9. Must not read as a promise
+  ///
+  /// In en, this message translates to:
+  /// **'Please confirm the delivery or report a problem. If you do neither by the time below, it may be confirmed for you.'**
+  String get notifDeliveryConfirmReminderBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of transport_failed and transport_failed_keep_crops with reason trucker_no_show. Plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker did not check in'**
+  String get notifTruckerNoShowTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of transport_failed with reason trucker_no_show, to the buyer
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker did not check in at the farm by the deadline. Please decide: you can cancel for a full refund.'**
+  String get notifTruckerNoShowBuyerBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of transport_failed_keep_crops with reason trucker_no_show, to the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker did not check in at your farm by the deadline. Please keep the crops until the buyer decides.'**
+  String get notifTruckerNoShowFarmerBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of pickup_missed with reason trucker_no_show, to the trucker
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup check-in missed'**
+  String get notifPickupCheckInMissedTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of pickup_missed with reason trucker_no_show, to the trucker
+  ///
+  /// In en, this message translates to:
+  /// **'No arrival check-in reached us by the pickup deadline. The buyer now decides. If you were there, contact support.'**
+  String get notifPickupCheckInMissedBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of order_cancelled with reason farmer_no_show, to every party
+  ///
+  /// In en, this message translates to:
+  /// **'The order was cancelled because the crops were not marked ready by the deadline. The money goes back to the buyer.'**
+  String get notifFarmerNoShowBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of order_cancelled with reason buyer_no_show, to the buyer and the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'The order was cancelled because it was not collected by the deadline. The money goes back to the buyer.'**
+  String get notifBuyerNoShowBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of pickup_overdue and pickup_missed with reason both_present_no_scan or unchecked_check_in
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup under review'**
+  String get notifPickupReviewTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of a pickup the judgement sent to an admin, to every party
+  ///
+  /// In en, this message translates to:
+  /// **'The pickup was not confirmed with the QR code. Our team is checking it; the money stays held.'**
+  String get notifPickupReviewBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of delivered with reason auto_confirmed, to the buyer
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery confirmed for you'**
+  String get notifAutoConfirmedTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of delivered with reason auto_confirmed: the system confirmed for a silent buyer. Plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'Your order was confirmed as delivered because there was no answer. If something is wrong, report it before the time is up.'**
+  String get notifAutoConfirmedBuyerBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of delivered_payout_pending with reason auto_confirmed, to the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'The delivery was confirmed by the system after the buyer did not answer. You are paid after the 48 hour check.'**
+  String get notifAutoConfirmedPayeeBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of dispute_opened with a drop-off judgement reason (delivery_overdue, silent_buyer, dropoff_out_of_range)
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery under review'**
+  String get notifDeliveryReviewTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of dispute_opened with reason delivery_overdue, to every party. Plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'The delivery was not recorded by its deadline. Our team is checking it; the money stays held.'**
+  String get notifDeliveryOverdueBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of dispute_opened with reason silent_buyer, to every party. Plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'The delivery was not confirmed after the truck arrived. Our team is checking it; the money stays held.'**
+  String get notifSilentBuyerBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of dispute_opened with reason dropoff_out_of_range, to every party. Plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'The truck\'s arrival could not be matched to the drop-off place. Our team is checking it; the money stays held.'**
+  String get notifDropoffOutOfRangeBody;
 
   /// SIM-56 profile edit (user-entity.md 2.2.0). Title of the edit screen and the Profile row that opens it
   ///

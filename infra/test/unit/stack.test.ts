@@ -726,11 +726,14 @@ describe('ApiStack', () => {
           DEVICE_TOKENS_TABLE: Match.anyValue(),
           USERS_TABLE: Match.anyValue(),
           NOTIFICATIONS_TABLE: Match.anyValue(),
+          // FUP-338: delivery_arrived tells the buyer T9 by the order cron's rule (silent-buyer-hours).
+          ORDER_TIMINGS_PARAM_PATH: '/wereda-connect-dev/orders/',
         }),
       },
     });
 
     const role = 'OrderNotifyStreamFunctionServiceRole';
+    expect(roleActions(role, (r) => r.includes('parameter/wereda-connect-dev/orders/*'))).toEqual(['ssm:GetParameters']);
     // Exactly the calls it makes: the conditional inbox PutItem, the recipients' languages
     // (BatchGetItem, no Scan or Query of the users table), the endpoint lookup and the prune.
     expect(roleActions(role, (r) => r.includes('NotificationsTable')).sort()).toEqual(['dynamodb:PutItem']);

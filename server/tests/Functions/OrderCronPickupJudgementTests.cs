@@ -329,7 +329,9 @@ public class OrderCronPickupJudgementTests
     [Fact]
     public async Task WithinTheSettleMargin_NothingIsJudgedYet()
     {
-        Serve(Order(minutesAgo: 0.5));
+        var order = Order(minutesAgo: 0.5);
+        order[PickupJudgement.ReminderAtField] = Iso(_now.AddHours(-6));
+        Serve(order);
 
         var actual = await RunAsync();
 
@@ -337,6 +339,62 @@ public class OrderCronPickupJudgementTests
         await AssertNoTransition();
         await _orders.DidNotReceive().TryStampAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(),
             Arg.Any<IReadOnlyDictionary<string, string>>());
+    }
+
+    // ===== the check-in reminder (FUP-286) =====
+
+    [Fact]
+    public async Task FUP286_TheReminder_IsStampedOnce_TheLeadBeforeTheDeadline_WhileAPartyHasNotCheckedIn()
+    {
+        Serve(Order(minutesAgo: -180, selfPickup: false, Arrived()));
+
+        var actual = await RunAsync();
+
+        Assert.Contains("\"pickupReminders\":\"1\"", actual.Body);
+        Assert.Contains("\"pickupJudged\":\"0\"", actual.Body);
+        await _orders.Received(1).TryStampAsync(OrderId,
+            Arg.Is<Dictionary<string, object>>(f => f.Count == 1 && f.ContainsKey(PickupJudgement.ReminderAtField)),
+            Arg.Is<IReadOnlyDictionary<string, string>>(e =>
+                e["status"] == "accepted" && e[PickupJudgement.Field] == PickupJudgement.Outcome.Pending));
+        await AssertNoTransition();
+    }
+
+    [Theory]
+    [InlineData(-420, false, false)] // the deadline 7 hours off: not due yet
+    [InlineData(-180, true, false)] // already stamped
+    [InlineData(-180, false, true)] // both checked in
+    public async Task FUP286_NoReminder_BeforeItIsDue_OnceStamped_OrOnceBothCheckedIn(double minutesAgo, bool stamped, bool both)
+    {
+        var order = both ? Order(minutesAgo, false, Arrived(), Ready()) : Order(minutesAgo);
+        if (stamped)
+        {
+            order[PickupJudgement.ReminderAtField] = Iso(_now.AddHours(-3));
+        }
+
+        Serve(order);
+
+        var actual = await RunAsync();
+
+        Assert.Contains("\"pickupReminders\":\"0\"", actual.Body);
+        await _orders.DidNotReceive().TryStampAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(),
+            Arg.Any<IReadOnlyDictionary<string, string>>());
+        await AssertNoTransition();
+    }
+
+    [Fact]
+    public async Task FUP286_WithTheFlagOff_TheReminderIsNeverSent_TheStampAloneIsCleared()
+    {
+        Serve(Order(minutesAgo: -180));
+
+        var actual = await RunAsync(classification: false);
+
+        Assert.Contains("\"pickupReminders\":\"0\"", actual.Body);
+        Assert.Contains("\"pickupOverdue\":\"0\"", actual.Body);
+        await _orders.Received(1).TryStampAsync(OrderId,
+            Arg.Is<Dictionary<string, object>>(f =>
+                f.Count == 1 && f.ContainsKey(PickupJudgement.Field) && f[PickupJudgement.Field] == null),
+            Arg.Any<IReadOnlyDictionary<string, string>>());
+        await AssertNoTransition();
     }
 
     [Fact]

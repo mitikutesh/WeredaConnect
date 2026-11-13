@@ -628,6 +628,27 @@ public class AdminFunctionLegsTests
         AdminFunction.OverdueDeadline(pickup, Now).Should().Be(new OrderDeadline(Now.AddHours(-30), OrderDeadlines.Kind.PickupWaiting));
         AdminFunction.OverdueDeadline(new Dictionary<string, object> { ["status"] = "delivered" }, Now).Should().BeNull();
 
+        // FUP-286 and FUP-338: a check-in reminder is not a deadline either: the judgement it comes before is listed.
+        var judgeable = new Dictionary<string, object>
+        {
+            ["status"] = "accepted",
+            ["pickupDeadlineAt"] = Iso(Now.AddHours(-30)),
+            [PickupJudgement.Field] = PickupJudgement.Outcome.Pending
+        };
+        AdminFunction.OverdueDeadline(judgeable, Now)!.Value.Kind.Should().Be(OrderDeadlines.Kind.PickupJudgement);
+        var onTheRoad = new Dictionary<string, object>
+        {
+            ["status"] = "in_transit",
+            [DropoffJudgement.Field] = DropoffJudgement.Outcome.Pending,
+            [DropoffJudgement.DeadlineField] = Iso(Now.AddHours(30)),
+            [DropoffJudgement.CheckInField] = new Dictionary<string, object>
+            {
+                [PickupJudgement.EntryReceivedAt] = Iso(Now.AddHours(-50)),
+                [PickupJudgement.EntryLate] = false
+            }
+        };
+        AdminFunction.OverdueDeadline(onTheRoad, Now)!.Value.Kind.Should().Be(OrderDeadlines.Kind.SilentBuyer);
+
         // Exactly at the grace it counts; a minute inside it does not.
         var edge = new Dictionary<string, object> { ["status"] = "awaiting_transport", ["buyerChoiceDeadlineAt"] = Iso(Now - AdminFunction.StuckOrderGrace) };
         AdminFunction.OverdueDeadline(edge, Now).Should().NotBeNull();

@@ -1,13 +1,13 @@
 # Notifications API Contract
 
 ## Version
-1.5.1
+1.6.0
 
 ## Parties
 - **Mobile** (client): pulls the inbox, renders the entries and the Action-needed cards, receives the Android push, opens the order on tap
 - **Web** (client): pulls and renders the inbox; no push
 - **Backend** (server): derives one event per party from an order, delivery or escrow change (`NotificationRules`), writes the inbox row, renders and sends the push, serves `GET /notifications`
-- **Infrastructure**: the four table streams (orders, deliveries, escrows and, since 1.5.0, reputation-events), the `{prefix}-notifications` table, `OrderNotifyStreamFunction`, its dead-letter queue and alarms
+- **Infrastructure**: the four table streams (orders, deliveries, escrows and, since 1.5.0, reputation-events), the `{prefix}-notifications` table, `OrderNotifyStreamFunction` (since 1.6.0 it also reads the order timing parameters, `ORDER_TIMINGS_PARAM_PATH`, for T9), its dead-letter queue and alarms
 
 ## Overview
 
@@ -139,6 +139,16 @@ Rules:
   rule is `specs/features/live-trip.md` section 9 and the expected times are
   `fixtures/ethiopian-clock-cases.json`, which the server and the app both test against. The
   server does not know the app's Clock setting, so the text follows `preferredLanguage` only.
+- A judged outcome speaks in its own words (1.6.0, FUP-286 and FUP-338): when an event's `reason`
+  (section 4) names a judged pickup or drop-off, `title` and `body` are that outcome's, in all three
+  languages (`PushText.ReasonKeys`, parity-tested; am and om machine drafted, native review owed):
+  `transport_failed`, `transport_failed_keep_crops` and `pickup_missed` with `trucker_no_show`;
+  `order_cancelled` with `farmer_no_show` or `buyer_no_show`; `pickup_overdue` and `pickup_missed`
+  with `both_present_no_scan` or `unchecked_check_in`; `delivered` and `delivered_payout_pending`
+  with `auto_confirmed`; `dispute_opened` with `delivery_overdue`, `silent_buyer` or
+  `dropoff_out_of_range`. The words are plain and without blame: what the check-ins show, never who
+  is at fault, and "may be confirmed for you", never a promise. Any other `reason` keeps the type's
+  words.
 - `tag` is `order-<orderId>`. The device collapses successive pushes about one order into the
   latest, so a party who was away sees one tray entry per order, not a stack. An event with no
   `orderId` (an escrow row from before order-funded escrows) sends no tag and no `orderId`; a
@@ -194,16 +204,54 @@ card; the set is `NotificationTypes.ActionRequired`.
 | farmer accepted while `funded` (trip order; the trucker is now asked) | `farmer_accepted` | - | `transport_request` | trucker, until `truckerDeadlineAt` |
 | `accepted` (every party committed) | `order_confirmed` | `order_confirmed`, unless the farmer's accept completed it (self-pickup, or the farmer-only accept with `COMMITMENTS_ENABLED` off) | `order_confirmed` (trip orders), unless the trucker's accept completed it | none; carries `pickupDate` |
 | `rejected` | `order_rejected` | - | - | none |
-| `awaiting_transport` | `transport_failed` (`reason` = `transportFailure`) | `transport_failed_keep_crops` if the farmer had accepted; `request_on_hold` if the farmer had not answered yet (the trip was full or gone right after funding, which closes the farmer's `order_request`) | `request_expired`, only when the trucker let the request expire | buyer, 48h (`buyerChoiceDeadlineAt`) |
-| `cancelled` | `order_expired_unpaid` for an unpaid order the cron cancelled; otherwise `order_cancelled`, unless the buyer cancelled | `request_expired` when the farmer let the request expire; otherwise `order_cancelled` unless the farmer cancelled; paid orders only | `order_cancelled` when the trucker had been asked or had accepted and did not cancel | none |
+| `awaiting_transport` | `transport_failed` (`reason` = `transportFailure`; `trucker_no_show` has its own words, 1.6.0) | `transport_failed_keep_crops` if the farmer had accepted (same `reason`); `request_on_hold` if the farmer had not answered yet (the trip was full or gone right after funding, which closes the farmer's `order_request`) | `request_expired`, only when the trucker let the request expire; `pickup_missed` (`reason: trucker_no_show`) when the pickup judgement found no arrival (the pickup judged row below) | buyer, 48h (`buyerChoiceDeadlineAt`) |
+| `cancelled` | `order_expired_unpaid` for an unpaid order the cron cancelled; otherwise `order_cancelled`, unless the buyer cancelled (`reason` = a server `cancelReason`; `farmer_no_show` and `buyer_no_show` have their own words, 1.6.0) | `request_expired` when the farmer let the request expire; otherwise `order_cancelled` unless the farmer cancelled; paid orders only | `order_cancelled` when the trucker had been asked or had accepted and did not cancel | none |
 | `payment_failed` | `payment_failed` | - | - | buyer |
 | `pickup_confirmed` | `picked_up` | `handoff_recorded` | - | none |
 | `in_transit` | `in_transit` | - | - | none |
 | `delivered` | `delivered` | `delivered_payout_pending` | `delivered_payout_pending` | buyer, 48h to dispute, then rate |
+| `delivered` confirmed by the order cron for a silent buyer (`dropoffJudgement` becomes `auto_confirmed` in the write; 1.6.0) | `delivered` (`reason: auto_confirmed`) | `delivered_payout_pending` (`reason: auto_confirmed`) | `delivered_payout_pending` | buyer, 48h to dispute |
+| `disputed` by the order cron's drop-off judgement (`dropoffJudgement` becomes `delivery_overdue`, `silent_buyer` or `dropoff_out_of_range` in the write; 1.6.0) | `dispute_opened` (`reason` = the judgement) | same | same | none |
 | `disbursing` | - | - (the escrow tells the payees) | - | none |
 | `settled` | `order_settled` | - (the escrow tells the payees) | - | none |
 | reminder marker stamped (`farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt`; 6h before the deadline) | `request_reminder` when the buyer's choice is due | `request_reminder` when the farmer's answer is due | `request_reminder` when the trucker's answer is due | the party whose answer is due, until its deadline |
-| pickup overdue marker stamped (`pickupOverdueNotifiedAt`) | `pickup_overdue` | `pickup_missed` | `pickup_missed` | buyer |
+| pickup overdue marker stamped (`pickupOverdueNotifiedAt`) with no pickup judgement (P1, or the flag turned off) | `pickup_overdue` | `pickup_missed` | `pickup_missed` | buyer |
+| pickup judged (`pickupJudgement` leaves `pending` in the write that stamps `pickupOverdueNotifiedAt`; 1.6.0) | `scanned`: -. A no-show: the status row above (`awaiting_transport` or `cancelled`) tells the parties it names. `both_present_no_scan`, `unchecked_check_in`: `pickup_overdue` (`reason` = the outcome) | `scanned`: -. `both_present_no_scan`, `unchecked_check_in`: `pickup_missed` (`reason` = the outcome) | `scanned`: -. `trucker_no_show`: `pickup_missed` (`reason: trucker_no_show`). `both_present_no_scan`, `unchecked_check_in`: `pickup_missed` (`reason` = the outcome) | none (no deadline is carried) |
+| a pickup check-in stored before the deadline (`checkIns.arrived_pickup` or `checkIns.crops_ready` appears, not `late`; 1.6.0) | `crops_ready` on a self-pickup, when the farmer's "Crops are ready" lands | `trucker_arrived` (trip order) or `buyer_arrived` (self-pickup), when the arrival lands | `crops_ready` (trip order), when the farmer's "Crops are ready" lands | none |
+| check-in reminder marker stamped (`pickupReminderAt`, before `pickupDeadlineAt`; 1.6.0) | `pickup_reminder` on a self-pickup, when the buyer's arrival is missing | `pickup_reminder` when "Crops are ready" is missing | `pickup_reminder` when the arrival is missing | each party told, until `pickupDeadlineAt` |
+| the trucker's drop-off check-in stored and counted (`dropoffCheckIn` appears, received by T8, not `late`, `dropoffJudgement: pending`; 1.6.0) | `delivery_arrived` (`deadlineAt` = T9) | - | - (the actor) | buyer, until T9 |
+| silent buyer reminder marker stamped (`dropoffReminderAt`, before T9; 1.6.0) | `delivery_confirm_reminder` (`deadlineAt` = T9) | - | - | buyer, until T9 |
+
+**Check-ins and judgements (1.6.0, FUP-286 and FUP-338, spec 4.12).** They exist only behind the
+flags: the check-ins, their reminders and the judgements are written only with `pickupClassification`
+(ESC-34) or `dropoffClassification` (ESC-36) on, so with a flag off nothing here is ever sent. Each row
+fires on the write that adds its field (an entry, a marker or the judgement), and each such write is
+conditional and made once, so each party is told once (a retried record finds its inbox row, section 5).
+
+- **Pickup.** The counterpart is told when the other side checks in: the farmer that the trucker
+  (or, on a self-pickup, the buyer) has arrived, the trucker (or the buyer collecting) that the crops
+  are ready. A check-in stored late (evidence only) tells nobody. The reminder marker is stamped by
+  the order cron once, `reminder-lead-hours` (6) before `pickupDeadlineAt` and never before the
+  window opens, while the judgement is pending and a party has not checked in; it tells each party
+  whose check-in is still missing. A marker stamped only after the deadline (the cron was down)
+  tells nobody. An admin's re-open of the judgement (`order-lifecycle.md`) removes the marker, so
+  the new window has its own reminder.
+- **Drop-off.** T9 in `delivery_arrived` and `delivery_confirm_reminder` is the drop-off check-in's
+  receipt plus `silent-buyer-hours` (SSM, 48 by default): the order cron's own rule
+  (`DropoffJudgement.SilentBuyerDeadline`; FUP-370 returns the same time on the order reads as
+  `dropoffConfirmAt`), computed by the notifier with the same parameters, without the cron's
+  one-minute settle margin.
+  The buyer is told T9 is when the delivery "may be confirmed for you": the cron confirms only with
+  complete evidence, and disputes otherwise. The reminder marker is stamped once,
+  `reminder-lead-hours` before T9, while the order is on the road and pending; one stamped only
+  after T9 tells nobody. An out-of-range attempt (`dropoffAttempt`) or a late check-in is no check-in
+  and tells nobody.
+- **Judged outcomes.** A no-show's status move tells the parties as any move of that status, with
+  the outcome as `reason`, and the trucker judged absent is told `pickup_missed` with
+  `trucker_no_show`. A pickup judged `scanned` tells nobody (the crops left the farm). The
+  drop-off's system confirm says so to the buyer and the farmer; its system disputes tell all three
+  parties with the reason, from the order row. Never the GPS fix, the distance or another party's
+  private data: names, crop, quantity, the party's own amount and the times only.
 
 ### Deliveries table (`INSERT`, and the `MODIFY` that stamps `nearbyNotifiedAt`)
 
@@ -235,11 +283,17 @@ nothing here: the order's mirror tells the parties. The deliveries stream's even
 | settlement blocked by the farmer's identity check (the sweep stamps the block on the escrow row; the `release_blocked_kyc` audit row alone is not streamed) | - | `payout_blocked` (`reason`) | - | farmer |
 | manual payout queue opened (`manualPayout: open`) | - | `payout_processing` | `payout_processing` (transport leg) | none |
 | `disputed` | `dispute_opened`; the disputer gets `dispute_received` instead (inbox only) | same | same, once a delivery is linked (`deliveryId`) | none |
+| `disputed` by the order cron's drop-off judgement (`disputedBy: system`, a `disputeDescription` starting with `delivery_overdue:`, `silent_buyer:` or `dropoff_out_of_range:`; 1.6.0) | - (the order row tells it, with the reason) | - | - | none |
 | `dispute_resolved` | `dispute_resolved` (`resolution`) | `dispute_resolved` (`resolution`) | `dispute_resolved` (`resolution`), once a delivery is linked | none |
 | `held` (fraud review) | `under_review` (inbox only) | `under_review` (inbox only) | `under_review` (inbox only), once a delivery is linked | none |
 
 The escrow names the trip's trucker from funding on, before the trucker is asked; a status change
-reaches the trucker only once a delivery (the trucker's own, after committing) is linked.
+reaches the trucker only once a delivery (the trucker's own, after committing) is linked. A known
+gap, failing closed (1.6.0): when a buyer's confirm lands between the drop-off judgement's freeze and
+its delivery write (`delivery-verification-api.md` P.4), the escrow stays the system's dispute on a
+delivered order and the order row never says it; the parties hear the verdict (`dispute_resolved`). The same holds when the buyer disputes in that window: the buyer's freeze answers `AlreadyDisputed`, no
+escrow write follows, the order row stays at judgement `pending`, and the farmer and the trucker hear of the
+dispute only at its verdict (FUP-400).
 
 ### Reputation-events table (`INSERT`, 1.5.0, ESC-28)
 
@@ -274,9 +328,9 @@ a type carries only the keys its text needs, and a missing key renders as nothin
 | `cropType` | The order's crop type code (`teff`, `wheat`, ...); clients localize it |
 | `quantityKg` | The order quantity in kilograms, digits only |
 | `amountEtb` | The amount moved or held, in ETB with two decimals, digits and a point only; clients format it. It is the recipient's own money (1.4.0): the buyer reads the order total (`orderTotal`, the escrow's `amount`), the farmer the crop leg (`cropCost`, the escrow's `farmerPayout`), the trucker the transport leg (`transportCost`, the escrow's `truckerPayout`); a leg the row does not carry is no amount, never the buyer's total |
-| `deadlineAt` | ISO 8601 UTC; when the request closes or the window ends; clients show it in Ethiopia time (the clock per language: section 2) |
+| `deadlineAt` | ISO 8601 UTC; when the request closes or the window ends; clients show it in Ethiopia time (the clock per language: section 2). On `pickup_reminder` it is `pickupDeadlineAt`; on `delivery_arrived` and `delivery_confirm_reminder` (1.6.0) T9, when the delivery may be confirmed for a silent buyer |
 | `pickupDate` | ISO 8601 UTC; the agreed pickup date (the trip's departure on a trip order) |
-| `reason` | A code, never free text: a `transportFailure`, `declineReason`, `cancelReason` or payout-block reason; clients localize it |
+| `reason` | A code, never free text: a `transportFailure`, `declineReason`, `cancelReason` or payout-block reason; clients localize it. Since 1.6.0 also the judgement behind a judged pickup or drop-off: `trucker_no_show` on `pickup_missed`, `both_present_no_scan` or `unchecked_check_in` on `pickup_overdue` and `pickup_missed`, `auto_confirmed` on `delivered` and `delivered_payout_pending`, `delivery_overdue`, `silent_buyer` or `dropoff_out_of_range` on `dispute_opened`; such a reason has its own words (section 2) |
 | `cancelledBy` | `buyer`, `farmer`, `trucker` or `system` |
 | `resolution` | `farmer_wins` or `buyer_wins` on `dispute_resolved` |
 | `party` | `buyer`, `farmer` or `trucker`: the counterpart the text names (who disputed, who dropped out) |
@@ -342,6 +396,13 @@ is the server's rendering of the same `type` + `params` at send time and is not 
   names the trucker and says the truck is less than 5 km away; it leaves out `distanceKm` and
   `minutes`, which only the push says, because the entry stays in the history and "in 25
   minutes" goes stale.
+- Since 1.6.0 (FUP-286 and FUP-338, app build after ESC-36's client) the six check-in types have
+  their own title and body in en, am and om (`trucker_arrived`, `buyer_arrived` and
+  `delivery_arrived` name the party who arrived, `crops_ready` the farmer), and `pickup_reminder`,
+  `delivery_arrived` and `delivery_confirm_reminder` are action-required, so the detail line shows
+  `deadlineAt` (T9 for the drop-off). A judged outcome's `reason` (section 4) picks that outcome's
+  own title and body, as the push does; an older build reads the type's own words. am and om are
+  machine drafted (native review owed).
 - Mobile keeps the newest 200 entries per user in Isar and the cursor in shared preferences; a pull
   with no entries on the device (first sign-in, or after a logout cleared them) ignores the stored
   cursor and reads the newest page. Web keeps the entries for the session and the read marker (the
@@ -382,6 +443,7 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.6.0 | 2026-11-13 | Check-in pushes (FUP-286 and FUP-338, spec 4.12), behind `pickupClassification` and `dropoffClassification` (nothing is sent with a flag off). Six types: `pickup_reminder` (each party who has not checked in, until `pickupDeadlineAt`, from the new `pickupReminderAt` marker), `trucker_arrived` and `buyer_arrived` (the farmer, when the arrival check-in lands), `crops_ready` (the trucker or the buyer collecting), `delivery_arrived` (the buyer, when the trucker's drop-off check-in counts, `deadlineAt` = T9) and `delivery_confirm_reminder` (the buyer before T9, from the new `dropoffReminderAt` marker); the three with a deadline are action-required. T9 is the order cron's own rule with `silent-buyer-hours` (the notifier reads the order timings). The judged outcomes speak in their own words through `reason` on existing types: `trucker_no_show` (`transport_failed`, `transport_failed_keep_crops`, and `pickup_missed` to the trucker judged absent), `farmer_no_show` and `buyer_no_show` (`order_cancelled`), `both_present_no_scan` and `unchecked_check_in` (`pickup_overdue`, `pickup_missed`), `auto_confirmed` (`delivered` to the buyer, `delivered_payout_pending` to the farmer), `delivery_overdue`, `silent_buyer` and `dropoff_out_of_range` (`dispute_opened` to all three, from the order row; the escrow row's system dispute stays silent). A pickup judged `scanned` no longer tells the parties the pickup was late. Push text in en, am and om, inbox text on both clients (am and om machine drafted, native review owed). `order-lifecycle.md` 2.23.0 |
 | 1.5.1 | 2026-11-12 | Clients (ESC-31, `reputation-api.md` 1.6.0): `penalty_recorded` and `tier_changed` have their own inbox title and body in en, am and om, and the inbox entry opens My reputation on the phone and the web. A tapped push still opens the app (TASK FUP-205). No server or wire change. |
 | 1.5.0 | 2026-11-07 | Two reputation types (ESC-28, `reputation-api.md` section 10): `penalty_recorded` and `tier_changed`, to the party only, from a fourth source, the reputation-events table stream (`INSERT`, filtered on `code`); params `eventId`, `code`, `points`, `activePoints`, `fromTier`, `toTier`, `restrictedUntil`; entity `reputation` with no `orderId`; push text in en, am and om (am and om await native review). Behind `reputationPenalties` (no row is written while it is off). Client inbox text and the My reputation tap: ESC-31 |
 | 1.4.1 | 2026-11-07 | Doc only (ESC-14 drift pass): the footer said Last Updated 2026-10-28, before 1.3.0's day and 1.4.0; it now carries the date and the version like the other contracts. No wire change |
@@ -393,6 +455,6 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 ---
 
-**Last Updated**: 2026-11-12
-**Version**: 1.5.1
+**Last Updated**: 2026-11-13
+**Version**: 1.6.0
 **Status**: Draft
