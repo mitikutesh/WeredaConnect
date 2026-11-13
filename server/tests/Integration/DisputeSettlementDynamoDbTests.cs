@@ -693,10 +693,30 @@ public sealed class DisputeSettlementDynamoDbTests
             Verdict(escrowId, "farmer_wins", "settle_as_is", withReason: true), new TestLambdaContext());
 
         choice.StatusCode.Should().Be(422, choice.Body);
-        choice.Body.Should().Contain("ADMIN_016").And.Contain("the order already shows a payout");
+        choice.Body.Should().Contain("ADMIN_016").And.Contain("second payment").And.Contain("never released");
         Str(await EscrowAsync(escrowId), "disputeDisposition").Should().BeNull();
         await SweepAsync();
         Str(await EscrowAsync(escrowId), "status").Should().Be("dispute_resolved");
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == $"release:{escrowId}"));
+    }
+
+    [LocalDynamoDbFact]
+    public async Task SettleAsIs_FarmerWins_AnotherEscrowsReleaseIsQueued_IsRefused_NothingWritten()
+    {
+        // FUP-64 delta review: two escrows on one trade, both farmer_wins; the other's release waits in the manual
+        // payout queue (gateway down). Releasing this one too would pay the farmer twice when the queue closes.
+        var deliveryId = await SeedDeliveryAsync("delivered");
+        var orderId = await SeedOrderAsync("cancelled", 6, deliveryId);
+        await SeedEscrowAsync("dispute_resolved", orderId, resolution: "farmer_wins",
+            extra: [("manualPayout", "open"), ("manualPayoutOp", "release")]);
+        var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, deliveryId, resolution: "farmer_wins", swept: true);
+
+        var choice = await Admin().FunctionHandler(
+            Verdict(escrowId, "farmer_wins", "settle_as_is", withReason: true), new TestLambdaContext());
+
+        choice.StatusCode.Should().Be(422, choice.Body);
+        choice.Body.Should().Contain("ADMIN_016").And.Contain("the order already shows a payout");
+        Str(await EscrowAsync(escrowId), "disputeDisposition").Should().BeNull();
         await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == $"release:{escrowId}"));
     }
 

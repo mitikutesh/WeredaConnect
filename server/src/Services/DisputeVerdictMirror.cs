@@ -472,8 +472,12 @@ public sealed class DisputeVerdictMirror
     /// cannot, which admin disposition resolves it. Reads strongly consistent, like <see cref="ApplyAsync"/>.
     /// Never throws.
     /// </summary>
-    public async Task<DispositionPlan> PlanDispositionAsync(Dictionary<string, object> escrow, string resolution)
-        => (await ReadDispositionAsync(escrow, resolution)).Plan;
+    /// <param name="split">
+    /// FUP-64: the verdict is a split (<c>partial_refund</c>, planned in its <c>farmer_wins</c> direction), which never
+    /// takes <see cref="DisputeDisposition.SettleAsIs"/>: the order's other escrows are not read for it.
+    /// </param>
+    public async Task<DispositionPlan> PlanDispositionAsync(Dictionary<string, object> escrow, string resolution, bool split = false)
+        => (await ReadDispositionAsync(escrow, resolution, split)).Plan;
 
     /// <summary>
     /// FUP-16: apply an admin disposition to the legs behind a verdict, as a system actor. The legs are
@@ -608,7 +612,7 @@ public sealed class DisputeVerdictMirror
         DispositionPlan Plan, string? OrderId, string? DeliveryId,
         Dictionary<string, object>? Order, Dictionary<string, object>? Delivery);
 
-    private async Task<DispositionRead> ReadDispositionAsync(Dictionary<string, object> escrow, string resolution)
+    private async Task<DispositionRead> ReadDispositionAsync(Dictionary<string, object> escrow, string resolution, bool split = false)
     {
         var (orderId, deliveryId, order, delivery, readError) = await ReadLegsAsync(escrow);
         if (readError != null)
@@ -643,7 +647,7 @@ public sealed class DisputeVerdictMirror
         if ((!hasOrderLeg && !hasDeliveryLeg) || !orderOk || !deliveryOk)
         {
             return new DispositionRead(
-                await NoFitPlanAsync(escrow, resolution, legs, hasOrderLeg ? order : null, orderId, deliveryId, deliveryStatus, delivery),
+                await NoFitPlanAsync(escrow, resolution, legs, hasOrderLeg ? order : null, orderId, deliveryId, deliveryStatus, delivery, split),
                 orderId, deliveryId, order, delivery);
         }
 
@@ -652,7 +656,7 @@ public sealed class DisputeVerdictMirror
         if (resolution != "farmer_wins" && !handedOver)
         {
             return new DispositionRead(
-                await NoFitPlanAsync(escrow, resolution, legs, hasOrderLeg ? order : null, orderId, deliveryId, deliveryStatus, delivery),
+                await NoFitPlanAsync(escrow, resolution, legs, hasOrderLeg ? order : null, orderId, deliveryId, deliveryStatus, delivery, split),
                 orderId, deliveryId, order, delivery);
         }
 
@@ -682,14 +686,19 @@ public sealed class DisputeVerdictMirror
     /// <summary>
     /// FUP-64: the plan of a verdict no goods disposition fits. <see cref="DisputeDisposition.SettleAsIs"/> may
     /// settle a <c>buyer_wins</c> always (the refund returns the money to the buyer who paid it). A
-    /// <c>farmer_wins</c> only when the goods left the farm and did not come back, and the order shows no payout:
+    /// <c>farmer_wins</c> only when the goods left the farm and did not come back, and the order shows no payout
+    /// (never for a split, whose other escrows are not read: it never takes the exit):
     /// <list type="bullet">
     /// <item><c>order_paid_out</c>: the order is <c>disbursing</c> or <c>settled</c>, or another escrow of the order (its
-    /// own, one its order index names, the delivery's) is released or completed or has a release decided, so the
-    /// farmer may already have been paid for it; a release could pay twice.</item>
+    /// own, one its order index names, the delivery's) paid the farmer or is about to (<see cref="IsReleaseDecided"/>),
+    /// so a release could pay twice.</item>
+    /// <item><c>double_escrow</c>: this escrow is a second payment for the order while the order's own escrow holds or
+    /// paid the trade's money (<see cref="EscrowService.OrderEscrowPaidStatuses"/>); FUP-41 refunds such an escrow, never
+    /// releases it.</item>
     /// <item><c>goods_returned</c>: the delivery was cancelled under <c>buyer_wins</c> (the goods went back).</item>
     /// <item><c>goods_not_handed_over</c>: nothing shows a pickup: no <c>deliveryConfirmedAt</c> on the escrow, the
-    /// order never reached <c>pickup_confirmed</c>, the delivery never <c>pickedUp</c> (no <c>pickedUpAt</c>). An order
+    /// order never reached <c>pickup_confirmed</c>, the delivery never <c>pickedUp</c> (no <c>pickedUpAt</c>; a delivery an
+    /// admin cancelled, <c>admin_cancelled</c>, does not count: FUP-19 cancels goods taken back too). An order
     /// at <c>dispute_resolved</c> shows a pickup only once this escrow carries its own <c>settle_as_is</c>: recording it
     /// needed the pickup shown elsewhere, and its own action may have closed the order since; another escrow's
     /// verdict may have closed the order before any pickup.</item>
@@ -699,7 +708,7 @@ public sealed class DisputeVerdictMirror
     /// </summary>
     private async Task<DispositionPlan> NoFitPlanAsync(
         Dictionary<string, object> escrow, string resolution, string? legs, Dictionary<string, object>? order,
-        string? orderId, string? deliveryId, string? deliveryStatus, Dictionary<string, object>? delivery)
+        string? orderId, string? deliveryId, string? deliveryStatus, Dictionary<string, object>? delivery, bool split)
     {
         var orderStatus = order != null ? Str(order, "status") : null;
         string? refusal = null;
@@ -713,20 +722,21 @@ public sealed class DisputeVerdictMirror
                              || orderStatus is "pickup_confirmed" or "in_transit" or "delivered" or "disputed"
                              || closedByThisExit
                              || deliveryStatus is "pickedUp" or "inTransit" or "delivered" or "disputed"
-                             || (delivery != null && !string.IsNullOrEmpty(Str(delivery, "pickedUpAt")));
+                             || (delivery != null && !string.IsNullOrEmpty(Str(delivery, "pickedUpAt"))
+                                 && Str(delivery, "cancelReason") != "admin_cancelled");
             refusal = orderStatus is "disbursing" or "settled" ? "order_paid_out"
                 : returned ? "goods_returned"
                 : handedOver ? null
                 : "goods_not_handed_over";
-            if (refusal == null)
+            if (refusal == null && !split)
             {
-                var (paidOut, readError) = await OtherEscrowPaidOutAsync(Str(escrow, "escrowId") ?? "", orderId, deliveryId);
+                var (otherRefusal, readError) = await OtherEscrowRefusalAsync(Str(escrow, "escrowId") ?? "", orderId, deliveryId);
                 if (readError != null)
                 {
                     return new DispositionPlan(DispositionCase.Unknown, false, null, false, readError);
                 }
 
-                refusal = paidOut ? "order_paid_out" : null;
+                refusal = otherRefusal;
             }
         }
 
@@ -735,25 +745,28 @@ public sealed class DisputeVerdictMirror
     }
 
     /// <summary>
-    /// FUP-64: whether another escrow of the order paid it out (<c>released</c>, <c>completed</c>, or a release decided:
-    /// queued, or a ledger crop leg released, <see cref="OrderMoneyMirror.TargetFor"/>). The candidates are the order's
-    /// own escrow, the ones its order index names and the one the delivery index names, each read again strongly
-    /// consistent (as the admin delivery cancel reads them, FUP-19). This escrow is never counted.
+    /// FUP-64: why another escrow of the order forbids a <c>farmer_wins</c> release, or null. The candidates are the
+    /// order's own escrow, the ones its order index names and the one the delivery index names, each read again
+    /// strongly consistent (as the admin delivery cancel reads them, FUP-19); this escrow is never counted.
+    /// <c>double_escrow</c> when this escrow is not the order's own and the order's own is in
+    /// <see cref="EscrowService.OrderEscrowPaidStatuses"/> (FUP-41: the second payment is refunded, never released);
+    /// <c>order_paid_out</c> when another escrow paid the farmer or is about to (<see cref="IsReleaseDecided"/>).
     /// </summary>
-    private async Task<(bool PaidOut, string? Error)> OtherEscrowPaidOutAsync(string escrowId, string? orderId, string? deliveryId)
+    private async Task<(string? Refusal, string? Error)> OtherEscrowRefusalAsync(string escrowId, string? orderId, string? deliveryId)
     {
         if (_escrowRepo == null)
         {
-            return (false, null);
+            return (null, null);
         }
 
         try
         {
+            var ownId = string.IsNullOrEmpty(orderId) ? null : $"escrow-order-{orderId}";
             var ids = new List<string>();
-            if (!string.IsNullOrEmpty(orderId))
+            if (ownId != null)
             {
-                ids.Add($"escrow-order-{orderId}");
-                var indexed = await _escrowRepo.QueryByOrderIdAsync(orderId);
+                ids.Add(ownId);
+                var indexed = await _escrowRepo.QueryByOrderIdAsync(orderId!);
                 ids.AddRange((indexed ?? []).Select(e => Str(e, "escrowId") ?? ""));
             }
 
@@ -762,23 +775,50 @@ public sealed class DisputeVerdictMirror
                 ids.Add(Str(byDelivery, "escrowId") ?? "");
             }
 
+            string? refusal = null;
             foreach (var id in ids.Where(id => id.Length > 0 && id != escrowId).Distinct(StringComparer.Ordinal))
             {
                 var other = await _escrowRepo.GetByIdAsync(id, consistentRead: true);
-                if (other != null && Str(other, "escrowId") != escrowId
-                    && (Str(other, "status") is "released" or "completed"
-                        || OrderMoneyMirror.TargetFor(other) is OrderMoneyTarget.Disbursing or OrderMoneyTarget.Settled))
+                if (other == null || Str(other, "escrowId") == escrowId)
                 {
-                    return (true, null);
+                    continue;
+                }
+
+                if (id == ownId && EscrowService.OrderEscrowPaidStatuses.Contains(Str(other, "status") ?? ""))
+                {
+                    return ("double_escrow", null);
+                }
+
+                if (IsReleaseDecided(other))
+                {
+                    refusal = "order_paid_out";
                 }
             }
 
-            return (false, null);
+            return (refusal, null);
         }
         catch (Exception ex)
         {
-            return (false, $"escrows:read:[{ex.GetType().Name}]");
+            return (null, $"escrows:read:[{ex.GetType().Name}]");
         }
+    }
+
+    /// <summary>
+    /// FUP-64: another escrow paid the farmer or is about to, whatever its verdict: <c>released</c> or
+    /// <c>completed</c>; a release in flight (<c>settlementLock = release</c>) or waiting in the manual payout queue
+    /// (marker open, op <c>release</c>); a ledger escrow whose crop leg is <c>released</c>; or a recorded verdict that
+    /// releases (<c>dispute_resolved</c> under <c>farmer_wins</c> or a split), which its own settlement would pay.
+    /// </summary>
+    private static bool IsReleaseDecided(Dictionary<string, object> other)
+    {
+        var status = Str(other, "status");
+        return status is "released" or "completed"
+               || Str(other, "settlementLock") == "release"
+               || (Str(other, ManualPayoutFields.Marker) == ManualPayoutFields.MarkerOpen
+                   && Str(other, ManualPayoutFields.Op) == ManualPayoutFields.OpRelease)
+               || (LedgerEscrowFields.IsLedger(other)
+                   && LedgerEscrow.From(other).LegState(LedgerEscrowFields.LegCrop) == LedgerEscrowFields.Released)
+               || (status == "dispute_resolved" && Str(other, "disputeResolution") is "farmer_wins" or DisputeVerdicts.PartialRefund);
     }
 
     /// <summary>The delivery leg of a disposition: closed under the verdict, or left when an earlier run closed it.</summary>

@@ -1210,38 +1210,105 @@ public class DisputeVerdictMirrorTests
     private DisputeVerdictMirror MirrorWithEscrows(IEscrowRepository escrows) => new(_orders, _deliveries, _txAudit, escrowRepo: escrows);
 
     [Theory]
-    [InlineData("completed", null, "order_paid_out")]
-    [InlineData("released", null, "order_paid_out")]
-    [InlineData("refunded", null, null)]
-    [InlineData("dispute_resolved", null, null)]
-    // A release decided on a ledger escrow (its crop leg released) is a payout too.
-    [InlineData("escrowed", "released", "order_paid_out")]
-    public async Task PlanDisposition_NoFit_FarmerWins_AnotherEscrowOfTheOrderThatPaidOut_RefusesSettleAsIs(
-        string otherStatus, string? otherCropLeg, string? refusal)
+    // FUP-41: the order's own escrow holds or paid the trade's money, so this second escrow is a double escrow that is
+    // refunded, never released.
+    [InlineData("escrowed", "double_escrow")]
+    [InlineData("disputed", "double_escrow")]
+    [InlineData("dispute_resolved", "double_escrow")]
+    [InlineData("held", "double_escrow")]
+    [InlineData("released", "double_escrow")]
+    [InlineData("completed", "double_escrow")]
+    // The order's own escrow never held the money, or gave it back: this escrow is the trade's only payment.
+    [InlineData("initiated", null)]
+    [InlineData("refunded", null)]
+    [InlineData("cancelled", null)]
+    public async Task PlanDisposition_NoFit_FarmerWins_ASecondEscrowWhileTheOrdersOwnHoldsTheMoney_IsADoubleEscrow(
+        string ownStatus, string? refusal)
     {
-        // FUP-64 review: the order shows no payout, but its own escrow (another payment for the same trade) paid out.
         OrderIs("cancelled", 3);
         DeliveryIs("delivered");
         var escrows = Substitute.For<IEscrowRepository>();
-        var other = new Dictionary<string, object> { { "escrowId", "escrow-order-order-1" }, { "status", otherStatus } };
-        if (otherCropLeg != null)
-        {
-            other["settlementModel"] = "ledger";
-            other["legStatus"] = new Dictionary<string, object> { { "crop", otherCropLeg }, { "transport", "held" }, { "commission", "held" } };
-        }
-
-        escrows.GetByIdAsync("escrow-order-order-1", true).Returns(other);
-        // The order index names this escrow too: it never counts against itself.
-        escrows.QueryByOrderIdAsync(OrderId, Arg.Any<int>()).Returns(new List<Dictionary<string, object>>
-        {
-            new() { { "escrowId", "escrow-1" } }
-        });
-        escrows.GetByIdAsync("escrow-1", true).Returns(new Dictionary<string, object> { { "escrowId", "escrow-1" }, { "status", "released" } });
+        escrows.GetByIdAsync("escrow-order-order-1", true)
+            .Returns(new Dictionary<string, object> { { "escrowId", "escrow-order-order-1" }, { "status", ownStatus } });
 
         var plan = await MirrorWithEscrows(escrows).PlanDispositionAsync(Escrow(), "farmer_wins");
 
         plan.Case.Should().Be(DispositionCase.NoFit);
         plan.SettleAsIsRefusal.Should().Be(refusal);
+    }
+
+    public static IEnumerable<object?[]> OtherEscrows()
+    {
+        Dictionary<string, object> Other(string status, params (string Key, object Value)[] extra)
+        {
+            var other = new Dictionary<string, object> { { "escrowId", "escrow-other" }, { "status", status } };
+            foreach (var (key, value) in extra)
+            {
+                other[key] = value;
+            }
+
+            return other;
+        }
+
+        var ledgerCropReleased = new Dictionary<string, object> { { "crop", "released" }, { "transport", "held" }, { "commission", "held" } };
+        yield return new object?[] { "released", Other("released"), "order_paid_out" };
+        yield return new object?[] { "completed", Other("completed"), "order_paid_out" };
+        // A release mid-flight, or waiting in the manual payout queue, whatever verdict the escrow carries.
+        yield return new object?[] { "release lock", Other("dispute_resolved", ("disputeResolution", "buyer_wins"), ("settlementLock", "release")), "order_paid_out" };
+        yield return new object?[] { "queued release", Other("dispute_resolved", ("disputeResolution", "farmer_wins"),
+            (ManualPayoutFields.Marker, ManualPayoutFields.MarkerOpen), (ManualPayoutFields.Op, ManualPayoutFields.OpRelease)), "order_paid_out" };
+        yield return new object?[] { "queued refund", Other("escrowed",
+            (ManualPayoutFields.Marker, ManualPayoutFields.MarkerOpen), (ManualPayoutFields.Op, ManualPayoutFields.OpRefund)), null };
+        // A split whose crop leg is released.
+        yield return new object?[] { "ledger crop released", Other("dispute_resolved", ("disputeResolution", "buyer_wins"),
+            ("settlementModel", "ledger"), ("legStatus", ledgerCropReleased)), "order_paid_out" };
+        // A recorded verdict that releases: its own settlement would pay the farmer too.
+        yield return new object?[] { "farmer_wins verdict", Other("dispute_resolved", ("disputeResolution", "farmer_wins")), "order_paid_out" };
+        yield return new object?[] { "split verdict", Other("dispute_resolved", ("disputeResolution", "partial_refund")), "order_paid_out" };
+        yield return new object?[] { "buyer_wins verdict", Other("dispute_resolved", ("disputeResolution", "buyer_wins")), null };
+        yield return new object?[] { "refunded", Other("refunded"), null };
+        yield return new object?[] { "held money", Other("escrowed"), null };
+    }
+
+    [Theory]
+    [MemberData(nameof(OtherEscrows))]
+    public async Task PlanDisposition_NoFit_FarmerWins_AnotherEscrowThatPaidOrIsAboutToPay_RefusesSettleAsIs(
+        string caseName, Dictionary<string, object> other, string? refusal)
+    {
+        // FUP-64 delta review: a double escrow, both farmer_wins, the other one's release already decided (queued while
+        // the gateway is down, say): releasing this one too would pay the farmer twice when the queue closes.
+        OrderIs("cancelled", 3);
+        DeliveryIs("delivered");
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.QueryByOrderIdAsync(OrderId, Arg.Any<int>()).Returns(new List<Dictionary<string, object>>
+        {
+            // The order index names this escrow too: it never counts against itself.
+            new() { { "escrowId", "escrow-1" } },
+            new() { { "escrowId", "escrow-other" } }
+        });
+        escrows.GetByIdAsync("escrow-1", true).Returns(new Dictionary<string, object> { { "escrowId", "escrow-1" }, { "status", "released" } });
+        escrows.GetByIdAsync("escrow-other", true).Returns(other);
+
+        var plan = await MirrorWithEscrows(escrows).PlanDispositionAsync(Escrow(), "farmer_wins");
+
+        plan.Case.Should().Be(DispositionCase.NoFit);
+        plan.SettleAsIsRefusal.Should().Be(refusal, caseName);
+    }
+
+    [Fact]
+    public async Task PlanDisposition_ASplit_NeverReadsTheOtherEscrows()
+    {
+        // FUP-64 delta review: a split never takes settle_as_is, so an unreadable escrow table is no reason for a 503.
+        OrderIs("cancelled", 3);
+        DeliveryIs("delivered");
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.QueryByOrderIdAsync(OrderId, Arg.Any<int>()).ThrowsAsync(new InvalidOperationException("escrows down"));
+
+        var plan = await MirrorWithEscrows(escrows).PlanDispositionAsync(Escrow(), "farmer_wins", split: true);
+
+        plan.Case.Should().Be(DispositionCase.NoFit);
+        await escrows.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await escrows.DidNotReceive().QueryByOrderIdAsync(Arg.Any<string>(), Arg.Any<int>());
     }
 
     [Fact]
@@ -1302,21 +1369,31 @@ public class DisputeVerdictMirrorTests
         plan.SettleAsIsRefusal.Should().Be(refusal);
     }
 
-    [Fact]
-    public async Task PlanDisposition_NoFit_FarmerWins_ADeliveryCancelledAfterPickup_ShowsThePickup()
+    [Theory]
+    // settle_now's cancel of a picked-up delivery under this verdict keeps its pickedUpAt: a pickup.
+    [InlineData("dispute_farmer_wins", "farmer_wins", null)]
+    // FUP-19's admin cancel covers goods taken back too, so its pickedUpAt is no pickup (FUP-64 delta review).
+    [InlineData("admin_cancelled", null, "goods_not_handed_over")]
+    public async Task PlanDisposition_NoFit_FarmerWins_ACancelledDeliverysPickedUpAt_CountsUnlessAnAdminCancelledIt(
+        string cancelReason, string? verdict, string? refusal)
     {
-        // An admin cancelled the delivery on the road (FUP-19): its pickedUpAt stays.
         OrderIs("cancelled", 3);
-        _deliveries.GetByIdAsync(DeliveryId, true).Returns(new Dictionary<string, object>
+        var delivery = new Dictionary<string, object>
         {
-            { "deliveryId", DeliveryId }, { "orderId", OrderId }, { "status", "cancelled" }, { "cancelReason", "admin_cancelled" },
+            { "deliveryId", DeliveryId }, { "orderId", OrderId }, { "status", "cancelled" }, { "cancelReason", cancelReason },
             { "pickedUpAt", "2026-10-08T09:00:00Z" }
-        });
+        };
+        if (verdict != null)
+        {
+            delivery["disputeResolution"] = verdict;
+        }
+
+        _deliveries.GetByIdAsync(DeliveryId, true).Returns(delivery);
 
         var plan = await _mirror.PlanDispositionAsync(Escrow(), "farmer_wins");
 
-        plan.SettleAsIsRefusal.Should().BeNull();
-        plan.SettlesAsIs.Should().BeTrue();
+        plan.Case.Should().Be(DispositionCase.NoFit);
+        plan.SettleAsIsRefusal.Should().Be(refusal);
     }
 
     [Fact]

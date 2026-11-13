@@ -648,7 +648,8 @@ public partial class AdminFunction
         if (item.TryGetValue("status", out var currentStatusAttr) && currentStatusAttr.S == "disputed"
             && !item.ContainsKey(ManualPayoutFields.Marker) && !item.ContainsKey("settlementLock"))
         {
-            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(item), direction);
+            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(item), direction,
+                split: body.Resolution == DisputeVerdicts.PartialRefund);
             if (plan.Case == DispositionCase.Unknown)
             {
                 return LambdaResponse.Error(503, "ESCROW_012",
@@ -936,7 +937,8 @@ public partial class AdminFunction
         if (latestStatus == "dispute_resolved")
         {
             var mirror = VerdictMirror();
-            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(latest), direction);
+            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(latest), direction,
+                split: resolution == DisputeVerdicts.PartialRefund);
             if (plan.Case == DispositionCase.Unknown)
             {
                 return LambdaResponse.Error(503, "ESCROW_012",
@@ -1019,6 +1021,8 @@ public partial class AdminFunction
                     + unsafeReason switch
                     {
                         "split" => "a split is never settled as it is (it settles leg by leg through the ledger). ",
+                        "double_escrow" => "this escrow is a second payment for an order whose own escrow holds or paid the "
+                                           + "trade's money; it is refunded as a double escrow, never released (FUP-41). ",
                         "order_paid_out" => "the order already shows a payout, so a release could pay the farmer twice. ",
                         "goods_returned" => "the goods went back to the farmer, so the farmer is not paid for them. ",
                         _ => "nothing shows the goods left the farm, so the farmer is not paid for them. "

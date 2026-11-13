@@ -928,7 +928,8 @@ public class EscrowServiceTests
     [Fact]
     public async Task ResolvedDispute_SettleAsIs_FarmerWins_AnotherEscrowOfTheOrderPaidOut_IsRefused()
     {
-        // FUP-64 review: the order shows no payout, but its own escrow was released (a double payment for one trade).
+        // FUP-64 review: the order shows no payout, but its own escrow was paid out: this one is a second payment,
+        // which FUP-41 refunds as a double escrow and never releases.
         var (service, alarms, _) = SettleAsIsService("farmer_wins", OrderAt("cancelled"), deliveryConfirmed: true);
         var paid = MakeEscrowItem(escrowId: "escrow-order-order-1", status: "completed");
         _mockEscrowRepo.GetByIdAsync("escrow-order-order-1", true).Returns(paid);

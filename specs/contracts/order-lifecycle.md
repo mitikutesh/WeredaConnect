@@ -942,7 +942,8 @@ its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
 
 `settle_as_is` (2.19.0, `escrow-protocol.md` 2.21.0) is refused for a split and for a `farmer_wins` whose goods
 never left the farm, came back, or whose order shows a payout (`disbursing`, `settled`, or another of its escrows
-paid out); nothing is written then. Since 2.19.0 the `overrideOrderMismatch` refund no longer settles a verdict;
+paid out or about to), and on a second escrow while the order's own escrow holds the money (a double escrow,
+`escrow-protocol.md` 2.19.0); nothing is written then. Since 2.19.0 the `overrideOrderMismatch` refund no longer settles a verdict;
 the `disputeOverride*` flag is now written only by a `buyer_wins` `settle_as_is` on a `disbursing` or `settled`
 order, and flags already on an order keep closing its contact and excusing its refunded money.
 

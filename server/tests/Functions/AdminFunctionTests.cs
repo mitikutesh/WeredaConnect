@@ -1928,6 +1928,53 @@ public class AdminFunctionTests
     }
 
     [Fact]
+    public async Task ResolveDispute_ANewSplitWithTheEscrowsUnreadable_StillAnswersAdmin016_NotA503()
+    {
+        // FUP-64 delta review: a split never takes settle_as_is, so the order's other escrows are not read for it.
+        TableReads(EscrowsTable, LedgerDisputedEscrow(("deliveryConfirmedAt", "2026-09-19T12:00:00Z")));
+        TableReads(OrdersTable, OrderItem("cancelled"));
+        _dynamoDb.QueryAsync(
+                Arg.Is<QueryRequest>(q => q.TableName == EscrowsTable
+                                          && (q.IndexName == "OrderIndex"
+                                              || q.ExpressionAttributeValues.Values.Any(v => v.S == "escrow-order-order-9"))),
+                Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AmazonDynamoDBException("escrows down"));
+
+        var response = await WithMirrorTables().FunctionHandler(ResolveRequest(SplitBody(Reason)), _context);
+
+        response.StatusCode.Should().Be(422);
+        response.Body.Should().Contain("ADMIN_016").And.Contain("a split is never settled as it is");
+    }
+
+    [Fact]
+    public async Task ResolveDispute_SettleAsIs_FarmerWinsOnASecondEscrow_WhileTheOrdersOwnHoldsTheMoney_Returns422Admin016()
+    {
+        // FUP-64 delta review: FUP-41 refunds a double escrow, never releases it.
+        TableReads(EscrowsTable, DisputedEscrow(("deliveryConfirmedAt", "2026-09-19T12:00:00Z")));
+        TableReads(OrdersTable, OrderItem("cancelled"));
+        _dynamoDb.QueryAsync(
+                Arg.Is<QueryRequest>(q => q.TableName == EscrowsTable
+                                          && q.ExpressionAttributeValues.Values.Any(v => v.S == "escrow-order-order-9")),
+                Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = [new Dictionary<string, AttributeValue>
+                {
+                    { "escrowId", S("escrow-order-order-9") }, { "createdAt", S("2026-09-18T10:00:00Z") }, { "status", S("escrowed") },
+                    { "orderId", S("order-9") }
+                }]
+            });
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(DispositionBody("farmer_wins", "settle_as_is")), _context);
+
+        response.StatusCode.Should().Be(422);
+        response.Body.Should().Contain("ADMIN_016").And.Contain("second payment").And.Contain("never released");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+        await _dynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ResolveDispute_ARecordedSplitReplayedOverANoFitOrder_Returns422Admin016_ItCannotChange()
     {
         // FUP-174's replay of the recorded split, after the order was cancelled: no loop through ADMIN_015.
