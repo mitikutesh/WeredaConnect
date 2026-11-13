@@ -139,8 +139,8 @@ When the client receives `status: "conflict"`:
 deleted listing (`deletedAt` set, or `status: deleted`, the rule of `crop-listing-api.md` 1.10.0:
 the farmer's other device deleted it, or a delete won a race with this one) removes the local
 listing; none is created when the phone has none. The app has no status for a deleted listing, and
-before 1.65.0 it kept the row as a local `draft`. The same rule holds wherever a client reads a
-crop row: the mobile crop pull (`GET /crops`) and the read behind a reverted listing
+before 1.65.0 it kept the row as a local `draft`. The same rule holds in the crop reads
+listed here: the mobile crop pull (`GET /crops`) and the read behind a reverted listing
 (`GET /crops/{id}`) remove a deleted row's listing, the farmer's own included, and the web
 repository and matcher leave such a row out of their lists and read it by id as not found. The
 server already leaves deleted listings out of its lists and answers 404 for one by id, so these
