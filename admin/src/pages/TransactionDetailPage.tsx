@@ -240,7 +240,10 @@ export function TransactionDetailPage() {
               <Field label={t("transactions.confirmedAt")}>
                 {delivery.confirmedAt ? formatDateTime(s(delivery.confirmedAt)) : ""}
               </Field>
-              {(["pickup", "dropoff"] as const).map((leg) => {
+              {(["pickup", "dropoff", "arrival"] as const)
+                // ESC-36: the trucker's arrival photo at the drop-off, shown only when the delivery has one.
+                .filter((leg) => leg !== "arrival" || s(delivery.arrivalPhotoUrl) !== "")
+                .map((leg) => {
                 const url = s(delivery[`${leg}PhotoUrl`]);
                 const label = t(`transactions.${leg}Photo`);
                 return (

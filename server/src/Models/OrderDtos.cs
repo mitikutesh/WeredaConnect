@@ -248,9 +248,26 @@ public sealed record OrderDto
 
     /// <summary>
     /// ESC-34: the arrival check-ins the server received, keyed by kind (<c>arrived_pickup</c>,
-    /// <c>crops_ready</c>). No coordinates and no sender. Null when there is none.
+    /// <c>crops_ready</c>; ESC-36: <c>arrived_dropoff</c>). No coordinates and no sender. Null when there is none.
     /// </summary>
     public Dictionary<string, OrderCheckInDto>? CheckIns { get; init; }
+
+    /// <summary>
+    /// ESC-36: the drop-off judgement of an order picked up with <c>dropoffClassification</c> on:
+    /// <c>pending</c> until the order cron judges it (T8 at <see cref="DropoffDeadlineAt"/>, or T9 48 hours
+    /// after the trucker's drop-off check-in), then <c>closed</c>, <c>auto_confirmed</c>, <c>silent_buyer</c>,
+    /// <c>delivery_overdue</c> or <c>queued</c>. Null on every other order.
+    /// </summary>
+    public string? DropoffJudgement { get; init; }
+
+    /// <summary>ESC-36: ISO 8601 UTC time the drop-off was judged.</summary>
+    public string? DropoffJudgedAt { get; init; }
+
+    /// <summary>ESC-36: T8, the pickup plus 72 hours: without a drop-off check-in by then the delivery is overdue.</summary>
+    public string? DropoffDeadlineAt { get; init; }
+
+    /// <summary>ESC-36: why the system disputed the order: <c>delivery_overdue</c> (T8) or <c>silent_buyer</c> (T9).</summary>
+    public string? DisputeReason { get; init; }
 
     /// <summary>
     /// ESC-48: whether the caller may reach the other parties on this order (call, copy, message): the

@@ -51,6 +51,16 @@ public class DeliveryFunction
     internal const int PresignedUrlExpirySeconds = 900;
 
     /// <summary>
+    /// ESC-36: <c>dropoffClassification</c> (env <c>DROPOFF_CLASSIFICATION_ENABLED</c>). On, the trucker may
+    /// ask for the <c>arrival</c> photo of a delivery on the road; off, the type does not exist. Only with
+    /// <c>COMMITMENTS_ENABLED</c>, as on sync, which attaches the photo.
+    /// </summary>
+    internal bool DropoffClassificationEnabled { get; init; } = DropoffJudgement.IsEnabled && Services.OrderCommitment.IsEnabled;
+
+    /// <summary>The photo types this Lambda takes, for its validation text.</summary>
+    private string PhotoTypesText => DropoffClassificationEnabled ? "'pickup', 'dropoff' or 'arrival'" : "'pickup' or 'dropoff'";
+
+    /// <summary>
     /// Default constructor for Lambda runtime.
     /// Reads table names from environment variables.
     /// </summary>
@@ -540,6 +550,8 @@ public class DeliveryFunction
     /// The delivery may still be pending (a phone uploads before its pickup syncs) but not
     /// cancelled, and a type whose photo is attached already gets no new URL. The photo is attached
     /// afterwards by a <c>delivery_photo</c> sync operation, which checks the object again.
+    /// ESC-36: with <c>dropoffClassification</c> on, also the trucker's <c>arrival</c> photo, only while the
+    /// delivery is on the road (<c>pickedUp</c> or <c>inTransit</c>); with it off the type does not exist.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleUploadPhotoAsync(
         APIGatewayProxyRequest request,
@@ -568,13 +580,13 @@ public class DeliveryFunction
 
         if (photoRequest == null || string.IsNullOrEmpty(photoRequest.Type))
         {
-            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Missing or invalid 'type' field. Must be 'pickup' or 'dropoff'.", "type");
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", $"Missing or invalid 'type' field. Must be {PhotoTypesText}.", "type");
         }
 
         var photoType = photoRequest.Type.ToLowerInvariant();
-        if (!DeliveryPhotoKeys.IsType(photoType))
+        if (!DeliveryPhotoKeys.IsType(photoType, allowArrival: DropoffClassificationEnabled))
         {
-            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Invalid photo type. Must be 'pickup' or 'dropoff'.", "type");
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", $"Invalid photo type. Must be {PhotoTypesText}.", "type");
         }
 
         if (photoRequest.SizeBytes is not long sizeBytes || sizeBytes < 1 || sizeBytes > DeliveryPhotoKeys.MaxBytes)
@@ -620,10 +632,19 @@ public class DeliveryFunction
                 photoType, GetStringOrNull(delivery, "truckerId"), GetStringOrNull(delivery, "buyerId"));
             if (authorId == null || authorId != userId)
             {
-                return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED",
-                    photoType == DeliveryPhotoKeys.Pickup
-                        ? "Only the trucker takes the pickup photo."
-                        : "Only the buyer takes the drop-off photo.");
+                return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED", photoType switch
+                {
+                    DeliveryPhotoKeys.Pickup => "Only the trucker takes the pickup photo.",
+                    DeliveryPhotoKeys.Arrival => "Only the trucker takes the arrival photo.",
+                    _ => "Only the buyer takes the drop-off photo."
+                });
+            }
+
+            // ESC-36: the arrival photo is taken at the drop-off, so only while the goods are on the road.
+            if (photoType == DeliveryPhotoKeys.Arrival
+                && !DropoffJudgement.OnTheRoadDeliveryStatuses.Contains(GetStringOrNull(delivery, "status") ?? ""))
+            {
+                return LambdaResponse.Error(409, "DELIVERY_PHOTO_REFUSED", "The arrival photo is taken while the goods are on the road.");
             }
 
             // A handoff keeps its first photo: evidence is not replaced.
@@ -706,6 +727,8 @@ public class DeliveryFunction
             GpsDropoff = GetLatLng(item, "gpsDropoff"),
             PickupPhotoRef = GetStringOrNull(item, "pickupPhotoRef"),
             DropoffPhotoRef = GetStringOrNull(item, "dropoffPhotoRef"),
+            ArrivalPhotoRef = GetStringOrNull(item, "arrivalPhotoRef"),
+            AutoConfirmedAt = GetStringOrNull(item, DropoffJudgement.AutoConfirmedAtField),
             PickedUpAt = GetStringOrNull(item, "pickedUpAt"),
             ConfirmedAt = GetStringOrNull(item, "confirmedAt"),
             DisputeReason = GetStringOrNull(item, "disputeReason"),

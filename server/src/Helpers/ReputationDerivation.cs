@@ -17,7 +17,9 @@ namespace WeredaConnect.Server.Helpers;
 ///   and system cancels, a trucker who was never asked, and a farmer's <c>rejected</c> through a
 ///   dispute verdict.
 /// R10 to R12 (P3) read values only ESC-34 and ESC-36 write: ESC-34's pickup judgement writes R10's and
-/// R11's (only behind <c>pickupClassification</c>); R12's waits for ESC-36.
+/// R11's (only behind <c>pickupClassification</c>); ESC-36's T8 writes R12's (only behind
+/// <c>dropoffClassification</c>). ESC-36's T9 (<c>disputeReason: silent_buyer</c>, or a system confirm) is
+/// no event.
 /// </summary>
 public static class ReputationDerivation
 {
@@ -186,7 +188,9 @@ public static class ReputationDerivation
             });
         }
 
-        // R12 (P3): no delivery by T8.
+        // R12 (P3): no delivery by T8. FUP-204: ESC-36's T8 rests on the trucker's own missing drop-off
+        // check-in alone (a buyer who withholds the scan after the check-in makes a T9, silent_buyer, which is
+        // no event), so no other party is its reporter.
         if (newStatus == "disputed" && oldStatus != "disputed" && row.String(DisputeReasonField) == DeliveryOverdueReason)
         {
             Add(Candidate(row.String("truckerId"), Party.Trucker, ReputationSlots.Overdue + orderId, ReputationCodes.DeliveryOverdue));

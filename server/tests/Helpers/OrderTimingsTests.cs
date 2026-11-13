@@ -119,7 +119,41 @@ public class OrderTimingsTests
 
         timings.BuyerChoiceWindow.Should().Be(TimeSpan.FromHours(72));
         (timings with { BuyerChoiceWindow = OrderTimings.Defaults.BuyerChoiceWindow }).Should().Be(OrderTimings.Defaults);
-        _log.Count(l => l.Contains($"{OrderTimings.DefaultedToken} name=") && l.Contains("reason=missing")).Should().Be(7);
+        _log.Count(l => l.Contains($"{OrderTimings.DefaultedToken} name=") && l.Contains("reason=missing")).Should().Be(9);
+    }
+
+    [Fact]
+    public void ESC36_TheDropoffTimings_DefaultTo72And48Hours_AndAreRead()
+    {
+        OrderTimings.Defaults.DeliveryOverdue.Should().Be(TimeSpan.FromHours(72));
+        OrderTimings.Defaults.SilentBuyerWindow.Should().Be(TimeSpan.FromHours(48));
+        OrderTimings.Names.All.Should().HaveCount(10, "one GetParameters call takes at most 10 names");
+
+        var timings = Load(new Dictionary<string, string>
+        {
+            { Path + OrderTimings.Names.DeliveryOverdue, "96" },
+            { Path + OrderTimings.Names.SilentBuyerWindow, "36" }
+        });
+
+        timings.DeliveryOverdue.Should().Be(TimeSpan.FromHours(96));
+        timings.SilentBuyerWindow.Should().Be(TimeSpan.FromHours(36));
+    }
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("12")]
+    public void ESC36_TheDropoffTimings_NeverGoBelowADay(string raw)
+    {
+        // T9 releases money for a buyer who said nothing and T8 restricts a trucker: a typo must not fire either early.
+        var timings = Load(new Dictionary<string, string>
+        {
+            { Path + OrderTimings.Names.DeliveryOverdue, raw },
+            { Path + OrderTimings.Names.SilentBuyerWindow, raw }
+        });
+
+        timings.DeliveryOverdue.Should().Be(OrderTimings.DropoffFloor);
+        timings.SilentBuyerWindow.Should().Be(OrderTimings.DropoffFloor);
+        _log.Count(l => l.Contains(OrderTimings.ClampedToken)).Should().Be(2);
     }
 
     [Theory]

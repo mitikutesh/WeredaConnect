@@ -17,7 +17,9 @@ namespace WeredaConnect.Server.Helpers;
 /// and only for a window of at least <see cref="OrderCommitment.MinReminderWindow"/>, and each marker
 /// is stamped once. T1 and T2 stay with the hourly <c>auto_cancel_expired</c> action, whose
 /// <c>createdAt</c> key condition already reads only the rows past due; T10 and T12 stay with the escrow
-/// cron (they follow the escrow); T6, T8, T9 and T11 are not built yet (ESC-19 and P3).
+/// cron (they follow the escrow); T6 and T11 are not built yet (ESC-19 and P3). ESC-36 adds T8 and T9 on
+/// a <c>pickup_confirmed</c> or <c>in_transit</c> order stamped <c>dropoffJudgement: pending</c>
+/// (<see cref="Helpers.DropoffJudgement.Due"/>).
 /// </para>
 /// <para>
 /// The index has one partition (<see cref="Shard"/>): the sweep's question, "everything due before
@@ -97,6 +99,19 @@ public static class OrderDeadlines
         /// arrival, a delivery the order lagged), and one whose judgement the flag turned off.
         /// </summary>
         public const string PickupWaiting = "pickup_waiting";
+
+        /// <summary>
+        /// ESC-36, T8 on an order stamped <c>dropoffJudgement: pending</c> with no counted drop-off check-in:
+        /// <c>dropoffDeadlineAt</c> plus <see cref="Helpers.PickupJudgement.SettleMargin"/>; the delivery is overdue.
+        /// </summary>
+        public const string DeliveryOverdue = "delivery_overdue";
+
+        /// <summary>
+        /// ESC-36, T9 on such an order once the trucker checked in at the drop-off: the check-in's receipt plus
+        /// <see cref="OrderTimings.SilentBuyerWindow"/> and the margin; the delivery is confirmed for a silent
+        /// buyer or disputed.
+        /// </summary>
+        public const string SilentBuyer = "silent_buyer";
     }
 
     /// <summary>Whether <paramref name="key"/> is one of the deadline attributes (never taken from a caller's field map).</summary>
@@ -133,6 +148,15 @@ public static class OrderDeadlines
                         ? new OrderDeadline(pickupBy + Helpers.PickupJudgement.SettleMargin, Kind.PickupJudgement)
                         : new OrderDeadline(pickupBy,
                             Str(order, OrderCommitment.PickupOverdueNotifiedAtField).Length == 0 ? Kind.PickupOverdue : Kind.PickupWaiting));
+                }
+
+                break;
+            case "pickup_confirmed":
+            case "in_transit":
+                // ESC-36: a delivery judged at T8, or at T9 once the trucker checked in at the drop-off.
+                if (Helpers.DropoffJudgement.IsPending(order) && Helpers.DropoffJudgement.Due(order, timings) is { } dropoff)
+                {
+                    candidates.Add(dropoff);
                 }
 
                 break;
