@@ -255,8 +255,8 @@ GET /trips/trip-101
 | `createdAt` | string (ISO 8601) | Yes | — | Timestamp when trip was created |
 | `updatedAt` | string (ISO 8601) | Yes | — | Timestamp when trip was last updated |
 | `deletedAt` | string (ISO 8601) | No | ISO 8601 UTC | Timestamp when trip was soft-deleted (cancelled through the legacy `delete`) |
-| `cancelReason` | string | No | `expired` | Server-written (2.4.0): set only when the order cron closed a trip that left unbooked. Not a client field (unknown fields are refused) |
-| `cancelledAt` | string (ISO 8601) | No | ISO 8601 UTC | Server-written (2.4.0), with `cancelReason` |
+| `cancelReason` | string | No | `expired` | Server-written (2.4.0): set only when the order cron closed a trip that left unbooked. Not a client field (unknown fields are refused). Removed when an admin's trucker no-show re-open opens the trip again (2.7.0, Trip lifecycle) |
+| `cancelledAt` | string (ISO 8601) | No | ISO 8601 UTC | Server-written (2.4.0), with `cancelReason`, and removed with it |
 | `version` | number | Yes | >=1 | Optimistic concurrency control version |
 
 The trip row also stores `bookedOrderIds` and `acceptedOrderIds` (the orders holding capacity and the ones the trucker accepted, 2.0.0); they are not returned.
@@ -269,7 +269,7 @@ The trip row also stores `bookedOrderIds` and `acceptedOrderIds` (the orders hol
 | `matched` | Fully booked: `remainingQuintals` is 0 (2.0.0). Set by the system as orders reserve the capacity, never by a client; before 2.0.0 the trucker set it by hand |
 | `inTransit` | Truck has picked up crops and is en route |
 | `delivered` | Successfully delivered to destination: set by the trucker, or since 2.4.0 by the server once every delivery on the trip is done or cancelled |
-| `cancelled` | Trip cancelled by trucker, or since 2.4.0 closed by the server because it left with no booking (`cancelReason: expired`) |
+| `cancelled` | Trip cancelled by trucker, or since 2.4.0 closed by the server because it left with no booking (`cancelReason: expired`). Terminal, except that since 2.7.0 an admin's trucker no-show re-open opens a trip closed as `expired` again (Trip lifecycle) |
 
 ### Status Transitions
 
@@ -283,6 +283,7 @@ matched → inTransit (trucker picks up crops and departs)
 matched → cancelled (trucker cancels after match, re-opens matched listings; 2.0.0: same refusal, booked orders move to awaiting_transport)
 inTransit → delivered (trucker confirms delivery at destination; 2.4.0: also the system, once every delivery is done or cancelled)
 open → cancelled    (system, 2.4.0: the trip left with no booking and no live order, cancelReason: expired)
+cancelled → open | matched (admin only, 2.7.0: a trucker no-show re-open of the order whose release emptied the trip; cancelReason: expired only)
 ```
 
 Since 2.4.0 a change to a trip that is already `cancelled`, `delivered` or deleted answers `conflict` with the stored row (`serverData`, `serverVersion`; server wins) when what it asks already holds (a cancel of a cancelled trip, `delivered` for a delivered one, any legacy `delete` of a cancelled trip) or when its `version` is behind the stored one (the server closed or finished the trip while the phone was offline). Otherwise it is still refused with `TRIP_TERMINAL_STATE` / `TRIP_ALREADY_CANCELLED`. Ownership is checked first, so another trucker never gets the row.
@@ -292,7 +293,7 @@ Invalid transitions return `422 Unprocessable Entity`:
 - a client `open → matched` (2.0.0: the system sets `matched` when the trip is full)
 - `open → delivered` (must match and transit first)
 - `delivered → *` (terminal state)
-- `cancelled → *` (terminal state)
+- `cancelled → *` (terminal state for every client; only the admin re-open of 2.7.0 moves an `expired` trip)
 
 ---
 
@@ -432,6 +433,36 @@ cancelled trip). The run's response counts `departedTripsClosed` and `departedTr
 left with bookings stays for its trucker to start or cancel. The trip is never listed again, like any
 cancelled trip; a trucker's phone that still holds it as `open` learns the new state from the conflict
 answer of its next change.
+
+**A closed trip opened again by a trucker no-show re-open (2.7.0, FUP-363).** A trucker no-show
+judgement releases the order's booking and leaves the order in `awaiting_transport`, which does not
+keep a trip open, and its pickup deadline is 48 hours after the departure. So a trip that carried only
+that order is closed by the next run of the step above (within 15 minutes), as `expired`. When an admin
+then re-opens the no-show (`delivery-verification-api.md` 2.12.0 P.2, "Re-open of a trucker no-show"),
+the re-open opens that trip again in the re-open's transaction instead of refusing with
+`PICKUP_REOPEN_TRIP_UNAVAILABLE`: `cancelled → open`, or `cancelled → matched` when the order takes the
+last room; `cancelReason` and `cancelledAt` removed, `version` + 1, `updatedAt`, and the order's booking
+taken as the re-open takes it on an open trip (its quintals off `remainingQuintals` and onto
+`bookedQuintals`, the order in `bookedOrderIds` and `acceptedOrderIds`). The write is conditioned on the
+version the admin's request read, the trip still `cancelled` with `cancelReason: expired`, not deleted,
+holding no booking at all (no `bookedOrderIds` or `acceptedOrderIds`, `bookedQuintals` absent or 0) and
+the room for the order's quintals; the request checks before it that the trip is the order's trucker's
+(a trip's trucker never changes). A trip its trucker cancelled, or one deleted, is never opened again. Once open the trip holds the booking, so this step keeps it (`departedTripsKept`)
+until the trucker starts it or a second judgement releases the booking again. Nothing else reacts to
+the close or to the reopening: the trips table has no stream and no push names a trip's status, the
+live track follows the deliveries, not the trip, and the buyers' browse still leaves the trip out (its
+day is over, 2.2.0). The trucker's own reads (`GET /trips` as the trucker, which keeps departed trips,
+and `GET /trips/{id}`) return it as `open` or `matched` again, and the apps take it up as they take up
+any other status the server sets on a trucker's trip: web on its next read, mobile through the
+trucker's own-trip pull (2.8.0, Browse Trips), which replaces a stored `cancelled` row with the newer
+version.
+
+Decision (FUP-363): the order cron's close is not changed. Keeping every trip open while an order on it
+waits in `awaiting_transport` after a trucker no-show with late pickup evidence in the admin queue would
+change the close for all such orders, most of which are never re-opened, and leave departed trips open
+for days. The re-open is the only path that reverses the close, only for `expired`, only with no other
+booking, and in the same transaction as the rest of the re-open, so nothing is opened when the re-open
+is refused.
 
 **A trip becomes `delivered` when all its deliveries are done or cancelled.** After a delivery reaches
 `delivered`, `disputed` or `cancelled` through `/sync` (the buyer's confirm, a dispute, a party's cancel
@@ -594,7 +625,8 @@ Common route patterns:
 | 2.5.2 | 2026-11-11 | Docs only, no behaviour change (FUP-132): the infrastructure claims corrected against the CDK code, as in `crop-listing-api.md` 1.10.0. No CloudFront cache in front of `GET /trips` (none exists, responses are `no-store`, and a shared cache on a role-filtered list would be a visibility risk), no 100 req/s per user or 200 req/s per IP limits; the real limits are the HTTP API stage throttle (25 req/s per route, burst 50, all callers together), 60 sync requests per minute per user (`SYNC_RATE_LIMITED`) and the Lambda reserved concurrency (staging and prod only; dev sets none) |
 | 2.6.0 | 2026-11-11 | Owner reputation and restricted truckers (ESC-29, `reputation-api.md` 1.2.0 sections 7 and 8.3), all off in every environment. With `reputationPublicTags` on, `GET /trips` and `GET /trips/{id}` return `ownerTier` (`good` or `low`), `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt`, copied onto the trip by the server (stamped at create, refreshed when the trucker's reputation changes, without a `version` or `updatedAt` change); a client value is dropped. With `reputationPenalties` on, a buyer's `GET /trips` leaves out the trips of a trucker whose stored tier is `restricted` (the page may be short, as for cancelled trips); the trucker's own list, `GET /trips/{id}` and an admin's browse are not filtered, and a restricted trucker's `trip` create is refused with `REPUTATION_RESTRICTED` (`sync-protocol.md` 1.48.0). Role visibility is unchanged: a trucker sees only their own trips, a buyer every trip on the market |
 | 2.6.1 | 2026-11-12 | `TRIP_HAS_BOOKINGS` only to an app that sends `X-App-Build` (FUP-241, rules 12 and 13, `sync-protocol.md` 1.52.0): an app without the header gets the same sentence as `SYNC_VALIDATION:`, which it treats as permanent. Apps that send the header get the code as before. Server only |
-| 2.8.0 | 2026-11-13 | The trucker's phone pulls the trucker's own trips (FUP-374, Browse Trips). The server moves a trucker's trip without an upload from the phone (`matched` at a funding, `delivered`, and since 2.7.0 `open` or `matched` again after an admin's trucker no-show re-open), but mobile never read the trucker's own trips back, so a phone that stored the order cron's close from a conflict answer kept the trip `cancelled` and could not start it. The trucker's home card and My trips list now read `GET /trips?truckerId=` with no `status` first (best effort, 30 seconds throttle per trucker) and replace each stored row, except one with a trip upload on its way or a higher stored `version`; the phone's place ids are kept, another trucker's trip is never stored, nothing is deleted. This supersedes the 2.7.0 text that the phone takes a reopened trip up "through the next pull of own open trips": mobile had no such pull. The `status` row of the query table now says that a trucker's own list without `status` returns every status but `cancelled` (unchanged server behaviour). Role visibility unchanged. Mobile only; no server or wire change |
+| 2.7.0 | 2026-11-13 | A closed trip opened again by a trucker no-show re-open (FUP-363, Trip lifecycle, `delivery-verification-api.md` 2.12.0): the order cron closes a trip that carried only a no-show order within 15 minutes of the judgement (`expired`), so the admin re-open refused it with `PICKUP_REOPEN_TRIP_UNAVAILABLE`. The re-open now opens such a trip again in the re-open's transaction (new admin-only transition `cancelled → open | matched`, `cancelReason` and `cancelledAt` removed, `version` + 1, the booking taken back), conditioned on the version read, `expired`, no booking and the room; a trip its trucker cancelled stays cancelled. Decision: the cron's close is unchanged for every other order in `awaiting_transport`. No push, no browse change; the trucker's own list returns the trip again. Server only, no client change |
+| 2.8.0 | 2026-11-13 | The trucker's phone pulls the trucker's own trips (FUP-374, Browse Trips). The server moves a trucker's trip without an upload from the phone (`matched` at a funding, `delivered`, and since 2.7.0 `open` or `matched` again after an admin's trucker no-show re-open), but mobile never read the trucker's own trips back, so a phone that stored the order cron's close from a conflict answer kept the trip `cancelled` and could not start it. The trucker's home card and My trips list now read `GET /trips?truckerId=` with no `status` first (best effort, 30 seconds throttle per trucker) and replace each stored row, except one with a trip upload on its way or a higher stored `version`; the phone's place ids are kept, another trucker's trip is never stored, nothing is deleted. The 2.7.0 Trip lifecycle text said the phone takes a reopened trip up through a pull of own open trips, which mobile did not have; it now names this pull. The `status` row of the query table now says that a trucker's own list without `status` returns every status but `cancelled` (unchanged server behaviour). Role visibility unchanged. Mobile only; no server or wire change |
 
 ---
 

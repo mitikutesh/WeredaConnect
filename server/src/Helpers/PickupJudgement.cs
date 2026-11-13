@@ -43,6 +43,14 @@ public static class PickupJudgement
     public const string CheckInsField = "checkIns";
 
     /// <summary>
+    /// FUP-363: server-only delivery field, the time the judgement itself cancelled the pending delivery (ISO 8601
+    /// UTC), written in the same write as that cancel (<c>IDeliveryRepository.TryCancelPendingForJudgementAsync</c>).
+    /// A party's cancel and an admin's never write it. A trucker no-show re-open brings back only a delivery that
+    /// carries it, and removes it there (<c>NoShowReopen.HandoffRefusalOf</c>).
+    /// </summary>
+    public const string DeliveryCancelledAtField = "cancelledByJudgementAt";
+
+    /// <summary>
     /// Server-only order fields: the listing's point as it was when the order became judgeable. The
     /// check-ins are measured against it, so a farmer who moves the listing afterwards cannot push the
     /// trucker's check-in out of range (FUP-204). Never returned to a client.

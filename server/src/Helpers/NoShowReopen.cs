@@ -21,7 +21,16 @@ namespace WeredaConnect.Server.Helpers;
 /// empty check-ins, the state right after the trucker's accept, so the trucker's own delivery create makes the new
 /// pending delivery (the create claims the slot and links the escrow, as after any cancelled delivery) and the new
 /// window counts fresh check-ins (the cleared ones go to the audit row, <see cref="CheckInsNote"/>). Both take the
-/// trip booking back (refused when the trip is gone, cancelled, departed or full).
+/// trip booking back (refused when the trip is gone, cancelled by its trucker, departed or full).
+/// </para>
+/// <para>
+/// FUP-363 (delivery-verification-api.md 2.12.0, trip-listing-api.md 2.7.0): a trip the release left with no booking
+/// is usually closed by the order cron within 15 minutes (<c>cancelled</c>, <c>cancelReason: expired</c>, its day long
+/// over). The re-open opens such a trip again in the same transaction (<see cref="TripPlan.Revive"/>) instead of the
+/// cron keeping every trip open behind an order in <c>awaiting_transport</c>. The delivery a confirmed handoff brings
+/// back is the one the judgement's own cancel stamped (<see cref="PickupJudgement.DeliveryCancelledAtField"/>), not one
+/// cancelled at or after <c>pickupJudgedAt</c>: a judgement the cron retried after its order write failed carries a
+/// later <c>pickupJudgedAt</c> than its cancel.
 /// </para>
 /// </summary>
 public static class NoShowReopen
@@ -73,7 +82,14 @@ public static class NoShowReopen
         Reserve,
 
         /// <summary>The release never landed (best effort): the booking stands, only the accept is marked again.</summary>
-        KeepBooking
+        KeepBooking,
+
+        /// <summary>
+        /// FUP-363: the order cron closed the trip after the release left it with no booking (<c>cancelReason:
+        /// expired</c>): open it again with the order's booking, conditioned on the version read, still closed as
+        /// expired, no booking and the room (<c>TripRepository.BuildReviveBookingItem</c>).
+        /// </summary>
+        Revive
     }
 
     private const double KgPerQuintal = 100.0;
@@ -121,9 +137,11 @@ public static class NoShowReopen
     /// Why the admin cannot confirm the handoff (the 409's message), or null when it can. <paramref name="delivery"/>
     /// is the delivery of <see cref="DeliveryIdOf"/> as read: it must be this order's, on its trip, and the one the
     /// judgement cancelled: <c>cancelled</c> with no <c>cancelReason</c> (an admin cancel after pickup and a verdict
-    /// disposition write one), no verdict and no soft delete, cancelled at or after <c>pickupJudgedAt</c> (the judgement
-    /// cancels the pending delivery first, in the same run, so a party's cancel before it is never brought back). No
-    /// other delivery may hold the order's slot.
+    /// disposition write one), no verdict and no soft delete, and (FUP-363) carrying the judgement's own cancel stamp
+    /// (<see cref="PickupJudgement.DeliveryCancelledAtField"/>, which no party's or admin's cancel writes) at or after
+    /// the order's <c>pickupDeadlineAt</c>, so it is this window's judgement, not one before a <c>pending</c> re-open. The
+    /// stamp holds whenever the judgement's order write lands: a judgement the cron retried after a failed order write
+    /// carries a <c>pickupJudgedAt</c> later than its cancel. No other delivery may hold the order's slot.
     /// </summary>
     public static string? HandoffRefusalOf(IReadOnlyDictionary<string, object> order, IReadOnlyDictionary<string, object>? delivery)
     {
@@ -148,11 +166,14 @@ public static class NoShowReopen
             return "The order's delivery was closed by support or a dispute, not by the judgement.";
         }
 
-        if (!OrderCommitment.TryParseUtc(Str(delivery, "updatedAt"), out var cancelledAt)
-            || !OrderCommitment.TryParseUtc(Str(order, PickupJudgement.JudgedAtField), out var judgedAt)
-            || cancelledAt < judgedAt)
+        if (!OrderCommitment.TryParseUtc(Str(delivery, PickupJudgement.DeliveryCancelledAtField), out var cancelledAt))
         {
-            return "The order's delivery was cancelled before the judgement, not by it.";
+            return "The order's delivery was cancelled by a party or another step before the judgement, not by it.";
+        }
+
+        if (PickupJudgement.DeadlineOf(order) is not { } deadline || cancelledAt < deadline)
+        {
+            return "The order's delivery was cancelled by an earlier judgement, before this pickup window.";
         }
 
         var slot = Str(order, "activeDeliveryId");
@@ -190,14 +211,18 @@ public static class NoShowReopen
             return null;
         }
 
+        var bookedIds = trip.TryGetValue("bookedOrderIds", out var booked) ? booked.SS : null;
+        var acceptedIds = trip.TryGetValue("acceptedOrderIds", out var accepted) ? accepted.SS : null;
         return new ReopenTripState(
             Status: Raw(trip, "status"),
             CreatedAt: Raw(trip, "createdAt"),
             TruckerId: Raw(trip, "truckerId"),
             CancelReason: Raw(trip, "cancelReason"),
             Deleted: trip.ContainsKey("deletedAt"),
-            Booked: trip.TryGetValue("bookedOrderIds", out var booked) && booked.SS != null && booked.SS.Contains(orderId),
-            RemainingQuintals: Number(trip, "remainingQuintals") ?? Number(trip, "capacity") ?? 0.0);
+            Booked: bookedIds != null && bookedIds.Contains(orderId),
+            RemainingQuintals: Number(trip, "remainingQuintals") ?? Number(trip, "capacity") ?? 0.0,
+            Version: (int)(Number(trip, "version") ?? 0),
+            HoldsBookings: bookedIds is { Count: > 0 } || acceptedIds is { Count: > 0 } || Number(trip, "bookedQuintals") > 0);
     }
 
     /// <summary>
@@ -205,7 +230,10 @@ public static class NoShowReopen
     /// Only an <c>open</c> or <c>matched</c> trip of the order's trucker, not deleted, takes the booking back; one
     /// <c>inTransit</c> or <c>delivered</c> has departed. A trip that still holds the order's booking keeps it;
     /// otherwise its room must cover the order's quintals, compared exactly as the transaction's condition compares
-    /// them, so a trip short by any amount is refused here rather than by the write.
+    /// them, so a trip short by any amount is refused here rather than by the write. FUP-363: a trip the order cron
+    /// closed because it left with no booking (<c>cancelled</c>, <c>cancelReason: expired</c>), still holding none, is
+    /// opened again (<see cref="TripPlan.Revive"/>) under the same trucker and room rules; a trip its trucker cancelled
+    /// stays cancelled.
     /// </summary>
     public static (TripPlan? Plan, string? Refusal) TripPlanOf(IReadOnlyDictionary<string, object> order, ReopenTripState? trip)
     {
@@ -214,11 +242,15 @@ public static class NoShowReopen
             return (null, "The order's trip is gone.");
         }
 
-        if (trip.Deleted || trip.Status == "cancelled")
+        var expired = trip.Status == "cancelled" && trip.CancelReason == TripLifecycle.ExpiredCancelReason;
+        if (trip.Deleted || (trip.Status == "cancelled" && !expired))
         {
-            return (null, trip.CancelReason == TripLifecycle.ExpiredCancelReason
-                ? "The order's trip was closed: it left with no booking once the no-show released this one."
-                : "The order's trip was cancelled.");
+            return (null, "The order's trip was cancelled.");
+        }
+
+        if (expired && trip.HoldsBookings)
+        {
+            return (null, "The order's trip was closed and holds a booking, so it is not opened again.");
         }
 
         if (trip.Status is "inTransit" or "delivered")
@@ -226,7 +258,7 @@ public static class NoShowReopen
             return (null, $"The order's trip has departed ({trip.Status}).");
         }
 
-        if (trip.Status is not ("open" or "matched"))
+        if (!expired && trip.Status is not ("open" or "matched"))
         {
             return (null, $"The order's trip is {trip.Status}.");
         }
@@ -236,17 +268,23 @@ public static class NoShowReopen
             return (null, "The order's trip belongs to another trucker.");
         }
 
-        if (trip.Booked)
+        if (!expired && trip.Booked)
         {
             return (TripPlan.KeepBooking, null);
         }
 
         var quintals = QuintalsOf(order);
-        return trip.RemainingQuintals < quintals
-            ? (null, string.Format(CultureInfo.InvariantCulture,
-                "The order's trip is full: {0:0.##} quintals left, the order needs {1:0.##}.", trip.RemainingQuintals, quintals))
-            : (TripPlan.Reserve, null);
+        if (trip.RemainingQuintals < quintals)
+        {
+            return (null, string.Format(CultureInfo.InvariantCulture,
+                "The order's trip is full: {0:0.##} quintals left, the order needs {1:0.##}.", trip.RemainingQuintals, quintals));
+        }
+
+        return (expired ? TripPlan.Revive : TripPlan.Reserve, null);
     }
+
+    /// <summary>Whether the order's quintals take the trip's last room (the trip is then <c>matched</c>).</summary>
+    public static bool Fills(ReopenTripState trip, double quintals) => trip.RemainingQuintals - quintals <= 0;
 
     /// <summary>The order's quantity in quintals (<c>quantity</c> is kilograms), 0 when missing or unreadable.</summary>
     public static double QuintalsOf(IReadOnlyDictionary<string, object> order)
@@ -315,6 +353,12 @@ public static class NoShowReopen
             : null;
 }
 
-/// <summary>FUP-330: the trip of a no-show re-open as read (<see cref="NoShowReopen.TripStateOf"/>).</summary>
+/// <summary>
+/// FUP-330: the trip of a no-show re-open as read (<see cref="NoShowReopen.TripStateOf"/>). FUP-363: its
+/// <paramref name="Version"/> (the revive of an expired trip is conditioned on it) and whether it holds any booking at
+/// all (<paramref name="HoldsBookings"/>: an order in <c>bookedOrderIds</c> or <c>acceptedOrderIds</c>, or
+/// <c>bookedQuintals</c> above 0).
+/// </summary>
 public sealed record ReopenTripState(
-    string Status, string CreatedAt, string TruckerId, string CancelReason, bool Deleted, bool Booked, double RemainingQuintals);
+    string Status, string CreatedAt, string TruckerId, string CancelReason, bool Deleted, bool Booked, double RemainingQuintals,
+    int Version = 0, bool HoldsBookings = false);
