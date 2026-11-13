@@ -100,6 +100,18 @@ public static class DropoffJudgement
     /// <summary>Server-only delivery field: when the order cron confirmed the delivery for a silent buyer.</summary>
     public const string AutoConfirmedAtField = "autoConfirmedAt";
 
+    /// <summary>
+    /// FUP-373: server-only delivery field, when the arrival photo was attached as late evidence on the T8 dispute
+    /// (<see cref="TakesLateArrivalPhoto"/>); absent on a photo attached on the road.
+    /// </summary>
+    public const string ArrivalPhotoLateAtField = "arrivalPhotoLateAt";
+
+    /// <summary>
+    /// The delivery field an admin's verdict or disposition stamps. The verdict never changes <see cref="Field"/>,
+    /// so late drop-off evidence reads this to stop once the dispute is decided (FUP-373).
+    /// </summary>
+    public const string DisputeResolutionField = "disputeResolution";
+
     /// <summary>The <c>disputedBy</c> of a dispute the order cron opened.</summary>
     public const string SystemActor = "system";
 
@@ -386,17 +398,23 @@ public static class DropoffJudgement
 
     /// <summary>
     /// Whether the trucker's arrival photo is taken for the delivery: while the goods are on the road
-    /// (<see cref="OnTheRoadDeliveryStatuses"/>), and (FUP-373) as late evidence on the T8 dispute the order cron
-    /// opened (<see cref="OverdueReason"/> or <see cref="OutOfRangeReason"/>) that no admin has decided yet (no
-    /// <c>disputeResolution</c>). A check-in the trucker made offline at the drop-off before T8 may reach the
-    /// server after the T8 run, its photo first; the attach writes only the photo, never the status, and the
-    /// admin sees it in the dispute evidence. T9's <see cref="SilentBuyerReason"/> takes none: a counted
-    /// check-in always had its photo.
+    /// (<see cref="OnTheRoadDeliveryStatuses"/>), and (FUP-373) as late evidence (<see cref="TakesLateArrivalPhoto"/>).
     /// </summary>
     public static bool TakesArrivalPhoto(IReadOnlyDictionary<string, object> delivery)
-        => OnTheRoadDeliveryStatuses.Contains(Str(delivery, "status"))
-           || (SystemDisputeReasonOf(delivery) is OverdueReason or OutOfRangeReason
-               && Str(delivery, "disputeResolution").Length == 0);
+        => OnTheRoadDeliveryStatuses.Contains(Str(delivery, "status")) || TakesLateArrivalPhoto(delivery);
+
+    /// <summary>
+    /// FUP-373: whether the arrival photo is taken as late evidence: on the T8 dispute the order cron opened
+    /// (<see cref="OverdueReason"/> or <see cref="OutOfRangeReason"/>) that no admin has decided yet (no
+    /// <c>disputeResolution</c>). A check-in the trucker made offline at the drop-off before T8 may reach the
+    /// server after the T8 run, its photo first. The attach writes the photo with <see cref="ArrivalPhotoLateAtField"/>
+    /// and never the status, and the admin sees it marked late in the dispute evidence: it was attached after the
+    /// money froze, so it proves less than one taken on the road. T9's <see cref="SilentBuyerReason"/> takes none:
+    /// a counted check-in always had its photo.
+    /// </summary>
+    public static bool TakesLateArrivalPhoto(IReadOnlyDictionary<string, object> delivery)
+        => SystemDisputeReasonOf(delivery) is OverdueReason or OutOfRangeReason
+           && Str(delivery, DisputeResolutionField).Length == 0;
 
     // ── what the parties read ───────────────────────────────────────────────
 

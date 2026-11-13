@@ -32,8 +32,8 @@ class DeliveryPhotoUploader {
             );
 
   /// Uploads [bytes] as the [type] (`pickup`, `dropoff` or the trucker's
-  /// `arrival`) photo of [deliveryId] and returns its upload key. [contentType] is `image/webp`
-  /// (the phone) or `image/jpeg` (the browser).
+  /// `arrival`) photo of [deliveryId] and returns its upload key.
+  /// [contentType] is `image/webp` (the phone) or `image/jpeg` (the browser).
   ///
   /// Throws a [ValidationException] for a photo over the 200 KB cap (the
   /// server would refuse it too) or an answer without a key of this

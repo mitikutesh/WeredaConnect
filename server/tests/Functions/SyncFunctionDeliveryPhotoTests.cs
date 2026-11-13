@@ -44,6 +44,8 @@ public sealed class SyncFunctionDeliveryPhotoTests
     private readonly IAmazonS3 _s3 = Substitute.For<IAmazonS3>();
     private readonly ISyncMetadataRepository _syncMeta = Substitute.For<ISyncMetadataRepository>();
     private readonly IFraudDetectionService _fraud = Substitute.For<IFraudDetectionService>();
+    private readonly ITransactionAuditRepository _audit = Substitute.For<ITransactionAuditRepository>();
+    private readonly List<Dictionary<string, object>> _auditRows = new();
     private readonly TestLambdaContext _context = new();
 
     public SyncFunctionDeliveryPhotoTests()
@@ -51,6 +53,7 @@ public sealed class SyncFunctionDeliveryPhotoTests
         _syncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
         _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
             .Returns(new UpdateItemResponse());
+        _audit.AppendAsync(Arg.Do<Dictionary<string, object>>(e => _auditRows.Add(e))).Returns(Task.CompletedTask);
     }
 
     // ── Who may attach (role rules) ─────────────────────────────────────
@@ -372,7 +375,11 @@ public sealed class SyncFunctionDeliveryPhotoTests
         await _dynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
             r.ExpressionAttributeNames["#photo"] == "arrivalPhotoRef"
             && r.ExpressionAttributeNames["#photoVersion"] == "arrivalPhotoVersionId"
-            && r.ExpressionAttributeValues[":ref"].S == ArrivalKey), Arg.Any<CancellationToken>());
+            && r.ExpressionAttributeValues[":ref"].S == ArrivalKey
+            // FUP-373: on the road it is no late evidence: no marker, no verdict condition, no audit row.
+            && !r.ExpressionAttributeNames.ContainsKey("#lateAt")
+            && !r.ConditionExpression.Contains("#resolution")), Arg.Any<CancellationToken>());
+        _auditRows.Should().BeEmpty();
     }
 
     [Fact]
@@ -426,13 +433,50 @@ public sealed class SyncFunctionDeliveryPhotoTests
         SetupDelivery(SystemDisputed(reason));
         SetupObject(ArrivalKey, 120 * 1024);
 
+        var before = DateTime.UtcNow.AddSeconds(-1);
+
         var result = await SendAsync(TruckerId, "arrival", ArrivalKey, dropoff: true);
 
         result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        // Marked late with the server's time, and only while no verdict is stamped (the status stays disputed).
         await _dynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
-            r.UpdateExpression == "SET #photo = :ref, #photoVersion = :version"
+            r.UpdateExpression == "SET #photo = :ref, #photoVersion = :version, #lateAt = :lateAt"
             && r.ExpressionAttributeNames["#photo"] == "arrivalPhotoRef"
-            && r.ExpressionAttributeValues[":ref"].S == ArrivalKey), Arg.Any<CancellationToken>());
+            && r.ExpressionAttributeNames["#lateAt"] == DropoffJudgement.ArrivalPhotoLateAtField
+            && r.ExpressionAttributeNames["#resolution"] == "disputeResolution"
+            && r.ConditionExpression.EndsWith(" AND #status = :disputed AND attribute_not_exists(#resolution)")
+            && r.ExpressionAttributeValues[":disputed"].S == "disputed"
+            && r.ExpressionAttributeValues[":ref"].S == ArrivalKey
+            && !r.ExpressionAttributeNames.Values.Contains("version")), Arg.Any<CancellationToken>());
+        var write = _dynamoDb.ReceivedCalls().Select(c => c.GetArguments()[0]).OfType<UpdateItemRequest>().Single();
+        OrderCommitment.TryParseUtc(write.ExpressionAttributeValues[":lateAt"].S, out var lateAt).Should().BeTrue();
+        lateAt.Should().BeOnOrAfter(before);
+        // The admin's timeline row for it.
+        var audit = _auditRows.Should().ContainSingle().Subject;
+        audit["entityType"].Should().Be("delivery");
+        audit["entityId"].Should().Be(DeliveryId);
+        audit["action"].Should().Be("delivery_photo");
+        audit["metadata"].Should().Be("type=arrival;late=true");
+    }
+
+    [Fact]
+    public async Task FUP373_AVerdictLandingBeforeTheWrite_RefusesTheLatePhoto()
+    {
+        // The verdict lands between the read and the write: the condition fails, the fresh row carries it.
+        var decided = SystemDisputed(DropoffJudgement.OverdueReason);
+        decided["disputeResolution"] = new AttributeValue { S = "buyer_wins" };
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable), Arg.Any<CancellationToken>())
+            .Returns(
+                new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { SystemDisputed(DropoffJudgement.OverdueReason) } },
+                new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { decided } });
+        SetupObject(ArrivalKey, 120 * 1024);
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns<UpdateItemResponse>(_ => throw new ConditionalCheckFailedException("verdict"));
+
+        var result = await SendAsync(TruckerId, "arrival", ArrivalKey, dropoff: true);
+
+        MessageOf(result).Should().StartWith("DELIVERY_PHOTO_REFUSED: ");
+        _auditRows.Should().BeEmpty();
     }
 
     [Theory]
@@ -552,7 +596,7 @@ public sealed class SyncFunctionDeliveryPhotoTests
         Dictionary<string, object> data, bool withBucket = true, bool dropoff = false)
     {
         var function = new SyncFunction(_syncMeta, Substitute.For<ICropRepository>(), _dynamoDb,
-            "test-trips-table", DeliveriesTable, fraudService: _fraud)
+            "test-trips-table", DeliveriesTable, fraudService: _fraud, transactionAuditRepo: _audit)
         {
             UploadsBucket = withBucket ? Bucket : null,
             DeliveryPhotoS3 = withBucket ? _s3 : null,

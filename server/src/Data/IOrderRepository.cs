@@ -280,6 +280,14 @@ public interface IOrderRepository
     Task<bool> TryRecordDropoffAttemptAsync(string orderId, Dictionary<string, object> entry);
 
     /// <summary>
+    /// FUP-373: keep a late out-of-range drop-off check-in (received after T8, <c>late: true</c>) as
+    /// <c>dropoffAttempt</c> when none is stored, whatever the judgement: evidence for the admin only. Received
+    /// after T8, it never counts at T8 (<see cref="Helpers.DropoffJudgement.CountedAttempt"/>), so it changes no
+    /// outcome; no version bump. False when an attempt is stored already.
+    /// </summary>
+    Task<bool> TryRecordLateDropoffAttemptAsync(string orderId, Dictionary<string, object> entry);
+
+    /// <summary>
     /// ESC-09: one page of the <c>StatusCreatedAtIndex</c> partition for <paramref name="status"/>,
     /// oldest first, without the rows the money sweep marked as decided at that status
     /// (<see cref="OrderMoneyFields.SweepSkip"/>). <paramref name="limit"/> is the evaluation limit.

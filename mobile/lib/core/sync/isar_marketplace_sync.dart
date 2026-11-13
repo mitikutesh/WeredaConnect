@@ -227,8 +227,9 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// shows; a drop-off check-in refused for its missing arrival photo also
   /// forgets the photo path the phone kept ([_forgetArrivalPhoto], FUP-336),
   /// and so does the arrival photo's own `delivery_photo` refused for good
-  /// (FUP-373: the executor hands it over without announcing it). Other
-  /// entity types are left alone.
+  /// (FUP-373: the executor hands it over without announcing it), only when
+  /// the kept path is that operation's file. Other entity types are left
+  /// alone.
   Future<void> revertRejected(SyncOperation operation, String message) async {
     if (operation.entityType == 'delivery') {
       await _revertRejectedDelivery(operation);
@@ -236,8 +237,9 @@ class IsarMarketplaceSync implements MarketplaceSync {
     }
     if (operation.entityType == deliveryPhotoEntityType) {
       final photo = parseDeliveryPhotoEntityId(operation.entityId);
-      if (photo != null && photo.type == arrivalPhotoType) {
-        await _forgetArrivalPhoto(photo.deliveryId);
+      final path = _photoOperationPath(operation.data);
+      if (photo != null && photo.type == arrivalPhotoType && path != null) {
+        await _forgetArrivalPhoto(photo.deliveryId, onlyPath: path);
       }
       return;
     }
@@ -634,20 +636,38 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// `delivery_photo` for good, so the arrival photo this phone kept for
   /// [deliveryId] never reached it. The phone forgets that file's path, so the
   /// next "Arrived at drop-off" takes a new photo instead of counting on one
-  /// the server will never get. A server key stays.
-  Future<void> _forgetArrivalPhoto(String deliveryId) async {
+  /// the server will never get. With [onlyPath] (the refused operation's own
+  /// file), any other kept path stays. A server key stays.
+  Future<void> _forgetArrivalPhoto(
+    String deliveryId, {
+    String? onlyPath,
+  }) async {
     await _isar.writeTxn(() async {
       final delivery = await _isar.deliverys
           .filter()
           .deliveryIdEqualTo(deliveryId)
           .findFirst();
+      final kept = _localPhotoPath(delivery?.arrivalPhotoRef);
       if (delivery == null ||
-          _localPhotoPath(delivery.arrivalPhotoRef) == null) {
+          kept == null ||
+          (onlyPath != null && kept != onlyPath)) {
         return;
       }
       delivery.arrivalPhotoRef = null;
       await _isar.deliverys.put(delivery);
     });
+  }
+
+  /// The phone's file of a queued `delivery_photo` (its never-sent
+  /// `_localPath`), or null.
+  static String? _photoOperationPath(String data) {
+    try {
+      final decoded = jsonDecode(data);
+      final path = decoded is Map ? decoded[deliveryPhotoLocalPathKey] : null;
+      return path is String && path.isNotEmpty ? path : null;
+    } on FormatException {
+      return null;
+    }
   }
 
   Future<Set<String>> _entityIdsWithPendingUploads() async {

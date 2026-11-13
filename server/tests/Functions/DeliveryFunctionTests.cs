@@ -852,6 +852,18 @@ public class DeliveryFunctionTests
     }
 
     [Fact]
+    public void MapToDeliveryDto_CarriesTheLateArrivalPhotoMarker_ForTheAdminEvidence()
+    {
+        // FUP-373: an arrival photo attached on the T8 dispute carries when; one taken on the road carries none.
+        var delivery = CreateDeliveryItem("del-001", "disputed");
+        delivery["arrivalPhotoRef"] = "uploads/photos/del-001/arrival-1763000000000.webp";
+        delivery["arrivalPhotoLateAt"] = "2026-11-13T10:00:00.0000000Z";
+
+        Assert.Equal("2026-11-13T10:00:00.0000000Z", DeliveryFunction.MapToDeliveryDto(delivery).ArrivalPhotoLateAt);
+        Assert.Null(DeliveryFunction.MapToDeliveryDto(CreateDeliveryItem("del-001", "inTransit")).ArrivalPhotoLateAt);
+    }
+
+    [Fact]
     public void MapToDeliveryDto_LegacyRowWithoutCargo_LeavesCargoNull()
     {
         var dto = DeliveryFunction.MapToDeliveryDto(CreateDeliveryItem("del-001"));

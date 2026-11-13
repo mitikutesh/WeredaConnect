@@ -555,6 +555,34 @@ void main() {
   });
 
   test(
+      'FUP-373: a refused arrival photo forgets only its own file, never '
+      'another one the delivery shows', () async {
+    await putOrder();
+    await putDelivery(arrivalPhotoRef: _photoPath);
+    await queue.enqueue(
+      userId: 'trucker-1',
+      entityType: deliveryPhotoEntityType,
+      entityId: _photoEntity,
+      action: 'create',
+      data: jsonEncode({deliveryPhotoLocalPathKey: '${_photoPath}x'}),
+      operationId: 'op-other-photo',
+    );
+    answers[deliveryPhotoEntityType] = {
+      'status': 'error',
+      'message': 'DELIVERY_PHOTO_REFUSED: The arrival photo is taken while '
+          'the goods are on the road.',
+    };
+
+    await executor.executeBatch();
+
+    expect(
+      SyncQueue.isRejected((await ops(deliveryPhotoEntityType)).single),
+      isTrue,
+    );
+    expect((await delivery()).arrivalPhotoRef, _photoPath);
+  });
+
+  test(
       'queued offline before T8, synced after it: the late text, and the '
       'order shows the late check-in', () async {
     await putOrder();

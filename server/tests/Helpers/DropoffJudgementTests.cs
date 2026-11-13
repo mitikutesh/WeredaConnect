@@ -331,6 +331,8 @@ public class DropoffJudgementTests
         }
 
         DropoffJudgement.TakesArrivalPhoto(delivery).Should().Be(takes);
+        // Off the road it can only be late evidence, marked so by the attach.
+        DropoffJudgement.TakesLateArrivalPhoto(delivery).Should().Be(takes && status == "disputed");
     }
 
     [Fact]

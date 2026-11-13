@@ -10133,7 +10133,7 @@ abstract class AppLocalizations {
   /// **'No drop-off check-in arrived by the delivery deadline. Support is looking into it and the money stays held.'**
   String get dropoffJudgementDeliveryOverdue;
 
-  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome dropoff_out_of_range (T8 dispute after an out-of-range attempt) FUP-373: says the check-in was far from the order's drop-off point, not that the trucker was far away (the buyer's pin may be wrong, FUP-204).
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome dropoff_out_of_range (T8 dispute after an out-of-range attempt). FUP-373: says the check-in was far from the order's drop-off point, not that the trucker was far away (the buyer's pin may be wrong, FUP-204).
   ///
   /// In en, this message translates to:
   /// **'The trucker\'s check-in was more than 5 km from the order\'s drop-off point. Support is looking into it and the money stays held.'**
@@ -10169,7 +10169,7 @@ abstract class AppLocalizations {
   /// **'Only the order\'s trucker checks in at the drop-off. Your check-in was not saved.'**
   String get errorDropoffCheckInNotParty;
 
-  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_FAR at the drop-off FUP-373: says the check-in was far from the order's drop-off point, not that the trucker was far away (the buyer's pin may be wrong, FUP-204).
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_FAR at the drop-off. FUP-373: says the check-in was far from the order's drop-off point, not that the trucker was far away (the buyer's pin may be wrong, FUP-204).
   ///
   /// In en, this message translates to:
   /// **'Your check-in was more than 5 km from the order\'s drop-off point, so it was not saved. Check in again nearer that point.'**

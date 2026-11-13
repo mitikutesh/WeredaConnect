@@ -107,10 +107,17 @@ public partial class SyncFunction
         }
 
         // ESC-36: the arrival photo belongs to the drop-off, so it attaches only while the goods are on the road;
-        // FUP-373: or as late evidence on the T8 dispute no admin has decided (an offline check-in synced late).
-        if (type == DeliveryPhotoKeys.Arrival && !DropoffJudgement.TakesArrivalPhoto(DynamoDbHelper.FromItem(existing)))
+        // FUP-373: or as late evidence on the T8 dispute no admin has decided (an offline check-in synced late),
+        // then marked late below.
+        var lateArrival = false;
+        if (type == DeliveryPhotoKeys.Arrival)
         {
-            return PhotoResult(operation, "error", "DELIVERY_PHOTO_REFUSED: The arrival photo is taken while the goods are on the road.");
+            if (!DropoffJudgement.TakesArrivalPhoto(DynamoDbHelper.FromItem(existing)))
+            {
+                return ArrivalPhotoRefused(operation);
+            }
+
+            lateArrival = !DropoffJudgement.OnTheRoadDeliveryStatuses.Contains(AttrString(existing, "status"));
         }
 
         if (DeliveryPhotoS3 == null || string.IsNullOrEmpty(UploadsBucket))
@@ -172,6 +179,21 @@ public partial class SyncFunction
             update += ", #photoVersion = :version";
         }
 
+        var condition = "attribute_exists(deliveryId) AND attribute_not_exists(#photo) "
+            + "AND #status <> :cancelled AND attribute_not_exists(deletedAt)";
+        if (lateArrival)
+        {
+            // FUP-373: attached after the money froze, so it is marked late with the server's time, and only
+            // while the dispute still waits for an admin: a verdict leaves the status disputed, so the
+            // condition checks the verdict itself.
+            names["#lateAt"] = DropoffJudgement.ArrivalPhotoLateAtField;
+            names["#resolution"] = DropoffJudgement.DisputeResolutionField;
+            values[":lateAt"] = new AttributeValue { S = OrderCommitment.Iso(DateTime.UtcNow) };
+            values[":disputed"] = new AttributeValue { S = "disputed" };
+            update += ", #lateAt = :lateAt";
+            condition += " AND #status = :disputed AND attribute_not_exists(#resolution)";
+        }
+
         try
         {
             // The condition keeps the first photo: a retry of the same key may only find it (or
@@ -185,24 +207,36 @@ public partial class SyncFunction
                     { "tripId", existing["tripId"] },
                 },
                 UpdateExpression = update,
-                ConditionExpression = "attribute_exists(deliveryId) AND attribute_not_exists(#photo) "
-                    + "AND #status <> :cancelled AND attribute_not_exists(deletedAt)",
+                ConditionExpression = condition,
                 ExpressionAttributeNames = names,
                 ExpressionAttributeValues = values,
             });
         }
         catch (ConditionalCheckFailedException)
         {
-            // Another photo, a cancel or the row's removal landed in between: judge the row as it is now.
+            // Another photo, a cancel, a verdict or the row's removal landed in between: judge the row as it is now.
             var fresh = await GetDeliveryItemAsync(deliveryId, consistentRead: true);
-            return fresh == null
-                ? PhotoResult(operation, "error", "Delivery not found.")
-                : PhotoStateAnswer(operation, fresh, type, photoRef!)
-                  ?? PhotoResult(operation, "deferred", "DELIVERY_PHOTO_PENDING: The photo could not be attached yet. Will retry automatically.");
+            if (fresh == null)
+            {
+                return PhotoResult(operation, "error", "Delivery not found.");
+            }
+
+            return PhotoStateAnswer(operation, fresh, type, photoRef!)
+                   ?? (type == DeliveryPhotoKeys.Arrival && !DropoffJudgement.TakesArrivalPhoto(DynamoDbHelper.FromItem(fresh))
+                       ? ArrivalPhotoRefused(operation)
+                       : PhotoResult(operation, "deferred", "DELIVERY_PHOTO_PENDING: The photo could not be attached yet. Will retry automatically."));
+        }
+
+        if (lateArrival)
+        {
+            var status = AttrString(existing, "status");
+            var orderId = AttrString(existing, "orderId");
+            await EmitTxAuditAsync(context, orderId.Length > 0 ? orderId : deliveryId, "delivery", deliveryId,
+                "delivery_photo", status, status, metadata: $"type={DeliveryPhotoKeys.Arrival};late=true");
         }
 
         context.Logger.LogInformation(
-            $"DELIVERY_PHOTO attached deliveryId={MoneyAlarmLog.LogId(deliveryId)} type={type} bytes={size}");
+            $"DELIVERY_PHOTO attached deliveryId={MoneyAlarmLog.LogId(deliveryId)} type={type} bytes={size} late={lateArrival}");
         return new SyncOperationResult
         {
             OperationId = operation.OperationId,
@@ -267,6 +301,9 @@ public partial class SyncFunction
 
     private static SyncOperationResult PhotoResult(SyncOperationRequest operation, string status, string message)
         => new() { OperationId = operation.OperationId, Status = status, Message = message };
+
+    private static SyncOperationResult ArrivalPhotoRefused(SyncOperationRequest operation)
+        => PhotoResult(operation, "error", "DELIVERY_PHOTO_REFUSED: The arrival photo is taken while the goods are on the road.");
 
     /// <summary>
     /// FIX-011 and FRD-12: a delivery create or update may still carry <c>pickupPhotoRef</c> or

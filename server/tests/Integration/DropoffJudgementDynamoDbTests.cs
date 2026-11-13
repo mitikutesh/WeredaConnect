@@ -409,12 +409,15 @@ public sealed class DropoffJudgementDynamoDbTests
         => (DeliveryPhotoKeys.EntityType, $"{DeliveryId}#{DeliveryPhotoKeys.Arrival}",
             new Dictionary<string, object> { { DeliveryPhotoKeys.PhotoRefField, ArrivalKey } });
 
-    /// <summary>The trucker's "Arrived at drop-off", tapped at the drop-off an hour before T8 (0.1 km from the buyer's pin).</summary>
-    private (string, string, Dictionary<string, object>) DropoffCheckInOp(DateTime t8)
+    /// <summary>
+    /// The trucker's "Arrived at drop-off", tapped an hour before T8: 0.1 km from the buyer's pin, or (<paramref name="latitude"/>
+    /// 9.2) about 19 km from both points.
+    /// </summary>
+    private (string, string, Dictionary<string, object>) DropoffCheckInOp(DateTime t8, double latitude = 9.031)
         => (PickupJudgement.EntityType, $"{OrderId}#{PickupJudgement.Kind.ArrivedDropoff}", new Dictionary<string, object>
         {
             { "orderId", OrderId }, { "kind", PickupJudgement.Kind.ArrivedDropoff }, { "capturedAt", OrderCommitment.Iso(t8.AddHours(-1)) },
-            { "latitude", 9.031 }, { "longitude", 38.74 }, { "accuracyM", 20 }
+            { "latitude", latitude }, { "longitude", 38.74 }, { "accuracyM", 20 }
         });
 
     /// <summary>T8 ran with no check-in on the server: the delivery and the order are the system's overdue dispute.</summary>
@@ -443,10 +446,14 @@ public sealed class DropoffJudgementDynamoDbTests
         results[0].GetProperty("status").GetString().Should().Be("success", results[0].ToString());
         results[1].GetProperty("message").GetString().Should().StartWith($"{PickupJudgement.TooLateCode}: ");
 
-        // The photo is evidence on the dispute: written with its S3 version, the status and version untouched.
+        // The photo is evidence on the dispute: written with its S3 version and marked late with the server's
+        // time (the admin tells it from one taken on the road), the status and version untouched.
         var delivery = (await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!;
         delivery["arrivalPhotoRef"].Should().Be(ArrivalKey);
         delivery["arrivalPhotoVersionId"].Should().Be("v-late");
+        OrderCommitment.TryParseUtc((string)delivery[DropoffJudgement.ArrivalPhotoLateAtField], out var lateAt).Should().BeTrue();
+        lateAt.Should().BeAfter(t8);
+        DeliveryFunction.MapToDeliveryDto(delivery).ArrivalPhotoLateAt.Should().Be((string)delivery[DropoffJudgement.ArrivalPhotoLateAtField]);
         delivery["status"].Should().Be("disputed");
         delivery["version"].Should().Be(deliveryBefore["version"]);
         delivery["updatedAt"].Should().Be(deliveryBefore["updatedAt"]);
@@ -483,5 +490,51 @@ public sealed class DropoffJudgementDynamoDbTests
         DropoffJudgement.CheckInOf(order)![PickupJudgement.EntryLate].Should().Be(true);
         order[DropoffJudgement.Field].Should().Be(DropoffJudgement.Outcome.DeliveryOverdue);
         (await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!.Should().NotContainKey("arrivalPhotoRef");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task FUP373_ALateFarCheckIn_BeforeTheT8Run_IsKeptAsALateAttempt_AndT8StaysOverdue()
+    {
+        // T8 passed, the cron has not run yet: the far check-in (the buyer's pin may be wrong) is kept as a late
+        // attempt for the admin, but received after T8 it cannot turn the overdue dispute into the out-of-range one.
+        var t8 = DateTime.UtcNow.AddMinutes(-30);
+        await SeedOrderAsync(t8);
+        await SeedDeliveryAsync(arrivalPhoto: false);
+        await SeedEscrowAsync();
+
+        var results = await SyncAsTruckerAsync(DropoffCheckInOp(t8, latitude: 9.2));
+
+        results[0].GetProperty("message").GetString().Should().StartWith($"{PickupJudgement.TooLateCode}: ");
+        var attempt = DropoffJudgement.AttemptOf(await ReadOrderAsync())!;
+        attempt[PickupJudgement.EntryLate].Should().Be(true);
+        attempt[PickupJudgement.EntryOutOfRange].Should().Be(true);
+        DropoffJudgement.CheckInOf(await ReadOrderAsync()).Should().BeNull();
+
+        (await RunAsync(Cron())).Body.Should().Contain("\"dropoffJudged\":\"1\"");
+
+        var order = await ReadOrderAsync();
+        order[DropoffJudgement.Field].Should().Be(DropoffJudgement.Outcome.DeliveryOverdue, "a late attempt never counts");
+        order[DropoffJudgement.DisputeReasonField].Should().Be(DropoffJudgement.OverdueReason);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task FUP373_OnceAnAdminDecided_TheLatePhotoIsRefused_AndALateCheckInIsNotOpen()
+    {
+        var t8 = await JudgedOverdueAsync();
+        (await Deliveries.TryRecordDisputeResolutionAsync(DeliveryId, "farmer_wins", OrderCommitment.Iso(DateTime.UtcNow)))
+            .Should().BeTrue();
+        var deliveryBefore = (await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!;
+
+        var results = await SyncAsTruckerAsync(ArrivalPhotoOp(), DropoffCheckInOp(t8), DropoffCheckInOp(t8, latitude: 9.2));
+
+        results[0].GetProperty("message").GetString().Should().StartWith("DELIVERY_PHOTO_REFUSED: ");
+        results[1].GetProperty("message").GetString().Should().StartWith($"{PickupJudgement.NotOpenCode}: ");
+        results[2].GetProperty("message").GetString().Should().StartWith($"{PickupJudgement.NotOpenCode}: ");
+        var delivery = (await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!;
+        delivery.Should().NotContainKey("arrivalPhotoRef").And.NotContainKey(DropoffJudgement.ArrivalPhotoLateAtField);
+        delivery["version"].Should().Be(deliveryBefore["version"]);
+        var order = await ReadOrderAsync();
+        DropoffJudgement.CheckInOf(order).Should().BeNull();
+        DropoffJudgement.AttemptOf(order).Should().BeNull();
     }
 }

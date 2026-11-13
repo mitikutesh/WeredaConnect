@@ -133,6 +133,9 @@ export function PhotosTab({ evidence }: { evidence: DisputeEvidence }) {
   const legs = (["pickup", "dropoff", "arrival"] as const).filter(
     (leg) => leg !== "arrival" || (typeof delivery.arrivalPhotoUrl === "string" && delivery.arrivalPhotoUrl !== ""),
   );
+  // FUP-373: an arrival photo attached on the system's overdue dispute, after the money froze, carries when.
+  const arrivalLateAt =
+    typeof delivery.arrivalPhotoLateAt === "string" && delivery.arrivalPhotoLateAt !== "" ? delivery.arrivalPhotoLateAt : "";
 
   return (
     <Card>
@@ -141,6 +144,7 @@ export function PhotosTab({ evidence }: { evidence: DisputeEvidence }) {
           const url = typeof delivery[`${leg}PhotoUrl`] === "string" ? String(delivery[`${leg}PhotoUrl`]) : "";
           const name = t(`transactions.${leg}Photo`);
           const handoff = handoffAt(leg);
+          const lateAt = leg === "arrival" ? arrivalLateAt : "";
           return (
             <figure key={leg}>
               {url ? (
@@ -156,8 +160,14 @@ export function PhotosTab({ evidence }: { evidence: DisputeEvidence }) {
               <figcaption className="mt-2 text-sm">
                 <span className="font-semibold">{name}</span>
                 {handoff?.at ? <span className="text-text-muted"> · {formatDateTime(handoff.at)}</span> : null}
+                {lateAt ? <span className="text-text-muted"> · {formatDateTime(lateAt)}</span> : null}
                 {handoff?.gps ? (
                   <span className="block font-mono text-xs text-text-muted">{formatGps(handoff.gps)}</span>
+                ) : null}
+                {lateAt ? (
+                  <span className="mt-1 block">
+                    <Badge variant="warning">{t("evidence.arrivalPhotoLate")}</Badge>
+                  </span>
                 ) : null}
               </figcaption>
             </figure>

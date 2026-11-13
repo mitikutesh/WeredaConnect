@@ -59,6 +59,7 @@ public sealed class SyncFunctionDropoffCheckInTests
     private bool _pickup;
     private string _deliveryStatus = "inTransit";
     private bool _arrivalPhoto = true;
+    private string? _disputeResolution;
 
     public SyncFunctionDropoffCheckInTests()
     {
@@ -73,6 +74,7 @@ public sealed class SyncFunctionDropoffCheckInTests
                 return true;
             });
         _orders.TryRecordDropoffAttemptAsync(OrderId, Arg.Any<Dictionary<string, object>>()).Returns(true);
+        _orders.TryRecordLateDropoffAttemptAsync(OrderId, Arg.Any<Dictionary<string, object>>()).Returns(true);
         _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable), Arg.Any<CancellationToken>())
             .Returns(_ => new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { DeliveryItem() } });
         _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == TripsTable), Arg.Any<CancellationToken>())
@@ -132,6 +134,11 @@ public sealed class SyncFunctionDropoffCheckInTests
         if (_arrivalPhoto)
         {
             item["arrivalPhotoRef"] = new AttributeValue { S = ArrivalKey };
+        }
+
+        if (_disputeResolution != null)
+        {
+            item["disputeResolution"] = new AttributeValue { S = _disputeResolution };
         }
 
         return item;
@@ -211,6 +218,7 @@ public sealed class SyncFunctionDropoffCheckInTests
     {
         await NoCheckInWriteAsync();
         await _orders.DidNotReceive().TryRecordDropoffAttemptAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await _orders.DidNotReceive().TryRecordLateDropoffAttemptAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
     private Task NoCheckInWriteAsync()
@@ -314,16 +322,46 @@ public sealed class SyncFunctionDropoffCheckInTests
         await NoWriteAsync();
     }
 
+    /// <summary>
+    /// FUP-373 (was: a far check-in after T8 is not kept): kept as a late attempt, never counted at T8 (received after
+    /// it), answered too late; the on-time attempt and the check-in are not written.
+    /// </summary>
     [Fact]
-    public async Task AFarCheckInAfterT8_IsNotKept()
+    public async Task FUP373_AFarCheckInAfterT8_IsKeptAsALateAttempt_AndAnsweredTooLate()
     {
         _order = Order(deadline: DateTime.UtcNow.AddMinutes(-5));
 
         var result = await CheckInAsync(TruckerId, Arrived(FarLat));
 
-        MessageOf(result).Should().StartWith($"{PickupJudgement.TooFarCode}: ").And.NotContain("kept");
+        MessageOf(result).Should().StartWith($"{PickupJudgement.TooLateCode}: ");
+        await _orders.Received(1).TryRecordLateDropoffAttemptAsync(OrderId, Arg.Is<Dictionary<string, object>>(e =>
+            (bool)e[PickupJudgement.EntryLate] && (bool)e[PickupJudgement.EntryOutOfRange]
+            && !(bool)e[PickupJudgement.EntryDistanceChecked] && (string)e[PickupJudgement.EntryBy] == TruckerId));
         await _orders.DidNotReceive().TryRecordDropoffAttemptAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await NoCheckInWriteAsync();
+        DropoffJudgement.CountedAttempt(WithAttempt(_order, DateTime.UtcNow)).Should().BeNull("received after T8, it never counts");
     }
+
+    [Fact]
+    public async Task FUP373_AFarCheckInAfterT8_WithAnAttemptStored_IsTooFar_NotKept()
+    {
+        _order = Order(deadline: DateTime.UtcNow.AddMinutes(-5));
+        _orders.TryRecordLateDropoffAttemptAsync(OrderId, Arg.Any<Dictionary<string, object>>()).Returns(false);
+
+        var result = await CheckInAsync(TruckerId, Arrived(FarLat));
+
+        MessageOf(result).Should().StartWith($"{PickupJudgement.TooFarCode}: ").And.NotContain("kept");
+        await NoCheckInWriteAsync();
+    }
+
+    private static Dictionary<string, object> WithAttempt(Dictionary<string, object> order, DateTime received)
+        => new(order)
+        {
+            [DropoffJudgement.AttemptField] = new Dictionary<string, object>
+            {
+                { PickupJudgement.EntryReceivedAt, OrderCommitment.Iso(received) }, { PickupJudgement.EntryLate, true }
+            }
+        };
 
     [Fact]
     public async Task WithoutTheArrivalPhoto_TheCheckInIsRefused_PhotoRequired()
@@ -474,7 +512,7 @@ public sealed class SyncFunctionDropoffCheckInTests
     }
 
     [Fact]
-    public async Task FUP373_ALateFarCheckInWithoutThePhoto_IsTooFar_AndNothingIsKept()
+    public async Task FUP373_ALateFarCheckInWithoutThePhoto_AfterTheOverdueJudgement_IsKeptAsALateAttempt()
     {
         _order = Order(status: "disputed", judgement: DropoffJudgement.Outcome.DeliveryOverdue, deadline: DateTime.UtcNow.AddHours(-3));
         _deliveryStatus = "disputed";
@@ -482,7 +520,28 @@ public sealed class SyncFunctionDropoffCheckInTests
 
         var result = await CheckInAsync(TruckerId, Arrived(FarLat));
 
-        MessageOf(result).Should().StartWith($"{PickupJudgement.TooFarCode}: ").And.NotContain("kept");
+        MessageOf(result).Should().StartWith($"{PickupJudgement.TooLateCode}: ");
+        await _orders.Received(1).TryRecordLateDropoffAttemptAsync(OrderId, Arg.Is<Dictionary<string, object>>(e =>
+            (bool)e[PickupJudgement.EntryLate] && (bool)e[PickupJudgement.EntryOutOfRange]));
+        await NoCheckInWriteAsync();
+    }
+
+    /// <summary>
+    /// FUP-373: the verdict never changes dropoffJudgement, so the order alone still reads Late; the delivery's
+    /// disputeResolution closes it: nothing is written onto a decided dispute, near or far.
+    /// </summary>
+    [Theory]
+    [InlineData(NearLat)]
+    [InlineData(FarLat)]
+    public async Task FUP373_OnceAnAdminDecidedTheDispute_ALateCheckInIsNotOpen(double latitude)
+    {
+        _order = Order(status: "disputed", judgement: DropoffJudgement.Outcome.DeliveryOverdue, deadline: DateTime.UtcNow.AddHours(-3));
+        _deliveryStatus = "disputed";
+        _disputeResolution = "farmer_wins";
+
+        var result = await CheckInAsync(TruckerId, Arrived(latitude));
+
+        MessageOf(result).Should().StartWith($"{PickupJudgement.NotOpenCode}: ");
         await NoWriteAsync();
     }
 
