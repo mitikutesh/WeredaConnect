@@ -1434,7 +1434,8 @@ class SyncExecutor {
   /// - a refused `create` rejects the operations queued behind it for that
   ///   entity, which could only loop on a transient "not found";
   /// - a refused handoff rejects its photo waiting behind it (FRD-12), and a
-  ///   refused pickup the trucker's drop-off code registration (FUP-439);
+  ///   pickup refused by a code that undoes it the trucker's drop-off code
+  ///   registration (FUP-439);
   /// - a refused order change (or any `ORDER_*` refusal), a delivery cancel
   ///   refused after pickup, a refused delivery dispute or handoff, a message
   ///   refused because its thread's contact is not open, and a crop listing
@@ -1455,7 +1456,7 @@ class SyncExecutor {
   Future<void> _settleRejections(
     List<(SyncOperation, String?)> rejected,
   ) async {
-    for (final (operation, _) in rejected) {
+    for (final (operation, message) in rejected) {
       if (operation.action == 'create') {
         await _syncQueue.rejectOpenOperationsFor(
           operation.entityType,
@@ -1476,12 +1477,14 @@ class SyncExecutor {
             deliveryPhotoEntityId(operation.entityId, type),
           );
         }
-        // FUP-439: a refused pickup also rejects the trucker's drop-off code
-        // registration queued behind it (ESC-35). The server holds that back
-        // while the delivery is pending, so it could only wait, and while it
-        // waited the revert below left the phone's pickup in place (another
-        // upload for the delivery was on its way).
-        if (_isPickup(operation)) {
+        // FUP-439: a pickup refused by a code that undoes it also rejects the
+        // trucker's drop-off code registration queued behind it (ESC-35).
+        // The server holds that back while the delivery is pending, so it
+        // could only wait, and while it waited the revert below left the
+        // phone's pickup in place (another upload for the delivery was on
+        // its way). The revert then flags it with the pickup, so it leaves
+        // the "Sync failed" count; a refusal that undoes nothing leaves it.
+        if (_isPickup(operation) && _revertsLocalChange(operation, message)) {
           for (final waiting in await _syncQueue.waitingOperationsFor(
             'delivery',
             operation.entityId,

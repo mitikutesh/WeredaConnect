@@ -10409,10 +10409,10 @@ abstract class AppLocalizations {
   /// **'Pickup not confirmed: your location was more than 5 km from the farm, and the farmer is not paid yet. Scan the farmer\'s QR code again at the farm.'**
   String get deliveryErrorGpsSelfPickupFar;
 
-  /// FUP-439 (sync-protocol.md 1.62.0, delivery-verification-api.md 2.15.0). am and om machine drafted, native review owed. Buyer at a trucker's drop-off: the server refused the confirm for good (DELIVERY_GPS_PROXIMITY dropoff_far, more than 5 km from both the trip's destination and the order's drop-off point); the local confirm was undone
+  /// FUP-439 (sync-protocol.md 1.62.0, delivery-verification-api.md 2.15.0). am and om machine drafted, native review owed. Buyer at a trucker's drop-off: the server refused the confirm for good (DELIVERY_GPS_PROXIMITY dropoff_far, more than 5 km from both the trip's destination and the order's drop-off point); the local confirm was undone. Support is the way out when both stored points are wrong (a wrong pin, FUP-204), since every scan at the right place is refused then
   ///
   /// In en, this message translates to:
-  /// **'Delivery not confirmed: your location was more than 5 km from the drop-off point. Scan the trucker\'s QR code again where you receive the goods.'**
+  /// **'Delivery not confirmed: your location was more than 5 km from the drop-off point. Scan the trucker\'s QR code again where you receive the goods, or contact support.'**
   String get deliveryErrorGpsDropoffFar;
 }
 

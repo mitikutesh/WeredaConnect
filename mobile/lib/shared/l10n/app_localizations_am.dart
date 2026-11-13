@@ -5989,5 +5989,5 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryErrorGpsDropoffFar =>
-      'ማድረሻው አልተረጋገጠም፤ ቦታዎ ከማውረጃ ቦታው ከ5 ኪ.ሜ በላይ ርቆ ነበር። እቃውን በሚቀበሉበት ቦታ የሹፌሩን QR ኮድ እንደገና ይቃኙ።';
+      'ማድረሻው አልተረጋገጠም፤ ቦታዎ ከማውረጃ ቦታው ከ5 ኪ.ሜ በላይ ርቆ ነበር። እቃውን በሚቀበሉበት ቦታ የሹፌሩን QR ኮድ እንደገና ይቃኙ፣ ወይም ድጋፍ ሰጪን ያግኙ።';
 }

@@ -639,30 +639,20 @@ void main() {
         expect(syncPosts, 1);
       });
     }
+  });
 
-    // The trucker's phone queues its drop-off code behind every pickup
-    // (ESC-35). The server holds it back while the delivery is pending, so
-    // it would wait, and the revert skips a delivery with an upload on its
-    // way: the refused pickup rejects it first.
-    test(
-        'a refused pickup rejects the drop-off code waiting behind it before '
-        'the revert', () async {
-      final waitingAtRevert = <int>[];
-      executor.dispose();
-      executor = buildExecutor(
-        securityEvents: events,
-        onPermanentRejection: (op, message) async {
-          waitingAtRevert.add(
-            (await syncQueue.waitingOperationsFor('delivery', 'del-1')).length,
-          );
-          reverts.add((op, message));
-        },
-      );
+  // The trucker's phone queues its drop-off code behind every pickup
+  // (ESC-35). The server holds it back (`deferred`) while the delivery is
+  // pending, so it would wait, and the revert skips a delivery with an
+  // upload on its way: a pickup refused by a code that undoes it rejects the
+  // registration first, and the revert flags both (FUP-439).
+  group('the drop-off code queued behind a refused pickup', () {
+    Future<void> enqueueHandoff(String data) async {
       await enqueue(
         'op-1',
         entityType: 'delivery',
         entityId: 'del-1',
-        data: '{"status":"pickedUp","scannedQrNonce":"n","version":1}',
+        data: data,
       );
       await enqueue(
         'op-dropoff-code',
@@ -671,12 +661,11 @@ void main() {
         action: 'update-dropoff',
         data: '{"dropoffQrNonce":"d.abc","version":2}',
       );
+    }
+
+    void replyWithRegistrationHeldBack(Map<String, dynamic> handoffAnswer) {
       replyWith([
-        error(
-          'op-1',
-          'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is 11.1km from '
-              'listing location (max 5km).',
-        ),
+        handoffAnswer,
         {
           'operationId': 'op-dropoff-code',
           'status': 'deferred',
@@ -684,47 +673,110 @@ void main() {
               'Will retry automatically.',
         },
       ]);
+    }
 
-      await executor.executeBatch();
-      await waitFor(() => rejections().isNotEmpty);
+    const pickup = '{"status":"pickedUp","scannedQrNonce":"n","version":1}';
 
-      expect(await isRejected('op-dropoff-code'), isTrue);
-      expect(waitingAtRevert, [0]);
-      expect(reverts.single.$1.operationId, 'op-1');
-      expect(await syncQueue.getFailedCount(), 0);
-      // One announcement for the delivery.
-      expect(rejections(), hasLength(1));
-    });
+    for (final message in [
+      'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is 11.1km from '
+          'listing location (max 5km).',
+      'DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.',
+      "DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server "
+          'for this pickup. Contact support.',
+    ]) {
+      test('is rejected before the revert: ${message.split(':').first}',
+          () async {
+        final waitingAtRevert = <int>[];
+        executor.dispose();
+        executor = buildExecutor(
+          securityEvents: events,
+          onPermanentRejection: (op, message) async {
+            waitingAtRevert.add(
+              (await syncQueue.waitingOperationsFor('delivery', 'del-1'))
+                  .length,
+            );
+            reverts.add((op, message));
+          },
+        );
+        await enqueueHandoff(pickup);
+        replyWithRegistrationHeldBack(error('op-1', message));
 
-    test('a refused delivery confirm leaves other delivery operations alone',
-        () async {
-      await enqueue(
-        'op-1',
-        entityType: 'delivery',
-        entityId: 'del-1',
-        data: '{"status":"delivered","scannedQrNonce":"n","version":2}',
-      );
-      await enqueue(
-        'op-dropoff-code',
-        entityType: 'delivery',
-        entityId: 'del-1',
-        action: 'update-dropoff',
-        data: '{"dropoffQrNonce":"d.abc","version":2}',
-      );
-      replyWith([
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-dropoff-code'), isTrue);
+        expect(waitingAtRevert, [0]);
+        expect(reverts.single.$1.operationId, 'op-1');
+        // Flagged with the pickup: neither counts as "Sync failed".
+        expect(
+          (await syncQueue.getOperation('op-dropoff-code'))!.reverted,
+          isTrue,
+        );
+        expect(await syncQueue.getFailedCount(), 0);
+        // One announcement for the delivery.
+        expect(rejections(), hasLength(1));
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+
+    // Nothing is reverted, so nothing would flag a rejected registration:
+    // the user would see a "Sync failed" operation they never made.
+    test('a permanent refusal that undoes nothing leaves it waiting', () async {
+      await enqueueHandoff(pickup);
+      replyWithRegistrationHeldBack(
         error(
           'op-1',
-          'DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is 16.2km from '
-              'the drop-off point (max 5km).',
+          'DELIVERY_UNAUTHORIZED: Only the trucker can mark as pickedUp.',
         ),
-        {'operationId': 'op-dropoff-code', 'status': 'success'},
-      ]);
+      );
 
       await executor.executeBatch();
       await waitFor(() => rejections().isNotEmpty);
 
       expect(await isRejected('op-1'), isTrue);
-      expect(await isRejected('op-dropoff-code'), isFalse);
+      expect(reverts, isEmpty);
+      final registration = await syncQueue.getOperation('op-dropoff-code');
+      expect(SyncQueue.isRejected(registration!), isFalse);
+      expect(registration.status, SyncStatus.pending);
+      // Only the refused pickup counts, as before.
+      expect(await syncQueue.getFailedCount(), 1);
+    });
+
+    test('a transient pickup failure keeps it', () async {
+      await enqueueHandoff(pickup);
+      replyWithRegistrationHeldBack(error('op-1', 'Internal server error.'));
+
+      await executor.executeBatch();
+
+      final refused = await syncQueue.getOperation('op-1');
+      expect(SyncQueue.isRejected(refused!), isFalse);
+      expect(refused.retryCount, 1);
+      final registration = await syncQueue.getOperation('op-dropoff-code');
+      expect(SyncQueue.isRejected(registration!), isFalse);
+      expect(registration.status, SyncStatus.pending);
+      expect(reverts, isEmpty);
+    });
+
+    test('a refused delivery confirm leaves it waiting', () async {
+      await enqueueHandoff(
+        '{"status":"delivered","scannedQrNonce":"n","version":2}',
+      );
+      replyWithRegistrationHeldBack(
+        error(
+          'op-1',
+          'DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is 16.2km from '
+              'the drop-off point (max 5km).',
+        ),
+      );
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      final registration = await syncQueue.getOperation('op-dropoff-code');
+      expect(SyncQueue.isRejected(registration!), isFalse);
+      expect(registration.status, SyncStatus.pending);
     });
   });
 

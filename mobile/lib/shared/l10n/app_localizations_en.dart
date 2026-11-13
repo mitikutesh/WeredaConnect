@@ -6140,5 +6140,5 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryErrorGpsDropoffFar =>
-      'Delivery not confirmed: your location was more than 5 km from the drop-off point. Scan the trucker\'s QR code again where you receive the goods.';
+      'Delivery not confirmed: your location was more than 5 km from the drop-off point. Scan the trucker\'s QR code again where you receive the goods, or contact support.';
 }

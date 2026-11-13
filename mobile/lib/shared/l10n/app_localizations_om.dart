@@ -6196,5 +6196,5 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryErrorGpsDropoffFar =>
-      'Geejjibni hin mirkanoofne: bakki kee bakka buusuu irraa km 5 ol fagaatee ture. Bakka meeshaa itti fudhattutti koodii QR konkolaachisaa irra deebi\'ii iskaanii godhi.';
+      'Geejjibni hin mirkanoofne: bakki kee bakka buusuu irraa km 5 ol fagaatee ture. Bakka meeshaa itti fudhattutti koodii QR konkolaachisaa irra deebi\'ii iskaanii godhi, yookaan deeggarsa qunnami.';
 }

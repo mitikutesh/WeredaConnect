@@ -3459,5 +3459,5 @@
   "deliveryErrorGpsSelfPickupNoFix": "Fudhachuun hin mirkanoofne: bilbilli kee bakka hin ergine, qonnaan bulaanis hanga ammaatti hin kaffalamne. Tajaajila bakkaa banii maasii irratti koodii QR qonnaan bulaa irra deebi'ii iskaanii godhi.",
   "deliveryErrorGpsSelfPickupNoFarmPoint": "Fudhachuun hin mirkanoofne: oomisha kanaaf bakki maasii galmaa'e waan hin jirreef bakki kee hin mirkanoofne, qonnaan bulaanis hanga ammaatti hin kaffalamne. Deeggarsa qunnami.",
   "deliveryErrorGpsSelfPickupFar": "Fudhachuun hin mirkanoofne: bakki kee maasii irraa km 5 ol fagaatee ture, qonnaan bulaanis hanga ammaatti hin kaffalamne. Maasii irratti koodii QR qonnaan bulaa irra deebi'ii iskaanii godhi.",
-  "deliveryErrorGpsDropoffFar": "Geejjibni hin mirkanoofne: bakki kee bakka buusuu irraa km 5 ol fagaatee ture. Bakka meeshaa itti fudhattutti koodii QR konkolaachisaa irra deebi'ii iskaanii godhi."
+  "deliveryErrorGpsDropoffFar": "Geejjibni hin mirkanoofne: bakki kee bakka buusuu irraa km 5 ol fagaatee ture. Bakka meeshaa itti fudhattutti koodii QR konkolaachisaa irra deebi'ii iskaanii godhi, yookaan deeggarsa qunnami."
 }
