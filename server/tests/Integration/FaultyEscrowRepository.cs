@@ -114,6 +114,8 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
         => _inner.TryCloseManualPayoutAsync(escrowId, createdAt, op, leg, externalRef, paidBy, paidAt, otherLegsMustBePaid, newStatus, settlementFields, reference);
     public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryOpenManualPayoutsAsync(
         int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => _inner.QueryOpenManualPayoutsAsync(limit, exclusiveStartKey);
+    public Task<bool> TryMarkManualPayoutOverdueLoggedAsync(string escrowId, string createdAt, string queuedAt)
+        => _inner.TryMarkManualPayoutOverdueLoggedAsync(escrowId, createdAt, queuedAt);
     public Task<Dictionary<string, object>?> GetByDeliveryIdAsync(string deliveryId) => _inner.GetByDeliveryIdAsync(deliveryId);
     public Task<List<Dictionary<string, object>>> QueryByOrderIdAsync(string orderId, int limit = 5) => _inner.QueryByOrderIdAsync(orderId, limit);
     public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByBuyerAsync(

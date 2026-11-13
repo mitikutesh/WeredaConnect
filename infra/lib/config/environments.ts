@@ -31,6 +31,15 @@ export interface EnvironmentConfig {
    */
   readonly monitoringEnabled?: boolean;
   /**
+   * FUP-06: email addresses the Monitoring stack subscribes to the alarm topic (`<prefix>-alarms`), one
+   * `AWS::SNS::Subscription` each; every address gets an AWS confirmation mail and receives nothing until it is
+   * confirmed. Default empty: no subscription is made in code and a subscriber added by hand (console or CLI) is
+   * left alone. Use a shared operations address, never a personal one. Set here, not with `-c`: the CI deploy
+   * passes only `environment`, so a context value would be dropped (and the subscription deleted) by the next
+   * deploy. Only used when monitoring is enabled.
+   */
+  readonly alarmEmails?: readonly string[];
+  /**
    * When true, provision the real Telebirr gateway path instead of the mock:
    * a Telebirr credentials secret, a VPC + t4g.nano NAT instance (for a stable
    * outbound IP that Telebirr can source-IP allow-list), the public

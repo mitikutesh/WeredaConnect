@@ -2870,6 +2870,8 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-releases-blocked-overdue',
     // FUP-64: a recorded wait_for_delivery a week old (dispute-alarms.test.ts).
     'wereda-connect-dev-dispute-verdict-wait-overdue',
+    // FUP-06: a manual payout leg overdue for the first time (newly-overdue-alarm.test.ts).
+    'wereda-connect-dev-manual-payouts-newly-overdue',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -3514,6 +3516,8 @@ describe('MonitoringStack', () => {
     'ReleasesBlockedOverdue',
     // FUP-64: a recorded wait_for_delivery a week old (dispute-alarms.test.ts).
     'DisputeVerdictWaitOverdue',
+    // FUP-06: a manual payout leg overdue for the first time (newly-overdue-alarm.test.ts).
+    'ManualPayoutsNewlyOverdue',
   ];
   // FUP-81: the other filters of those log groups, each named, so a new filter there must be
   // sorted into one list or the other. The JSON audit filters match a field exactly (client text
@@ -3590,8 +3594,9 @@ describe('MonitoringStack', () => {
     // EscrowDeliveryStampFailures (2: sync and escrow-cron); ESC-20 added LedgerRowsOverdue (1: escrow-cron) and
     // EscrowLedgerInvariant (2 here: escrow and escrow-cron; its admin filter is outside these log groups);
     // FUP-231 added OrderDeadlineRefundStalled (2: order-cron and escrow-cron); FUP-41 added
-    // ReleasesBlockedOverdue (1: escrow-cron); FUP-64 added DisputeVerdictWaitOverdue (1: escrow-cron).
-    expect(patterns.length).toBe(29);
+    // ReleasesBlockedOverdue (1: escrow-cron); FUP-64 added DisputeVerdictWaitOverdue (1: escrow-cron); FUP-06 added
+    // ManualPayoutsNewlyOverdue (1: escrow-cron).
+    expect(patterns.length).toBe(30);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the
