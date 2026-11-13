@@ -17,7 +17,9 @@ public interface ICropRepository
         Dictionary<string, object> data);
 
     /// <summary>
-    /// Update an existing crop listing with optimistic concurrency.
+    /// Update an existing crop listing with optimistic concurrency. FUP-152: a deleted listing
+    /// (<see cref="CropRepository.IsDeleted"/>) is never written; that failure carries
+    /// <see cref="CropRepository.AlreadyDeletedCode"/>, a version mismatch <c>SYNC_CONFLICT</c>.
     /// </summary>
     Task<AuthResult<Dictionary<string, object>>> UpdateAsync(
         string cropId,

@@ -2945,6 +2945,13 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "crop", authenticatedUserId, context);
                     }
 
+                    // FUP-152: a deleted listing never changes again, with or without a status. The
+                    // write's own condition covers a delete that lands after this read.
+                    if (CropRepository.IsDeleted(existingForUpdate))
+                    {
+                        return DeletedListingConflict(operation, existingForUpdate);
+                    }
+
                     // Field whitelist — reject unknown fields
                     var unknownUpdateFields = operation.Data.Keys
                         .Where(k => !AllowedCropFields.Contains(k) && k != "version")
@@ -3085,7 +3092,10 @@ public partial class SyncFunction
                         Status = "conflict",
                         ServerVersion = serverVer,
                         ServerData = serverData,
-                        Message = updateResult.Error?.Message ?? "Version conflict."
+                        // FUP-152: deleted between the read above and the write.
+                        Message = updateResult.Error?.Code == CropRepository.AlreadyDeletedCode
+                            ? CropAlreadyDeletedMessage
+                            : updateResult.Error?.Message ?? "Version conflict."
                     };
                 }
 
