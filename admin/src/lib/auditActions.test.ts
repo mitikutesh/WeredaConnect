@@ -128,6 +128,8 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "handoff_check_in",
   "pickup_judged",
   "late_pickup_evidence",
+  // FUP-19: an admin's cancel of a delivery after pickup
+  "admin_delivery_cancelled",
   // FUP-287: an admin re-opened a judged pickup (entity order; a confirmed handoff also writes picked_up)
   "admin_pickup_reopened",
   // ESC-36: the drop-off judgement stamp, and the system's confirm of a silent buyer's delivery

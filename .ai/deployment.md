@@ -588,6 +588,7 @@ POST /escrow/refund
 | POST | `/admin/fraud-signals/{id}/action` | Review a fraud signal: `approve`, `reject` (suspends the user, `fraud_confirmed`) or `whitelist` (FRD-05) |
 | POST | `/admin/users/{id}/action` | Suspend, unsuspend, verify or change role (`fraud_confirmed` is not an accepted suspend reason) |
 | POST | `/admin/payouts/{escrowId}/{ref}/complete` | Record an admin-paid manual payout leg (`{externalRef}`, admin group only) |
+| POST | `/admin/deliveries/{id}/cancel` | Cancel a delivery picked up and never delivered, once every escrow behind it is settled (`{reason, expectedVersion}`, admin group only; moves no money or order status; FUP-19) |
 
 #### Manual payout queue (live mode runbook, ESC-02)
 

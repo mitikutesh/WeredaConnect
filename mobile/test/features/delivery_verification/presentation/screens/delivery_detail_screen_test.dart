@@ -498,4 +498,41 @@ void main() {
       }
     });
   });
+
+  // FUP-19: an admin cancels a delivery after pickup (or a dispute
+  // disposition does). The row keeps its pickup time; every party sees it
+  // cancelled and gets no handoff, drop-off, cancel or live trip action.
+  group('DeliveryDetailScreen cancelled after pickup (FUP-19)', () {
+    for (final userId in ['farmer-001', 'trucker-001', 'buyer-001']) {
+      testWidgets('$userId sees it cancelled, with no action left',
+          (tester) async {
+        await tester.pumpWidget(
+          buildTestWidget(
+            delivery: _makeDelivery(
+              status: DeliveryStatus.cancelled,
+              pickedUpAt: DateTime(2026, 11, 11, 7),
+              gpsPickup: LatLng()
+                ..latitude = 9.68
+                ..longitude = 39.53,
+            ),
+            currentUserId: userId,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Cancelled'), findsAtLeastNWidgets(1));
+        expect(find.byKey(const Key('delivery_dropoff_qr')), findsNothing);
+        expect(find.byKey(const Key('delivery_live_trip')), findsNothing);
+        for (final action in [
+          'Show QR Code',
+          'Confirm Pickup',
+          'Mark In Transit',
+          'Confirm Delivery',
+          'Cancel Delivery',
+        ]) {
+          expect(find.text(action), findsNothing, reason: action);
+        }
+      });
+    }
+  });
 }

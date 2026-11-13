@@ -675,6 +675,26 @@ public class SyncFunctionDeliveryRulesTests
     }
 
     [Fact]
+    public async Task Create_SlotHeldByADeliveryAnAdminCancelledAfterPickup_IsRefusedWithoutTakeover()
+    {
+        // FUP-19: the goods left the farm under that delivery and its money is decided, so the order takes no
+        // new delivery. A delivery cancelled any other way is still taken over (above).
+        SetupCreate();
+        SetupSlotHolder(DeadDeliveryId, "2026-10-09T08:00:00.0000000Z");
+        var adminCancelled = Delivery("cancelled", version: 4);
+        adminCancelled["cancelReason"] = new AttributeValue { S = "admin_cancelled" };
+        SetupHolderRow(DeadDeliveryId, adminCancelled);
+        SetupSlotWrites(replace: DeliverySlotWriteResult.Written);
+
+        var result = await SendAsync(CreateOp(), TruckerId);
+
+        result.GetProperty("message").GetString().Should().Be(
+            "DELIVERY_VALIDATION: The order already has an active delivery.");
+        await _orders.Received(1).TryCreateDeliveryWithSlotAsync(Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<Dictionary<string, AttributeValue>>(), Arg.Any<DeliverySlotHolder?>());
+    }
+
+    [Fact]
     public async Task Create_TakeoverLosesTheRace_IsRefusedWithoutRetrying()
     {
         // The holder changed between the read and the takeover: refuse, never loop.

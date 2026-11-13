@@ -150,11 +150,27 @@ public static class TransactionAuditWriter
         AuditContext ctx,
         string timestamp,
         string? metadata = null)
+        => repo.AppendIfAbsentAsync(BuildOnceEntry(
+            transactionId, entityType, entityId, action, fromState, toState, ctx, timestamp, metadata));
+
+    /// <summary>
+    /// The row <see cref="EmitOnceCheckedAsync"/> writes, at its deterministic key, for a caller that puts it in its
+    /// own transaction so the row lands with the change it records or not at all (FUP-19).
+    /// </summary>
+    public static Dictionary<string, object> BuildOnceEntry(
+        string transactionId,
+        string entityType,
+        string entityId,
+        string action,
+        string? fromState,
+        string? toState,
+        AuditContext ctx,
+        string timestamp,
+        string? metadata = null)
     {
         // The id is deterministic too, so two writers that race build the same row.
         var auditId = $"txaudit-{transactionId}-{action}-{new string(timestamp.Where(char.IsAsciiLetterOrDigit).ToArray())}";
-        return repo.AppendIfAbsentAsync(BuildEntry(
-            auditId, transactionId, entityType, entityId, action, fromState, toState, ctx, timestamp, metadata));
+        return BuildEntry(auditId, transactionId, entityType, entityId, action, fromState, toState, ctx, timestamp, metadata);
     }
 
     private static Dictionary<string, object> BuildEntry(

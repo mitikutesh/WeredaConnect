@@ -42,6 +42,7 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/payments/unapplied      → captured payments the webhook did not apply (FUP-02)
 /// - POST /admin/payments/{orderId}/refund-manual → record their manual refund (admin group only)
 /// - GET  /admin/deliveries/{id}/trail → the trip trail of a delivery, dispute evidence (admin group only, LT-13)
+/// - POST /admin/deliveries/{id}/cancel → cancel a delivery after pickup once its money is decided (admin group only, FUP-19)
 /// - GET  /admin/escrows/{id}/ledger   → the escrow's ledger rows, read only (ESC-24)
 /// - GET  /admin/orders/queue          → stuck orders: the admin queue or a passed deadline (ESC-24)
 /// - POST /admin/orders/{orderId}/reopen-pickup → re-open a judged pickup (admin group only, FUP-287)
@@ -231,6 +232,7 @@ public partial class AdminFunction
                 ("GET", ["admin", "payments", "unapplied"]) => await HandleListUnappliedPaymentsAsync(request),
                 ("POST", ["admin", "payments", _, "refund-manual"]) => await HandleRecordManualRefundAsync(segments[2], request, context),
                 ("GET", ["admin", "deliveries", _, "trail"]) => await HandleDeliveryTrailAsync(segments[2], request, context),
+                ("POST", ["admin", "deliveries", _, _]) => await HandleDeliveryActionAsync(segments[2], segments[3], request, context),
                 ("GET", ["admin", "users", _, "reputation"]) => await HandleGetReputationAsync(segments[2], request, context),
                 ("POST", ["admin", "users", _, "reputation"]) => await HandleReputationActionAsync(segments[2], request, context),
                 ("POST", ["admin", "users", _, "reputation", "events", _, "decision"]) => await HandleReputationDecisionAsync(segments[2], segments[5], request, context),

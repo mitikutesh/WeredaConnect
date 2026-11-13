@@ -6389,7 +6389,9 @@ public partial class SyncFunction
     /// cancelled (a slot release after the cancel did not land), or it has no row and its claim
     /// carries no time (a claim left by a create from before ESC-08, which wrote the claim and the
     /// row separately). Since ESC-08 a claim is always timed and written with its row, so a timed
-    /// claim without a row is never taken over.
+    /// claim without a row is never taken over. FUP-19: a delivery an admin cancelled after pickup
+    /// keeps the slot, so its order takes no new delivery (the goods left the farm under it and the
+    /// money behind it is already decided).
     /// </summary>
     private async Task<DeliverySlotHolder?> FindStaleDeliverySlotAsync(string orderId)
     {
@@ -6406,7 +6408,8 @@ public partial class SyncFunction
         var holder = await GetDeliveryItemAsync(holderId, consistentRead: true);
         var dead = holder == null
             ? claimedAt == null
-            : holder.TryGetValue("status", out var holderStatus) && holderStatus.S == "cancelled";
+            : holder.TryGetValue("status", out var holderStatus) && holderStatus.S == "cancelled"
+              && !AdminDeliveryCancel.IsAdminCancelled(holderStatus.S, AttrString(holder, "cancelReason"));
         return dead ? new DeliverySlotHolder(holderId, claimedAt) : null;
     }
 

@@ -377,6 +377,32 @@ export function useCorrectPayoutReference() {
   });
 }
 
+// FUP-19: cancel a delivery that was picked up and never delivered, once the money behind it is decided. Only the
+// delivery changes (no money, no order status); the transaction page and the audit log reload either way, so a
+// refusal (the delivery, the order or the payment changed) shows them as they are now.
+export function useCancelDelivery() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      deliveryId,
+      reason,
+      expectedVersion,
+    }: {
+      deliveryId: string;
+      reason: string;
+      expectedVersion: number;
+    }) =>
+      api.post<{ alreadyCancelled?: boolean }>(`/admin/deliveries/${encodeURIComponent(deliveryId)}/cancel`, {
+        reason,
+        expectedVersion,
+      }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+  });
+}
+
 // FUP-287: re-open a judged pickup after reconciling a real handoff (delivery-verification-api 2.8.0 P.2). The
 // transaction page, the stuck orders and the audit log reload either way, so a refusal (the order, its delivery or
 // its money changed) shows the order as it is now.
