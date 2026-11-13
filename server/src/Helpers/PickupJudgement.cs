@@ -206,6 +206,40 @@ public static class PickupJudgement
             ? pickupDate - OpensBeforePickup
             : null;
 
+    // ── the check-in reminder (FUP-286) ─────────────────────────────────────
+
+    /// <summary>
+    /// FUP-286: server-only order field, when the order cron stamped the check-in reminder (ISO 8601 UTC): once per
+    /// order, <see cref="OrderTimings.ReminderLead"/> before <c>pickupDeadlineAt</c> (the cron stamps it only while it is
+    /// absent, in a write conditioned on the status and the pending judgement). The order notifier tells each party who
+    /// has not checked in yet only when it appears, so a second stamp would tell nobody.
+    /// </summary>
+    public const string ReminderAtField = "pickupReminderAt";
+
+    /// <summary>The check-in kinds of the pickup: the arrival (trucker, or the buyer collecting) and the farmer's.</summary>
+    public static readonly IReadOnlyList<string> PickupKinds = new[] { Kind.ArrivedPickup, Kind.CropsReady };
+
+    /// <summary>FUP-286: the pickup kinds with no stored check-in yet; each one's party is reminded.</summary>
+    public static IReadOnlyList<string> MissingKinds(IReadOnlyDictionary<string, object> order)
+        => PickupKinds.Where(kind => EntryOf(order, kind) == null).ToList();
+
+    /// <summary>
+    /// FUP-286: when the check-in reminder is due: <c>pickupDeadlineAt</c> less <see cref="OrderTimings.ReminderLead"/>
+    /// (never before the window opens), on a pending order with no reminder stamped yet and a party who has not
+    /// checked in. Null otherwise.
+    /// </summary>
+    public static DateTime? ReminderDueAt(IReadOnlyDictionary<string, object> order, OrderTimings timings)
+    {
+        if (!IsPending(order) || Str(order, ReminderAtField).Length > 0 || DeadlineOf(order) is not { } deadline
+            || MissingKinds(order).Count == 0)
+        {
+            return null;
+        }
+
+        var at = deadline - timings.ReminderLead;
+        return OpensAt(order) is { } opens && opens > at ? opens : at;
+    }
+
     // ── the check-in operation ──────────────────────────────────────────────
 
     /// <summary>

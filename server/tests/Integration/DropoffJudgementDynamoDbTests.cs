@@ -193,11 +193,21 @@ public sealed class DropoffJudgementDynamoDbTests
         var after = await ReadOrderAsync();
         after["version"].Should().Be(before["version"]);
         after["updatedAt"].Should().Be(before["updatedAt"]);
+        // FUP-338: the silent buyer's reminder comes first, the reminder lead before T9.
+        var stored = DateTime.Parse(OrderCommitment.Iso(received), null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime();
         OrderDeadlines.Stored(after).Should().Be(new OrderDeadline(
-            DateTime.Parse(OrderCommitment.Iso(received), null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime()
-            + OrderTimings.Defaults.SilentBuyerWindow + PickupJudgement.SettleMargin,
-            OrderDeadlines.Kind.SilentBuyer));
+            stored + OrderTimings.Defaults.SilentBuyerWindow - OrderTimings.Defaults.ReminderLead,
+            OrderDeadlines.Kind.SilentBuyerReminder));
         PickupJudgement.ViewOf(after)!.Keys.Should().BeEquivalentTo(PickupJudgement.Kind.ArrivedDropoff);
+
+        // Once the cron stamps the reminder, T9 itself (the stamp moves the deadline, no version bump).
+        (await Repo.TryStampAsync(OrderId,
+            new Dictionary<string, object> { { DropoffJudgement.ReminderAtField, OrderCommitment.Iso(DateTime.UtcNow) } },
+            new Dictionary<string, string> { { DropoffJudgement.Field, DropoffJudgement.Outcome.Pending } })).Should().BeTrue();
+        var reminded = await ReadOrderAsync();
+        reminded["version"].Should().Be(before["version"]);
+        OrderDeadlines.Stored(reminded).Should().Be(new OrderDeadline(
+            stored + OrderTimings.Defaults.SilentBuyerWindow + PickupJudgement.SettleMargin, OrderDeadlines.Kind.SilentBuyer));
     }
 
     [LocalDynamoDbFact]
@@ -542,5 +552,33 @@ public sealed class DropoffJudgementDynamoDbTests
         var order = await ReadOrderAsync();
         DropoffJudgement.CheckInOf(order).Should().BeNull();
         DropoffJudgement.AttemptOf(order).Should().BeNull();
+    }
+
+    [LocalDynamoDbFact]
+    public async Task FUP338_TheCron_StampsTheSilentBuyersReminderOnce_BeforeT9_AndJudgesNothing()
+    {
+        await SeedOrderAsync(DateTime.UtcNow.AddHours(20));
+        var received = DateTime.UtcNow.AddHours(-43);
+        (await Repo.TryRecordDropoffCheckInAsync(OrderId, Entry(received), whileOpen: true)).Should().BeTrue();
+        await SeedDeliveryAsync();
+        var before = await ReadOrderAsync();
+
+        var response = await RunAsync(Cron());
+
+        response.Body.Should().NotContain("\"dropoffReminders\":\"0\"");
+        var order = await ReadOrderAsync();
+        order.Should().ContainKey(DropoffJudgement.ReminderAtField);
+        order["status"].Should().Be("in_transit");
+        order["version"].Should().Be(before["version"], "a marker, not a transition");
+        order[DropoffJudgement.Field].Should().Be(DropoffJudgement.Outcome.Pending);
+        var stored = DateTime.Parse(OrderCommitment.Iso(received), null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime();
+        OrderDeadlines.Stored(order).Should().Be(new OrderDeadline(
+            stored + OrderTimings.Defaults.SilentBuyerWindow + PickupJudgement.SettleMargin, OrderDeadlines.Kind.SilentBuyer));
+        (await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!["status"].Should().Be("inTransit");
+
+        // The next run finds this order not due: the marker is not stamped again.
+        var marker = order[DropoffJudgement.ReminderAtField];
+        await RunAsync(Cron());
+        (await ReadOrderAsync())[DropoffJudgement.ReminderAtField].Should().Be(marker);
     }
 }

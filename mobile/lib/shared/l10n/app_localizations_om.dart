@@ -5775,6 +5775,112 @@ class AppLocalizationsOm extends AppLocalizations {
       'Qabxii adabbii qabdu. Bitattoonni hanga ammaatti homaa hin argan. Bal\'inaaf \"Amanamummaa koo\" banaa.';
 
   @override
+  String get notifPickupReminderTitle => 'Fudhannaaf mirkaneessaa';
+
+  @override
+  String get notifPickupReminderBody =>
+      'Mirkaneessi fudhannaa dhiyootti cufama. Maaloo ajaja banaatii mirkaneessaa.';
+
+  @override
+  String get notifTruckerArrivedTitle => 'Konkolaataan fe\'aa ga\'eera';
+
+  @override
+  String notifTruckerArrivedBody(String trucker) {
+    return '$trucker ajaja fudhachuuf ga\'eera. Maaloo midhaan fi koodii QR keessan qopheessaa.';
+  }
+
+  @override
+  String get notifBuyerArrivedTitle => 'Bitataan ga\'eera';
+
+  @override
+  String notifBuyerArrivedBody(String buyer) {
+    return '$buyer ajaja fudhachuuf ga\'eera. Maaloo midhaan fi koodii QR keessan qopheessaa.';
+  }
+
+  @override
+  String get notifCropsReadyTitle => 'Midhaan qophaa\'eera';
+
+  @override
+  String notifCropsReadyBody(String farmer) {
+    return '$farmer midhaan fe\'uuf qophaa\'uu isaa beeksiseera.';
+  }
+
+  @override
+  String get notifDeliveryArrivedTitle => 'Konkolaataan ga\'eera';
+
+  @override
+  String notifDeliveryArrivedBody(String trucker) {
+    return '$trucker bakka buusuu ga\'uu isaa mirkaneesseera. Maaloo geejjiba mirkaneessaa ykn rakkoo gabaasaa. Hanga yeroo armaan gadii lamaan yoo hin goone, isiniif mirkanaa\'uu danda\'a.';
+  }
+
+  @override
+  String get notifDeliveryConfirmReminderTitle => 'Geejjiba mirkaneessaa';
+
+  @override
+  String get notifDeliveryConfirmReminderBody =>
+      'Maaloo geejjiba mirkaneessaa ykn rakkoo gabaasaa. Hanga yeroo armaan gadii lamaan yoo hin goone, isiniif mirkanaa\'uu danda\'a.';
+
+  @override
+  String get notifTruckerNoShowTitle => 'Konkolaataan hin mirkaneessine';
+
+  @override
+  String get notifTruckerNoShowBuyerBody =>
+      'Konkolaataan hanga yeroo dhumaatti maasiitti ga\'uu hin mirkaneessine. Maaloo murteessaa: haquun maallaqa guutuu deebifachuu dandeessu.';
+
+  @override
+  String get notifTruckerNoShowFarmerBody =>
+      'Konkolaataan hanga yeroo dhumaatti maasii keessanitti ga\'uu hin mirkaneessine. Hanga bitataan murteessutti maaloo midhaan qabadhaa.';
+
+  @override
+  String get notifPickupCheckInMissedTitle =>
+      'Mirkaneessi ga\'umsaa hin dhufne';
+
+  @override
+  String get notifPickupCheckInMissedBody =>
+      'Hanga yeroo dhumaatti mirkaneessi ga\'umsaa nu hin geenye. Amma bitataan murteessa. Achi turtan yoo ta\'e deeggarsa quunnamaa.';
+
+  @override
+  String get notifFarmerNoShowBody =>
+      'Ajajni haqameera: hanga yeroo dhumaatti qophaa\'uun midhaanii hin mirkanoofne. Maallaqni bitataaf deebi\'a.';
+
+  @override
+  String get notifBuyerNoShowBody =>
+      'Ajajni hanga yeroo dhumaatti waan hin fudhatamneef haqameera. Maallaqni bitataaf deebi\'a.';
+
+  @override
+  String get notifPickupReviewTitle => 'Fudhannaan sakatta\'amaa jira';
+
+  @override
+  String get notifPickupReviewBody =>
+      'Fudhannaan koodii QR\'n hin mirkanoofne. Gareen keenya ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get notifAutoConfirmedTitle => 'Geejjibni isiniif mirkanaa\'eera';
+
+  @override
+  String get notifAutoConfirmedBuyerBody =>
+      'Deebiin waan hin jirreef ajajni keessan ga\'uun isaa mirkanaa\'eera. Rakkoon yoo jiraate yeroon osoo hin darbin gabaasaa.';
+
+  @override
+  String get notifAutoConfirmedPayeeBody =>
+      'Bitataan deebii waan hin kenninef geejjibni sirnaan mirkanaa\'eera. Mirkaneessa sa\'aatii 48 booda kaffaltiin keessan ni ergama.';
+
+  @override
+  String get notifDeliveryReviewTitle => 'Geejjibni ni sakatta\'ama';
+
+  @override
+  String get notifDeliveryOverdueBody =>
+      'Geejjibni hanga yeroo isaatti hin galmoofne. Gareen keenya ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get notifSilentBuyerBody =>
+      'Erga konkolaataan ga\'ee booda geejjibni hin mirkanoofne. Gareen keenya ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get notifDropoffOutOfRangeBody =>
+      'Ga\'umsi konkolaataa bakka buusuu waliin wal hin simne. Gareen keenya ni qorata; maallaqni qabamee tura.';
+
+  @override
   String get profileEditTitle => 'Piroofaayilii gulaali';
 
   @override

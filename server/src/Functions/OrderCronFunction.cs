@@ -662,6 +662,12 @@ public partial class OrderCronFunction
         /// <summary>ESC-36: drop-offs judged at T8 or T9 (any outcome).</summary>
         public int DropoffJudged;
 
+        /// <summary>FUP-286: check-in reminders stamped before a pickup judgement.</summary>
+        public int PickupReminders;
+
+        /// <summary>FUP-338: silent buyer reminders stamped before T9.</summary>
+        public int DropoffReminders;
+
         public int Conflicts;
         public int TripReads;
         public int DepartedTripsClosed;
@@ -700,6 +706,8 @@ public partial class OrderCronFunction
             { "pickupOverdue", PickupOverdue.ToString() },
             { "pickupJudged", PickupJudged.ToString() },
             { "dropoffJudged", DropoffJudged.ToString() },
+            { "pickupReminders", PickupReminders.ToString() },
+            { "dropoffReminders", DropoffReminders.ToString() },
             { "conflicts", Conflicts.ToString() },
             { "tripReads", TripReads.ToString() },
             { "departedTripsClosed", DepartedTripsClosed.ToString() },

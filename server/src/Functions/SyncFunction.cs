@@ -382,6 +382,8 @@ public partial class SyncFunction
         DropoffJudgement.OrderLatitudeField, DropoffJudgement.OrderLongitudeField,
         DropoffJudgement.TripLatitudeField, DropoffJudgement.TripLongitudeField,
         DropoffJudgement.AttemptField, DropoffJudgement.TripReadField,
+        // FUP-286 and FUP-338: the order cron's check-in and silent buyer reminder markers.
+        PickupJudgement.ReminderAtField, DropoffJudgement.ReminderAtField,
         // ESC-16: the order's next deadline (DeadlineIndex); every order write derives it itself.
         OrderDeadlines.AtField, OrderDeadlines.KindField, OrderDeadlines.ShardField
     };

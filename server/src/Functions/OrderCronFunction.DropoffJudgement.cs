@@ -82,9 +82,15 @@ public partial class OrderCronFunction
     private async Task<DeadlineOutcome> JudgeDropoffAsync(
         Dictionary<string, object> order, string orderId, CommitmentRun run, EscrowService escrow)
     {
-        if (DropoffJudgement.Due(order, OrderTimings.Current) is not { } due || run.Now <= due.At)
+        if (DropoffJudgement.Due(order, OrderTimings.Current) is not { } due)
         {
             return DeadlineOutcome.None;
+        }
+
+        if (run.Now <= due.At)
+        {
+            // FUP-338: before T9, the silent buyer's reminder when it falls due.
+            return await RemindSilentBuyerAsync(order, orderId, run);
         }
 
         var deliveryId = GetString(order, "activeDeliveryId");
@@ -468,7 +474,11 @@ public partial class OrderCronFunction
         return DeadlineOutcome.Applied;
     }
 
-    private static string DisputeDescription(string reason) => reason switch
+    /// <summary>
+    /// The escrow's <c>disputeDescription</c> of the system's dispute. It starts with the reason code and a colon:
+    /// FUP-338's notifier reads the reason back from it (<see cref="DropoffJudgement.DisputeReasonOfDescription"/>).
+    /// </summary>
+    internal static string DisputeDescription(string reason) => reason switch
     {
         DropoffJudgement.OverdueReason => "delivery_overdue: the delivery was not made by its deadline (T8); opened by the system.",
         DropoffJudgement.OutOfRangeReason => "dropoff_out_of_range: the trucker checked in at the drop-off with the arrival photo but more "
@@ -517,13 +527,42 @@ public partial class OrderCronFunction
     }
 
     /// <summary>
+    /// FUP-338: the silent buyer's reminder, <see cref="OrderTimings.ReminderLead"/> before T9: the marker
+    /// <see cref="DropoffJudgement.ReminderAtField"/> is stamped once, while the order is still on the road and
+    /// pending (no version bump); the order notifier tells the buyer when it appears. The stamp also moves the
+    /// order's next deadline to T9. A stamp the cron makes only after T9 (a cron that was down) tells nobody.
+    /// </summary>
+    private async Task<DeadlineOutcome> RemindSilentBuyerAsync(Dictionary<string, object> order, string orderId, CommitmentRun run)
+    {
+        if (DropoffJudgement.ReminderDueAt(order, OrderTimings.Current) is not { } remindAt || run.Now < remindAt)
+        {
+            return DeadlineOutcome.None;
+        }
+
+        return await StampAsync(orderId,
+            new Dictionary<string, object> { { DropoffJudgement.ReminderAtField, run.NowIso } },
+            new Dictionary<string, string>
+            {
+                { "status", GetString(order, "status") }, { DropoffJudgement.Field, DropoffJudgement.Outcome.Pending }
+            },
+            "silent buyer reminder", run, () => run.DropoffReminders++);
+    }
+
+    /// <summary>
     /// ESC-36, the flag turned off while an order waited for its drop-off judgement: the stamp is cleared
     /// when it falls due (stored as a null attribute, which no read returns), so the order keeps the rules
-    /// it had before and leaves the deadline index.
+    /// it had before and leaves the deadline index. FUP-338: the silent buyer's reminder falls due first when
+    /// there is one; with the flag off it is never sent, and the stamp is cleared then.
     /// </summary>
     private async Task<DeadlineOutcome> EndDropoffJudgementAsync(Dictionary<string, object> order, string orderId, CommitmentRun run)
     {
-        if (DropoffJudgement.Due(order, OrderTimings.Current) is not { } due || run.Now <= due.At)
+        if (DropoffJudgement.Due(order, OrderTimings.Current) is not { } due)
+        {
+            return DeadlineOutcome.None;
+        }
+
+        var reminderFell = DropoffJudgement.ReminderDueAt(order, OrderTimings.Current) is { } remindAt && run.Now >= remindAt;
+        if (!reminderFell && run.Now <= due.At)
         {
             return DeadlineOutcome.None;
         }

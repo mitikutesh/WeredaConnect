@@ -64,6 +64,10 @@ public class DropoffJudgementTests
         var due = DropoffJudgement.Due(order, OrderTimings.Defaults);
 
         due.Should().Be(new OrderDeadline(received.AddHours(48) + PickupJudgement.SettleMargin, OrderDeadlines.Kind.SilentBuyer));
+        // FUP-338: the silent buyer's reminder comes first, 6 hours before T9; once it is stamped, T9 itself.
+        OrderDeadlines.Next(order, OrderTimings.Defaults)
+            .Should().Be(new OrderDeadline(received.AddHours(42), OrderDeadlines.Kind.SilentBuyerReminder));
+        order[DropoffJudgement.ReminderAtField] = Iso(received.AddHours(42));
         OrderDeadlines.Next(order, OrderTimings.Defaults).Should().Be(due);
     }
 
@@ -75,6 +79,54 @@ public class DropoffJudgementTests
 
         DropoffJudgement.Due(Order(checkIn: CheckIn(received)), timings)!.Value.At
             .Should().Be(received.AddHours(30) + PickupJudgement.SettleMargin);
+        DropoffJudgement.SilentBuyerDeadline(Order(checkIn: CheckIn(received)), timings).Should().Be(received.AddHours(30));
+    }
+
+    // ===== the silent buyer's reminder (FUP-338) =====
+
+    [Fact]
+    public void FUP338_TheReminder_IsTheLeadBeforeT9_WithTheSsmValues()
+    {
+        var received = T8.AddHours(-10);
+        var timings = OrderTimings.Defaults with { SilentBuyerWindow = TimeSpan.FromHours(30), ReminderLead = TimeSpan.FromHours(4) };
+
+        DropoffJudgement.ReminderDueAt(Order(checkIn: CheckIn(received)), timings).Should().Be(received.AddHours(26));
+        OrderDeadlines.Next(Order(checkIn: CheckIn(received)), timings)!.Value.Kind.Should().Be(OrderDeadlines.Kind.SilentBuyerReminder);
+    }
+
+    [Fact]
+    public void FUP338_NoReminder_WithoutACountedCheckIn_OnceStamped_OnceJudged_OrWhenTheLeadCoversTheWindow()
+    {
+        var received = T8.AddHours(-10);
+        DropoffJudgement.ReminderDueAt(Order(), OrderTimings.Defaults).Should().BeNull("T8 is the trucker's; nobody is reminded");
+        DropoffJudgement.ReminderDueAt(Order(checkIn: CheckIn(received, late: true)), OrderTimings.Defaults).Should().BeNull();
+
+        var stamped = Order(checkIn: CheckIn(received));
+        stamped[DropoffJudgement.ReminderAtField] = Iso(received.AddHours(42));
+        DropoffJudgement.ReminderDueAt(stamped, OrderTimings.Defaults).Should().BeNull();
+
+        var judged = Order(checkIn: CheckIn(received));
+        judged[DropoffJudgement.Field] = DropoffJudgement.Outcome.Closed;
+        DropoffJudgement.ReminderDueAt(judged, OrderTimings.Defaults).Should().BeNull();
+
+        // A lead as long as the window would remind at the check-in itself: the arrival push says it.
+        DropoffJudgement.ReminderDueAt(Order(checkIn: CheckIn(received)),
+            OrderTimings.Defaults with { ReminderLead = TimeSpan.FromHours(48) }).Should().BeNull();
+    }
+
+    [Fact]
+    public void FUP338_TheSystemDisputeReason_IsReadBackFromItsEscrowDescription()
+    {
+        foreach (var reason in new[] { DropoffJudgement.OverdueReason, DropoffJudgement.SilentBuyerReason, DropoffJudgement.OutOfRangeReason })
+        {
+            DropoffJudgement.DisputeReasonOfDescription(WeredaConnect.Server.Functions.OrderCronFunction.DisputeDescription(reason))
+                .Should().Be(reason);
+        }
+
+        DropoffJudgement.DisputeReasonOfDescription("Frozen by the hourly sweep: the delivery or order was already disputed.")
+            .Should().BeNull();
+        DropoffJudgement.DisputeReasonOfDescription("silent_buyer").Should().BeNull("only the cron's own text, code and colon");
+        DropoffJudgement.DisputeReasonOfDescription(null).Should().BeNull();
     }
 
     [Theory]

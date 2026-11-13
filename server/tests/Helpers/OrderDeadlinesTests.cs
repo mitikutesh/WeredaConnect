@@ -214,6 +214,12 @@ public class OrderDeadlinesTests
             (PickupDeadline.Field, PickupDeadline.Format(pickupBy)),
             (PickupJudgement.Field, PickupJudgement.Outcome.Pending));
 
+        // FUP-286: the check-in reminder comes first, in the sweep's partition too; once stamped, the judgement.
+        var reminder = OrderDeadlines.Next(row, OrderTimings.Defaults);
+        reminder.Should().Be(new OrderDeadline(pickupBy.AddHours(-6), OrderDeadlines.Kind.PickupReminder));
+        reminder!.Value.Shard.Should().Be(OrderDeadlines.Shard);
+        row[PickupJudgement.ReminderAtField] = Iso(pickupBy.AddHours(-6));
+
         var judgement = OrderDeadlines.Next(row, OrderTimings.Defaults);
         judgement.Should().Be(new OrderDeadline(pickupBy + PickupJudgement.SettleMargin, OrderDeadlines.Kind.PickupJudgement));
         judgement!.Value.Shard.Should().Be(OrderDeadlines.Shard);

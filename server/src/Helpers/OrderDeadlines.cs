@@ -19,7 +19,8 @@ namespace WeredaConnect.Server.Helpers;
 /// <c>createdAt</c> key condition already reads only the rows past due; T10 and T12 stay with the escrow
 /// cron (they follow the escrow); T6 and T11 are not built yet (ESC-19 and P3). ESC-36 adds T8 and T9 on
 /// a <c>pickup_confirmed</c> or <c>in_transit</c> order stamped <c>dropoffJudgement: pending</c>
-/// (<see cref="Helpers.DropoffJudgement.Due"/>).
+/// (<see cref="Helpers.DropoffJudgement.Due"/>). FUP-286 and FUP-338 add a reminder before the pickup judgement
+/// (to a party who has not checked in) and before T9 (to the buyer), each stamped once.
 /// </para>
 /// <para>
 /// The index has one partition (<see cref="Shard"/>): the sweep's question, "everything due before
@@ -112,6 +113,18 @@ public static class OrderDeadlines
         /// buyer or disputed.
         /// </summary>
         public const string SilentBuyer = "silent_buyer";
+
+        /// <summary>
+        /// FUP-286: the check-in reminder on an order stamped <c>pickupJudgement: pending</c> while a party has not
+        /// checked in: <c>pickupDeadlineAt</c> less the reminder lead; <c>pickupReminderAt</c> is stamped.
+        /// </summary>
+        public const string PickupReminder = "pickup_reminder";
+
+        /// <summary>
+        /// FUP-338: the silent buyer's reminder once the trucker checked in at the drop-off: T9 less the reminder
+        /// lead; <c>dropoffReminderAt</c> is stamped.
+        /// </summary>
+        public const string SilentBuyerReminder = "silent_buyer_reminder";
     }
 
     /// <summary>Whether <paramref name="key"/> is one of the deadline attributes (never taken from a caller's field map).</summary>
@@ -148,6 +161,11 @@ public static class OrderDeadlines
                         ? new OrderDeadline(pickupBy + Helpers.PickupJudgement.SettleMargin, Kind.PickupJudgement)
                         : new OrderDeadline(pickupBy,
                             Str(order, OrderCommitment.PickupOverdueNotifiedAtField).Length == 0 ? Kind.PickupOverdue : Kind.PickupWaiting));
+                    // FUP-286: the check-in reminder before it, while a party has not checked in.
+                    if (Helpers.PickupJudgement.ReminderDueAt(order, timings) is { } remindAt)
+                    {
+                        candidates.Add(new OrderDeadline(remindAt, Kind.PickupReminder));
+                    }
                 }
 
                 break;
@@ -157,6 +175,11 @@ public static class OrderDeadlines
                 if (Helpers.DropoffJudgement.IsPending(order) && Helpers.DropoffJudgement.Due(order, timings) is { } dropoff)
                 {
                     candidates.Add(dropoff);
+                    // FUP-338: the silent buyer's reminder before T9.
+                    if (Helpers.DropoffJudgement.ReminderDueAt(order, timings) is { } remindAt)
+                    {
+                        candidates.Add(new OrderDeadline(remindAt, Kind.SilentBuyerReminder));
+                    }
                 }
 
                 break;

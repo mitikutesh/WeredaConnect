@@ -419,9 +419,11 @@ public sealed class NoShowReopenDynamoDbTests
         var reopenAudit = (await new TransactionAuditRepository(Ddb, _db.TransactionAudit).GetByTransactionAsync(Id("order")))
             .Single(a => (string)a["action"] == PickupReopen.AuditAction);
         ((string)reopenAudit["metadata"]).Should().Contain($";clearedCheckIns=crops_ready:receivedAt=").And.Contain($"by={Id("farmer")}");
+        // FUP-286: the new window's check-in reminder first (6 hours before its deadline), then the judgement.
+        after.Should().NotContainKey(PickupJudgement.ReminderAtField);
         var stored = OrderDeadlines.Stored(after)!.Value;
-        stored.Kind.Should().Be(OrderDeadlines.Kind.PickupJudgement);
-        stored.AtIso.Should().Be(Iso(now.AddHours(24) + PickupJudgement.SettleMargin));
+        stored.Kind.Should().Be(OrderDeadlines.Kind.PickupReminder);
+        stored.AtIso.Should().Be(Iso(now.AddHours(18)));
         after[OrderDeadlines.ShardField].Should().Be(OrderDeadlines.Shard, "judged again by the sweep");
 
         // The booking is back, accepted, and the trip has 7 quintals left again.
