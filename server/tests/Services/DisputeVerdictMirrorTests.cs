@@ -1172,6 +1172,390 @@ public class DisputeVerdictMirrorTests
         result.Delivery.Should().Be(VerdictLegOutcome.Resolved);
     }
 
+    // ──────────────────────────────────────────────
+    // FUP-64: settle_as_is, the exit of a verdict no goods disposition fits
+    // ──────────────────────────────────────────────
+
+    [Theory]
+    // buyer_wins: the refund returns the money to the buyer who paid it, whatever the legs show.
+    [InlineData("buyer_wins", "in_transit", "disputed", "farmer_wins", null, null, true)]
+    // A refund leaves a settled order with its contact open, so the exit flags it first (FUP-64 review).
+    [InlineData("buyer_wins", "settled", "delivered", null, null, null, true)]
+    // farmer_wins: only for goods that left the farm, did not come back, and an order that shows no payout.
+    [InlineData("farmer_wins", "cancelled", "delivered", null, null, null, false)]
+    [InlineData("farmer_wins", "accepted", "disputed", "buyer_wins", null, null, true)]
+    [InlineData("farmer_wins", "cancelled", "cancelled", null, null, "goods_not_handed_over", false)]
+    [InlineData("farmer_wins", "disbursing", "delivered", null, null, "order_paid_out", false)]
+    [InlineData("farmer_wins", "dispute_resolved", "cancelled", "buyer_wins", "dispute_buyer_wins", "goods_returned", false)]
+    public async Task PlanDisposition_NoFit_SettleAsIsFitsOnlyWhereItIsSafe(
+        string resolution, string orderStatus, string deliveryStatus, string? deliveryVerdict, string? cancelReason,
+        string? refusal, bool orderOpen)
+    {
+        OrderIs(orderStatus, 3);
+        var delivery = new Dictionary<string, object> { { "deliveryId", DeliveryId }, { "status", deliveryStatus }, { "orderId", OrderId } };
+        if (deliveryVerdict != null) delivery["disputeResolution"] = deliveryVerdict;
+        if (cancelReason != null) delivery["cancelReason"] = cancelReason;
+        _deliveries.GetByIdAsync(DeliveryId, true).Returns(delivery);
+
+        var plan = await _mirror.PlanDispositionAsync(Escrow(), resolution);
+
+        plan.Case.Should().Be(DispositionCase.NoFit);
+        plan.SettleAsIsRefusal.Should().Be(refusal);
+        plan.OrderOpen.Should().Be(orderOpen);
+        plan.Fits(DisputeDisposition.SettleAsIs).Should().Be(refusal == null);
+        plan.SettlesAsIs.Should().Be(refusal == null && !orderOpen);
+        await NoLegWritten();
+    }
+
+    private DisputeVerdictMirror MirrorWithEscrows(IEscrowRepository escrows) => new(_orders, _deliveries, _txAudit, escrowRepo: escrows);
+
+    [Theory]
+    // FUP-41: the order's own escrow holds or paid the trade's money, so this second escrow is a double escrow that is
+    // refunded, never released.
+    [InlineData("escrowed", "double_escrow")]
+    [InlineData("disputed", "double_escrow")]
+    [InlineData("dispute_resolved", "double_escrow")]
+    [InlineData("held", "double_escrow")]
+    [InlineData("released", "double_escrow")]
+    [InlineData("completed", "double_escrow")]
+    // The order's own escrow never held the money, or gave it back: this escrow is the trade's only payment.
+    [InlineData("initiated", null)]
+    [InlineData("refunded", null)]
+    [InlineData("cancelled", null)]
+    public async Task PlanDisposition_NoFit_FarmerWins_ASecondEscrowWhileTheOrdersOwnHoldsTheMoney_IsADoubleEscrow(
+        string ownStatus, string? refusal)
+    {
+        OrderIs("cancelled", 3);
+        DeliveryIs("delivered");
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.GetByIdAsync("escrow-order-order-1", true)
+            .Returns(new Dictionary<string, object> { { "escrowId", "escrow-order-order-1" }, { "status", ownStatus } });
+
+        var plan = await MirrorWithEscrows(escrows).PlanDispositionAsync(Escrow(), "farmer_wins");
+
+        plan.Case.Should().Be(DispositionCase.NoFit);
+        plan.SettleAsIsRefusal.Should().Be(refusal);
+    }
+
+    public static IEnumerable<object?[]> OtherEscrows()
+    {
+        Dictionary<string, object> Other(string status, params (string Key, object Value)[] extra)
+        {
+            var other = new Dictionary<string, object> { { "escrowId", "escrow-other" }, { "status", status } };
+            foreach (var (key, value) in extra)
+            {
+                other[key] = value;
+            }
+
+            return other;
+        }
+
+        var ledgerCropReleased = new Dictionary<string, object> { { "crop", "released" }, { "transport", "held" }, { "commission", "held" } };
+        yield return new object?[] { "released", Other("released"), "order_paid_out" };
+        yield return new object?[] { "completed", Other("completed"), "order_paid_out" };
+        // A release mid-flight, or waiting in the manual payout queue, whatever verdict the escrow carries.
+        yield return new object?[] { "release lock", Other("dispute_resolved", ("disputeResolution", "buyer_wins"), ("settlementLock", "release")), "order_paid_out" };
+        yield return new object?[] { "queued release", Other("dispute_resolved", ("disputeResolution", "farmer_wins"),
+            (ManualPayoutFields.Marker, ManualPayoutFields.MarkerOpen), (ManualPayoutFields.Op, ManualPayoutFields.OpRelease)), "order_paid_out" };
+        yield return new object?[] { "queued refund", Other("escrowed",
+            (ManualPayoutFields.Marker, ManualPayoutFields.MarkerOpen), (ManualPayoutFields.Op, ManualPayoutFields.OpRefund)), null };
+        // A split whose crop leg is released.
+        yield return new object?[] { "ledger crop released", Other("dispute_resolved", ("disputeResolution", "buyer_wins"),
+            ("settlementModel", "ledger"), ("legStatus", ledgerCropReleased)), "order_paid_out" };
+        // A recorded verdict that releases: its own settlement would pay the farmer too.
+        yield return new object?[] { "farmer_wins verdict", Other("dispute_resolved", ("disputeResolution", "farmer_wins")), "order_paid_out" };
+        yield return new object?[] { "split verdict", Other("dispute_resolved", ("disputeResolution", "partial_refund")), "order_paid_out" };
+        yield return new object?[] { "buyer_wins verdict", Other("dispute_resolved", ("disputeResolution", "buyer_wins")), null };
+        yield return new object?[] { "refunded", Other("refunded"), null };
+        yield return new object?[] { "held money", Other("escrowed"), null };
+    }
+
+    [Theory]
+    [MemberData(nameof(OtherEscrows))]
+    public async Task PlanDisposition_NoFit_FarmerWins_AnotherEscrowThatPaidOrIsAboutToPay_RefusesSettleAsIs(
+        string caseName, Dictionary<string, object> other, string? refusal)
+    {
+        // FUP-64 delta review: a double escrow, both farmer_wins, the other one's release already decided (queued while
+        // the gateway is down, say): releasing this one too would pay the farmer twice when the queue closes.
+        OrderIs("cancelled", 3);
+        DeliveryIs("delivered");
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.QueryByOrderIdAsync(OrderId, Arg.Any<int>()).Returns(new List<Dictionary<string, object>>
+        {
+            // The order index names this escrow too: it never counts against itself.
+            new() { { "escrowId", "escrow-1" } },
+            new() { { "escrowId", "escrow-other" } }
+        });
+        escrows.GetByIdAsync("escrow-1", true).Returns(new Dictionary<string, object> { { "escrowId", "escrow-1" }, { "status", "released" } });
+        escrows.GetByIdAsync("escrow-other", true).Returns(other);
+
+        var plan = await MirrorWithEscrows(escrows).PlanDispositionAsync(Escrow(), "farmer_wins");
+
+        plan.Case.Should().Be(DispositionCase.NoFit);
+        plan.SettleAsIsRefusal.Should().Be(refusal, caseName);
+    }
+
+    [Fact]
+    public async Task PlanDisposition_ASplit_NeverReadsTheOtherEscrows()
+    {
+        // FUP-64 delta review: a split never takes settle_as_is, so an unreadable escrow table is no reason for a 503.
+        OrderIs("cancelled", 3);
+        DeliveryIs("delivered");
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.QueryByOrderIdAsync(OrderId, Arg.Any<int>()).ThrowsAsync(new InvalidOperationException("escrows down"));
+
+        var plan = await MirrorWithEscrows(escrows).PlanDispositionAsync(Escrow(), "farmer_wins", split: true);
+
+        plan.Case.Should().Be(DispositionCase.NoFit);
+        await escrows.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await escrows.DidNotReceive().QueryByOrderIdAsync(Arg.Any<string>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task PlanDisposition_NoFit_FarmerWins_TheDeliveryEscrowPaidOut_RefusesSettleAsIs()
+    {
+        OrderIs("cancelled", 3);
+        DeliveryIs("delivered");
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.GetByDeliveryIdAsync(DeliveryId).Returns(new Dictionary<string, object> { { "escrowId", "escrow-legacy" } });
+        escrows.GetByIdAsync("escrow-legacy", true).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-legacy" }, { "status", "completed" }
+        });
+
+        var plan = await MirrorWithEscrows(escrows).PlanDispositionAsync(Escrow(), "farmer_wins");
+
+        plan.SettleAsIsRefusal.Should().Be("order_paid_out");
+    }
+
+    [Fact]
+    public async Task PlanDisposition_NoFit_OtherEscrowsUnreadable_IsUnknown()
+    {
+        OrderIs("cancelled", 3);
+        DeliveryIs("delivered");
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.QueryByOrderIdAsync(OrderId, Arg.Any<int>()).ThrowsAsync(new InvalidOperationException("escrows down"));
+
+        var plan = await MirrorWithEscrows(escrows).PlanDispositionAsync(Escrow(), "farmer_wins");
+        var buyer = await MirrorWithEscrows(escrows).PlanDispositionAsync(Escrow(), "buyer_wins");
+
+        plan.Case.Should().Be(DispositionCase.Unknown);
+        plan.Legs.Should().Be("escrows:read:[InvalidOperationException]");
+        // A buyer_wins refund never reads them: it pays nobody but the buyer.
+        buyer.Case.Should().NotBe(DispositionCase.Unknown);
+    }
+
+    [Theory]
+    // Another escrow's verdict may have closed the order before any pickup: not a pickup by itself.
+    [InlineData(null, "goods_not_handed_over")]
+    [InlineData("wait_for_delivery", "goods_not_handed_over")]
+    // This escrow's own settle_as_is closed it, after the pickup was shown at the time it was recorded.
+    [InlineData("settle_as_is", null)]
+    public async Task PlanDisposition_NoFit_FarmerWins_AnOrderAtDisputeResolvedShowsAPickupOnlyAfterItsOwnSettleAsIs(
+        string? recorded, string? refusal)
+    {
+        // FUP-64 review: the delivery row is gone, so only the order could show a pickup.
+        OrderIs("dispute_resolved", 9);
+        _deliveries.GetByIdAsync(DeliveryId, true).Returns((Dictionary<string, object>?)null);
+        var escrow = Escrow();
+        if (recorded != null)
+        {
+            escrow["disputeDisposition"] = recorded;
+        }
+
+        var plan = await _mirror.PlanDispositionAsync(escrow, "farmer_wins");
+
+        plan.Case.Should().Be(DispositionCase.NoFit);
+        plan.SettleAsIsRefusal.Should().Be(refusal);
+    }
+
+    [Theory]
+    // settle_now's cancel of a picked-up delivery under this verdict keeps its pickedUpAt: a pickup.
+    [InlineData("dispute_farmer_wins", "farmer_wins", null)]
+    // FUP-19's admin cancel covers goods taken back too, so its pickedUpAt is no pickup (FUP-64 delta review).
+    [InlineData("admin_cancelled", null, "goods_not_handed_over")]
+    public async Task PlanDisposition_NoFit_FarmerWins_ACancelledDeliverysPickedUpAt_CountsUnlessAnAdminCancelledIt(
+        string cancelReason, string? verdict, string? refusal)
+    {
+        OrderIs("cancelled", 3);
+        var delivery = new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "orderId", OrderId }, { "status", "cancelled" }, { "cancelReason", cancelReason },
+            { "pickedUpAt", "2026-10-08T09:00:00Z" }
+        };
+        if (verdict != null)
+        {
+            delivery["disputeResolution"] = verdict;
+        }
+
+        _deliveries.GetByIdAsync(DeliveryId, true).Returns(delivery);
+
+        var plan = await _mirror.PlanDispositionAsync(Escrow(), "farmer_wins");
+
+        plan.Case.Should().Be(DispositionCase.NoFit);
+        plan.SettleAsIsRefusal.Should().Be(refusal);
+    }
+
+    [Fact]
+    public async Task SettleAsIs_BuyerWins_FlagsASettledOrder_SoItsContactCloses_ThenTheSettlementMayGoAhead()
+    {
+        // FUP-64 review: the refund leaves the order at settled, whose contact is open; the removed override flagged it.
+        _orders.GetByIdAsync(OrderId, true).Returns(Order("settled", 6));
+        DeliveryIs("delivered");
+        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 6)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(Order("settled", 7)));
+
+        var result = await _mirror.ApplyDispositionAsync(
+            Escrow(), "buyer_wins", DisputeDisposition.SettleAsIs, ResolvedAt, actor: "admin-7", adminReason: "Paid twice; refund this one.");
+
+        result.FailedLegs.Should().BeNull();
+        await _orders.Received(1).UpdateAsync(OrderId, Arg.Is<Dictionary<string, object>>(d =>
+            !d.ContainsKey("status") && d["disputeOverrideBy"].ToString() == "admin-7"
+            && d["disputeOverrideReason"].ToString() == "Paid twice; refund this one."
+            && d["disputeOverrideEscrowId"].ToString() == "escrow-1" && d.ContainsKey("disputeOverrideAt")), 6);
+        await _orders.DidNotReceive().TryAdvanceStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+
+        var flagged = Order("settled", 7);
+        flagged["disputeOverrideAt"] = "2026-10-09T11:00:00Z";
+        _orders.GetByIdAsync(OrderId, true).Returns(flagged);
+        var after = await _mirror.PlanDispositionAsync(Escrow(), "buyer_wins");
+        after.OrderOpen.Should().BeFalse();
+        after.SettlesAsIs.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SettleAsIs_AFlagThatDoesNotLand_IsAFailedLeg_TheReplayFinishesIt()
+    {
+        _orders.GetByIdAsync(OrderId, true).Returns(Order("disbursing", 6));
+        DeliveryIs("delivered");
+        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Failure(500, "DB_ERROR", "down"));
+
+        var result = await _mirror.ApplyDispositionAsync(Escrow(), "buyer_wins", DisputeDisposition.SettleAsIs, ResolvedAt);
+
+        result.FailedLegs.Should().Be("order:flag_failed");
+    }
+
+    [Fact]
+    public async Task PlanDisposition_NoFit_FarmerWinsWithAMissingOrder_ReadsThePickupFromTheDeliveryOrTheEscrow()
+    {
+        _orders.GetByIdAsync(OrderId, true).Returns((Dictionary<string, object>?)null);
+        DeliveryIs("inTransit");
+        var picked = await _mirror.PlanDispositionAsync(Escrow(), "farmer_wins");
+
+        DeliveryIs("pending");
+        var atTheFarm = await _mirror.PlanDispositionAsync(Escrow(), "farmer_wins");
+        var escrow = Escrow();
+        escrow["deliveryConfirmedAt"] = "2026-10-08T10:00:00Z";
+        var confirmed = await _mirror.PlanDispositionAsync(escrow, "farmer_wins");
+
+        picked.SettlesAsIs.Should().BeTrue();
+        atTheFarm.SettleAsIsRefusal.Should().Be("goods_not_handed_over");
+        confirmed.SettlesAsIs.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("buyer_wins", "in_transit", "inTransit", null)]
+    [InlineData("farmer_wins", "pickup_confirmed", "pickedUp", null)]
+    [InlineData("buyer_wins", "disputed", "disputed", null)]
+    public async Task SettleAsIs_DoesNotFit_WhereAnotherChoiceDoesOrTheLegsFollow(
+        string resolution, string orderStatus, string deliveryStatus, string? deliveryVerdict)
+    {
+        OrderIs(orderStatus, 4);
+        DeliveryIs(deliveryStatus, deliveryVerdict);
+
+        var plan = await _mirror.PlanDispositionAsync(Escrow(), resolution);
+        var result = await _mirror.ApplyDispositionAsync(Escrow(), resolution, DisputeDisposition.SettleAsIs, ResolvedAt);
+
+        plan.Fits(DisputeDisposition.SettleAsIs).Should().BeFalse();
+        plan.SettlesAsIs.Should().BeFalse();
+        if (plan.Case == DispositionCase.NotNeeded)
+        {
+            result.DispositionNotNeeded.Should().BeTrue();
+        }
+        else
+        {
+            result.FailedLegs.Should().Be("order:disposition:settle_as_is");
+        }
+
+        await NoLegWritten();
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task SettleAsIs_ClosesALiveOrderStraight_AndLeavesTheDelivery()
+    {
+        // farmer_wins, but the delivery carries buyer_wins from elsewhere: no goods choice fits.
+        OrderIs("accepted", 4);
+        DeliveryIs("disputed", "buyer_wins");
+        OrderAdvances("accepted");
+
+        var result = await _mirror.ApplyDispositionAsync(Escrow(), "farmer_wins", DisputeDisposition.SettleAsIs, ResolvedAt);
+
+        result.FailedLegs.Should().BeNull();
+        result.Order.Should().Be(VerdictLegOutcome.Resolved);
+        result.Delivery.Should().Be(VerdictLegOutcome.None);
+        await _orders.Received(1).TryAdvanceStatusAsync(OrderId, "accepted", "dispute_resolved");
+        await _txAudit.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["entityType"].ToString() == "order" && e["action"].ToString() == "dispute_resolved"
+            && e["fromState"].ToString() == "accepted" && e["actor"].ToString() == "system"
+            && e["metadata"].ToString() == "resolution=farmer_wins;disposition=settle_as_is"));
+        await _deliveries.DidNotReceive().TryCloseForVerdictAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        await _deliveries.DidNotReceive().TryRecordDisputeResolutionAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task SettleAsIs_TakesADeliveredOrderThroughTheVerdictHops_ThenTheSettlementMayGoAhead()
+    {
+        // buyer_wins on a delivered order whose delivery row is gone.
+        _orders.GetByIdAsync(OrderId, true).Returns(Order("delivered", 5));
+        _deliveries.GetByIdAsync(DeliveryId, true).Returns((Dictionary<string, object>?)null);
+        OrderWritesSucceed();
+
+        var before = await _mirror.PlanDispositionAsync(Escrow(), "buyer_wins");
+        var result = await _mirror.ApplyDispositionAsync(Escrow(), "buyer_wins", DisputeDisposition.SettleAsIs, ResolvedAt);
+        _orders.GetByIdAsync(OrderId, true).Returns(Order("dispute_resolved", 7));
+        var after = await _mirror.PlanDispositionAsync(Escrow(), "buyer_wins");
+
+        before.OrderOpen.Should().BeTrue();
+        before.SettlesAsIs.Should().BeFalse();
+        result.FailedLegs.Should().BeNull();
+        _orderWrites.Should().Equal("disputed", "dispute_resolved");
+        after.Case.Should().Be(DispositionCase.NoFit);
+        after.SettlesAsIs.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SettleAsIs_LeavesAClosedOrder_AndAReplayWritesNothing()
+    {
+        OrderIs("cancelled", 6);
+        DeliveryIs("delivered");
+
+        var first = await _mirror.ApplyDispositionAsync(Escrow(), "farmer_wins", DisputeDisposition.SettleAsIs, ResolvedAt);
+        var again = await _mirror.ApplyDispositionAsync(Escrow(), "farmer_wins", DisputeDisposition.SettleAsIs, ResolvedAt);
+
+        first.FailedLegs.Should().BeNull();
+        again.FailedLegs.Should().BeNull();
+        await NoLegWritten();
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await _txAudit.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task SettleAsIs_AnOrderThatMovedMeanwhile_IsAConflict_ForTheReplay()
+    {
+        OrderIs("accepted", 4);
+        DeliveryIs("disputed", "buyer_wins");
+        _orders.TryAdvanceStatusAsync(OrderId, "accepted", "dispute_resolved").Returns((Dictionary<string, object>?)null);
+        _orders.GetByIdAsync(OrderId, true).Returns(Order("accepted", 4), Order("cancelled", 5));
+
+        var result = await _mirror.ApplyDispositionAsync(Escrow(), "farmer_wins", DisputeDisposition.SettleAsIs, ResolvedAt);
+
+        result.Order.Should().Be(VerdictLegOutcome.Conflict);
+        result.FailedLegs.Should().Be("order:mismatch:cancelled");
+    }
+
     [Fact]
     public void DispositionNames_AndTheirVerdicts()
     {
@@ -1180,7 +1564,13 @@ public class DisputeVerdictMirrorTests
         DisputeDisposition.VerdictOf("settle_now").Should().Be("farmer_wins");
         DisputeDisposition.VerdictOf("wait_for_delivery").Should().Be("farmer_wins");
         DisputeDisposition.VerdictOf("override").Should().BeNull();
+        // FUP-64: settle_as_is goes with both verdicts, so it names neither.
+        DisputeDisposition.VerdictOf("settle_as_is").Should().BeNull();
+        DisputeDisposition.AuditAction("settle_as_is").Should().Be("dispute_resolved_settled_as_is");
+        DisputeDisposition.DeliveryTarget("settle_as_is").Should().BeNull();
         DisputeVerdictMirror.VerdictAuditTimestamp(ResolvedAt, "dispute_resolved_settled_early")
+            .Should().Be(DateTime.Parse(ResolvedAt).ToUniversalTime().AddTicks(4).ToString("o"));
+        DisputeVerdictMirror.VerdictAuditTimestamp(ResolvedAt, "dispute_resolved_settled_as_is")
             .Should().Be(DateTime.Parse(ResolvedAt).ToUniversalTime().AddTicks(4).ToString("o"));
     }
 }
