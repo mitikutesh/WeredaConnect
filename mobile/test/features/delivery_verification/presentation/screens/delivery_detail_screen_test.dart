@@ -73,6 +73,7 @@ void main() {
   Widget buildTestWidget({
     required Delivery delivery,
     String currentUserId = 'farmer-001',
+    bool? telebirrLive,
   }) {
     return BlocProvider<DeliveryBloc>.value(
       value: deliveryBloc,
@@ -83,6 +84,7 @@ void main() {
         home: DeliveryDetailScreen(
           delivery: delivery,
           currentUserId: currentUserId,
+          telebirrLive: telebirrLive,
         ),
       ),
     );
@@ -532,6 +534,92 @@ void main() {
         ]) {
           expect(find.text(action), findsNothing, reason: action);
         }
+      });
+    }
+  });
+
+  // FUP-69: the delivery payment (the screen that calls
+  // `POST /escrow/initiate`) is the buyer's, on a pending delivery, and only
+  // on a demo build. A live Telebirr build never offers it: the server
+  // refuses the path there (ESCROW_039) and the order is paid from its page.
+  // The same screen runs on mobile and web.
+  group('DeliveryDetailScreen delivery payment (FUP-69)', () {
+    const payEntry = Key('delivery_escrow_pay');
+
+    testWidgets('a demo build offers it to the buyer of a pending delivery',
+        (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          delivery: _makeDelivery(),
+          currentUserId: 'buyer-001',
+          telebirrLive: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(payEntry), findsOneWidget);
+    });
+
+    testWidgets('a live build never offers it to the buyer', (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          delivery: _makeDelivery(),
+          currentUserId: 'buyer-001',
+          telebirrLive: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(payEntry), findsNothing);
+      expect(find.text('Pay for Delivery'), findsNothing);
+      // The buyer's other step on a pending delivery stays.
+      expect(find.text('Cancel Delivery'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a live build keeps the self-pickup scan and drops only the payment',
+        (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          delivery: _makeDelivery(truckerId: '', deliveryType: 'self_pickup'),
+          currentUserId: 'buyer-001',
+          telebirrLive: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(payEntry), findsNothing);
+      expect(find.text("Scan farmer's QR to collect"), findsOneWidget);
+    });
+
+    for (final live in [false, true]) {
+      for (final userId in ['farmer-001', 'trucker-001']) {
+        testWidgets('$userId never gets it (live: $live)', (tester) async {
+          await tester.pumpWidget(
+            buildTestWidget(
+              delivery: _makeDelivery(),
+              currentUserId: userId,
+              telebirrLive: live,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(payEntry), findsNothing);
+        });
+      }
+
+      testWidgets('the buyer does not get it after pickup (live: $live)',
+          (tester) async {
+        await tester.pumpWidget(
+          buildTestWidget(
+            delivery: _makeDelivery(status: DeliveryStatus.pickedUp),
+            currentUserId: 'buyer-001',
+            telebirrLive: live,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(payEntry), findsNothing);
       });
     }
   });
