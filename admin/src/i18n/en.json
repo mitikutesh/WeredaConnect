@@ -327,7 +327,7 @@
     "action": "Cancel delivery",
     "title": "Cancel this delivery after pickup",
     "hint": "Use this when the goods were picked up and will not reach the buyer. Only the delivery is cancelled: no money moves and the order keeps its status. The order cannot get a new delivery afterwards.",
-    "moneyFirst": "The payment is still held ({status}). Decide the money first: a dispute verdict (which cancels the delivery itself) or the refund. Then this delivery can be cancelled here.",
+    "moneyFirst": "The payment is still held ({status}). Decide the money first: a dispute verdict (which cancels the delivery itself) or the override refund (API only for now). Then this delivery can be cancelled here.",
     "reason": "Why the delivery is cancelled",
     "reasonHint": "10 to 500 characters. It is kept in the audit trail.",
     "review": "Review",

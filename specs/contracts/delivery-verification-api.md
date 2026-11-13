@@ -242,7 +242,7 @@ nothing:
 | this cancel already applied: `cancelled` with `cancelReason: admin_cancelled` at version `expectedVersion + 1` | `200` with `alreadyCancelled: true`, nothing written |
 | the delivery's version is not `expectedVersion` | `409 DELIVERY_ADMIN_CANCEL_CHANGED` |
 | the status is not `pickedUp` or `inTransit` (`pending`: a party's cancel or the order's refund closes it; `delivered`, `disputed`: the dispute verdict; `cancelled`) | `409 DELIVERY_ADMIN_CANCEL_NOT_ALLOWED` |
-| the delivery's order (strongly consistent) is missing, or is not `accepted`, `pickup_confirmed`, `in_transit`, `dispute_resolved`, `cancelled` or `rejected`; a delivery without `orderId` (before 1.2.0) has no order to check | `409 DELIVERY_ADMIN_CANCEL_NOT_ALLOWED` |
+| the delivery's order (strongly consistent) is missing, or is not `pickup_confirmed`, `in_transit`, `dispute_resolved`, `cancelled` or `rejected` (an order still `accepted` lags its picked-up delivery and must catch up first, or readers of an accepted order would treat the cancelled delivery as never picked up); a delivery without `orderId` (before 1.2.0) has no order to check | `409 DELIVERY_ADMIN_CANCEL_NOT_ALLOWED` |
 | an escrow behind it is not `completed`, `cancelled` or `refunded`: the order's own `escrow-order-{orderId}`, the ones the escrows' `OrderIndex` names and the one the `DeliveryIndex` names, each read again strongly consistent | `409 DELIVERY_ADMIN_CANCEL_MONEY_HELD`, the message names the escrow and its status |
 
 Then one `TransactWriteItems`, all of it or none of it:
@@ -278,8 +278,11 @@ cancel:
   `cancelledAt` are extra keys the apps ignore.
 
 Known limits: the order keeps its status (`pickup_confirmed`, `in_transit`), so the parties' order screens
-still read it; the server does not mark an `inTransit` trip delivered when this was its last open delivery (the
-trip completion runs on sync writes only), the trucker does; the parties get no push.
+still read it, the trip's automatic completion stays off for the whole trip (an order of the trip still waits for
+carriage with no delivery done, even when the trip's other deliveries finish later), and the farmer, the trucker and
+the buyer cannot delete their accounts until the order is closed (those statuses block it); the server does not
+mark an `inTransit` trip delivered when this was its last open delivery (the trip completion runs on sync writes
+only), the trucker does; the parties get no push (FUP-341, FUP-342).
 
 **Request Body (Confirm Pickup)**:
 ```json

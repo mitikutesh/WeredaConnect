@@ -48,11 +48,13 @@ public static class AdminDeliveryCancel
     /// Order statuses whose goods may still be on the road or were taken back: logistics before delivery, a verdict
     /// recorded over goods that were moving, or an order closed with its refund. Anything else is refused: an order
     /// before its pickup has no picked-up delivery, and a delivered, disputed, disbursing or settled order says the
-    /// goods arrived.
+    /// goods arrived. An order still <c>accepted</c> lags its picked-up delivery: refused, because readers of an
+    /// accepted order (the trucker drop-out, the cancelled trip's transport failure, the pickup judgement) would treat
+    /// the cancelled delivery as never picked up, and nothing advances the order after the cancel.
     /// </summary>
     private static readonly HashSet<string> OrderStatusesAllowed = new(StringComparer.Ordinal)
     {
-        "accepted", "pickup_confirmed", "in_transit", "dispute_resolved", "cancelled", "rejected"
+        "pickup_confirmed", "in_transit", "dispute_resolved", "cancelled", "rejected"
     };
 
     /// <summary>Escrow statuses that hold and govern no money any more (escrow-protocol.md, Status Types).</summary>
@@ -101,6 +103,12 @@ public static class AdminDeliveryCancel
         }
 
         var status = Str(order, "status");
+        if (status == "accepted")
+        {
+            return "The order is accepted although its delivery was picked up: the order must catch up with its delivery "
+                   + "first, or the cancelled delivery would read as never picked up. Nothing was written.";
+        }
+
         return OrderStatusesAllowed.Contains(status)
             ? null
             : $"The order is {status}: only an order whose goods were picked up and never delivered can have its delivery cancelled.";

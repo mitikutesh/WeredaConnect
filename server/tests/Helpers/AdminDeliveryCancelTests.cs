@@ -37,7 +37,6 @@ public class AdminDeliveryCancelTests
         => AdminDeliveryCancel.OrderRefusalOf("order-1", null).Should().Contain("cannot be found");
 
     [Theory]
-    [InlineData("accepted")]
     [InlineData("pickup_confirmed")]
     [InlineData("in_transit")]
     [InlineData("dispute_resolved")]
@@ -45,6 +44,10 @@ public class AdminDeliveryCancelTests
     [InlineData("rejected")]
     public void OrderRefusalOf_GoodsPickedUpAndNeverDelivered_IsAllowed(string status)
         => AdminDeliveryCancel.OrderRefusalOf("order-1", Row(("status", status))).Should().BeNull();
+
+    [Fact]
+    public void OrderRefusalOf_AnOrderStillAcceptedBehindItsPickedUpDelivery_IsRefused()
+        => AdminDeliveryCancel.OrderRefusalOf("order-1", Row(("status", "accepted"))).Should().Contain("must catch up with its delivery");
 
     [Theory]
     [InlineData("delivered")]
