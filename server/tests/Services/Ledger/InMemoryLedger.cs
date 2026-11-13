@@ -228,7 +228,8 @@ internal sealed class InMemoryLedger : IEscrowLedgerRepository
             }
         }
 
-        var after = transition.After;
+        // Like the real BuildRowUpdate, a transition never touches the FUP-06 marker.
+        var after = transition.After with { ManualOverdueLoggedFor = current.ManualOverdueLoggedFor };
         if (after.Status != LedgerFields.StatusDone && after.DueAt == null)
         {
             after = after with { DueAt = after.UpdatedAt };

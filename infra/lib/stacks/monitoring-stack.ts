@@ -113,7 +113,7 @@ export class MonitoringStack extends cdk.Stack {
     // FUP-06: the topic's subscribers in code, from envConfig.alarmEmails (empty by default, so a stack without
     // them creates no subscription and leaves a subscriber added by hand alone). A malformed address fails the
     // synth instead of the deploy.
-    const alarmEmails = [...new Set((envConfig.alarmEmails ?? []).map((email) => email.trim()))];
+    const alarmEmails = [...new Set((envConfig.alarmEmails ?? []).map((email) => email.trim().toLowerCase()))];
     for (const email of alarmEmails) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         cdk.Annotations.of(this).addError(`alarmEmails: '${email}' is not an email address`);

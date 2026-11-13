@@ -160,7 +160,7 @@ describe('FUP-06: manual payouts newly overdue', () => {
       const description = alarms.find((a) => a.Properties.AlarmName === ALARM_NAME)?.Properties.AlarmDescription ?? '';
       expect(description.length).toBeLessThanOrEqual(1024);
       expect(description).toContain('/payouts');
-      expect(description).not.toMatch(/[–—]/);
+      expect(description).not.toMatch(/[\u2013\u2014]/);
       // The level-triggered alarm now points at it instead of "read the lines".
       const overdue = alarms.find((a) => a.Properties.AlarmName === 'wereda-connect-dev-manual-payouts-overdue');
       expect(overdue?.Properties.AlarmDescription).toContain('manual-payouts-newly-overdue');

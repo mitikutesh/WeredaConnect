@@ -5943,6 +5943,9 @@ manual payout leg: by the first run that reports the leg overdue.
   them, and the close leaves them in place. A later entry on the same escrow (a new queue time) or a row that
   enters `manual` again (a new `dueAt`) is announced again.
 - A leg already overdue when 2.24.0 is deployed has no marker, so the first run after the deploy announces it once.
+- One gap is left: a Lambda killed (timeout, out of memory) after the marker write and before the line leaves that
+  leg marked and unannounced. `escrow-cron-errors` fires for the kill, and `MANUAL_PAYOUT_OVERDUE` keeps listing the
+  leg every run, so it is late news, not lost money.
 - Run summaries: `manualPayoutsNewlyOverdue` (hourly) and `manualNewlyOverdue` (ledger sweep), the lines logged.
 
 **Alarm** `<prefix>-manual-payouts-newly-overdue` (metric `ManualPayoutsNewlyOverdue`; one filter, on the escrow-cron
