@@ -325,6 +325,77 @@ public class TelebirrSandboxGatewayTests
         resp.ToPayUrl.Should().StartWith(config.WebUrl).And.Contain("prepay_id=");
     }
 
+    /// <summary>
+    /// FUP-430: QueryOrderAsync against the running simulator, same env gate as above. The simulator
+    /// answers from its own order state: WAIT_PAY before the payment, PAY_SUCCESS after one whose notify
+    /// never came, ORDER_CLOSED after the window, and a refusal (read as unknown, never "not paid") for
+    /// an order it never created.
+    /// </summary>
+    [Fact]
+    public async Task QueryOrder_against_live_simulator()
+    {
+        var simUrl = Environment.GetEnvironmentVariable("TELEBIRR_SIM_URL");
+        var credsFile = Environment.GetEnvironmentVariable("TELEBIRR_CREDS_FILE");
+        if (string.IsNullOrEmpty(simUrl) || string.IsNullOrEmpty(credsFile) || !File.Exists(credsFile))
+        {
+            // No-op without a running simulator, as HoldFunds_against_live_simulator.
+            return;
+        }
+
+        var config = TelebirrConfig.FromJson(
+            File.ReadAllText(credsFile!), notifyUrl: "http://127.0.0.1:1/webhooks/telebirr");
+        var gateway = new TelebirrSandboxGateway(
+            new HttpClient(),
+            new TelebirrSignatureService(config.MerchantPrivateKeyPem, config.TelebirrPublicKeyPem, config.Padding),
+            config);
+        using var sim = new HttpClient { BaseAddress = new Uri(simUrl!) };
+        var stamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        async Task<string> OpenCheckoutAsync(string merchOrderId)
+        {
+            var hold = await gateway.HoldFundsAsync(new HoldFundsRequest
+            {
+                TransactionRef = merchOrderId,
+                BuyerPhone = "+251900100003",
+                Amount = 150m,
+                Description = "live-sim queryOrder test",
+            });
+            hold.Success.Should().BeTrue($"error: {hold.ErrorCode} {hold.ErrorMessage}");
+            return hold.PrepayId!;
+        }
+
+        async Task SimulateAsync(string action, string prepayId, string extra = "")
+            => (await sim.PostAsync($"/simulate/{action}?prepay_id={Uri.EscapeDataString(prepayId)}{extra}", null))
+                .IsSuccessStatusCode.Should().BeTrue($"simulate/{action}");
+
+        var paidId = $"WCOSIMQUERY{stamp}P";
+        var paidPrepay = await OpenCheckoutAsync(paidId);
+        var waiting = await gateway.QueryOrderAsync(paidId);
+        waiting.State.Should().Be(TelebirrPaymentState.Pending);
+        waiting.Status.Should().Be("WAIT_PAY");
+
+        // A payment whose notify never arrives: only queryOrder can tell.
+        await SimulateAsync("complete", paidPrepay, "&result=success&notify=0");
+        var paid = await gateway.QueryOrderAsync(paidId);
+        paid.State.Should().Be(TelebirrPaymentState.Paid);
+        paid.Status.Should().Be("PAY_SUCCESS");
+        paid.MerchOrderId.Should().Be(paidId);
+        paid.PaymentOrderId.Should().NotBeNullOrEmpty("the reconciliation keys the inbox row on it");
+        paid.TransId.Should().NotBeNullOrEmpty();
+        paid.TotalAmount.Should().Be("150.00");
+        paid.TransCurrency.Should().Be("ETB");
+
+        var closedId = $"WCOSIMQUERY{stamp}C";
+        await SimulateAsync("expire", await OpenCheckoutAsync(closedId));
+        var closed = await gateway.QueryOrderAsync(closedId);
+        closed.State.Should().Be(TelebirrPaymentState.NotPaid);
+        closed.Status.Should().Be("ORDER_CLOSED");
+
+        var never = await gateway.QueryOrderAsync($"WCOSIMQUERY{stamp}N");
+        never.State.Should().Be(TelebirrPaymentState.Unknown);
+        never.ErrorCode.Should().Be("TELEBIRR_SIM_ORDER_NOT_FOUND");
+    }
+
     // ===== ESC-45 (D6): every call ends at the invocation's deadline (timeout tests) =====
 
     private static HttpResponseMessage TokenAnswer()
