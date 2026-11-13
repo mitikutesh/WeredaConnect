@@ -99,8 +99,9 @@ Order _order({
 
 /// ESC-36, the client part (FUP-336): the delivery detail shows the
 /// trucker's arrival photo, the drop-off check-in with what happens next
-/// (the buyer next to Confirm Delivery), a system confirm, and the label of
-/// a system dispute, for the trucker, the buyer and the farmer.
+/// (the buyer next to Confirm Delivery; the trucker's button since FUP-371),
+/// a system confirm, and the label of a system dispute, for the trucker,
+/// the buyer and the farmer.
 void main() {
   late MockDeliveryBloc deliveryBloc;
   late MockOrderBloc orderBloc;
@@ -175,7 +176,10 @@ void main() {
         expect(find.text(en.deliveryPhotoArrival), findsOneWidget);
       });
 
-      testWidgets('trucker: the state, never the button here', (tester) async {
+      // FUP-371: the trucker's button is here too now
+      // (delivery_detail_check_in_test.dart taps it).
+      testWidgets('trucker: the state and "Arrived at drop-off"',
+          (tester) async {
         order = _order(checkedIn: false);
         await show(
           tester,
@@ -189,8 +193,15 @@ void main() {
           textWith('Check in when you reach the drop-off'),
           findsOneWidget,
         );
-        expect(find.text(en.dropoffCheckInButton), findsNothing);
+        expect(find.text(en.dropoffCheckInButton), findsOneWidget);
         expect(find.byKey(const Key('delivery_arrival_photo')), findsNothing);
+      });
+
+      testWidgets('trucker, checked in: the state, no button', (tester) async {
+        await show(tester, _delivery(), 'trucker-001', platform);
+
+        expect(textWith('Received'), findsOneWidget);
+        expect(find.text(en.dropoffCheckInButton), findsNothing);
       });
 
       testWidgets('farmer: the buyer\'s window after the check-in',

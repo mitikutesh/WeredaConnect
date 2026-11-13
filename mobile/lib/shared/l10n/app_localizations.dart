@@ -6286,6 +6286,30 @@ abstract class AppLocalizations {
   /// **'Check the delivery'**
   String get actionCheckDelivery;
 
+  /// FUP-327 (ESC-34 arrival check-ins on Home). am and om machine drafted, native review owed. Action card, trucker (the buyer on a self-pickup order): the arrival check-in at the farm is open and not given yet; the order's button reads I have arrived; due at the pickup deadline
+  ///
+  /// In en, this message translates to:
+  /// **'Check in when you reach the farm'**
+  String get actionCheckInAtFarm;
+
+  /// FUP-327 (ESC-34 arrival check-ins on Home). am and om machine drafted, native review owed. Action card, farmer: the Crops are ready check-in is open and not given yet; due at the pickup deadline
+  ///
+  /// In en, this message translates to:
+  /// **'Check in when the crops are ready'**
+  String get actionCropsReady;
+
+  /// FUP-371 (ESC-36 drop-off check-in on Home). am and om machine drafted, native review owed. Action card, trucker: the drop-off check-in is open and not given yet; the order's button reads Arrived at drop-off; due at the delivery deadline
+  ///
+  /// In en, this message translates to:
+  /// **'Check in when you reach the drop-off'**
+  String get actionCheckInAtDropoff;
+
+  /// FUP-371 (ESC-36 drop-off check-in on Home). am and om machine drafted, native review owed. Action card, buyer: the trucker checked in at the drop-off; the card's due time is when the delivery may be confirmed for the buyer if they say nothing (T9)
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm the delivery'**
+  String get actionConfirmDelivery;
+
   /// Deadline of an action card or inbox entry (Ethiopia time)
   ///
   /// In en, this message translates to:

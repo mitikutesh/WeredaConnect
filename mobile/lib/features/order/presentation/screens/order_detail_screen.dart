@@ -305,13 +305,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             // FUP-285: sent, or saved on the phone to send later; the order
             // then shows the check-in (the server's, or the phone's mark).
             // A repeat sent nothing: say it was already given.
-            if (state.alreadyGiven) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(l10n.checkInAlreadyGiven)),
-              );
-            } else {
-              showSavedOrSent(context, sent: l10n.checkInSent).ignore();
-            }
+            showCheckInSaved(context, state);
             context
                 .read<OrderBloc>()
                 .add(LoadOrderById(orderId: widget.orderId));

@@ -330,6 +330,36 @@ void main() {
     });
   });
 
+  // FUP-371: the order detail, the delivery detail and Home follow T8, then
+  // T9, by the same edge.
+  test('the next edge: T8, T9 once the check-in counts, none after', () {
+    final t8 = _now.add(const Duration(days: 1));
+    expect(
+      nextDropoffCheckInEdge(_order(), _now),
+      t8.add(const Duration(seconds: 1)),
+    );
+    final serverT9 = _now.add(const Duration(hours: 30));
+    final checkedIn = _order()
+      ..checkIns = [_dropoff()]
+      ..dropoffConfirmAt = serverT9;
+    expect(
+      nextDropoffCheckInEdge(checkedIn, _now),
+      serverT9.add(const Duration(seconds: 1)),
+    );
+    expect(
+      nextDropoffCheckInEdge(checkedIn, serverT9.add(const Duration(hours: 1))),
+      isNull,
+    );
+    expect(
+      nextDropoffCheckInEdge(
+        _order(judgement: DropoffJudgementOutcome.closed),
+        _now,
+      ),
+      isNull,
+    );
+    expect(nextDropoffCheckInEdge(_order(judgement: null), _now), isNull);
+  });
+
   group('refusals of a drop-off check-in', () {
     const tooFar = 'CHECKIN_TOO_FAR: You are 7.2 km from the drop-off '
         '(at most 5 km).';
