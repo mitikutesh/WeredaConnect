@@ -214,6 +214,35 @@ enum AppErrorCode {
   /// The local guard: an arrival without a usable GPS fix (FUP-285).
   checkInNeedsLocation,
 
+  /// ESC-36 (FUP-336): the trucker's drop-off check-in, refused for good
+  /// (its local mark went back). `CHECKIN_PHOTO_REQUIRED`: the arrival photo
+  /// never reached the delivery; take it, then check in again.
+  checkInPhotoRequired,
+
+  /// `CHECKIN_NOT_OPEN` of a drop-off check-in (not stamped, judged, or the
+  /// delivery no longer on the road), or the local guard.
+  dropoffCheckInNotOpen,
+
+  /// `CHECKIN_NOT_PARTY` of a drop-off check-in: only the order's trucker.
+  dropoffCheckInNotParty,
+
+  /// `CHECKIN_TOO_FAR` at the drop-off: more than 5 km from it; check in
+  /// again closer.
+  dropoffCheckInTooFar,
+
+  /// `CHECKIN_TOO_FAR` at the drop-off whose attempt the server kept for
+  /// review (the first one with its photo, before T8).
+  dropoffCheckInTooFarKept,
+
+  /// `CHECKIN_TOO_LATE` at the drop-off: after T8, kept for review.
+  dropoffCheckInTooLate,
+
+  /// The local guard: T8 passed on the device clock.
+  dropoffCheckInClosed,
+
+  /// The local guard: a drop-off check-in without a usable GPS fix.
+  dropoffCheckInNeedsLocation,
+
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
@@ -476,6 +505,15 @@ String localizeErrorCode(
     AppErrorCode.checkInNotSaved => l10n.errorCheckInValidation,
     AppErrorCode.checkInClosed => l10n.errorCheckInClosed,
     AppErrorCode.checkInNeedsLocation => l10n.checkInNeedsLocation,
+    AppErrorCode.checkInPhotoRequired => l10n.errorCheckInPhotoRequired,
+    AppErrorCode.dropoffCheckInNotOpen => l10n.errorDropoffCheckInNotOpen,
+    AppErrorCode.dropoffCheckInNotParty => l10n.errorDropoffCheckInNotParty,
+    AppErrorCode.dropoffCheckInTooFar => l10n.errorDropoffCheckInTooFar,
+    AppErrorCode.dropoffCheckInTooFarKept => l10n.errorDropoffCheckInTooFarKept,
+    AppErrorCode.dropoffCheckInTooLate => l10n.errorDropoffCheckInTooLate,
+    AppErrorCode.dropoffCheckInClosed => l10n.errorDropoffCheckInClosed,
+    AppErrorCode.dropoffCheckInNeedsLocation =>
+      l10n.dropoffCheckInNeedsLocation,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -500,6 +538,7 @@ AppErrorCode syncRejectionErrorCode({
   required String entityType,
   required String action,
   required String message,
+  String? entityId,
 }) {
   if (isAppUpdateRequiredMessage(message)) {
     // Only an order command is refused for the app version; anything else
@@ -516,10 +555,15 @@ AppErrorCode syncRejectionErrorCode({
         ? AppErrorCode.reportLimitReached
         : AppErrorCode.reportNotSent;
   }
-  // FUP-285: a refused arrival check-in says why; its mark went back.
+  // FUP-285: a refused arrival check-in says why; its mark went back. The
+  // kind in [entityId] picks the drop-off texts (FUP-336).
   if (entityType == handoffCheckInEntityType &&
       isCheckInRefusalMessage(message)) {
-    return checkInErrorCode(message);
+    return checkInErrorCode(
+      message,
+      kind:
+          entityId == null ? null : parseHandoffCheckInEntityId(entityId)?.kind,
+    );
   }
   if (entityType == 'order') {
     if (isReputationRestrictedMessage(message)) {
@@ -602,7 +646,13 @@ AppErrorCode syncRejectionErrorCode({
 /// The code of an arrival check-in refusal ([isCheckInRefusalMessage],
 /// FUP-285): one per `CHECKIN_*` code; the unsupported-entity answer of a
 /// server without check-ins reads as not open; an unknown code as not saved.
-AppErrorCode checkInErrorCode(String message) {
+/// A drop-off check-in ([kind] `arrived_dropoff`, ESC-36, FUP-336) has its own
+/// texts: the drop-off, not the farm.
+AppErrorCode checkInErrorCode(String message, {String? kind}) {
+  if (message.startsWith(CheckInRefusal.photoRequired)) {
+    return AppErrorCode.checkInPhotoRequired;
+  }
+  if (kind == dropoffCheckInKind) return _dropoffCheckInErrorCode(message);
   if (isCheckInUnsupportedMessage(message) ||
       message.startsWith(CheckInRefusal.notOpen)) {
     return AppErrorCode.checkInNotOpen;
@@ -618,6 +668,28 @@ AppErrorCode checkInErrorCode(String message) {
   }
   if (message.startsWith(CheckInRefusal.notParty)) {
     return AppErrorCode.checkInNotParty;
+  }
+  return AppErrorCode.checkInNotSaved;
+}
+
+/// [checkInErrorCode] of a drop-off check-in. `CHECKIN_TOO_FAR` says whether
+/// the server kept the attempt for review; either way the trucker may check
+/// in again closer.
+AppErrorCode _dropoffCheckInErrorCode(String message) {
+  if (isCheckInUnsupportedMessage(message) ||
+      message.startsWith(CheckInRefusal.notOpen)) {
+    return AppErrorCode.dropoffCheckInNotOpen;
+  }
+  if (message.startsWith(CheckInRefusal.tooLate)) {
+    return AppErrorCode.dropoffCheckInTooLate;
+  }
+  if (message.startsWith(CheckInRefusal.tooFar)) {
+    return isCheckInAttemptKeptMessage(message)
+        ? AppErrorCode.dropoffCheckInTooFarKept
+        : AppErrorCode.dropoffCheckInTooFar;
+  }
+  if (message.startsWith(CheckInRefusal.notParty)) {
+    return AppErrorCode.dropoffCheckInNotParty;
   }
   return AppErrorCode.checkInNotSaved;
 }

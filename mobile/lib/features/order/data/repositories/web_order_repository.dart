@@ -1,16 +1,20 @@
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_delivery_location.dart';
+import 'package:wereda_connect/core/models/order_dropoff_check_in.dart';
 import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
 /// Web-only order repository.
@@ -521,6 +525,76 @@ class WebOrderRepository extends BaseOrderRepository {
     final order = await _currentOrder(orderId);
     final now = DateTime.now().toUtc();
     if (!checkCheckInAllowed(order, userId, kind, fix, now)) return false;
+    await _sendCheckIn(orderId, kind, now, fix);
+    return true;
+  }
+
+  /// ESC-36 (FUP-336): the trucker's drop-off check-in, with the mobile
+  /// guards on the server's current order. A new [arrivalPhotoRef] (the key
+  /// the browser uploaded when the photo was taken) is attached first, then
+  /// the check-in is sent. The attach is best effort: whatever it answers,
+  /// the check-in goes and the server decides (`CHECKIN_PHOTO_REQUIRED` when
+  /// the delivery still has no arrival photo); only a failed request stops
+  /// it. A refusal surfaces as a [SyncRejectedException] with its `CHECKIN_*`
+  /// code.
+  @override
+  Future<bool> checkInAtDropoff(
+    String orderId,
+    String userId, {
+    required String deliveryId,
+    required HandoffCheckInFix? fix,
+    String? arrivalPhotoRef,
+  }) async {
+    final order = await _currentOrder(orderId);
+    final now = DateTime.now().toUtc();
+    if (!checkDropoffCheckInAllowed(order, userId, fix, now)) return false;
+    final photo = arrivalPhotoRef;
+    if (photo != null &&
+        DeliveryConstants.isServerPhotoRef(photo, deliveryId)) {
+      await _attachArrivalPhoto(deliveryId, photo);
+    }
+    await _sendCheckIn(orderId, CheckInKind.arrivedDropoff, now, fix);
+    return true;
+  }
+
+  /// `delivery_photo` `{deliveryId}#arrival` with the uploaded key. A refusal
+  /// or deferral is left to the check-in that follows (an earlier attempt's
+  /// photo may be attached already: `DELIVERY_PHOTO_EXISTS`).
+  Future<void> _attachArrivalPhoto(String deliveryId, String photoRef) async {
+    final entityId = deliveryPhotoEntityId(deliveryId, arrivalPhotoType);
+    final response = await _api.post<Map<String, dynamic>>(
+      '/sync',
+      data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
+        'operations': [
+          {
+            'operationId': _uuid.v4(),
+            'entityType': deliveryPhotoEntityType,
+            'action': 'create',
+            'entityId': entityId,
+            'timestamp': DateTime.now().toUtc().toIso8601String(),
+            'idempotencyKey': 'web_photo_${entityId}_$photoRef',
+            'data': {deliveryPhotoRefKey: photoRef},
+          },
+        ],
+      },
+    );
+    try {
+      ensureSyncSucceeded(response, events: _securityEvents);
+    } on SyncRejectedException catch (e) {
+      // A refusal, a deferral or a conflict alike.
+      debugPrint('[WebOrderRepository] arrival photo not attached: $e');
+    }
+  }
+
+  /// Sends one check-in of [kind] at once (`handoff_check_in`).
+  Future<void> _sendCheckIn(
+    String orderId,
+    String kind,
+    DateTime now,
+    HandoffCheckInFix? fix,
+  ) async {
     final at = now.toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -546,7 +620,6 @@ class WebOrderRepository extends BaseOrderRepository {
       },
     );
     ensureSyncSucceeded(response, events: _securityEvents);
-    return true;
   }
 
   List<Order> _parseOrders(Map<String, dynamic> data) {

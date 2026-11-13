@@ -1,6 +1,7 @@
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
 
 /// Deletes the photo files of one handoff on this phone.
@@ -30,7 +31,12 @@ class DeliveryPhotoAttachedCleanup {
     required String photoRef,
     required String? localPath,
   }) async {
-    final photoType = type == 'pickup' ? PhotoType.pickup : PhotoType.dropoff;
+    final photoType = switch (type) {
+      'pickup' => PhotoType.pickup,
+      // ESC-36 (FUP-336): the trucker's arrival photo at the drop-off.
+      arrivalPhotoType => PhotoType.arrival,
+      _ => PhotoType.dropoff,
+    };
     await _isar.writeTxn(() async {
       final delivery = await _isar.deliverys
           .filter()
@@ -44,6 +50,9 @@ class DeliveryPhotoAttachedCleanup {
       } else if (photoType == PhotoType.dropoff &&
           _isLocalPath(delivery.dropoffPhotoRef)) {
         delivery.dropoffPhotoRef = photoRef;
+      } else if (photoType == PhotoType.arrival &&
+          _isLocalPath(delivery.arrivalPhotoRef)) {
+        delivery.arrivalPhotoRef = photoRef;
       } else {
         return;
       }

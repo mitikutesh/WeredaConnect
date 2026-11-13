@@ -139,6 +139,62 @@ void main() {
         expect(order.checkIns.single.distanceChecked, isFalse);
       });
 
+      // FUP-336: the drop-off judgement, T8, the system's dispute reason and
+      // the trucker's drop-off check-in come with the echo too (ESC-36).
+      test('takes the drop-off judgement and the drop-off check-in', () async {
+        final operation = SyncOperation()
+          ..operationId = 'op-order-3'
+          ..idempotencyKey = 'key-order-3'
+          ..entityType = 'order'
+          ..entityId = 'order-001'
+          ..action = 'update'
+          ..data = '{}'
+          ..status = SyncStatus.syncing
+          ..retryCount = 0
+          ..createdAt = DateTime.now().toUtc();
+
+        await resolver.resolve(
+          operation: operation,
+          serverData: {
+            'orderId': 'order-001',
+            'listingId': 'listing-001',
+            'buyerId': 'buyer-001',
+            'farmerId': 'farmer-001',
+            'buyerName': 'Buyer',
+            'farmerName': 'Farmer',
+            'cropType': 'teff',
+            'quantity': 500,
+            'pricePerUnit': 45.5,
+            'totalPrice': 22750,
+            'status': 'disputed',
+            'createdAt': '2026-10-01T08:00:00Z',
+            'dropoffJudgement': 'silent_buyer',
+            'dropoffJudgedAt': '2026-10-16T07:01:00Z',
+            'dropoffDeadlineAt': '2026-10-15T08:00:00Z',
+            'disputeReason': 'silent_buyer',
+            'checkIns': {
+              'arrived_dropoff': {
+                'receivedAt': '2026-10-14T07:00:00Z',
+                'distanceChecked': false,
+                'late': false,
+              },
+            },
+          },
+          serverVersion: 9,
+        );
+
+        final order =
+            await isar.orders.filter().orderIdEqualTo('order-001').findFirst();
+        expect(order!.dropoffJudgement, 'silent_buyer');
+        expect(
+          order.dropoffJudgedAt!.toUtc(),
+          DateTime.utc(2026, 10, 16, 7, 1),
+        );
+        expect(order.dropoffDeadlineAt!.toUtc(), DateTime.utc(2026, 10, 15, 8));
+        expect(order.disputeReason, 'silent_buyer');
+        expect(order.checkIns.single.kind, 'arrived_dropoff');
+      });
+
       // ESC-48: /sync rows carry no contact flag; a closed status, or an
       // admin override refund on an open status, drops the phones the last
       // pull left on the device.
@@ -1272,6 +1328,84 @@ void main() {
 
         expect(stored!.pickupPhotoRef, local);
         expect(stored.dropoffPhotoRef, key);
+      });
+
+      // FUP-336 (ESC-36): the trucker's arrival photo the same way, and the
+      // system's confirm for a silent buyer.
+      test("the trucker's arrival photo and the system confirm", () async {
+        const arrivalLocal =
+            '/data/user/0/app/files/photos/del-arrival/arrival-1.webp';
+        const arrivalKey =
+            'uploads/photos/del-arrival/arrival-1700000000000.jpg';
+        await isar.writeTxn(() async {
+          await isar.deliverys.put(
+            Delivery()
+              ..deliveryId = 'del-arrival'
+              ..tripId = 'trip-1'
+              ..listingId = 'crop-1'
+              ..farmerId = 'farmer-1'
+              ..farmerName = 'Kedir'
+              ..truckerId = 'trucker-1'
+              ..truckerName = 'Geleta'
+              ..buyerId = 'buyer-1'
+              ..buyerName = 'Dawit'
+              ..qrToken = ''
+              ..status = DeliveryStatus.inTransit
+              ..arrivalPhotoRef = arrivalLocal
+              ..createdAt = DateTime.utc(2026, 11, 7)
+              ..updatedAt = DateTime.utc(2026, 11, 7)
+              ..version = 2,
+          );
+        });
+        Future<Delivery?> echo(Map<String, dynamic> extra) async {
+          await resolver.resolve(
+            operation: SyncOperation()
+              ..operationId = 'op-del-arrival'
+              ..idempotencyKey = 'key-del-arrival'
+              ..entityType = 'delivery'
+              ..entityId = 'del-arrival'
+              ..action = 'update'
+              ..data = '{}'
+              ..status = SyncStatus.syncing
+              ..retryCount = 0
+              ..createdAt = DateTime.now().toUtc(),
+            serverData: {
+              'deliveryId': 'del-arrival',
+              'tripId': 'trip-1',
+              'listingId': 'crop-1',
+              'farmerId': 'farmer-1',
+              'farmerName': 'Kedir',
+              'truckerId': 'trucker-1',
+              'truckerName': 'Geleta',
+              'buyerId': 'buyer-1',
+              'buyerName': 'Dawit',
+              'status': 'inTransit',
+              'createdAt': '2026-11-07T08:00:00Z',
+              'updatedAt': '2026-11-07T09:00:00Z',
+              ...extra,
+            },
+            serverVersion: 3,
+          );
+          return isar.deliverys
+              .filter()
+              .deliveryIdEqualTo('del-arrival')
+              .findFirst();
+        }
+
+        var stored = await echo({});
+        expect(stored!.arrivalPhotoRef, arrivalLocal);
+        expect(stored.autoConfirmedAt, isNull);
+
+        stored = await echo({
+          'arrivalPhotoRef': arrivalKey,
+          'autoConfirmedAt': '2026-11-10T08:01:00Z',
+          'status': 'delivered',
+        });
+        expect(stored!.arrivalPhotoRef, arrivalKey);
+        expect(
+          stored.autoConfirmedAt!.toUtc(),
+          DateTime.utc(2026, 11, 10, 8, 1),
+        );
       });
     });
 

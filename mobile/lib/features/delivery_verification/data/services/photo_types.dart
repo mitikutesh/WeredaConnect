@@ -7,6 +7,10 @@ enum PhotoType {
 
   /// Photo taken at dropoff (buyer's location).
   dropoff,
+
+  /// The trucker's arrival photo at the drop-off, taken before the drop-off
+  /// check-in (ESC-36, FUP-336).
+  arrival,
 }
 
 /// Result of photo capture and compression.

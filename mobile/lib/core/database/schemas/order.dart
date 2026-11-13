@@ -196,8 +196,28 @@ class Order {
   DateTime? pickupJudgedAt;
 
   /// ESC-34: the arrival check-ins the server received, one per kind
-  /// (`arrived_pickup`, `crops_ready`). Server-written; empty when none.
+  /// (`arrived_pickup`, `crops_ready`; ESC-36: the trucker's
+  /// `arrived_dropoff`). Server-written; empty when none.
   List<OrderCheckIn> checkIns = [];
+
+  /// ESC-36 (order-lifecycle 2.18.0, FUP-336): `pending` on an order picked
+  /// up with `dropoffClassification` on, until the order cron judges the
+  /// drop-off (T8 at [dropoffDeadlineAt], or T9 48 hours after the trucker's
+  /// drop-off check-in); then `closed`, `auto_confirmed`, `silent_buyer`,
+  /// `delivery_overdue`, `dropoff_out_of_range` or `queued`. Null on every
+  /// other order. Server-written.
+  String? dropoffJudgement;
+
+  /// ESC-36: when the drop-off was judged (UTC). Server-written.
+  DateTime? dropoffJudgedAt;
+
+  /// ESC-36: T8 (UTC), the pickup plus 72 hours: without the trucker's
+  /// drop-off check-in by then the delivery is disputed as overdue.
+  DateTime? dropoffDeadlineAt;
+
+  /// ESC-36: why the system disputed the order (`delivery_overdue`,
+  /// `dropoff_out_of_range`, `silent_buyer`). Server-written.
+  String? disputeReason;
 
   /// FUP-285: the check-ins made on this phone that the server has not
   /// refused, by kind (the local mark). Not stored: the order repository
@@ -222,7 +242,7 @@ class QueuedCheckIn {
 /// (`delivery-verification-api.md` 2.6.0): no coordinates, no sender.
 @embedded
 class OrderCheckIn {
-  /// `arrived_pickup` or `crops_ready`.
+  /// `arrived_pickup`, `crops_ready` or (ESC-36) `arrived_dropoff`.
   String kind = '';
 
   /// When the server received it (UTC): the only time the judgement reads.

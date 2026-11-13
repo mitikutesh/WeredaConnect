@@ -5947,4 +5947,116 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get checkInAlreadyGiven => 'Duraan mirkaneessiteetta.';
+
+  @override
+  String get deliveryPhotoArrival => 'Suuraa ga\'umsaa';
+
+  @override
+  String deliveryAutoConfirmedAt(String time) {
+    return 'Konkolaachisaan bakka buusuu ga\'uu isaa erga mirkaneessee booda bitaan deebii waan hin kennineef, sirnichi $time mirkaneesseera.';
+  }
+
+  @override
+  String get dropoffCheckInTitle => 'Bakka buusuu ga\'uu';
+
+  @override
+  String get dropoffCheckInPartyTrucker => 'Konkolaachisaan bakka buusuu irra';
+
+  @override
+  String get dropoffCheckInButton => 'Bakka buusuu ga\'eera';
+
+  @override
+  String get dropoffCheckInPhotoHint =>
+      'Jalqaba bakka buusuu irratti suuraa meeshaa kaasi; sana booda bakki kee ni dubbifama.';
+
+  @override
+  String dropoffCheckInTruckerNote(String time) {
+    return 'Yeroo bakka buusuu geessu, hanga $time mirkaneessi. Hanga sanatti yoo hin mirkaneessin, geejjibni akka barfatetti gara deeggarsaatti dabarfama.';
+  }
+
+  @override
+  String dropoffCheckInWaitingNote(String time) {
+    return 'Konkolaachisaan hanga $time bakka buusuu ga\'uu isaa ni mirkaneessa. Hanga sanatti yoo hin mirkaneessin, geejjibni akka barfatetti gara deeggarsaatti dabarfama.';
+  }
+
+  @override
+  String dropoffCheckInBuyerConfirmBy(String time) {
+    return 'Konkolaachisaan bakka buusuu ga\'uu isaa mirkaneesseera. Yeroo midhaan fudhattu geejjiba mirkaneessi. Hanga $time yoo hin mirkaneessin, geejjibni bakka kee bu\'ee mirkanaa\'uu danda\'a.';
+  }
+
+  @override
+  String dropoffCheckInPartyConfirmBy(String time) {
+    return 'Konkolaachisaan bakka buusuu ga\'uu isaa mirkaneesseera. Bitaan hanga $time yoo hin mirkaneessin, geejjibni bakka bitaa bu\'ee mirkanaa\'uu danda\'a.';
+  }
+
+  @override
+  String get dropoffCheckInOutcomeSoon =>
+      'Yeroon dhumaa darbeera. Bu\'aan isaa dhiyootti ni beekama.';
+
+  @override
+  String get dropoffCheckInNeedsLocation =>
+      'Bakka kee argachuu hin dandeenye. Tajaajila bakkaa banii bakka buusuu irratti irra deebi\'ii yaali.';
+
+  @override
+  String get dropoffCheckInLocationBlocked =>
+      'Appii kanaaf hayyamni bakkaa dhorkameera. Qindaa\'ina appii keessatti hayyami, sana booda bakka buusuu irratti irra deebi\'ii yaali.';
+
+  @override
+  String get dropoffCheckInLocationBlockedWeb =>
+      'Marsariitii kanaaf hayyamni bakkaa dhorkameera. Qindaa\'ina marsariitii brawuzarii keessatti hayyami, sana booda bakka buusuu irratti irra deebi\'ii yaali.';
+
+  @override
+  String get dropoffJudgementClosed =>
+      'Geejjibni yeroo dhumaa dura mirkanaa\'eera ykn komiin irratti dhiyaateera.';
+
+  @override
+  String get dropoffJudgementAutoConfirmed =>
+      'Sirnaan mirkanaa\'eera: konkolaachisaan bakka buusuu ga\'uu isaa erga mirkaneessee booda bitaan deebii hin kennine. Bitaan sa\'aatii 48 idilee keessatti ammallee rakkoo gabaasuu danda\'a.';
+
+  @override
+  String get dropoffJudgementSilentBuyer =>
+      'Konkolaachisaan ga\'uu isaa erga mirkaneessee booda bitaan deebii hin kennine, geejjibnis ofumaan mirkanaa\'uu hin dandeenye. Deeggarsi ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get dropoffJudgementDeliveryOverdue =>
+      'Hanga yeroo dhumaa geejjibaatti mirkaneessi bakka buusuu hin dhufne. Deeggarsi ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get dropoffJudgementOutOfRange =>
+      'Konkolaachisaan mirkaneessuuf yaaleera, garuu bakka buusuu irraa km 5 ol fagaatee ture. Deeggarsi ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get dropoffJudgementQueued =>
+      'Deeggarsi geejjiba kana gamaaggamaa jira. Maallaqni qabamee tura.';
+
+  @override
+  String get dropoffJudgementOther => 'Murtiin geejjibaa kennameera.';
+
+  @override
+  String get errorCheckInPhotoRequired =>
+      'Suuraan ga\'umsaa sarvarii bira hin geenye. Jalqaba suuraa ga\'umsaa kaasi, sana booda bakka buusuu irratti irra deebi\'ii mirkaneessi.';
+
+  @override
+  String get errorDropoffCheckInNotOpen =>
+      'Geejjiba kanaaf mirkaneessi bakka buusuu hin banamne; kanaaf mirkaneessi kee hin olkaa\'amne.';
+
+  @override
+  String get errorDropoffCheckInNotParty =>
+      'Bakka buusuu ga\'uu kan mirkaneessu konkolaachisaa ajajaa qofa. Mirkaneessi kee hin olkaa\'amne.';
+
+  @override
+  String get errorDropoffCheckInTooFar =>
+      'Bakka buusuu irraa km 5 ol fagaattee jirta. Mirkaneessi kee hin olkaa\'amne; yeroo dhiyaattu irra deebi\'ii mirkaneessi.';
+
+  @override
+  String get errorDropoffCheckInTooFarKept =>
+      'Bakka buusuu irraa km 5 ol fagaattee jirta. Mirkaneessi kee hin olkaa\'amne, garuu yaaliin kun gamaaggamaaf olkaa\'ameera. Yeroo dhiyaattu irra deebi\'ii mirkaneessi.';
+
+  @override
+  String get errorDropoffCheckInTooLate =>
+      'Mirkaneessi kee yeroo dhumaa geejjibaa booda sarvarii bira waan ga\'eef hin lakkaa\'amu. Gamaaggamaaf olkaa\'ameera.';
+
+  @override
+  String get errorDropoffCheckInClosed =>
+      'Yeroon dhumaa geejjibaa waan darbeef mirkaneessi cufameera. Mirkaneessi kee hin olkaa\'amne.';
 }

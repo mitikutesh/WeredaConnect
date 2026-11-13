@@ -16,6 +16,7 @@ import 'package:wereda_connect/core/network/data_usage_auth_binding.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
+import 'package:wereda_connect/core/sync/dropoff_check_in_preflight.dart';
 import 'package:wereda_connect/core/sync/isar_marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
@@ -195,6 +196,10 @@ Future<void> runMobile({
     onAttached:
         DeliveryPhotoAttachedCleanup(isar: IsarService.instance.db).call,
   );
+  // FUP-336: a drop-off check-in waits for its arrival photo.
+  final dropoffCheckInPreflight = DropoffCheckInSyncPreflight(
+    waiting: syncQueue.hasWaitingOperationsFor,
+  );
   final syncExecutor = SyncExecutor(
     syncQueue: syncQueue,
     connectivityMonitor: connectivityMonitor,
@@ -225,11 +230,13 @@ Future<void> runMobile({
     onPickupRejected: checkInEngine.onPickupRejected,
     // A crop listing's create waits until its photos are in the incoming
     // bucket (crop-listing-api.md 1.6.0); a handoff photo's attach waits
-    // until the photo is in the uploads bucket (FRD-12). Each answers true
-    // for the other's operations.
+    // until the photo is in the uploads bucket (FRD-12); a drop-off check-in
+    // waits for its arrival photo to be attached (FUP-336). Each answers true
+    // for the others' operations.
     preflight: (operation) async =>
         await cropPhotoPreflight(operation) &&
-        await deliveryPhotoPreflight(operation),
+        await deliveryPhotoPreflight(operation) &&
+        await dropoffCheckInPreflight(operation),
     // FRD-12: an attached handoff photo's file is deleted from the phone.
     onOperationSynced: deliveryPhotoPreflight.onSynced,
   );

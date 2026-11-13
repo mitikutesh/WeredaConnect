@@ -10024,6 +10024,174 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You have already checked in.'**
   String get checkInAlreadyGiven;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Delivery detail: label of the trucker's arrival photo at the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Arrival Photo'**
+  String get deliveryPhotoArrival;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Delivery detail: the order cron confirmed the delivery for a silent buyer (autoConfirmedAt, T9)
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed by the system {time}, after the buyer did not respond to the trucker\'s check-in at the drop-off.'**
+  String deliveryAutoConfirmedAt(String time);
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Order detail: title of the card with the trucker's check-in at the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off check-in'**
+  String get dropoffCheckInTitle;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Check-in row: the trucker's Arrived at drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Trucker at the drop-off'**
+  String get dropoffCheckInPartyTrucker;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Button: the trucker says they are at the drop-off (takes the arrival photo, then a GPS fix)
+  ///
+  /// In en, this message translates to:
+  /// **'Arrived at drop-off'**
+  String get dropoffCheckInButton;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Under the trucker's button while the delivery has no arrival photo yet
+  ///
+  /// In en, this message translates to:
+  /// **'First take a photo of the goods at the drop-off, then your location is read.'**
+  String get dropoffCheckInPhotoHint;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Order detail, the trucker: the drop-off check-in is due by T8 (Ethiopia time)
+  ///
+  /// In en, this message translates to:
+  /// **'Check in when you reach the drop-off, by {time}. Without a check-in by then, the delivery goes to support as overdue.'**
+  String dropoffCheckInTruckerNote(String time);
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Order detail, the buyer and the farmer: the trucker's drop-off check-in is due by T8
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker checks in at the drop-off by {time}. Without a check-in by then, the delivery goes to support as overdue.'**
+  String dropoffCheckInWaitingNote(String time);
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Order and delivery detail, the buyer: after the trucker's counted check-in; time is T9 (check-in receipt plus 48 hours)
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker has checked in at the drop-off. Confirm the delivery when you have the crops. If you have not confirmed by {time}, the delivery may be confirmed for you.'**
+  String dropoffCheckInBuyerConfirmBy(String time);
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Order and delivery detail, the trucker and the farmer: after the trucker's counted check-in; time is T9
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker has checked in at the drop-off. If the buyer has not confirmed by {time}, the delivery may be confirmed for them.'**
+  String dropoffCheckInPartyConfirmBy(String time);
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Order detail: T8 or T9 passed and the server has not judged the drop-off yet
+  ///
+  /// In en, this message translates to:
+  /// **'The deadline has passed. The outcome follows soon.'**
+  String get dropoffCheckInOutcomeSoon;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Snackbar: the drop-off check-in needs a GPS fix and none could be read
+  ///
+  /// In en, this message translates to:
+  /// **'We could not read your location. Turn on location and try again at the drop-off.'**
+  String get dropoffCheckInNeedsLocation;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Snackbar on the phone: the location permission was denied for good
+  ///
+  /// In en, this message translates to:
+  /// **'Location is blocked for this app. Allow it in the app settings, then try again at the drop-off.'**
+  String get dropoffCheckInLocationBlocked;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Snackbar on web: the browser blocks location for the site
+  ///
+  /// In en, this message translates to:
+  /// **'Location is blocked for this site. Allow it in the browser\'s site settings, then try again at the drop-off.'**
+  String get dropoffCheckInLocationBlockedWeb;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome closed: a party confirmed or disputed first
+  ///
+  /// In en, this message translates to:
+  /// **'The delivery was confirmed or disputed before the deadline.'**
+  String get dropoffJudgementClosed;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome auto_confirmed (T9); the normal dispute window runs
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed by the system: the buyer did not respond after the trucker checked in at the drop-off. The buyer can still report a problem within the usual 48 hours.'**
+  String get dropoffJudgementAutoConfirmed;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome silent_buyer (T9 dispute); also the label of a delivery the system disputed with that reason
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer did not respond after the trucker checked in, and the delivery could not be confirmed automatically. Support is looking into it and the money stays held.'**
+  String get dropoffJudgementSilentBuyer;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome delivery_overdue (T8 dispute); plain, without blame
+  ///
+  /// In en, this message translates to:
+  /// **'No drop-off check-in arrived by the delivery deadline. Support is looking into it and the money stays held.'**
+  String get dropoffJudgementDeliveryOverdue;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome dropoff_out_of_range (T8 dispute after an out-of-range attempt)
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker tried to check in but was more than 5 km from the drop-off. Support is looking into it and the money stays held.'**
+  String get dropoffJudgementOutOfRange;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome queued (the admin queue, nothing moved)
+  ///
+  /// In en, this message translates to:
+  /// **'Support is reviewing this delivery. The money stays held.'**
+  String get dropoffJudgementQueued;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome this app version does not know
+  ///
+  /// In en, this message translates to:
+  /// **'The delivery was judged.'**
+  String get dropoffJudgementOther;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_PHOTO_REQUIRED: the drop-off check-in needs the attached arrival photo
+  ///
+  /// In en, this message translates to:
+  /// **'The arrival photo has not reached the server. Take the arrival photo first, then check in at the drop-off again.'**
+  String get errorCheckInPhotoRequired;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_NOT_OPEN of a drop-off check-in (not stamped, judged, or no longer on the road)
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off check-ins are not open for this delivery, so your check-in was not saved.'**
+  String get errorDropoffCheckInNotOpen;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_NOT_PARTY of a drop-off check-in
+  ///
+  /// In en, this message translates to:
+  /// **'Only the order\'s trucker checks in at the drop-off. Your check-in was not saved.'**
+  String get errorDropoffCheckInNotParty;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_FAR at the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'You are more than 5 km from the drop-off. Your check-in was not saved, so check in again when you are closer.'**
+  String get errorDropoffCheckInTooFar;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_FAR at the drop-off whose attempt the server kept for review (message ends The attempt was kept for review.)
+  ///
+  /// In en, this message translates to:
+  /// **'You are more than 5 km from the drop-off. Your check-in was not saved, but this attempt was kept for review. Check in again when you are closer.'**
+  String get errorDropoffCheckInTooFarKept;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_LATE at the drop-off: after T8, kept as late evidence
+  ///
+  /// In en, this message translates to:
+  /// **'Your check-in reached the server after the delivery deadline, so it does not count. It was kept for review.'**
+  String get errorDropoffCheckInTooLate;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. The device clock says T8 passed before the drop-off check-in was sent; nothing was queued or sent
+  ///
+  /// In en, this message translates to:
+  /// **'The delivery deadline has passed, so check-ins are closed. Your check-in was not saved.'**
+  String get errorDropoffCheckInClosed;
 }
 
 class _AppLocalizationsDelegate
