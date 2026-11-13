@@ -3056,6 +3056,9 @@ public partial class SyncFunctionTests
             { "qrNonce", new AttributeValue { S = qrNonce } },
             { "pickupPhotoVersionId", new AttributeValue { S = "photo-version-pickup-1" } },
             { "dropoffPhotoVersionId", new AttributeValue { S = "photo-version-dropoff-1" } },
+            // FUP-140: the kept copies, server-only like the version ids.
+            { "pickupPhotoKeptRef", new AttributeValue { S = "evidence/photos/del-001/pickup-1700000000000.webp" } },
+            { "pickupPhotoKeptVersionId", new AttributeValue { S = "photo-version-kept-1" } },
             { "status", new AttributeValue { S = status } },
             { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
             { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
@@ -6913,6 +6916,9 @@ public partial class SyncFunctionTests
         // FRD-12: nor the server-only photo version ids.
         Assert.DoesNotContain("PhotoVersionId", response.Body);
         Assert.DoesNotContain("photo-version-", response.Body);
+        // FUP-140: nor the kept copies.
+        Assert.DoesNotContain("PhotoKept", response.Body);
+        Assert.DoesNotContain("evidence/photos/", response.Body);
     }
 
     private static void AssertNoDeliveryPhones(string body)

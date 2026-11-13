@@ -581,10 +581,13 @@ public partial class SyncFunction
         item.Remove("farmerPhone");
         item.Remove("truckerPhone");
         item.Remove("buyerPhone");
-        // FRD-12: the S3 version ids the photo reads sign are server-only (delivery-verification-api 1.25.0).
-        item.Remove("pickupPhotoVersionId");
-        item.Remove("dropoffPhotoVersionId");
-        item.Remove("arrivalPhotoVersionId");
+        // FRD-12: the S3 version ids the photo reads sign are server-only (delivery-verification-api 1.25.0);
+        // FUP-140: so are the kept copies they sign since 2.14.0.
+        foreach (var field in DeliveryPhotoKeys.ServerOnlyFields)
+        {
+            item.Remove(field);
+        }
+
         return item;
     }
 

@@ -20,6 +20,9 @@ namespace WeredaConnect.Server.Functions;
 ///   the HEAD saw (<c>pickupPhotoVersionId</c>, <c>dropoffPhotoVersionId</c>; the reads sign that
 ///   version, so a second PUT within the presign window cannot swap the evidence): the version and
 ///   <c>updatedAt</c> do not move, so a handoff queued on another phone never conflicts with it.
+/// - FUP-140 (2.14.0): a pickup or drop-off photo waits (<c>deferred</c>) until its handoff is on the row,
+///   and before the write the pinned version is copied to its kept key, recorded in the same write
+///   (<c>{type}PhotoKeptRef</c>, <c>{type}PhotoKeptVersionId</c>); the reads sign that copy.
 ///
 /// Every refusal starts with <c>DELIVERY_PHOTO_</c> and is final; a storage or table read that
 /// fails is <c>deferred</c> (the phone keeps the operation without using a retry).
@@ -152,18 +155,41 @@ public partial class SyncFunction
             return PhotoResult(operation, "error", "DELIVERY_PHOTO_INVALID: The photo's type does not match its key.");
         }
 
+        // FUP-140: the evidence outlives its upload. The version the HEAD saw is copied to the kept key before
+        // the write, and the write records the copy, so a row never names a photo without its kept copy. A
+        // copy whose write then loses the race stays under evidence/photos/ unread.
+        DeliveryPhotoEvidence.KeptCopy kept;
+        try
+        {
+            kept = await DeliveryPhotoEvidence.KeepAsync(DeliveryPhotoS3, UploadsBucket, photoRef!, versionId);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning($"DELIVERY_PHOTO keep failed for {MoneyAlarmLog.LogId(deliveryId)}: [{ex.GetType().Name}]");
+            return PhotoResult(operation, "deferred", "DELIVERY_PHOTO_PENDING: Photo storage is not reachable. Will retry automatically.");
+        }
+
         var field = DeliveryPhotoKeys.FieldOf(type);
         var names = new Dictionary<string, string>
         {
             { "#photo", field },
             { "#status", "status" },
+            { "#kept", DeliveryPhotoKeys.KeptFieldOf(type) },
         };
         var values = new Dictionary<string, AttributeValue>
         {
             { ":ref", new AttributeValue { S = photoRef } },
             { ":cancelled", new AttributeValue { S = "cancelled" } },
+            { ":kept", new AttributeValue { S = kept.Key } },
         };
-        var update = "SET #photo = :ref";
+        var update = "SET #photo = :ref, #kept = :kept";
+        if (kept.VersionId != null)
+        {
+            names["#keptVersion"] = DeliveryPhotoKeys.KeptVersionFieldOf(type);
+            values[":keptVersion"] = new AttributeValue { S = kept.VersionId };
+            update += ", #keptVersion = :keptVersion";
+        }
+
         if (versionId != null)
         {
             names["#photoVersion"] = DeliveryPhotoKeys.VersionFieldOf(type);
@@ -232,7 +258,10 @@ public partial class SyncFunction
 
     /// <summary>
     /// The answer the row's state already decides, or null to go on: a cancelled delivery refuses,
-    /// the same key again succeeds without a write, another key of this handoff refuses.
+    /// the same key again succeeds without a write, another key of this handoff refuses. FUP-140: a
+    /// pickup or drop-off photo whose handoff is not on the row yet waits (<c>deferred</c>): the handoff
+    /// may still be on its way (deferred itself), and one the server never took (refused, or reverted by a
+    /// conflict) must not get a photo; the phone drops that photo when it learns so.
     /// </summary>
     private static SyncOperationResult? PhotoStateAnswer(
         SyncOperationRequest operation, Dictionary<string, AttributeValue> delivery, string type, string photoRef)
@@ -245,7 +274,11 @@ public partial class SyncFunction
         var stored = AttrString(delivery, DeliveryPhotoKeys.FieldOf(type));
         if (string.IsNullOrEmpty(stored))
         {
-            return null;
+            return DeliveryPhotoKeys.HandoffOnRow(type, AttrString(delivery, "status"),
+                AttrString(delivery, "pickedUpAt"), AttrString(delivery, "confirmedAt"))
+                ? null
+                : PhotoResult(operation, "deferred",
+                    "DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet. Will retry automatically.");
         }
 
         return stored == photoRef

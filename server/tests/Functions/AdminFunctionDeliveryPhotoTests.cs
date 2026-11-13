@@ -29,6 +29,7 @@ public sealed class AdminFunctionDeliveryPhotoTests
     private readonly IAmazonDynamoDB _db = Substitute.For<IAmazonDynamoDB>();
     private readonly IAmazonS3 _s3 = Substitute.For<IAmazonS3>();
     private readonly TestLambdaContext _context = new();
+    private readonly Dictionary<string, AttributeValue> _delivery;
 
     public AdminFunctionDeliveryPhotoTests()
     {
@@ -50,7 +51,7 @@ public sealed class AdminFunctionDeliveryPhotoTests
             ["createdAt"] = S("2026-07-01T09:05:00Z"),
             ["updatedAt"] = S("2026-07-05T00:00:00Z"),
         };
-        var delivery = new Dictionary<string, AttributeValue>
+        var delivery = _delivery = new Dictionary<string, AttributeValue>
         {
             ["deliveryId"] = S("delivery-1"),
             ["tripId"] = S("trip-1"),
@@ -100,6 +101,26 @@ public sealed class AdminFunctionDeliveryPhotoTests
         // The attached version: a later PUT to the key cannot swap the evidence.
         _s3.Received(1).GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r =>
             r.Key == DropoffKey && r.VersionId == "v-dropoff"));
+    }
+
+    [Fact]
+    public async Task FUP140_TheTransactionView_SignsTheKeptCopy()
+    {
+        // The upload key may have expired under uploads/photos/: the admin signs the kept copy the attach made.
+        _delivery["dropoffPhotoKeptRef"] = S("evidence/photos/delivery-1/dropoff-1700000000000.jpg");
+        _delivery["dropoffPhotoKeptVersionId"] = S("v-kept");
+        _s3.GetPreSignedURL(Arg.Any<GetPreSignedUrlRequest>())
+            .Returns(c => "https://signed/" + c.Arg<GetPreSignedUrlRequest>().Key);
+
+        var delivery = await GetDeliveryAsync(Function(withBucket: true));
+
+        delivery.GetProperty("dropoffPhotoUrl").GetString().Should()
+            .Be("https://signed/evidence/photos/delivery-1/dropoff-1700000000000.jpg");
+        delivery.GetProperty("dropoffPhotoRef").GetString().Should().Be(DropoffKey);
+        _s3.Received(1).GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r =>
+            r.Key == "evidence/photos/delivery-1/dropoff-1700000000000.jpg" && r.VersionId == "v-kept"));
+        // A photo attached before the copies (the backfill has not reached it) still signs its upload key.
+        delivery.GetProperty("pickupPhotoUrl").GetString().Should().Be("https://signed/" + PickupKey);
     }
 
     [Fact]

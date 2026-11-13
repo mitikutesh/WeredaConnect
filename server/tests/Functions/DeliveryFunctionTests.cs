@@ -1701,6 +1701,51 @@ public class DeliveryFunctionTests
     }
 
     [Fact]
+    public async Task FUP140_GetDeliveryById_SignsTheKeptCopy_WhenTheRowRecordsOne()
+    {
+        // The attach (or the backfill) copied the pinned version to evidence/photos/: the upload key may have
+        // expired, so the read signs the copy at its own version. A row without a copy signs its upload key.
+        var delivery = DeliveryWithPhotos();
+        delivery["pickupPhotoVersionId"] = "v-attached";
+        delivery["pickupPhotoKeptRef"] = "evidence/photos/del-001/pickup-1700000000000.webp";
+        delivery["pickupPhotoKeptVersionId"] = "v-kept";
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
+        _mockS3.GetPreSignedURL(Arg.Any<GetPreSignedUrlRequest>()).Returns("https://signed");
+
+        var response = await _functionWithS3.FunctionHandler(MakeAuthenticatedRequest("trucker-789",
+            "/deliveries/del-001", pathParams: new Dictionary<string, string> { { "id", "del-001" } }), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        _mockS3.Received(1).GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r =>
+            r.Key == "evidence/photos/del-001/pickup-1700000000000.webp" && r.VersionId == "v-kept"));
+        _mockS3.Received(1).GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r => r.Key == StoredDropoffKey));
+        _mockS3.DidNotReceive().GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r => r.Key == StoredPickupKey));
+        // The photo's key stays the upload key on the wire; the copy is server-only.
+        Assert.Contains(StoredPickupKey, response.Body);
+        Assert.DoesNotContain("evidence/photos/", response.Body);
+        Assert.DoesNotContain("PhotoKept", response.Body);
+    }
+
+    [Fact]
+    public async Task FUP140_GetDeliveryById_AKeptRefOfAnotherKey_IsNotSigned()
+    {
+        // Only the copy of this very key counts: a kept ref naming anything else leaves the upload key signed.
+        var delivery = DeliveryWithPhotos();
+        delivery["pickupPhotoKeptRef"] = "evidence/photos/del-999/pickup-1700000000000.webp";
+        delivery["pickupPhotoKeptVersionId"] = "v-kept";
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
+        _mockS3.GetPreSignedURL(Arg.Any<GetPreSignedUrlRequest>()).Returns("https://signed");
+
+        var response = await _functionWithS3.FunctionHandler(MakeAuthenticatedRequest("buyer-456",
+            "/deliveries/del-001", pathParams: new Dictionary<string, string> { { "id", "del-001" } }), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        _mockS3.Received(1).GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r =>
+            r.Key == StoredPickupKey && string.IsNullOrEmpty(r.VersionId)));
+        _mockS3.DidNotReceive().GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r => r.Key.StartsWith("evidence/")));
+    }
+
+    [Fact]
     public async Task GetDeliveryById_AnOutsider_GetsNoPhoto()
     {
         _mockDeliveryRepo.GetByIdAsync("del-001").Returns(DeliveryWithPhotos());

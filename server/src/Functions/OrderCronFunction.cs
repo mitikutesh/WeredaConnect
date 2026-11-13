@@ -1,5 +1,6 @@
 using System.Globalization;
 using Amazon.DynamoDBv2;
+using Amazon.S3;
 using Amazon.SQS;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
@@ -38,6 +39,9 @@ namespace WeredaConnect.Server.Functions;
 ///   - reputation_stamp_owner_copies (by hand, once per environment, FUP-160): copy the owners'
 ///     reputation onto the active crop and trip rows created before <c>reputationPenalties</c> went on
 ///     (12.3); <c>{"startAt": next}</c> goes on after a partial run
+///   - backfill_delivery_photo_copies (by hand, once per environment, FUP-140): copy the handoff photos
+///     attached before delivery-verification-api 2.14.0 to their kept keys (<see cref="DeliveryPhotoCopyBackfill"/>);
+///     <c>{"scanFrom": "..."}</c> resumes the deliveries Scan from the <c>scanCursor</c> of a run that stopped
 ///
 /// Error codes:
 /// - 400: ORDER_CRON_VALIDATION - Invalid or missing action
@@ -104,7 +108,8 @@ public partial class OrderCronFunction
 
     private const string ExpectedActions =
         "auto_cancel_expired, commitment_deadlines, deadline_repair, relationship_patterns, reputation_daily, "
-        + "reputation_unpark, reputation_recompute_all, reputation_backfill_ratings or reputation_stamp_owner_copies";
+        + "reputation_unpark, reputation_recompute_all, reputation_backfill_ratings, reputation_stamp_owner_copies "
+        + "or backfill_delivery_photo_copies";
 
     /// <summary>ESC-28: each reputation action's share of the 5 minute Lambda (8.2: 4 minutes, the rest for the summary).</summary>
     internal static readonly TimeSpan ReputationRunTime = TimeSpan.FromMinutes(4);
@@ -210,6 +215,13 @@ public partial class OrderCronFunction
 
         // ESC-16: commitment_deadlines repairs the order deadlines itself once a day per container.
         AutoRepair = DeadlineRepairMarker.Process;
+
+        // FUP-140: the one-off copy of the handoff photos attached before the kept copies (no flag).
+        var uploadsBucket = Environment.GetEnvironmentVariable("UPLOADS_BUCKET");
+        if (!string.IsNullOrEmpty(deliveriesTable) && !string.IsNullOrEmpty(uploadsBucket))
+        {
+            PhotoCopyBackfill = new DeliveryPhotoCopyBackfill(dynamoDb, deliveriesTable, new AmazonS3Client(), uploadsBucket);
+        }
 
         // ESC-28: the rating backfill runs with every flag off (rollout step 2).
         var ratingsTable = Environment.GetEnvironmentVariable("RATINGS_TABLE");
@@ -378,6 +390,7 @@ public partial class OrderCronFunction
                 ReputationRecomputeAction => await HandleReputationRecomputeAsync(context),
                 RatingBackfillAction => await HandleRatingBackfillAsync(scanFrom, context),
                 OwnerStampAction => await HandleOwnerStampAsync(startAt, context),
+                DeliveryPhotoCopyBackfill.Action => await HandlePhotoCopyBackfillAsync(scanFrom, context),
                 _ => LambdaResponse.Error(400, "ORDER_CRON_VALIDATION",
                     $"Unknown action '{safeAction}'. Expected: {ExpectedActions}.")
             };
