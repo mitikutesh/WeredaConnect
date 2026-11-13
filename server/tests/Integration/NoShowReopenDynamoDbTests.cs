@@ -52,13 +52,14 @@ public sealed class NoShowReopenDynamoDbTests
 
     private static AttributeValue N(string value) => new() { N = value };
 
-    private AdminFunction Admin(DateTime? now = null) =>
+    private AdminFunction Admin(DateTime? now = null, bool dropoff = false) =>
         new(Ddb, _db.Users, _db.Orders, _db.Escrows, _db.Deliveries, _db.EscrowAudit, _db.TransactionAudit, tripsTable: _db.Trips)
         {
             Clock = () => now ?? DateTime.UtcNow,
             ReputationPenaltiesEnabled = true,
             ReputationRepo = Reputation,
-            ReputationSvc = new ReputationService(Reputation, ReputationPolicySettings.Defaults, backoff: _ => Task.CompletedTask)
+            ReputationSvc = new ReputationService(Reputation, ReputationPolicySettings.Defaults, backoff: _ => Task.CompletedTask),
+            DropoffJudgementOn = dropoff
         };
 
     private static APIGatewayProxyRequest Post(string orderId, object body, string action = NoShowReopen.Action) => new()
@@ -310,7 +311,18 @@ public sealed class NoShowReopenDynamoDbTests
             .And.NotContainKey(PickupJudgement.JudgedAtField)
             .And.NotContainKey(OrderCommitment.PickupOverdueNotifiedAtField)
             .And.NotContainKey("activeDeliveryId");
-        PickupJudgement.EntryOf(after, PickupJudgement.Kind.CropsReady).Should().NotBeNull("the check-ins are kept");
+        // The new window counts fresh check-ins: the map is empty again, and the trucker's arrival is taken in it.
+        PickupJudgement.EntryOf(after, PickupJudgement.Kind.CropsReady).Should().BeNull("the judged window's check-ins are cleared");
+        (await Repo.TryRecordCheckInAsync(Id("order"), CreatedAt, PickupJudgement.Kind.ArrivedPickup,
+            new Dictionary<string, object>
+            {
+                { PickupJudgement.EntryReceivedAt, Iso(DateTime.UtcNow) }, { PickupJudgement.EntryBy, Id("trucker") },
+                { PickupJudgement.EntryDistanceChecked, true }, { PickupJudgement.EntryLate, false }
+            }, whileOpen: true)).Should().BeTrue();
+        PickupJudgement.EntryOf(await ReadAsync(Id("order")), PickupJudgement.Kind.ArrivedPickup).Should().NotBeNull();
+        var reopenAudit = (await new TransactionAuditRepository(Ddb, _db.TransactionAudit).GetByTransactionAsync(Id("order")))
+            .Single(a => (string)a["action"] == PickupReopen.AuditAction);
+        ((string)reopenAudit["metadata"]).Should().Contain($";clearedCheckIns=crops_ready:receivedAt=").And.Contain($"by={Id("farmer")}");
         var stored = OrderDeadlines.Stored(after)!.Value;
         stored.Kind.Should().Be(OrderDeadlines.Kind.PickupJudgement);
         stored.AtIso.Should().Be(Iso(now.AddHours(24) + PickupJudgement.SettleMargin));
@@ -349,7 +361,8 @@ public sealed class NoShowReopenDynamoDbTests
     {
         await SeedNoShowAsync(tripRemaining: 5);
 
-        var response = await Admin().FunctionHandler(Post(Id("order"), Handoff(8)), _context);
+        var now = DateTime.UtcNow;
+        var response = await Admin(now, dropoff: true).FunctionHandler(Post(Id("order"), Handoff(8)), _context);
 
         response.StatusCode.Should().Be(200, response.Body);
         response.Body.Should().Contain("\"noShowEvent\":\"not_recorded\"");
@@ -360,7 +373,12 @@ public sealed class NoShowReopenDynamoDbTests
         after["activeDeliveryId"].Should().Be(Id("delivery"));
         after.Should().ContainKey("activeDeliveryClaimedAt").And.ContainKey(PickupJudgement.JudgedAtField);
         after.Should().NotContainKey(OrderCommitment.TransportFailureField);
-        OrderDeadlines.Stored(after).Should().BeNull("pickup_confirmed has no deadline of the index");
+        // ESC-36 with dropoffClassification on: stamped for the drop-off judgement as a pickup is, T8 the sweep's deadline.
+        after[DropoffJudgement.Field].Should().Be(DropoffJudgement.Outcome.Pending);
+        after[DropoffJudgement.DeadlineField].Should().Be(OrderCommitment.Iso(now.AddHours(72)));
+        var stored = OrderDeadlines.Stored(after)!.Value;
+        stored.Kind.Should().Be(OrderDeadlines.Kind.DeliveryOverdue);
+        after[OrderDeadlines.ShardField].Should().Be(OrderDeadlines.Shard);
 
         var delivery = (await Deliveries.GetByIdAsync(Id("delivery"), consistentRead: true))!;
         delivery["status"].Should().Be("pickedUp");

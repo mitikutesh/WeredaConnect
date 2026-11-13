@@ -113,7 +113,36 @@ public class AdminNoShowReopenRouteTests
         [AdminQueueFields.EscrowId] = S($"escrow-order-{OrderId}"),
         [OrderDeadlines.AtField] = S("2026-11-24T06:01:00.0000000Z"),
         [OrderDeadlines.KindField] = S(OrderDeadlines.Kind.BuyerChoice),
-        [OrderDeadlines.ShardField] = S(OrderDeadlines.Shard)
+        [OrderDeadlines.ShardField] = S(OrderDeadlines.Shard),
+        [PickupJudgement.CheckInsField] = new AttributeValue
+        {
+            M = new Dictionary<string, AttributeValue>
+            {
+                [PickupJudgement.Kind.CropsReady] = new()
+                {
+                    M = new Dictionary<string, AttributeValue>
+                    {
+                        [PickupJudgement.EntryReceivedAt] = S("2026-11-21T08:00:00.0000000Z"),
+                        [PickupJudgement.EntryBy] = S("farmer-9"),
+                        [PickupJudgement.EntryDistanceChecked] = new AttributeValue { BOOL = false },
+                        [PickupJudgement.EntryLate] = new AttributeValue { BOOL = false }
+                    }
+                },
+                [PickupJudgement.Kind.ArrivedPickup] = new()
+                {
+                    M = new Dictionary<string, AttributeValue>
+                    {
+                        [PickupJudgement.EntryReceivedAt] = S("2026-11-22T09:00:00.0000000Z"),
+                        [PickupJudgement.EntryBy] = S("trucker-9"),
+                        [PickupJudgement.EntryLatitude] = N("8.7601"),
+                        [PickupJudgement.EntryLongitude] = N("38.9785"),
+                        [PickupJudgement.EntryDistanceKm] = N("0.87"),
+                        [PickupJudgement.EntryDistanceChecked] = new AttributeValue { BOOL = true },
+                        [PickupJudgement.EntryLate] = new AttributeValue { BOOL = true }
+                    }
+                }
+            }
+        }
     };
 
     /// <summary>The delivery the judgement cancelled, two seconds after the run's time.</summary>
@@ -160,13 +189,14 @@ public class AdminNoShowReopenRouteTests
     private ReputationService Reputation()
         => new(_reputation, ReputationPolicySettings.Defaults, Substitute.For<IFraudDetectionService>(), _clock, _ => Task.CompletedTask);
 
-    private AdminFunction Function(bool penalties = true) =>
+    private AdminFunction Function(bool penalties = true, bool dropoff = false) =>
         new(_db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable, tripsTable: TripsTable)
         {
             Clock = () => Now,
             ReputationPenaltiesEnabled = penalties,
             ReputationRepo = _reputation,
-            ReputationSvc = Reputation()
+            ReputationSvc = Reputation(),
+            DropoffJudgementOn = dropoff
         };
 
     /// <summary>The trucker's NO_SHOW as the reputation stream records it from the judgement (rule R10).</summary>
@@ -253,7 +283,11 @@ public class AdminNoShowReopenRouteTests
             update.UpdateExpression.Should().Contain(Name(update, removed, "#r"), removed);
         }
 
-        update.ExpressionAttributeNames.Values.Should().NotContain(PickupJudgement.CheckInsField, "the check-ins stay as evidence");
+        // The new window counts fresh check-ins: the map is emptied as the accept stamps it (the trucker's late arrival
+        // would otherwise stay late and block a new one); what was there goes to the audit row.
+        var checkIns = values[":" + Name(update, PickupJudgement.CheckInsField)[1..]];
+        checkIns.IsMSet.Should().BeTrue();
+        checkIns.M.Should().BeEmpty();
 
         // Judged again a minute after the new deadline, in the sweep's partition; the buyer-choice deadline is gone.
         values[":ndKind"].S.Should().Be(OrderDeadlines.Kind.PickupJudgement);
@@ -288,7 +322,10 @@ public class AdminNoShowReopenRouteTests
         audit.Item["fromState"].S.Should().Be(OrderCommitment.AwaitingTransportStatus);
         audit.Item["toState"].S.Should().Be("accepted");
         audit.Item["metadata"].S.Should().Be(
-            $"exit=pending;judgement=trucker_no_show;deadlineAt=2026-11-24T08:00:00.0000000Z;trip=reserved;queue=removed;reason={Reason}");
+            "exit=pending;judgement=trucker_no_show;deadlineAt=2026-11-24T08:00:00.0000000Z;trip=reserved;queue=removed"
+            + ";clearedCheckIns=arrived_pickup:receivedAt=2026-11-22T09:00:00.0000000Z,by=trucker-9,latitude=8.7601,longitude=38.9785,"
+            + "distanceKm=0.87,distanceChecked=true,late=true|crops_ready:receivedAt=2026-11-21T08:00:00.0000000Z,by=farmer-9,"
+            + $"distanceChecked=false,late=false;reason={Reason}");
 
         // The excuse: ESC-32's decision, made by the admin, audited on the trucker.
         var row = _reputation.Row("trucker-9", NoShowReopen.NoShowEventId(OrderId));
@@ -322,6 +359,8 @@ public class AdminNoShowReopenRouteTests
         values[":" + Name(order, "activeDeliveryId")[1..]].S.Should().Be("del-9");
         values[":" + Name(order, "activeDeliveryClaimedAt")[1..]].S.Should().Be(OrderCommitment.Iso(Now));
         order.ExpressionAttributeNames.Values.Should().NotContain(PickupDeadline.Field, "the deadline is kept");
+        order.ExpressionAttributeNames.Values.Should().NotContain(PickupJudgement.CheckInsField, "the judged window's evidence stays");
+        order.ExpressionAttributeNames.Values.Should().NotContain(DropoffJudgement.Field, "dropoffClassification is off");
         order.ExpressionAttributeNames.Where(n => n.Key.StartsWith("#r", StringComparison.Ordinal)).Select(n => n.Value)
             .Should().NotContain(new[] { PickupJudgement.JudgedAtField, OrderCommitment.PickupOverdueNotifiedAtField });
         // The slot was free at read: no other delivery may take it before the write.
@@ -352,6 +391,35 @@ public class AdminNoShowReopenRouteTests
         TxAudits[1].Item["fromState"].S.Should().Be("cancelled");
         TxAudits[1].Item["metadata"].S.Should().Be("handoff=admin");
         response.Body.Should().Contain("\"noShowEvent\":\"not_recorded\"", "the stream recorded no NO_SHOW in this test");
+    }
+
+    [Fact]
+    public async Task ESC36_HandoffConfirmed_StampsTheDropoffJudgement_WithTheFlagOn()
+    {
+        var response = await Function(dropoff: true).FunctionHandler(Post(Handoff()), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var order = _transactions.Should().ContainSingle().Subject.TransactItems[0].Update;
+        var values = order.ExpressionAttributeValues;
+        values[":" + Name(order, "status")[1..]].S.Should().Be("pickup_confirmed");
+        values[":" + Name(order, DropoffJudgement.Field)[1..]].S.Should().Be(DropoffJudgement.Outcome.Pending);
+        // T8 from the admin's pickup time, which the delivery's pickedUpAt takes in the same transaction.
+        values[":" + Name(order, DropoffJudgement.DeadlineField)[1..]].S.Should().Be(OrderCommitment.Iso(Now.AddHours(72)));
+        values[":" + Name(order, DropoffJudgement.TripReadField)[1..]].BOOL.Should().BeTrue();
+        // T8 is the sweep's deadline now, instead of no deadline at pickup_confirmed.
+        values[":ndKind"].S.Should().Be(OrderDeadlines.Kind.DeliveryOverdue);
+        values[":ndShard"].S.Should().Be(OrderDeadlines.Shard);
+    }
+
+    [Fact]
+    public async Task ESC36_APendingReopen_StampsNoDropoffJudgement_TheScanWill()
+    {
+        var response = await Function(dropoff: true).FunctionHandler(Post(), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var order = _transactions.Single().TransactItems[0].Update;
+        order.ExpressionAttributeNames.Values.Should().NotContain(DropoffJudgement.Field);
+        order.ExpressionAttributeValues[":ndKind"].S.Should().Be(OrderDeadlines.Kind.PickupJudgement);
     }
 
     [Fact]

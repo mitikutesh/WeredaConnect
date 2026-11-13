@@ -415,7 +415,7 @@
       "action": "Re-open the no-show",
       "title": "Re-open this trucker no-show",
       "hint": "Use this only after you have checked with the parties that the trucker came, for example a real scan that reached the server late. The trip booking is taken back and the trucker's no-show is excused. No money moves.",
-      "exitPendingHelp": "The trucker gets a new window: the order is agreed again, the trucker creates a new delivery and scans the farmer's QR, and the order is judged again at the new deadline. The check-ins are kept.",
+      "exitPendingHelp": "The trucker gets a new window: the order is agreed again, the trucker creates a new delivery and scans the farmer's QR, and the order is judged again at the new deadline. The judged window's check-ins are cleared (the audit trail keeps them), so both check in again.",
       "exitHandoffHelp": "The crops changed hands: the cancelled delivery is marked picked up and the order goes on as after a scan. The buyer confirms the drop-off with the trucker's drop-off code as usual; a trucker whose phone shows none makes a New drop-off code.",
       "confirmPending": "Re-open the no-show with a new deadline {hours} hours from now, take the trip booking back and excuse the trucker's no-show?",
       "confirmHandoff": "Record the handoff as picked up, take the trip booking back and excuse the trucker's no-show?",

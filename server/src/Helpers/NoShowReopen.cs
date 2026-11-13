@@ -16,9 +16,11 @@ namespace WeredaConnect.Server.Helpers;
 /// <c>cancelled</c> (no <c>cancelReason</c>), its <c>activeDeliveryId</c> slot and its trip booking released. The
 /// re-open brings the transport back in one transaction: <c>handoff_confirmed</c> moves that delivery
 /// <c>cancelled → pickedUp</c>, claims the slot for it and takes the order to <c>pickup_confirmed</c> (judged
-/// <c>scanned</c>); <c>pending</c> takes the order back to <c>accepted</c> with <c>pickupJudgement: pending</c> and a
-/// new deadline, the state right after the trucker's accept, so the trucker's own delivery create makes the new
-/// pending delivery (the create claims the slot and links the escrow, as after any cancelled delivery). Both take the
+/// <c>scanned</c>, and with <c>dropoffClassification</c> on stamped for the drop-off judgement as a pickup is);
+/// <c>pending</c> takes the order back to <c>accepted</c> with <c>pickupJudgement: pending</c>, a new deadline and
+/// empty check-ins, the state right after the trucker's accept, so the trucker's own delivery create makes the new
+/// pending delivery (the create claims the slot and links the escrow, as after any cancelled delivery) and the new
+/// window counts fresh check-ins (the cleared ones go to the audit row, <see cref="CheckInsNote"/>). Both take the
 /// trip booking back (refused when the trip is gone, cancelled, departed or full).
 /// </para>
 /// </summary>
@@ -75,9 +77,6 @@ public static class NoShowReopen
     }
 
     private const double KgPerQuintal = 100.0;
-
-    /// <summary>The same tolerance the payment gate allows on a trip's room.</summary>
-    private const double QuintalTolerance = 0.01;
 
     /// <summary>Why the order's no-show cannot be re-opened (the 409's message), or null when it can.</summary>
     public static string? RefusalOf(IReadOnlyDictionary<string, object> order)
@@ -205,7 +204,8 @@ public static class NoShowReopen
     /// What the transaction does on the trip, or why it cannot (the 409 <see cref="TripUnavailableCode"/>'s message).
     /// Only an <c>open</c> or <c>matched</c> trip of the order's trucker, not deleted, takes the booking back; one
     /// <c>inTransit</c> or <c>delivered</c> has departed. A trip that still holds the order's booking keeps it;
-    /// otherwise its room must cover the order's quintals.
+    /// otherwise its room must cover the order's quintals, compared exactly as the transaction's condition compares
+    /// them, so a trip short by any amount is refused here rather than by the write.
     /// </summary>
     public static (TripPlan? Plan, string? Refusal) TripPlanOf(IReadOnlyDictionary<string, object> order, ReopenTripState? trip)
     {
@@ -242,7 +242,7 @@ public static class NoShowReopen
         }
 
         var quintals = QuintalsOf(order);
-        return trip.RemainingQuintals < quintals - QuintalTolerance
+        return trip.RemainingQuintals < quintals
             ? (null, string.Format(CultureInfo.InvariantCulture,
                 "The order's trip is full: {0:0.##} quintals left, the order needs {1:0.##}.", trip.RemainingQuintals, quintals))
             : (TripPlan.Reserve, null);
@@ -260,6 +260,45 @@ public static class NoShowReopen
     public static bool IsReplay(IReadOnlyDictionary<string, object> order, int expectedVersion, string exit)
         => PickupReopen.IsReplay(order, expectedVersion, exit)
            && PickupReopen.LastReopenOf(order)?.FromJudgement == PickupJudgement.Outcome.TruckerNoShow;
+
+    /// <summary>The fields of a check-in entry the audit row keeps, in this order.</summary>
+    private static readonly string[] NotedEntryFields =
+    {
+        PickupJudgement.EntryReceivedAt, PickupJudgement.EntryCapturedAt, PickupJudgement.EntryBy, PickupJudgement.EntryLatitude,
+        PickupJudgement.EntryLongitude, PickupJudgement.EntryAccuracyM, PickupJudgement.EntryDistanceKm,
+        PickupJudgement.EntryDistanceChecked, PickupJudgement.EntryLate, PickupJudgement.EntryOutOfRange
+    };
+
+    /// <summary>
+    /// The check-ins a <c>pending</c> re-open clears, for its audit row's <c>metadata</c>:
+    /// <c>arrived_pickup:receivedAt=...,by=...,late=true|crops_ready:...</c> with every field the entry kept (the
+    /// order's copy is gone after the write). Null when the order has none.
+    /// </summary>
+    public static string? CheckInsNote(IReadOnlyDictionary<string, object> order)
+    {
+        if (!order.TryGetValue(PickupJudgement.CheckInsField, out var raw) || raw is not IReadOnlyDictionary<string, object> map || map.Count == 0)
+        {
+            return null;
+        }
+
+        var kinds = new List<string>();
+        foreach (var (kind, value) in map.OrderBy(k => k.Key, StringComparer.Ordinal))
+        {
+            if (value is not IReadOnlyDictionary<string, object> entry)
+            {
+                continue;
+            }
+
+            var fields = NotedEntryFields
+                .Where(entry.ContainsKey)
+                .Select(field => entry[field] is bool flag
+                    ? $"{field}={(flag ? "true" : "false")}"
+                    : $"{field}={Convert.ToString(entry[field], CultureInfo.InvariantCulture)}");
+            kinds.Add($"{kind}:{string.Join(",", fields)}");
+        }
+
+        return kinds.Count == 0 ? null : string.Join("|", kinds);
+    }
 
     /// <summary>The <c>NO_SHOW</c> slot the reputation stream records for the order's trucker (rule R10).</summary>
     public static string NoShowEventId(string orderId) => ReputationSlots.NoShow + orderId;

@@ -21,10 +21,12 @@ public partial class AdminFunction
     /// still simply holds the money:
     /// <list type="bullet">
     /// <item><c>pending</c>: back to <c>accepted</c> with <c>pickupJudgement: pending</c> and <c>pickupDeadlineAt</c>
-    /// now plus <c>deadlineHours</c> (<c>pickupJudgedAt</c> and the overdue notice removed, the check-ins kept), so the
-    /// order cron judges it again; the trucker creates the new pending delivery as after the accept.</item>
+    /// now plus <c>deadlineHours</c> (<c>pickupJudgedAt</c> and the overdue notice removed, the check-ins emptied as the
+    /// accept stamps them, so the new window counts fresh ones; the cleared ones go to the audit row), so the order cron
+    /// judges it again; the trucker creates the new pending delivery as after the accept.</item>
     /// <item><c>handoff_confirmed</c>: the delivery the judgement cancelled <c>cancelled → pickedUp</c>, the slot claimed
-    /// for it, the order <c>pickup_confirmed</c>, judged <c>scanned</c>.</item>
+    /// for it, the order <c>pickup_confirmed</c>, judged <c>scanned</c>; with <c>dropoffClassification</c> on, the
+    /// drop-off judgement stamped in the same write (ESC-36, as FUP-287's confirmed handoff does).</item>
     /// </list>
     /// Both restore <c>truckerResponse: accepted</c>, remove <c>transportFailure</c>, <c>faultParty</c>,
     /// <c>buyerChoiceDeadlineAt</c> and <c>buyerChoiceReminderAt</c>, take the trip booking back, answer the judgement's
@@ -168,11 +170,24 @@ public partial class AdminFunction
             set[PickupDeadline.Field] = deadlineAt!;
             remove.Add(PickupJudgement.JudgedAtField);
             remove.Add(OrderCommitment.PickupOverdueNotifiedAtField);
+            // The new window counts fresh check-ins: a late arrival kept from the judged window would stay late, and a
+            // repeat check-in answers with the stored one, so the trucker could never check in again.
+            set[PickupJudgement.CheckInsField] = new Dictionary<string, object>();
         }
         else
         {
             set["status"] = "pickup_confirmed";
             set[PickupJudgement.Field] = PickupJudgement.Outcome.Scanned;
+            // ESC-36: the order's first move out of accepted after a pickup stamps the drop-off judgement (T8 and the
+            // drop-off points); a trucker no-show was never picked up, so the order carries no stamp yet.
+            if (DropoffJudgementOn && !DropoffJudgement.IsStamped(order))
+            {
+                foreach (var (key, value) in await ReopenDropoffStampAsync(order, now, context))
+                {
+                    set[key] = value;
+                }
+            }
+
             set["activeDeliveryId"] = GetString(delivery!, "deliveryId");
             set["activeDeliveryClaimedAt"] = nowIso;
             // The slot as read: free, or still naming this delivery (a release that never landed).
@@ -257,11 +272,14 @@ public partial class AdminFunction
         var status = exit == PickupReopen.Exit.Pending ? "accepted" : "pickup_confirmed";
         var deliveryNote = delivery != null ? $";deliveryId={GetString(delivery, "deliveryId")}" : "";
         var deadlineNote = deadlineAt != null ? $";deadlineAt={deadlineAt}" : "";
+        var checkInsNote = exit == PickupReopen.Exit.Pending && NoShowReopen.CheckInsNote(order) is { } cleared
+            ? $";clearedCheckIns={cleared}"
+            : "";
         var tripNote = tripPlan == NoShowReopen.TripPlan.Reserve ? "reserved" : "kept";
         await TransactionAuditWriter.EmitAsync(
             TxAuditRepo(), context, orderId, "order", orderId, PickupReopen.AuditAction, OrderCommitment.AwaitingTransportStatus, status,
             auditContext,
-            metadata: $"exit={exit};judgement={fromJudgement}{deadlineNote}{deliveryNote};trip={tripNote};queue={QueueNote(queuePlan)};reason={reason}");
+            metadata: $"exit={exit};judgement={fromJudgement}{deadlineNote}{deliveryNote};trip={tripNote};queue={QueueNote(queuePlan)}{checkInsNote};reason={reason}");
         if (delivery != null)
         {
             // The delivery leg of the timeline, as a pickup scan writes it (handoff=qr or code there).

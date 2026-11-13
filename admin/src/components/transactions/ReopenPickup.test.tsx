@@ -166,6 +166,7 @@ describe("ReopenPickup for a trucker no-show (FUP-330)", () => {
     await user.click(screen.getByRole("button", { name: "Re-open the no-show" }));
     expect(screen.getByText("Re-open this trucker no-show")).toBeTruthy();
     expect(screen.getByText(/the trucker creates a new delivery and scans the farmer's QR/)).toBeTruthy();
+    expect(screen.getByText(/check-ins are cleared \(the audit trail keeps them\)/)).toBeTruthy();
     await user.selectOptions(screen.getByLabelText("New deadline"), "72");
     await user.type(screen.getByLabelText("How you reconciled it"), REASON);
     await user.click(screen.getByRole("button", { name: "Review" }));
