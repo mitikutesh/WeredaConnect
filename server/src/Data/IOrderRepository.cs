@@ -73,6 +73,15 @@ public interface IOrderRepository
     TransactWriteItem BuildNotClosedCheck(string orderId, string createdAt);
 
     /// <summary>
+    /// FUP-334: a transaction item that lets a write on another table land only while the order's admin queue
+    /// entry (<see cref="AdminQueueFields"/>) is still the one read: open, queued at <paramref name="queuedAt"/>,
+    /// and naming <paramref name="escrowId"/> (null for an entry read without <c>adminQueueEscrowId</c>, which must
+    /// still have none). The escrow cron's hold-cap stamp carries it, so a capped escrow never waits on an entry
+    /// removed since the read. No I/O.
+    /// </summary>
+    TransactWriteItem BuildAdminQueueEntryCheck(string orderId, string createdAt, string queuedAt, string? escrowId);
+
+    /// <summary>
     /// FRD-03: <see cref="UpdateAsync"/> in one <c>TransactWriteItems</c> with a <c>ConditionCheck</c> that
     /// the order's escrow (<paramref name="escrow"/>) is not <c>held</c>, so a settlement sweep that holds it
     /// between the caller's read and this write wins. Fails with <c>409</c>
@@ -250,6 +259,25 @@ public interface IOrderRepository
     /// </summary>
     Task<bool> TryRecordCheckInAsync(
         string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen);
+
+    /// <summary>
+    /// ESC-36: store the trucker's drop-off check-in as <c>dropoffCheckIn</c> WITHOUT bumping <c>version</c>
+    /// or touching <c>updatedAt</c> (a check-in must never make a queued order change conflict), only while
+    /// the order has none (the first one is kept). With <paramref name="whileOpen"/> also only while the order
+    /// is <c>pickup_confirmed</c> or <c>in_transit</c> and its <c>dropoffJudgement</c> is still <c>pending</c>,
+    /// so a check-in can never land after the judgement as if it had counted. The same write moves the
+    /// order's next deadline (a counted check-in turns T8 into T9). Returns false when a condition failed
+    /// (the caller reads the row again to say why); other errors throw.
+    /// </summary>
+    Task<bool> TryRecordDropoffCheckInAsync(string orderId, Dictionary<string, object> entry, bool whileOpen);
+
+    /// <summary>
+    /// ESC-36, FUP-204: keep the trucker's first out-of-range drop-off check-in as <c>dropoffAttempt</c>, server-only
+    /// evidence that never counts as a check-in, under the conditions of an open
+    /// <see cref="TryRecordDropoffCheckInAsync"/> (no version bump, the deadline unchanged). False when one is
+    /// stored already or the order is no longer waiting for its drop-off judgement.
+    /// </summary>
+    Task<bool> TryRecordDropoffAttemptAsync(string orderId, Dictionary<string, object> entry);
 
     /// <summary>
     /// ESC-09: one page of the <c>StatusCreatedAtIndex</c> partition for <paramref name="status"/>,

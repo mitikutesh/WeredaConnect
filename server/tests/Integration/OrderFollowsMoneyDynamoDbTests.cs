@@ -692,6 +692,8 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         public Task<Dictionary<string, object>?> TryAdvanceStatusUnlessAsync(string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields, string unlessField, string unlessValue) => inner.TryAdvanceStatusUnlessAsync(orderId, fromStatus, toStatus, extraFields, unlessField, unlessValue);
         public Task<bool> TryStampAsync(string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expectedStrings) => inner.TryStampAsync(orderId, fields, expectedStrings);
         public Task<bool> TryRecordCheckInAsync(string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen) => inner.TryRecordCheckInAsync(orderId, createdAt, kind, entry, whileOpen);
+        public Task<bool> TryRecordDropoffCheckInAsync(string orderId, Dictionary<string, object> entry, bool whileOpen) => inner.TryRecordDropoffCheckInAsync(orderId, entry, whileOpen);
+        public Task<bool> TryRecordDropoffAttemptAsync(string orderId, Dictionary<string, object> entry) => inner.TryRecordDropoffAttemptAsync(orderId, entry);
 
         public Task<AuthResult<Dictionary<string, object>>> CreateAsync(string orderId, Dictionary<string, object> data) => inner.CreateAsync(orderId, data);
         public Task<AuthResult<Dictionary<string, object>>> UpdateAsync(string orderId, Dictionary<string, object> data, int expectedVersion) => inner.UpdateAsync(orderId, data, expectedVersion);
@@ -699,6 +701,7 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         public Task<OrderLinkedWriteResult> TryUpdateGuardedAsync(string orderId, Dictionary<string, object> set, IReadOnlyCollection<string> remove, int expectedVersion, IReadOnlyDictionary<string, string> expectedStrings, IReadOnlyCollection<string> expectedAbsent, IReadOnlyList<TransactWriteItem> linkedItems) => inner.TryUpdateGuardedAsync(orderId, set, remove, expectedVersion, expectedStrings, expectedAbsent, linkedItems);
         public Task<AuthResult<Dictionary<string, object>>> UpdateUnlessEscrowHeldAsync(string orderId, Dictionary<string, object> data, int expectedVersion, EscrowRowKey escrow) => inner.UpdateUnlessEscrowHeldAsync(orderId, data, expectedVersion, escrow);
         public TransactWriteItem BuildNotClosedCheck(string orderId, string createdAt) => inner.BuildNotClosedCheck(orderId, createdAt);
+        public TransactWriteItem BuildAdminQueueEntryCheck(string orderId, string createdAt, string queuedAt, string? escrowId) => inner.BuildAdminQueueEntryCheck(orderId, createdAt, queuedAt, escrowId);
         public Task<Dictionary<string, object>?> GetByIdAsync(string orderId) => inner.GetByIdAsync(orderId);
         public Task<Dictionary<string, object>?> GetByIdAsync(string orderId, bool consistentRead) => inner.GetByIdAsync(orderId, consistentRead);
         public Task<Dictionary<string, object>?> TryMarkFundedAsync(string orderId, Dictionary<string, object> fields) => inner.TryMarkFundedAsync(orderId, fields);

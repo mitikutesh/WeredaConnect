@@ -144,7 +144,8 @@ RULES = {
     "NEW_ACCOUNT_LARGE_AMOUNT": ("FRD-09", "TransactionPatternRules, payment of 5,000 ETB or more from an account under 7 days"),
     "NO_SHOW": ("ESC-33, ESC-34", "ReputationFraudHooks after a NO_SHOW reputation event: the pickup judgement's trucker no-show "
                 "(R10, written plainly) or farmer no-show (R11, through the attribution guard, the trucker's check-in as the source)"),
-    "DELIVERY_OVERDUE": ("ESC-33, ESC-36", "ReputationFraudHooks after a DELIVERY_OVERDUE reputation event (producer ESC-36, not built)"),
+    "DELIVERY_OVERDUE": ("ESC-33, ESC-36", "ReputationFraudHooks after a DELIVERY_OVERDUE reputation event: ESC-36's T8, no drop-off "
+                         "check-in 72 hours after pickup (R12, written plainly: it rests on the trucker alone, FUP-204)"),
 }
 GATES = {
     "FRAUD_ACCOUNT_HELD": "RiskGatePolicy (FRD-04): CRITICAL refuses crop, trip, order create and payments",
@@ -326,8 +327,24 @@ PERSONAS: Dict[str, Persona] = {
                   "pickupClassification and reputationPenalties are off there, and the judgement runs 48 hours after "
                   "the trip departs, longer than a run",
         exercisable=False),
+    "overdue": Persona(
+        key="overdue", title="Overdue delivery and silent buyer",
+        threat="a trucker who picks the goods up and never delivers, and a buyer who never confirms a delivery (ESC-36)",
+        accounts=[],
+        plan=["a paid trip order picked up with dropoffClassification on (the order stamped for T8 and T9)",
+              "overdue delivery: the trucker sends no drop-off check-in; 72 hours after the pickup the order cron freezes "
+              "the escrow and disputes the order as delivery_overdue: DELIVERY_OVERDUE (25, hard) on the trucker, "
+              "written plainly (it rests on the trucker's own missing check-in), and the restriction pending review",
+              "silent buyer: the trucker checks in at the drop-off with GPS and the arrival photo, the buyer never "
+              "confirms; 48 hours later the order cron confirms the delivery (the normal dispute window and payout "
+              "delay follow) or disputes it as silent_buyer: no fraud signal and no reputation event either way"],
+        expect={},
+        detection="ESC-36's drop-off judgement and ESC-33's reputation hook (built). Not exercisable on dev: "
+                  "dropoffClassification and reputationPenalties are off there, and T8 runs 72 hours after the pickup, "
+                  "longer than a run",
+        exercisable=False),
 }
-PERSONA_ORDER = ["spammer", "selftrade", "idor", "gps", "dispute", "payer", "noshow"]
+PERSONA_ORDER = ["spammer", "selftrade", "idor", "gps", "dispute", "payer", "noshow", "overdue"]
 
 
 # ── HTTP ──────────────────────────────────────────────────────────────────
@@ -1068,6 +1085,14 @@ def persona_payer(run: Run):
         + ("" if not exists else f" (the route answered HTTP {r.status}, so it is deployed: run against a live-gateway stack)"))
 
 
+def persona_overdue(run: Run):
+    p = "overdue"
+    run.notes[p].append(
+        "the drop-off judgement runs only with dropoffClassification and reputationPenalties on and 72 hours after the "
+        "pickup; the replica checks of --self-test cover the DELIVERY_OVERDUE weight, the shared reliability cap and "
+        "that the silent buyer writes no signal")
+
+
 def persona_noshow(run: Run):
     p = "noshow"
     run.notes[p].append(
@@ -1437,6 +1462,7 @@ def self_test() -> int:
         check(bool(p.plan) and bool(p.detection), f"{p.key}: plan and detection written down")
     check(not PERSONAS["payer"].exercisable, "payer is marked not exercisable on dev")
     check(not PERSONAS["noshow"].exercisable, "noshow is marked not exercisable on dev")
+    check(not PERSONAS["overdue"].exercisable, "overdue is marked not exercisable on dev")
     check(len(accounts_for(PERSONA_ORDER)) <= 10, "a full run stays under the 10 registrations per IP per hour")
 
     # Score replica (fraud-detection-architecture.md 14.2, 16)
@@ -1465,6 +1491,14 @@ def self_test() -> int:
           "no-shows and overdue deliveries stop at 50 together")
     check(risk_score(expected_rows(["NO_SHOW"] * ATTRIBUTED_PER_TARGET_CAP)) == (30, "MEDIUM"),
           "other users' check-ins alone put at most 30 on a farmer")
+    # ESC-36 / FUP-204: DELIVERY_OVERDUE is 25 and hard, once per order, written plainly (T8 rests on the trucker's own
+    # missing drop-off check-in), in the reliability cap; the silent buyer (T9) writes no signal at all.
+    check(risk_score(expected_rows(["DELIVERY_OVERDUE"])) == (25, "LOW"), "an overdue delivery is 25, LOW")
+    check(risk_score(expected_rows(["DELIVERY_OVERDUE"] * 2)) == (50, "MEDIUM"), "two overdue deliveries are 50, MEDIUM")
+    check(risk_score(expected_rows(["DELIVERY_OVERDUE"] * 3 + ["NO_SHOW"]))[0] == 50,
+          "overdue deliveries and no-shows stop at 50 together")
+    check("DELIVERY_OVERDUE" in RULES and "SILENT_BUYER" not in WEIGHTS and "SILENT_BUYER" not in RULES,
+          "the silent buyer is no fraud signal")
 
     # Phones and safety guards
     rng = random.Random(17)
@@ -1532,6 +1566,7 @@ def self_test() -> int:
     check(verdict(base, "selftrade") == ("NOT DETECTED (no rule today)", True), "a clean self-trader matches")
     check(verdict(base, "payer") == ("NOT EXERCISABLE ON DEV", True), "the payer persona is not exercisable")
     check(verdict(base, "noshow") == ("NOT EXERCISABLE ON DEV", True), "the noshow persona is not exercisable")
+    check(verdict(base, "overdue") == ("NOT EXERCISABLE ON DEV", True), "the overdue persona is not exercisable")
 
     # The server's tier (FRD-07 users[]) decides; the replica only cross-checks
     r = fixture()
@@ -1705,7 +1740,7 @@ def main() -> int:
         return 2
 
     runners = {"spammer": persona_spammer, "selftrade": persona_selftrade, "idor": persona_idor,
-               "payer": persona_payer, "noshow": persona_noshow}
+               "payer": persona_payer, "noshow": persona_noshow, "overdue": persona_overdue}
 
     def attempt(key: str, fn):
         try:

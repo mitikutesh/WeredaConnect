@@ -84,11 +84,14 @@ export function partiesOf(evidence: DisputeEvidence | undefined): Map<string, { 
   return parties;
 }
 
-/** The two handoff photos (FRD-12 presigned GETs) the delivery carries. */
-export function photosOf(evidence: DisputeEvidence | undefined): { leg: "pickup" | "dropoff"; url: string }[] {
+/** A delivery photo leg: the two handoffs (FRD-12) and, ESC-36, the trucker's arrival at the drop-off. */
+export type PhotoLeg = "pickup" | "dropoff" | "arrival";
+
+/** The photos (presigned GETs) the delivery carries: the two handoffs, then the trucker's arrival photo (ESC-36). */
+export function photosOf(evidence: DisputeEvidence | undefined): { leg: PhotoLeg; url: string }[] {
   const delivery = evidence?.delivery;
   if (!delivery) return [];
-  return (["pickup", "dropoff"] as const)
+  return (["pickup", "dropoff", "arrival"] as const)
     .map((leg) => ({ leg, url: delivery[`${leg}PhotoUrl`] }))
-    .filter((p): p is { leg: "pickup" | "dropoff"; url: string } => typeof p.url === "string" && p.url !== "");
+    .filter((p): p is { leg: PhotoLeg; url: string } => typeof p.url === "string" && p.url !== "");
 }

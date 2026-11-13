@@ -247,6 +247,18 @@ public sealed record DeliveryDto
     public string? DropoffPhotoUrl { get; init; }
 
     /// <summary>
+    /// ESC-36: S3 reference of the trucker's arrival photo at the drop-off (the evidence of the drop-off
+    /// check-in), attached through <c>delivery_photo</c> <c>{deliveryId}#arrival</c>.
+    /// </summary>
+    public string? ArrivalPhotoRef { get; init; }
+
+    /// <summary>ESC-36: presigned GET of the arrival photo, as <see cref="PickupPhotoUrl"/>.</summary>
+    public string? ArrivalPhotoUrl { get; init; }
+
+    /// <summary>ESC-36: when the order cron confirmed the delivery for a silent buyer (absent when the buyer confirmed).</summary>
+    public string? AutoConfirmedAt { get; init; }
+
+    /// <summary>
     /// ISO 8601 UTC timestamp of when cargo was picked up.
     /// </summary>
     public string? PickedUpAt { get; init; }

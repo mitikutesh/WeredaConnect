@@ -85,10 +85,18 @@ public partial class SyncFunction
             return CheckInResult(operation, $"{PickupJudgement.ValidationCode}: A check-in is sent with action create.");
         }
 
-        var errors = PickupJudgement.Parse(operation.EntityId, operation.Data ?? new Dictionary<string, object>(), out var checkIn);
+        // ESC-36: each kind exists only with its own flag (the arrival kinds with pickupClassification, the
+        // drop-off with dropoffClassification); a kind whose flag is off is refused before any read.
+        var errors = PickupJudgement.Parse(operation.EntityId, operation.Data ?? new Dictionary<string, object>(), out var checkIn,
+            pickupKinds: PickupJudgementOn, dropoffKind: DropoffJudgementOn);
         if (errors.Count > 0 || checkIn == null)
         {
             return CheckInResult(operation, $"{PickupJudgement.ValidationCode}: {string.Join(" ", errors)}");
+        }
+
+        if (checkIn.Kind == PickupJudgement.Kind.ArrivedDropoff)
+        {
+            return await ProcessDropoffCheckInAsync(operation, checkIn, authenticatedUserId, context);
         }
 
         var orderId = checkIn.OrderId;

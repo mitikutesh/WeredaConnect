@@ -30,6 +30,8 @@ public static class DeliveryPhotoUrls
         {
             PickupPhotoUrl = SignOne(s3, bucket, dto.DeliveryId, DeliveryPhotoKeys.Pickup, dto.PickupPhotoRef, item, now),
             DropoffPhotoUrl = SignOne(s3, bucket, dto.DeliveryId, DeliveryPhotoKeys.Dropoff, dto.DropoffPhotoRef, item, now),
+            // ESC-36: the trucker's arrival photo at the drop-off, signed like the others when attached.
+            ArrivalPhotoUrl = SignOne(s3, bucket, dto.DeliveryId, DeliveryPhotoKeys.Arrival, dto.ArrivalPhotoRef, item, now),
         };
     }
 
