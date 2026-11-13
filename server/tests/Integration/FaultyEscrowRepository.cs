@@ -134,4 +134,7 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
         => _inner.TrySetSettlementBlockReasonAsync(escrowId, createdAt, expectedStatus, reason, reasonAt);
     public Task<bool> TryClearSettlementBlockReasonAsync(string escrowId, string createdAt, string storedReason)
         => _inner.TryClearSettlementBlockReasonAsync(escrowId, createdAt, storedReason);
+    public Task<bool> TryRecordDoubleEscrowRefundAsync(
+        string escrowId, string createdAt, string orderId, string by, string reason, string at, string orderEscrowStatus)
+        => _inner.TryRecordDoubleEscrowRefundAsync(escrowId, createdAt, orderId, by, reason, at, orderEscrowStatus);
 }

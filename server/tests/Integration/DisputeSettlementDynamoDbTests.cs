@@ -528,7 +528,7 @@ public sealed class DisputeSettlementDynamoDbTests
     public async Task GoodsMoving_BuyerWins_RefusedAndAlarmedOnce_TheOldOverrideNoLongerSettlesIt()
     {
         // A verdict recorded before 1.21.0 (a fresh one is refused without a disposition now). FUP-64
-        // (2.20.0): the override no longer refunds it; a disposition on the verdict does.
+        // (2.21.0): the override no longer refunds it; a disposition on the verdict does.
         var deliveryId = await SeedDeliveryAsync("inTransit");
         var orderId = await SeedOrderAsync("in_transit", 4, deliveryId);
         var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, deliveryId, resolution: "buyer_wins", swept: true);

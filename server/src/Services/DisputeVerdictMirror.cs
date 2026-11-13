@@ -134,7 +134,7 @@ public static class DisputeDisposition
     /// <summary>
     /// FUP-64: either verdict, when no other disposition fits (<see cref="DispositionCase.NoFit"/>): the money
     /// settles as the verdict says, a live order is closed at <c>dispute_resolved</c> and the delivery is left as
-    /// it is (escrow-protocol.md 2.20.0).
+    /// it is (escrow-protocol.md 2.21.0).
     /// </summary>
     public const string SettleAsIs = "settle_as_is";
 

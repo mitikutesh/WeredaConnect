@@ -12,7 +12,7 @@ export type Disposition =
 
 /* FUP-16: when the order or delivery cannot follow a verdict as it is, the admin chooses what
  * happens. Each disposition belongs to one verdict (escrow-protocol.md 1.21.0). FUP-64: settle_as_is
- * goes with both single verdicts, for the case none of the others fits (escrow-protocol.md 2.20.0). */
+ * goes with both single verdicts, for the case none of the others fits (escrow-protocol.md 2.21.0). */
 export const dispositionsFor: Record<Verdict, Disposition[]> = {
   buyer_wins: ["return_to_farmer", "delivered_anyway", "settle_as_is"],
   farmer_wins: ["settle_now", "wait_for_delivery", "settle_as_is"],

@@ -1009,7 +1009,7 @@ public class EscrowServiceTests
     [Fact]
     public async Task RefundAsync_Override_NoLongerSettlesAMismatchedVerdict()
     {
-        // FUP-64 (escrow-protocol.md 2.20.0): the goods are in transit and an admin sends the old override. The
+        // FUP-64 (escrow-protocol.md 2.21.0): the goods are in transit and an admin sends the old override. The
         // verdict is refused as any mismatch is (a disposition on the verdict settles it), and nothing is flagged.
         var orderRepo = Substitute.For<IOrderRepository>();
         var txAudit = Substitute.For<ITransactionAuditRepository>();

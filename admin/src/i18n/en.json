@@ -97,7 +97,9 @@
     "disputed": "Disputed",
     "dispute_resolved": "Resolved",
     "refunded": "Refunded",
-    "expired": "Expired"
+    "expired": "Expired",
+    "sweepBlock": "Sweep block",
+    "sweepBlockSince": "since {time}"
   },
   "disputes": {
     "title": "Disputes",
@@ -325,6 +327,21 @@
     "sameRef": "Enter an ID that differs from the recorded one.",
     "changed": "This leg changed since the page was loaded. Reload and check its ID before you try again.",
     "notCorrectable": "This leg cannot be corrected here: it is not recorded yet, or the gateway paid it."
+  },
+  "doubleEscrow": {
+    "title": "Second payment for this order",
+    "explain": "The order's own escrow ({orderEscrowStatus}) already holds or paid this trade's money, so this escrow is a second payment. The hourly sweep never settles it.",
+    "action": "Refund this payment to the buyer",
+    "hint": "The buyer gets this escrow's amount back through Telebirr. The order, its delivery and the order's own escrow do not change. Your name and reason are kept in the audit trail.",
+    "reason": "Why this is a second payment",
+    "reasonHint": "10 to 500 characters. It is kept in the audit trail.",
+    "review": "Review",
+    "confirmQuestion": "Refund {amount} to the buyer?",
+    "confirm": "Yes, refund it",
+    "back": "Back",
+    "cancel": "Cancel",
+    "done": "Refunded to the buyer.",
+    "queued": "The refund waits in Manual Payouts. Pay it there and record the Telebirr transaction ID."
   },
   "cancelDelivery": {
     "action": "Cancel delivery",
@@ -823,6 +840,7 @@
     "action_reputation_lifted": "Restriction lifted (admin)",
     "action_manual_payout_ref_corrected": "Payout reference corrected (admin)",
     "action_admin_manual_payout_ref_corrected": "Payout reference corrected (admin)",
+    "action_double_escrow_refund": "Refund of a second payment decided (admin)",
     "action_admin_delivery_cancelled": "Delivery cancelled (admin)",
     "action_admin_pickup_reopened": "Pickup re-opened by an admin"
   },
@@ -956,6 +974,8 @@
     "REPUTATION_SERVER_ERROR": "The server could not finish this. Try again in a moment.",
     "REPUTATION_APPEAL_CHANGED": "The appeal changed after this page was loaded. It has been reloaded: read the appeal, then decide again.",
     "ESCROW_048": "Give a reason of 10 to 500 characters for the correction.",
+    "ESCROW_021": "Only an admin in the admin group can do this.",
+    "ESCROW_049": "This escrow is not a second payment, or it changed since the page was loaded. Reload the page and check the order's own escrow.",
     "DELIVERY_ADMIN_CANCEL_INVALID": "Give a reason of 10 to 500 characters for the cancel.",
     "DELIVERY_ADMIN_CANCEL_NOT_ALLOWED": "This delivery cannot be cancelled here: it is not on the road, or its order says the goods arrived. Reload the page.",
     "DELIVERY_ADMIN_CANCEL_MONEY_HELD": "The payment is still held. Decide the money first (a dispute verdict or the refund), then cancel.",

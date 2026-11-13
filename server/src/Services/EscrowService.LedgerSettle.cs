@@ -60,7 +60,7 @@ public sealed partial class EscrowService
                 {
                     await NoteSettlementBlockedAsync(escrowItem, currentStatus,
                         SettlementBlockFields.Value("release", SettlementBlockFields.GatePayout, blockReason),
-                        "release_blocked_kyc", PayoutBlockedMetadata(blockReason));
+                        "release_blocked_kyc", PayoutBlockedMetadata(blockReason), overdueLeg: ManualPayoutFields.LegFarmer);
                 }
                 else
                 {
@@ -338,9 +338,11 @@ public sealed partial class EscrowService
                 // FUP-29: a risk block is alarmed by the gate and never recorded on the escrow.
                 if (!IsPayeeRiskBlock(reason))
                 {
+                    // FUP-41: the sweep's split (the system) alarms once the block is a day old; an admin's held exit does not.
                     await NoteSettlementBlockedAsync(escrowItem, status,
                         SettlementBlockFields.Value("release", SettlementBlockFields.GatePayout, reason ?? "unknown"),
-                        "release_blocked_kyc", PayoutBlockedMetadata(reason ?? "unknown"));
+                        "release_blocked_kyc", PayoutBlockedMetadata(reason ?? "unknown"),
+                        overdueLeg: actor == SystemActor ? ManualPayoutFields.LegFarmer : null);
                 }
 
                 return EscrowResult<ReleaseEscrowResponse>.Failure(payout.Error!);
@@ -357,7 +359,8 @@ public sealed partial class EscrowService
                 {
                     await NoteSettlementBlockedAsync(escrowItem, status,
                         SettlementBlockFields.Value("release", "trucker", reason ?? "unknown"),
-                        TruckerBlockedAuditAction, PayoutBlockedMetadata(reason ?? "unknown"));
+                        TruckerBlockedAuditAction, PayoutBlockedMetadata(reason ?? "unknown"),
+                        overdueLeg: actor == SystemActor ? ManualPayoutFields.LegTrucker : null);
                 }
 
                 return EscrowResult<ReleaseEscrowResponse>.Failure(dest.Error!);

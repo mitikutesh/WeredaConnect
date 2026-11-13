@@ -29,6 +29,8 @@ public class MoneyAlarmLogTests
         "RISK_TABLE_UNCONFIGURED",
         // FUP-27: the dispute mirror's failed legs, and a sync delivery dispute's freeze (dispute rate).
         "DISPUTE_PROPAGATION_FAILED", "DELIVERY_DISPUTE_FROZEN",
+        // FUP-41: a release the payout identity gate has blocked for a day.
+        "RELEASE_BLOCKED_OVERDUE",
         // FUP-64: a recorded wait_for_delivery a week old.
         "DISPUTE_VERDICT_WAIT_OVERDUE"
     };
@@ -116,6 +118,17 @@ public class MoneyAlarmLogTests
         MoneyAlarmLog.RiskTableUnconfigured("auto_release_and_refund")
             .Should().Be("RISK_TABLE_UNCONFIGURED action=auto_release_and_refund");
         TokensIn(MoneyAlarmLog.RiskTableUnconfigured("auto_release_and_refund")).Should().Equal("RISK_TABLE_UNCONFIGURED");
+    }
+
+    [Fact]
+    public void ReleaseBlockedOverdue_FormatsTokenAndFields_AndCarriesOnlyItsOwnToken()
+    {
+        MoneyAlarmLog.ReleaseBlockedOverdue("escrow-order-ord-1", "farmer", "phone_unverified", 30)
+            .Should().Be("RELEASE_BLOCKED_OVERDUE escrowId=escrow-order-ord-1 leg=farmer reason=phone_unverified ageHours=30");
+        MoneyAlarmLog.ReleaseBlockedOverdue(null, "trucker", null, -3)
+            .Should().Be("RELEASE_BLOCKED_OVERDUE escrowId=- leg=trucker reason=- ageHours=0");
+        TokensIn(MoneyAlarmLog.ReleaseBlockedOverdue($"escrow-del-{Hostile}", "farmer", "fayda_required", 26))
+            .Should().Equal("RELEASE_BLOCKED_OVERDUE");
     }
 
     [Fact]
