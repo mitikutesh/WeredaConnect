@@ -6121,4 +6121,24 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get errorDropoffCheckInClosed =>
       'The delivery deadline has passed, so check-ins are closed. Your check-in was not saved.';
+
+  @override
+  String get deliveryErrorGpsPickupFar =>
+      'Pickup not saved: your location was more than 5 km from the farm. Scan the farmer\'s QR code again at the farm before you leave with the goods.';
+
+  @override
+  String get deliveryErrorGpsSelfPickupNoFix =>
+      'Pickup not confirmed: your phone sent no location, and the farmer is not paid yet. Turn on location and scan the farmer\'s QR code again at the farm.';
+
+  @override
+  String get deliveryErrorGpsSelfPickupNoFarmPoint =>
+      'Pickup not confirmed: this listing has no farm location to check yours against, and the farmer is not paid yet. Contact support.';
+
+  @override
+  String get deliveryErrorGpsSelfPickupFar =>
+      'Pickup not confirmed: your location was more than 5 km from the farm, and the farmer is not paid yet. Scan the farmer\'s QR code again at the farm.';
+
+  @override
+  String get deliveryErrorGpsDropoffFar =>
+      'Delivery not confirmed: your location was more than 5 km from the drop-off point. Scan the trucker\'s QR code again where you receive the goods, or contact support.';
 }
