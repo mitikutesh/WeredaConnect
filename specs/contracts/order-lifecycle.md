@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.20.0
+2.21.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -1033,8 +1033,15 @@ off while orders wait, the cron stamps the P1 marker and clears `pickupJudgement
   `matched`), answer the admin queue entry as above and stamp `pickupReopen`, in one transaction conditioned
   on the version, the status, the judgement, `transportFailure`, `truckerResponse`, the queue entry and the
   slot read, the delivery read, the trip's room and status, and the escrow still holding the money. Refused
-  when the trip is gone, cancelled, departed (`inTransit`, `delivered`) or full
+  when the trip is gone, cancelled by its trucker, departed (`inTransit`, `delivered`) or full
   (`PICKUP_REOPEN_TRIP_UNAVAILABLE`), when the buyer chose or the money moved, and on a version that changed.
+  Since 2.21.0 (FUP-363): a trip the order cron closed as `expired` once the judgement's release left it
+  empty (within 15 minutes for a trip that carried only this order) is opened again in the same transaction
+  (`cancelled → open`, or `matched` when the order fills it; `trip-listing-api.md` 2.7.0); the order cron's
+  close itself is unchanged for every other order in `awaiting_transport`. A confirmed handoff brings back
+  only the delivery the judgement's own cancel stamped (`cancelledByJudgementAt`, `delivery-verification-api.md`
+  2.12.0), so a judgement the cron retried after a failed order write (a `pickupJudgedAt` later than the
+  cancel) still gets its delivery back, and a party's or an admin's cancel never does.
   No money moves. The trucker's `NO_SHOW` (rule R10) is then excused in the same request through ESC-32's
   decision path, not put into review; the answer's `noShowEvent` says what happened to it. The re-open's
   own write yields no reputation event. The order stream reads the status change as any other (the buyer
@@ -1082,6 +1089,7 @@ only with `COMMITMENTS_ENABLED`; before it goes on, the client FUP-336 and the b
 
 ## Changelog
 
+- **2.21.0 (2026-11-13)**: Gaps of the trucker no-show re-open (FUP-363, `delivery-verification-api.md` 2.12.0, `trip-listing-api.md` 2.7.0): the re-open opens again, in the re-open's transaction, a trip the order cron closed as `expired` once the judgement's release left it empty (usual for a single-order trip, closed within 15 minutes), instead of refusing it with `PICKUP_REOPEN_TRIP_UNAVAILABLE`; the cron's close is unchanged. A confirmed handoff brings back only the delivery the judgement's own cancel stamped (`cancelledByJudgementAt`), so a judgement the cron retried after a failed order write still gets its delivery back. No money moves; no client change.
 - **2.20.0 (2026-11-13)**: Admin re-open of a judged trucker no-show (FUP-330, `delivery-verification-api.md` 2.11.0): `POST /admin/orders/{orderId}/reopen-no-show` takes a `trucker_no_show` order still `awaiting_transport` from the judgement (the buyer has not chosen) whose escrow still simply holds the money back to `accepted` (`pickupJudgement: pending`, a new `pickupDeadlineAt`, empty `checkIns`, judged again; the trucker creates the new pending delivery) or to `pickup_confirmed` (`scanned`, the delivery the judgement cancelled `cancelled → pickedUp` with the slot claimed for it, and the drop-off judgement stamped with `dropoffClassification` on), restoring `truckerResponse: accepted`, removing `transportFailure`, `faultParty`, `buyerChoiceDeadlineAt` and `buyerChoiceReminderAt` and taking the trip booking back, in one transaction conditioned on what was read; refused when the trip is gone, cancelled, departed or full (`PICKUP_REOPEN_TRIP_UNAVAILABLE`). The trucker's `NO_SHOW` is excused in the same request (ESC-32's decision path). New transitions `awaiting_transport → accepted | pickup_confirmed` (admin only). No money moves; no client change.
 - **2.19.0 (2026-11-13)**: The verdict's admin exit (FUP-64, `escrow-protocol.md` 2.21.0): the admin disposition `settle_as_is`, for a verdict no goods disposition fits, closes a live order at `dispute_resolved` (system, straight from `funded`, `awaiting_transport`, `accepted`, `pickup_confirmed` or `in_transit`, one `dispute_resolved` transaction-audit row with the disposition; through the verdict's hops from `delivered` or `disputed`) flags a `disbursing` or `settled` order under `buyer_wins` (`disputeOverride*`, contact closed), and leaves any other order and every delivery as they are; the escrow then settles as the verdict says. The `overrideOrderMismatch` refund no longer settles a verdict. No client change.
 - **2.18.0 (2026-11-13)**: Drop-off judgement (ESC-36, `delivery-verification-api.md` 2.10.0, `sync-protocol.md` 1.59.0), behind `dropoffClassification` (off everywhere): the order's first move out of `accepted` after a trucker's pickup stamps `dropoffJudgement: pending`, `dropoffDeadlineAt` (T8) and the drop-off points; the drop-off check-in fills `dropoffCheckIn` and moves the deadline to T9; `commitment_deadlines` judges T8 (`disputed`, `disputeReason: delivery_overdue`, the escrow frozen first, R12) and T9 (`delivered` for a silent buyer with the escrow stamped as a buyer's confirm, else `disputed` with `silent_buyer`); money neither freezable nor confirmable goes to the admin queue (`delivery_overdue`, `silent_buyer`). New system edges `pickup_confirmed | in_transit → disputed | delivered`, deadline kinds `delivery_overdue` and `silent_buyer`, SSM timings `delivery-overdue-hours` and `silent-buyer-hours` (never below 24), order fields `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt`, `disputeReason`, the repair walk over `pickup_confirmed` and `in_transit` (with the flag on). FUP-204: a trucker's out-of-range attempt by T8 makes the system dispute `dropoff_out_of_range` (no R12) instead of `delivery_overdue`; the admin's `handoff_confirmed` re-open stamps the order too. 2.16.0 is FUP-287 and 2.17.0 FUP-19.

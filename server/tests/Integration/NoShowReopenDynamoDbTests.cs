@@ -3,6 +3,7 @@ using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
+using Amazon.Runtime;
 using FluentAssertions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
@@ -239,7 +240,9 @@ public sealed class NoShowReopenDynamoDbTests
                 ["status"] = S("cancelled"),
                 ["version"] = N("3"),
                 ["createdAt"] = S(CreatedAt),
-                ["updatedAt"] = S(Iso(judgedAt.AddSeconds(2)))
+                ["updatedAt"] = S(Iso(judgedAt.AddSeconds(2))),
+                // FUP-363: the judgement's own cancel carries its stamp.
+                [PickupJudgement.DeliveryCancelledAtField] = S(Iso(judgedAt.AddSeconds(2)))
             }
         });
         await SeedTripAsync(withThisBooking: false, status: tripStatus, remaining: tripRemaining);
@@ -247,17 +250,110 @@ public sealed class NoShowReopenDynamoDbTests
         await SeedTruckerAsync();
     }
 
-    private OrderCronFunction Cron()
+    /// <summary>The order cron on the real tables, through <paramref name="client"/> when given (else the fixture's).</summary>
+    private OrderCronFunction Cron(IAmazonDynamoDB? client = null)
     {
-        var deliveries = Deliveries;
-        return new OrderCronFunction(Repo, new TransactionAuditRepository(Ddb, _db.TransactionAudit), inboxRepo: null,
-            escrowService: new EscrowService(new EscrowRepository(Ddb, _db.Escrows), new EscrowAuditRepository(Ddb, _db.EscrowAudit),
-                idempotencyRepo: null, telebirrGateway: null, orderRepo: Repo, deliveryRepo: deliveries),
-            cropRepo: new CropRepository(Ddb, _db.Crops), tripRepo: Trips, deliveryRepo: deliveries)
+        var ddb = client ?? Ddb;
+        var orders = new OrderRepository(ddb, _db.Orders);
+        var deliveries = new DeliveryRepository(ddb, _db.Deliveries);
+        return new OrderCronFunction(orders, new TransactionAuditRepository(ddb, _db.TransactionAudit), inboxRepo: null,
+            escrowService: new EscrowService(new EscrowRepository(ddb, _db.Escrows), new EscrowAuditRepository(ddb, _db.EscrowAudit),
+                idempotencyRepo: null, telebirrGateway: null, orderRepo: orders, deliveryRepo: deliveries),
+            cropRepo: new CropRepository(ddb, _db.Crops), tripRepo: new TripRepository(ddb, _db.Trips), deliveryRepo: deliveries)
         {
             CommitmentsEnabled = true,
             PickupClassificationEnabled = true
         };
+    }
+
+    private static Task RunCronAsync(OrderCronFunction cron) => cron.FunctionHandler(
+        new APIGatewayProxyRequest { HttpMethod = "POST", Body = "{\"action\":\"commitment_deadlines\"}" }, new TestLambdaContext());
+
+    /// <summary>
+    /// FUP-363: the real client, except that the trucker no-show judgement's first write on the order is lost, as when
+    /// another write on the order lands first: the cron sees a version conflict after it cancelled the delivery.
+    /// </summary>
+    private sealed class LosesTheFirstJudgementWrite : AmazonDynamoDBClient
+    {
+        private readonly string _orders;
+
+        public LosesTheFirstJudgementWrite(string ordersTable)
+            : base(new BasicAWSCredentials("test", "test"), new AmazonDynamoDBConfig
+            {
+                ServiceURL = LocalDynamoDbEnvironment.Endpoint,
+                AuthenticationRegion = Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION") ?? "us-east-1"
+            })
+            => _orders = ordersTable;
+
+        public int Lost { get; private set; }
+
+        public override Task<UpdateItemResponse> UpdateItemAsync(UpdateItemRequest request, CancellationToken cancellationToken = default)
+        {
+            if (Lost == 0 && request.TableName == _orders
+                && request.ExpressionAttributeValues.Values.Any(v => v.S == PickupJudgement.TruckerNoShowFailure))
+            {
+                Lost++;
+                throw new ConditionalCheckFailedException("Another write on the order landed first.");
+            }
+
+            return base.UpdateItemAsync(request, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// FUP-363: an accepted order alone on its trip (the order's 5 quintals booked), the trip's day three days past, its
+    /// pickup deadline two hours past and due in the sweep's partition. The trucker's arrival reached the server late
+    /// (an offline phone), so it does not count and the judgement queues it as evidence.
+    /// </summary>
+    private async Task SeedAloneOnADepartedTripAsync(double capacity)
+    {
+        await SeedAcceptedAsync();
+        var deadline = DateTime.UtcNow.AddHours(-2);
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Orders,
+            Key = new Dictionary<string, AttributeValue> { ["orderId"] = S(Id("order")), ["createdAt"] = S(CreatedAt) },
+            UpdateExpression = "SET #checkIns.#arrived = :arrived",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                ["#checkIns"] = PickupJudgement.CheckInsField,
+                ["#arrived"] = PickupJudgement.Kind.ArrivedPickup
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":arrived"] = new()
+                {
+                    M = new Dictionary<string, AttributeValue>
+                    {
+                        [PickupJudgement.EntryReceivedAt] = S(Iso(deadline.AddMinutes(30))),
+                        [PickupJudgement.EntryBy] = S(Id("trucker")),
+                        [PickupJudgement.EntryDistanceChecked] = new() { BOOL = true },
+                        [PickupJudgement.EntryLate] = new() { BOOL = true }
+                    }
+                }
+            }
+        });
+
+        var departure = DateTime.UtcNow.AddDays(-3).ToString("yyyy-MM-ddTHH:mm:ss.fffZ", System.Globalization.CultureInfo.InvariantCulture);
+        var remaining = capacity - 5;
+        await Ddb.PutItemAsync(new PutItemRequest
+        {
+            TableName = _db.Trips,
+            Item = new Dictionary<string, AttributeValue>
+            {
+                ["tripId"] = S(Id("trip")),
+                ["createdAt"] = S(TripCreatedAt),
+                ["truckerId"] = S(Id("trucker")),
+                ["status"] = S(remaining > 0 ? "open" : "matched"),
+                ["departureDate"] = S(departure),
+                ["capacity"] = N(capacity.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                ["remainingQuintals"] = N(remaining.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                ["bookedQuintals"] = N("5"),
+                ["bookedOrderIds"] = new AttributeValue { SS = new List<string> { Id("order") } },
+                ["acceptedOrderIds"] = new AttributeValue { SS = new List<string> { Id("order") } },
+                ["version"] = N("3")
+            }
+        });
     }
 
     private static double Number(Dictionary<string, AttributeValue> row, string key)
@@ -486,5 +582,137 @@ public sealed class NoShowReopenDynamoDbTests
 
         (await ReadAsync(Id("order")))["status"].Should().Be("cancelled");
         (await TripAsync())["bookedOrderIds"].SS.Should().NotContain(Id("order"));
+    }
+
+    [LocalDynamoDbTheory]
+    [InlineData(PickupReopen.Exit.HandoffConfirmed, 8.0, "open")]
+    [InlineData(PickupReopen.Exit.Pending, 5.0, "matched")]
+    public async Task FUP363_ASingleOrderTripTheCronClosedAfterTheNoShow_IsOpenedAgainByTheReopen(
+        string exit, double capacity, string tripStatus)
+    {
+        await SeedAloneOnADepartedTripAsync(capacity);
+
+        // One run judges the no-show (the late arrival queued as evidence), releases the trip's only booking, then
+        // closes the trip it left empty: its day is over and an order in awaiting_transport does not keep it.
+        await RunCronAsync(Cron());
+        var judged = await ReadAsync(Id("order"));
+        judged["status"].Should().Be(OrderCommitment.AwaitingTransportStatus);
+        judged[PickupJudgement.Field].Should().Be(PickupJudgement.Outcome.TruckerNoShow);
+        judged[AdminQueueFields.Reason].Should().Be(PickupJudgement.ReasonLateEvidence);
+        var closed = await TripAsync();
+        closed["status"].S.Should().Be("cancelled");
+        closed["cancelReason"].S.Should().Be(TripLifecycle.ExpiredCancelReason);
+        closed.Should().NotContainKey("bookedOrderIds").And.NotContainKey("acceptedOrderIds");
+        var closedVersion = int.Parse(closed["version"].N, System.Globalization.CultureInfo.InvariantCulture);
+
+        var version = int.Parse((string)judged["version"], System.Globalization.CultureInfo.InvariantCulture);
+        var response = await Admin().FunctionHandler(
+            Post(Id("order"), exit == PickupReopen.Exit.Pending ? Pending(version) : Handoff(version)), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var trip = await TripAsync();
+        trip["status"].S.Should().Be(tripStatus);
+        trip.Should().NotContainKey("cancelReason").And.NotContainKey("cancelledAt");
+        trip["version"].N.Should().Be((closedVersion + 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        trip["bookedOrderIds"].SS.Should().Equal(Id("order"));
+        trip["acceptedOrderIds"].SS.Should().Equal(Id("order"));
+        Number(trip, "bookedQuintals").Should().Be(5);
+        Number(trip, "remainingQuintals").Should().Be(capacity - 5);
+
+        var after = await ReadAsync(Id("order"));
+        after["status"].Should().Be(exit == PickupReopen.Exit.Pending ? "accepted" : "pickup_confirmed");
+        if (exit == PickupReopen.Exit.HandoffConfirmed)
+        {
+            var delivery = (await Deliveries.GetByIdAsync(Id("delivery"), consistentRead: true))!;
+            delivery["status"].Should().Be("pickedUp");
+            delivery.Should().NotContainKey(PickupJudgement.DeliveryCancelledAtField);
+        }
+
+        var audit = (await new TransactionAuditRepository(Ddb, _db.TransactionAudit).GetByTransactionAsync(Id("order")))
+            .Single(a => (string)a["action"] == PickupReopen.AuditAction);
+        ((string)audit["metadata"]).Should().Contain(";trip=revived;");
+
+        // The next run keeps the trip: it holds the booking again.
+        await RunCronAsync(Cron());
+        var kept = await TripAsync();
+        kept["status"].S.Should().Be(tripStatus);
+        kept["version"].N.Should().Be(trip["version"].N);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task FUP363_AJudgementWhoseOrderWriteFailedOnce_StillHasItsDeliveryBroughtBack_ByTheHandoff()
+    {
+        await SeedAcceptedAsync();
+
+        // The first run cancels the pending delivery with the judgement's stamp, then loses its order write.
+        using (var lossy = new LosesTheFirstJudgementWrite(_db.Orders))
+        {
+            await RunCronAsync(Cron(lossy));
+            lossy.Lost.Should().Be(1);
+        }
+
+        var cancelled = (await Deliveries.GetByIdAsync(Id("delivery"), consistentRead: true))!;
+        cancelled["status"].Should().Be("cancelled");
+        var stamp = (string)cancelled[PickupJudgement.DeliveryCancelledAtField];
+        (await ReadAsync(Id("order")))[PickupJudgement.Field].Should().Be(PickupJudgement.Outcome.Pending, "the order write was lost");
+
+        // The next run judges again: the order's pickupJudgedAt is later than the cancel.
+        await RunCronAsync(Cron());
+        var judged = await ReadAsync(Id("order"));
+        judged["status"].Should().Be(OrderCommitment.AwaitingTransportStatus);
+        OrderCommitment.TryParseUtc((string)judged[PickupJudgement.JudgedAtField], out var judgedAt).Should().BeTrue();
+        OrderCommitment.TryParseUtc(stamp, out var cancelledAt).Should().BeTrue();
+        judgedAt.Should().BeAfter(cancelledAt);
+
+        var version = int.Parse((string)judged["version"], System.Globalization.CultureInfo.InvariantCulture);
+        var response = await Admin().FunctionHandler(Post(Id("order"), Handoff(version)), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var delivery = (await Deliveries.GetByIdAsync(Id("delivery"), consistentRead: true))!;
+        delivery["status"].Should().Be("pickedUp");
+        delivery.Should().NotContainKey(PickupJudgement.DeliveryCancelledAtField);
+        var after = await ReadAsync(Id("order"));
+        after["status"].Should().Be("pickup_confirmed");
+        after["activeDeliveryId"].Should().Be(Id("delivery"));
+    }
+
+    [LocalDynamoDbFact]
+    public async Task FUP363_ADeliveryAPartyOrAnAdminCancelled_IsNeverBroughtBack()
+    {
+        await SeedNoShowAsync();
+        var key = new Dictionary<string, AttributeValue> { ["deliveryId"] = S(Id("delivery")), ["tripId"] = S(Id("trip")) };
+
+        // A party's cancel carries no judgement stamp.
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Deliveries,
+            Key = key,
+            UpdateExpression = "REMOVE #judged",
+            ExpressionAttributeNames = new Dictionary<string, string> { ["#judged"] = PickupJudgement.DeliveryCancelledAtField }
+        });
+        var party = await Admin().FunctionHandler(Post(Id("order"), Handoff(8)), _context);
+        party.StatusCode.Should().Be(409);
+        party.Body.Should().Contain(PickupReopen.NotAllowedCode).And.Contain("not by it");
+
+        // The transaction's own condition refuses it too, whatever the read said.
+        var raw = await Repo.TryUpdateGuardedAsync(Id("order"), new Dictionary<string, object> { { "status", "pickup_confirmed" } },
+            Array.Empty<string>(), 8, new Dictionary<string, string> { { "status", OrderCommitment.AwaitingTransportStatus } },
+            Array.Empty<string>(), new[] { Deliveries.BuildRevivedPickupItem(Id("delivery"), Id("trip"), 3, Iso(DateTime.UtcNow)) });
+        raw.Outcome.Should().Be(OrderLinkedWriteOutcome.LinkedItemRefused);
+
+        // FUP-19's admin cancel after pickup writes a reason (and no stamp).
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Deliveries,
+            Key = key,
+            UpdateExpression = "SET cancelReason = :r",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":r"] = S(AdminDeliveryCancel.CancelReason) }
+        });
+        var admin = await Admin().FunctionHandler(Post(Id("order"), Handoff(8)), _context);
+        admin.StatusCode.Should().Be(409);
+        admin.Body.Should().Contain(PickupReopen.NotAllowedCode).And.Contain("support or a dispute");
+
+        (await ReadAsync(Id("order")))["version"].Should().Be("8");
+        (await Deliveries.GetByIdAsync(Id("delivery"), consistentRead: true))!["status"].Should().Be("cancelled");
     }
 }
