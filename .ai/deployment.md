@@ -335,6 +335,62 @@ aws dynamodb delete-item --table-name wereda-connect-<env>-escrow-idempotency \
   --key '{"idempotencyKey":{"S":"migration:fup-215:backfill_payout_references"}}'
 ```
 
+### 3e. Manual, once per environment: delivery photo copies, then the uploads expiry (FUP-140)
+
+Since delivery-verification-api 2.14.0 the `delivery_photo` attach copies each handoff photo
+to `evidence/photos/` (never expired) and the reads sign that copy. `uploads/photos/` then only
+holds uploads, and the lifecycle rule `DeliveryPhotoUploadsExpiry` (current versions after 30
+days, noncurrent after 1 day) clears the ones never attached. Photos attached before 2.14.0 have
+no copy: their reads still sign the upload key, so the rule would delete evidence. The rule is
+deployed disabled; it goes on per environment only after the backfill below ran there.
+
+Order, per environment (dev, then staging, then prod):
+
+1. Deploy the release that ships 2.14.0 (the rule deploys disabled: `deliveryPhotoUploadExpiry:
+   false` in `infra/lib/config/environments.ts`). From then on every new attach makes its copy.
+2. Run order-cron's `backfill_delivery_photo_copies` until it answers `outcome: ok` (below).
+3. In a reviewed PR, set `deliveryPhotoUploadExpiry: true` for that environment only, and deploy.
+   Check in the S3 console (uploads bucket, Management) that `DeliveryPhotoUploadsExpiry` shows
+   Enabled, and that no rule names `evidence/`.
+
+The backfill is not scheduled and not in the deploy workflow. It reads the deliveries table with
+one filtered Scan (every row read once, about one read unit per 8 KB), and for each photo without
+a copy makes one S3 copy (at most 200 KiB, inside the bucket) and one conditional update that
+moves neither the row's `version` nor `updatedAt` (no phone conflict, no push). A run stops
+after 4 minutes of the 5 minute Lambda, so pass `--cli-read-timeout 330`. A throttled invoke
+means order-cron's reserved concurrency of 6 is busy with scheduled runs: wait a minute.
+
+```bash
+aws lambda invoke --function-name wereda-connect-<env>-order-cron \
+  --cli-binary-format raw-in-base64-out --cli-read-timeout 330 \
+  --payload '{"body":"{\"action\":\"backfill_delivery_photo_copies\"}"}' out.json && cat out.json
+```
+
+Read the answer's body:
+
+- `outcome: ok`: this run read to the end of the table with no failure. `copied` photos got their
+  copy now; a row that has one is no longer read, so a rerun answers `copied: 0`.
+- `scanCursor` present: the run stopped on time. Run again with it until the answer has no
+  `scanCursor`: `--payload '{"body":"{\"action\":\"backfill_delivery_photo_copies\",\"scanFrom\":\"<scanCursor>\"}"}'`.
+- `failed` above 0 (a throttled page, a copy or a write that failed; the log names each one,
+  `DELIVERY_PHOTO_BACKFILL_FAILED step=..`): run again from the start, without `scanFrom`.
+- The backfill is done when one run from the start, or a chain of runs (the start, then each
+  `scanFrom`) where every run had `failed: 0`, ends without `scanCursor`. To be sure, one more
+  run from the start must answer `outcome: ok` with `copied: 0`. Record the answers in the PR
+  that turns the rule on.
+- `missing` above 0: a row names a photo whose object (or version) is not in the bucket
+  (`DELIVERY_PHOTO_BACKFILL_MISSING`, for example a photo that never went up before FRD-12): its
+  read was already dead, and nothing is lost by the rule. Not a failure.
+- `skipped` above 0: a row names a key without that delivery's shape for its type
+  (`DELIVERY_PHOTO_BACKFILL_SKIPPED`, a value written before 1.25.0): no read signs it. Not a
+  failure.
+- `outcome: unconfigured`: the Lambda has no `UPLOADS_BUCKET` or `DELIVERIES_TABLE`; the deploy
+  that ships 2.14.0 sets both.
+
+Rolling back the rule: set `deliveryPhotoUploadExpiry: false` and deploy; it stops new
+expirations. Objects already expired are gone (the bucket keeps no version past the rule), but
+each attached photo is read from its copy, so only unattached uploads were removed.
+
 ### 4. Web App Deploys (CI/CD)
 
 Automatic on push to `main` when files change in the relevant directory:

@@ -158,4 +158,96 @@ void main() {
     );
     expect(puts, isEmpty);
   });
+
+  group('FUP-140: a stalled upload is no refusal', () {
+    const timeoutBody = '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Error><Code>RequestTimeout</Code><Message>Your socket connection '
+        'to the server was not read from or written to within the timeout '
+        'period. Idle connections will be closed.</Message></Error>';
+
+    Future<DioException> putAnswered(int status, String body) async {
+      s3.onPut(
+        _uploadUrl,
+        (server) => server.reply(
+          status,
+          body,
+          headers: {
+            Headers.contentTypeHeader: ['application/xml'],
+          },
+        ),
+        data: Matchers.any,
+      );
+      try {
+        await uploader.upload(
+          deliveryId: _deliveryId,
+          type: 'pickup',
+          bytes: Uint8List(10),
+          contentType: 'image/webp',
+        );
+      } on DioException catch (e) {
+        return e;
+      }
+      fail('the PUT should have failed');
+    }
+
+    test("S3's RequestTimeout (a 400) is told apart from a refusal", () async {
+      final e = await putAnswered(400, timeoutBody);
+
+      expect(e.response?.statusCode, 400);
+      expect(DeliveryPhotoUploader.isStalledUpload(e), isTrue);
+    });
+
+    test('a refusal of the photo stays a refusal', () async {
+      const mismatch = '<Error><Code>SignatureDoesNotMatch</Code></Error>';
+      expect(
+        DeliveryPhotoUploader.isStalledUpload(await putAnswered(403, mismatch)),
+        isFalse,
+      );
+      const badDigest = '<Error><Code>BadDigest</Code></Error>';
+      expect(
+        DeliveryPhotoUploader.isStalledUpload(
+          await putAnswered(400, badDigest),
+        ),
+        isFalse,
+      );
+    });
+
+    DioException answered(int? status, Object? data) => DioException(
+          requestOptions: RequestOptions(path: '/put'),
+          type: status == null
+              ? DioExceptionType.connectionTimeout
+              : DioExceptionType.badResponse,
+          response: status == null
+              ? null
+              : Response<Object?>(
+                  requestOptions: RequestOptions(path: '/put'),
+                  statusCode: status,
+                  data: data,
+                ),
+        );
+
+    test('a 408, or the timeout read from raw bytes, is a stalled upload', () {
+      expect(
+        DeliveryPhotoUploader.isStalledUpload(answered(408, null)),
+        isTrue,
+      );
+      expect(
+        DeliveryPhotoUploader.isStalledUpload(
+          answered(400, Uint8List.fromList(timeoutBody.codeUnits)),
+        ),
+        isTrue,
+      );
+    });
+
+    test('no answer at all, or a 400 without a body, is not', () {
+      expect(
+        DeliveryPhotoUploader.isStalledUpload(answered(null, null)),
+        isFalse,
+      );
+      expect(
+        DeliveryPhotoUploader.isStalledUpload(answered(400, null)),
+        isFalse,
+      );
+    });
+  });
 }

@@ -134,8 +134,11 @@ export function PhotosTab({ evidence }: { evidence: DisputeEvidence }) {
     (leg) => leg !== "arrival" || (typeof delivery.arrivalPhotoUrl === "string" && delivery.arrivalPhotoUrl !== ""),
   );
   // FUP-373: an arrival photo attached on the system's overdue dispute, after the money froze, carries when.
-  const arrivalLateAt =
-    typeof delivery.arrivalPhotoLateAt === "string" && delivery.arrivalPhotoLateAt !== "" ? delivery.arrivalPhotoLateAt : "";
+  // FUP-140: so does the buyer's drop-off photo attached on a system dispute without the buyer's confirm.
+  const lateAtOf = (leg: "pickup" | "dropoff" | "arrival") => {
+    const value = leg === "pickup" ? undefined : delivery[`${leg}PhotoLateAt`];
+    return typeof value === "string" && value !== "" ? value : "";
+  };
 
   return (
     <Card>
@@ -144,7 +147,7 @@ export function PhotosTab({ evidence }: { evidence: DisputeEvidence }) {
           const url = typeof delivery[`${leg}PhotoUrl`] === "string" ? String(delivery[`${leg}PhotoUrl`]) : "";
           const name = t(`transactions.${leg}Photo`);
           const handoff = handoffAt(leg);
-          const lateAt = leg === "arrival" ? arrivalLateAt : "";
+          const lateAt = lateAtOf(leg);
           return (
             <figure key={leg}>
               {url ? (
@@ -166,7 +169,7 @@ export function PhotosTab({ evidence }: { evidence: DisputeEvidence }) {
                 ) : null}
                 {lateAt ? (
                   <span className="mt-1 block">
-                    <Badge variant="warning">{t("evidence.arrivalPhotoLate")}</Badge>
+                    <Badge variant="warning">{t(`evidence.${leg}PhotoLate`)}</Badge>
                   </span>
                 ) : null}
               </figcaption>

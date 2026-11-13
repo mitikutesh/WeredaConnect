@@ -627,6 +627,9 @@ export class ApiStack extends cdk.Stack {
     // FRD-12: the delivery_photo attach HEADs the photo (s3:GetObject on the photo keys; the
     // bucket-level List lets a missing photo answer 404, not 403). Read only, photos only.
     props.uploadsBucket.grantRead(syncFn.function, "uploads/photos/*");
+    // FUP-140: then copies the version it pins to its kept key (CopyObject: the read above on the
+    // source, a put on the copy). Put only, under evidence/photos/ only: no read, no delete there.
+    props.uploadsBucket.grantPut(syncFn.function, "evidence/photos/*");
     // ESC-28 (rating-api 1.2.0 stored aggregate): the rating create transaction ADDs ratingSum and
     // ratingCount on the ratee's users row, and the best-effort refresh writes its reputation map
     // (UpdateItem on the base table; sync keeps its read grant above). On reputation-events, the
@@ -2149,6 +2152,9 @@ export class ApiStack extends cdk.Stack {
         REPUTATION_TIMEOUT_PENALTIES_ENABLED: timeoutPenalties,
         RATINGS_TABLE: props.ratingsTable.tableName,
         DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
+        // FUP-140: backfill_delivery_photo_copies (by hand, once per environment) copies the handoff
+        // photos attached before delivery-verification-api 2.14.0 to evidence/photos/ (deployment.md 3e).
+        UPLOADS_BUCKET: props.uploadsBucket.bucketName,
       },
       timeout: cdk.Duration.minutes(5),
       memorySize: 256,
@@ -2171,6 +2177,10 @@ export class ApiStack extends cdk.Stack {
     props.tripsTable.grantReadWriteData(orderCronFn.function);
     props.deliveriesTable.grantReadWriteData(orderCronFn.function);
     props.usersTable.grantReadData(orderCronFn.function);
+    // FUP-140: the photo copy backfill copies a recorded version (the read on the upload keys) to its
+    // kept key (a put under evidence/photos/ only). No delete anywhere in the bucket.
+    props.uploadsBucket.grantRead(orderCronFn.function, "uploads/photos/*");
+    props.uploadsBucket.grantPut(orderCronFn.function, "evidence/photos/*");
     // ESC-45: Query on the inbox replay index only, nothing else in that table.
     orderCronFn.function.addToRolePolicy(
       new iam.PolicyStatement({
@@ -3212,6 +3222,8 @@ export class ApiStack extends cdk.Stack {
     props.tripLocationsTable.grant(adminFn.function, "dynamodb:Query");
     // FRD-12: a presigned GET carries its signer's rights, so the admin may read the photo keys.
     props.uploadsBucket.grantRead(adminFn.function, "uploads/photos/*");
+    // FUP-140: and their kept copies, which the reads sign since delivery-verification-api 2.14.0.
+    props.uploadsBucket.grantRead(adminFn.function, "evidence/photos/*");
     // ESC-32: the same for the appeal photos shown in the reputation panel and the appeals queue
     // (presigned GETs of 10 minutes). Read only, under the appeal prefix only.
     props.uploadsBucket.grantRead(adminFn.function, "uploads/appeals/*");
