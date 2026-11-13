@@ -53,6 +53,9 @@ public partial class OrderCronFunction
     // Optional: unified transaction-audit trail. Auto-cancel is a system-driven
     // order transition that would otherwise be invisible in the monitor.
     private readonly ITransactionAuditRepository? _transactionAuditRepo;
+    // FUP-37: the order checkout slots, read before failing a payment on a live deployment
+    // (TELEBIRR_QUERY_ORDER_ENABLED): an order with a checkout waits for the queryOrder verdict.
+    private readonly IOrderCheckoutRepository? _checkoutRepo;
     // ESC-45: the Telebirr webhook inbox; an order whose verified payment is still pending there is
     // never failed. Absent env: only the order's payment hold protects it.
     private readonly IWebhookInboxRepository? _inboxRepo;
@@ -152,6 +155,12 @@ public partial class OrderCronFunction
         var idempotencyTable = Environment.GetEnvironmentVariable("ESCROW_IDEMPOTENCY_TABLE");
         _inboxRepo = !string.IsNullOrEmpty(idempotencyTable)
             ? new WebhookInboxRepository(dynamoDb, idempotencyTable)
+            : null;
+
+        // FUP-37: live deployments only (the flag is set with the live gateway): the slot's queryOrder verdict.
+        _checkoutRepo = !string.IsNullOrEmpty(idempotencyTable)
+                        && string.Equals(Environment.GetEnvironmentVariable(QueryOrderEnabledEnv), "true", StringComparison.OrdinalIgnoreCase)
+            ? new OrderCheckoutRepository(dynamoDb, idempotencyTable)
             : null;
 
         var deliveriesTable = Environment.GetEnvironmentVariable("DELIVERIES_TABLE");
@@ -277,7 +286,8 @@ public partial class OrderCronFunction
         EscrowService? escrowService = null,
         ICropRepository? cropRepo = null,
         ITripRepository? tripRepo = null,
-        IDeliveryRepository? deliveryRepo = null)
+        IDeliveryRepository? deliveryRepo = null,
+        IOrderCheckoutRepository? checkoutRepo = null)
     {
         _orderRepo = orderRepo ?? throw new ArgumentNullException(nameof(orderRepo));
         _transactionAuditRepo = transactionAuditRepo;
@@ -286,6 +296,7 @@ public partial class OrderCronFunction
         _cropRepo = cropRepo;
         _tripRepo = tripRepo;
         _deliveryRepo = deliveryRepo;
+        _checkoutRepo = checkoutRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -513,6 +524,8 @@ public partial class OrderCronFunction
     /// inbox (its replay may still fund it): such orders are skipped, both by the inbox's pending
     /// partition and by the order's own <c>paymentHoldUntil</c>, and the write itself is
     /// conditional on the hold. If the inbox cannot be read, the step waits for the next run.
+    /// FUP-37: on a live deployment an order with a Telebirr checkout also waits for escrow-cron's
+    /// queryOrder verdict (<see cref="PaymentQuerySettledAsync"/>).
     /// </summary>
     private async Task<int> FailStalePaymentsAsync(DateTime now, ILambdaContext context)
     {
@@ -573,6 +586,11 @@ public partial class OrderCronFunction
                 continue;
             }
 
+            if (!await PaymentQuerySettledAsync(order, orderId, now, verification, context))
+            {
+                continue;
+            }
+
             if (await _orderRepo.TryMarkPaymentFailedAsync(orderId, GetInt(order, "version"), nowIso))
             {
                 failedCount++;
@@ -623,6 +641,86 @@ public partial class OrderCronFunction
 
         return null;
     }
+
+    /// <summary>FUP-37: the env flag that makes the payment-failed step wait for the queryOrder verdict.</summary>
+    internal const string QueryOrderEnabledEnv = "TELEBIRR_QUERY_ORDER_ENABLED";
+
+    /// <summary>FUP-37: the line of an order with a checkout whose queryOrder verdict is overdue (paged).</summary>
+    internal const string PaymentQueryOverdueToken = "ORDER_PAYMENT_QUERY_OVERDUE";
+
+    /// <summary>
+    /// FUP-37: how long past its payment deadline an order with a checkout may wait for a verdict before
+    /// the wait is alarmed. The reconciliation asks from an hour before the deadline, every 15 minutes.
+    /// </summary>
+    internal static readonly TimeSpan PaymentQueryOverdueAfter = TimeSpan.FromHours(2);
+
+    /// <summary>FUP-37: an unresolved verdict this recent means the reconciliation is running (and alarming) for the order.</summary>
+    private static readonly TimeSpan PaymentQueryFresh = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// FUP-37 (escrow-protocol.md §Additions in 2.23.0): on a live deployment
+    /// (<c>TELEBIRR_QUERY_ORDER_ENABLED</c>, which wires the checkout repository) an order with a
+    /// Telebirr checkout fails only once escrow-cron's queryOrder reconciliation has settled its
+    /// payment attempt (<see cref="OrderCheckoutSlot.QuerySettles"/>), so a payment whose notification
+    /// never came is never failed silently. True when the order may fail: the gate is off, no checkout
+    /// was ever opened, or the attempt is settled. Otherwise it waits: an unresolved verdict the
+    /// reconciliation wrote within the hour is alarmed there; no verdict, or a stale one, more than
+    /// <see cref="PaymentQueryOverdueAfter"/> past the deadline logs <see cref="PaymentQueryOverdueToken"/>
+    /// (the reconciliation is not reaching the order). A slot that cannot be read waits for the next run.
+    /// </summary>
+    private async Task<bool> PaymentQuerySettledAsync(
+        Dictionary<string, object> order, string orderId, DateTime now, TimeSpan verification, ILambdaContext context)
+    {
+        if (_checkoutRepo == null)
+        {
+            return true;
+        }
+
+        OrderCheckoutSlot? slot;
+        try
+        {
+            slot = await _checkoutRepo.GetSlotAsync(orderId);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Payment-failed sweep: the checkout of order {MoneyAlarmLog.LogId(orderId)} could not be read [{ex.GetType().Name}]; it waits a run.");
+            return false;
+        }
+
+        var cycle = GetString(order, "paymentSubmittedAt");
+        if (slot == null || slot.QuerySettles(cycle))
+        {
+            return true;
+        }
+
+        var clockStart = ParseUtcOrNull(cycle) ?? ParseUtcOrNull(GetString(order, "createdAt"));
+        var pastDeadline = clockStart == null ? TimeSpan.Zero : now - (clockStart.Value + verification);
+        var freshUnresolved = slot.QueryVerdict == OrderCheckoutQuery.Unresolved
+                              && string.Equals(slot.QueryCycle ?? "", cycle, StringComparison.Ordinal)
+                              && slot.QueriedAtUtc is { } queriedAt && now - queriedAt < PaymentQueryFresh;
+        if (!freshUnresolved && pastDeadline > PaymentQueryOverdueAfter)
+        {
+            context.Logger.LogError(
+                $"{PaymentQueryOverdueToken} orderId={MoneyAlarmLog.LogId(orderId)} "
+                + $"hoursPastDeadline={pastDeadline.TotalHours.ToString("F0", CultureInfo.InvariantCulture)} "
+                + $"verdict={MoneyAlarmLog.LogId(slot.QueryVerdict ?? "none")}");
+        }
+        else
+        {
+            context.Logger.LogInformation(freshUnresolved
+                ? $"Payment-failed sweep: order {MoneyAlarmLog.LogId(orderId)} waits; queryOrder could not settle its payment yet (alarmed by escrow-cron)."
+                : $"Payment-failed sweep: order {MoneyAlarmLog.LogId(orderId)} waits for the queryOrder check of its Telebirr checkouts.");
+        }
+
+        return false;
+    }
+
+    private static DateTime? ParseUtcOrNull(string value)
+        => DateTime.TryParse(value, CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed)
+            ? parsed
+            : null;
 
     // ──────────────────────────────────────────────
     // ESC-15: commitment deadlines

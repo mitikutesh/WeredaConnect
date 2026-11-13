@@ -1875,6 +1875,27 @@ export class ApiStack extends cdk.Stack {
       ],
     });
 
+    // FUP-37: ask Telebirr's queryOrder about the checkouts of orders about to fail their payment
+    // and about stuck (`unknown`) checkouts, every 15 minutes (escrow-protocol.md 2.23.0). Live only:
+    // the mock opens no checkout, and a paid checkout it finds is applied by the webhook's inbox
+    // sweep, which exists only when live. escrow-cron already has the Telebirr secret, the stable
+    // egress, and read-write on orders and escrow-idempotency (slots, mappings, inbox rows).
+    if (enableTelebirrLive) {
+      new events.Rule(this, "EscrowCronPaymentReconcile", {
+        ruleName: `${prefix}-escrow-cron-payment-reconcile`,
+        description: "Reconcile live order checkouts with Telebirr queryOrder every 15 minutes (FUP-37)",
+        schedule: events.Schedule.rate(cdk.Duration.minutes(15)),
+        targets: [
+          new targets.LambdaFunction(escrowCronFn.function, {
+            // Payload wrapped as `body` so it deserializes into APIGatewayProxyRequest.Body (Review C3).
+            event: events.RuleTargetInput.fromObject({
+              body: JSON.stringify({ action: "order_payment_reconcile" }),
+            }),
+          }),
+        ],
+      });
+    }
+
     // ─── Telebirr Webhook Function (gated; public, RSA-verified) ───────
     // Receives the async C2B notification and flips escrow initiated→escrowed.
     // NOT placed in the VPC: it makes no outbound Telebirr call (only verifies
@@ -2190,6 +2211,17 @@ export class ApiStack extends cdk.Stack {
         ],
       }),
     );
+    // FUP-37: live only, before failing a payment the step reads the order's checkout slot (GetItem on
+    // the base table, nothing else): an order with a checkout waits for escrow-cron's queryOrder verdict.
+    if (enableTelebirrLive) {
+      orderCronFn.function.addEnvironment("TELEBIRR_QUERY_ORDER_ENABLED", "true");
+      orderCronFn.function.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["dynamodb:GetItem"],
+          resources: [props.escrowIdempotencyTable.tableArn],
+        }),
+      );
+    }
     // FRD-15: the relationship scan reads orders on StatusCreatedAtIndex and BuyerIdCreatedAtIndex
     // and users rows by key (both covered above). On fraud-signals it needs only the base-table
     // Query of its existence check and the signal writer's conditional PutItem: no index, no update.

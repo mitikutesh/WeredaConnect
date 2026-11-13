@@ -1487,6 +1487,28 @@ export class MonitoringStack extends cdk.Stack {
         defaultValue: 0,
       });
 
+      // FUP-37: Telebirr's queryOrder could not settle a live order checkout (escrow-cron: a gateway
+      // error, a payment still payable or refunded, an unknown status, a paid answer it could not put in
+      // the inbox, too many checkouts, or gave_up a day past the deadline), or the order cron has waited
+      // two hours past an order's payment deadline with no verdict (the reconciliation is not reaching
+      // it). Either way the buyer may have paid: same metric, so the alarm below adds both sources.
+      new logs.MetricFilter(this, 'OrderPaymentQueryUnresolvedFilter', {
+        logGroup: escrowCronLogGroup,
+        filterPattern: logs.FilterPattern.literal('"ORDER_PAYMENT_QUERY_UNRESOLVED"'),
+        metricNamespace,
+        metricName: 'OrderPaymentProblems',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+      new logs.MetricFilter(this, 'OrderPaymentQueryOverdueFilter', {
+        logGroup: orderCronLogGroup,
+        filterPattern: logs.FilterPattern.literal('"ORDER_PAYMENT_QUERY_OVERDUE"'),
+        metricNamespace,
+        metricName: 'OrderPaymentProblems',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+
       orderPaymentProblemsAlarm = new cloudwatch.Alarm(
         this,
         'OrderPaymentProblems',
@@ -1496,18 +1518,17 @@ export class MonitoringStack extends cdk.Stack {
             'The Telebirr webhook received an order payment it could not apply ' +
             '(ORDER_PAYMENT_UNMATCHED, _DUPLICATE or _UNPROCESSED), or funded an ' +
             'order whose stock or escrow step failed (ORDER_STOCK_DECREMENT_FAILED, ' +
-            'ORDER_ESCROW_CREATE_FAILED: repair these, never refund; except ' +
-            'reason=insufficient_stock, ESC-18: the stock is gone, so find stock or ' +
-            'cancel the order and refund). Find the ' +
-            'payment in this log group (an _UNPROCESSED payment may be recorded only ' +
-            'here), the escrow audit (order_payment_unmatched, _duplicate, ' +
-            '_unprocessed) or the webhook-inbox rows of the escrow idempotency table. ' +
+            'ORDER_ESCROW_CREATE_FAILED: repair, never refund; except ' +
+            'reason=insufficient_stock, ESC-18: find stock or cancel and refund). Find the ' +
+            'payment in the webhook log group (an _UNPROCESSED one may be logged only there), ' +
+            'the escrow audit or the webhook-inbox rows of the escrow idempotency table. ' +
             'Before refunding, read the order: if its telebirrPaymentOrderId is this ' +
-            'payment, the payment funded the order and must not be refunded. Refund ' +
-            'an _UNPROCESSED payment only once its order has left that payment attempt. ' +
-            'ESC-45: an inbox payment is replayed every 5 minutes and pages ' +
-            'only as reason=replay_exhausted (then in the exhausted partition of ' +
-            'InboxReplayIndex; fix the cause and requeue it, or refund it, per .ai/deployment.md).',
+            'payment, it funded the order; never refund it. Refund an _UNPROCESSED ' +
+            'payment only once its order has left that payment attempt. ESC-45: an inbox ' +
+            'payment pages only as reason=replay_exhausted (exhausted partition of ' +
+            'InboxReplayIndex: fix and requeue, or refund). FUP-37: ' +
+            'ORDER_PAYMENT_QUERY_UNRESOLVED (escrow-cron) or _OVERDUE (order-cron): queryOrder ' +
+            'has not settled a checkout and the order waits. Runbook: .ai/deployment.md.',
           metric: new cloudwatch.Metric({
             namespace: metricNamespace,
             metricName: 'OrderPaymentProblems',

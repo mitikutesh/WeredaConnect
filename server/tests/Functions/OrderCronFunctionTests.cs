@@ -353,6 +353,132 @@ public class OrderCronFunctionTests
         => new($"webhook-inbox:WCO1:TB1:Completed", $"escrow-order-{orderId}", WebhookInbox.Received, orderId,
             "WCO1", WebhookInbox.Pending, WebhookInbox.Iso(DateTime.UtcNow), 1, WebhookInbox.Iso(DateTime.UtcNow), null);
 
+    // ===== FUP-37: on a live deployment an order with a checkout waits for the queryOrder verdict =====
+
+    private readonly IOrderCheckoutRepository _checkouts = Substitute.For<IOrderCheckoutRepository>();
+
+    private OrderCronFunction LiveCron() => new(_mockOrderRepo, checkoutRepo: _checkouts);
+
+    private void StubSlot(string orderId, string? verdict = null, string? cycle = null, DateTime? queriedAt = null)
+        => _checkouts.GetSlotAsync(orderId).Returns(new OrderCheckoutSlot
+        {
+            OrderId = orderId,
+            BuyerId = "buyer-1",
+            Attempt = 1,
+            MerchOrderId = "WCO1",
+            Amount = 100m,
+            Outcome = OrderCheckoutOutcome.UrlIssued,
+            OpenedAtUtc = DateTime.UtcNow.AddHours(-25),
+            OpenUntilUtc = DateTime.UtcNow.AddHours(-23),
+            QueryVerdict = verdict,
+            QueryCycle = cycle,
+            QueriedAtUtc = queriedAt
+        });
+
+    private string CronLogs => ((TestLambdaLogger)_context.Logger).Buffer.ToString();
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_Live_OrderWithACheckoutAndNoVerdict_Waits()
+    {
+        var now = DateTime.UtcNow;
+        StubSubmittedOrders(SubmittedOrder("order-checkout", now.AddHours(-30), now.AddHours(-25)));
+        StubUpdateSucceeds("order-checkout", 3);
+        StubSlot("order-checkout");
+
+        var actual = await LiveCron().FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Contains("\"paymentFailed\":\"0\"", actual.Body);
+        await _mockOrderRepo.DidNotReceive().TryMarkPaymentFailedAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>());
+        Assert.DoesNotContain(OrderCronFunction.PaymentQueryOverdueToken, CronLogs);
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_Live_NoVerdictTwoHoursPastTheDeadline_IsAlarmed()
+    {
+        var now = DateTime.UtcNow;
+        StubSubmittedOrders(SubmittedOrder("order-overdue", now.AddHours(-30), now.AddHours(-27)));
+        StubSlot("order-overdue");
+
+        await LiveCron().FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        await _mockOrderRepo.DidNotReceive().TryMarkPaymentFailedAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>());
+        Assert.Contains($"{OrderCronFunction.PaymentQueryOverdueToken} orderId=order-overdue hoursPastDeadline=3 verdict=none", CronLogs);
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_Live_FreshUnresolvedVerdict_WaitsWithoutItsOwnAlarm()
+    {
+        // escrow-cron alarms an unresolved answer itself; a stale one means it stopped reaching the order.
+        var now = DateTime.UtcNow;
+        var submitted = now.AddHours(-27);
+        StubSubmittedOrders(
+            SubmittedOrder("order-fresh", now.AddHours(-30), submitted),
+            SubmittedOrder("order-stale", now.AddHours(-30), submitted));
+        StubSlot("order-fresh", OrderCheckoutQuery.Unresolved, submitted.ToString("o"), now.AddMinutes(-10));
+        StubSlot("order-stale", OrderCheckoutQuery.Unresolved, submitted.ToString("o"), now.AddHours(-2));
+
+        await LiveCron().FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        await _mockOrderRepo.DidNotReceive().TryMarkPaymentFailedAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>());
+        Assert.DoesNotContain($"{OrderCronFunction.PaymentQueryOverdueToken} orderId=order-fresh", CronLogs);
+        Assert.Contains($"{OrderCronFunction.PaymentQueryOverdueToken} orderId=order-stale", CronLogs);
+    }
+
+    [Theory]
+    [InlineData(OrderCheckoutQuery.NotPaid)]
+    [InlineData(OrderCheckoutQuery.Paid)]
+    [InlineData(OrderCheckoutQuery.GaveUp)]
+    public async Task HandleAutoCancelExpired_Live_SettledVerdictForThisAttempt_FailsThePayment(string verdict)
+    {
+        var now = DateTime.UtcNow;
+        var order = SubmittedOrder("order-settled", now.AddHours(-30), now.AddHours(-25));
+        StubSubmittedOrders(order);
+        StubUpdateSucceeds("order-settled", 3);
+        StubSlot("order-settled", verdict, (string)order["paymentSubmittedAt"], now.AddMinutes(-30));
+
+        var actual = await LiveCron().FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Contains("\"paymentFailed\":\"1\"", actual.Body);
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_Live_VerdictOfAnEarlierPaymentAttempt_Waits()
+    {
+        var now = DateTime.UtcNow;
+        StubSubmittedOrders(SubmittedOrder("order-retried", now.AddHours(-60), now.AddHours(-25)));
+        StubSlot("order-retried", OrderCheckoutQuery.NotPaid, now.AddHours(-50).ToString("o"), now.AddHours(-26));
+
+        var actual = await LiveCron().FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Contains("\"paymentFailed\":\"0\"", actual.Body);
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_Live_OrderWithoutACheckout_FailsThePayment()
+    {
+        var now = DateTime.UtcNow;
+        StubSubmittedOrders(SubmittedOrder("order-no-checkout", now.AddHours(-30), now.AddHours(-25)));
+        StubUpdateSucceeds("order-no-checkout", 3);
+
+        var actual = await LiveCron().FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Contains("\"paymentFailed\":\"1\"", actual.Body);
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_Live_UnreadableCheckout_WaitsARun()
+    {
+        var now = DateTime.UtcNow;
+        StubSubmittedOrders(SubmittedOrder("order-unreadable", now.AddHours(-30), now.AddHours(-25)));
+        StubUpdateSucceeds("order-unreadable", 3);
+        _checkouts.GetSlotAsync("order-unreadable").ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var actual = await LiveCron().FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Equal(200, actual.StatusCode);
+        Assert.Contains("\"paymentFailed\":\"0\"", actual.Body);
+    }
+
     [Fact]
     public async Task HandleAutoCancelExpired_QueriesSubmittedPaymentsCreatedBeforeTheThreshold()
     {

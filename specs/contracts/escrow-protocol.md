@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.22.0
+2.23.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -5906,6 +5906,117 @@ Retiring then also takes the entry out of demo builds and moves the test drivers
 delivery escrows that still exist, the sweeps' double escrow checks and FUP-41's double escrow refund (2.19.0)
 while any such escrow is open, and the apps' `ESCROW_039` text.
 
+## Additions in 2.23.0 (queryOrder reconciliation, FUP-37)
+
+Server and infrastructure only, live deployments only (`enableTelebirrLive`). Before 2.23.0 a live order payment
+whose notification never reached the webhook (Telebirr never sent it, every retry failed, or it failed the
+signature check) left the order `payment_submitted` until the order cron's T2 (`payment-verification-hours`,
+24 hours) marked it `payment_failed`, silently, with the buyer's money taken (decision record
+`telebirr-webhook-delivery-and-recovery.md`, D7 and D8). A checkout whose preOrder answer was lost (`unknown`)
+blocked the buyer until its window ended.
+
+### queryOrder
+
+`ITelebirrGateway.QueryOrderAsync(merchOrderId)`: Ethio Telecom's "Step 5: queryOrder" (ESC-45 F5),
+`POST /payment/v1/merchant/queryOrder`, `method: payment.queryorder`, `biz_content {appid, merch_code,
+merch_order_id}`, signed and bounded by the invocation's deadline like the preOrder. The answer is read with
+`order_status` first, then `trade_status`:
+
+| Status | State | What the reconciliation does |
+|---|---|---|
+| `PAY_SUCCESS` (normalized to the notify's `Completed`) | paid | hands the payment to the webhook inbox |
+| `PAY_FAILED`, `ORDER_CLOSED` | not paid | nothing was taken |
+| `WAIT_PAY`, `PAYING`, `ACCEPTED` | pending | decides nothing |
+| `REFUNDING`, `REFUND_SUCCESS`, `REFUND_FAILED` | refunded | decides nothing |
+| anything else; a gateway error, no token, no time, a timeout, a non-2xx, `result` other than `SUCCESS`, an answer about another `merch_order_id`, an unreadable body | unknown | decides nothing |
+
+A refusal is never read as "not paid": Telebirr's code for an order it never created is undocumented (sandbox
+item 3). The answer's own `sign` is not checked yet (its rule is undocumented); it is trusted as the preOrder
+answer is, from the TLS connection the server opened. The mock gateway answers deterministically: `ORDER_CLOSED`,
+or by marker in the id (`TIMEOUT`, `FAIL`: unknown; `WAIT`: `WAIT_PAY`).
+
+### The reconciliation (escrow-cron `order_payment_reconcile`, every 15 minutes)
+
+escrow-cron runs it because it already holds the merchant key and the allow-listed egress. Per run it walks the
+`payment_submitted` orders (`StatusCreatedAtIndex`, oldest first) and asks only about two kinds:
+
+1. **About to fail**: the payment clock is past T2 minus 1 hour, the checkout slot's last window has closed, and
+   the slot carries no settling verdict for this payment attempt. Every checkout of the order's current payment
+   attempt that reached Telebirr is queried: walking back from the slot's attempt, a missing mapping (the
+   attempt stopped before Telebirr) and a mapping with status `failed` (Telebirr refused the preOrder) are
+   skipped, and the first mapping of another payment attempt (`paymentSubmittedAt`) ends the walk. At most 10
+   checkouts (more is unresolved, `reason=too_many_attempts`).
+2. **A stuck checkout**: the slot is `unknown`, or still `opening` with its mapping written, its window is open,
+   the slot is at least 3 minutes old, and it was not asked in the last 30 minutes. One query.
+
+At most 40 queries per run; an order cut off by the bound or the run's time gets no verdict and is taken again
+next run.
+
+**A paid checkout** is recorded exactly as a verified `Completed` notification is (1.16.0, D8 then D4): the
+order's `paymentHoldUntil` (now plus the replay horizon, this payment attempt only, extend-only), then a pending
+inbox row under the notification's own key, `webhook-inbox:{merch_order_id}:{payment_order_id}:Completed`, with
+the answer's `payment_order_id`, `trans_id`, `total_amount` and `trans_currency` and `trade_status: Completed`.
+The inbox sweep applies it through the webhook's funding path: the currency, amount, buyer and payment attempt
+checks, the funding write conditional on `payment_submitted`, the stock, escrow and trip side effects, the
+`payment_verified` transaction-audit row, the slot closed `paid`. A row already there (the notification came, or
+an earlier run) is left as it is. A late notification of the same payment finds the row; a fresh one is a
+redelivery (`applied_again`, nothing funded twice), and an order is never funded twice in any order of events
+because the funding write is conditional and another `payment_order_id` on a funded order is a duplicate
+(`ORDER_PAYMENT_DUPLICATE`, alarmed, refunded as before). Escrow-audit
+`order_payment_reconciled` (actor `system`, `telebirrRef` the payment id) and the info line
+`ORDER_PAYMENT_RECONCILED`. A paid answer without its `payment_order_id`, or whose inbox write fails, is
+unresolved.
+
+**The verdict** is written on the order's checkout slot (`order-checkout:{orderId}` in escrow-idempotency:
+`paymentQueryVerdict`, `paymentQueryCycle` (the order's `paymentSubmittedAt`), `paymentQueriedAt`), conditional
+on the slot still being that attempt; a new checkout replaces the slot and the verdict with it. For an order
+about to fail: `paid` (a paid checkout is in the inbox), `not_paid` (every checkout closed or failed),
+`unresolved` (any answer that decided nothing; logged `ORDER_PAYMENT_QUERY_UNRESOLVED orderId=.. merchOrderId=..
+state=.. status=.. error=.. reason=..`, paged, and asked again every run), or `gave_up` (still unresolved more than
+24 hours past the payment deadline: `ORDER_PAYMENT_QUERY_UNRESOLVED ... reason=gave_up`, escrow-audit
+`order_payment_query_gave_up`). For a stuck checkout: closed or failed at Telebirr sets the slot `failed`, so the
+buyer may open a new checkout at once (escrow-audit `order_checkout_reconciled`); paid goes to the inbox as
+above; anything else keeps the slot blocked until its window ends, as before (a warning, not paged: the check
+before T2 pages if it is still unsettled). A stuck checkout's query stamps `unresolved` only to pace the next one.
+
+One `ORDER_PAYMENT_RECONCILE_RUN seen=.. queries=.. paid=.. notPaid=.. unresolved=.. gaveUp=.. slotsClosed=..
+errors=.. truncated=..` line per run. The action answers 200 with those counts, 500 when the orders could not be
+read, 503 (`ORDER_PAYMENT_RECONCILE_UNCONFIGURED`) without an orders table, and 200 `skipped:
+no_hosted_checkout` on the mock gateway.
+
+### The order cron waits for the verdict (T2)
+
+With `TELEBIRR_QUERY_ORDER_ENABLED=true` (set on order-cron with the live gateway, with GetItem on the
+escrow-idempotency base table), the payment-failed step reads the order's checkout slot after its inbox and hold
+checks. An order with a slot fails only when the slot's verdict for this payment attempt is `not_paid`, `paid` (a
+pending inbox row and the hold protect the order while the payment applies; a payment the inbox refused was
+alarmed there) or `gave_up`. Otherwise it waits: an `unresolved` verdict written within the hour is paged by
+escrow-cron; no verdict, or an older one, more than 2 hours past the deadline logs `ORDER_PAYMENT_QUERY_OVERDUE
+orderId=.. hoursPastDeadline=.. verdict=..` every hourly run (the reconciliation is not reaching the order). A
+slot that cannot be read waits a run. An order with no slot (no checkout ever opened) fails as before. Off (the
+mock), nothing changes.
+
+### Alarms and infrastructure
+
+- Rule `${prefix}-escrow-cron-payment-reconcile` (rate 15 minutes, body `order_payment_reconcile`), live only.
+- `ORDER_PAYMENT_QUERY_UNRESOLVED` (escrow-cron) and `ORDER_PAYMENT_QUERY_OVERDUE` (order-cron) feed the
+  `OrderPaymentProblems` metric, so `${prefix}-order-payment-problems` pages for both (live only). Runbook:
+  `.ai/deployment.md`, Live Telebirr webhook.
+- No new table, index or route. escrow-cron's existing grants cover the orders index, the slot, mapping and inbox
+  rows and the escrow audit.
+
+No client, DTO, status, string or notification changes: the buyer sees the order funded (or `payment_failed`) as
+before, only no longer failed while a payment may exist. Farmer, trucker and buyer visibility is unchanged.
+
+### Not in 2.23.0
+
+- A live sandbox run of queryOrder (sandbox checklist item 3: a paid, an unpaid, an expired and a never-created
+  order; record the `order_status` values, the answer's signature and the refusal code for an unknown
+  `merch_order_id`, then verify the answer's `sign` and read that code as "not paid").
+- `queryOrder` in the local simulator (`tools/telebirr-sandbox`): there it answers 404, an unresolved query.
+- A paid checkout on an order that already failed before 2.23.0, or whose payment attempt ended (a payment on an
+  earlier attempt is classified `stale_checkout` by the inbox, alarmed, as before).
+
 ---
 
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
@@ -6252,6 +6363,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.23.0 | 2026-11-13 | queryOrder reconciliation (FUP-37, ESC-45 D7 follow-up; §Additions in 2.23.0). Live deployments only. `ITelebirrGateway.QueryOrderAsync` calls `POST /payment/v1/merchant/queryOrder` (`order_status` read before `trade_status`; `PAY_SUCCESS` normalized to `Completed`; any error or unknown status decides nothing; the mock answers deterministically). New escrow-cron action `order_payment_reconcile` (rule every 15 minutes): for a `payment_submitted` order within an hour of T2 with its checkout windows closed it queries every checkout of the current payment attempt (at most 10; 40 queries per run); a paid one is recorded in the webhook inbox exactly as a verified `Completed` notification (D8 hold, then the pending row under the notification's key), so the inbox sweep funds the order through the webhook's funding path, once; the verdict (`paid`, `not_paid`, `unresolved`, `gave_up` a day past the deadline) is written on the checkout slot (`paymentQueryVerdict`, `paymentQueryCycle`, `paymentQueriedAt`). A stuck `unknown` (or `opening` with its mapping) checkout is queried too: closed or failed at Telebirr frees the buyer (slot `failed`), paid goes to the inbox. The order cron (`TELEBIRR_QUERY_ORDER_ENABLED`, GetItem on escrow-idempotency) fails an order with a checkout only on a `not_paid`, `paid` or `gave_up` verdict for its payment attempt. New tokens `ORDER_PAYMENT_QUERY_UNRESOLVED` (escrow-cron) and `ORDER_PAYMENT_QUERY_OVERDUE` (order-cron, no verdict 2 hours past the deadline) feed `order-payment-problems`; escrow-audit `order_payment_reconciled`, `order_checkout_reconciled`, `order_payment_query_gave_up`. No client, route, DTO or table change |
 | 2.22.0 | 2026-11-13 | The delivery payment hidden on live builds (FUP-69, §Additions in 2.22.0). Client only (mobile and web, the same delivery screen): a build that pays through live Telebirr (`TELEBIRR_LIVE=true`, or any production build) no longer shows the buyer's "Pay for Delivery" on a pending delivery, the only entry to the screen that calls `POST /escrow/initiate`, which the server refuses there with `422 ESCROW_039` since 1.18.0 (FUP-36). Demo builds keep it; the farmer and the trucker never had it. No server, endpoint, DTO, string or notification change; an older app on a live deployment still gets the `ESCROW_039` text. Retiring the path waits until those apps have aged out: the first build carrying 2.22.0 released, and `minOrderAppBuild` at least that build wherever the server runs live Telebirr ("Not in 2.22.0") |
 | 2.21.0 | 2026-11-13 | The verdict's admin exit, the overdue wait, the override removed (FUP-64, closes three 1.21.0 known limits; §Additions in 2.21.0). New disposition `settle_as_is` on `POST /admin/disputes/{id}/resolve` (admin group, with `farmer_wins` or `buyer_wins`, a reason of 10 to 500 characters; `partial_refund` `400 ADMIN_014`) for a verdict no goods disposition fits: recorded and audited as every disposition (`dispute_resolved_settled_as_is`), it closes a live order at `dispute_resolved` (straight from before delivery, through the verdict hops from `delivered` or `disputed`) and writes no delivery; the hourly sweep then releases or refunds through the usual path, re-checking that it still fits. A `buyer_wins` always fits (on a `disbursing` or `settled` order it flags the order, `disputeOverride*`, so its contact closes); a `farmer_wins` only for goods that left the farm, did not come back, on an order that shows no payout in its status or its other escrows (one paid, a release in flight, queued or decided by a verdict) and never on a second escrow while the order's own escrow holds the money (FUP-41's double escrow) (else `422 ADMIN_016` with the reason); a split never (`ADMIN_016`). A no-fit verdict without a disposition answers `422 ADMIN_015` when `settle_as_is` would settle it. A recorded `wait_for_delivery` seven days old logs `DISPUTE_VERDICT_WAIT_OVERDUE` on every sweep (new alarm `${prefix}-dispute-verdict-wait-overdue`, escrow-cron). `overrideOrderMismatch` no longer settles a `dispute_resolved` escrow (still checked; kept for ESC-09 Part B). The order-money sweep counts an order settled as it is as consistent. Admin: the choice, its label, en/am/om. No app change (`order-lifecycle.md` 2.19.0) |
 | 2.20.0 | 2026-11-13 | The hold-cap stamp waits on a standing queue entry (FUP-334, §Additions in 2.20.0). The escrow cron's `holdCapReachedAt` stamp (1.13.0 step 4) is one transaction with a `ConditionCheck` that the order's admin queue entry is still the one it wrote or read (`adminQueue = open`, the same `adminQueuedAt` and `adminQueueEscrowId`), so an entry removed between the read and the stamp (the admin's pickup re-open, FUP-287; a report clear) never leaves a capped escrow with no entry. A refused check, or an escrow no longer `escrowed`, writes nothing and logs the info line `ORDER_ESCROW_HOLD_CAP_STAMP_SKIPPED ... reason=queue_entry_changed|escrow_changed`, with no settlement-failure line or alarm; the escrow stays in the sweep windows and the next run decides again (a no longer queued order gets its own `hold_cap` entry, and the stamp waits on that one). No endpoint, DTO, status, amount or client change; escrow-cron's existing `ConditionCheckItem` on orders covers it. 2.19.0 and 2.20.0 are other changes' numbers |
