@@ -639,6 +639,93 @@ void main() {
         expect(syncPosts, 1);
       });
     }
+
+    // The trucker's phone queues its drop-off code behind every pickup
+    // (ESC-35). The server holds it back while the delivery is pending, so
+    // it would wait, and the revert skips a delivery with an upload on its
+    // way: the refused pickup rejects it first.
+    test(
+        'a refused pickup rejects the drop-off code waiting behind it before '
+        'the revert', () async {
+      final waitingAtRevert = <int>[];
+      executor.dispose();
+      executor = buildExecutor(
+        securityEvents: events,
+        onPermanentRejection: (op, message) async {
+          waitingAtRevert.add(
+            (await syncQueue.waitingOperationsFor('delivery', 'del-1')).length,
+          );
+          reverts.add((op, message));
+        },
+      );
+      await enqueue(
+        'op-1',
+        entityType: 'delivery',
+        entityId: 'del-1',
+        data: '{"status":"pickedUp","scannedQrNonce":"n","version":1}',
+      );
+      await enqueue(
+        'op-dropoff-code',
+        entityType: 'delivery',
+        entityId: 'del-1',
+        action: 'update-dropoff',
+        data: '{"dropoffQrNonce":"d.abc","version":2}',
+      );
+      replyWith([
+        error(
+          'op-1',
+          'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is 11.1km from '
+              'listing location (max 5km).',
+        ),
+        {
+          'operationId': 'op-dropoff-code',
+          'status': 'deferred',
+          'message': 'DELIVERY_NONCE_PENDING: Waiting for the pickup to sync. '
+              'Will retry automatically.',
+        },
+      ]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-dropoff-code'), isTrue);
+      expect(waitingAtRevert, [0]);
+      expect(reverts.single.$1.operationId, 'op-1');
+      expect(await syncQueue.getFailedCount(), 0);
+      // One announcement for the delivery.
+      expect(rejections(), hasLength(1));
+    });
+
+    test('a refused delivery confirm leaves other delivery operations alone',
+        () async {
+      await enqueue(
+        'op-1',
+        entityType: 'delivery',
+        entityId: 'del-1',
+        data: '{"status":"delivered","scannedQrNonce":"n","version":2}',
+      );
+      await enqueue(
+        'op-dropoff-code',
+        entityType: 'delivery',
+        entityId: 'del-1',
+        action: 'update-dropoff',
+        data: '{"dropoffQrNonce":"d.abc","version":2}',
+      );
+      replyWith([
+        error(
+          'op-1',
+          'DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is 16.2km from '
+              'the drop-off point (max 5km).',
+        ),
+        {'operationId': 'op-dropoff-code', 'status': 'success'},
+      ]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      expect(await isRejected('op-dropoff-code'), isFalse);
+    });
   });
 
   // ESC-07: a dispute the server could not freeze the payment for, or one

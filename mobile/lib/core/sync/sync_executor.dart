@@ -1433,6 +1433,8 @@ class SyncExecutor {
   /// when the whole batch was refused):
   /// - a refused `create` rejects the operations queued behind it for that
   ///   entity, which could only loop on a transient "not found";
+  /// - a refused handoff rejects its photo waiting behind it (FRD-12), and a
+  ///   refused pickup the trucker's drop-off code registration (FUP-439);
   /// - a refused order change (or any `ORDER_*` refusal), a delivery cancel
   ///   refused after pickup, a refused delivery dispute or handoff, a message
   ///   refused because its thread's contact is not open, and a crop listing
@@ -1473,6 +1475,21 @@ class SyncExecutor {
             deliveryPhotoEntityType,
             deliveryPhotoEntityId(operation.entityId, type),
           );
+        }
+        // FUP-439: a refused pickup also rejects the trucker's drop-off code
+        // registration queued behind it (ESC-35). The server holds that back
+        // while the delivery is pending, so it could only wait, and while it
+        // waited the revert below left the phone's pickup in place (another
+        // upload for the delivery was on its way).
+        if (_isPickup(operation)) {
+          for (final waiting in await _syncQueue.waitingOperationsFor(
+            'delivery',
+            operation.entityId,
+          )) {
+            if (_registersDropoffCode(waiting)) {
+              await _syncQueue.markAsRejected(waiting.operationId);
+            }
+          }
         }
       }
     }
@@ -1613,6 +1630,17 @@ class SyncExecutor {
     try {
       final data = jsonDecode(operation.data);
       return data is Map && data['status'] == 'pickedUp';
+    } on FormatException {
+      return false;
+    }
+  }
+
+  /// Whether a delivery operation registers the trucker's drop-off code
+  /// (ESC-35: an update carrying `dropoffQrNonce`).
+  static bool _registersDropoffCode(SyncOperation operation) {
+    try {
+      final data = jsonDecode(operation.data);
+      return data is Map && data['dropoffQrNonce'] is String;
     } on FormatException {
       return false;
     }
