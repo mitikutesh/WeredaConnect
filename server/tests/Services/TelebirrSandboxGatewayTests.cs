@@ -456,7 +456,112 @@ public class TelebirrSandboxGatewayTests
         title.Should().NotBeNull().And.NotContain("&").And.NotContain("=");
     }
 
+    // ── FUP-37: queryOrder ───────────────────────────────────────────────────
+
+    [Fact]
+    public async Task QueryOrder_signs_a_request_the_gateway_would_accept_and_reads_a_paid_answer()
+    {
+        var verifier = new TelebirrSignatureService(null, TestPublicKeyPem, TelebirrSignaturePadding.Pkcs1);
+        var signatureVerified = false;
+        string? method = null, auth = null, appKey = null, timestamp = null;
+        var handler = new FakeHandler(async (req, _) =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/token"))
+            {
+                return TokenAnswer();
+            }
+
+            req.RequestUri.AbsolutePath.Should().EndWith("/payment/v1/merchant/queryOrder");
+            auth = req.Headers.TryGetValues("Authorization", out var a) ? a.First() : null;
+            appKey = req.Headers.TryGetValues("X-APP-Key", out var k) ? k.First() : null;
+            var query = JsonSerializer.Deserialize(await req.Content!.ReadAsStringAsync(), AppJsonContext.Default.TelebirrQueryOrderRequest)!;
+            method = query.Method;
+            timestamp = query.Timestamp;
+            signatureVerified = verifier.VerifyObject(new Dictionary<string, object?>
+            {
+                ["nonce_str"] = query.NonceStr,
+                ["method"] = query.Method,
+                ["timestamp"] = query.Timestamp,
+                ["version"] = query.Version,
+                ["biz_content"] = new Dictionary<string, object?>
+                {
+                    ["appid"] = query.BizContent.AppId,
+                    ["merch_code"] = query.BizContent.MerchCode,
+                    ["merch_order_id"] = query.BizContent.MerchOrderId,
+                },
+            }, query.Sign);
+            return Raw(HttpStatusCode.OK,
+                """{"result":"SUCCESS","code":"0","biz_content":{"merch_order_id":"WCO7","order_status":"PAY_SUCCESS","payment_order_id":"PO-7","trans_id":"T-7","trans_currency":"ETB","total_amount":"150.00"}}""");
+        });
+
+        var result = await Gateway(handler).QueryOrderAsync("WCO7");
+
+        signatureVerified.Should().BeTrue("real Telebirr would verify the queryOrder signature");
+        method.Should().Be("payment.queryorder");
+        auth.Should().Be("Bearer T");
+        appKey.Should().Be("local-fabric-app-id");
+        timestamp.Should().MatchRegex("^[0-9]{10}$");
+        result.State.Should().Be(TelebirrPaymentState.Paid);
+        result.PaymentOrderId.Should().Be("PO-7");
+        result.TotalAmount.Should().Be("150.00");
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, "{}", "TELEBIRR_QUERY_HTTP_401")]
+    [InlineData(HttpStatusCode.OK, "<html>", TelebirrGatewayErrors.Network)]
+    [InlineData(HttpStatusCode.OK, """{"result":"FAIL","code":"60200099","msg":"x"}""", "TELEBIRR_60200099")]
+    public async Task QueryOrder_failures_decide_nothing(HttpStatusCode status, string body, string error)
+    {
+        var handler = new FakeHandler((req, _) => Task.FromResult(
+            req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/token") ? TokenAnswer() : Raw(status, body)));
+
+        var result = await Gateway(handler).QueryOrderAsync("WCO7");
+
+        result.State.Should().Be(TelebirrPaymentState.Unknown);
+        result.ErrorCode.Should().Be(error);
+    }
+
+    [Fact]
+    public async Task QueryOrder_without_a_token_or_time_sends_nothing()
+    {
+        var queries = 0;
+        var noToken = new FakeHandler((req, _) =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/queryOrder"))
+            {
+                queries++;
+            }
+
+            return Task.FromResult(Raw(HttpStatusCode.Unauthorized, "{}"));
+        });
+
+        (await Gateway(noToken).QueryOrderAsync("WCO7")).ErrorCode.Should().Be(TelebirrGatewayErrors.TokenFailed);
+
+        using (GatewayDeadline.Begin(DateTimeOffset.UtcNow.AddSeconds(1)))
+        {
+            (await Gateway(noToken).QueryOrderAsync("WCO7")).ErrorCode.Should().Be(TelebirrGatewayErrors.NoTime);
+        }
+
+        queries.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task QueryOrder_cut_at_the_deadline_is_a_timeout()
+    {
+        var handler = new FakeHandler((req, ct) =>
+            req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/token") ? Task.FromResult(TokenAnswer()) : Hang(ct));
+        using var deadline = GatewayDeadline.Begin(DateTimeOffset.UtcNow.AddSeconds(3));
+
+        var result = await Gateway(handler).QueryOrderAsync("WCO7");
+
+        result.State.Should().Be(TelebirrPaymentState.Unknown);
+        result.ErrorCode.Should().Be(TelebirrGatewayErrors.Timeout);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    private static HttpResponseMessage Raw(HttpStatusCode status, string body)
+        => new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 
     private static HttpResponseMessage Json<T>(T value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> ti)
         => new(HttpStatusCode.OK)

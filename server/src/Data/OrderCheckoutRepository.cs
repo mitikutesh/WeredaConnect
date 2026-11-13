@@ -21,6 +21,11 @@ public sealed class OrderCheckoutRepository : IOrderCheckoutRepository
     private const string SlotKind = "order_checkout_slot";
     private const string MappingKind = "order_checkout";
 
+    // FUP-37: the queryOrder reconciliation's verdict on the slot's attempt.
+    private const string QueryVerdictAttribute = "paymentQueryVerdict";
+    private const string QueryCycleAttribute = "paymentQueryCycle";
+    private const string QueriedAtAttribute = "paymentQueriedAt";
+
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _tableName;
 
@@ -60,8 +65,44 @@ public sealed class OrderCheckoutRepository : IOrderCheckoutRepository
             Outcome = GetS(item, "outcome") ?? OrderCheckoutOutcome.Unknown,
             OpenedAtUtc = ParseUtc(GetS(item, "openedAt")),
             OpenUntilUtc = ParseUtc(GetS(item, "openUntil")),
-            PrepayId = GetS(item, "prepayId")
+            PrepayId = GetS(item, "prepayId"),
+            QueryVerdict = GetS(item, QueryVerdictAttribute),
+            QueryCycle = GetS(item, QueryCycleAttribute),
+            QueriedAtUtc = GetS(item, QueriedAtAttribute) is { } queriedAt ? ParseUtc(queriedAt) : null
         };
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> RecordQueryVerdictAsync(string orderId, int attempt, string verdict, string cycle, DateTime atUtc)
+    {
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = KeyOf(SlotKey(orderId)),
+                UpdateExpression = "SET #verdict = :verdict, #cycle = :cycle, #at = :at",
+                ConditionExpression = "#kind = :kind AND #attempt = :attempt",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#verdict", QueryVerdictAttribute }, { "#cycle", QueryCycleAttribute }, { "#at", QueriedAtAttribute },
+                    { "#kind", "kind" }, { "#attempt", "attempt" }
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":verdict", new AttributeValue { S = verdict } },
+                    { ":cycle", new AttributeValue { S = cycle } },
+                    { ":at", new AttributeValue { S = atUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture) } },
+                    { ":kind", new AttributeValue { S = SlotKind } },
+                    { ":attempt", new AttributeValue { N = attempt.ToString(CultureInfo.InvariantCulture) } }
+                }
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
     }
 
     /// <inheritdoc />
@@ -218,7 +259,8 @@ public sealed class OrderCheckoutRepository : IOrderCheckoutRepository
             throw new InvalidDataException("Order checkout mapping is missing its order, buyer or amount.");
         }
 
-        return new OrderCheckoutMapping(merchOrderId, orderId, buyerId, amount, GetS(response.Item, "paymentSubmittedAt"));
+        return new OrderCheckoutMapping(
+            merchOrderId, orderId, buyerId, amount, GetS(response.Item, "paymentSubmittedAt"), GetS(response.Item, "status"));
     }
 
     private async Task TryUpdateSlotAsync(

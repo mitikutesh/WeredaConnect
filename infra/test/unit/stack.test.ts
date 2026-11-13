@@ -1796,6 +1796,33 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     expect(JSON.stringify(rules)).not.toContain('telebirr-inbox-replay');
   });
 
+  test('ON: the queryOrder reconciliation runs on escrow-cron every 15 minutes (FUP-37)', () => {
+    buildTemplate(true).hasResourceProperties('AWS::Events::Rule', {
+      Name: 'wereda-connect-dev-escrow-cron-payment-reconcile',
+      ScheduleExpression: 'rate(15 minutes)',
+      Targets: [
+        Match.objectLike({
+          Arn: { 'Fn::GetAtt': [Match.stringLikeRegexp('^EscrowCronFunction'), 'Arn'] },
+          Input: JSON.stringify({ body: JSON.stringify({ action: 'order_payment_reconcile' }) }),
+        }),
+      ],
+    });
+  });
+
+  test('OFF: no queryOrder reconciliation rule (the mock opens no checkout)', () => {
+    const rules = buildTemplate(false).findResources('AWS::Events::Rule');
+    expect(JSON.stringify(rules)).not.toContain('payment-reconcile');
+  });
+
+  // FUP-37: the order cron waits for the queryOrder verdict on a live deployment only (its slot read
+  // is checked with the other idempotency grants below).
+  test.each([false, true])('the order cron waits for the queryOrder verdict only when live (live=%s, FUP-37)', (live) => {
+    const fn = Object.values(buildTemplate(live).findResources('AWS::Lambda::Function')).find(
+      (f) => (f as { Properties: { FunctionName?: string } }).Properties.FunctionName === 'wereda-connect-dev-order-cron',
+    ) as { Properties: { Environment: { Variables: Record<string, string> } } };
+    expect(fn.Properties.Environment.Variables.TELEBIRR_QUERY_ORDER_ENABLED).toBe(live ? 'true' : undefined);
+  });
+
   type StageResource = {
     DependsOn?: string[];
     Properties: { DefaultRouteSettings?: unknown; RouteSettings?: unknown };
@@ -1873,7 +1900,7 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
   }
 
   test.each([false, true])(
-    'order cron reads only the InboxReplayIndex of the idempotency table (live=%s, ESC-45)',
+    'order cron reads only the InboxReplayIndex of the idempotency table, and live the slot by key (live=%s, ESC-45, FUP-37)',
     (live) => {
       const t = buildTemplate(live);
       t.hasResourceProperties('AWS::Lambda::Function', {
@@ -1881,9 +1908,13 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
         Environment: { Variables: Match.objectLike({ ESCROW_IDEMPOTENCY_TABLE: Match.anyValue() }) },
       });
       const onIdempotency = orderCronStatements(t).filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'));
-      expect(onIdempotency).toHaveLength(1);
-      expect(onIdempotency[0].Action).toBe('dynamodb:Query');
-      expect(JSON.stringify(onIdempotency[0].Resource)).toContain('/index/InboxReplayIndex');
+      const onIndex = onIdempotency.filter((s) => JSON.stringify(s.Resource).includes('/index/'));
+      expect(onIndex).toHaveLength(1);
+      expect(onIndex[0].Action).toBe('dynamodb:Query');
+      expect(JSON.stringify(onIndex[0].Resource)).toContain('/index/InboxReplayIndex');
+      // FUP-37: live, the payment-failed step reads the order's checkout slot (GetItem only).
+      const onTable = onIdempotency.filter((s) => !JSON.stringify(s.Resource).includes('/index/'));
+      expect(onTable.map((s) => s.Action)).toEqual(live ? ['dynamodb:GetItem'] : []);
     },
   );
 
@@ -2636,6 +2667,22 @@ describe('MonitoringStack', () => {
     const template = monitoringTemplate(false);
     const filters = template.findResources('AWS::Logs::MetricFilter');
     expect(JSON.stringify(filters)).not.toContain('telebirr-webhook');
+  });
+
+  test.each([
+    ['/aws/lambda/wereda-connect-dev-escrow-cron', 'ORDER_PAYMENT_QUERY_UNRESOLVED'],
+    ['/aws/lambda/wereda-connect-dev-order-cron', 'ORDER_PAYMENT_QUERY_OVERDUE'],
+  ])('ON: %s feeds the order-payment-problems alarm with %s (FUP-37)', (logGroup, token) => {
+    monitoringTemplate(true).hasResourceProperties('AWS::Logs::MetricFilter', {
+      LogGroupName: logGroup,
+      FilterPattern: `"${token}"`,
+      MetricTransformations: [Match.objectLike({ MetricName: 'OrderPaymentProblems', MetricValue: '1', DefaultValue: 0 })],
+    });
+  });
+
+  test('OFF: no queryOrder filters (no reconciliation runs)', () => {
+    const filters = JSON.stringify(monitoringTemplate(false).findResources('AWS::Logs::MetricFilter'));
+    expect(filters).not.toContain('ORDER_PAYMENT_QUERY_');
   });
 
   // ─── FUP-39: the webhook's deliberate 500s stay out of the API-wide 5xx rate ─────────
@@ -3595,8 +3642,9 @@ describe('MonitoringStack', () => {
     // EscrowLedgerInvariant (2 here: escrow and escrow-cron; its admin filter is outside these log groups);
     // FUP-231 added OrderDeadlineRefundStalled (2: order-cron and escrow-cron); FUP-41 added
     // ReleasesBlockedOverdue (1: escrow-cron); FUP-64 added DisputeVerdictWaitOverdue (1: escrow-cron); FUP-06 added
-    // ManualPayoutsNewlyOverdue (1: escrow-cron).
-    expect(patterns.length).toBe(30);
+    // ManualPayoutsNewlyOverdue (1: escrow-cron); FUP-37 added two OrderPaymentProblems sources (escrow-cron and
+    // order-cron, live only).
+    expect(patterns.length).toBe(32);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the
