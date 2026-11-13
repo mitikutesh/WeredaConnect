@@ -215,6 +215,9 @@ public class EscrowCronFunction
     /// <summary>ESC-16: the log token of an order escrow held to its cap instead of extended.</summary>
     internal const string OrderEscrowHeldToCapToken = "ORDER_ESCROW_HELD_TO_CAP";
 
+    /// <summary>FUP-334: the info line of a hold-cap stamp that did not land (its queue entry or its escrow changed since the read).</summary>
+    internal const string HoldCapStampSkippedToken = "ORDER_ESCROW_HOLD_CAP_STAMP_SKIPPED";
+
     /// <summary>FRD-03: the skip reason when a trigger finds <see cref="FraudHoldEnabled"/> off.</summary>
     internal const string RiskSkipFlagOff = "flag_off";
 
@@ -1616,7 +1619,11 @@ public class EscrowCronFunction
     /// stays in the windows and logs <c>ADMIN_QUEUE_OVERDUE ... reason=order_missing</c> every run
     /// once the cap is 24 hours old. ESC-10: an /escrow/initiate escrow with an order comes here too;
     /// an order has one entry, so an escrow is stamped and audited only for an entry it owns
-    /// (<c>adminQueueEscrowId</c>, else the order escrow's id).
+    /// (<c>adminQueueEscrowId</c>, else the order escrow's id). FUP-334: the stamp is one transaction with a
+    /// check that the order's entry is still the one written or read (<see cref="IOrderRepository.BuildAdminQueueEntryCheck"/>):
+    /// an entry removed in between (an admin's pickup re-open, a clear) leaves the escrow unstamped in the
+    /// windows, and the next run decides again. That refusal, like an escrow that moved on since its read, logs
+    /// <see cref="HoldCapStampSkippedToken"/> (info, no alarm).
     /// </summary>
     private async Task EnterHoldCapQueueAsync(
         Dictionary<string, object> escrow, Dictionary<string, object>? order, string orderId,
@@ -1638,6 +1645,9 @@ public class EscrowCronFunction
 
         var orderStatus = GetString(order, "status");
         string? queuedAt = now.ToString("o");
+        // FUP-334: the entry the stamp waits on: the one written here, or the one read below.
+        var orderCreatedAt = GetString(order, "createdAt");
+        string? entryEscrowId = escrowId;
         if (await _orderRepo!.TryEnterAdminQueueAsync(
                 orderId, AdminQueueFields.ReasonHoldCap, escrowId, queuedAt, orderStatus))
         {
@@ -1657,11 +1667,13 @@ public class EscrowCronFunction
             queuedAt = current == null ? null : GetStringOrNull(current, AdminQueueFields.QueuedAt);
             // ESC-10: one entry per order. An entry another escrow of the order owns does not stamp
             // this one, which would leave the sweep windows with no queue entry of its own.
-            if (queuedAt == null
-                || (GetStringOrNull(current!, AdminQueueFields.EscrowId) ?? $"escrow-order-{orderId}") != escrowId)
+            entryEscrowId = current == null ? null : GetStringOrNull(current, AdminQueueFields.EscrowId);
+            if (queuedAt == null || (entryEscrowId ?? $"escrow-order-{orderId}") != escrowId)
             {
                 return;
             }
+
+            orderCreatedAt = GetString(current!, "createdAt");
         }
 
         await _auditRepo.AppendIfAbsentAsync(new Dictionary<string, object>
@@ -1678,8 +1690,19 @@ public class EscrowCronFunction
 
         if (GetStringOrNull(escrow, AdminQueueFields.HoldCapReachedAt) == null)
         {
-            await _escrowRepo.UpdateStatusAsync(escrowId, GetString(escrow, "createdAt"), "escrowed", "escrowed",
-                new Dictionary<string, object> { { AdminQueueFields.HoldCapReachedAt, queuedAt } });
+            var stamp = await _escrowRepo.TryUpdateStatusWithAsync(escrowId, GetString(escrow, "createdAt"), "escrowed", "escrowed",
+                new Dictionary<string, object> { { AdminQueueFields.HoldCapReachedAt, queuedAt } },
+                new[] { _orderRepo.BuildAdminQueueEntryCheck(orderId, orderCreatedAt, queuedAt, entryEscrowId) });
+            if (stamp != EscrowLinkedWriteOutcome.Written)
+            {
+                // Not a failure: nothing was written and the escrow stays in the sweep windows. The next run
+                // reads the order and the escrow again: an order no longer queued gets its own hold_cap entry,
+                // and the stamp waits on that one.
+                var reason = stamp == EscrowLinkedWriteOutcome.LinkedItemRefused ? "queue_entry_changed" : "escrow_changed";
+                context.Logger.LogInformation(
+                    $"{HoldCapStampSkippedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(orderId)} "
+                    + $"reason={reason}; the next run decides again.");
+            }
         }
     }
 

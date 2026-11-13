@@ -969,15 +969,25 @@ public partial class EscrowCronSweepHygieneTests
         var e = Escrow("escrow-capq", orderId: "ord-capq", createdDaysAgo: 22);
         DeliveryIs("escrow-capq", "inTransit");
         OrderIs("ord-capq", "in_transit");
-        _orders.TryEnterAdminQueueAsync("ord-capq", "hold_cap", "escrow-capq", Arg.Any<string>(), "in_transit").Returns(true);
+        string? queuedAt = null;
+        _orders.TryEnterAdminQueueAsync("ord-capq", "hold_cap", "escrow-capq", Arg.Do<string>(q => queuedAt = q), "in_transit").Returns(true);
+        var entryCheck = new TransactWriteItem { ConditionCheck = new ConditionCheck { TableName = "orders" } };
+        _orders.BuildAdminQueueEntryCheck("ord-capq", Arg.Any<string>(), Arg.Any<string>(), "escrow-capq").Returns(entryCheck);
+        _escrows.TryUpdateStatusWithAsync("escrow-capq", Arg.Any<string>(), "escrowed", "escrowed",
+                Arg.Any<Dictionary<string, object>?>(), Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .Returns(EscrowLinkedWriteOutcome.Written);
         var swept = RefundSweep(e);
 
         await RunAsync(Cron());
 
         await NotRefunded("escrow-capq");
         await _orders.Received(1).TryEnterAdminQueueAsync("ord-capq", "hold_cap", "escrow-capq", Arg.Any<string>(), "in_transit");
-        await _escrows.Received(1).UpdateStatusAsync("escrow-capq", Arg.Any<string>(), "escrowed", "escrowed",
-            Arg.Is<Dictionary<string, object>?>(f => f!.ContainsKey(AdminQueueFields.HoldCapReachedAt)));
+        // FUP-334: stamped in one transaction with the check that the entry this escrow wrote still stands.
+        _orders.Received(1).BuildAdminQueueEntryCheck("ord-capq", Arg.Any<string>(), queuedAt!, "escrow-capq");
+        await _escrows.Received(1).TryUpdateStatusWithAsync("escrow-capq", Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>?>(f => f!.ContainsKey(AdminQueueFields.HoldCapReachedAt)),
+            Arg.Is<IReadOnlyList<TransactWriteItem>>(items => items.Count == 1 && items[0] == entryCheck));
+        Logs.Should().NotContain(EscrowCronFunction.HoldCapStampSkippedToken);
         await _escrows.DidNotReceive().TryExtendExpiryAsync("escrow-capq", Arg.Any<string>(), Arg.Any<string>());
         swept.AssertServed();
     }
@@ -1035,6 +1045,8 @@ public partial class EscrowCronSweepHygieneTests
 
         await _escrows.DidNotReceive().UpdateStatusAsync("escrow-order-ord-own", Arg.Any<string>(), "escrowed", "escrowed",
             Arg.Is<Dictionary<string, object>?>(f => f!.ContainsKey(AdminQueueFields.HoldCapReachedAt)));
+        await _escrows.DidNotReceive().TryUpdateStatusWithAsync("escrow-order-ord-own", Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Any<Dictionary<string, object>?>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
         AuditRows("escrow-order-ord-own", "hold_cap_reached").Should().BeEmpty();
         swept.AssertServed();
     }

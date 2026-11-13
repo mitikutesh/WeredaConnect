@@ -73,6 +73,15 @@ public interface IOrderRepository
     TransactWriteItem BuildNotClosedCheck(string orderId, string createdAt);
 
     /// <summary>
+    /// FUP-334: a transaction item that lets a write on another table land only while the order's admin queue
+    /// entry (<see cref="AdminQueueFields"/>) is still the one read: open, queued at <paramref name="queuedAt"/>,
+    /// and naming <paramref name="escrowId"/> (null for an entry read without <c>adminQueueEscrowId</c>, which must
+    /// still have none). The escrow cron's hold-cap stamp carries it, so a capped escrow never waits on an entry
+    /// removed since the read. No I/O.
+    /// </summary>
+    TransactWriteItem BuildAdminQueueEntryCheck(string orderId, string createdAt, string queuedAt, string? escrowId);
+
+    /// <summary>
     /// FRD-03: <see cref="UpdateAsync"/> in one <c>TransactWriteItems</c> with a <c>ConditionCheck</c> that
     /// the order's escrow (<paramref name="escrow"/>) is not <c>held</c>, so a settlement sweep that holds it
     /// between the caller's read and this write wins. Fails with <c>409</c>
