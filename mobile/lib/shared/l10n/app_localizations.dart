@@ -1648,10 +1648,10 @@ abstract class AppLocalizations {
   /// **'Not captured'**
   String get deliveryGpsNotCaptured;
 
-  /// Location permission was denied by user
+  /// FUP-138. am and om machine drafted, native review owed. QR scan, self-pickup: the location permission was refused this time; Try location again asks again
   ///
   /// In en, this message translates to:
-  /// **'Location permission denied'**
+  /// **'Location was not allowed. Tap Try location again and allow it.'**
   String get deliveryGpsPermissionDenied;
 
   /// Instruction on the farmer's QR screen for a self-pickup delivery (the buyer scans it)
@@ -8896,6 +8896,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Try location again'**
   String get qrRetryLocation;
+
+  /// FUP-138. am and om machine drafted, native review owed. QR scan, self-pickup: no usable GPS fix, so Confirm stays off (the server refuses a self-pickup confirm without one). The reason follows on its own line
+  ///
+  /// In en, this message translates to:
+  /// **'Confirming a pickup at the farm needs your location.'**
+  String get qrSelfPickupNeedsGps;
+
+  /// FUP-138. am and om machine drafted, native review owed. QR scan, self-pickup: no fix came in time, or the browser gave no position (web cannot tell that location is off)
+  ///
+  /// In en, this message translates to:
+  /// **'No location signal yet. Check that location is on, move to an open spot outside, then tap Try location again.'**
+  String get qrLocationNoSignal;
 
   /// QR scan (T-1), mobile: snackbar after a pickup confirmed with a typed code was queued
   ///

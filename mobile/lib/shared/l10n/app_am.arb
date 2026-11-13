@@ -1031,7 +1031,7 @@
   "@deliveryGpsNotCaptured": {
     "description": "Placeholder when GPS location was not captured"
   },
-  "deliveryGpsPermissionDenied": "የአካባቢ ፈቃድ ተከልክሏል",
+  "deliveryGpsPermissionDenied": "የቦታ ፈቃድ አልተሰጠም። \"ቦታን እንደገና ሞክር\" የሚለውን ይንኩ እና ይፍቀዱ።",
   "@deliveryGpsPermissionDenied": {
     "description": "Location permission was denied by user"
   },
@@ -3214,6 +3214,8 @@
   "deliveryCodeTypedCheckedOnline": "ኮዱ ተተይቧል። ስልክዎ ከኢንተርኔት ሲገናኝ አገልጋዩ ያረጋግጠዋል።",
   "qrTypedCodeNeedsGps": "የተተየበ ኮድ አካባቢዎን ይፈልጋል። የቦታ አገልግሎትን ያብሩ፣ ከዚያ \"ቦታን እንደገና ሞክር\" የሚለውን ይንኩ።",
   "qrRetryLocation": "ቦታን እንደገና ሞክር",
+  "qrSelfPickupNeedsGps": "እርሻው ላይ ማንሳቱን ለማረጋገጥ አካባቢዎ ያስፈልጋል።",
+  "qrLocationNoSignal": "እስካሁን የቦታ ምልክት አልተገኘም። የቦታ አገልግሎት መብራቱን አረጋግጠው ወደ ክፍት ቦታ ይውጡ፣ ከዚያ \"ቦታን እንደገና ሞክር\" የሚለውን ይንኩ።",
   "qrPickupSavedCheckOnline": "ማንሳቱ ተቀምጧል። ስልክዎ ከኢንተርኔት ሲገናኝ ኮዱ ይረጋገጣል።",
   "qrDeliverySavedCheckOnline": "ርክክቡ ተቀምጧል። ስልክዎ ከኢንተርኔት ሲገናኝ ኮዱ ይረጋገጣል።",
   "qrCameraDeniedTitle": "ካሜራው አልተፈቀደም",

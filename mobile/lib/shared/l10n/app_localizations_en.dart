@@ -838,7 +838,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deliveryGpsNotCaptured => 'Not captured';
 
   @override
-  String get deliveryGpsPermissionDenied => 'Location permission denied';
+  String get deliveryGpsPermissionDenied =>
+      'Location was not allowed. Tap Try location again and allow it.';
 
   @override
   String get deliveryQrShowInstructionBuyer =>
@@ -5182,6 +5183,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get qrRetryLocation => 'Try location again';
+
+  @override
+  String get qrSelfPickupNeedsGps =>
+      'Confirming a pickup at the farm needs your location.';
+
+  @override
+  String get qrLocationNoSignal =>
+      'No location signal yet. Check that location is on, move to an open spot outside, then tap Try location again.';
 
   @override
   String get qrPickupSavedCheckOnline =>

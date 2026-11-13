@@ -1061,9 +1061,9 @@
   "@deliveryGpsNotCaptured": {
     "description": "Placeholder when GPS location was not captured"
   },
-  "deliveryGpsPermissionDenied": "Location permission denied",
+  "deliveryGpsPermissionDenied": "Location was not allowed. Tap Try location again and allow it.",
   "@deliveryGpsPermissionDenied": {
-    "description": "Location permission was denied by user"
+    "description": "FUP-138. am and om machine drafted, native review owed. QR scan, self-pickup: the location permission was refused this time; Try location again asks again"
   },
   "deliveryQrShowInstructionBuyer": "Show this QR code to the buyer when they collect",
   "@deliveryQrShowInstructionBuyer": {
@@ -5074,6 +5074,10 @@
   "@qrTypedCodeNeedsGps": {"description": "QR scan (T-1): no GPS fix, and a typed code cannot be confirmed without one"},
   "qrRetryLocation": "Try location again",
   "@qrRetryLocation": {"description": "QR scan (T-1): button that asks for a GPS fix again"},
+  "qrSelfPickupNeedsGps": "Confirming a pickup at the farm needs your location.",
+  "@qrSelfPickupNeedsGps": {"description": "FUP-138. am and om machine drafted, native review owed. QR scan, self-pickup: no usable GPS fix, so Confirm stays off (the server refuses a self-pickup confirm without one). The reason follows on its own line"},
+  "qrLocationNoSignal": "No location signal yet. Check that location is on, move to an open spot outside, then tap Try location again.",
+  "@qrLocationNoSignal": {"description": "FUP-138. am and om machine drafted, native review owed. QR scan, self-pickup: no fix came in time, or the browser gave no position (web cannot tell that location is off)"},
   "qrPickupSavedCheckOnline": "Pickup saved. The code is checked when your phone is online.",
   "@qrPickupSavedCheckOnline": {"description": "QR scan (T-1), mobile: snackbar after a pickup confirmed with a typed code was queued"},
   "qrDeliverySavedCheckOnline": "Delivery saved. The code is checked when your phone is online.",

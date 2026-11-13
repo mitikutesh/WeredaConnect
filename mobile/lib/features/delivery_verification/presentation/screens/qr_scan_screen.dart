@@ -40,7 +40,10 @@ import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 ///
 /// FRD-11: the location is stamped at the scan. Confirm waits while the
 /// fix is taken (at most [gpsWaitCap]), so a quick tap cannot skip it; a
-/// phone that gets no fix still confirms a scanned QR without one.
+/// phone that gets no fix still confirms a scanned QR without one, except
+/// at a self-pickup (FUP-138): the server refuses that confirm without a
+/// fix, so Confirm stays off, the screen says why there is none and offers
+/// Try location again ([QrLocationNeededView]).
 ///
 /// A trucker's confirmed pickup makes the trucker's own drop-off code, kept
 /// on the phone ([DropoffHandoffStore]) and registered with the server
@@ -119,6 +122,17 @@ class _QrScanScreenState extends State<QrScanScreen> {
 
   bool get _gpsReady => _gpsResult?.isAvailable ?? false;
 
+  /// The buyer's self-pickup confirm at the farm, which the server refuses
+  /// without a fix (FUP-138).
+  bool get _isSelfPickup =>
+      widget.verificationType == VerificationType.delivery &&
+      widget.delivery.deliveryType == DeliveryConstants.selfPickupDeliveryType;
+
+  /// Confirm waits for a usable fix: a typed code (the server refuses one
+  /// without a fix on a paid delivery) and a self-pickup (FUP-138). A
+  /// scanned trucker pickup or drop-off confirms without one.
+  bool get _needsFix => _typed || _isSelfPickup;
+
   @override
   void initState() {
     super.initState();
@@ -151,6 +165,10 @@ class _QrScanScreenState extends State<QrScanScreen> {
       debugPrint('[QrScan] settings did not open: $e');
     }
   }
+
+  /// The app's page in the phone's settings, where a location permission
+  /// denied for good is allowed again (FUP-138). Not on web.
+  void _openLocationSettings() => widget.gpsService.openAppSettings().ignore();
 
   /// "Type the code instead": the camera stops, the code field opens.
   void _openTyping() {
@@ -278,7 +296,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
     } on Object catch (e) {
       // Confirm waits for this capture, so it must always end.
       debugPrint('[QrScan] location capture failed: $e');
-      result = const GpsCaptureResult.unavailable('GPS signal not available');
+      result = const GpsCaptureResult.unavailable(
+        GpsCaptureResult.noSignalReason,
+      );
     }
     if (mounted && run == _gpsRun) {
       setState(() {
@@ -318,9 +338,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
 
   Future<void> _confirm() async {
     if (_isConfirming || _isCapturingGps) return;
-    // A typed code needs a fix: the server refuses it without one on a
-    // paid delivery, so the button waits for it.
-    if (_typed && !_gpsReady) return;
+    // A typed code and a self-pickup need a fix: the server refuses them
+    // without one, so the button waits for it.
+    if (_needsFix && !_gpsReady) return;
     setState(() => _isConfirming = true);
 
     if (widget.verificationType == VerificationType.delivery) {
@@ -466,10 +486,11 @@ class _QrScanScreenState extends State<QrScanScreen> {
               children: [
                 FilledButton(
                   key: const Key('qr_confirm'),
-                  onPressed:
-                      _isConfirming || _isCapturingGps || (_typed && !_gpsReady)
-                          ? null
-                          : _confirm,
+                  onPressed: _isConfirming ||
+                          _isCapturingGps ||
+                          (_needsFix && !_gpsReady)
+                      ? null
+                      : _confirm,
                   style: _primaryStyle,
                   child: _isConfirming
                       ? const SizedBox(
@@ -826,6 +847,13 @@ class _QrScanScreenState extends State<QrScanScreen> {
         ],
       );
     }
+    if (_isSelfPickup) {
+      return QrLocationNeededView(
+        cause: gps?.unavailableCause ?? GpsUnavailableCause.noSignal,
+        onRetry: _captureGps,
+        onOpenSettings: kIsWeb ? null : _openLocationSettings,
+      );
+    }
     final unavailable = Row(
       children: [
         const Icon(
@@ -1003,6 +1031,95 @@ class _HandoffCodeFormatter extends TextInputFormatter {
     return TextEditingValue(
       text: digits,
       selection: TextSelection.collapsed(offset: digits.length),
+    );
+  }
+}
+
+/// A self-pickup without a usable fix (FUP-138): Confirm stays off, so this
+/// says that the pickup needs the buyer's location, why there is none and
+/// what to do, with Try location again. A permission denied for good gets
+/// Open settings on the phone; on web the text names the browser's site
+/// settings instead.
+class QrLocationNeededView extends StatelessWidget {
+  const QrLocationNeededView({
+    required this.cause,
+    required this.onRetry,
+    this.onOpenSettings,
+    super.key,
+  });
+
+  final GpsUnavailableCause cause;
+  final VoidCallback onRetry;
+
+  /// Opens the app's page in the phone's settings; null on web.
+  final VoidCallback? onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final reason = switch (cause) {
+      GpsUnavailableCause.locationOff => l10n.checkInNeedsLocation,
+      GpsUnavailableCause.permissionDenied => l10n.deliveryGpsPermissionDenied,
+      GpsUnavailableCause.deniedForever => onOpenSettings == null
+          ? l10n.checkInLocationBlockedWeb
+          : l10n.checkInLocationBlocked,
+      GpsUnavailableCause.noSignal => l10n.qrLocationNoSignal,
+    };
+    final showSettings =
+        cause == GpsUnavailableCause.deniedForever && onOpenSettings != null;
+
+    return Column(
+      key: const Key('qr_location_needed'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(
+              Icons.warning_amber,
+              size: 18,
+              color: AppTheme.actionInk,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                l10n.qrSelfPickupNeedsGps,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.actionInk,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          reason,
+          key: const Key('qr_location_reason'),
+          style: const TextStyle(
+            fontSize: 13,
+            height: 1.45,
+            color: AppTheme.soilDark,
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (showSettings) ...[
+          FilledButton.icon(
+            key: const Key('qr_location_settings'),
+            onPressed: onOpenSettings,
+            icon: const Icon(Icons.settings, size: 18),
+            label: Text(l10n.checkInOpenSettings),
+          ),
+          const SizedBox(height: 8),
+        ],
+        OutlinedButton.icon(
+          key: const Key('qr_retry_gps'),
+          onPressed: onRetry,
+          icon: const Icon(Icons.my_location, size: 18),
+          label: Text(l10n.qrRetryLocation),
+        ),
+      ],
     );
   }
 }
