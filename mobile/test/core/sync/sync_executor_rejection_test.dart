@@ -556,6 +556,91 @@ void main() {
     });
   });
 
+  // FUP-439 (sync-protocol.md 1.62.0): a pickup or delivery confirm refused
+  // for its GPS gets the same answer every time, so it is never resent (it
+  // was retried three times and again on every reconnect); the local pickup
+  // or delivery goes back to the server's view, its waiting photo goes with
+  // it, it leaves the failed count, and the user is told why. A server
+  // without the reason token (before FUP-439) is handled the same way.
+  group('a handoff refused for its GPS is permanent and reverted', () {
+    for (final (who, status, photo, message) in [
+      (
+        'trucker pickup',
+        'pickedUp',
+        'del-1#pickup',
+        'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is 11.1km from '
+            'listing location (max 5km).',
+      ),
+      (
+        'self-pickup without a fix',
+        'delivered',
+        'del-1#dropoff',
+        'DELIVERY_GPS_PROXIMITY: self_pickup_no_fix: Location is required to '
+            'confirm self-pickup at the farm.',
+      ),
+      (
+        'self-pickup on a listing without a point',
+        'delivered',
+        'del-1#dropoff',
+        'DELIVERY_GPS_PROXIMITY: self_pickup_no_farm_point: This listing has '
+            'no registered location, so self-pickup cannot be verified.',
+      ),
+      (
+        'self-pickup far from the farm',
+        'delivered',
+        'del-1#dropoff',
+        'DELIVERY_GPS_PROXIMITY: self_pickup_far: You are 11.1km from the '
+            'farm location (max 5km).',
+      ),
+      (
+        'drop-off far from both points',
+        'delivered',
+        'del-1#dropoff',
+        'DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is 16.2km from the '
+            'drop-off point (max 5km).',
+      ),
+      (
+        'a server without the reason',
+        'pickedUp',
+        'del-1#pickup',
+        'DELIVERY_GPS_PROXIMITY: Pickup GPS is 11.1km from listing location '
+            '(max 5km).',
+      ),
+    ]) {
+      test(who, () async {
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          data: '{"status":"$status","scannedQrNonce":"n","version":1}',
+        );
+        await enqueue(
+          'op-photo',
+          entityType: 'delivery_photo',
+          entityId: photo,
+          data: '{"photoRef":"uploads/photos/del-1/handoff-1.webp"}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await isRejected('op-photo'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.operationId, 'op-1');
+        expect(reverts.single.$1.entityType, 'delivery');
+        expect(reverts.single.$2, message);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        // A reconnect sends nothing.
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+  });
+
   // ESC-07: a dispute the server could not freeze the payment for, or one
   // after the 48-hour window, is refused for good; the local dispute is undone
   // and explained. A dispute whose freeze was undecided keeps retrying.

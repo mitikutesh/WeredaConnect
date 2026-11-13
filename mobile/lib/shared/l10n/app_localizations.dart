@@ -10384,6 +10384,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The delivery deadline has passed, so check-ins are closed. Your check-in was not saved.'**
   String get errorDropoffCheckInClosed;
+
+  /// FUP-439 (sync-protocol.md 1.62.0, delivery-verification-api.md 2.15.0). am and om machine drafted, native review owed. Trucker: the server refused the pickup for good (DELIVERY_GPS_PROXIMITY pickup_far, more than 5 km from the listing's point); the local pickup was undone, so the goods still count as waiting at the farm
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup not saved: your location was more than 5 km from the farm. Scan the farmer\'s QR code again at the farm before you leave with the goods.'**
+  String get deliveryErrorGpsPickupFar;
+
+  /// FUP-439 (sync-protocol.md 1.62.0, delivery-verification-api.md 2.15.0). am and om machine drafted, native review owed. Self-pickup buyer: the server refused the confirm for good (DELIVERY_GPS_PROXIMITY self_pickup_no_fix, no GPS fix); the local confirm was undone and the payment stays held
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup not confirmed: your phone sent no location, and the farmer is not paid yet. Turn on location and scan the farmer\'s QR code again at the farm.'**
+  String get deliveryErrorGpsSelfPickupNoFix;
+
+  /// FUP-439 (sync-protocol.md 1.62.0, delivery-verification-api.md 2.15.0). am and om machine drafted, native review owed. Self-pickup buyer: the server refused the confirm for good (DELIVERY_GPS_PROXIMITY self_pickup_no_farm_point, the listing has no coordinates); the local confirm was undone and the payment stays held
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup not confirmed: this listing has no farm location to check yours against, and the farmer is not paid yet. Contact support.'**
+  String get deliveryErrorGpsSelfPickupNoFarmPoint;
+
+  /// FUP-439 (sync-protocol.md 1.62.0, delivery-verification-api.md 2.15.0). am and om machine drafted, native review owed. Self-pickup buyer: the server refused the confirm for good (DELIVERY_GPS_PROXIMITY self_pickup_far, more than 5 km from the listing's point); the local confirm was undone and the payment stays held
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup not confirmed: your location was more than 5 km from the farm, and the farmer is not paid yet. Scan the farmer\'s QR code again at the farm.'**
+  String get deliveryErrorGpsSelfPickupFar;
+
+  /// FUP-439 (sync-protocol.md 1.62.0, delivery-verification-api.md 2.15.0). am and om machine drafted, native review owed. Buyer at a trucker's drop-off: the server refused the confirm for good (DELIVERY_GPS_PROXIMITY dropoff_far, more than 5 km from both the trip's destination and the order's drop-off point); the local confirm was undone
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery not confirmed: your location was more than 5 km from the drop-off point. Scan the trucker\'s QR code again where you receive the goods.'**
+  String get deliveryErrorGpsDropoffFar;
 }
 
 class _AppLocalizationsDelegate

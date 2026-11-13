@@ -3454,5 +3454,10 @@
   "errorDropoffCheckInTooFar": "Mirkaneessi kee bakka buusuu ajajichaa irraa km 5 ol fagaatee waan tureef hin olkaa'amne. Bakka sanatti yeroo dhiyaattu irra deebi'ii mirkaneessi.",
   "errorDropoffCheckInTooFarKept": "Mirkaneessi kee bakka buusuu ajajichaa irraa km 5 ol fagaatee waan tureef hin olkaa'amne, garuu yaaliin kun gamaaggamaaf olkaa'ameera. Bakka sanatti yeroo dhiyaattu irra deebi'ii mirkaneessi.",
   "errorDropoffCheckInTooLate": "Mirkaneessi kee yeroo dhumaa geejjibaa booda sarvarii bira waan ga'eef hin lakkaa'amu. Gamaaggamaaf olkaa'ameera.",
-  "errorDropoffCheckInClosed": "Yeroon dhumaa geejjibaa waan darbeef mirkaneessi cufameera. Mirkaneessi kee hin olkaa'amne."
+  "errorDropoffCheckInClosed": "Yeroon dhumaa geejjibaa waan darbeef mirkaneessi cufameera. Mirkaneessi kee hin olkaa'amne.",
+  "deliveryErrorGpsPickupFar": "Fudhachuun hin olkaa'amne: bakki kee maasii irraa km 5 ol fagaatee ture. Meeshaa qabattee osoo hin deemin maasii irratti koodii QR qonnaan bulaa irra deebi'ii iskaanii godhi.",
+  "deliveryErrorGpsSelfPickupNoFix": "Fudhachuun hin mirkanoofne: bilbilli kee bakka hin ergine, qonnaan bulaanis hanga ammaatti hin kaffalamne. Tajaajila bakkaa banii maasii irratti koodii QR qonnaan bulaa irra deebi'ii iskaanii godhi.",
+  "deliveryErrorGpsSelfPickupNoFarmPoint": "Fudhachuun hin mirkanoofne: oomisha kanaaf bakki maasii galmaa'e waan hin jirreef bakki kee hin mirkanoofne, qonnaan bulaanis hanga ammaatti hin kaffalamne. Deeggarsa qunnami.",
+  "deliveryErrorGpsSelfPickupFar": "Fudhachuun hin mirkanoofne: bakki kee maasii irraa km 5 ol fagaatee ture, qonnaan bulaanis hanga ammaatti hin kaffalamne. Maasii irratti koodii QR qonnaan bulaa irra deebi'ii iskaanii godhi.",
+  "deliveryErrorGpsDropoffFar": "Geejjibni hin mirkanoofne: bakki kee bakka buusuu irraa km 5 ol fagaatee ture. Bakka meeshaa itti fudhattutti koodii QR konkolaachisaa irra deebi'ii iskaanii godhi."
 }

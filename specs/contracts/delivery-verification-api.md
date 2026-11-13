@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.14.0
+2.15.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -927,8 +927,8 @@ GPS coordinates are captured at pickup and delivery to provide physical proof of
 - Uses Haversine formula for distance calculation
 - As built (2.0.0 doc fix): checked only when the pickup sends `gpsPickup` and the listing has
   coordinates; a scanned pickup without a fix is accepted (a typed code on a paid delivery needs
-  one, `DELIVERY_CODE_GPS_REQUIRED`). Too far: `DELIVERY_GPS_PROXIMITY: Pickup GPS is <d>km from
-  listing location (max 5km).`
+  one, `DELIVERY_CODE_GPS_REQUIRED`). Too far: `DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is
+  <d>km from listing location (max 5km).` (the reason token since 2.15.0, see Refusal reasons)
 
 **Delivery Validation**:
 - As built (2.0.0 doc fix; the text before said "the buyer's registered location or the trip's
@@ -941,14 +941,39 @@ GPS coordinates are captured at pickup and delivery to provide physical proof of
     destination still passes, and one who meets it at the picked place passes too. The trip is
     checked first; a fix within 5 km of it needs no order read. Neither point, or a confirm without
     a fix, is not checked. An order that cannot be read (when the trip's point did not pass)
-    answers the unprefixed, retryable `Internal server error.`. Too far (2.1.0 text):
-    `DELIVERY_GPS_PROXIMITY: Dropoff GPS is <d>km from the drop-off point (max 5km).`, `<d>` the
-    distance to the nearer point, with a dot and one decimal.
+    answers the unprefixed, retryable `Internal server error.`. Too far (2.1.0 text, reason token
+    since 2.15.0): `DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is <d>km from the drop-off
+    point (max 5km).`, `<d>` the distance to the nearer point, with a dot and one decimal.
   - **Self-pickup:** `gpsDropoff` is mandatory and must be within **5km** of the listing (Buyer
-    Self-Pickup).
+    Self-Pickup). Without a fix: `DELIVERY_GPS_PROXIMITY: self_pickup_no_fix: Location is
+    required to confirm self-pickup at the farm.`; a listing without coordinates:
+    `DELIVERY_GPS_PROXIMITY: self_pickup_no_farm_point: This listing has no registered location,
+    so self-pickup cannot be verified.`; too far: `DELIVERY_GPS_PROXIMITY: self_pickup_far: You
+    are <d>km from the farm location (max 5km).`
   - The order's own delivery location is built (2.1.0, LT-14, P.4's first bullet); a drop-off
     check-in with GPS and a photo is PLANNED (P.4, ESC-36).
 - Uses Haversine formula for distance calculation
+
+### Refusal reasons (2.15.0, FUP-439)
+
+Every GPS refusal of a handoff keeps the `DELIVERY_GPS_PROXIMITY` code and names its reason right
+after it, `DELIVERY_GPS_PROXIMITY: <reason>: <text>` (the shape of the `ORDER_KYC_REQUIRED` reason
+tokens, `sync-protocol.md` 1.49.0). The clients key on the reason, never on the text; `<d>` is
+written with a dot and one decimal.
+
+| Reason | Who | When |
+|---|---|---|
+| `pickup_far` | The trucker's `pickedUp` | `gpsPickup` more than 5 km from the listing's point |
+| `self_pickup_no_fix` | The self-pickup buyer's `delivered` | No `gpsDropoff` (checked before the listing is read) |
+| `self_pickup_no_farm_point` | The self-pickup buyer's `delivered` | The listing has no coordinates, or is not found |
+| `self_pickup_far` | The self-pickup buyer's `delivered` | `gpsDropoff` more than 5 km from the listing's point |
+| `dropoff_far` | The buyer's `delivered` of a trucker delivery | `gpsDropoff` more than 5 km from both the trip's destination point and the order's drop-off point |
+
+Nothing is written to the delivery on any of them (no status or version move, no audit row, no
+nonce consumed, no fraud signal), and the same payload always gets the same answer: a client
+treats each as permanent and puts the delivery back from the server, so the user scans again
+(`sync-protocol.md` 1.62.0). The rules themselves (5 km, which points, when a fix is needed) are
+unchanged.
 
 ### Why 5km Threshold
 
@@ -981,7 +1006,7 @@ GPS may be unavailable (indoor, poor signal, hardware failure). The system degra
 | GPS available | Capture coordinates, validate proximity |
 | GPS unavailable at pickup | Allow pickup without GPS, flag for manual review |
 | GPS unavailable at delivery | Allow delivery without GPS, flag for manual review |
-| GPS outside 5km threshold | Reject with error, allow retry with explanation |
+| GPS outside 5km threshold | Reject with error, allow retry with explanation (as built since 2.15.0: the refusal names its reason, the client undoes the handoff and explains it, and the user scans again; see Refusal reasons) |
 
 Deliveries without GPS evidence are flagged as `requires_review` in server metadata. These receive lower trust scores in future fraud detection (F-14).
 
@@ -2075,9 +2100,10 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 2.13.0 | 2026-11-13 | Late drop-off evidence (FUP-373, P.4), behind `dropoffClassification` (flag off: nothing changes): a check-in the trucker made offline at the drop-off before T8 and synced after the order cron's T8 run kept no late entry, because the T8 dispute refused the arrival photo (`DELIVERY_PHOTO_REFUSED`) and the check-in then failed the photo check (`CHECKIN_PHOTO_REQUIRED`). Now (a) `POST /deliveries/{id}/photos` and `delivery_photo` `{deliveryId}#arrival` also take the arrival photo on the system's T8 dispute (`disputedBy: system`, `delivery_overdue` or `dropoff_out_of_range`) that no admin has decided (no `disputeResolution`), writing the photo, its version id and the new server-only `arrivalPhotoLateAt` (returned on the delivery reads) in one update conditioned on `disputed` and no `disputeResolution`, with no status, version or `updatedAt` move, and the audit row `delivery_photo` (`type=arrival;late=true`); T9's `silent_buyer`, a party's and a decided dispute still refuse it; (b) a late `arrived_dropoff` (after T8, or after the overdue or out-of-range judgement, or `queued`) skips the photo check and is kept with `late: true` and answered `CHECKIN_TOO_LATE`; a late one more than 5 km away is kept as the late `dropoffAttempt` (never counted at T8) when none is stored, also `CHECKIN_TOO_LATE`; (c) once an admin decided the delivery's dispute (`disputeResolution`), a late check-in is `CHECKIN_NOT_OPEN`. The admin's dispute Photos tab marks a late arrival photo with its attach time (en, am, om), the timeline shows the late entries. Clients (`sync-protocol.md` 1.60.0): the drop-off texts say the check-in was more than 5 km from the order's drop-off point, not that the trucker was (the buyer's pin may be wrong, FUP-204) |
 | 2.13.1 | 2026-11-13 | Doc only: the pushes of spec 4.12 are built (FUP-286 and FUP-338, `notifications-api.md` 1.6.0, `order-lifecycle.md` 2.23.0), behind the same flags: P.4's precondition for `dropoffClassification` (the buyer told when the trucker checks in, with T9, and again before T9) is met. No endpoint, field or code change here |
 | 2.14.0 | 2026-11-13 | Photo uploads lifecycle (FUP-140; 2.13.0 is FUP-373). Server: the `delivery_photo` attach copies the version it pins to the kept key `evidence/photos/{deliveryId}/{type}-{ms}.{ext}` before its write and records the copy in it (server-only `{type}PhotoKeptRef`, `{type}PhotoKeptVersionId`; a failed copy is `deferred`); every read signs the kept copy when the row records it; a `pickup` or `dropoff` photo whose handoff is not on the row yet is `deferred` (`DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet.`, judged on a strongly consistent read) instead of attaching to a delivery not picked up or not confirmed, except the buyer's drop-off photo on a dispute the order cron opened (T8 or T9) that no admin decided, kept as late evidence with the server-only `dropoffPhotoLateAt` and an audit row like FUP-373's arrival photo, and any other disputed delivery without the handoff refuses it for good (`DELIVERY_PHOTO_REFUSED`); new by-hand order-cron action `backfill_delivery_photo_copies` for the photos attached before. Infra: lifecycle rule `DeliveryPhotoUploadsExpiry` on `uploads/photos/` (30 days, noncurrent 1 day), deployed disabled behind `deliveryPhotoUploadExpiry` until the backfill ran; the Glacier rule on `photos/` (which matched no key) removed; grants for the copy (sync, order cron) and the signed reads (admin). Mobile: a pickup or delivery confirm answered `conflict` rejects its waiting photo unless the server's row shows that handoff (or, for the drop-off photo, an undecided dispute); Admin: the Photos tab marks a late drop-off photo (en, am, om); S3's `400 RequestTimeout` and `408` on a photo `PUT` no longer count toward the 3 refusals. See 4b and S3 Storage |
+| 2.15.0 | 2026-11-13 | GPS refusal reasons (FUP-439, SPK-01 1.3; `sync-protocol.md` 1.62.0): the five handoff GPS refusals keep the `DELIVERY_GPS_PROXIMITY` code and name their reason right after it (`pickup_far`, `self_pickup_no_fix`, `self_pickup_no_farm_point`, `self_pickup_far`, `dropoff_far`); the distance in the pickup and self-pickup texts is now always written with a dot. The rules are unchanged. Mobile: every one is a permanent refusal that puts the delivery back from the server (it was resent three times and again on every reconnect, and the local `pickedUp` or `delivered` stayed), rejects the photo waiting behind it and is explained per reason (en, am, om); web shows the same text per reason instead of "Delivery operation failed". See GPS Validation, Refusal reasons |
 
 ---
 
 **Last Updated**: 2026-11-13
-**Version**: 2.14.0
+**Version**: 2.15.0
 **Status**: Draft (Phase R4.2)

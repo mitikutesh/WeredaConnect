@@ -5970,4 +5970,24 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get errorDropoffCheckInClosed =>
       'የማድረሻው የመጨረሻ ጊዜ ስላለፈ ማረጋገጫ ተዘግቷል። ማረጋገጫዎ አልተቀመጠም።';
+
+  @override
+  String get deliveryErrorGpsPickupFar =>
+      'ማንሳቱ አልተቀመጠም፤ ቦታዎ ከእርሻው ከ5 ኪ.ሜ በላይ ርቆ ነበር። እቃውን ይዘው ከመሄድዎ በፊት እርሻው ላይ የገበሬውን QR ኮድ እንደገና ይቃኙ።';
+
+  @override
+  String get deliveryErrorGpsSelfPickupNoFix =>
+      'ማንሳቱ አልተረጋገጠም፤ ስልክዎ ቦታ አልላከም፣ ገበሬውም ገና አልተከፈለውም። የቦታ አገልግሎትን አብርተው እርሻው ላይ የገበሬውን QR ኮድ እንደገና ይቃኙ።';
+
+  @override
+  String get deliveryErrorGpsSelfPickupNoFarmPoint =>
+      'ማንሳቱ አልተረጋገጠም፤ ለዚህ ምርት የተመዘገበ የእርሻ ቦታ ስለሌለ ቦታዎን ማረጋገጥ አልተቻለም፣ ገበሬውም ገና አልተከፈለውም። ድጋፍ ሰጪን ያግኙ።';
+
+  @override
+  String get deliveryErrorGpsSelfPickupFar =>
+      'ማንሳቱ አልተረጋገጠም፤ ቦታዎ ከእርሻው ከ5 ኪ.ሜ በላይ ርቆ ነበር፣ ገበሬውም ገና አልተከፈለውም። እርሻው ላይ የገበሬውን QR ኮድ እንደገና ይቃኙ።';
+
+  @override
+  String get deliveryErrorGpsDropoffFar =>
+      'ማድረሻው አልተረጋገጠም፤ ቦታዎ ከማውረጃ ቦታው ከ5 ኪ.ሜ በላይ ርቆ ነበር። እቃውን በሚቀበሉበት ቦታ የሹፌሩን QR ኮድ እንደገና ይቃኙ።';
 }

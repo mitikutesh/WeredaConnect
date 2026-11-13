@@ -68,8 +68,8 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         code: DeliveryErrorCode.qrPending,
       );
     }
-    // Web calls /sync directly, so the server's cancel, dispute and typed
-    // code (T-1) refusals arrive here.
+    // Web calls /sync directly, so the server's cancel, dispute, typed code
+    // (T-1) and GPS (FUP-439) refusals arrive here.
     if (e is SyncRejectedException) {
       final code = isDeliveryCancelRefusalMessage(e.message)
           ? DeliveryErrorCode.cancelNotAllowed
@@ -77,7 +77,8 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
               ? DeliveryErrorCode.disputeRefused
               : isDeliveryDisputeExpiredMessage(e.message)
                   ? DeliveryErrorCode.disputeExpired
-                  : deliveryCodeErrorOf(e.message);
+                  : deliveryCodeErrorOf(e.message) ??
+                      deliveryGpsErrorOf(e.message);
       if (code != null) return DeliveryError(message: e.message, code: code);
     }
     return DeliveryError(

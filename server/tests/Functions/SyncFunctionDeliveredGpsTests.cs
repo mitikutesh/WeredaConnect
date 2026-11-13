@@ -53,7 +53,7 @@ public partial class SyncFunctionTests
         var result = JsonDocument.Parse(body).RootElement.GetProperty("results")[0];
         result.GetProperty("status").GetString().Should().Be("error");
         var message = result.GetProperty("message").GetString()!;
-        message.Should().MatchRegex(@"^DELIVERY_GPS_PROXIMITY: Dropoff GPS is \d+\.\dkm from the drop-off point \(max 5km\)\.$");
+        message.Should().MatchRegex(@"^DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is \d+\.\dkm from the drop-off point \(max 5km\)\.$");
         var km = double.Parse(message.Split(" is ")[1].Split("km")[0], CultureInfo.InvariantCulture);
         km.Should().BeInRange(10, 25);
         await _mockDynamoDb.DidNotReceive().UpdateItemAsync(
@@ -65,7 +65,7 @@ public partial class SyncFunctionTests
     {
         var far = await ConfirmWithGpsAsync(AdamaLat, AdamaLng, OrderPoint(null, null), (AddisLat, AddisLng));
         JsonDocument.Parse(far).RootElement.GetProperty("results")[0].GetProperty("message").GetString().Should()
-            .StartWith("DELIVERY_GPS_PROXIMITY: Dropoff GPS is ").And.EndWith("km from the drop-off point (max 5km).");
+            .StartWith("DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is ").And.EndWith("km from the drop-off point (max 5km).");
 
         var near = await ConfirmWithGpsAsync(AddisLat + 0.01, AddisLng, OrderPoint(null, null), (AddisLat, AddisLng));
         near.Should().Contain("\"status\":\"success\"", near);

@@ -6177,4 +6177,24 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get errorDropoffCheckInClosed =>
       'Yeroon dhumaa geejjibaa waan darbeef mirkaneessi cufameera. Mirkaneessi kee hin olkaa\'amne.';
+
+  @override
+  String get deliveryErrorGpsPickupFar =>
+      'Fudhachuun hin olkaa\'amne: bakki kee maasii irraa km 5 ol fagaatee ture. Meeshaa qabattee osoo hin deemin maasii irratti koodii QR qonnaan bulaa irra deebi\'ii iskaanii godhi.';
+
+  @override
+  String get deliveryErrorGpsSelfPickupNoFix =>
+      'Fudhachuun hin mirkanoofne: bilbilli kee bakka hin ergine, qonnaan bulaanis hanga ammaatti hin kaffalamne. Tajaajila bakkaa banii maasii irratti koodii QR qonnaan bulaa irra deebi\'ii iskaanii godhi.';
+
+  @override
+  String get deliveryErrorGpsSelfPickupNoFarmPoint =>
+      'Fudhachuun hin mirkanoofne: oomisha kanaaf bakki maasii galmaa\'e waan hin jirreef bakki kee hin mirkanoofne, qonnaan bulaanis hanga ammaatti hin kaffalamne. Deeggarsa qunnami.';
+
+  @override
+  String get deliveryErrorGpsSelfPickupFar =>
+      'Fudhachuun hin mirkanoofne: bakki kee maasii irraa km 5 ol fagaatee ture, qonnaan bulaanis hanga ammaatti hin kaffalamne. Maasii irratti koodii QR qonnaan bulaa irra deebi\'ii iskaanii godhi.';
+
+  @override
+  String get deliveryErrorGpsDropoffFar =>
+      'Geejjibni hin mirkanoofne: bakki kee bakka buusuu irraa km 5 ol fagaatee ture. Bakka meeshaa itti fudhattutti koodii QR konkolaachisaa irra deebi\'ii iskaanii godhi.';
 }

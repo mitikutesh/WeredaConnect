@@ -60,6 +60,15 @@ class DeliveryErrorCode {
   static const codeLockedDropoff = deliveryCodeLockedDropoffCode;
   static const codeGpsRequired = deliveryCodeGpsRequiredCode;
 
+  /// A handoff the server refused for its GPS (`DELIVERY_GPS_PROXIMITY`,
+  /// FUP-439), one per reason ([DeliveryGpsRefusal]).
+  static const gpsPickupFar = 'DELIVERY_GPS_PICKUP_FAR';
+  static const gpsSelfPickupNoFix = 'DELIVERY_GPS_SELF_PICKUP_NO_FIX';
+  static const gpsSelfPickupNoFarmPoint =
+      'DELIVERY_GPS_SELF_PICKUP_NO_FARM_POINT';
+  static const gpsSelfPickupFar = 'DELIVERY_GPS_SELF_PICKUP_FAR';
+  static const gpsDropoffFar = 'DELIVERY_GPS_DROPOFF_FAR';
+
   /// A dispute the server wants a fresh password for (`AUTH_040`). Only web
   /// sees it: the mobile sync queue holds the operation and prompts
   /// (FUP-43).
@@ -83,4 +92,20 @@ String? deliveryCodeErrorOf(String? message) {
     return DeliveryErrorCode.codeGpsRequired;
   }
   return null;
+}
+
+/// The [DeliveryErrorCode] of a handoff refused for its GPS (FUP-439), read
+/// from its reason token, or null for any other message. A reason this build
+/// does not know reads as the generic delivery text.
+String? deliveryGpsErrorOf(String? message) {
+  if (message == null || !isDeliveryGpsProximityMessage(message)) return null;
+  return switch (DeliveryGpsRefusal.fromMessage(message)) {
+    DeliveryGpsRefusal.pickupFar => DeliveryErrorCode.gpsPickupFar,
+    DeliveryGpsRefusal.selfPickupNoFix => DeliveryErrorCode.gpsSelfPickupNoFix,
+    DeliveryGpsRefusal.selfPickupNoFarmPoint =>
+      DeliveryErrorCode.gpsSelfPickupNoFarmPoint,
+    DeliveryGpsRefusal.selfPickupFar => DeliveryErrorCode.gpsSelfPickupFar,
+    DeliveryGpsRefusal.dropoffFar => DeliveryErrorCode.gpsDropoffFar,
+    DeliveryGpsRefusal.unknown => DeliveryErrorCode.generic,
+  };
 }
