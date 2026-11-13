@@ -29,6 +29,13 @@ internal static class ManualPayoutFields
     /// </summary>
     public const string ParkId = "manualPayoutParkId";
 
+    /// <summary>
+    /// FUP-06: the <see cref="QueuedAt"/> of the queue entry whose overdue legs the hourly report has announced
+    /// (<c>MANUAL_PAYOUT_NEWLY_OVERDUE</c>). Server bookkeeping like a claim: no version moves with it, the close
+    /// leaves it, and a later entry with another queue time is announced again.
+    /// </summary>
+    public const string OverdueLoggedFor = "manualPayoutOverdueLoggedFor";
+
     public const string OpRelease = "release";
     public const string OpRefund = "refund";
 

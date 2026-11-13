@@ -511,6 +511,100 @@ public class EscrowCronFunctionTests
     }
 
     // ──────────────────────────────────────────────
+    // FUP-06: the edge-triggered MANUAL_PAYOUT_NEWLY_OVERDUE line, once per queue entry
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task ManualPayoutNewlyOverdue_TheFirstRunMarksTheEntry_AndAnnouncesEachPendingLeg()
+    {
+        var row = QueuedRow("escrow-old", 30, "release", ("farmer", "pending"), ("trucker", "pending"));
+        var queuedAt = (string)row[ManualPayoutFields.QueuedAt];
+        StubQueue((new List<Dictionary<string, object>> { row }, null));
+        _mockEscrowRepo.TryMarkManualPayoutOverdueLoggedAsync("escrow-old", "2026-10-01T10:00:00.0000000Z", queuedAt)
+            .Returns(true);
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("MANUAL_PAYOUT_OVERDUE escrowId=escrow-old ref=release:farmer ageHours=30", Logs);
+        Assert.Contains("MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=escrow-old ref=release:farmer ageHours=30", Logs);
+        Assert.Contains("MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=escrow-old ref=release:trucker ageHours=30", Logs);
+        Assert.Contains("\"manualPayoutsOverdue\":\"2\"", response.Body);
+        Assert.Contains("\"manualPayoutsNewlyOverdue\":\"2\"", response.Body);
+        await _mockEscrowRepo.Received(1).TryMarkManualPayoutOverdueLoggedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task ManualPayoutNewlyOverdue_AnEntryAlreadyAnnounced_RepeatsOnlyTheOverdueLine_WithoutAWrite()
+    {
+        var row = QueuedRow("escrow-old", 50, "refund", ("buyer", "pending"));
+        row[ManualPayoutFields.OverdueLoggedFor] = row[ManualPayoutFields.QueuedAt];
+        StubQueue((new List<Dictionary<string, object>> { row }, null));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("MANUAL_PAYOUT_OVERDUE escrowId=escrow-old ref=refund:buyer ageHours=50", Logs);
+        Assert.DoesNotContain("MANUAL_PAYOUT_NEWLY_OVERDUE", Logs);
+        Assert.Contains("\"manualPayoutsNewlyOverdue\":\"0\"", response.Body);
+        await _mockEscrowRepo.DidNotReceiveWithAnyArgs().TryMarkManualPayoutOverdueLoggedAsync(default!, default!, default!);
+    }
+
+    [Fact]
+    public async Task ManualPayoutNewlyOverdue_AMarkerOfAnEarlierEntry_IsWrittenAgain_AndAFailedConditionAnnouncesNothing()
+    {
+        // The marker names another queue time (an earlier entry on this escrow), so this entry is new to the
+        // report; the write's condition fails (another run marked it, or the entry closed meanwhile).
+        var row = QueuedRow("escrow-requeued", 26, "release", ("trucker", "pending"));
+        row[ManualPayoutFields.OverdueLoggedFor] = "2026-09-01T10:00:00.0000000Z";
+        StubQueue((new List<Dictionary<string, object>> { row }, null));
+        _mockEscrowRepo.TryMarkManualPayoutOverdueLoggedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(false);
+
+        await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("MANUAL_PAYOUT_OVERDUE escrowId=escrow-requeued ref=release:trucker ageHours=26", Logs);
+        Assert.DoesNotContain("MANUAL_PAYOUT_NEWLY_OVERDUE", Logs);
+        await _mockEscrowRepo.Received(1).TryMarkManualPayoutOverdueLoggedAsync(
+            "escrow-requeued", "2026-10-01T10:00:00.0000000Z", (string)row[ManualPayoutFields.QueuedAt]);
+    }
+
+    [Fact]
+    public async Task ManualPayoutNewlyOverdue_TheMarkerWriteThrows_AnnouncesAnyway_AndTheReportGoesOn()
+    {
+        StubQueue((new List<Dictionary<string, object>>
+        {
+            QueuedRow("escrow-a", 40, "refund", ("buyer", "pending")),
+            QueuedRow("escrow-b", 30, "refund", ("buyer", "pending"))
+        }, null));
+        _mockEscrowRepo.TryMarkManualPayoutOverdueLoggedAsync(Arg.Is("escrow-a"), Arg.Any<string>(), Arg.Any<string>())
+            .ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
+        _mockEscrowRepo.TryMarkManualPayoutOverdueLoggedAsync(Arg.Is("escrow-b"), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(true);
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=escrow-a ref=refund:buyer ageHours=40", Logs);
+        Assert.Contains("MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=escrow-b ref=refund:buyer ageHours=30", Logs);
+        Assert.Contains("newly overdue marker of escrow-a was not written: [ProvisionedThroughputExceededException]", Logs);
+        Assert.DoesNotContain("manual_payout_query", Logs);
+        Assert.Contains("\"manualPayoutsNewlyOverdue\":\"2\"", response.Body);
+    }
+
+    [Fact]
+    public async Task ManualPayoutNewlyOverdue_AYoungEntry_IsNeitherMarkedNorAnnounced()
+    {
+        StubQueue((new List<Dictionary<string, object>> { QueuedRow("escrow-young", 23.5, "refund", ("buyer", "pending")) }, null));
+        _mockEscrowRepo.TryMarkManualPayoutOverdueLoggedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(true);
+
+        await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.DoesNotContain("MANUAL_PAYOUT_OVERDUE", Logs);
+        Assert.DoesNotContain("MANUAL_PAYOUT_NEWLY_OVERDUE", Logs);
+        await _mockEscrowRepo.DidNotReceiveWithAnyArgs().TryMarkManualPayoutOverdueLoggedAsync(default!, default!, default!);
+    }
+
+    // ──────────────────────────────────────────────
     // EventBridge payload shape (regression guard for the cron silent no-op, Review C3)
     // ──────────────────────────────────────────────
 

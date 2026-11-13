@@ -4,6 +4,7 @@ import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudwatch_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as sns_subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import { EnvironmentConfig } from '../config/environments';
 import { TELEBIRR_WEBHOOK_PATH } from './api-stack';
 
@@ -56,6 +57,9 @@ interface DynamoTableDef {
  * and 8 log filter metrics without a default (LabelSnapshotFailed, ReputationFraudHookFailed,
  * OrderDeadlineRefundStalled and the 5 FraudAttributedSkipped reasons), billed only in the hours a
  * line is written.
+ * FUP-06 (not in the count above either): 1 alarm, one metric ($0.10), and 1 log filter metric without a
+ * default (ManualPayoutsNewlyOverdue), billed only in the hours a line is written. The email subscriptions of
+ * envConfig.alarmEmails stay inside the SNS email free tier at alarm volumes.
  *
  * References Lambda functions and DynamoDB tables by name (no cross-stack refs needed).
  */
@@ -105,6 +109,18 @@ export class MonitoringStack extends cdk.Stack {
       displayName: `WeredaConnect ${envConfig.name} Alarms`,
     });
     const snsAction = new cloudwatch_actions.SnsAction(alarmTopic);
+
+    // FUP-06: the topic's subscribers in code, from envConfig.alarmEmails (empty by default, so a stack without
+    // them creates no subscription and leaves a subscriber added by hand alone). A malformed address fails the
+    // synth instead of the deploy.
+    const alarmEmails = [...new Set((envConfig.alarmEmails ?? []).map((email) => email.trim()))];
+    for (const email of alarmEmails) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        cdk.Annotations.of(this).addError(`alarmEmails: '${email}' is not an email address`);
+        continue;
+      }
+      alarmTopic.addSubscription(new sns_subscriptions.EmailSubscription(email));
+    }
 
     // ─── Metric Filters on audit logs ────────────────────────────────
     // Auth function log group — extract login success/failure metrics
@@ -399,6 +415,17 @@ export class MonitoringStack extends cdk.Stack {
       metricName: 'ManualPayoutsOverdue',
       metricValue: '1',
       defaultValue: 0,
+    });
+    // FUP-06: the same report logs MANUAL_PAYOUT_NEWLY_OVERDUE once per manual payout leg, on the first run that
+    // sees it overdue (the hourly report for a 1.x queue entry, the 15 minute ledger sweep for a ledger row). Its
+    // own term, so neither filter counts the other's line. No default value: an hour without a line publishes
+    // nothing, and the alarm reads missing data as not breaching.
+    new logs.MetricFilter(this, 'ManualPayoutsNewlyOverdueFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"MANUAL_PAYOUT_NEWLY_OVERDUE"'),
+      metricNamespace,
+      metricName: 'ManualPayoutsNewlyOverdue',
+      metricValue: '1',
     });
     new logs.MetricFilter(this, 'AdminQueueOverdueFilter', {
       logGroup: escrowCronLogGroup,
@@ -1135,8 +1162,41 @@ export class MonitoringStack extends cdk.Stack {
         'find the payment in the portal first and pay only if it is missing. A leg refused ' +
         'with ESCROW_029 (unverified payee) ' +
         'cannot be recorded and keeps this alarm on until the payee verifies. While the alarm ' +
-        'is in ALARM a newly overdue leg is not announced again: read the lines or the page.',
+        'is in ALARM a newly overdue leg does not notify here: manual-payouts-newly-overdue does (FUP-06).',
     );
+
+    // FUP-06: the edge-triggered twin. manual-payouts-overdue stays in ALARM while any leg is overdue, so a leg
+    // that became overdue meanwhile told nobody. MANUAL_PAYOUT_NEWLY_OVERDUE is logged once per leg, so this alarm
+    // looks at a short window (two 5 minute periods, one datapoint): it fires within minutes of the run that
+    // logged the line and clears 5 to 15 minutes later, so the next hourly report (and, nearly always, the next
+    // 15 minute ledger sweep) with a newly overdue leg sends its own notification.
+    const manualPayoutsNewlyOverdueAlarm = new cloudwatch.Alarm(this, 'ManualPayoutsNewlyOverdue', {
+      alarmName: `${prefix}-manual-payouts-newly-overdue`,
+      alarmDescription:
+        'A manual payout leg has just passed 24 hours in the queue (MANUAL_PAYOUT_NEWLY_OVERDUE in the escrow-cron ' +
+        'log group, with escrowId, ref and ageHours: ref=<op>:<leg> for a 1.x payout, the ledger ref with # as . ' +
+        'for a ledger row). Logged once per leg, by the first hourly report or 15 minute ledger sweep that sees it ' +
+        'overdue, so it fires even while manual-payouts-overdue is already in ALARM for older legs. It clears by ' +
+        'itself 5 to 15 minutes later; that OK says nothing about the payout. The leg keeps its ' +
+        'MANUAL_PAYOUT_OVERDUE line every run until it is paid. Open Manual Payouts (/payouts), find the escrow, ' +
+        'check the reason before paying and record the portal transaction id (runbook in .ai/deployment.md). A ' +
+        'line repeated for the same leg means its marker could not be written (throttling or IAM on the escrows ' +
+        'or escrow-ledger table); fix that.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'ManualPayoutsNewlyOverdue',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+        label: 'Manual Payouts Newly Overdue',
+      }),
+      threshold: 0,
+      evaluationPeriods: 2,
+      datapointsToAlarm: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    manualPayoutsNewlyOverdueAlarm.addAlarmAction(snsAction);
+    manualPayoutsNewlyOverdueAlarm.addOkAction(snsAction);
 
     // ESC-04: a trucker leg the release could not pay is retried hourly, outside the manual
     // payout queue until the gateway cannot pay it; this alarm makes sure none waits silently.
@@ -2602,6 +2662,8 @@ export class MonitoringStack extends cdk.Stack {
           escrowCronErrorsAlarm,
           orderEscrowProblemsAlarm,
           manualPayoutsOverdueAlarm,
+          // FUP-06 a manual payout leg overdue for the first time
+          manualPayoutsNewlyOverdueAlarm,
           truckerPayoutsOverdueAlarm,
           // FUP-41 releases the payout identity gate blocks for a day
           releasesBlockedOverdueAlarm,
@@ -2669,7 +2731,7 @@ export class MonitoringStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'AlarmTopicArn', {
       value: alarmTopic.topicArn,
       description:
-        'SNS topic ARN for alarm notifications — subscribe your email/phone',
+        'SNS topic ARN for alarm notifications. Subscribers in code come from alarmEmails (FUP-06); any other is added by hand',
     });
 
     new cdk.CfnOutput(this, 'MetricNamespace', {
