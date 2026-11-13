@@ -19,6 +19,9 @@ namespace WeredaConnect.Server.Functions;
 ///   - ledger_sweep (every 15 minutes, ESC-20): call, check or retry the open rows of the escrow ledger
 ///   - backfill_payout_references (no schedule; run by hand once per environment, FUP-215): write the
 ///     FUP-05 reference item of every manual payout recorded before escrow-protocol 2.12.0
+///   - order_payment_reconcile (every 15 minutes on a live deployment, FUP-37): ask Telebirr's
+///     queryOrder about the checkouts of orders about to fail and about stuck checkouts
+///     (<see cref="OrderPaymentReconciler"/>)
 ///
 /// Accepts APIGatewayProxyRequest for compatibility with the existing Lambda bootstrap.
 /// EventBridge rule passes the action payload in the request body as JSON.
@@ -414,7 +417,21 @@ public class EscrowCronFunction
             : new CleanDeliveryCreditJournal(dynamoDb, idempotencyTable);
         // FUP-215: the reference items live in escrow-idempotency, next to the FUP-05 record's own.
         PayoutReferences = new PayoutReferenceBackfill(dynamoDb, escrowsTable, idempotencyTable, _escrowService.LedgerRepo);
+        // FUP-37: the checkout slots, their mappings and the webhook inbox live in escrow-idempotency.
+        PaymentReconciler = _orderRepo == null
+            ? null
+            : new OrderPaymentReconciler(_orderRepo, new OrderCheckoutRepository(dynamoDb, idempotencyTable),
+                new WebhookInboxRepository(dynamoDb, idempotencyTable), _telebirrGateway, _auditRepo);
     }
+
+    /// <summary>
+    /// FUP-37: the <c>order_payment_reconcile</c> action. The Lambda wires it when <c>ORDERS_TABLE</c> is
+    /// set; without one (the test constructor, unless set) the action answers 503.
+    /// </summary>
+    internal OrderPaymentReconciler? PaymentReconciler { get; init; }
+
+    /// <summary>FUP-37: the reconciliation's share of the 5 minute run.</summary>
+    internal TimeSpan PaymentReconcileSlice { get; init; } = TimeSpan.FromMinutes(4);
 
     /// <summary>
     /// FUP-215: the one-off <c>backfill_payout_references</c> action (escrow-protocol.md 2.14.0). The Lambda
@@ -488,7 +505,7 @@ public class EscrowCronFunction
         if (string.IsNullOrEmpty(action))
         {
             return LambdaResponse.Error(400, "ESCROW_CRON_VALIDATION",
-                "Missing 'action' field. Expected: auto_release_and_refund, reconciliation, park_legacy_trucker_legs, ledger_sweep, backfill_payout_references.");
+                $"Missing 'action' field. Expected: {ExpectedActions}.");
         }
 
         var safeAction = action.Length > 50 ? action[..50] : action;
@@ -503,8 +520,9 @@ public class EscrowCronFunction
                 "park_legacy_trucker_legs" => await HandleParkLegacyTruckerLegsAsync(context),
                 "ledger_sweep" => await HandleLedgerSweepAsync(context),
                 PayoutReferenceBackfill.Action => await HandleBackfillPayoutReferencesAsync(payload, context),
+                OrderPaymentReconciler.Action => await HandleOrderPaymentReconcileAsync(context),
                 _ => LambdaResponse.Error(400, "ESCROW_CRON_VALIDATION",
-                    $"Unknown action '{safeAction}'. Expected: auto_release_and_refund, reconciliation, park_legacy_trucker_legs, ledger_sweep, backfill_payout_references.")
+                    $"Unknown action '{safeAction}'. Expected: {ExpectedActions}.")
             };
         }
         catch (Exception ex)
@@ -2111,6 +2129,58 @@ public class EscrowCronFunction
 
     /// <summary>ESC-20: how long the ledger sweep may run (the escrow-cron Lambda has 5 minutes).</summary>
     internal TimeSpan LedgerSweepSlice { get; init; } = TimeSpan.FromMinutes(4);
+
+    private const string ExpectedActions =
+        "auto_release_and_refund, reconciliation, park_legacy_trucker_legs, ledger_sweep, backfill_payout_references, "
+        + OrderPaymentReconciler.Action;
+
+    /// <summary>
+    /// FUP-37: the queryOrder reconciliation of live order checkouts (<see cref="OrderPaymentReconciler"/>).
+    /// A gateway with no hosted checkout (the mock) has no checkout to ask about, so nothing is queried.
+    /// 500 when the payment_submitted orders could not be read: the order cron keeps waiting on the
+    /// orders that need a verdict, and its overdue line pages if that lasts.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleOrderPaymentReconcileAsync(ILambdaContext context)
+    {
+        if (!_telebirrGateway.SupportsHostedCheckout)
+        {
+            context.Logger.LogInformation("Order payment reconcile: this gateway opens no Telebirr checkout; nothing to ask.");
+            return SummaryResponse(200, new Dictionary<string, string>
+            {
+                { "action", OrderPaymentReconciler.Action }, { "skipped", "no_hosted_checkout" }
+            });
+        }
+
+        if (PaymentReconciler == null)
+        {
+            context.Logger.LogError("ORDER_PAYMENT_RECONCILE_UNCONFIGURED: the orders table is not wired to escrow-cron.");
+            return LambdaResponse.Error(503, "ESCROW_CRON_ERROR", "Order payment reconciliation is not configured.");
+        }
+
+        var slice = _runBudget.Slice(PaymentReconcileSlice, CronRunBudget.DefaultReserve);
+        var counts = await PaymentReconciler.RunAsync(() => slice.MayStartRow(context), context);
+        return SummaryResponse(counts.QueryFailed ? 500 : 200, new Dictionary<string, string>
+        {
+            { "action", OrderPaymentReconciler.Action },
+            { "seen", counts.Seen.ToString(CultureInfo.InvariantCulture) },
+            { "queries", counts.Queries.ToString(CultureInfo.InvariantCulture) },
+            { "paid", counts.Paid.ToString(CultureInfo.InvariantCulture) },
+            { "notPaid", counts.NotPaid.ToString(CultureInfo.InvariantCulture) },
+            { "unresolved", counts.Unresolved.ToString(CultureInfo.InvariantCulture) },
+            { "gaveUp", counts.GaveUp.ToString(CultureInfo.InvariantCulture) },
+            { "slotsClosed", counts.SlotsClosed.ToString(CultureInfo.InvariantCulture) },
+            { "errors", counts.Errors.ToString(CultureInfo.InvariantCulture) },
+            { "truncated", counts.Truncated ? "true" : "false" },
+            { "completedAt", DateTime.UtcNow.ToString("o") }
+        });
+    }
+
+    private static APIGatewayProxyResponse SummaryResponse(int status, Dictionary<string, string> summary) => new()
+    {
+        StatusCode = status,
+        Body = JsonSerializer.Serialize(summary, AppJsonContext.Default.DictionaryStringString),
+        Headers = new Dictionary<string, string> { { "Content-Type", "application/json" } }
+    };
 
     /// <summary>What the ledger transport retry did this run (ESC-20, F2).</summary>
     private sealed class LedgerTransportCounts

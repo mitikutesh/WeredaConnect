@@ -40,6 +40,15 @@ public interface IOrderCheckoutRepository
     Task CloseSlotForMerchOrderAsync(string orderId, string merchOrderId, string outcome);
 
     /// <summary>
+    /// FUP-37: record what the queryOrder reconciliation concluded for the order's payment attempt
+    /// <paramref name="cycle"/> (its <c>paymentSubmittedAt</c>, empty for an order without one), up to
+    /// this slot's <paramref name="attempt"/> (<see cref="OrderCheckoutQuery"/>). Only while the slot is
+    /// still that attempt: a new attempt replaces the whole slot, and the verdict with it. False when the
+    /// slot has moved on (or is gone).
+    /// </summary>
+    Task<bool> RecordQueryVerdictAsync(string orderId, int attempt, string verdict, string cycle, DateTime atUtc);
+
+    /// <summary>
     /// Write the merch_order_id mapping before Telebirr is called, bound to the order's payment
     /// attempt (its <c>paymentSubmittedAt</c>, null for orders from before it was stamped).
     /// False when a mapping with that merch_order_id already exists.
@@ -74,6 +83,22 @@ public static class OrderCheckoutOutcome
     public const string Paid = "paid";
 }
 
+/// <summary>FUP-37: the queryOrder reconciliation's verdicts, stored on the slot (<c>paymentQueryVerdict</c>).</summary>
+public static class OrderCheckoutQuery
+{
+    /// <summary>Every checkout of the payment attempt is closed or failed at Telebirr: no money was taken.</summary>
+    public const string NotPaid = "not_paid";
+
+    /// <summary>A paid checkout was recorded in the webhook inbox, which funds the order like a notification.</summary>
+    public const string Paid = "paid";
+
+    /// <summary>An answer decided nothing (alarmed); asked again on the next run.</summary>
+    public const string Unresolved = "unresolved";
+
+    /// <summary>Still unresolved a day after the payment deadline: alarmed for a person, and the order may fail.</summary>
+    public const string GaveUp = "gave_up";
+}
+
 /// <summary>The order's current checkout attempt.</summary>
 public sealed record OrderCheckoutSlot
 {
@@ -87,6 +112,25 @@ public sealed record OrderCheckoutSlot
     public required DateTime OpenUntilUtc { get; init; }
     public string? PrepayId { get; init; }
 
+    /// <summary>FUP-37: the reconciliation's verdict on this attempt (<see cref="OrderCheckoutQuery"/>), or null.</summary>
+    public string? QueryVerdict { get; init; }
+
+    /// <summary>FUP-37: the payment attempt (<c>paymentSubmittedAt</c>) <see cref="QueryVerdict"/> is about.</summary>
+    public string? QueryCycle { get; init; }
+
+    /// <summary>FUP-37: when <see cref="QueryVerdict"/> was written.</summary>
+    public DateTime? QueriedAtUtc { get; init; }
+
+    /// <summary>
+    /// FUP-37: true when the reconciliation has settled payment attempt <paramref name="cycle"/> for
+    /// good, so the order cron may fail an unpaid order: every checkout of the attempt was found not
+    /// paid, a paid one was handed to the webhook inbox (which holds the order while it is pending), or
+    /// the reconciliation gave up after alarming. Unresolved or no verdict: the order waits.
+    /// </summary>
+    public bool QuerySettles(string cycle)
+        => QueryVerdict is OrderCheckoutQuery.NotPaid or OrderCheckoutQuery.Paid or OrderCheckoutQuery.GaveUp
+           && string.Equals(QueryCycle ?? "", cycle, StringComparison.Ordinal);
+
     /// <summary>
     /// True while the attempt can still be paid: Telebirr has (or may have) a live payment
     /// for it and its checkout window has not ended.
@@ -99,7 +143,10 @@ public sealed record OrderCheckoutSlot
 /// <summary>
 /// What the webhook needs to bind a payment to its order. <see cref="PaymentSubmittedAt"/> is
 /// the order's payment attempt when the checkout was opened; a payment only funds the order
-/// while the order is still in that attempt.
+/// while the order is still in that attempt. <see cref="Status"/> (FUP-37) is the row's own status:
+/// <c>processing</c>, <c>failed</c> (Telebirr refused the preOrder: nothing exists there) or
+/// <c>completed</c>.
 /// </summary>
 public sealed record OrderCheckoutMapping(
-    string MerchOrderId, string OrderId, string BuyerId, decimal Amount, string? PaymentSubmittedAt = null);
+    string MerchOrderId, string OrderId, string BuyerId, decimal Amount, string? PaymentSubmittedAt = null,
+    string? Status = null);
