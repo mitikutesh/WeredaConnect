@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -7,6 +8,8 @@ import 'package:wereda_connect/features/delivery_verification/domain/repositorie
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class _MockRepository extends Mock implements BaseDeliveryRepository {}
 
@@ -266,4 +269,125 @@ void main() {
       ).called(1);
     });
   }
+
+  // FUP-439: web waits for the server, so a handoff refused for its GPS
+  // reaches the bloc and gets one text per reason (the trucker's pickup, the
+  // self-pickup buyer's and the drop-off buyer's confirm).
+  test('a pickup refused for its GPS emits the pickup-far error', () async {
+    final repository = _MockRepository();
+    when(
+      () => repository.confirmPickup(
+        deliveryId: any(named: 'deliveryId'),
+        truckerId: any(named: 'truckerId'),
+        gpsPickup: any(named: 'gpsPickup'),
+        photoRef: any(named: 'photoRef'),
+        scannedQrNonce: any(named: 'scannedQrNonce'),
+        scannedQrCode: any(named: 'scannedQrCode'),
+      ),
+    ).thenThrow(
+      const SyncRejectedException(
+        'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is 11.1km from '
+        'listing location (max 5km).',
+      ),
+    );
+    final bloc = DeliveryBloc(repository: repository);
+    addTearDown(bloc.close);
+
+    final done = expectLater(
+      bloc.stream,
+      emitsThrough(
+        isA<DeliveryError>()
+            .having((e) => e.code, 'code', DeliveryErrorCode.gpsPickupFar),
+      ),
+    );
+    bloc.add(
+      const ConfirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        scannedQrNonce: 'n',
+      ),
+    );
+    await done;
+  });
+
+  for (final (message, code) in [
+    (
+      'DELIVERY_GPS_PROXIMITY: self_pickup_no_fix: Location is required to '
+          'confirm self-pickup at the farm.',
+      DeliveryErrorCode.gpsSelfPickupNoFix,
+    ),
+    (
+      'DELIVERY_GPS_PROXIMITY: self_pickup_no_farm_point: This listing has no '
+          'registered location, so self-pickup cannot be verified.',
+      DeliveryErrorCode.gpsSelfPickupNoFarmPoint,
+    ),
+    (
+      'DELIVERY_GPS_PROXIMITY: self_pickup_far: You are 11.1km from the farm '
+          'location (max 5km).',
+      DeliveryErrorCode.gpsSelfPickupFar,
+    ),
+    (
+      'DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is 16.2km from the '
+          'drop-off point (max 5km).',
+      DeliveryErrorCode.gpsDropoffFar,
+    ),
+    // A server without the reason token: the generic delivery text.
+    (
+      'DELIVERY_GPS_PROXIMITY: You are 11.1km from the farm location '
+          '(max 5km).',
+      DeliveryErrorCode.generic,
+    ),
+  ]) {
+    test('a confirm refused for its GPS emits $code', () async {
+      final repository = _MockRepository();
+      when(
+        () => repository.confirmDelivery(
+          deliveryId: any(named: 'deliveryId'),
+          buyerId: any(named: 'buyerId'),
+          gpsDropoff: any(named: 'gpsDropoff'),
+          photoRef: any(named: 'photoRef'),
+          scannedQrNonce: any(named: 'scannedQrNonce'),
+          scannedQrCode: any(named: 'scannedQrCode'),
+        ),
+      ).thenThrow(SyncRejectedException(message));
+      final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
+
+      final done = expectLater(
+        bloc.stream,
+        emitsThrough(
+          isA<DeliveryError>().having((e) => e.code, 'code', code),
+        ),
+      );
+      bloc.add(
+        const ConfirmDelivery(
+          deliveryId: 'del-1',
+          buyerId: 'buyer-1',
+          scannedQrNonce: 'n',
+        ),
+      );
+      await done;
+    });
+  }
+
+  test('each GPS refusal has its own delivery text in en, am and om', () async {
+    const codes = [
+      DeliveryErrorCode.gpsPickupFar,
+      DeliveryErrorCode.gpsSelfPickupNoFix,
+      DeliveryErrorCode.gpsSelfPickupNoFarmPoint,
+      DeliveryErrorCode.gpsSelfPickupFar,
+      DeliveryErrorCode.gpsDropoffFar,
+    ];
+    for (final locale in ['en', 'am', 'om']) {
+      final l10n = await AppLocalizations.delegate.load(Locale(locale));
+      final texts = {for (final c in codes) localizeDeliveryError(l10n, c)};
+      expect(texts, hasLength(codes.length), reason: locale);
+      expect(texts, isNot(contains(l10n.deliveryErrorGeneric)), reason: locale);
+      expect(
+        deliveryGpsErrorOf('DELIVERY_CODE_MISMATCH: x'),
+        isNull,
+        reason: locale,
+      );
+    }
+  });
 }

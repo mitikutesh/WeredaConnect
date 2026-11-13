@@ -237,6 +237,7 @@ These rules must always hold:
 - `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED`, `DELIVERY_CODE_LOCKED_DROPOFF` and `DELIVERY_CODE_GPS_REQUIRED` (since 1.33.0) → Mark as permanently rejected and revert the local delivery (see Typed handoff code)
 - `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` (since 1.23.0) → Mark as permanently rejected; since 1.43.0 also revert the local crop listing or trip (see Listing text refusal)
 - `DELIVERY_NONCE_MISSING` (since 1.43.0) → Mark as permanently rejected and revert the local delivery (see Refusals no retry can pass)
+- `DELIVERY_GPS_PROXIMITY` (since 1.62.0), whatever its reason → Mark as permanently rejected and revert the local delivery (see GPS refusals of a handoff)
 - `DELIVERY_ALREADY_CANCELLED`, `TRIP_TERMINAL_STATE` and `TRIP_ALREADY_CANCELLED` as an `error` (since 1.45.0) → Mark as permanently rejected and revert the local delivery or trip (see Changes to a finished delivery or trip)
 - Every `*_UNAUTHORIZED` code but a role gate (`... Only farmers can ...`, `truckers`, `buyers`), `RATING_FORBIDDEN: You can only rate your own orders.` and a `CROP_VALIDATION`, `TRIP_VALIDATION` or `DELIVERY_VALIDATION` `... is immutable and cannot be changed on update.` (since 1.43.0) → Mark as permanently rejected, not reverted (see Refusals no retry can pass)
 - `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` (since 1.31.0) → Mark as permanently rejected, not reverted (see Location pings); `LOCATION_NOT_ACTIVE` comes as `deferred`, not as an error
@@ -1670,11 +1671,55 @@ The buyer's confirm:
 
 ---
 
+## GPS refusals of a handoff (1.62.0, FUP-439)
+
+A pickup or delivery confirm whose GPS fails a handoff rule (`delivery-verification-api.md` 2.15.0,
+GPS Validation) is answered `error` with `DELIVERY_GPS_PROXIMITY: <reason>: <text>`. The code is
+unchanged; the reason, a token of lower-case words joined by underscores right after it (the shape
+of the `ORDER_KYC_REQUIRED` reasons, 1.5.0, rule written in 1.49.0), is new. The clients key on the reason, never on the
+text. Nothing is written to the delivery, and the same payload always gets the same answer.
+
+| Reason | Operation | Mobile client (sync queue) | Web client |
+|---|---|---|---|
+| `pickup_far` | The trucker's `pickedUp`, `gpsPickup` more than 5 km from the listing's point | Permanent and reverted like a refused typed code (1.33.0): rejected, never resent, the delivery goes back to `GET /deliveries/{id}` (server wins; else the lowest sent version), the photo waiting behind the handoff is rejected, and so is the trucker's drop-off code registration waiting behind the pickup (below), a refused pickup drops its trip's waiting check-ins, the operation leaves the "Sync failed" count. Explained once with its own text (en, am, om): `deliveryErrorGpsPickupFar` | The same text on the scan screen |
+| `self_pickup_no_fix` | The self-pickup buyer's `delivered` without `gpsDropoff` | Same; `deliveryErrorGpsSelfPickupNoFix` (the farmer is not paid yet) | Same text |
+| `self_pickup_no_farm_point` | The self-pickup buyer's `delivered` on a listing without coordinates | Same; `deliveryErrorGpsSelfPickupNoFarmPoint` (contact support) | Same text |
+| `self_pickup_far` | The self-pickup buyer's `delivered`, `gpsDropoff` more than 5 km from the listing's point | Same; `deliveryErrorGpsSelfPickupFar` | Same text |
+| `dropoff_far` | The buyer's `delivered` of a trucker delivery, `gpsDropoff` more than 5 km from both drop-off points | Same; `deliveryErrorGpsDropoffFar` | Same text |
+| No reason this build knows (a server before 1.62.0, whose text follows the code, or a later reason) | Any | Permanent and reverted the same way; explained with `errorChangeNotSaved` | `deliveryErrorGeneric` |
+
+Before 1.62.0 the code was in neither client's permanent list: the mobile queue sent the operation
+three times and again on every reconnect, never put the local `pickedUp` or `delivered` back (the
+delivery pull does not replace a row with an older server version) and announced nothing, so a
+trucker could drive off while the server said `pending`, or a self-pickup buyer leave believing the
+farmer was paid. Web showed "Delivery operation failed".
+
+A refused pickup and the drop-off code (any refusal of a `pickedUp` that puts the delivery back, not
+only these: a typed code, `DELIVERY_NONCE_MISSING`, an `ORDER_*` refusal): the trucker's phone queues
+its drop-off code registration (`dropoffQrNonce`, 1.58.0) behind every pickup of a trucker delivery,
+and the server answers it `deferred` while the delivery is `pending`. While it waited, the revert
+skipped the delivery (another upload for it was on its way, and the pull skips it too), so a refused
+pickup stayed `pickedUp` on the phone whatever its code. Since 1.62.0 the queue rejects that
+registration when it rejects such a pickup, before the revert, as it rejects the waiting handoff photo
+(1.39.0), and the revert flags it with the pickup, so neither counts as "Sync failed". A permanent
+refusal of the pickup that puts nothing back (`FRAUD_*`, `SYNC_VALIDATION`, an `*_UNAUTHORIZED` code)
+does not touch the registration, and a transient failure keeps both. The phone
+registers a drop-off code again after the next pickup, and whenever the drop-off QR opens (1.58.0).
+
+All three roles: the trucker (pickup), the buyer (self-pickup and drop-off confirm). The farmer
+never sends these operations; the farmer's app shows the server's `pending` from the delivery pull,
+and the farmer's QR stays usable (a refused handoff consumes no nonce). Either side may ship first:
+an older app keeps retrying as before (it never read this code), and a newer app treats a refusal
+without a reason as permanent with the generic text.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.65.0 | 2026-11-13 | A deleted crop listing on the clients (FUP-149; 1.62.0 to 1.64.0 are held by other open branches): a mobile `crop_listing` conflict whose `serverData` is a deleted listing (`deletedAt` set or `status: deleted`) removes the local listing instead of keeping it as a `draft`, and creates none; the mobile crop pull and the read behind a reverted listing remove a deleted row's listing (the farmer's own included) instead of storing it as `active`; the web repository and matcher leave a deleted row out and read it by id as not found. Other statuses map as before. No wire change. See "Client-Side Conflict Resolution (Mobile)" |
+| 1.65.0 | 2026-11-13 | A deleted crop listing on the clients (FUP-149; 1.63.0 and 1.64.0 are held by other open branches): a mobile `crop_listing` conflict whose `serverData` is a deleted listing (`deletedAt` set or `status: deleted`) removes the local listing instead of keeping it as a `draft`, and creates none; the mobile crop pull and the read behind a reverted listing remove a deleted row's listing (the farmer's own included) instead of storing it as `active`; the web repository and matcher leave a deleted row out and read it by id as not found. Other statuses map as before. No wire change. See "Client-Side Conflict Resolution (Mobile)" |
+| 1.62.0 | 2026-11-13 | GPS refusals of a handoff (FUP-439, `delivery-verification-api.md` 2.15.0): `DELIVERY_GPS_PROXIMITY` names its reason right after the code (`pickup_far`, `self_pickup_no_fix`, `self_pickup_no_farm_point`, `self_pickup_far`, `dropoff_far`); every one is now permanent on mobile and reverted like a refused typed code (the delivery goes back from `GET /deliveries/{id}`, the waiting photo is rejected, a refused pickup drops its trip's check-ins, the operation leaves the "Sync failed" count) with one text per reason in en, am and om, and web shows the same texts. A refusal without a known reason is permanent with the generic text. Any pickup refused by a code that puts the delivery back now also rejects the trucker's drop-off code registration waiting behind it, which held the revert back, and the revert flags it with the pickup. See "GPS refusals of a handoff" |
 | 1.61.0 | 2026-11-13 | Handoff photos (FUP-140, `delivery-verification-api.md` 2.14.0; 1.60.0 is FUP-373): the server holds a `pickup` or `dropoff` `delivery_photo` back (`deferred`, `DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet.`) until its handoff is on the delivery, and keeps a copy of each attached photo for the reads (server only); the buyer's drop-off photo on a dispute the order cron opened that no admin decided is kept as late evidence, and a disputed delivery without the handoff refuses the photo for good; mobile rejects the photo waiting behind a pickup or delivery confirm answered `conflict` whose `serverData` does not show that handoff (the drop-off photo stays when the row is an undecided dispute), and no longer counts S3's `400 RequestTimeout` or a `408` on the photo `PUT` toward the 3 refusals. Web unchanged (no queue; it attaches after a successful handoff). See "Handoff photos" |
 | 1.60.0 | 2026-11-13 | Late drop-off evidence (FUP-373, `delivery-verification-api.md` 2.13.0), behind `dropoffClassification`: a `handoff_check_in` `arrived_dropoff` received after T8 or after the T8 judgement is kept late and answered `CHECKIN_TOO_LATE` without the arrival photo check (before, a check-in queued offline before T8 whose photo the T8 dispute refused got `CHECKIN_PHOTO_REQUIRED` and kept nothing); a late one more than 5 km away is kept as a late attempt; a decided dispute closes it (`CHECKIN_NOT_OPEN`); `delivery_photo` `{deliveryId}#arrival` is taken on the system's undecided T8 dispute (`delivery_overdue`, `dropoff_out_of_range`) as evidence only, marked late (`arrivalPhotoLateAt` on the delivery rows). Clients, no wire change: the drop-off kind not taken (`CHECKIN_VALIDATION`, the drop-off flag rolled back) reads as not open; mobile forgets the kept arrival photo path when its `delivery_photo` is refused for good and deletes a new arrival photo taken while one already waits; the too-far and out-of-range texts name the check-in and the order's drop-off point, not the trucker. See "The drop-off check-in". |
 | 1.59.1 | 2026-11-13 | The drop-off check-in, the clients (FUP-336, no wire change): the trucker's "Arrived at drop-off" on the order detail takes the arrival photo, then a GPS fix; mobile queues `delivery_photo` `{deliveryId}#arrival` ahead of `handoff_check_in` `arrived_dropoff` and the sync preflight holds the check-in while the photo waits (the check-in carries the never-sent `_deliveryId`), web attaches the uploaded key then sends the check-in; every `CHECKIN_*` refusal takes the mark back with its drop-off text (`CHECKIN_PHOTO_REQUIRED` also forgets the phone's given-up photo path; a `CHECKIN_TOO_FAR` attempt kept for review says so); the parties read the check-in, T8, the buyer's T9 (receipt plus 48 hours) and every outcome's label on the order and delivery detail; the pulls, the web repositories and the conflict echo read the new fields. See "The drop-off check-in", Clients. |
