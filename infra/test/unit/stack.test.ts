@@ -280,6 +280,52 @@ describe('DatabaseStack', () => {
     );
     expect(rules[0].AllowedOrigins).not.toContain('*');
   });
+
+  // ─── FUP-140: the uploads/photos/ expiry, the kept copies untouched ───
+
+  /** The lifecycle rules of the (versioned) uploads bucket. */
+  function uploadsLifecycle(t: Template): Array<Record<string, any>> {
+    const uploads = Object.values(
+      t.findResources('AWS::S3::Bucket', {
+        Properties: { VersioningConfiguration: { Status: 'Enabled' } },
+      }),
+    ) as Array<Record<string, any>>;
+    expect(uploads).toHaveLength(1);
+    return uploads[0].Properties.LifecycleConfiguration.Rules;
+  }
+
+  test('FUP-140: the uploads/photos/ expiry ships disabled, and no rule reaches the kept copies or archives a photo', () => {
+    const rules = uploadsLifecycle(template);
+    const expiry = rules.find((r) => r.Id === 'DeliveryPhotoUploadsExpiry');
+    expect(expiry).toMatchObject({
+      Prefix: 'uploads/photos/',
+      Status: 'Disabled',
+      ExpirationInDays: 30,
+      NoncurrentVersionExpiration: { NoncurrentDays: 1 },
+    });
+    // The temp/ rule stays; the old Glacier rule (prefix photos/, which matched no key) is gone.
+    expect(rules.map((r) => r.Prefix).sort()).toEqual(['temp/', 'uploads/photos/']);
+    expect(JSON.stringify(rules)).not.toContain('GLACIER');
+    expect(rules.some((r) => (r.Transitions ?? []).length > 0)).toBe(false);
+    // Nothing may ever expire or move the evidence the reads sign.
+    for (const rule of rules) {
+      expect(['evidence/photos/'.startsWith(rule.Prefix ?? ''), rule.Prefix]).toEqual([false, rule.Prefix]);
+    }
+  });
+
+  test.each(['dev', 'staging', 'prod'])('FUP-140: %s keeps the expiry off until its backfill ran', (env) => {
+    expect(environments[env].deliveryPhotoUploadExpiry).toBe(false);
+  });
+
+  test('FUP-140: with deliveryPhotoUploadExpiry on, the rule is enabled', () => {
+    const app = new cdk.App();
+    const stack = new DatabaseStack(app, 'ExpiryOnDatabaseStack', {
+      env: { account: '123456789012', region: devConfig.region },
+      envConfig: { ...devConfig, deliveryPhotoUploadExpiry: true },
+    });
+    const expiry = uploadsLifecycle(Template.fromStack(stack)).find((r) => r.Id === 'DeliveryPhotoUploadsExpiry');
+    expect(expiry?.Status).toBe('Enabled');
+  });
 });
 
 describe('ApiStack', () => {
@@ -586,6 +632,24 @@ describe('ApiStack', () => {
       .filter((st: any) => (Array.isArray(st.Action) ? st.Action : [st.Action]).some((a: string) => a.startsWith('s3:')));
   }
 
+  /** The S3 actions of these statements. */
+  function s3Actions(statements: Array<{ Action: string | string[] }>): string[] {
+    return statements.flatMap((st) => (Array.isArray(st.Action) ? st.Action : [st.Action]));
+  }
+
+  /** The statements whose actions include one starting with this prefix. */
+  function statementsWith(statements: Array<{ Action: string | string[]; Resource: unknown }>, actionPrefix: string) {
+    return statements.filter((st) => (Array.isArray(st.Action) ? st.Action : [st.Action]).some((a) => a.startsWith(actionPrefix)));
+  }
+
+  /** Every statement's resources are under one of these key prefixes (or the bucket itself, for List). */
+  function expectScopedTo(statements: Array<{ Resource: unknown }>, prefixes: string[]): void {
+    for (const st of statements) {
+      const resource = JSON.stringify(st.Resource);
+      expect([resource, prefixes.some((prefix) => resource.includes(prefix))]).toEqual([resource, true]);
+    }
+  }
+
   test.each([
     ['wereda-connect-dev-sync', 'the delivery_photo attach HEADs the photo'],
     ['wereda-connect-dev-admin', 'the transaction view signs photo GETs'],
@@ -595,20 +659,40 @@ describe('ApiStack', () => {
       Environment: { Variables: Match.objectLike({ UPLOADS_BUCKET: Match.anyValue() }) },
     });
     const statements = s3Statements(functionName);
-    const actions = statements.flatMap((st) => (Array.isArray(st.Action) ? st.Action : [st.Action]));
+    const actions = s3Actions(statements);
     expect(actions.some((a) => a.startsWith('s3:GetObject'))).toBe(true);
-    // Read only: never a write or a delete on the uploads bucket.
-    expect(actions.filter((a) => a.startsWith('s3:Put') || a.startsWith('s3:Delete'))).toEqual([]);
-    // Object reads are scoped to the photo keys.
-    const objectStatements = statements.filter((st) =>
-      (Array.isArray(st.Action) ? st.Action : [st.Action]).some((a) => a.startsWith('s3:GetObject')),
-    );
-    // ESC-32: the admin Lambda also signs GETs of appeal photos (the reputation panel and queue).
-    const prefixes = functionName === 'wereda-connect-dev-admin' ? ['/uploads/photos/*', '/uploads/appeals/*'] : ['/uploads/photos/*'];
-    for (const st of objectStatements) {
-      const resource = JSON.stringify(st.Resource);
-      expect([resource, prefixes.some((prefix) => resource.includes(prefix))]).toEqual([resource, true]);
+    // Never a delete on the uploads bucket.
+    expect(actions.filter((a) => a.startsWith('s3:Delete'))).toEqual([]);
+    // Object reads are scoped to the photo keys. ESC-32: the admin Lambda also signs GETs of appeal
+    // photos (the reputation panel and queue); FUP-140: and of the photos' kept copies.
+    const prefixes =
+      functionName === 'wereda-connect-dev-admin'
+        ? ['/uploads/photos/*', '/uploads/appeals/*', '/evidence/photos/*']
+        : ['/uploads/photos/*'];
+    expectScopedTo(statementsWith(statements, 's3:GetObject'), prefixes);
+    // FUP-140: the sync Lambda's only write is the kept copy (CopyObject's put), under evidence/photos/;
+    // the admin Lambda writes nothing.
+    const puts = statementsWith(statements, 's3:Put');
+    if (functionName === 'wereda-connect-dev-sync') {
+      expect(s3Actions(puts)).toContain('s3:PutObject');
+      expectScopedTo(puts, ['/evidence/photos/*']);
+    } else {
+      expect(puts).toEqual([]);
     }
+  });
+
+  test('FUP-140: the order cron copies photos for the backfill: reads uploads, puts kept copies, deletes nothing', () => {
+    const functionName = 'wereda-connect-dev-order-cron';
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: functionName,
+      Environment: { Variables: Match.objectLike({ UPLOADS_BUCKET: Match.anyValue(), DELIVERIES_TABLE: Match.anyValue() }) },
+    });
+    const statements = s3Statements(functionName);
+    expect(s3Actions(statements).filter((a) => a.startsWith('s3:Delete'))).toEqual([]);
+    expectScopedTo(statementsWith(statements, 's3:GetObject'), ['/uploads/photos/*']);
+    const puts = statementsWith(statements, 's3:Put');
+    expect(s3Actions(puts)).toContain('s3:PutObject');
+    expectScopedTo(puts, ['/evidence/photos/*']);
   });
 
   // ─── ESC-21: order notifications (stream consumer + inbox read) ───

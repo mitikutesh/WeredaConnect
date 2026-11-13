@@ -2059,14 +2059,13 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
               "Status": "Enabled",
             },
             {
-              "Prefix": "photos/",
-              "Status": "Enabled",
-              "Transitions": [
-                {
-                  "StorageClass": "GLACIER",
-                  "TransitionInDays": 365,
-                },
-              ],
+              "ExpirationInDays": 30,
+              "Id": "DeliveryPhotoUploadsExpiry",
+              "NoncurrentVersionExpiration": {
+                "NoncurrentDays": 1,
+              },
+              "Prefix": "uploads/photos/",
+              "Status": "Disabled",
             },
           ],
         },
