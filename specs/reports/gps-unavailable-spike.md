@@ -27,7 +27,9 @@ Top findings:
    permanent refusal on the phone. The queue sends it again on every reconnect, never reverts the local delivery
    and never says why. Web says "Delivery operation failed". It hits the self-pickup confirm without a fix
    (FUP-138), a pickup scan more than 5 km from the listing point and a drop-off confirm more than 5 km from both
-   drop-off points (section 1.3).
+   drop-off points (section 1.3). On a self-pickup it can cost the farmer both the crops and the pay: the
+   delivery stays `pending`, so the order ends cancelled with a full refund to a buyer who holds the goods, and a
+   dishonest buyer can get there on purpose by refusing GPS (sections 1.3 and 4).
 2. **Nothing records why a fix is missing.** The reason stays on the phone. The delivery row has no field for it,
    the audit row says only `handoff=qr` or `handoff=code`, no fraud signal is written, and the admin dispute page
    says "No GPS fix at the handoff". An admin cannot tell "refused" from "never asked" (section 2).
@@ -36,11 +38,14 @@ Top findings:
    permission; web checks in while the page is open. Buyer and farmer see a map from pickup to delivery, admins see
    the trail with its gaps. A phone that shares but gets no fix still reads as `live`, and the buyer is told
    "Likely no network on this road" (section 3).
-4. **Refusing GPS never moves money for a trucker. It only removes evidence.** Every GPS rule skips a missing
+4. **Refusing GPS never releases money to a trucker. It removes evidence.** Every GPS rule skips a missing
    point. Money moves only on a QR scan, an admin verdict or a timer, and the one timer that pays without the
    buyer (T9) needs a measured GPS check-in. With the ESC-34 and ESC-36 flags on, refusing GPS costs the trucker
-   their own defences, so the incentive points the right way. One inversion: a listing whose point is a picked
-   town far from the farm refuses an honest party with GPS on and passes one with GPS off (section 4).
+   their own defences, so the incentive points the right way. Once `reputationPenalties` is on, the skipped
+   `GPS_ANOMALY` row is also 25 points missing from the risk score the payout risk gate reads, so skipping it can
+   skip a payout hold. One
+   inversion: a listing whose point is a picked town far from the farm refuses an honest party with GPS on and
+   passes one with GPS off (section 4).
 5. **Web location has two plugin traps.** `geolocator_web` 4.1.3 passes the time limit in microseconds (15 s
    becomes about 4.2 hours) and calls any error during the permission request "denied for good" (section 1.1).
 6. No path sends (0, 0) any more (the SIM-43 fix holds for crops). The server still has no bounds check on handoff
@@ -109,9 +114,24 @@ neither the client's permanent list (`mobile/lib/core/sync/sync_executor.dart:13
 - no refusal is announced: only operations marked rejected are (`sync_executor.dart:1069-1074`). Were it announced,
   the text would be the generic `errorChangeNotSaved` (`mobile/lib/core/errors/app_error.dart:644`).
 
-Effect: a trucker drives off with the goods while the server still says `pending` (with `pickupClassification` on,
-T7 then judges a trucker no-show), or a self-pickup buyer leaves the farm believing the farmer is paid while the
-money stays held. Web shows "Delivery operation failed" with no reason.
+Effect on a trucker delivery: the trucker drives off with the goods while the server still says `pending`. With
+`pickupClassification` on, T7 then judges as if no scan happened (`PickupJudgement.cs:426-445`): a trucker no-show
+without the trucker's arrival check-in; with it but without the farmer's "crops ready", a farmer no-show, cancelled
+and refunded while the trucker holds the goods; the admin queue when both checked in.
+
+Effect on a self-pickup, where the farmer can lose both the crops and the pay. The buyer leaves the farm with the
+goods and the delivery stays `pending` on the server. The buyer's arrival check-in needs a fix too (1.2), so a
+buyer whose confirm was refused for having none has no `arrived_pickup` either:
+
+- with `pickupClassification` on (FUP-326), T7 judges a self-pickup buyer no-show
+  (`server/src/Helpers/PickupJudgement.cs:436`) and cancels the order with the full refund armed
+  (`specs/contracts/delivery-verification-api.md:1555-1560`) while the buyer holds the goods;
+- with the flag off, the buyer may cancel for a full refund once the pickup deadline has passed, because the
+  delivery is still `pending` (`specs/contracts/order-lifecycle.md:495-496`, `:548`).
+
+This is the refund-while-the-goods-left case of FUP-331, reached without a late scan. A dishonest self-pickup buyer
+can reach it on purpose by refusing GPS at the farm (section 4). Web shows "Delivery operation failed" with no
+reason for every case.
 
 ### 1.4 Coordinates sent
 
@@ -160,7 +180,7 @@ self-pickup refusal and the 5 km refusals have no text of their own on either pl
 | Transaction audit | `handoff=qr` or `handoff=code` only (`SyncFunction.cs:6037-6039`) |
 | Fraud signals | none. Rule 4 skips a missing point (`server/src/Services/FraudDetectionService.cs:236-241`); the trucker's own row needs `gpsPickup` (`server/src/Functions/SyncFunction.TruckerGpsEvidence.cs:88-95`) and a fresh check-in (`SyncFunction.TruckerGpsEvidence.cs:119-123`); `IMPOSSIBLE_DELIVERY_TIME` skips (`TransactionPatternRules.cs:290-299`) |
 | Arrival check-ins | an arrival without GPS is refused, so nothing is stored; a farmer's "crops ready" without one is stored with `distanceChecked: false`, which its audit row carries (`server/src/Functions/SyncFunction.HandoffCheckIn.cs:213`) |
-| Live trip | a skipped slot sends nothing. A decline and a pause are events (`check_in_engine.dart:524-534`, `:377-388`). The admin trail shows a stretch of more than 90 minutes without a fix as a gap (`specs/contracts/live-trip-api.md:158`) |
+| Live trip | a skipped slot sends nothing. A decline and a pause are events (decline: `check_in_engine.dart:524-534`, and `:377-388` when the driver stops sharing; pause: `check_in_engine.dart:293-298`). The admin trail shows a stretch of more than 90 minutes without a fix as a gap (`specs/contracts/live-trip-api.md:158`) |
 | Admin dispute page | "No GPS fix at the handoff" (`admin/src/components/disputes/EvidenceTabs.tsx:89-91`, `admin/src/i18n/en.json:234`), the pickup's phone time when stored (`EvidenceTabs.tsx:74-78`), no distance (`AdminFunction.DisputeEvidence.cs:253`, `:261-266`) |
 | Phone logs | `debugPrint` only (`qr_scan_screen.dart:280`, `geolocator_location_source.dart:62`) |
 
@@ -214,19 +234,32 @@ planned point (`AdminFunction.DisputeEvidence.cs:234-300`); Photos and Messages.
 | Area | Effect |
 |---|---|
 | Delivery state | the pickup scan goes through (1.2); a typed code on a paid delivery is refused. The system never moves the delivery to `inTransit` without a fix (`server/src/Helpers/CheckInEffects.cs:61-66`), which changes nothing: the buyer may confirm from `pickedUp` |
-| Escrow release and payout legs | no escrow or payout code reads GPS (`gps` matches nothing in `server/src/Functions/EscrowFunction.cs` or `EscrowCronFunction.cs`). Money moves only on the buyer's confirm scan, an admin verdict or a timer (`live-trip-api.md:187`) |
+| Escrow release and payout legs | no escrow or payout code reads GPS (`gps` matches nothing in `server/src/Functions/EscrowFunction.cs` or `EscrowCronFunction.cs`). On a trucker delivery money moves only on the buyer's confirm scan, an admin verdict or a timer (`live-trip-api.md:187`). A self-pickup is different: a refused confirm can end in a refund (below) |
 | T7, pickup judged (flag on) | no `arrived_pickup` without a fix, so with no scan by T7 the trucker is a no-show (`PickupJudgement.cs:426-437`): `awaiting_transport` with `faultParty: trucker`. A scan before T7 makes this moot |
 | T8 and T9, drop-off judged (flag on) | no `arrived_dropoff` without a fix, so no T9 confirm for a silent buyer, and at T8 (pickup plus 72 hours) a `delivery_overdue` dispute freezes the escrow (`server/src/Helpers/DropoffJudgement.cs:372-383`), with `DELIVERY_OVERDUE` on the trucker under `reputationPenalties`. A buyer's confirm before T8 makes this moot |
 | Dispute evidence | "No GPS fix at the handoff" and no distance; the trail is empty or has gaps; the pickup photo is optional and the arrival photo goes with the check-in, so neither may exist |
 | Fraud GPS rule | a missing point skips: no `GPS_ANOMALY` (`FraudDetectionService.cs:236-241`). The trucker's own row is never judged without `gpsPickup` (`SyncFunction.TruckerGpsEvidence.cs:88-95`) or check-ins (`:119-123`). `IMPOSSIBLE_DELIVERY_TIME` skips. No pings means no `GPS_JUMP` or `GPS_MOCKED` |
+| Payout risk gate | once `reputationPenalties` is on, the trucker's `GPS_ANOMALY` row weighs 25 points (`FraudDetectionService.cs:745`) in the risk score the payout risk gate reads before every automatic payout, holding a CRITICAL payee (`server/src/Services/EscrowService.PayoutRiskGate.cs:8-12`, `:74-76`, FUP-29). A row that is never judged can therefore also be a hold that never happens |
 | 5 km threshold | checked only when a point is sent (`SyncFunction.cs:5627-5668`, `SyncFunction.cs:5691-5767`) |
 
-**Can a trucker game it by refusing GPS?** Not for money. The pickup still needs the farmer's server-held QR or
-code, and a typed code needs GPS on a paid delivery. The buyer's scan releases the money with or without anyone's
-GPS, and the only automatic release without the buyer (T9) needs the trucker's measured check-in and photo. What a
-refusing trucker does avoid is evidence: every GPS-based fraud rule and the 5 km checks. A trucker and buyer who
-collude leave no GPS-based signal, which is accepted: the QR proves the handoff, and the buyer releases their own
-money.
+**Can a trucker game it by refusing GPS?** Not to get paid. The pickup still needs the farmer's server-held QR or
+code, and a typed code needs GPS on a paid delivery. On a trucker delivery the buyer's scan releases the money with
+or without anyone's GPS, and the only automatic release without the buyer (T9) needs the trucker's measured check-in
+and photo. What a refusing trucker does avoid is evidence: every GPS-based fraud rule, the 5 km checks and, with
+`reputationPenalties` on, the risk points of the trucker's `GPS_ANOMALY` row that could hold a payout (table
+above). A trucker and buyer who collude leave no GPS-based signal, which is accepted: the QR proves the handoff, and
+the buyer releases their own money.
+
+**A self-pickup buyer can game it.** Here GPS is mandatory, so refusing it changes where the money goes. A buyer who
+scans the farmer's QR with location off takes the goods, the server refuses the confirm (1.3), and the delivery
+stays `pending`. The buyer cannot check in at the farm without a fix either. The order then ends in a full refund
+to the buyer: by the T7 no-show judgement with `pickupClassification` on, or by the buyer's own deadline cancel
+with it off (1.3). The farmer has handed over the crops and is not paid. Nothing on the delivery or in the audit
+shows that the QR was scanned: the nonce is consumed only after a successful write
+(`SyncFunction.cs:5369-5371`), and the refused confirm writes nothing. This is FUP-331's case (a refund while the
+goods left the farm), reached without the late scan FUP-331 relies on to notice it. With `pickupClassification` on,
+the refund needs no act of the buyer at all, so even an honest buyer whose phone had no fix is refunded. FUP-439 and
+FUP-138 close the gap on the client and should ship before FUP-326 turns that flag on.
 
 **The inversion.** A listing's point may be a picked place (`create_crop_listing_screen.dart:173-174`) and nothing
 records which. An honest trucker at the real farm with GPS on is refused more than 5 km from that point (silently on
@@ -239,14 +272,25 @@ trucker's `GPS_ANOMALY` row, which needs `gpsPickup`. The order's stamped farm p
 
 ## 5. Offline
 
+The table is Android, where the sync queue holds every write. Web is below it.
+
 | Fix | Taken | Queued with | How the server judges its age |
 |---|---|---|---|
 | Handoff (pickup, drop-off, self-pickup) | at the scan (`qr_scan_screen.dart:261`), kept in Isar with the delivery | latitude and longitude only, without the fix's own time or accuracy (`gps_capture_service.dart:136-156`, `delivery_repository.dart:479-484`), in an operation stamped at the confirm tap | by distance only, whatever its age. The pickup's operation time becomes `pickupCapturedAt` when it is at most 5 minutes ahead and 30 days old (`TransactionPatternRules.cs:148-151`, `:401-411`), read by `IMPOSSIBLE_DELIVERY_TIME`. The drop-off keeps no phone time |
 | Arrival check-in | at the tap | `capturedAt` set when queued (`mobile/lib/features/order/data/repositories/order_repository.dart:798`, `:861`) | only the receipt time is judged against the deadlines; `capturedAt` is kept as evidence when plausible (`PickupJudgement.cs:144-147`); one received late is kept and never counted |
 | Live trip ping | at the slot | the platform's own fix time (`geolocator_location_source.dart:122`); when more than 24 wait, one fix per hour is kept (`mobile/lib/core/sync/location_ping_rules.dart:57-60`); web keeps them in memory only | accepted up to 7 days old (`server/src/Helpers/LocationPingRules.cs:67-68`) and flagged `late` after 15 minutes; its effects need a capture after the pickup (`CheckInEffects.cs:50-51`); the trucker's evidence needs the last check-in within 90 minutes of the confirm (`server/src/Helpers/TruckerGpsEvidence.cs:86`, `:152-153`) |
 
-So only pings are judged by their age. A handoff fix carries no age at all. The fix a phone takes offline at the
-scan is the right one (it belongs to the scan), so the gap is in evidence, not correctness: an admin cannot tell how
+**Web has no offline path for handoffs and check-ins.** The web sync queue refuses to enqueue
+(`mobile/lib/core/sync/sync_queue_web.dart:14-22`), and the web repositories post each handoff and check-in to
+`/sync` at once: the pickup (`mobile/lib/features/delivery_verification/data/repositories/web_delivery_repository.dart:296-297`),
+the drop-off and self-pickup confirm (`web_delivery_repository.dart:346-347`) and both arrival check-ins
+(`mobile/lib/features/order/data/repositories/web_order_repository.dart:599-600`). So on web nothing is taken
+offline and sent later: a handoff or check-in made without a network fails at once, its fix with it, and has to be
+made again online. Live trip pings on web wait in memory only while the page stays open
+(`web_location_ping_repository.dart:11-17`).
+
+So only pings are judged by their age. A handoff fix carries no age at all. On Android the fix a phone takes offline
+at the scan is the right one (it belongs to the scan), so the gap is in evidence, not correctness: an admin cannot tell how
 old a drop-off point was when it reached the server.
 
 ## 6. Options
@@ -293,8 +337,8 @@ The full rows go into `TASK.md` with this spike. In short:
 
 | ID | Sev | Gap |
 |---|---|---|
-| FUP-138 (new text) | P2 | Self-pickup fix rule decided: the server keeps GPS mandatory; the scan screen waits for a fix and says why there is none |
-| FUP-439 | P1 | `DELIVERY_GPS_PROXIMITY` refusals: permanent, reverted, one text per case, mobile and web |
+| FUP-138 (new text) | P2 | Self-pickup fix rule decided: the server keeps GPS mandatory; the scan screen waits for a fix and says why there is none. Lands with FUP-439, before FUP-326 |
+| FUP-439 | P1 | `DELIVERY_GPS_PROXIMITY` refusals: permanent, reverted, one text per case, mobile and web. Must land (with FUP-138) before FUP-326 turns `pickupClassification` on; companion of FUP-442 |
 | FUP-440 | P2 | Record a missing fix's reason, and a fix's time and accuracy, on each handoff; show them on the dispute page |
 | FUP-441 | P2 | Web location: bound every capture in Dart; tell a dismissed prompt from a blocked site |
 | FUP-442 | P2 | Listing point source (`gps` or `place`) and the rule for judging a picked point at 5 km |
@@ -311,7 +355,9 @@ The full rows go into `TASK.md` with this spike. In short:
   FUP-440.
 - **FRD-14:** the dispute page shows "No GPS fix at the handoff" without a cause; FUP-440 adds it.
 - **ESC-33:** the trucker's `GPS_ANOMALY` row is never judged without `gpsPickup`; FUP-448.
-- **ESC-34:** the arrival needs GPS, which is the right incentive; the risks are the picked listing point
-  (FUP-442) and the web permission state (FUP-441).
+- **ESC-34:** the arrival needs GPS, which is the right incentive for a trucker; the risks are the picked listing
+  point (FUP-442) and the web permission state (FUP-441). On a self-pickup the T7 judgement refunds a buyer whose
+  confirm was refused for GPS while the buyer holds the goods (section 4), so FUP-439 and FUP-138 come before
+  FUP-326 turns the flag on.
 - **ESC-36:** before FUP-372 turns the flag on, a trucker without location loses T9 and meets T8; the texts already
   say why. A coarse fix counting as measured is FUP-445.
