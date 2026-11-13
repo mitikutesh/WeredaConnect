@@ -128,6 +128,9 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "handoff_check_in",
   "pickup_judged",
   "late_pickup_evidence",
+  // ESC-36: the drop-off judgement stamp, and the system's confirm of a silent buyer's delivery
+  "dropoff_judged",
+  "delivery_auto_confirmed",
 ];
 
 /** Written by an open PR that has no admin change of its own; labelled here ahead of the merge. */

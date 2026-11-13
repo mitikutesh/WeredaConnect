@@ -51,7 +51,8 @@ public partial class SyncFunction
             return PhotoResult(operation, "error", "DELIVERY_PHOTO_INVALID: A delivery photo is attached with action create.");
         }
 
-        if (!DeliveryPhotoKeys.TryParseEntityId(operation.EntityId, out var deliveryId, out var type))
+        // ESC-36: the trucker's #arrival only with dropoffClassification on; off, it is refused as before.
+        if (!DeliveryPhotoKeys.TryParseEntityId(operation.EntityId, out var deliveryId, out var type, allowArrival: DropoffJudgementOn))
         {
             return PhotoResult(operation, "error",
                 "DELIVERY_PHOTO_INVALID: entityId must be {deliveryId}#pickup or {deliveryId}#dropoff.");
@@ -102,6 +103,13 @@ public partial class SyncFunction
         if (stateAnswer != null)
         {
             return stateAnswer;
+        }
+
+        // ESC-36: the arrival photo belongs to the drop-off, so it attaches only while the goods are on the road.
+        if (type == DeliveryPhotoKeys.Arrival
+            && !DropoffJudgement.OnTheRoadDeliveryStatuses.Contains(AttrString(existing, "status")))
+        {
+            return PhotoResult(operation, "error", "DELIVERY_PHOTO_REFUSED: The arrival photo is taken while the goods are on the road.");
         }
 
         if (DeliveryPhotoS3 == null || string.IsNullOrEmpty(UploadsBucket))
@@ -214,9 +222,12 @@ public partial class SyncFunction
             return null;
         }
 
-        return type == DeliveryPhotoKeys.Pickup
-            ? "DELIVERY_PHOTO_FORBIDDEN: Only the trucker takes the pickup photo."
-            : "DELIVERY_PHOTO_FORBIDDEN: Only the buyer takes the drop-off photo.";
+        return type switch
+        {
+            DeliveryPhotoKeys.Pickup => "DELIVERY_PHOTO_FORBIDDEN: Only the trucker takes the pickup photo.",
+            DeliveryPhotoKeys.Arrival => "DELIVERY_PHOTO_FORBIDDEN: Only the trucker takes the arrival photo.",
+            _ => "DELIVERY_PHOTO_FORBIDDEN: Only the buyer takes the drop-off photo."
+        };
     }
 
     /// <summary>

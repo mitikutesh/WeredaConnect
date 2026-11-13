@@ -278,6 +278,35 @@ public class ReputationDerivationTests
     }
 
     [Fact]
+    public void ESC36_TheT8WriteAsTheCronMakesIt_IsR12_OnTheTruckerAlone()
+    {
+        // FUP-204: T8 rests on the trucker's own missing drop-off check-in, so no other party reports it.
+        var c = Single(
+            Order(("status", "in_transit"), ("truckerResponse", "accepted"), ("dropoffJudgement", "pending")),
+            Order(("status", "disputed"), ("truckerResponse", "accepted"), ("disputeReason", "delivery_overdue"),
+                ("dropoffJudgement", "delivery_overdue"), ("dropoffJudgedAt", Updated)));
+
+        c.Code.Should().Be(ReputationCodes.DeliveryOverdue);
+        c.UserId.Should().Be("trucker-1");
+        c.ReportedBy.Should().BeNull();
+    }
+
+    [Fact]
+    public void FUP204_ASilentBuyerDispute_IsNoEvent_SoTheBuyersSilenceCostsTheTruckerNothing()
+        => Derive(
+                Order(("status", "in_transit"), ("truckerResponse", "accepted"), ("dropoffJudgement", "pending")),
+                Order(("status", "disputed"), ("truckerResponse", "accepted"), ("disputeReason", "silent_buyer"),
+                    ("dropoffJudgement", "silent_buyer")))
+            .Should().BeEmpty();
+
+    [Fact]
+    public void ESC36_AnAutoConfirm_IsNoEvent()
+        => Derive(
+                Order(("status", "in_transit"), ("truckerResponse", "accepted"), ("dropoffJudgement", "pending")),
+                Order(("status", "delivered"), ("truckerResponse", "accepted"), ("dropoffJudgement", "auto_confirmed")))
+            .Should().BeEmpty();
+
+    [Fact]
     public void R13_Settled_CompletesForTheFarmerAndTheTruckerWhoCarriedIt()
     {
         var candidates = Derive(

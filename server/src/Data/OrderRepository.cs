@@ -1270,6 +1270,59 @@ public sealed class OrderRepository : IOrderRepository
         }
     }
 
+    /// <inheritdoc />
+    public async Task<bool> TryRecordDropoffCheckInAsync(string orderId, Dictionary<string, object> entry, bool whileOpen)
+    {
+        var existing = await GetItemAsync(orderId, consistentRead: true);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        var setParts = new List<string> { "#dc = :entry" };
+        var removeParts = new List<string>();
+        var attrNames = new Dictionary<string, string> { { "#dc", DropoffJudgement.CheckInField } };
+        var attrValues = new Dictionary<string, AttributeValue> { { ":entry", DynamoDbHelper.ToAttributeValue(entry) } };
+        var condition = "attribute_exists(orderId) AND attribute_not_exists(#dc)";
+        if (whileOpen)
+        {
+            attrNames["#status"] = "status";
+            attrNames["#dj"] = DropoffJudgement.Field;
+            attrValues[":pickedUp"] = new AttributeValue { S = "pickup_confirmed" };
+            attrValues[":inTransit"] = new AttributeValue { S = "in_transit" };
+            attrValues[":pending"] = new AttributeValue { S = DropoffJudgement.Outcome.Pending };
+            condition += " AND #status IN (:pickedUp, :inTransit) AND #dj = :pending";
+        }
+
+        // A counted check-in moves the order's next deadline from T8 to T9 in the same write.
+        AppendDeadline(
+            AfterWrite(existing, new[] { new KeyValuePair<string, object>(DropoffJudgement.CheckInField, entry) }),
+            setParts, removeParts, attrNames, attrValues);
+
+        Dictionary<string, object> written;
+        try
+        {
+            var response = await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, existing["createdAt"].S),
+                UpdateExpression = UpdateExpression(setParts, removeParts),
+                ConditionExpression = condition,
+                ExpressionAttributeNames = attrNames,
+                ExpressionAttributeValues = attrValues,
+                ReturnValues = ReturnValue.ALL_NEW
+            });
+            written = DynamoDbHelper.FromItem(response.Attributes ?? new Dictionary<string, AttributeValue>());
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+
+        await EnsureDeadlineAsync(written);
+        return true;
+    }
+
     /// <summary>
     /// Order attributes a status or stamp write never takes from its caller's field map: the keys,
     /// the version and timestamp the write owns, the status (set by the write itself or not at all),

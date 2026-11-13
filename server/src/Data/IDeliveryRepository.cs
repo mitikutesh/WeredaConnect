@@ -124,6 +124,23 @@ public interface IDeliveryRepository
     Task<bool> TryMarkInTransitAsync(string deliveryId, string tripId, int expectedVersion);
 
     /// <summary>
+    /// ESC-36: the order cron's dispute of a delivery still on the road (T8 <c>delivery_overdue</c>, or T9
+    /// <c>silent_buyer</c>), written only after the escrow froze: from <paramref name="fromStatus"/>
+    /// (<c>pickedUp</c> or <c>inTransit</c>) to <c>disputed</c> with <c>disputedBy: system</c>,
+    /// <c>disputeReason</c> and <c>disputedAt</c>, the version added to. Conditional on the status read, so
+    /// a buyer's confirm that landed first wins. Returns false when the delivery is missing or moved on.
+    /// </summary>
+    Task<bool> TryMarkDropoffDisputedAsync(string deliveryId, string tripId, string fromStatus, string reason, string disputedAt);
+
+    /// <summary>
+    /// ESC-36, T9: the order cron's confirm for a silent buyer: from <paramref name="fromStatus"/>
+    /// (<c>pickedUp</c> or <c>inTransit</c>) to <c>delivered</c> with <c>confirmedAt</c> (the start of the
+    /// normal dispute window) and <c>autoConfirmedAt</c>, the next version, conditional on the status and
+    /// version read. Returns false when the delivery is missing or moved on.
+    /// </summary>
+    Task<bool> TryAutoConfirmAsync(string deliveryId, string tripId, string fromStatus, int expectedVersion, string confirmedAt);
+
+    /// <summary>
     /// LT-07: stamp <c>nearbyNotifiedAt</c> (with <c>nearbyDistanceKm</c> and, when known,
     /// <c>nearbyMinutes</c>) once, conditional on the status <c>pickedUp</c> or <c>inTransit</c> and on
     /// no stamp yet. The stamp's stream record sends the buyer <c>truck_nearby</c>, so a repeat never

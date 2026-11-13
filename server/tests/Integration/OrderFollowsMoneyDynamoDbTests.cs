@@ -692,6 +692,7 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         public Task<Dictionary<string, object>?> TryAdvanceStatusUnlessAsync(string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields, string unlessField, string unlessValue) => inner.TryAdvanceStatusUnlessAsync(orderId, fromStatus, toStatus, extraFields, unlessField, unlessValue);
         public Task<bool> TryStampAsync(string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expectedStrings) => inner.TryStampAsync(orderId, fields, expectedStrings);
         public Task<bool> TryRecordCheckInAsync(string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen) => inner.TryRecordCheckInAsync(orderId, createdAt, kind, entry, whileOpen);
+        public Task<bool> TryRecordDropoffCheckInAsync(string orderId, Dictionary<string, object> entry, bool whileOpen) => inner.TryRecordDropoffCheckInAsync(orderId, entry, whileOpen);
 
         public Task<AuthResult<Dictionary<string, object>>> CreateAsync(string orderId, Dictionary<string, object> data) => inner.CreateAsync(orderId, data);
         public Task<AuthResult<Dictionary<string, object>>> UpdateAsync(string orderId, Dictionary<string, object> data, int expectedVersion) => inner.UpdateAsync(orderId, data, expectedVersion);

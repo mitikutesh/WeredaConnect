@@ -177,6 +177,53 @@ function expectDefangedTextMatchesNothing(patterns: string[]): void {
   }
 }
 
+describe('ESC-36: an overdue delivery (T8)', () => {
+  // OrderCronFunction.LogOverdue: one line per order judged at T8, disputed or queued.
+  const LINES = [
+    'ORDER_DELIVERY_OVERDUE orderId=ord-1 deliveryId=del-1 outcome=disputed escrow=frozen: no delivery by its deadline; an admin reviews the dispute and the trucker.',
+    'ORDER_DELIVERY_OVERDUE orderId=ord-1 deliveryId=del-1 outcome=queued escrow=RefusedRefundScheduled: no delivery by its deadline; an admin reviews the dispute and the trucker.',
+  ];
+  const NEIGHBOURS = [
+    'DROPOFF_JUDGED orderId=ord-1 outcome=delivery_overdue',
+    'REPUTATION_FRAUD_HOOK_FAILED hook=reliability code=DELIVERY_OVERDUE [TimeoutException]',
+    'PICKUP_JUDGED orderId=ord-1 outcome=trucker_no_show',
+    'ORDER_DEADLINE_ROW_FAILED orderId=ord-1 reason=[TimeoutException]; the rest of the run goes on.',
+  ];
+
+  test.each([false, true])('one filter, on the order-cron log group, bare and prefixed (live %s)', (live) => {
+    const template = monitoringTemplate(live);
+    const [filter] = expectRareTokenFilters(template, 'DeliveryOverdue', '"ORDER_DELIVERY_OVERDUE"', [lg('order-cron')]);
+    expectMatches(filter.Properties.FilterPattern, LINES, NEIGHBOURS);
+    expectDefangedTextMatchesNothing([filter.Properties.FilterPattern]);
+  });
+
+  test.each([false, true])('alarm: any line in an hour, to the alarm topic, on the dashboard (live %s)', (live) => {
+    const template = monitoringTemplate(live);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-delivery-overdue',
+      Metrics: [customMetric('DeliveryOverdue', 3600)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 1,
+      TreatMissingData: 'notBreaching',
+      AlarmActions: notifiesTopic,
+      OKActions: notifiesTopic,
+    });
+    const description = alarmNamed(template, 'wereda-connect-dev-delivery-overdue').Properties.AlarmDescription ?? '';
+    for (const token of ['ORDER_DELIVERY_OVERDUE', 'outcome=disputed', 'outcome=queued', '.ai/deployment.md']) {
+      expect([token, description.includes(token)]).toEqual([token, true]);
+    }
+    expect(description.length).toBeLessThanOrEqual(1024);
+    expect(onAlarmStatus(template, 'DeliveryOverdue')).toBe(true);
+  });
+
+  test('the server writes the token the filter reads', () => {
+    const cron = serverSource('Functions/OrderCronFunction.DropoffJudgement.cs');
+    expect(cron).toContain('DeliveryOverdueToken = "ORDER_DELIVERY_OVERDUE"');
+    expect(cron).toContain('$"{DeliveryOverdueToken} orderId={MoneyAlarmLog.LogId(orderId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)} "');
+  });
+});
+
 describe('FUP-158: a fraud label written without its feature snapshot', () => {
   // OutcomeLabelWriter.WriteAsync (stage=write) and LabelFeatureSnapshotReader.ReadAsync.
   const LINES = [

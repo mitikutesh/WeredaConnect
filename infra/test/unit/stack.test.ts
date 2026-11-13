@@ -1838,6 +1838,9 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       'reminder-lead-hours': '6',
       'pickup-grace-hours': '48',
       'self-pickup-window-hours': '168',
+      // ESC-36: T8 and T9.
+      'delivery-overdue-hours': '72',
+      'silent-buyer-hours': '48',
     };
     for (const [name, value] of Object.entries(expected)) {
       t.hasResourceProperties('AWS::SSM::Parameter', {
@@ -2329,6 +2332,22 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
         template.hasResourceProperties('AWS::Lambda::Function', {
           FunctionName: `wereda-connect-${envName}-${fn}`,
           Environment: { Variables: Match.objectLike({ PICKUP_CLASSIFICATION_ENABLED: 'false' }) },
+        });
+      }
+    }
+  });
+
+  test('ESC-36: every environment keeps the drop-off judgement off on sync, deliveries and order-cron', () => {
+    const templates: [string, ReturnType<typeof liveTemplate>][] = [
+      ['dev', liveTemplate(environments['dev'])],
+      ['staging', liveTemplate(environments['staging'])],
+      ['prod', liveTemplate(environments['prod'])],
+    ];
+    for (const [envName, template] of templates) {
+      for (const fn of ['sync', 'deliveries', 'order-cron']) {
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          FunctionName: `wereda-connect-${envName}-${fn}`,
+          Environment: { Variables: Match.objectLike({ DROPOFF_CLASSIFICATION_ENABLED: 'false' }) },
         });
       }
     }
@@ -3358,6 +3377,9 @@ describe('MonitoringStack', () => {
     // FUP-201: ESC-33's lost fraud hook (order-cron) and the attribution guard's skips by reason (sync).
     'ReputationFraudHookFailed', 'FraudAttributedSkippedAlreadyRecorded', 'FraudAttributedSkippedTargetUnread',
     'FraudAttributedSkippedSourceCapped', 'FraudAttributedSkippedTargetCapped', 'FraudAttributedSkippedHourLimited',
+    // ESC-36: an overdue delivery (order-cron). A trucker's reliability and an admin's dispute: the money is frozen,
+    // and an order whose money could not be frozen waits in the admin queue, which AdminQueueOverdue alarms.
+    'DeliveryOverdue',
   ];
 
   // The money filters, and the sync's FUP-27 dispute filter: a rate, not money, but an alarm that

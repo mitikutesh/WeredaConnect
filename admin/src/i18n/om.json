@@ -572,6 +572,8 @@
     "adminQueue_both_present_no_scan": "Lamaanuu ga'uu isaanii beeksisaniiru, wanti iskaanii hin godhamne, bulchaan murteessa",
     "adminQueue_unchecked_check_in": "Fageenyi beeksisa ga'iinsaa safaramuu hin dandeenye, bulchaan murteessa",
     "adminQueue_late_pickup_evidence": "Ragaan fudhannaa murtii booda dhufeera",
+    "adminQueue_delivery_overdue": "Geejjibni tureera, maallaqni dhorkamuu hin dandeenye, bulchaan murteessa",
+    "adminQueue_silent_buyer": "Bitaan callisee jira, maallaqni mirkanaa'uus dhorkamuus hin dandeenye, bulchaan murteessa",
     "status_awaiting_transport": "Geejjibni hin argamne",
     "action_trucker_responded": "Konkolaataan fe'aa deebiseera",
     "farmerResponse": "Deebii qonnaan bulaa",
@@ -721,6 +723,8 @@
     "action_handoff_check_in": "Beeksisa ga'iinsaa",
     "action_pickup_judged": "Fudhannaan murteeffameera",
     "action_late_pickup_evidence": "Ragaa fudhannaa tureera",
+    "action_dropoff_judged": "Buufachuun murteeffameera",
+    "action_delivery_auto_confirmed": "Geejjibni sirnaan mirkanaa'eera (bitaa callise)",
     "action_fraud_approve": "Mallattoon gowwoomsaa fudhatame (bulchaa)",
     "action_fraud_reject": "Mallattoon gowwoomsaa didame (bulchaa)",
     "action_fraud_whitelist": "Mallattoon gowwoomsaa galmee adiitti galfame (bulchaa)",
@@ -998,6 +1002,8 @@
     "reason_both_present_no_scan": "Lamaanuu ga'uu isaanii beeksisaniiru, wanti iskaanii hin godhamne, bulchaan murteessa",
     "reason_unchecked_check_in": "Fageenyi beeksisa ga'iinsaa safaramuu hin dandeenye, bulchaan murteessa",
     "reason_late_pickup_evidence": "Ragaan fudhannaa murtii booda dhufeera",
+    "reason_delivery_overdue": "Geejjibni tureera: sa'aatii 72 fudhannaa booda galmeen buufannaa hin jiru",
+    "reason_silent_buyer": "Bitaan callisee jira: sa'aatii 48 galmee buufannaa booda deebiin hin jiru",
     "reason_pickup_waiting": "Fudhachuun tureera, beeksisni ergameera, ammallee hin fudhatamne"
   },
   "reputation": {

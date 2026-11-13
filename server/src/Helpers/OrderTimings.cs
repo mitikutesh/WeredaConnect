@@ -61,10 +61,18 @@ public sealed record OrderTimings
         /// <summary>T7, self-pickup order: the pickup is overdue this long after the farmer accepted.</summary>
         public const string SelfPickupWindow = "self-pickup-window-hours";
 
+        /// <summary>ESC-36, T8: a delivery still on the road this long after its pickup is overdue (never below <see cref="DropoffFloor"/>).</summary>
+        public const string DeliveryOverdue = "delivery-overdue-hours";
+
+        /// <summary>ESC-36, T9: the buyer's time to confirm or dispute after the trucker's drop-off check-in (never below <see cref="DropoffFloor"/>).</summary>
+        public const string SilentBuyerWindow = "silent-buyer-hours";
+
+        /// <summary>Ten names: the most one GetParameters call takes.</summary>
         public static readonly string[] All =
         {
             UnpaidExpiry, PaymentVerification, ResponseWindow, DepartureMargin,
-            BuyerChoiceWindow, ReminderLead, PickupGrace, SelfPickupWindow
+            BuyerChoiceWindow, ReminderLead, PickupGrace, SelfPickupWindow,
+            DeliveryOverdue, SilentBuyerWindow
         };
     }
 
@@ -79,6 +87,18 @@ public sealed record OrderTimings
     public TimeSpan ReminderLead { get; init; } = TimeSpan.FromHours(6);
     public TimeSpan PickupGrace { get; init; } = TimeSpan.FromHours(48);
     public TimeSpan SelfPickupWindow { get; init; } = TimeSpan.FromDays(7);
+
+    /// <summary>ESC-36, T8 (spec 4.5: pickup plus 72 hours).</summary>
+    public TimeSpan DeliveryOverdue { get; init; } = TimeSpan.FromHours(72);
+
+    /// <summary>ESC-36, T9 (spec 4.5: the drop-off check-in plus 48 hours).</summary>
+    public TimeSpan SilentBuyerWindow { get; init; } = TimeSpan.FromHours(48);
+
+    /// <summary>
+    /// ESC-36: T8 and T9 never below a day. T9 releases money for a buyer who said nothing and T8 restricts a
+    /// trucker, so a wrong parameter (a typo of 1 hour) must not fire either before a party could act.
+    /// </summary>
+    public static readonly TimeSpan DropoffFloor = TimeSpan.FromHours(24);
 
     /// <summary>The values the code used before ESC-16.</summary>
     public static OrderTimings Defaults { get; } = new();
@@ -130,7 +150,10 @@ public sealed record OrderTimings
             BuyerChoiceWindow = Read(Names.BuyerChoiceWindow, Defaults.BuyerChoiceWindow),
             ReminderLead = Read(Names.ReminderLead, Defaults.ReminderLead),
             PickupGrace = Read(Names.PickupGrace, Defaults.PickupGrace),
-            SelfPickupWindow = Read(Names.SelfPickupWindow, Defaults.SelfPickupWindow)
+            SelfPickupWindow = Read(Names.SelfPickupWindow, Defaults.SelfPickupWindow),
+            DeliveryOverdue = AtLeast(Names.DeliveryOverdue, Read(Names.DeliveryOverdue, Defaults.DeliveryOverdue), DropoffFloor),
+            SilentBuyerWindow = AtLeast(
+                Names.SilentBuyerWindow, Read(Names.SilentBuyerWindow, Defaults.SilentBuyerWindow), DropoffFloor)
         };
         log($"Order timings from {prefix}: {timings.Describe()}");
         return timings;
@@ -174,11 +197,13 @@ public sealed record OrderTimings
         $"{Names.BuyerChoiceWindow}={HoursText(BuyerChoiceWindow)}",
         $"{Names.ReminderLead}={HoursText(ReminderLead)}",
         $"{Names.PickupGrace}={HoursText(PickupGrace)}",
-        $"{Names.SelfPickupWindow}={HoursText(SelfPickupWindow)}");
+        $"{Names.SelfPickupWindow}={HoursText(SelfPickupWindow)}",
+        $"{Names.DeliveryOverdue}={HoursText(DeliveryOverdue)}",
+        $"{Names.SilentBuyerWindow}={HoursText(SilentBuyerWindow)}");
 
     private static IReadOnlyDictionary<string, string> FetchFromSsm(IReadOnlyList<string> names)
     {
-        // GetParameters takes at most 10 names; Names.All has 8. String parameters: no decryption.
+        // GetParameters takes at most 10 names; Names.All has 10 (ESC-36 added T8 and T9). String parameters: no decryption.
         // Bounded: 2 seconds a try, one retry, so the first order write of a container waits at most a
         // few seconds for a degraded SSM (the API Lambdas time out at 10) and then keeps the defaults.
         using var client = new AmazonSimpleSystemsManagementClient(

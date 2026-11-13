@@ -356,6 +356,63 @@ public sealed class SyncFunctionDeliveryPhotoTests
         MessageOf(result).Should().Be("Delivery not found.");
     }
 
+    // ── ESC-36: the trucker's arrival photo at the drop-off ─────────────
+
+    private const string ArrivalKey = "uploads/photos/del-photo/arrival-1700000000000.webp";
+
+    [Fact]
+    public async Task ESC36_WithTheFlagOn_TheTrucker_AttachesTheArrivalPhoto_OnTheRoad()
+    {
+        SetupDelivery(Delivery("inTransit"));
+        SetupObject(ArrivalKey, 120 * 1024);
+
+        var result = await SendAsync(TruckerId, "arrival", ArrivalKey, dropoff: true);
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        await _dynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.ExpressionAttributeNames["#photo"] == "arrivalPhotoRef"
+            && r.ExpressionAttributeNames["#photoVersion"] == "arrivalPhotoVersionId"
+            && r.ExpressionAttributeValues[":ref"].S == ArrivalKey), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ESC36_WithTheFlagOff_TheArrivalPhotoDoesNotExist()
+    {
+        SetupDelivery(Delivery("inTransit"));
+        SetupObject(ArrivalKey, 120 * 1024);
+
+        var result = await SendAsync(TruckerId, "arrival", ArrivalKey);
+
+        MessageOf(result).Should().StartWith("DELIVERY_PHOTO_INVALID: ");
+        await AssertNothingWrittenAsync();
+    }
+
+    [Fact]
+    public async Task ESC36_TheBuyer_CannotAttachTheArrivalPhoto()
+    {
+        SetupDelivery(Delivery("inTransit"));
+        SetupObject(ArrivalKey, 120 * 1024);
+
+        var result = await SendAsync(BuyerId, "arrival", ArrivalKey, dropoff: true);
+
+        MessageOf(result).Should().Be("DELIVERY_PHOTO_FORBIDDEN: Only the trucker takes the arrival photo.");
+        await AssertNothingWrittenAsync();
+    }
+
+    [Theory]
+    [InlineData("pending")]
+    [InlineData("delivered")]
+    public async Task ESC36_OffTheRoad_TheArrivalPhotoIsRefused(string status)
+    {
+        SetupDelivery(Delivery(status));
+        SetupObject(ArrivalKey, 120 * 1024);
+
+        var result = await SendAsync(TruckerId, "arrival", ArrivalKey, dropoff: true);
+
+        MessageOf(result).Should().StartWith("DELIVERY_PHOTO_REFUSED: ");
+        await AssertNothingWrittenAsync();
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────
 
     private static string MessageOf(JsonElement result) => result.GetProperty("message").GetString() ?? "";
@@ -408,18 +465,20 @@ public sealed class SyncFunctionDeliveryPhotoTests
         => await _fraud.DidNotReceive().RecordFraudSignalAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
 
-    private Task<JsonElement> SendAsync(string userId, string type, string key, bool withBucket = true)
+    private Task<JsonElement> SendAsync(string userId, string type, string key, bool withBucket = true, bool dropoff = false)
         => SendRawAsync(userId, $"{DeliveryId}#{type}", "create",
-            new Dictionary<string, object> { { "photoRef", key } }, withBucket);
+            new Dictionary<string, object> { { "photoRef", key } }, withBucket, dropoff);
 
     private async Task<JsonElement> SendRawAsync(string userId, string entityId, string action,
-        Dictionary<string, object> data, bool withBucket = true)
+        Dictionary<string, object> data, bool withBucket = true, bool dropoff = false)
     {
         var function = new SyncFunction(_syncMeta, Substitute.For<ICropRepository>(), _dynamoDb,
             "test-trips-table", DeliveriesTable, fraudService: _fraud)
         {
             UploadsBucket = withBucket ? Bucket : null,
             DeliveryPhotoS3 = withBucket ? _s3 : null,
+            CommitmentsEnabled = true,
+            DropoffClassificationEnabled = dropoff,
         };
 
         var request = new APIGatewayProxyRequest

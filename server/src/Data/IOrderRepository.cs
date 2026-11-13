@@ -234,6 +234,17 @@ public interface IOrderRepository
         string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen);
 
     /// <summary>
+    /// ESC-36: store the trucker's drop-off check-in as <c>dropoffCheckIn</c> WITHOUT bumping <c>version</c>
+    /// or touching <c>updatedAt</c> (a check-in must never make a queued order change conflict), only while
+    /// the order has none (the first one is kept). With <paramref name="whileOpen"/> also only while the order
+    /// is <c>pickup_confirmed</c> or <c>in_transit</c> and its <c>dropoffJudgement</c> is still <c>pending</c>,
+    /// so a check-in can never land after the judgement as if it had counted. The same write moves the
+    /// order's next deadline (a counted check-in turns T8 into T9). Returns false when a condition failed
+    /// (the caller reads the row again to say why); other errors throw.
+    /// </summary>
+    Task<bool> TryRecordDropoffCheckInAsync(string orderId, Dictionary<string, object> entry, bool whileOpen);
+
+    /// <summary>
     /// ESC-09: one page of the <c>StatusCreatedAtIndex</c> partition for <paramref name="status"/>,
     /// oldest first, without the rows the money sweep marked as decided at that status
     /// (<see cref="OrderMoneyFields.SweepSkip"/>). <paramref name="limit"/> is the evaluation limit.

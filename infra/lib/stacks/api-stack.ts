@@ -506,6 +506,10 @@ export class ApiStack extends cdk.Stack {
     // ESC-34: the pickup judgement by arrival check-ins (sync takes the check-ins, order-cron judges); off
     // everywhere until its app build is the minimum. It only works with COMMITMENTS_ENABLED.
     const pickupClassification = envConfig.pickupClassification ? "true" : "false";
+    // ESC-36: the drop-off judgement (sync takes the drop-off check-in, delivery issues the arrival photo's
+    // upload, order-cron judges T8 and T9); off everywhere until its app build is the minimum. It only works
+    // with COMMITMENTS_ENABLED.
+    const dropoffClassification = envConfig.dropoffClassification ? "true" : "false";
 
     // ESC-28: the reputation policy (points, caps, tiers, windows; reputation-architecture.md 5.9),
     // read once per container by every Lambda that recomputes a reputation: reputation-stream,
@@ -566,6 +570,9 @@ export class ApiStack extends cdk.Stack {
         MIN_ORDER_APP_BUILD: minOrderAppBuild,
         // ESC-34: on, an order accepted under it takes handoff_check_in and is judged at its pickup deadline.
         PICKUP_CLASSIFICATION_ENABLED: pickupClassification,
+        // ESC-36: on, an order picked up under it is stamped for T8 and T9 and takes the drop-off check-in and
+        // the arrival photo.
+        DROPOFF_CLASSIFICATION_ENABLED: dropoffClassification,
         // ESC-28 (rating-api 1.2.0 stored aggregate): a rating create is one transaction with the
         // ratee's ratingSum and ratingCount, then a best-effort reputation refresh that reads the
         // ratee's events and writes the reputation map, the heal marker and the copies.
@@ -1259,6 +1266,9 @@ export class ApiStack extends cdk.Stack {
       ["reminder-lead-hours", "6", "The reminder before T3, T4 and T5 is due this long before the deadline"],
       ["pickup-grace-hours", "48", "T7, trip order: the pickup is overdue this long after the trip departs"],
       ["self-pickup-window-hours", "168", "T7, self-pickup: the pickup is overdue this long after the farmer accepted"],
+      // ESC-36: never below 24 in the code (T9 releases money, T8 restricts a trucker).
+      ["delivery-overdue-hours", "72", "T8: a delivery still on the road this long after its pickup is overdue"],
+      ["silent-buyer-hours", "48", "T9: the buyer's time to confirm or dispute after the trucker's drop-off check-in"],
     ];
     for (const [name, value, description] of orderTimings) {
       new ssm.StringParameter(this, `OrderTiming-${name}`, {
@@ -1493,6 +1503,8 @@ export class ApiStack extends cdk.Stack {
         CROPS_TABLE: props.cropsTable.tableName,
         // LT-12: the track reads the delivery's order for the buyer's drop-off note.
         ORDERS_TABLE: props.ordersTable.tableName,
+        // ESC-36: on, POST /deliveries/{id}/photos takes the trucker's arrival photo of a delivery on the road.
+        DROPOFF_CLASSIFICATION_ENABLED: dropoffClassification,
       },
       timeout: cdk.Duration.seconds(15),
       memorySize: 512,
@@ -2112,6 +2124,9 @@ export class ApiStack extends cdk.Stack {
         // ESC-34: commitment_deadlines judges a pickup by its arrival check-ins (no-show outcomes, the
         // admin queue); off, such an order gets the P1 marker and its stamp is cleared.
         PICKUP_CLASSIFICATION_ENABLED: pickupClassification,
+        // ESC-36: commitment_deadlines judges a delivery at T8 (overdue: the escrow frozen, the order
+        // disputed) and T9 (the silent buyer: confirmed, or disputed); off, the stamp is cleared when due.
+        DROPOFF_CLASSIFICATION_ENABLED: dropoffClassification,
         // FRD-15: the relationship_patterns scan writes SELF_TRADE, SHARED_DEVICE_TRADE and
         // REPEATED_PAIR signals (fraud-detection-architecture.md 15.2). Without it, or without
         // USERS_TABLE, the action logs FRAUD_RELATIONSHIP_UNCONFIGURED and writes nothing.

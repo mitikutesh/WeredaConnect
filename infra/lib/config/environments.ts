@@ -146,6 +146,19 @@ export interface EnvironmentConfig {
    */
   readonly pickupClassification?: boolean;
   /**
+   * DROPOFF_CLASSIFICATION_ENABLED on the sync, delivery and order-cron Lambdas (ESC-36,
+   * delivery-verification-api.md P.4). On (and only with `commitmentsEnabled`), an order picked up under it
+   * is judged at T8 (no drop-off check-in 72 hours after pickup: the escrow frozen and the order disputed as
+   * `delivery_overdue`, which restricts the trucker with `reputationPenalties`) or T9 (48 hours after the
+   * trucker's drop-off check-in with GPS and an arrival photo: the delivery confirmed for a silent buyer
+   * when the evidence is complete and the trucker neither low nor restricted, else disputed as
+   * `silent_buyer`). Off, nothing changes. Its own flag, not `pickupClassification`: that one goes on with
+   * the ESC-34 client (FUP-285), and turning on T8 before the app sends the drop-off check-in would dispute
+   * every delivery a buyer did not confirm within 72 hours. Default false everywhere. Turn it on only after
+   * the app build that sends the drop-off check-in and the arrival photo is the minimum (`minOrderAppBuild`).
+   */
+  readonly dropoffClassification?: boolean;
+  /**
    * ESC-20: ESCROW_LEDGER_ENABLED on the sync and telebirr-webhook Lambdas (escrow-protocol.md 2.2.0, P.12).
    * On, a new order escrow is born on the escrow ledger (settlementModel ledger: per-leg write-ahead rows
    * instead of the whole-escrow settlement lock) and a duplicate payment gets its ledger refund row. Off, new
@@ -210,6 +223,7 @@ export const environments: Record<string, EnvironmentConfig> = {
     reputationPublicTags: false,
     // ESC-34: the pickup judgement by arrival check-ins stays off until its app build is the minimum.
     pickupClassification: false,
+    dropoffClassification: false,
     // ESC-20: new order escrows settle through the escrow ledger; staging and prod stay off.
     escrowLedgerEnabled: true,
     // FRD-19: the AI advisory reviewer is on in dev only (owner's decision, 2026-11-11), on Haiku 5.5; the EU
@@ -244,6 +258,7 @@ export const environments: Record<string, EnvironmentConfig> = {
     reputationPublicTags: false,
     // ESC-34: the pickup judgement by arrival check-ins stays off until its app build is the minimum.
     pickupClassification: false,
+    dropoffClassification: false,
     // FRD-19: off. me-south-1 has no EU or ME geo profile for current Claude models; if turned on, the reviewer
     // calls the EU profile from eu-central-1 (decision record, option 3).
     aiReviewEnabled: false,
@@ -274,6 +289,7 @@ export const environments: Record<string, EnvironmentConfig> = {
     reputationPublicTags: false,
     // ESC-34: the pickup judgement by arrival check-ins stays off until its app build is the minimum.
     pickupClassification: false,
+    dropoffClassification: false,
     // FRD-19: off. me-south-1 has no EU or ME geo profile for current Claude models; if turned on, the reviewer
     // calls the EU profile from eu-central-1 (decision record, option 3).
     aiReviewEnabled: false,

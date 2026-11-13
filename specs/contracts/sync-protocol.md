@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.58.0
+1.59.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -1489,7 +1489,7 @@ check-ins and the pickup judgement"). A new create-only entity `handoff_check_in
   order's `version` nor its `updatedAt`, so no queued order operation conflicts with it.
 - Refusals, every one permanent (the client drops the check-in, takes back its local mark and says
   why; nothing to revert on the server): `CHECKIN_VALIDATION` (payload, `entityId`, an action other
-  than `create`, `arrived_dropoff`, which comes with ESC-36), `CHECKIN_NOT_PARTY` (not the party of
+  than `create`, a kind whose flag is off: `arrived_dropoff` without `dropoffClassification`, 1.59.0), `CHECKIN_NOT_PARTY` (not the party of
   that kind; a stranger also gets the `ROLE_FORBIDDEN` signal), `CHECKIN_NOT_OPEN` (an order accepted
   without the stamp, an order no longer waiting for its pickup, or unknown), `CHECKIN_TOO_EARLY`,
   `CHECKIN_TOO_FAR` (an arrival more than 5 km from the farm; a farmer's far fix is stored unmeasured
@@ -1510,6 +1510,46 @@ Clients: the server side is built (1.55.0); the mobile and web screens that send
 FUP-285. Until then no app sends the entity, and the flag must stay off: the server only stamps orders
 while it is on, and it goes on only once the app build that sends check-ins is the minimum
 (`MIN_ORDER_APP_BUILD`).
+
+### The drop-off check-in (1.59.0, ESC-36)
+
+Behind its own flag `dropoffClassification` (off everywhere; `delivery-verification-api.md` 2.9.0 P.4). Each
+kind exists only with its flag: with `pickupClassification` off and `dropoffClassification` on, the entity
+takes `arrived_dropoff` only (`CHECKIN_VALIDATION` for the arrival kinds, before any read); with both off it
+is unsupported as before.
+
+```json
+{
+  "entityType": "handoff_check_in",
+  "entityId": "ord-101#arrived_dropoff",
+  "action": "create",
+  "data": { "orderId": "ord-101", "kind": "arrived_dropoff", "capturedAt": "2026-11-22T09:10:00.000Z",
+            "latitude": 9.0310, "longitude": 38.7400, "accuracyM": 20 }
+}
+```
+
+- The order's trucker only, GPS required, after the trucker's arrival photo was attached: a
+  `delivery_photo` `{deliveryId}#arrival` queued ahead of the check-in (the photo type `arrival` of
+  `delivery-verification-api.md` section 4, the trucker's, only while the delivery is on the road; with the
+  flag off `DELIVERY_PHOTO_INVALID`).
+- Taken while the order (stamped `dropoffJudgement: pending` when it left `accepted` after the pickup) is
+  `pickup_confirmed` or `in_transit`, its delivery `pickedUp` or `inTransit`, and the server clock not past
+  `dropoffDeadlineAt` (T8). `success` and the first one kept, as for the arrival kinds; the write moves
+  neither `version` nor `updatedAt`.
+- Refusals, permanent as above: `CHECKIN_NOT_PARTY`, `CHECKIN_NOT_OPEN` (not stamped, judged, or the
+  delivery no longer on the road), `CHECKIN_TOO_FAR` (more than 5 km from both the order's drop-off point
+  and the trip's destination as stamped at pickup), the new `CHECKIN_PHOTO_REQUIRED` (no arrival photo on
+  the delivery yet: attach it, then check in again) and `CHECKIN_TOO_LATE` (after T8 or the overdue
+  judgement: kept as late evidence).
+- The order rows (`GET /orders`, `GET /orders/{id}`, the order rows of `/sync` results) carry it as
+  `checkIns.arrived_dropoff`, and the new fields `dropoffJudgement`, `dropoffJudgedAt`,
+  `dropoffDeadlineAt` and `disputeReason` (`order-lifecycle.md` 2.17.0); never the stamped points or the
+  raw check-in. A delivery the order cron confirmed for a silent buyer carries `autoConfirmedAt`; one it
+  disputed carries `disputedBy: system` and `disputeReason` `delivery_overdue` or `silent_buyer`. A client
+  treats them as any server change of the row (server wins).
+
+Clients: FUP-336 (the trucker's "Arrived at drop-off" with GPS and the arrival photo, queued offline, the
+refusal texts, and the parties' view of the judgement). The flag stays off until that build is the minimum.
 
 ---
 
@@ -1546,6 +1586,7 @@ The buyer's confirm:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.59.0 | 2026-11-13 | The drop-off check-in (ESC-36, `delivery-verification-api.md` 2.9.0 P.4), server only, behind the new flag `dropoffClassification` (off everywhere): `handoff_check_in` takes `arrived_dropoff` from the order's trucker (GPS within 5 km of the drop-off points stamped at pickup, after the arrival photo `delivery_photo` `{deliveryId}#arrival`), up to T8; new permanent refusal `CHECKIN_PHOTO_REQUIRED`; each kind exists only with its own flag. Order rows gain `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt`, `disputeReason` and `checkIns.arrived_dropoff`; deliveries gain `arrivalPhotoRef`, `arrivalPhotoUrl` (detail only) and `autoConfirmedAt`. Clients: FUP-336. 1.58.1 is taken by another open branch. |
 | 1.58.0 | 2026-11-13 | The trucker's drop-off code (ESC-35, `delivery-verification-api.md` 2.7.0): a `delivery` update carrying only `dropoffQrNonce` from the delivery's trucker stores the trucker's drop-off nonce (nothing else, no version move; dropped from anyone else or with a `status`; `deferred` while the delivery is `pending`, refused `DELIVERY_VALIDATION` after 14 days); a registration never replaces a stored code, only `dropoffQrRenew: true` (the trucker's confirmed New drop-off code) does, and a code not stored answers `success` with the message `DROPOFF_CODE_SUPERSEDED` or `DROPOFF_CODE_NOT_STORED`; the buyer's `delivered` is checked against it once stored, with `DELIVERY_CODE_LOCKED` (renewable) for its lock and a new `deferred` text, without a signal, for a tagged scan whose nonce has not synced or that differs from the stored code but was scanned after it (`DELIVERY_NONCE_MISSING` after 14 days). Mobile queues the registration behind the pickup and on every open of the drop-off QR (never twice while waiting), and a renewal drops the drop-off codes still queued; web sends it at once and again on open and shows the `success` messages. Web names the trucker in the wait and lock texts when the server's text is the trucker's; the shared lock text no longer names the farmer. 1.57.0 is taken by another open branch. |
 | 1.57.0 | 2026-11-12 | Profile text on the `user` entity (SIM-56, `user-entity.md` 2.2.0): `displayName`, `woreda` and a company buyer's `companyName` beside `preferredLanguage`, at least one of the four; trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name (`USER_PROFILE_VALIDATION`), then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing. Every other key is still ignored. The read is `GET /user/profile` (not a sync pull) |
 | 1.56.0 | 2026-11-12 | `CROP_HAS_ACTIVE_ORDERS` whatever `COMMITMENTS_ENABLED` says (SIM-56, `crop-listing-api.md` 1.13.0 rule 10): a `crop_listing` delete, or an update to `status: deleted`, while an order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted` is refused in staging and prod too (the flag is off there), since a deleted listing refuses its delivery create and stranded such an order. An app without `X-App-Build` gets the `SYNC_VALIDATION:` sentence as before (FUP-241); an unreadable orders index is the same retryable unprefixed error. Clients already handle the code (1.17.0); the apps' own edit and delete now check first (SIM-56). `TRIP_HAS_BOOKINGS` stays behind the flag |
@@ -1607,4 +1648,4 @@ The buyer's confirm:
 ---
 
 **Last Updated**: 2026-11-13
-**Version**: 1.58.0
+**Version**: 1.59.0

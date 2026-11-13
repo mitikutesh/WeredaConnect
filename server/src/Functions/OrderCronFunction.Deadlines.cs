@@ -42,6 +42,15 @@ public partial class OrderCronFunction
     /// <summary>ESC-16: the statuses whose orders can carry a deadline of the index (the repair walk reads them).</summary>
     private static readonly string[] DeadlineStatuses = { "funded", OrderCommitment.AwaitingTransportStatus, "accepted" };
 
+    /// <summary>
+    /// ESC-36: the statuses of T8 and T9 (an order picked up with <c>dropoffClassification</c> on), walked by the
+    /// repair only while the flag is on, so with it off the walk reads what it read before.
+    /// </summary>
+    private static readonly string[] DropoffDeadlineStatuses = { "pickup_confirmed", "in_transit" };
+
+    private IEnumerable<string> RepairStatuses
+        => DropoffClassificationEnabled ? DeadlineStatuses.Concat(DropoffDeadlineStatuses) : DeadlineStatuses;
+
     /// <summary>A row due by its own state that the sweep could not act on (a rule mismatch to look into).</summary>
     internal const string DeadlineStuckToken = "ORDER_DEADLINE_STUCK";
 
@@ -117,6 +126,8 @@ public partial class OrderCronFunction
                 "funded" => await DecideFundedAsync(order, orderId, run, escrow, crops, trips),
                 "accepted" => await DecideAcceptedAsync(order, orderId, run, escrow, crops, trips),
                 OrderCommitment.AwaitingTransportStatus => await DecideAwaitingTransportAsync(order, orderId, run, escrow, crops),
+                // ESC-36: T8 and T9 of a delivery on the road.
+                "pickup_confirmed" or "in_transit" => await DecideOnTheRoadAsync(order, orderId, run, escrow),
                 _ => DeadlineOutcome.None
             };
 
@@ -265,13 +276,14 @@ public partial class OrderCronFunction
     /// whose stored one is missing or not the one its state gives, conditioned on the version read.
     /// It decides nothing: the next sweep acts on what it stamped. A row already right costs no write,
     /// so a pass that starts over after a partial one only re-reads. Then the watch partition
-    /// (<see cref="RepairWatchPartitionAsync"/>, FUP-170).
+    /// (<see cref="RepairWatchPartitionAsync"/>, FUP-170). ESC-36: with <c>dropoffClassification</c> on, also
+    /// the <c>pickup_confirmed</c> and <c>in_transit</c> partitions.
     /// </summary>
     private async Task<RepairPass> RunRepairPassAsync(ILambdaContext context, TimeSpan share)
     {
         var pass = new RepairPass();
         var slice = BudgetFactory().SliceUntil(share);
-        foreach (var status in DeadlineStatuses)
+        foreach (var status in RepairStatuses)
         {
             var rows = await _orderRepo.QueryByStatusForCronAsync(status) ?? new List<Dictionary<string, object>>();
             foreach (var row in rows)

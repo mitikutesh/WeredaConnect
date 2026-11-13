@@ -134,6 +134,10 @@ describe("admin queue label (ESC-06)", () => {
       for (const r of ["both_present_no_scan", "unchecked_check_in", "late_pickup_evidence"]) {
         expect(adminQueueLabel(r, tr)).not.toBe(r);
       }
+      // ESC-36: an overdue delivery or a silent buyer whose money could not be moved.
+      for (const r of ["delivery_overdue", "silent_buyer"]) {
+        expect(adminQueueLabel(r, tr)).not.toBe(r);
+      }
       expect(tr("transactions.adminQueue")).not.toBe("transactions.adminQueue");
       expect(tr("transactions.pickupDeadline")).not.toBe("transactions.pickupDeadline");
       expect(adminQueueLabel("t11_verdict", tr)).toBe("t11_verdict");

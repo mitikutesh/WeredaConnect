@@ -71,7 +71,7 @@ public static class PickupJudgement
         public const string UncheckedCheckIn = "unchecked_check_in";
     }
 
-    /// <summary>The check-in kinds of this ticket (<c>arrived_dropoff</c> comes with ESC-36).</summary>
+    /// <summary>The check-in kinds (<c>arrived_dropoff</c> is ESC-36's, see <see cref="DropoffJudgement"/>).</summary>
     public static class Kind
     {
         public const string ArrivedPickup = "arrived_pickup";
@@ -202,9 +202,13 @@ public static class PickupJudgement
 
     /// <summary>
     /// Parse and validate a <c>handoff_check_in</c> payload. Returns the problems (empty when valid);
-    /// <paramref name="checkIn"/> is set only when there are none.
+    /// <paramref name="checkIn"/> is set only when there are none. ESC-36: the kinds taken follow the flags,
+    /// <paramref name="pickupKinds"/> (<c>pickupClassification</c>) and <paramref name="dropoffKind"/>
+    /// (<c>dropoffClassification</c>); a kind whose flag is off is refused as before it existed.
     /// </summary>
-    public static List<string> Parse(string entityId, Dictionary<string, object> data, out ParsedCheckIn? checkIn)
+    public static List<string> Parse(
+        string entityId, Dictionary<string, object> data, out ParsedCheckIn? checkIn,
+        bool pickupKinds = true, bool dropoffKind = false)
     {
         checkIn = null;
         var errors = new List<string>();
@@ -226,13 +230,16 @@ public static class PickupJudgement
             errors.Add("orderId is required.");
         }
 
-        if (kind == Kind.ArrivedDropoff)
+        var taken = (pickupKinds ? new[] { Kind.ArrivedPickup, Kind.CropsReady } : Array.Empty<string>())
+            .Concat(dropoffKind ? new[] { Kind.ArrivedDropoff } : Array.Empty<string>())
+            .ToList();
+        if (kind == Kind.ArrivedDropoff && !dropoffKind)
         {
             errors.Add("arrived_dropoff is not taken yet (it comes with the drop-off check-in).");
         }
-        else if (kind is not (Kind.ArrivedPickup or Kind.CropsReady))
+        else if (kind == null || !taken.Contains(kind))
         {
-            errors.Add("kind must be arrived_pickup or crops_ready.");
+            errors.Add($"kind must be {string.Join(" or ", taken)}.");
         }
 
         if (!string.IsNullOrWhiteSpace(orderId) && !string.IsNullOrWhiteSpace(kind)
@@ -272,9 +279,9 @@ public static class PickupJudgement
                 accuracy = Bounded(accRaw!, "accuracyM", 0, MaxAccuracyM, errors);
             }
         }
-        else if (kind == Kind.ArrivedPickup)
+        else if (kind is Kind.ArrivedPickup or Kind.ArrivedDropoff)
         {
-            errors.Add("latitude and longitude are required for arrived_pickup.");
+            errors.Add($"latitude and longitude are required for {kind}.");
         }
 
         if (errors.Count == 0)
@@ -466,17 +473,26 @@ public static class PickupJudgement
             };
         }
 
+        // ESC-36: the trucker's drop-off check-in is stored on its own (dropoffCheckIn) and read as one more kind.
+        if (DropoffJudgement.ViewOf(order) is { } dropoff)
+        {
+            view ??= new Dictionary<string, Models.OrderCheckInDto>(StringComparer.Ordinal);
+            view[Kind.ArrivedDropoff] = dropoff;
+        }
+
         return view;
     }
 
     /// <summary>
     /// A sync result whose order row goes back to a client: the check-ins replaced by
-    /// <see cref="ViewOf"/> and the stamped pickup point left out. Any other result is returned unchanged.
+    /// <see cref="ViewOf"/> and the stamped pickup point left out (ESC-36: also the raw drop-off check-in and
+    /// the drop-off points stamped at pickup). Any other result is returned unchanged.
     /// </summary>
     public static Models.SyncOperationResult ForClient(Models.SyncOperationResult result)
     {
         if (result.ServerData is not { } row
-            || !(row.ContainsKey(CheckInsField) || row.ContainsKey(PickupLatitudeField) || row.ContainsKey(PickupLongitudeField)))
+            || !(row.ContainsKey(CheckInsField) || row.ContainsKey(PickupLatitudeField) || row.ContainsKey(PickupLongitudeField)
+                 || DropoffJudgement.HiddenFields.Any(row.ContainsKey)))
         {
             return result;
         }
@@ -485,6 +501,10 @@ public static class PickupJudgement
         scrubbed.Remove(PickupLatitudeField);
         scrubbed.Remove(PickupLongitudeField);
         scrubbed.Remove(CheckInsField);
+        foreach (var hidden in DropoffJudgement.HiddenFields)
+        {
+            scrubbed.Remove(hidden);
+        }
         if (ViewOf(row) is { } view)
         {
             var map = new Dictionary<string, object>(StringComparer.Ordinal);
