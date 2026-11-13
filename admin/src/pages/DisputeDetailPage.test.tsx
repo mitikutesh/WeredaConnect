@@ -576,6 +576,32 @@ describe("DisputeDetailPage evidence (FRD-14)", () => {
     expect(screen.getByText("Photo links expire after 15 minutes. Reload the page for new ones.")).toBeTruthy();
   });
 
+  it("FUP-373: an arrival photo attached on the overdue dispute is marked late with its attach time; one from the road is not", async () => {
+    mocks.evidence.data = {
+      ...evidence(),
+      delivery: {
+        ...evidence().delivery,
+        arrivalPhotoUrl: "https://signed.example/arrival.webp",
+        arrivalPhotoLateAt: "2026-10-30T07:15:00Z",
+      },
+    };
+    const user = await openTab(/^Photos/);
+
+    const panel = screen.getByRole("tabpanel");
+    expect(within(panel).getByRole("img", { name: "Arrival photo (the trucker, at the drop-off)" })).toBeTruthy();
+    expect(within(panel).getByText(`· ${formatDateTime("2026-10-30T07:15:00Z")}`, { exact: false })).toBeTruthy();
+    expect(within(panel).getByText("Attached late, after the delivery deadline, once this dispute was open.")).toBeTruthy();
+
+    mocks.evidence.data = {
+      ...evidence(),
+      delivery: { ...evidence().delivery, arrivalPhotoUrl: "https://signed.example/arrival.webp" },
+    };
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+    await user.click(screen.getByRole("tab", { name: /^Photos/ }));
+    expect(screen.getByRole("img", { name: "Arrival photo (the trucker, at the drop-off)" })).toBeTruthy();
+    expect(screen.queryByText("Attached late, after the delivery deadline, once this dispute was open.")).toBeNull();
+  });
+
   it("says the evidence is loading, and shows its error in the words of the code with a retry", async () => {
     mocks.evidence.isLoading = true;
     mocks.evidence.data = undefined;

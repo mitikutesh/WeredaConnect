@@ -6546,7 +6546,8 @@ public partial class SyncFunction
     /// Uses server-authoritative state machine and commission calculation. LT-12: the order row a
     /// result carries back leaves out the drop-off note when the caller may not read it
     /// (<see cref="OrderDropoffNote.ForCaller"/>); LT-14: the same for the order's drop-off point, by
-    /// its own rule (<see cref="OrderDeliveryLocation.ForCaller"/>).
+    /// its own rule (<see cref="OrderDeliveryLocation.ForCaller"/>). FUP-370: a party's row of an order waiting
+    /// for T9 carries <c>dropoffConfirmAt</c> (<see cref="DropoffJudgement.WithConfirmAt"/>).
     /// </summary>
     private async Task<SyncOperationResult> ProcessOrderAsync(
         SyncOperationRequest operation,
@@ -6565,10 +6566,15 @@ public partial class SyncFunction
                 Message = $"ORDER_VALIDATION: Invalid action '{operation.Action}' for orders. Allowed: create, update."
             }
         };
-        // ESC-34: the check-ins as the parties read them, without the stamped pickup point.
-        return PickupJudgement.ForClient(
-            OrderDeliveryLocation.ForCaller(OrderDropoffNote.ForCaller(result, authenticatedUserId), authenticatedUserId));
+        // ESC-34: the check-ins as the parties read them, without the stamped pickup point. FUP-370: T9 is read
+        // from the stored check-in, so before that.
+        return PickupJudgement.ForClient(DropoffJudgement.WithConfirmAt(
+            OrderDeliveryLocation.ForCaller(OrderDropoffNote.ForCaller(result, authenticatedUserId), authenticatedUserId),
+            authenticatedUserId, DropoffJudgementOn ? OrderTimingsSource : null));
     }
+
+    /// <summary>FUP-370: the order timings T9 is computed with; this container's SSM values (tests set others).</summary>
+    internal Func<OrderTimings> OrderTimingsSource { get; init; } = static () => OrderTimings.Current;
 
     /// <summary>
     /// Best-effort emit to the unified transaction-audit trail using the current

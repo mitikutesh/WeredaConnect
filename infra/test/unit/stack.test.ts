@@ -2074,6 +2074,19 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     });
   });
 
+  test('FUP-370: the orders browse carries both drop-off judgement flags (dropoffConfirmAt) and reads the order timings', () => {
+    buildTemplate(false).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-orders',
+      Environment: {
+        Variables: Match.objectLike({
+          COMMITMENTS_ENABLED: 'true',
+          DROPOFF_CLASSIFICATION_ENABLED: 'false',
+          ORDER_TIMINGS_PARAM_PATH: Match.anyValue(),
+        }),
+      },
+    });
+  });
+
   test('ON: the webhook reads and updates trips to reserve a funded order\'s capacity (ESC-15)', () => {
     const t = buildTemplate(true);
     t.hasResourceProperties('AWS::Lambda::Function', {
@@ -2466,14 +2479,14 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
     }
   });
 
-  test('ESC-36: every environment keeps the drop-off judgement off on sync, deliveries, order-cron and admin', () => {
+  test('ESC-36: every environment keeps the drop-off judgement off on sync, deliveries, order-cron, admin and orders', () => {
     const templates: [string, ReturnType<typeof liveTemplate>][] = [
       ['dev', liveTemplate(environments['dev'])],
       ['staging', liveTemplate(environments['staging'])],
       ['prod', liveTemplate(environments['prod'])],
     ];
     for (const [envName, template] of templates) {
-      for (const fn of ['sync', 'deliveries', 'order-cron', 'admin']) {
+      for (const fn of ['sync', 'deliveries', 'order-cron', 'admin', 'orders']) {
         template.hasResourceProperties('AWS::Lambda::Function', {
           FunctionName: `wereda-connect-${envName}-${fn}`,
           Environment: { Variables: Match.objectLike({ DROPOFF_CLASSIFICATION_ENABLED: 'false' }) },

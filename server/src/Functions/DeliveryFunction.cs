@@ -551,7 +551,9 @@ public class DeliveryFunction
     /// cancelled, and a type whose photo is attached already gets no new URL. The photo is attached
     /// afterwards by a <c>delivery_photo</c> sync operation, which checks the object again.
     /// ESC-36: with <c>dropoffClassification</c> on, also the trucker's <c>arrival</c> photo, only while the
-    /// delivery is on the road (<c>pickedUp</c> or <c>inTransit</c>); with it off the type does not exist.
+    /// delivery is on the road (<c>pickedUp</c> or <c>inTransit</c>), or (FUP-373) held in the order cron's T8
+    /// dispute no admin has decided yet (<see cref="DropoffJudgement.TakesArrivalPhoto"/>); with the flag off the
+    /// type does not exist.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleUploadPhotoAsync(
         APIGatewayProxyRequest request,
@@ -640,9 +642,9 @@ public class DeliveryFunction
                 });
             }
 
-            // ESC-36: the arrival photo is taken at the drop-off, so only while the goods are on the road.
-            if (photoType == DeliveryPhotoKeys.Arrival
-                && !DropoffJudgement.OnTheRoadDeliveryStatuses.Contains(GetStringOrNull(delivery, "status") ?? ""))
+            // ESC-36: the arrival photo is taken at the drop-off, so only while the goods are on the road;
+            // FUP-373: or as late evidence on the T8 dispute no admin has decided (an offline check-in synced late).
+            if (photoType == DeliveryPhotoKeys.Arrival && !DropoffJudgement.TakesArrivalPhoto(delivery))
             {
                 return LambdaResponse.Error(409, "DELIVERY_PHOTO_REFUSED", "The arrival photo is taken while the goods are on the road.");
             }
@@ -728,6 +730,7 @@ public class DeliveryFunction
             PickupPhotoRef = GetStringOrNull(item, "pickupPhotoRef"),
             DropoffPhotoRef = GetStringOrNull(item, "dropoffPhotoRef"),
             ArrivalPhotoRef = GetStringOrNull(item, "arrivalPhotoRef"),
+            ArrivalPhotoLateAt = GetStringOrNull(item, DropoffJudgement.ArrivalPhotoLateAtField),
             AutoConfirmedAt = GetStringOrNull(item, DropoffJudgement.AutoConfirmedAtField),
             PickedUpAt = GetStringOrNull(item, "pickedUpAt"),
             ConfirmedAt = GetStringOrNull(item, "confirmedAt"),

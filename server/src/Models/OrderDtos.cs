@@ -266,6 +266,14 @@ public sealed record OrderDto
     /// <summary>ESC-36: T8, the pickup plus 72 hours: without a drop-off check-in by then the delivery is overdue.</summary>
     public string? DropoffDeadlineAt { get; init; }
 
+    /// <summary>
+    /// FUP-370 (order-lifecycle 2.22.0): T9, the trucker's counted drop-off check-in plus the SSM
+    /// <c>silent-buyer-hours</c> (48 by default): if the buyer has neither confirmed nor disputed by then, the
+    /// order cron decides the delivery for them. Only to the order's parties while it is on the road and
+    /// <c>dropoffJudgement</c> is <c>pending</c> with <c>dropoffClassification</c> on; computed on every read.
+    /// </summary>
+    public string? DropoffConfirmAt { get; init; }
+
     /// <summary>ESC-36: why the system disputed the order: <c>delivery_overdue</c> (T8) or <c>silent_buyer</c> (T9).</summary>
     public string? DisputeReason { get; init; }
 

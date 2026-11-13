@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
@@ -30,6 +31,23 @@ class MockTripListingBloc extends Mock implements TripListingBloc {}
 class MockDeliveryBloc extends Mock implements DeliveryBloc {}
 
 class MockTripRepository extends Mock implements BaseTripListingRepository {}
+
+/// FUP-374: the own-trip pull, standing in for the server answer landing in
+/// the phone's store ([onPull]); [fail] is offline.
+class _FakeOwnTripSync extends Fake implements MarketplaceSync {
+  _FakeOwnTripSync({this.onPull, this.fail = false});
+
+  final void Function()? onPull;
+  final bool fail;
+  final List<String> pulls = [];
+
+  @override
+  Future<void> pullOwnTrips({required String truckerId}) async {
+    pulls.add(truckerId);
+    if (fail) throw Exception('offline');
+    onPull?.call();
+  }
+}
 
 /// The Trucker · Home board's trip card, one dark card for every trip state.
 /// The live sharing states are covered with the engine in
@@ -116,6 +134,55 @@ void main() {
 
     expect(find.text('Matched'), findsOneWidget);
     expect(find.text("Scan each farmer's QR at pickup"), findsOneWidget);
+  });
+
+  // FUP-374: on mobile the card pulls the trucker's own trips before it
+  // reads them, so a trip the server moved (open or matched again after an
+  // admin's no-show re-open) shows instead of the stored cancelled copy.
+  group('the own-trip pull', () {
+    Widget buildCardWith(MarketplaceSync sync) => MultiProvider(
+          providers: [
+            BlocProvider<TripListingBloc>.value(value: bloc),
+            Provider<MarketplaceSync?>.value(value: sync),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(body: TruckerHeroCard(userId: 'trucker-001')),
+          ),
+        );
+
+    testWidgets('a trip the server opened again shows after the pull',
+        (tester) async {
+      // Stored as cancelled, the trip is not the card's trip until the pull
+      // brings the server's matched copy.
+      Trip? stored;
+      when(() => repository.getMostRelevantTrip('trucker-001'))
+          .thenAnswer((_) async => stored);
+      final sync = _FakeOwnTripSync(
+        onPull: () => stored = trip(status: TripStatus.matched),
+      );
+
+      await tester.pumpWidget(buildCardWith(sync));
+      await tester.pumpAndSettle();
+
+      expect(sync.pulls, ['trucker-001']);
+      expect(find.text('Meki → Addis Ababa'), findsOneWidget);
+      expect(find.text('Matched'), findsOneWidget);
+    });
+
+    testWidgets('offline, the stored trip shows', (tester) async {
+      when(() => repository.getMostRelevantTrip('trucker-001'))
+          .thenAnswer((_) async => trip());
+      final sync = _FakeOwnTripSync(fail: true);
+
+      await tester.pumpWidget(buildCardWith(sync));
+      await tester.pumpAndSettle();
+
+      expect(sync.pulls, ['trucker-001']);
+      expect(find.text('Meki → Addis Ababa'), findsOneWidget);
+      expect(find.byKey(const Key('trucker_hero_load_failed')), findsNothing);
+    });
   });
 
   testWidgets('a trip on the road without the engine shows its state',

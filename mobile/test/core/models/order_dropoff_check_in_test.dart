@@ -69,6 +69,7 @@ void main() {
         'dropoffJudgement': 'pending',
         'dropoffJudgedAt': '2026-11-23T10:00:00.000Z',
         'dropoffDeadlineAt': '2026-11-24T08:00:00+03:00',
+        'dropoffConfirmAt': '2026-11-23T18:10:00.0000000Z',
         'disputeReason': 'delivery_overdue',
         'checkIns': {
           'arrived_dropoff': {
@@ -84,6 +85,8 @@ void main() {
       expect(order.dropoffJudgedAt, DateTime.utc(2026, 11, 23, 10));
       expect(order.dropoffDeadlineAt, DateTime.utc(2026, 11, 24, 5));
       expect(order.dropoffDeadlineAt!.isUtc, isTrue);
+      expect(order.dropoffConfirmAt, DateTime.utc(2026, 11, 23, 18, 10));
+      expect(order.dropoffConfirmAt!.isUtc, isTrue);
       expect(order.disputeReason, 'delivery_overdue');
       final checkIn = dropoffCheckInOf(order)!;
       expect(checkIn.receivedAt, DateTime.utc(2026, 11, 22, 6, 10));
@@ -94,11 +97,13 @@ void main() {
     test('a row without them clears the device copy', () {
       final order = _order()
         ..disputeReason = 'silent_buyer'
+        ..dropoffConfirmAt = _now
         ..checkIns = [_dropoff()];
       applyOrderCheckInFields(order, {'dropoffJudgement': ''});
 
       expect(order.dropoffJudgement, isNull);
       expect(order.dropoffDeadlineAt, isNull);
+      expect(order.dropoffConfirmAt, isNull);
       expect(order.dropoffJudgedAt, isNull);
       expect(order.disputeReason, isNull);
       expect(order.checkIns, isEmpty);
@@ -261,6 +266,39 @@ void main() {
       );
     });
 
+    test('the server\'s T9 wins over the 48 hour estimate (FUP-370)', () {
+      final received = _now.subtract(const Duration(hours: 2));
+      // silent-buyer-hours set to 30 on the server.
+      final serverT9 = received.add(const Duration(hours: 30));
+      final order = _order()
+        ..checkIns = [_dropoff(receivedAt: received)]
+        ..dropoffConfirmAt = serverT9;
+
+      expect(silentBuyerConfirmsAt(order), serverT9);
+    });
+
+    test(
+        'a stale server T9 is not shown once the order is judged or off the '
+        'road', () {
+      final serverT9 = _now.add(const Duration(hours: 30));
+      expect(
+        silentBuyerConfirmsAt(
+          _order(judgement: DropoffJudgementOutcome.silentBuyer)
+            ..checkIns = [_dropoff()]
+            ..dropoffConfirmAt = serverT9,
+        ),
+        isNull,
+      );
+      expect(
+        silentBuyerConfirmsAt(
+          _order(status: OrderStatus.delivered)
+            ..checkIns = [_dropoff()]
+            ..dropoffConfirmAt = serverT9,
+        ),
+        isNull,
+      );
+    });
+
     test('none for a late check-in, one after T8, or a judged order', () {
       expect(
         silentBuyerConfirmsAt(_order()..checkIns = [_dropoff(late: true)]),
@@ -308,8 +346,12 @@ void main() {
           AppErrorCode.dropoffCheckInNotOpen,
       'CHECKIN_NOT_PARTY: Only the order\'s trucker checks in at the '
           'drop-off.': AppErrorCode.dropoffCheckInNotParty,
+      // FUP-373: the drop-off flag rolled back while the pickup flag stays
+      // on: not open, not the update-the-app text.
       'CHECKIN_VALIDATION: arrived_dropoff is not taken yet (it comes with '
-          'the drop-off check-in).': AppErrorCode.checkInNotSaved,
+          'the drop-off check-in).': AppErrorCode.dropoffCheckInNotOpen,
+      'CHECKIN_VALIDATION: latitude and longitude are required for '
+          'arrived_dropoff.': AppErrorCode.checkInNotSaved,
       "Unsupported entity type: 'handoff_check_in'.":
           AppErrorCode.dropoffCheckInNotOpen,
     };
@@ -379,8 +421,19 @@ void main() {
       );
       expect(
         localizeErrorCode(AppErrorCode.dropoffCheckInTooFar, en),
-        contains('closer'),
+        contains('Check in again'),
       );
+      // FUP-373: about the check-in and the order's drop-off point, never
+      // that the trucker was far away (the buyer's pin may be wrong, FUP-204).
+      for (final text in [
+        localizeErrorCode(AppErrorCode.dropoffCheckInTooFar, en),
+        localizeErrorCode(AppErrorCode.dropoffCheckInTooFarKept, en),
+        en.dropoffJudgementOutOfRange,
+      ]) {
+        expect(text, contains("check-in was more than 5 km from the order's"));
+        expect(text, isNot(contains('You are')));
+        expect(text, isNot(contains('tried to check in but')));
+      }
       expect(
         localizeErrorCode(AppErrorCode.dropoffCheckInTooLate, en),
         contains('kept for review'),

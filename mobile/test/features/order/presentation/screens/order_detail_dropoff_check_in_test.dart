@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
@@ -17,6 +18,7 @@ import 'package:wereda_connect/core/models/order_dropoff_check_in.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
@@ -438,6 +440,51 @@ void main() {
           findsOneWidget,
         );
         expect(find.text(en.dropoffCheckInButton), findsNothing);
+      });
+
+      testWidgets(
+          'all three parties: the window ends at the server\'s T9, not 48 '
+          'hours after the check-in (FUP-370)', (tester) async {
+        final received =
+            DateTime.now().toUtc().subtract(const Duration(hours: 1));
+        // silent-buyer-hours set to 30 on the server.
+        final serverT9 = received.add(const Duration(hours: 30));
+        final estimate = received.add(silentBuyerWindow);
+        for (final (role, userId, sentence) in [
+          (UserRole.buyer, 'buyer-001', 'may be confirmed for you'),
+          (UserRole.farmer, 'farmer-001', 'may be confirmed for them'),
+          (UserRole.trucker, 'trucker-001', 'may be confirmed for them'),
+        ]) {
+          await show(
+            tester,
+            _order()
+              ..checkIns = [_dropoff(receivedAt: received)]
+              ..dropoffConfirmAt = serverT9,
+            role,
+            userId,
+            platform: platform,
+          );
+
+          // The harness has no SettingsProvider: the card reads Auto.
+          final clock = ClockFormat.resolve(en, ClockPreference.auto);
+          String at(DateTime t) => clock.dateTime(t, date: DateFormat.MMMd());
+          final note = find.byKey(const Key('dropoff_check_in_note'));
+          expect(
+            find.descendant(of: note, matching: textWith(sentence)),
+            findsOneWidget,
+            reason: role.name,
+          );
+          expect(
+            find.descendant(of: note, matching: textWith(at(serverT9))),
+            findsOneWidget,
+            reason: role.name,
+          );
+          expect(
+            find.descendant(of: note, matching: textWith(at(estimate))),
+            findsNothing,
+            reason: role.name,
+          );
+        }
       });
 
       testWidgets('farmer: waits for the trucker, then reads the buyer window',

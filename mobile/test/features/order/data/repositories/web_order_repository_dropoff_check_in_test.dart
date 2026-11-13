@@ -123,6 +123,28 @@ void main() {
     expect(dropoffCheckInOf(order)!.distanceChecked, isFalse);
   });
 
+  test('reads the server\'s T9 and shows it over the estimate (FUP-370)',
+      () async {
+    final received = DateTime.now().toUtc().subtract(const Duration(hours: 2));
+    final serverT9 = received.add(const Duration(hours: 30));
+    serverHas(
+      orderDto(
+        checkIns: {
+          'arrived_dropoff': {
+            'receivedAt': received.toIso8601String(),
+            'distanceChecked': true,
+            'late': false,
+          },
+        },
+      )..['dropoffConfirmAt'] = serverT9.toIso8601String(),
+    );
+
+    final order = (await repo.getOrderById('ord-1'))!;
+
+    expect(order.dropoffConfirmAt, serverT9);
+    expect(silentBuyerConfirmsAt(order), serverT9);
+  });
+
   test('the photo is attached first, then the check-in goes', () async {
     serverHas(orderDto());
 

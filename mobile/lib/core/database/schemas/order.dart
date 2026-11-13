@@ -215,6 +215,13 @@ class Order {
   /// drop-off check-in by then the delivery is disputed as overdue.
   DateTime? dropoffDeadlineAt;
 
+  /// FUP-370 (order-lifecycle 2.22.0): T9 (UTC) as the server computes it,
+  /// the trucker's counted drop-off check-in plus the SSM `silent-buyer-hours`.
+  /// Sent only while the order is on the road and [dropoffJudgement] is
+  /// `pending` after that check-in; null otherwise, and from a server before
+  /// it (the client then shows its 48 hour estimate). Server-written.
+  DateTime? dropoffConfirmAt;
+
   /// ESC-36: why the system disputed the order (`delivery_overdue`,
   /// `dropoff_out_of_range`, `silent_buyer`). Server-written.
   String? disputeReason;

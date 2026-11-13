@@ -58,6 +58,19 @@ bool isCheckInAttemptKeptMessage(String? message) =>
     message.startsWith(CheckInRefusal.tooFar) &&
     message.trimRight().endsWith(checkInAttemptKeptSuffix);
 
+/// The words of the `CHECKIN_VALIDATION` a server with `dropoffClassification`
+/// off gives an `arrived_dropoff` (`sync-protocol.md` 1.59.0): the drop-off
+/// flag was rolled back while `pickupClassification` stays on, so the entity
+/// exists but the kind does not (FUP-373).
+const String dropoffKindNotTakenText = 'arrived_dropoff is not taken yet';
+
+/// Whether a drop-off check-in was refused because the server takes no
+/// drop-off check-ins now: not open, not a fault of this build.
+bool isDropoffKindNotTakenMessage(String? message) =>
+    message != null &&
+    message.startsWith(CheckInRefusal.validation) &&
+    message.contains(dropoffKindNotTakenText);
+
 /// Data key of a queued drop-off check-in naming its delivery (FUP-336). A
 /// `_` key: the sync executor never sends it (`wireOperationData`); the
 /// phone's preflight holds the check-in back while the arrival photo of that

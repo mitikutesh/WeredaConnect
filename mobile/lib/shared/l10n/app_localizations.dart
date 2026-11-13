@@ -10133,10 +10133,10 @@ abstract class AppLocalizations {
   /// **'No drop-off check-in arrived by the delivery deadline. Support is looking into it and the money stays held.'**
   String get dropoffJudgementDeliveryOverdue;
 
-  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome dropoff_out_of_range (T8 dispute after an out-of-range attempt)
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome dropoff_out_of_range (T8 dispute after an out-of-range attempt). FUP-373: says the check-in was far from the order's drop-off point, not that the trucker was far away (the buyer's pin may be wrong, FUP-204).
   ///
   /// In en, this message translates to:
-  /// **'The trucker tried to check in but was more than 5 km from the drop-off. Support is looking into it and the money stays held.'**
+  /// **'The trucker\'s check-in was more than 5 km from the order\'s drop-off point. Support is looking into it and the money stays held.'**
   String get dropoffJudgementOutOfRange;
 
   /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome queued (the admin queue, nothing moved)
@@ -10169,16 +10169,16 @@ abstract class AppLocalizations {
   /// **'Only the order\'s trucker checks in at the drop-off. Your check-in was not saved.'**
   String get errorDropoffCheckInNotParty;
 
-  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_FAR at the drop-off
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_FAR at the drop-off. FUP-373: says the check-in was far from the order's drop-off point, not that the trucker was far away (the buyer's pin may be wrong, FUP-204).
   ///
   /// In en, this message translates to:
-  /// **'You are more than 5 km from the drop-off. Your check-in was not saved, so check in again when you are closer.'**
+  /// **'Your check-in was more than 5 km from the order\'s drop-off point, so it was not saved. Check in again nearer that point.'**
   String get errorDropoffCheckInTooFar;
 
-  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_FAR at the drop-off whose attempt the server kept for review (message ends The attempt was kept for review.)
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_FAR at the drop-off whose attempt the server kept for review (message ends The attempt was kept for review.) FUP-373: says the check-in was far from the order's drop-off point, not that the trucker was far away (the buyer's pin may be wrong, FUP-204).
   ///
   /// In en, this message translates to:
-  /// **'You are more than 5 km from the drop-off. Your check-in was not saved, but this attempt was kept for review. Check in again when you are closer.'**
+  /// **'Your check-in was more than 5 km from the order\'s drop-off point, so it was not saved, but this attempt was kept for review. Check in again nearer that point.'**
   String get errorDropoffCheckInTooFarKept;
 
   /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_LATE at the drop-off: after T8, kept as late evidence

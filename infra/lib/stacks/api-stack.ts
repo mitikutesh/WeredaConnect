@@ -1980,6 +1980,10 @@ export class ApiStack extends cdk.Stack {
         // ESC-48: the parties' phone numbers of an order whose contact is open, read at request time.
         USERS_TABLE: props.usersTable.tableName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
+        // FUP-370: with both on (as on sync and order-cron), a party's order waiting for T9 carries
+        // dropoffConfirmAt, computed with the order timings (silent-buyer-hours) read below.
+        DROPOFF_CLASSIFICATION_ENABLED: dropoffClassification,
+        COMMITMENTS_ENABLED: commitmentsEnabled,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,

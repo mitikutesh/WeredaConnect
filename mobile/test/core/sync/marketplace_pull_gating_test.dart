@@ -37,6 +37,13 @@ class _SpyMarketplaceSync implements MarketplaceSync {
   @override
   Future<void> pullTrips() async => trips++;
 
+  /// FUP-374: the trucker ids the own-trip pull was asked for.
+  final List<String> ownTrips = [];
+
+  @override
+  Future<void> pullOwnTrips({required String truckerId}) async =>
+      ownTrips.add(truckerId);
+
   @override
   Future<void> pullDeliveries() async => deliveries++;
 
@@ -119,22 +126,32 @@ void main() {
       bloc.add(const LoadOpenTrips());
       await waitFor(() => bloc.state is TripsLoaded);
       expect(spy.trips, 1);
+      expect(spy.ownTrips, isEmpty);
     });
 
-    test('LoadTrips (Trucker own trips) does NOT pull', () async {
+    // FUP-374: the trucker's list pulls the trucker's own trips (every
+    // status), never the market.
+    test(
+        'LoadTrips (Trucker own trips) pulls only the trucker\'s own trips, '
+        'not the market', () async {
       final bloc = build();
       addTearDown(bloc.close);
       bloc.add(const LoadTrips(truckerId: 'trucker-1'));
       await waitFor(() => bloc.state is TripsLoaded);
       expect(spy.trips, 0, reason: 'a Trucker must not pull the whole market');
+      expect(spy.all, 0);
+      expect(spy.ownTrips, ['trucker-1']);
     });
 
-    test('FilterTrips (Trucker own trips) does NOT pull', () async {
+    test(
+        'FilterTrips (Trucker own trips) pulls only the trucker\'s own trips, '
+        'not the market', () async {
       final bloc = build();
       addTearDown(bloc.close);
       bloc.add(const FilterTrips(truckerId: 'trucker-1', fromWoreda: 'Adama'));
       await waitFor(() => bloc.state is TripsLoaded);
       expect(spy.trips, 0);
+      expect(spy.ownTrips, ['trucker-1']);
     });
   });
 }

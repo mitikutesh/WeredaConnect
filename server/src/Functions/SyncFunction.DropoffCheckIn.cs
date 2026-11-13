@@ -18,7 +18,8 @@ namespace WeredaConnect.Server.Functions;
 ///   attached (<c>delivery_photo</c> <c>{deliveryId}#arrival</c>). The first one is kept in the order's
 ///   <c>dropoffCheckIn</c> with the server's receipt time; the write moves neither the version nor
 ///   <c>updatedAt</c>, but it moves the next deadline from T8 to T9. One received after T8 is kept as late
-///   evidence and never counted. With the flag off the kind does not exist.
+///   evidence and never counted, with or without the photo (FUP-373; one more than 5 km away as a late
+///   <c>dropoffAttempt</c>), until an admin decides the delivery's dispute. With the flag off the kind does not exist.
 /// The judgements run in the order cron (<see cref="DropoffJudgement.Decide"/>).
 /// </summary>
 public partial class SyncFunction
@@ -144,8 +145,18 @@ public partial class SyncFunction
             return CheckInResult(operation, $"{PickupJudgement.NotOpenCode}: This delivery is no longer on the road.");
         }
 
-        // Spec 4.8: the check-in needs the trucker's arrival photo, attached before it.
-        if (string.IsNullOrEmpty(AttrString(delivery, DeliveryPhotoKeys.FieldOf(DeliveryPhotoKeys.Arrival))))
+        // FUP-373: the verdict never changes dropoffJudgement, so once an admin decided the dispute (the delivery's
+        // disputeResolution) late evidence has nothing left to inform: closed.
+        var late = window == CheckInWindow.Late;
+        if (late && AttrString(delivery, DropoffJudgement.DisputeResolutionField).Length > 0)
+        {
+            return CheckInResult(operation, $"{PickupJudgement.NotOpenCode}: The delivery's dispute was decided.");
+        }
+
+        // Spec 4.8: the check-in needs the trucker's arrival photo, attached before it. FUP-373: not a late one,
+        // which is evidence only and never counted: a check-in made offline at the drop-off before T8 and synced
+        // after the T8 run is kept late whether or not its photo got through (the photo is evidence of its own).
+        if (!late && string.IsNullOrEmpty(AttrString(delivery, DeliveryPhotoKeys.FieldOf(DeliveryPhotoKeys.Arrival))))
         {
             return CheckInResult(operation,
                 $"{DropoffJudgement.PhotoRequiredCode}: Take the arrival photo first, then check in at the drop-off.");
@@ -167,19 +178,29 @@ public partial class SyncFunction
         // own point on a trip without a destination) the check-in is kept unmeasured, and a silent buyer's
         // delivery is then never confirmed automatically (T9 disputes it instead).
         var distanceKm = DropoffJudgement.NearestKm(checkIn.Latitude!.Value, checkIn.Longitude!.Value, points);
-        var late = window == CheckInWindow.Late;
         if (distanceKm is { } km && km > PickupJudgement.RadiusKm)
         {
             // FUP-204: the only point may be the buyer's own pin, which the buyer set. The first such attempt (photo
             // attached, before T8) is kept as server-only evidence: at T8 it sends the order to an admin instead
             // of the overdue dispute, so a pin far from where the buyer really is cannot cost the trucker.
-            var attemptKept = !late && await KeepDropoffAttemptAsync(
-                orderId, PickupJudgement.Entry(checkIn, callerId, nowUtc, distanceKm, late: false), context);
+            // FUP-373: a late one is kept the same way when no attempt is stored (late: true, the photo not needed):
+            // received after T8 it never counts there (CountedAttempt), so it changes no outcome, but the admin
+            // deciding the dispute sees where the trucker was.
+            var attemptKept = await KeepDropoffAttemptAsync(
+                orderId, PickupJudgement.Entry(checkIn, callerId, nowUtc, distanceKm, late), late, context);
             if (attemptKept)
             {
                 var attemptStatus = ItemString(order, "status");
                 await EmitTxAuditAsync(context, orderId, "order", orderId, "handoff_check_in", attemptStatus, attemptStatus,
-                    metadata: $"kind={PickupJudgement.Kind.ArrivedDropoff};outOfRange=true;distanceKm={DropoffJudgement.Km(km)}");
+                    metadata: $"kind={PickupJudgement.Kind.ArrivedDropoff};outOfRange=true;distanceKm={DropoffJudgement.Km(km)}"
+                              + (late ? ";late=true" : string.Empty));
+            }
+
+            if (late && attemptKept)
+            {
+                context.Logger.LogInformation(
+                    $"CHECKIN_LATE orderId={MoneyAlarmLog.LogId(orderId)} kind={PickupJudgement.Kind.ArrivedDropoff} outOfRange=true");
+                return DropoffTooLateResult(operation);
             }
 
             return CheckInResult(operation,
@@ -248,7 +269,8 @@ public partial class SyncFunction
     /// <see cref="CheckInWindow.Open"/> while the order is on the road, waiting for its judgement, and the
     /// server clock is not past T8; <see cref="CheckInWindow.Late"/> once T8 passed, or after the overdue
     /// judgement (or its admin queue entry); <see cref="CheckInWindow.Closed"/> otherwise (delivered,
-    /// disputed by a party, or judged at T9).
+    /// disputed by a party, or judged at T9). FUP-373: a Late one whose delivery's dispute an admin decided is
+    /// closed by the caller (the verdict is on the delivery, not here).
     /// </summary>
     private static CheckInWindow DropoffWindowOf(Dictionary<string, object> order, DateTime nowUtc)
     {
@@ -292,12 +314,17 @@ public partial class SyncFunction
         return points;
     }
 
-    /// <summary>FUP-204: keep the out-of-range attempt (best effort; false when it was not stored).</summary>
-    private async Task<bool> KeepDropoffAttemptAsync(string orderId, Dictionary<string, object> entry, ILambdaContext context)
+    /// <summary>
+    /// FUP-204: keep the out-of-range attempt (best effort; false when it was not stored). FUP-373: a
+    /// <paramref name="late"/> one whatever the judgement, an on-time one only while the judgement is pending.
+    /// </summary>
+    private async Task<bool> KeepDropoffAttemptAsync(string orderId, Dictionary<string, object> entry, bool late, ILambdaContext context)
     {
         try
         {
-            return await _orderRepo.TryRecordDropoffAttemptAsync(orderId, entry);
+            return late
+                ? await _orderRepo.TryRecordLateDropoffAttemptAsync(orderId, entry)
+                : await _orderRepo.TryRecordDropoffAttemptAsync(orderId, entry);
         }
         catch (Exception ex)
         {

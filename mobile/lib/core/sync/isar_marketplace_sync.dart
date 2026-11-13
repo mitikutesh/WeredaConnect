@@ -15,6 +15,7 @@ import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/dropoff_check_in_preflight.dart';
 import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
@@ -53,6 +54,11 @@ class IsarMarketplaceSync implements MarketplaceSync {
   DateTime? _lastTripPull;
   DateTime? _lastDeliveryPull;
   DateTime? _lastOrderPull;
+  DateTime? _lastOwnTripPull;
+
+  /// The trucker [_lastOwnTripPull] was for: another account signed in on
+  /// the same phone is not throttled by the last one's pull.
+  String? _lastOwnTripTruckerId;
 
   IsarMarketplaceSync({
     required ApiClient api,
@@ -98,6 +104,58 @@ class IsarMarketplaceSync implements MarketplaceSync {
     // (before trip-listing-api 2.3.0) forgets the old value.
     await _orderLeadStore.write(orderLeadHours);
     _lastTripPull = DateTime.now();
+  }
+
+  /// FUP-374: the trucker's own trips with the status the server holds. The
+  /// server moves a trucker's trip without any upload from this phone
+  /// (`matched` at a funding, `delivered`, an admin's no-show re-open that
+  /// opens a trip the order cron closed as `open` or `matched` again,
+  /// trip-listing-api 2.7.0), and a phone that learned of the close from a
+  /// conflict answer holds the row as `cancelled` and refuses to start it.
+  /// Server wins as in [pullOrders]: a row with a trip upload still on its
+  /// way is skipped (its own outcome settles it), and a server copy older
+  /// than the stored row (the trucker index lags a change just synced) is
+  /// skipped. The place ids, which only this phone keeps, stay on the row.
+  /// Nothing is deleted: the server does not list cancelled trips, so a
+  /// missing trip says nothing. A trip of another trucker in the answer is
+  /// never stored.
+  @override
+  Future<void> pullOwnTrips({required String truckerId}) async {
+    if (truckerId.isEmpty) return;
+    if (_lastOwnTripTruckerId == truckerId && _isFresh(_lastOwnTripPull)) {
+      return;
+    }
+    final trips = await _fetchOwnTrips(truckerId);
+
+    await _isar.writeTxn(() async {
+      // Read inside the write so a change queued while the request was in
+      // flight wins over the server copy.
+      final openTripUploads = (await _isar.syncOperations
+              .filter()
+              .entityTypeEqualTo('trip')
+              .not()
+              .statusEqualTo(SyncStatus.synced)
+              .findAll())
+          .where((op) => !SyncQueue.isRejected(op))
+          .map((op) => op.entityId)
+          .toSet();
+      for (final trip in trips) {
+        if (trip.tripId.isEmpty || trip.truckerId != truckerId) continue;
+        if (openTripUploads.contains(trip.tripId)) continue;
+        final existing =
+            await _isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+        if (existing != null) {
+          if (trip.version < existing.version) continue;
+          trip
+            ..id = existing.id
+            ..fromPlaceId = existing.fromPlaceId
+            ..toPlaceId = existing.toPlaceId;
+        }
+        await _isar.trips.put(trip);
+      }
+    });
+    _lastOwnTripPull = DateTime.now();
+    _lastOwnTripTruckerId = truckerId;
   }
 
   @override
@@ -224,18 +282,30 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// with the rejected operation: the order is read again ([pullOrder], best
   /// effort), so a late one the server kept for review, or the judgement,
   /// shows; a drop-off check-in refused for its missing arrival photo also
-  /// forgets the photo path the phone kept ([_forgetArrivalPhoto], FUP-336).
-  /// Other entity types are left alone.
+  /// forgets the photo path the phone kept ([_forgetArrivalPhoto], FUP-336),
+  /// and so does the arrival photo's own `delivery_photo` refused for good
+  /// (FUP-373: the executor hands it over without announcing it), only when
+  /// the kept path is that operation's file. Other entity types are left
+  /// alone.
   Future<void> revertRejected(SyncOperation operation, String message) async {
     if (operation.entityType == 'delivery') {
       await _revertRejectedDelivery(operation);
+      return;
+    }
+    if (operation.entityType == deliveryPhotoEntityType) {
+      final photo = parseDeliveryPhotoEntityId(operation.entityId);
+      final path = _photoOperationPath(operation.data);
+      if (photo != null && photo.type == arrivalPhotoType && path != null) {
+        await _forgetArrivalPhoto(photo.deliveryId, onlyPath: path);
+      }
       return;
     }
     if (operation.entityType == handoffCheckInEntityType) {
       final orderId = parseHandoffCheckInEntityId(operation.entityId)?.orderId;
       if (orderId == null) return;
       if (message.startsWith(CheckInRefusal.photoRequired)) {
-        await _forgetArrivalPhoto(operation);
+        final deliveryId = dropoffCheckInDeliveryIdOf(operation.data);
+        if (deliveryId != null) await _forgetArrivalPhoto(deliveryId);
       }
       _lastOrderPull = null;
       try {
@@ -400,6 +470,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
   Future<void> _revertRejectedTrip(SyncOperation operation) async {
     final tripId = operation.entityId;
     _lastTripPull = null;
+    _lastOwnTripPull = null;
     if (operation.action == 'create') {
       await _isar.writeTxn(() => _isar.trips.deleteByTripId(tripId));
       return;
@@ -619,26 +690,42 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ref != null && ref.startsWith('/') ? ref : null;
 
   /// ESC-36 (FUP-336): the server refused a drop-off check-in
-  /// `CHECKIN_PHOTO_REQUIRED`, so the arrival photo this phone kept for its
-  /// delivery never reached it (the upload was given up). The phone forgets
-  /// that file's path, so the next "Arrived at drop-off" takes a new photo
-  /// instead of counting on one the server will never get. A server key
-  /// stays.
-  Future<void> _forgetArrivalPhoto(SyncOperation operation) async {
-    final deliveryId = dropoffCheckInDeliveryIdOf(operation.data);
-    if (deliveryId == null) return;
+  /// `CHECKIN_PHOTO_REQUIRED`, or (FUP-373) the arrival photo's own
+  /// `delivery_photo` for good, so the arrival photo this phone kept for
+  /// [deliveryId] never reached it. The phone forgets that file's path, so the
+  /// next "Arrived at drop-off" takes a new photo instead of counting on one
+  /// the server will never get. With [onlyPath] (the refused operation's own
+  /// file), any other kept path stays. A server key stays.
+  Future<void> _forgetArrivalPhoto(
+    String deliveryId, {
+    String? onlyPath,
+  }) async {
     await _isar.writeTxn(() async {
       final delivery = await _isar.deliverys
           .filter()
           .deliveryIdEqualTo(deliveryId)
           .findFirst();
+      final kept = _localPhotoPath(delivery?.arrivalPhotoRef);
       if (delivery == null ||
-          _localPhotoPath(delivery.arrivalPhotoRef) == null) {
+          kept == null ||
+          (onlyPath != null && kept != onlyPath)) {
         return;
       }
       delivery.arrivalPhotoRef = null;
       await _isar.deliverys.put(delivery);
     });
+  }
+
+  /// The phone's file of a queued `delivery_photo` (its never-sent
+  /// `_localPath`), or null.
+  static String? _photoOperationPath(String data) {
+    try {
+      final decoded = jsonDecode(data);
+      final path = decoded is Map ? decoded[deliveryPhotoLocalPathKey] : null;
+      return path is String && path.isNotEmpty ? path : null;
+    } on FormatException {
+      return null;
+    }
   }
 
   Future<Set<String>> _entityIdsWithPendingUploads() async {
@@ -711,6 +798,30 @@ class IsarMarketplaceSync implements MarketplaceSync {
       nextToken = data['nextToken'] as String?;
     } while (nextToken != null);
     return (results, orderLeadHours);
+  }
+
+  /// FUP-374: every page of the trucker's own trips, all statuses
+  /// (`GET /trips?truckerId=`, the request the web hero card makes). No
+  /// `status`: `status=open` would leave out the trips the server moved on.
+  Future<List<Trip>> _fetchOwnTrips(String truckerId) async {
+    final results = <Trip>[];
+    String? nextToken;
+    do {
+      final params = <String, dynamic>{'truckerId': truckerId, 'limit': '50'};
+      if (nextToken != null) params['nextToken'] = nextToken;
+      final data = await _api.get<Map<String, dynamic>>(
+        '/trips',
+        queryParameters: params,
+      );
+      final items = data['trips'] as List<dynamic>? ??
+          data['items'] as List<dynamic>? ??
+          const <dynamic>[];
+      for (final item in items) {
+        results.add(_parseTrip(item as Map<String, dynamic>));
+      }
+      nextToken = data['nextToken'] as String?;
+    } while (nextToken != null && nextToken.isNotEmpty);
+    return results;
   }
 
   CropListing _parseCrop(Map<String, dynamic> m) {

@@ -852,6 +852,18 @@ public class DeliveryFunctionTests
     }
 
     [Fact]
+    public void MapToDeliveryDto_CarriesTheLateArrivalPhotoMarker_ForTheAdminEvidence()
+    {
+        // FUP-373: an arrival photo attached on the T8 dispute carries when; one taken on the road carries none.
+        var delivery = CreateDeliveryItem("del-001", "disputed");
+        delivery["arrivalPhotoRef"] = "uploads/photos/del-001/arrival-1763000000000.webp";
+        delivery["arrivalPhotoLateAt"] = "2026-11-13T10:00:00.0000000Z";
+
+        Assert.Equal("2026-11-13T10:00:00.0000000Z", DeliveryFunction.MapToDeliveryDto(delivery).ArrivalPhotoLateAt);
+        Assert.Null(DeliveryFunction.MapToDeliveryDto(CreateDeliveryItem("del-001", "inTransit")).ArrivalPhotoLateAt);
+    }
+
+    [Fact]
     public void MapToDeliveryDto_LegacyRowWithoutCargo_LeavesCargoNull()
     {
         var dto = DeliveryFunction.MapToDeliveryDto(CreateDeliveryItem("del-001"));
@@ -1343,6 +1355,45 @@ public class DeliveryFunctionTests
         string userId, string status, bool flag, int expected)
     {
         _mockDeliveryRepo.GetByIdAsync("del-001").Returns(CreateDeliveryItem("del-001", status));
+        SetupPresign();
+        var function = new DeliveryFunction(_mockDeliveryRepo, _mockS3, TestBucket) { DropoffClassificationEnabled = flag };
+
+        var response = await function.FunctionHandler(
+            MakePhotoUploadRequest(userId, "del-001", "{\"type\":\"arrival\",\"sizeBytes\":1000}"), _context);
+
+        Assert.Equal(expected, response.StatusCode);
+        if (expected == 200)
+        {
+            Assert.Matches(@"uploads/photos/del-001/arrival-\d+\.webp", response.Body);
+        }
+        else
+        {
+            _mockS3.DidNotReceive().GetPreSignedURL(Arg.Any<GetPreSignedUrlRequest>());
+        }
+    }
+
+    // FUP-373: the order cron's T8 dispute that no admin has decided takes the arrival photo as late evidence
+    // (a check-in made offline at the drop-off before T8, synced after the T8 run); any other dispute does not.
+    [Theory]
+    [InlineData("system", "delivery_overdue", null, "trucker-789", true, 200)]
+    [InlineData("system", "dropoff_out_of_range", null, "trucker-789", true, 200)]
+    [InlineData("system", "delivery_overdue", null, "buyer-456", true, 403)]
+    [InlineData("system", "delivery_overdue", null, "trucker-789", false, 400)]
+    [InlineData("system", "delivery_overdue", "farmer_wins", "trucker-789", true, 409)]
+    [InlineData("system", "silent_buyer", null, "trucker-789", true, 409)]
+    [InlineData("buyer-456", "not_received", null, "trucker-789", true, 409)]
+    public async Task HandleUploadPhoto_TheArrivalPhoto_OnTheT8Dispute_IsLateEvidence(
+        string disputedBy, string reason, string? resolution, string userId, bool flag, int expected)
+    {
+        var delivery = CreateDeliveryItem("del-001", "disputed");
+        delivery["disputedBy"] = disputedBy;
+        delivery["disputeReason"] = reason;
+        if (resolution != null)
+        {
+            delivery["disputeResolution"] = resolution;
+        }
+
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
         SetupPresign();
         var function = new DeliveryFunction(_mockDeliveryRepo, _mockS3, TestBucket) { DropoffClassificationEnabled = flag };
 
