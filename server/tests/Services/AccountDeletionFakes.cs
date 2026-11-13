@@ -580,6 +580,13 @@ internal sealed class FakeTransactionAuditRepository : ITransactionAuditReposito
     public Task<List<Dictionary<string, object>>> GetByEntityAsync(string entityId)
         => Task.FromResult(Rows.Where(r => r["entityId"].ToString() == entityId).ToList());
 
+    public Task<(List<Dictionary<string, object>> Items, bool More)> GetLatestByTransactionAsync(string transactionId, int limit)
+    {
+        var rows = Rows.Where(r => r["transactionId"].ToString() == transactionId)
+            .OrderByDescending(r => r["timestamp"].ToString(), StringComparer.Ordinal).ToList();
+        return Task.FromResult((rows.Take(limit).ToList(), rows.Count > limit));
+    }
+
     public Task<List<Dictionary<string, object>>> GetRecentAsync(int limit)
         => Task.FromResult(Rows.TakeLast(limit).ToList());
 }

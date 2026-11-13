@@ -634,7 +634,7 @@ POST /escrow/refund
 | GET | `/admin/disputes` | List disputes |
 | GET | `/admin/fraud-signals` | List fraud signals of one status (`pending` by default, or `reviewed`) from the fraud-signals `StatusCreatedAtIndex`, newest first, with each user's risk score (FRD-07) |
 | GET | `/admin/users` | List users |
-| GET | `/admin/users/{id}` | Single user details, with `suspendReason` beside the user (FRD-07) |
+| GET | `/admin/users/{id}` | Single user details, with `suspendReason` beside the user (FRD-07) and the newest 50 profile edits as `profileHistory` and `profileHistoryMore`, or `profileHistoryHidden` for a deleting or deleted account (FUP-317, `user-entity.md` 2.3.0) |
 | GET | `/admin/health/overview` | System health |
 | GET | `/admin/compliance/summary` | Compliance metrics |
 | GET | `/admin/analytics/revenue` | Revenue analytics |

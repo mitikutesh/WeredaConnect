@@ -224,6 +224,11 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(ReviewListingReportsResponse))]
 [JsonSerializable(typeof(AdminUserListResponse))]
 [JsonSerializable(typeof(AdminUserDetailResponse))]
+// FUP-317: the profile history on the user detail, and the changes in a profile_edited audit row's metadata.
+[JsonSerializable(typeof(AdminProfileEditDto))]
+[JsonSerializable(typeof(List<AdminProfileEditDto>))]
+[JsonSerializable(typeof(ProfileFieldChange))]
+[JsonSerializable(typeof(List<ProfileFieldChange>))]
 [JsonSerializable(typeof(UserActionRequest))]
 [JsonSerializable(typeof(UserActionResponse))]
 [JsonSerializable(typeof(AdminHealthOverviewResponse))]

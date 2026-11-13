@@ -287,6 +287,7 @@ public sealed class DeadlineAndStockLossRefundRaceDynamoDbTests
         public Task<bool> AppendIfAbsentAsync(Dictionary<string, object> entry) => _inner.AppendIfAbsentAsync(entry);
         public Task<List<Dictionary<string, object>>> GetByTransactionAsync(string transactionId) => _inner.GetByTransactionAsync(transactionId);
         public Task<List<Dictionary<string, object>>> GetByEntityAsync(string entityId) => _inner.GetByEntityAsync(entityId);
+        public Task<(List<Dictionary<string, object>> Items, bool More)> GetLatestByTransactionAsync(string transactionId, int limit) => _inner.GetLatestByTransactionAsync(transactionId, limit);
         public Task<List<Dictionary<string, object>>> GetRecentAsync(int limit) => _inner.GetRecentAsync(limit);
     }
 
