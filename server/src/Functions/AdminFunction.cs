@@ -386,10 +386,37 @@ public partial class AdminFunction
             return LambdaResponse.Error(404, "ADMIN_003", "Escrow not found.");
         }
 
-        var escrow = MapToEscrowDto(DynamoDbHelper.FromItem(item));
+        var fields = DynamoDbHelper.FromItem(item);
+        var escrow = await WithOrderEscrowAsync(MapToEscrowDto(fields), fields);
         await EnrichEscrowNamesAsync(new List<EscrowDto> { escrow });
         var response = new AdminEscrowDetailResponse { Escrow = escrow };
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminEscrowDetailResponse);
+    }
+
+    /// <summary>
+    /// FUP-41: on an escrow that is not order-funded and names an order, the status of the order's own escrow and
+    /// whether this one is therefore a second payment (<see cref="EscrowService.OrderEscrowPaidStatuses"/>, the rule
+    /// the double escrow refund checks again). One read, on the detail route only.
+    /// </summary>
+    private async Task<EscrowDto> WithOrderEscrowAsync(EscrowDto escrow, Dictionary<string, object> item)
+    {
+        if (string.IsNullOrEmpty(escrow.OrderId) || EscrowService.IsOrderFundedEscrow(item))
+        {
+            return escrow;
+        }
+
+        var own = await QuerySingleItemAsync(_escrowsTable, "escrowId", $"escrow-order-{escrow.OrderId}");
+        if (own == null)
+        {
+            return escrow with { DoubleEscrow = false };
+        }
+
+        var ownStatus = GetString(DynamoDbHelper.FromItem(own), "status");
+        return escrow with
+        {
+            OrderEscrowStatus = ownStatus,
+            DoubleEscrow = EscrowService.OrderEscrowPaidStatuses.Contains(ownStatus)
+        };
     }
 
     private async Task<APIGatewayProxyResponse> HandleEscrowAuditAsync(string escrowId, ILambdaContext context)
@@ -3712,6 +3739,9 @@ public partial class AdminFunction
             HeldBy = GetStringOrNull(item, EscrowHoldFields.HeldBy),
             HeldFromStatus = GetStringOrNull(item, EscrowHoldFields.HeldFromStatus),
             HeldFor = GetStringOrNull(item, EscrowHoldFields.HeldFor),
+            // FUP-41: why the sweeps do not settle it (the double escrow exit and the payout gate runbook read it).
+            SettlementBlockReason = GetStringOrNull(item, SettlementBlockFields.Reason),
+            SettlementBlockReasonAt = GetStringOrNull(item, SettlementBlockFields.ReasonAt),
             Version = GetInt(item, "version", 1),
             // ESC-24: the transport leg and the ledger's view of the money (AdminFunction.Legs.cs).
             TruckerPayout = GetDecimalOrNull(item, "truckerPayout"),

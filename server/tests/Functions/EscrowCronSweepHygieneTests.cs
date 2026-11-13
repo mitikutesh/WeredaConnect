@@ -667,6 +667,58 @@ public partial class EscrowCronSweepHygieneTests
         swept.AssertServed();
     }
 
+    /// <summary>The order's own escrow paid out in full (completed) while its order still shows the trade in flight.</summary>
+    private void CompletedOrderEscrow(string orderId)
+    {
+        var own = Escrow($"escrow-order-{orderId}", orderId: orderId, orderSourced: true);
+        own["status"] = "completed";
+        _escrows.GetByIdAsync($"escrow-order-{orderId}", true).Returns(own);
+        OrderIs(orderId, "disbursing");
+    }
+
+    [Fact]
+    public async Task Release_SecondEscrowNextToACompletedOrderEscrow_OrderStillDisbursing_IsBlocked_NotPaidTwice()
+    {
+        // FUP-41: completed was missing from the double escrow check, so this escrow was paid a second time.
+        var e = Escrow("escrow-dblc", confirmed: true, orderId: "ord-dblc");
+        DeliveryIs("escrow-dblc", "delivered");
+        CompletedOrderEscrow("ord-dblc");
+        var swept = ReleaseSweep(e);
+
+        await RunAsync(Cron());
+
+        await NotReleased("escrow-dblc");
+        _markers["escrow-dblc"].Reason.Should().Be("release:trade:double_escrow");
+        swept.AssertServed();
+    }
+
+    [Fact]
+    public async Task Initiate_ExpiredSecondEscrowNextToACompletedOrderEscrow_IsBlocked_NotStampedForRelease()
+    {
+        // Without the fix the refund check stamped it (delivered, order live) and the release sweep then paid it.
+        var e = Escrow("escrow-dblr", orderId: "ord-dblr");
+        DeliveryIs("escrow-dblr", "delivered");
+        CompletedOrderEscrow("ord-dblr");
+        var swept = RefundSweep(e);
+
+        await RunAsync(Cron());
+
+        await NotRefunded("escrow-dblr");
+        _markers["escrow-dblr"].Reason.Should().Be("refund:trade:double_escrow");
+        await _escrows.DidNotReceive().UpdateStatusAsync("escrow-dblr", Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Any<Dictionary<string, object>?>());
+        swept.AssertServed();
+    }
+
+    [Fact]
+    public void DoubleEscrowStatuses_AreTheAdminRefundsRule_PlusInitiated()
+    {
+        // FUP-41: one rule, so the sweeps never pay an escrow the admin exit would refund as a double payment.
+        EscrowCronFunction.MoneyHoldingEscrowStatuses.Should().BeEquivalentTo(
+            EscrowService.OrderEscrowPaidStatuses.Append("initiated"));
+        EscrowCronFunction.MoneyHoldingEscrowStatuses.Should().Contain("completed").And.NotContain(new[] { "refunded", "cancelled" });
+    }
+
     [Fact]
     public async Task Block_ReasonWriteLandsButItsAnswerIsLost_TheNextRunAuditsAndAlarmsOnce()
     {

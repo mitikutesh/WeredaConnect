@@ -1944,7 +1944,7 @@ public sealed partial class EscrowService
             {
                 await NoteSettlementBlockedAsync(escrowItem, currentStatus,
                     SettlementBlockFields.Value("release", SettlementBlockFields.GatePayout, blockReason),
-                    "release_blocked_kyc", PayoutBlockedMetadata(blockReason));
+                    "release_blocked_kyc", PayoutBlockedMetadata(blockReason), overdueLeg: ManualPayoutFields.LegFarmer);
             }
             else
             {
@@ -3903,6 +3903,12 @@ public sealed partial class EscrowService
             }
         }
 
+        // 1e. FUP-41: a double escrow refund is an admin-group decision with a reason.
+        if (request.DoubleEscrow && DoubleEscrowRequestProblem(request, adminGroupVerified) is { } doubleProblem)
+        {
+            return doubleProblem;
+        }
+
         // 2. Check idempotency
         var existing = await _idempotencyRepo.GetAsync(request.IdempotencyKey);
         if (existing != null)
@@ -3926,6 +3932,13 @@ public sealed partial class EscrowService
         {
             return EscrowResult<RefundEscrowResponse>.Failure(
                 404, "ESCROW_016", "Escrow not found.");
+        }
+
+        // 3a. FUP-41: the escrow must be a second payment of its order; the decision is on record before money moves.
+        if (request.DoubleEscrow
+            && await PrepareDoubleEscrowRefundAsync(escrowItem, request.Reason!.Trim(), authenticatedUserId) is { } doubleAnswer)
+        {
+            return doubleAnswer;
         }
 
         // 4. Validate state: "escrowed", or "dispute_resolved" with a verdict that does not
@@ -3981,7 +3994,8 @@ public sealed partial class EscrowService
 
         // 4a3. ESC-09 Part B: an admin refund of a plain escrowed escrow ends an order that never got
         //      going first and refuses goods on the move unless overridden, so the order follows the money.
-        if (currentStatus == "escrowed" && authenticatedUserId != SystemActor
+        //      FUP-41: not for a double escrow, whose order belongs to the order's own escrow.
+        if (currentStatus == "escrowed" && authenticatedUserId != SystemActor && !request.DoubleEscrow
             && await PrepareAdminRefundOrderAsync(escrowItem, authenticatedUserId, overrideReason) is { } refundBlock)
         {
             return EscrowResult<RefundEscrowResponse>.Failure(refundBlock.HttpStatus, refundBlock.Code, refundBlock.Message);
@@ -4529,10 +4543,13 @@ public sealed partial class EscrowService
     /// later run. A lost-answer write that the SDK retried is recognised by its time. Best-effort: a failed
     /// write logs <c>SETTLEMENT_BLOCK_AUDIT_FAILED</c> and the next run repairs it. Returns true when this
     /// call stored the reason.
+    /// FUP-41: with <paramref name="overdueLeg"/> (a payout identity gate block of the system's release), a call
+    /// that finds the same reason stored at least <see cref="MoneyAlarmLog.QueueAlarmAfter"/> ago logs
+    /// <c>RELEASE_BLOCKED_OVERDUE</c>, once per call, so once per hourly run while the block lasts.
     /// </summary>
     public async Task<bool> NoteSettlementBlockedAsync(
         Dictionary<string, object> escrow, string expectedStatus, string reason, string auditAction,
-        string metadata, string? alarmAction = null)
+        string metadata, string? alarmAction = null, string? overdueLeg = null)
     {
         var escrowId = GetString(escrow, "escrowId");
         try
@@ -4540,6 +4557,7 @@ public sealed partial class EscrowService
             var storedAt = GetStringOrNull(escrow, SettlementBlockFields.ReasonAt);
             if (GetStringOrNull(escrow, SettlementBlockFields.Reason) == reason && storedAt != null)
             {
+                ReportOverdue(escrowId, storedAt);
                 await AuditBlockOnceAsync(escrowId, storedAt);
                 return false;
             }
@@ -4557,6 +4575,7 @@ public sealed partial class EscrowService
 
                 if (latestAt != reasonAt)
                 {
+                    ReportOverdue(escrowId, latestAt);
                     await AuditBlockOnceAsync(escrowId, latestAt);
                     return false;
                 }
@@ -4569,6 +4588,23 @@ public sealed partial class EscrowService
         {
             Console.WriteLine($"SETTLEMENT_BLOCK_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
             return false;
+        }
+
+        // FUP-41: the same block, first stored a day or more ago (an unreadable time counts as overdue, as the
+        // trucker retry's does). Logged before the audit write, so a failed write never hides it.
+        void ReportOverdue(string id, string at)
+        {
+            if (overdueLeg == null)
+            {
+                return;
+            }
+
+            var age = ParseUtcTimeOrNull(at) is { } since ? DateTime.UtcNow - since : MoneyAlarmLog.QueueAlarmAfter;
+            if (age >= MoneyAlarmLog.QueueAlarmAfter)
+            {
+                AlarmLog(MoneyAlarmLog.ReleaseBlockedOverdue(
+                    id, overdueLeg, reason[(reason.LastIndexOf(':') + 1)..], (int)age.TotalHours));
+            }
         }
 
         // The block's one audit row at its stored time, and the alarm line only from the write that created it.
