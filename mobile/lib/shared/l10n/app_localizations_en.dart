@@ -3508,6 +3508,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get actionCheckDelivery => 'Check the delivery';
 
   @override
+  String get actionCheckInAtFarm => 'Check in when you reach the farm';
+
+  @override
+  String get actionCropsReady => 'Check in when the crops are ready';
+
+  @override
+  String get actionCheckInAtDropoff => 'Check in when you reach the drop-off';
+
+  @override
+  String get actionConfirmDelivery => 'Confirm the delivery';
+
+  @override
   String actionDueBy(String time) {
     return 'Due $time';
   }
@@ -5718,6 +5730,111 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get notifTierWarningBody =>
       'You have penalty points. Buyers see nothing yet. Open My reputation for the details.';
+
+  @override
+  String get notifPickupReminderTitle => 'Check in for the pickup';
+
+  @override
+  String get notifPickupReminderBody =>
+      'The pickup check-in closes soon. Please open the order and check in.';
+
+  @override
+  String get notifTruckerArrivedTitle => 'The trucker has arrived';
+
+  @override
+  String notifTruckerArrivedBody(String trucker) {
+    return '$trucker has arrived to collect the order. Please have the crops and your QR code ready.';
+  }
+
+  @override
+  String get notifBuyerArrivedTitle => 'The buyer has arrived';
+
+  @override
+  String notifBuyerArrivedBody(String buyer) {
+    return '$buyer has arrived to collect the order. Please have the crops and your QR code ready.';
+  }
+
+  @override
+  String get notifCropsReadyTitle => 'The crops are ready';
+
+  @override
+  String notifCropsReadyBody(String farmer) {
+    return '$farmer says the crops are ready for pickup.';
+  }
+
+  @override
+  String get notifDeliveryArrivedTitle => 'The truck has arrived';
+
+  @override
+  String notifDeliveryArrivedBody(String trucker) {
+    return '$trucker has checked in at the drop-off. Please confirm the delivery or report a problem. If you do neither by the time below, it may be confirmed for you.';
+  }
+
+  @override
+  String get notifDeliveryConfirmReminderTitle => 'Confirm your delivery';
+
+  @override
+  String get notifDeliveryConfirmReminderBody =>
+      'Please confirm the delivery or report a problem. If you do neither by the time below, it may be confirmed for you.';
+
+  @override
+  String get notifTruckerNoShowTitle => 'The trucker did not check in';
+
+  @override
+  String get notifTruckerNoShowBuyerBody =>
+      'The trucker did not check in at the farm by the deadline. Please decide: you can cancel for a full refund.';
+
+  @override
+  String get notifTruckerNoShowFarmerBody =>
+      'The trucker did not check in at your farm by the deadline. Please keep the crops until the buyer decides.';
+
+  @override
+  String get notifPickupCheckInMissedTitle => 'Pickup check-in missed';
+
+  @override
+  String get notifPickupCheckInMissedBody =>
+      'No arrival check-in reached us by the pickup deadline. The buyer now decides. If you were there, contact support.';
+
+  @override
+  String get notifFarmerNoShowBody =>
+      'The order was cancelled because the crops were not marked ready by the deadline. The money goes back to the buyer.';
+
+  @override
+  String get notifBuyerNoShowBody =>
+      'The order was cancelled because it was not collected by the deadline. The money goes back to the buyer.';
+
+  @override
+  String get notifPickupReviewTitle => 'Pickup under review';
+
+  @override
+  String get notifPickupReviewBody =>
+      'The pickup was not confirmed with the QR code. Our team is checking it; the money stays held.';
+
+  @override
+  String get notifAutoConfirmedTitle => 'Delivery confirmed for you';
+
+  @override
+  String get notifAutoConfirmedBuyerBody =>
+      'Your order was confirmed as delivered because there was no answer. If something is wrong, report it before the time is up.';
+
+  @override
+  String get notifAutoConfirmedPayeeBody =>
+      'The delivery was confirmed by the system after the buyer did not answer. You are paid after the 48 hour check.';
+
+  @override
+  String get notifDeliveryReviewTitle => 'Delivery under review';
+
+  @override
+  String get notifDeliveryOverdueBody =>
+      'The delivery was not recorded by its deadline. Our team is checking it; the money stays held.';
+
+  @override
+  String get notifSilentBuyerBody =>
+      'The delivery was not confirmed after the truck arrived. Our team is checking it; the money stays held.';
+
+  @override
+  String get notifDropoffOutOfRangeBody =>
+      'The truck\'s arrival could not be matched to the drop-off place. Our team is checking it; the money stays held.';
 
   @override
   String get profileEditTitle => 'Edit profile';

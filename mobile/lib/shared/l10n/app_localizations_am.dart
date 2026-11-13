@@ -3403,6 +3403,18 @@ class AppLocalizationsAm extends AppLocalizations {
   String get actionCheckDelivery => 'የደረሰውን ያረጋግጡ';
 
   @override
+  String get actionCheckInAtFarm => 'እርሻው ሲደርሱ ያረጋግጡ';
+
+  @override
+  String get actionCropsReady => 'ምርቱ ሲዘጋጅ ያረጋግጡ';
+
+  @override
+  String get actionCheckInAtDropoff => 'ማውረጃ ቦታ ሲደርሱ ያረጋግጡ';
+
+  @override
+  String get actionConfirmDelivery => 'ማድረሱን ያረጋግጡ';
+
+  @override
   String actionDueBy(String time) {
     return 'እስከ $time';
   }
@@ -5570,6 +5582,111 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get notifTierWarningBody =>
       'የቅጣት ነጥቦች አሉዎት። ገዢዎች እስካሁን ምንም አያዩም። ለዝርዝሩ \"የእኔ ተዓማኒነት\"ን ይክፈቱ።';
+
+  @override
+  String get notifPickupReminderTitle => 'ለመጫኛው ያረጋግጡ';
+
+  @override
+  String get notifPickupReminderBody =>
+      'የመጫኛ ማረጋገጫው በቅርቡ ይዘጋል። እባክዎ ትዕዛዙን ከፍተው ያረጋግጡ።';
+
+  @override
+  String get notifTruckerArrivedTitle => 'የጭነት መኪና ሹፌሩ ደርሰዋል';
+
+  @override
+  String notifTruckerArrivedBody(String trucker) {
+    return '$trucker ትዕዛዙን ለመውሰድ ደርሰዋል። እባክዎ ሰብሉንና የQR ኮድዎን ያዘጋጁ።';
+  }
+
+  @override
+  String get notifBuyerArrivedTitle => 'ገዢው ደርሰዋል';
+
+  @override
+  String notifBuyerArrivedBody(String buyer) {
+    return '$buyer ትዕዛዙን ለመውሰድ ደርሰዋል። እባክዎ ሰብሉንና የQR ኮድዎን ያዘጋጁ።';
+  }
+
+  @override
+  String get notifCropsReadyTitle => 'ሰብሉ ዝግጁ ነው';
+
+  @override
+  String notifCropsReadyBody(String farmer) {
+    return '$farmer ሰብሉ ለመጫን ዝግጁ መሆኑን አሳውቀዋል።';
+  }
+
+  @override
+  String get notifDeliveryArrivedTitle => 'የጭነት መኪናው ደርሷል';
+
+  @override
+  String notifDeliveryArrivedBody(String trucker) {
+    return '$trucker ማውረጃ ቦታ መድረሳቸውን አረጋግጠዋል። እባክዎ ርክክቡን ያረጋግጡ ወይም ችግር ያሳውቁ። ከታች ባለው ሰዓት ሁለቱንም ካላደረጉ ለእርስዎ ሊረጋገጥ ይችላል።';
+  }
+
+  @override
+  String get notifDeliveryConfirmReminderTitle => 'ርክክቡን ያረጋግጡ';
+
+  @override
+  String get notifDeliveryConfirmReminderBody =>
+      'እባክዎ ርክክቡን ያረጋግጡ ወይም ችግር ያሳውቁ። ከታች ባለው ሰዓት ሁለቱንም ካላደረጉ ለእርስዎ ሊረጋገጥ ይችላል።';
+
+  @override
+  String get notifTruckerNoShowTitle => 'የጭነት መኪና ሹፌሩ አላረጋገጠም';
+
+  @override
+  String get notifTruckerNoShowBuyerBody =>
+      'የጭነት መኪና ሹፌሩ እስከ መጨረሻው ጊዜ እርሻው ላይ መድረሱን አላረጋገጠም። እባክዎ ይወስኑ፤ ሰርዘው ገንዘብዎን ሙሉ በሙሉ ማስመለስ ይችላሉ።';
+
+  @override
+  String get notifTruckerNoShowFarmerBody =>
+      'የጭነት መኪና ሹፌሩ እስከ መጨረሻው ጊዜ እርሻዎ ላይ መድረሱን አላረጋገጠም። ገዢው እስኪወስን ድረስ እባክዎ ሰብሉን ይያዙ።';
+
+  @override
+  String get notifPickupCheckInMissedTitle => 'የመድረስ ማረጋገጫ አልደረሰም';
+
+  @override
+  String get notifPickupCheckInMissedBody =>
+      'እስከ መጨረሻው ጊዜ የመድረስ ማረጋገጫ አልደረሰንም። አሁን ገዢው ይወስናል። እዚያ ከነበሩ ድጋፍ ሰጪዎችን ያነጋግሩ።';
+
+  @override
+  String get notifFarmerNoShowBody =>
+      'ትዕዛዙ ተሰርዟል፤ እስከ መጨረሻው ጊዜ ሰብሉ ዝግጁ መሆኑ አልተረጋገጠም። ገንዘቡ ለገዢው ይመለሳል።';
+
+  @override
+  String get notifBuyerNoShowBody =>
+      'ትዕዛዙ እስከ መጨረሻው ጊዜ ስላልተወሰደ ተሰርዟል። ገንዘቡ ለገዢው ይመለሳል።';
+
+  @override
+  String get notifPickupReviewTitle => 'መጫኛው እየተጣራ ነው';
+
+  @override
+  String get notifPickupReviewBody =>
+      'መጫኛው በQR ኮድ አልተረጋገጠም። ቡድናችን እያጣራው ነው፤ ገንዘቡ ተይዞ ይቆያል።';
+
+  @override
+  String get notifAutoConfirmedTitle => 'ርክክቡ ለእርስዎ ተረጋግጧል';
+
+  @override
+  String get notifAutoConfirmedBuyerBody =>
+      'ምላሽ ስላልተሰጠ ትዕዛዝዎ እንደደረሰ ተረጋግጧል። ችግር ካለ ጊዜው ከማለቁ በፊት ያሳውቁ።';
+
+  @override
+  String get notifAutoConfirmedPayeeBody =>
+      'ገዢው ምላሽ ስላልሰጡ ርክክቡ በሲስተሙ ተረጋግጧል። ከ48 ሰዓት ማረጋገጫ በኋላ ይከፈልዎታል።';
+
+  @override
+  String get notifDeliveryReviewTitle => 'ርክክቡ እየተጣራ ነው';
+
+  @override
+  String get notifDeliveryOverdueBody =>
+      'ርክክቡ እስከ መጨረሻው ጊዜ አልተመዘገበም። ቡድናችን እያጣራው ነው፤ ገንዘቡ ተይዞ ይቆያል።';
+
+  @override
+  String get notifSilentBuyerBody =>
+      'ርክክቡ የጭነት መኪናው ከደረሰ በኋላ አልተረጋገጠም። ቡድናችን እያጣራው ነው፤ ገንዘቡ ተይዞ ይቆያል።';
+
+  @override
+  String get notifDropoffOutOfRangeBody =>
+      'የጭነት መኪናው መድረስ ከማውረጃ ቦታው ጋር ሊገናኝ አልቻለም። ቡድናችን እያጣራው ነው፤ ገንዘቡ ተይዞ ይቆያል።';
 
   @override
   String get profileEditTitle => 'መገለጫ አርትዕ';

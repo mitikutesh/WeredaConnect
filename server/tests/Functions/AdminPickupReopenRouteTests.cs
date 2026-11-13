@@ -193,14 +193,15 @@ public class AdminPickupReopenRouteTests
         stamp.Should().NotContainKey("reason", "the reason goes only to the audit trail");
 
         // Judged again a minute after the new deadline, in the sweep's partition (derived, never written by hand).
-        values[":ndKind"].S.Should().Be(OrderDeadlines.Kind.PickupJudgement);
+        // FUP-286: the farmer has not checked in, so the new window's check-in reminder comes first, 6 hours before.
+        values[":ndKind"].S.Should().Be(OrderDeadlines.Kind.PickupReminder);
         values[":ndShard"].S.Should().Be(OrderDeadlines.Shard);
-        values[":ndAt"].S.Should().Be("2026-11-24T08:01:00.0000000Z");
+        values[":ndAt"].S.Should().Be("2026-11-24T02:00:00.0000000Z");
 
-        // The judgement's stamps and its queue entry go; the check-ins stay as evidence.
+        // The judgement's stamps, its queue entry and the first window's reminder go; the check-ins stay as evidence.
         foreach (var removed in new[]
                  {
-                     PickupJudgement.JudgedAtField, OrderCommitment.PickupOverdueNotifiedAtField,
+                     PickupJudgement.JudgedAtField, OrderCommitment.PickupOverdueNotifiedAtField, PickupJudgement.ReminderAtField,
                      AdminQueueFields.Marker, AdminQueueFields.QueuedAt, AdminQueueFields.Reason, AdminQueueFields.EscrowId
                  })
         {

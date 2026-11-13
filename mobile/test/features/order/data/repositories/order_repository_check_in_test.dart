@@ -476,4 +476,88 @@ void main() {
     order = (await repo.getOrderById('ord-1'))!;
     expect(order.queuedCheckIns, isEmpty);
   });
+
+  // FUP-327, FUP-371: Home reads the marks of all its orders at once, from
+  // the queue, only the signed-in user's, the refused ones left out.
+  group('ordersWithQueuedCheckIns (Home)', () {
+    test("each order gets its own user's marks, as getOrderById gives them",
+        () async {
+      await putOrder();
+      final other =
+          (await isar.orders.filter().orderIdEqualTo('ord-1').findFirst())!
+            ..id = Isar.autoIncrement
+            ..orderId = 'ord-2';
+      await isar.writeTxn(() => isar.orders.put(other));
+      await repo.checkIn(
+        'ord-1',
+        'trucker-1',
+        kind: CheckInKind.arrivedPickup,
+        fix: _fix,
+      );
+      await repo.checkIn('ord-2', 'farmer-1', kind: CheckInKind.cropsReady);
+
+      final orders = await repo.getOrdersByUser('trucker-1', role: 'trucker');
+      expect(orders.every((o) => o.queuedCheckIns.isEmpty), isTrue);
+      final marked = await repo.ordersWithQueuedCheckIns(orders, 'trucker-1');
+      final byId = {for (final o in marked) o.orderId: o};
+      expect(byId['ord-1']!.queuedCheckIns.keys, ['arrived_pickup']);
+      expect(
+        byId['ord-1']!.queuedCheckIns['arrived_pickup']!.madeAt,
+        (await repo.getOrderById('ord-1'))!
+            .queuedCheckIns['arrived_pickup']!
+            .madeAt,
+      );
+      // The farmer's check-in on ord-2 is not the trucker's.
+      expect(byId['ord-2']!.queuedCheckIns, isEmpty);
+
+      final farmer = await repo.ordersWithQueuedCheckIns(
+        await repo.getOrdersByUser('farmer-1', role: 'farmer'),
+        'farmer-1',
+      );
+      expect(
+        {for (final o in farmer) o.orderId: o.queuedCheckIns.keys.toList()},
+        {
+          'ord-1': <String>[],
+          'ord-2': ['crops_ready'],
+        },
+      );
+      // Signed out: nobody's marks.
+      expect(
+        (await repo.ordersWithQueuedCheckIns(
+          await repo.getOrdersByUser('farmer-1', role: 'farmer'),
+          '',
+        ))
+            .every((o) => o.queuedCheckIns.isEmpty),
+        isTrue,
+      );
+    });
+
+    test('a sent one says sent; a refused one is left out', () async {
+      await putOrder();
+      await repo.checkIn('ord-1', 'farmer-1', kind: CheckInKind.cropsReady);
+      await executor.executeBatch();
+
+      var orders = await repo.ordersWithQueuedCheckIns(
+        await repo.getOrdersByUser('farmer-1', role: 'farmer'),
+        'farmer-1',
+      );
+      expect(orders.single.queuedCheckIns['crops_ready']!.sent, isTrue);
+
+      await putOrder();
+      await isar.writeTxn(() => isar.syncOperations.clear());
+      await repo.checkIn('ord-1', 'farmer-1', kind: CheckInKind.cropsReady);
+      answer = {
+        'status': 'error',
+        'message':
+            'CHECKIN_NOT_OPEN: This order is no longer waiting for its pickup.',
+      };
+      await executor.executeBatch();
+
+      orders = await repo.ordersWithQueuedCheckIns(
+        await repo.getOrdersByUser('farmer-1', role: 'farmer'),
+        'farmer-1',
+      );
+      expect(orders.single.queuedCheckIns, isEmpty);
+    });
+  });
 }

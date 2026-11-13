@@ -176,6 +176,40 @@ class OrderRepository extends BaseOrderRepository {
       userId: userId,
     );
     if (ops.isEmpty) return order;
+    return order..queuedCheckIns = _queuedCheckInsOf(ops);
+  }
+
+  /// FUP-327, FUP-371: the marks of [_withQueuedCheckIns] for many orders,
+  /// from one read of the queue, only [userId]'s (none when signed out).
+  @override
+  Future<List<Order>> ordersWithQueuedCheckIns(
+    List<Order> orders,
+    String userId,
+  ) async {
+    if (orders.isEmpty || userId.isEmpty) return orders;
+    final ops = await _syncQueue.unrejectedOperationsFor(
+      handoffCheckInEntityType,
+      entityIdPrefix: '',
+      userId: userId,
+    );
+    if (ops.isEmpty) return orders;
+    final byOrder = <String, List<SyncOperation>>{};
+    for (final op in ops) {
+      final orderId = parseHandoffCheckInEntityId(op.entityId)?.orderId;
+      if (orderId != null) (byOrder[orderId] ??= []).add(op);
+    }
+    for (final order in orders) {
+      final own = byOrder[order.orderId];
+      if (own != null) order.queuedCheckIns = _queuedCheckInsOf(own);
+    }
+    return orders;
+  }
+
+  /// The marks of the check-in operations [ops] (oldest first): per kind
+  /// the first one, sent once any of them was applied.
+  static Map<String, QueuedCheckIn> _queuedCheckInsOf(
+    List<SyncOperation> ops,
+  ) {
     final queued = <String, QueuedCheckIn>{};
     for (final op in ops) {
       final kind = parseHandoffCheckInEntityId(op.entityId)?.kind;
@@ -187,7 +221,7 @@ class OrderRepository extends BaseOrderRepository {
         sent: (first?.sent ?? false) || sent,
       );
     }
-    return order..queuedCheckIns = queued;
+    return queued;
   }
 
   /// Create a new order (buyer action).

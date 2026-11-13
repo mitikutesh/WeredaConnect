@@ -90,6 +90,30 @@ public class OrderNotifyStreamFunctionTests
     }
 
     [Fact]
+    public async Task FUP338_ATruckersDropoffCheckIn_TellsOnlyTheBuyer_WhenTheDeliveryMayBeConfirmed_UntilThen()
+    {
+        var response = await RunAsync(DropoffCheckInRecord());
+
+        response.BatchItemFailures.Should().BeEmpty();
+        var row = _rows.Should().ContainSingle().Subject;
+        row.UserId.Should().Be("buyer-1");
+        row.Type.Should().Be(NotificationTypes.DeliveryArrived);
+        var t9 = RecordTime.AddHours(48);
+        row.Params[NotificationParams.DeadlineAt].Should().Be(OrderCommitment.Iso(t9));
+
+        var push = _published.Single();
+        push.TargetArn.Should().Be("arn:endpoint/buyer-1");
+        var fcm = JsonDocument.Parse(JsonDocument.Parse(push.Message).RootElement.GetProperty("GCM").GetString()!).RootElement;
+        fcm.GetProperty("data").GetProperty("event").GetString().Should().Be(NotificationTypes.DeliveryArrived);
+        // en, Ethiopia time: T9 is 28 Oct 12:00Z, 15:00 in Addis Ababa.
+        fcm.GetProperty("notification").GetProperty("body").GetString().Should()
+            .Be("Trucker Tadesse Worku has arrived. Please confirm or report a problem by 28 Oct 15:00; after that it may be confirmed for you.");
+        push.Message.Should().NotContain("9.031").And.NotContain("38.74");
+        // Action required: the push lives until T9 (the clock is a minute after the check-in).
+        push.MessageAttributes["AWS.SNS.MOBILE.FCM.TTL"].StringValue.Should().Be(((48 * 60 - 1) * 60).ToString());
+    }
+
+    [Fact]
     public async Task AnEventWithoutAnOrder_PushesNoTagAndNoOrderId()
     {
         _function.Derive = (_, _, _, _, _) => new[]
@@ -416,6 +440,35 @@ public class OrderNotifyStreamFunctionTests
                 "OldImage": { {{common}} },
                 "NewImage": { {{common}}, "nearbyNotifiedAt": { "S": "2026-10-26T11:59:59.000Z" },
                   "nearbyDistanceKm": { "N": "3.2" }, "nearbyMinutes": { "N": "25" } }
+              }
+            }
+            """;
+    }
+
+    /// <summary>
+    /// FUP-338: a recorded orders-table MODIFY: the trucker's drop-off check-in (a nested map) received at the
+    /// record's time, T8 a day later.
+    /// </summary>
+    private static string DropoffCheckInRecord()
+    {
+        var common = $$"""
+            "orderId": { "S": "order-1" }, "buyerId": { "S": "buyer-1" }, "farmerId": { "S": "farmer-1" },
+            "truckerId": { "S": "trucker-1" }, "tripId": { "S": "trip-1" }, "truckerName": { "S": "Tadesse Worku" },
+            "cropType": { "S": "teff" }, "quantity": { "N": "500" }, "status": { "S": "in_transit" },
+            "dropoffJudgement": { "S": "pending" }, "dropoffDeadlineAt": { "S": "{{RecordTime.AddDays(1):o}}" }
+            """;
+        return $$"""
+            {
+              "eventName": "MODIFY",
+              "eventSourceARN": "{{OrdersArn}}",
+              "dynamodb": {
+                "ApproximateCreationDateTime": {{RecordEpochSeconds}},
+                "SequenceNumber": "seq-1",
+                "OldImage": { {{common}} },
+                "NewImage": { {{common}}, "dropoffCheckIn": { "M": {
+                  "receivedAt": { "S": "{{RecordTime:o}}" }, "by": { "S": "trucker-1" },
+                  "distanceChecked": { "BOOL": true }, "late": { "BOOL": false },
+                  "latitude": { "N": "9.031" }, "longitude": { "N": "38.74" } } } }
               }
             }
             """;
