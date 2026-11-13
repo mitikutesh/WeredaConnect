@@ -188,6 +188,27 @@ internal static class SettlementBlockFields
 }
 
 /// <summary>
+/// FUP-41 (escrow-protocol 2.19.0): an admin's decision to refund an <c>/escrow/initiate</c> escrow that is a
+/// second payment for an order whose own escrow holds or paid the money. Written once, before any money moves,
+/// by a conditional write on what the admin's call read; kept after the refund. Server-only (no read returns them).
+/// </summary>
+internal static class DoubleEscrowFields
+{
+    public const string RefundBy = "doubleEscrowRefundBy";
+    public const string RefundAt = "doubleEscrowRefundAt";
+    public const string RefundReason = "doubleEscrowRefundReason";
+
+    /// <summary>The order escrow's status the decision was made on.</summary>
+    public const string OrderEscrowStatus = "doubleEscrowOrderEscrowStatus";
+
+    /// <summary>The escrow-audit (at <see cref="RefundAt"/>) and transaction-audit action of the decision.</summary>
+    public const string AuditAction = "double_escrow_refund";
+
+    /// <summary>The ESC-10 block reason the sweeps store on such an escrow (release or refund).</summary>
+    public const string SweepBlockReason = "double_escrow";
+}
+
+/// <summary>
 /// FRD-03: an escrow frozen for fraud review (<c>status = held</c>, fraud-detection-architecture.md
 /// section 18). Only a settlement sweep writes it (<c>heldBy = system</c>), from <c>escrowed</c> or
 /// <c>dispute_resolved</c>, and only an admin in the admin group releases or refunds it. Every field

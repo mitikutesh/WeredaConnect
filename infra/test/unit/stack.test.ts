@@ -2747,6 +2747,8 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-escrow-ledger-invariant',
     // FUP-231: an order cancel or refund the crons keep retrying (obs-alarms.test.ts).
     'wereda-connect-dev-order-deadline-refund-stalled',
+    // FUP-41: a release the payout identity gate has blocked for a day (release-blocked-alarm.test.ts).
+    'wereda-connect-dev-releases-blocked-overdue',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -3387,6 +3389,8 @@ describe('MonitoringStack', () => {
     'LedgerRowsOverdue', 'EscrowLedgerInvariant',
     // FUP-231: a deadline cancel or a refund the crons keep retrying (order-cron and escrow-cron).
     'OrderDeadlineRefundStalled',
+    // FUP-41: a release the payout identity gate has blocked for a day.
+    'ReleasesBlockedOverdue',
   ];
   // FUP-81: the other filters of those log groups, each named, so a new filter there must be
   // sorted into one list or the other. The JSON audit filters match a field exactly (client text
@@ -3459,8 +3463,9 @@ describe('MonitoringStack', () => {
     // DisputePropagationFailed (3) and the sync dispute filter (1); ESC-16 added
     // EscrowDeliveryStampFailures (2: sync and escrow-cron); ESC-20 added LedgerRowsOverdue (1: escrow-cron) and
     // EscrowLedgerInvariant (2 here: escrow and escrow-cron; its admin filter is outside these log groups);
-    // FUP-231 added OrderDeadlineRefundStalled (2: order-cron and escrow-cron).
-    expect(patterns.length).toBe(27);
+    // FUP-231 added OrderDeadlineRefundStalled (2: order-cron and escrow-cron); FUP-41 added
+    // ReleasesBlockedOverdue (1: escrow-cron).
+    expect(patterns.length).toBe(28);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the

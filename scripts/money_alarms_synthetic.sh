@@ -96,13 +96,15 @@ A_ORDER="${PREFIX}-order-escrow-problems"
 A_PAYOUT="${PREFIX}-manual-payouts-overdue"
 A_QUEUE="${PREFIX}-admin-queue-overdue"
 A_TRUCKER="${PREFIX}-trucker-payouts-overdue"
+# FUP-41: a release the payout identity gate has blocked for a day.
+A_RELEASE_BLOCKED="${PREFIX}-releases-blocked-overdue"
 A_MISMATCH="${PREFIX}-dispute-verdict-order-mismatch"
 A_PROPAGATION="${PREFIX}-dispute-propagation-failed"
 # ESC-16: a confirmed delivery whose escrow could not be stamped.
 A_STAMP="${PREFIX}-escrow-delivery-stamp-failures"
 # Persistence alarm (three of four hourly datapoints): checked, never fired by this script.
 A_BLOCKED="${PREFIX}-dispute-verdict-settlement-blocked"
-ALL_ALARMS=("$A_SETTLE" "$A_UNKNOWN" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE" "$A_TRUCKER" "$A_MISMATCH" "$A_PROPAGATION" "$A_STAMP" "$A_BLOCKED")
+ALL_ALARMS=("$A_SETTLE" "$A_UNKNOWN" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE" "$A_TRUCKER" "$A_RELEASE_BLOCKED" "$A_MISMATCH" "$A_PROPAGATION" "$A_STAMP" "$A_BLOCKED")
 
 # Sample lines: the exact formats of MoneyAlarmLog and the sync Lambda, with a synthetic id.
 SID="synthetic-esc13"
@@ -111,6 +113,7 @@ L_UNKNOWN="ESCROW_SETTLEMENT_FAILED escrowId=${SID} action=stale_lock_parked out
 L_LINK="ORDER_ESCROW_LINK_FAILED orderId=${SID} deliveryId=${SID} reason=[Synthetic]"
 L_PAYOUT="MANUAL_PAYOUT_OVERDUE escrowId=${SID} ref=release:farmer ageHours=25"
 L_TRUCKER="TRUCKER_PAYOUT_OVERDUE escrowId=${SID} reason=phone_unverified ageHours=25"
+L_RELEASE_BLOCKED="RELEASE_BLOCKED_OVERDUE escrowId=${SID} leg=farmer reason=phone_unverified ageHours=25"
 L_QUEUE="ADMIN_QUEUE_OVERDUE orderId=${SID} reason=synthetic ageHours=25"
 L_MISMATCH="DISPUTE_VERDICT_ORDER_MISMATCH escrowId=${SID} op=refund legs=order:mismatch:accepted"
 L_BLOCKED="DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=${SID} op=refund legs=order:cancel:conflict"
@@ -152,6 +155,7 @@ CHECKS=(
   "${LG_SYNC}|OrderEscrowProblems|${L_LINK}"
   "${LG_CRON}|ManualPayoutsOverdue|${L_PAYOUT}"
   "${LG_CRON}|TruckerPayoutsOverdue|${L_TRUCKER}"
+  "${LG_CRON}|ReleasesBlockedOverdue|${L_RELEASE_BLOCKED}"
   "${LG_CRON}|AdminQueueOverdue|${L_QUEUE}"
   "${LG_ESCROW}|DisputeVerdictOrderMismatch|${L_MISMATCH}"
   "${LG_CRON}|DisputeVerdictOrderMismatch|${L_MISMATCH}"
@@ -296,7 +300,7 @@ put_lines() {
   fi
 }
 put_lines "$LG_ESCROW" "$L_SETTLE" "$L_UNKNOWN" "$L_MISMATCH" "$L_PROPAGATION"
-put_lines "$LG_CRON" "$L_SETTLE" "$L_UNKNOWN" "$L_PAYOUT" "$L_TRUCKER" "$L_QUEUE" "$L_MISMATCH" "$L_PROPAGATION" "$L_STAMP_CRON"
+put_lines "$LG_CRON" "$L_SETTLE" "$L_UNKNOWN" "$L_PAYOUT" "$L_TRUCKER" "$L_RELEASE_BLOCKED" "$L_QUEUE" "$L_MISMATCH" "$L_PROPAGATION" "$L_STAMP_CRON"
 put_lines "$LG_SYNC" "$L_LINK" "$L_PROPAGATION" "$L_STAMP_SYNC"
 
 # A JSON string cannot deserialize into APIGatewayProxyRequest, so the runtime fails the
@@ -356,7 +360,7 @@ for lg in "$LG_ESCROW" "$LG_CRON" "$LG_SYNC"; do
 done
 echo
 echo "Expected to clear by themselves with no new lines or errors:"
-echo "  ${A_SETTLE}, ${A_UNKNOWN}, ${A_PAYOUT}, ${A_TRUCKER}, ${A_QUEUE}, ${A_MISMATCH}, ${A_PROPAGATION}, ${A_STAMP}: about 75 to 90 minutes after the lines were written"
+echo "  ${A_SETTLE}, ${A_UNKNOWN}, ${A_PAYOUT}, ${A_TRUCKER}, ${A_RELEASE_BLOCKED}, ${A_QUEUE}, ${A_MISMATCH}, ${A_PROPAGATION}, ${A_STAMP}: about 75 to 90 minutes after the lines were written"
 echo "  ${A_ORDER}: 15 to 30 minutes"
 echo "  ${A_CRON}: 20 to 25 minutes"
 

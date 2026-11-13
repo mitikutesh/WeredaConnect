@@ -405,6 +405,17 @@ export class MonitoringStack extends cdk.Stack {
       metricValue: '1',
       defaultValue: 0,
     });
+    // FUP-41: the hourly sweep's release that the payout identity gate blocks logs one line per escrow
+    // per run once its stored reason is 24 hours old (escrow-protocol 2.19.0). escrow-cron only: it is
+    // the only Lambda that releases as the system, and an admin's own release is not counted.
+    new logs.MetricFilter(this, 'ReleasesBlockedOverdueFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"RELEASE_BLOCKED_OVERDUE"'),
+      metricNamespace,
+      metricName: 'ReleasesBlockedOverdue',
+      metricValue: '1',
+      defaultValue: 0,
+    });
     // ESC-20: the 15 minute ledger sweep logs one LEDGER_ROW_OVERDUE line per ledger row open (pending,
     // sent or failed) for more than 24 hours, every run. escrow-cron only: only the sweep reports age.
     new logs.MetricFilter(this, 'LedgerRowsOverdueFilter', {
@@ -1131,6 +1142,26 @@ export class MonitoringStack extends cdk.Stack {
         'agrees; if the order has none the leg has no payee until ESC-20. Escalate, and never ' +
         'edit the escrow row by hand. reason=gateway_refused or queue_failed: see ' +
         'escrow-settlement-failures. A leg in Manual Payouts is reported by manual-payouts-overdue instead.',
+    );
+
+    // FUP-41: a release the payout identity gate blocks was audited once (release_blocked_kyc) and then
+    // waited silently. Level-triggered like the other overdue lines: one line per escrow per hourly run
+    // while the block lasts, so the alarm stays in ALARM (one notification per episode) and clears by
+    // itself 75 to 90 minutes after the payee verifies.
+    const releasesBlockedOverdueAlarm = moneyLogAlarm(
+      'ReleasesBlockedOverdue',
+      'releases-blocked-overdue',
+      'ReleasesBlockedOverdue',
+      'Releases Blocked Overdue',
+      'A release the payout identity gate blocks has waited more than 24 hours (RELEASE_BLOCKED_OVERDUE in ' +
+        'the escrow-cron log group, one line per escrow per hourly run while it lasts, with escrowId, leg, ' +
+        'reason and ageHours since the gate first gave that reason; FUP-41). No money moved: the escrow stays ' +
+        'escrowed (dispute_resolved for a verdict) and the hourly sweep tries again. leg=farmer: the farmer ' +
+        'release; leg=trucker: the trucker of a split verdict. reason=phone_unverified or fayda_required: ask ' +
+        'that party to verify the phone or Fayda in the app; the next hourly run pays. reason=profile_missing: ' +
+        'the payee account is gone; escalate. The escrow page in the admin app shows the reason (Sweep block). ' +
+        'A suspended or CRITICAL payee is reported by risk-settlement-skipped instead. While in ALARM a newly ' +
+        'overdue release is not announced again: read the lines. Never edit the escrow row by hand.',
     );
 
     // ESC-20: ledger rows that stay open. A row the gateway refused is retried (3 times, then the manual
@@ -2499,6 +2530,8 @@ export class MonitoringStack extends cdk.Stack {
           orderEscrowProblemsAlarm,
           manualPayoutsOverdueAlarm,
           truckerPayoutsOverdueAlarm,
+          // FUP-41 releases the payout identity gate blocks for a day
+          releasesBlockedOverdueAlarm,
           // ESC-20 escrow ledger
           ledgerRowsOverdueAlarm,
           ledgerInvariantAlarm,
