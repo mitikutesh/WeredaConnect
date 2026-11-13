@@ -291,7 +291,9 @@ The escrow names the trip's trucker from funding on, before the trucker is asked
 reaches the trucker only once a delivery (the trucker's own, after committing) is linked. A known
 gap, failing closed (1.6.0): when a buyer's confirm lands between the drop-off judgement's freeze and
 its delivery write (`delivery-verification-api.md` P.4), the escrow stays the system's dispute on a
-delivered order and the order row never says it; the parties hear the verdict (`dispute_resolved`).
+delivered order and the order row never says it; the parties hear the verdict (`dispute_resolved`). The same holds when the buyer disputes in that window: the buyer's freeze answers `AlreadyDisputed`, no
+escrow write follows, the order row stays at judgement `pending`, and the farmer and the trucker hear of the
+dispute only at its verdict (FUP-400).
 
 ### Reputation-events table (`INSERT`, 1.5.0, ESC-28)
 
