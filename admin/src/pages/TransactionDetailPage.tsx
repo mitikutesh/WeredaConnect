@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { LedgerCard, RecordedSplitRow, TruckerLegRows } from "@/components/escrows/MoneyLegs";
+import { CancelDelivery } from "@/components/transactions/CancelDelivery";
 import { HandoffPhoto, TransactionTimeline } from "@/components/transactions/TransactionTimeline";
 import { PickupEvidenceCard } from "@/components/transactions/PickupEvidenceCard";
 import { useLocale } from "@/hooks/useLocale";
@@ -255,6 +256,17 @@ export function TransactionDetailPage() {
             </dl>
           ) : (
             <p className="text-sm text-text-muted">{t("transactions.noDelivery")}</p>
+          )}
+          {/* FUP-19: a delivery picked up and never delivered is cancelled here once its money is decided. */}
+          {delivery && (
+            <div className="mt-4">
+              <CancelDelivery
+                deliveryId={s(delivery.deliveryId)}
+                status={s(delivery.status)}
+                version={Number(delivery.version) || 0}
+                escrowStatus={escrow ? s(escrow.status) : null}
+              />
+            </div>
           )}
         </Card>
 

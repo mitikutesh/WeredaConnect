@@ -394,8 +394,9 @@ describe('ApiStack', () => {
     // unclaim actions share POST /admin/payouts/{escrowId}/{ref}/{action} with complete (no new route),
     // and so does FUP-218's correct. Plus GET /intents (SIM-56, the buyer's own requests) → 81,
     // plus GET /user/profile (SIM-56) → 82,
-    // plus POST /admin/orders/{orderId}/{action} (FUP-287, reopen-pickup) → 83 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 83);
+    // plus POST /admin/orders/{orderId}/{action} (FUP-287, reopen-pickup) → 83,
+    // plus POST /admin/deliveries/{id}/{action} (FUP-19, the admin's delivery cancel after pickup) → 84 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 84);
   });
 
   test('GET /user/profile is a JWT route on the sync Lambda\'s integration (SIM-56)', () => {
@@ -968,6 +969,33 @@ describe('ApiStack', () => {
     expect([...new Set(roleActions(role, (r) => r.includes('TripLocationsTable')))]).toEqual(['dynamodb:Query']);
     const deliveries = roleActions(role, (r) => r.includes('DeliveriesTable'));
     expect(deliveries).toEqual(expect.arrayContaining(['dynamodb:Query', 'dynamodb:GetItem']));
+  });
+
+  test('FUP-19: POST /admin/deliveries/{id}/{action} reaches the admin Lambda on the admin authorizer, whose existing grants cover the cancel transaction', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    const routes = template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'POST /admin/deliveries/{id}/{action}' },
+    });
+    expect(Object.keys(routes)).toHaveLength(1);
+    const route = Object.values(routes)[0].Properties;
+    expect(route.AuthorizationType).toBe('JWT');
+    expect(route.AuthorizerId).toEqual({ Ref: adminAuthorizerId });
+
+    // The shared admin integration (FUP-217): the same target as the trail route, no new integration.
+    const trail = Object.values(template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'GET /admin/deliveries/{id}/trail' },
+    }))[0].Properties;
+    expect(route.Target).toEqual(trail.Target);
+
+    // One transaction: the delivery update, the audit row put, and condition checks on the order and escrows.
+    const role = 'AdminFunctionServiceRole';
+    expect(roleActions(role, (r) => r.includes('DeliveriesTable'))).toEqual(expect.arrayContaining(['dynamodb:UpdateItem']));
+    expect(roleActions(role, (r) => r.includes('TransactionAuditTable'))).toEqual(expect.arrayContaining(['dynamodb:PutItem']));
+    expect(roleActions(role, (r) => r.includes('OrdersTable'))).toEqual(expect.arrayContaining(['dynamodb:ConditionCheckItem']));
+    expect(roleActions(role, (r) => r.includes('EscrowsTable'))).toEqual(expect.arrayContaining(['dynamodb:ConditionCheckItem']));
   });
 
   test('FRD-14: GET /admin/disputes/{id}/evidence reaches the admin Lambda on the admin authorizer, which may only Query message threads by conversation', () => {

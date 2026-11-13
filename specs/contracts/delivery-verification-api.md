@@ -1,14 +1,14 @@
 # Delivery Verification API Contract
 
 ## Version
-2.8.0
+2.9.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
 - **Web** (client) -- the same handoffs in the browser; uploads handoff photos as they are taken (1.25.0)
 - **Backend** (server) -- validating delivery state transitions, GPS proximity, and storing evidence
 - **Infrastructure** -- the uploads bucket and its CORS, the Lambdas' photo grants (1.25.0)
-- **Admin** -- the handoff photos on the transaction detail, dispute evidence (1.25.0)
+- **Admin** -- the handoff photos on the transaction detail, dispute evidence (1.25.0); the cancel after pickup (2.9.0)
 
 ---
 
@@ -74,7 +74,7 @@ Create guards (v1.3.0, SIM-09), each rejected with nothing written:
 | Order status must be `accepted`, `pickup_confirmed` or `in_transit` (the farmer has consented; `created`, `funded` and every terminal status are refused) | `DELIVERY_VALIDATION: Order is <status>; no delivery can be created until the farmer has accepted it ...` |
 | Trucker flow: the order must name a trucker and the caller must be that trucker | `DELIVERY_PARTICIPANT_MISMATCH: The order has no trucker; only the buyer can create a self-pickup delivery for it.` / `... Only the order's matched trucker can create this delivery.` |
 | Self-pickup: the caller must be the order's buyer and the order must have no trucker or transport | unchanged from v1.1.0 |
-| At most one active delivery per order: the server claims `activeDeliveryId` on the order and writes the delivery in one transaction (1.9.0, below); a retry of the same `deliveryId` re-claims, a `cancelled` delivery releases the slot | `DELIVERY_VALIDATION: The order already has an active delivery.` |
+| At most one active delivery per order: the server claims `activeDeliveryId` on the order and writes the delivery in one transaction (1.9.0, below); a retry of the same `deliveryId` re-claims, a `cancelled` delivery releases the slot (not one an admin cancelled after pickup, 2.9.0) | `DELIVERY_VALIDATION: The order already has an active delivery.` |
 | Trucker flow (1.9.0, ESC-08): the delivery's `tripId` and `listingId` must be the order's (an order with a trucker but no trip is refused too) | `DELIVERY_PARTICIPANT_MISMATCH: tripId does not match the order.` / `... listingId does not match the order.` |
 | Trucker flow (1.9.0): the trip must exist and belong to the caller. Its status is not checked yet (trips do not reach `matched` before ESC-17, and refusing a cancelled trip would strand the order) | `DELIVERY_VALIDATION: Referenced trip not found.` / `DELIVERY_PARTICIPANT_MISMATCH: The trip belongs to another trucker.` |
 
@@ -84,7 +84,7 @@ but a sync order result's `serverData` echoes the raw order row, so clients must
 slot is free or already this delivery's) and the delivery row (condition: no row with this
 `deliveryId`) are one `TransactWriteItems`, so a create that fails or is interrupted leaves
 neither, and two creates of one `deliveryId` write one row. When another delivery holds the slot
-and that holder is dead (its row is `cancelled`, or it has no row and its claim has no
+and that holder is dead (its row is `cancelled`, unless an admin cancelled it after pickup (2.9.0), or it has no row and its claim has no
 `activeDeliveryClaimedAt`: a claim left by a create from before 1.9.0; a timed claim is always
 written with its row, so a timed claim without a row is never taken over), the create takes the slot over in the same kind of transaction, conditioned on the
 holder and its `activeDeliveryClaimedAt` (or its absence) being exactly what was read; a live
@@ -225,8 +225,64 @@ escrow.
 
 After pickup no party can cancel: the goods are moving. An admin settles a problem through the
 escrow dispute and the verdict (`escrow-protocol.md`, including the override refund for a
-`buyer_wins` whose goods are moving); the delivery then stays `pickedUp` or `inTransit`. A direct
-admin delivery cancel is not available yet (ESC-24).
+`buyer_wins` whose goods are moving); the delivery then stays `pickedUp` or `inTransit` until an
+admin cancels it (below, 2.9.0).
+
+**Admin cancel after pickup (2.9.0, FUP-19, spec E9).** `POST /admin/deliveries/{id}/{action}` with
+`{action}` = `cancel` (any other action `404 ADMIN_002`), admin pool, admin group only (`403 ADMIN_001`).
+Body `{"reason": "...", "expectedVersion": n}`: a reason of 10 to 500 characters after trimming and the
+delivery version the page read. It is for goods that left the farm and will not reach the buyer, once the
+money behind them is decided, and it moves the delivery only. Checked in this order, each refusal writing
+nothing:
+
+| Check | Answer |
+|---|---|
+| `reason` or `expectedVersion` missing or out of range | `400 DELIVERY_ADMIN_CANCEL_INVALID` (`field` names it) |
+| the delivery is missing or soft-deleted (read strongly consistent) | `404 ADMIN_018` |
+| this cancel already applied: `cancelled` with `cancelReason: admin_cancelled` at version `expectedVersion + 1` | `200` with `alreadyCancelled: true`, nothing written |
+| the delivery's version is not `expectedVersion` | `409 DELIVERY_ADMIN_CANCEL_CHANGED` |
+| the status is not `pickedUp` or `inTransit` (`pending`: a party's cancel or the order's refund closes it; `delivered`, `disputed`: the dispute verdict; `cancelled`) | `409 DELIVERY_ADMIN_CANCEL_NOT_ALLOWED` |
+| the delivery's order (strongly consistent) is missing, or is not `pickup_confirmed`, `in_transit`, `dispute_resolved`, `cancelled` or `rejected` (an order still `accepted` lags its picked-up delivery and must catch up first, or readers of an accepted order would treat the cancelled delivery as never picked up); a delivery without `orderId` (before 1.2.0) has no order to check | `409 DELIVERY_ADMIN_CANCEL_NOT_ALLOWED` |
+| an escrow behind it is not `completed`, `cancelled` or `refunded`: the order's own `escrow-order-{orderId}`, the ones the escrows' `OrderIndex` names and the one the `DeliveryIndex` names, each read again strongly consistent | `409 DELIVERY_ADMIN_CANCEL_MONEY_HELD`, the message names the escrow and its status |
+
+Then one `TransactWriteItems`, all of it or none of it:
+
+- the delivery: `status: cancelled`, `cancelReason: admin_cancelled`, `cancelledAt` and `updatedAt` (now),
+  `version` plus one; conditioned on the status and the version read and on no `deletedAt`; no `deletedAt`
+  is written;
+- its transaction-audit row `admin_delivery_cancelled` (entity `delivery`, from the status read to
+  `cancelled`, the admin as actor with role `admin`, under the order id, or the delivery id without an order)
+  at the deterministic key of a once-only row (`attribute_not_exists`), `metadata`
+  `orderStatus=<status or none>;escrows=<escrowId:status,... or none>;reason=<the reason>`. The reason is kept
+  there only, never on the delivery;
+- a `ConditionCheck` that the order's status and each escrow's status are still the ones read.
+
+A failed condition answers `409 DELIVERY_ADMIN_CANCEL_CHANGED` (a replay that landed in between answers
+`200 alreadyCancelled`). The `200` body is `{deliveryId, orderId, fromStatus, status: "cancelled",
+cancelReason: "admin_cancelled", cancelledAt, version, alreadyCancelled, message}`, without `fromStatus` on a
+replay.
+
+Nothing else moves: no order status, escrow, refund, payout, trip, trip booking, listing stock, reputation
+event or notification. The money is decided before, through what exists: a dispute verdict with a disposition
+(which closes the delivery itself, 1.16.0) or a refund, the ESC-09 override refund of goods on the move
+included, which leaves the delivery `pickedUp` or `inTransit` and the order flagged at its status. After the
+cancel:
+
+- the delivery is final like every `cancelled` one: a pickup, drop-off (the trucker's drop-off code of 2.7.0
+  included), dispute or photo is refused (`DELIVERY_ALREADY_CANCELLED`, or the 2.2.0 `conflict` with the row to
+  a party whose version is behind); check-ins neither move nor stamp it (their writes require `pickedUp` or
+  `inTransit`); the track answers its summary;
+- the order keeps its delivery slot: a holder an admin cancelled is never taken over, so the order takes no new
+  delivery (`DELIVERY_VALIDATION: The order already has an active delivery.`);
+- the parties see the row `cancelled` in their lists and on its detail with no action left; `cancelReason` and
+  `cancelledAt` are extra keys the apps ignore.
+
+Known limits: the order keeps its status (`pickup_confirmed`, `in_transit`), so the parties' order screens
+still read it, the trip's automatic completion stays off for the whole trip (an order of the trip still waits for
+carriage with no delivery done, even when the trip's other deliveries finish later), and the farmer, the trucker and
+the buyer cannot delete their accounts until the order is closed (those statuses block it); the server does not
+mark an `inTransit` trip delivered when this was its last open delivery (the trip completion runs on sync writes
+only), the trucker does; the parties get no push (FUP-341, FUP-342).
 
 **Request Body (Confirm Pickup)**:
 ```json
@@ -675,7 +731,8 @@ delivered → disputed     (any participant raises a dispute within 48 hours; th
 ```
 
 System only, never through sync (1.16.0): `pending`, `pickedUp` or `inTransit` `→ cancelled` or
-`→ disputed`, by an admin's dispute disposition (see the dispute verdict paragraphs above).
+`→ disputed`, by an admin's dispute disposition (see the dispute verdict paragraphs above). Admin only
+(2.9.0): `pickedUp` or `inTransit` `→ cancelled` by the admin cancel after pickup, once the money is decided.
 
 `cancelled` is final. An update that reaches a cancelled delivery (or a row soft-deleted before
 1.9.0) is refused with `DELIVERY_ALREADY_CANCELLED`. Since 2.2.0 (FUP-128) a caller whose `version`
@@ -1755,9 +1812,10 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 2.6.0 | 2026-11-12 | Arrival check-ins and the pickup judgement BUILT (ESC-34, P.2 "As built"), behind `pickupClassification` (off everywhere, only with `COMMITMENTS_ENABLED`): the accept of a flagged order stamps `pickupJudgement: pending`, an empty `checkIns` map and the farm's point; `handoff_check_in` (`sync-protocol.md` 1.55.0) takes `arrived_pickup` and `crops_ready` between `pickupDate` minus 24 hours and `pickupDeadlineAt` by server receipt, the arrival within 5 km of the stamped point (a farmer's far fix stored unmeasured, the farmer's GPS being optional), first kept, no version move; with the flag off the entity stays unsupported; the order cron judges at the deadline plus one minute: scan (stamped), trucker no-show (`awaiting_transport`, `trucker_no_show`), farmer no-show (`cancelled`, `farmer_no_show`, full refund), self-pickup buyer no-show (`buyer_no_show`, no points), both present or an unmeasured arrival (admin queue, money held); late check-ins kept as evidence (`CHECKIN_TOO_LATE`, admin queue `late_pickup_evidence` when they contradict the judgement); a pickup scan after the judgement refused `ORDER_DEADLINE_PASSED` (a real QR scan queued for the admin and alarmed); the buyer's deadline cancel refused for a flagged order; FUP-204: the trucker's check-in is measured against the point stamped at acceptance, and a farmer no-show's `NO_SHOW` signal goes through the attribution guard. `order-lifecycle.md` 2.15.0, `data-models.md` 1.14.0, `fraud-detection-architecture.md` 3.36.0, `reputation-architecture.md` 1.8.0 |
 | 2.7.0 | 2026-11-13 | The trucker's drop-off nonce BUILT (ESC-35, P.3; see QR Secret Storage), not flagged: the trucker's phone makes its own nonce after the pickup (tag `d.`) and registers it with a status-less update carrying only `dropoffQrNonce`, stored in `delivery-qr-secrets` (`dropoffNonce`, `dropoffIssuedAt`) next to the farmer's nonce, never on the delivery, no version move; only the trucker, `deferred` while the delivery is `pending` (refused after 14 days), nothing stored once delivered; the buyer's `delivered` of a trucker delivery is checked against it once stored (scan or typed code, its own 14-day freshness, the `delivered` leg's single use, a lock the trucker's new code clears with `DELIVERY_CODE_LOCKED`), else against the farmer's nonce (1.22.0, unchanged); a registration never replaces a stored code, only a renewal (`dropoffQrRenew`, the trucker's confirmed New drop-off code) does, and a code not stored answers `success` with `DROPOFF_CODE_SUPERSEDED` or `DROPOFF_CODE_NOT_STORED`; a tagged scan whose nonce has not synced, or that differs from the stored one but was scanned after it, is `deferred` without a signal (refused after 14 days with `DELIVERY_NONCE_MISSING`). Clients: the drop-off QR shows the trucker's own code, made at pickup, sent again on every open (never twice in a phone's queue), never made on open, made or replaced only by a confirmed New drop-off code (older queued codes dropped); the buyer's scan screen names the trucker in the wait and lock texts. Survey 4.5 answered in P.3. `sync-protocol.md` 1.58.0 |
 | 2.8.0 | 2026-11-13 | The admin side of the pickup judgement (FUP-287, P.2 "The admin side"): `GET /admin/transactions/{orderId}` returns `pickupEvidence` (the judgement, the deadline, the stamped farm point, each check-in with its receipt and capture times, fix, accuracy, distance, `distanceChecked`, `late`, `outOfRange` and sender, the exits the re-open takes and the last re-open), admin only, the parties' `OrderDto` unchanged. New `POST /admin/orders/{orderId}/reopen-pickup` (admin group; `exit`, a `reason` of 10 to 500 characters, `expectedVersion`, `deadlineHours` 1 to 168 with `pending`): only `both_present_no_scan` and `unchecked_check_in` on an `accepted` order whose escrow still simply holds the money; `pending` restamps the judgement with a new `pickupDeadlineAt` (judged again a minute after it, check-ins kept), `handoff_confirmed` moves the pending delivery to `pickedUp` and the order to `pickup_confirmed` (`scanned`), refused for a self-pickup; both answer the judgement's admin queue entry (removed, or kept as `hold_cap` when the escrow's hold cap rides on it; none may land on an order read without one) and stamp `pickupReopen`, in one transaction conditioned on what was read; new codes `PICKUP_REOPEN_INVALID`, `PICKUP_REOPEN_NOT_ALLOWED`, `PICKUP_REOPEN_CHANGED`, `PICKUP_REOPEN_MONEY_NOT_HELD`; a replay answers `alreadyApplied`; transaction-audit `admin_pickup_reopened`. No-show judgements are not re-opened (TASK FUP-330, FUP-331). Admin evidence card and action in en, am, om. `order-lifecycle.md` 2.16.0, `data-models.md` 1.16.0. 2.7.0 is ESC-35's |
+| 2.9.0 | 2026-11-13 | Admin cancel after pickup (FUP-19, spec E9; see the paragraph after Cancel): `POST /admin/deliveries/{id}/cancel` (route `POST /admin/deliveries/{id}/{action}`, admin group only) with a reason of 10 to 500 characters and the delivery version read moves a `pickedUp` or `inTransit` delivery to `cancelled` (`cancelReason: admin_cancelled`, `cancelledAt`, version plus one, no `deletedAt`) with its transaction-audit row `admin_delivery_cancelled` (the admin and the reason) in one transaction conditioned on the delivery's status and version and on the order's and every escrow's status as read; refused while any escrow of the order or the delivery is not `completed`, `cancelled` or `refunded` (`DELIVERY_ADMIN_CANCEL_MONEY_HELD`), for an order whose goods arrived or that is missing, and for a delivery not on the road (`DELIVERY_ADMIN_CANCEL_NOT_ALLOWED`); `DELIVERY_ADMIN_CANCEL_INVALID`, `DELIVERY_ADMIN_CANCEL_CHANGED`; a replay answers `alreadyCancelled`. No order, money, trip, booking or stock moves. A delivery an admin cancelled keeps its order's slot, so the order takes no new delivery. Admin: Cancel delivery on the transaction page, en, am and om. No app change: the apps already show a cancelled delivery with no action. |
 
 ---
 
 **Last Updated**: 2026-11-13
-**Version**: 2.8.0
+**Version**: 2.9.0
 **Status**: Draft (Phase R4.2)
