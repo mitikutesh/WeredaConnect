@@ -569,7 +569,7 @@ public class EscrowCronFunction
         }
 
         // First and self-contained, so a failing sweep below can never skip the overdue alarm lines.
-        var overdueCount = await ReportOverdueManualPayoutsAsync(context);
+        var (overdueCount, newlyOverdueCount) = await ReportOverdueManualPayoutsAsync(context);
         // ESC-06: the admin queue owns the capped order escrows the sweeps no longer see.
         var (queueOverdue, queueCleared) = await ReportAdminQueueAsync(context);
         // ESC-05: before the sweeps, so a parked escrow is already out of their way this run.
@@ -596,6 +596,7 @@ public class EscrowCronFunction
             { "completed", completedCount.ToString() },
             { "manualPayoutsWaiting", _manualPayoutsWaiting.ToString() },
             { "manualPayoutsOverdue", overdueCount.ToString() },
+            { "manualPayoutsNewlyOverdue", newlyOverdueCount.ToString() },
             { "staleLocksParked", parkedCount.ToString() },
             { "truckerLegsPaid", trucker.Paid.ToString() },
             { "truckerLegsQueued", trucker.Queued.ToString() },
@@ -629,7 +630,8 @@ public class EscrowCronFunction
         context.Logger.LogInformation(
             $"Auto-release/refund complete: {releaseCount} released, {refundCount} refunded, "
             + $"{settledReleases + settledRefunds} resolved disputes settled, {completedCount} crash-recovered to completed, "
-            + $"{_manualPayoutsWaiting} waiting for a manual payout, {overdueCount} manual payout legs overdue, "
+            + $"{_manualPayoutsWaiting} waiting for a manual payout, {overdueCount} manual payout legs overdue "
+            + $"({newlyOverdueCount} newly), "
             + $"{parkedCount} stale settlement locks parked, trucker legs: {trucker.Paid} paid, {trucker.Queued} queued, "
             + $"{trucker.Blocked} blocked, {trucker.Failed} failed, {trucker.Deferred} deferred, {trucker.Overdue} overdue, "
             + $"{_adminQueueEntered} orders entered the admin queue, "
@@ -1493,11 +1495,14 @@ public class EscrowCronFunction
     /// stops at the first younger row. An open row without a pending leg cannot close from
     /// the admin page, so it gets a line too. Never throws: a failed query logs a
     /// settlement-failure line instead, so the operator still hears about it.
+    /// FUP-06: the first run that sees an entry overdue also logs <c>MANUAL_PAYOUT_NEWLY_OVERDUE</c> for
+    /// each of those legs (see <see cref="IsNewlyOverdueAsync"/>), which a standing overdue alarm cannot mask.
     /// </summary>
-    private async Task<int> ReportOverdueManualPayoutsAsync(ILambdaContext context)
+    private async Task<(int Lines, int Newly)> ReportOverdueManualPayoutsAsync(ILambdaContext context)
     {
         var now = DateTime.UtcNow;
         var lines = 0;
+        var newly = 0;
         try
         {
             Dictionary<string, Amazon.DynamoDBv2.Model.AttributeValue>? startKey = null;
@@ -1513,7 +1518,7 @@ public class EscrowCronFunction
                         : MoneyAlarmLog.QueueAlarmAfter; // unreadable time: treat as overdue
                     if (age < MoneyAlarmLog.QueueAlarmAfter)
                     {
-                        return lines;
+                        return (lines, newly);
                     }
 
                     var escrowId = GetStringOrNull(item, "escrowId");
@@ -1522,16 +1527,26 @@ public class EscrowCronFunction
                     var pending = ManualPayoutFields.AllLegs
                         .Where(leg => GetStringOrNull(item, ManualPayoutFields.StatusAttr(leg)) == ManualPayoutFields.LegPending)
                         .ToList();
-                    foreach (var leg in pending.Count > 0 ? pending : ["no_pending_leg"])
+                    List<string> legs = pending.Count > 0 ? pending : ["no_pending_leg"];
+                    foreach (var leg in legs)
                     {
                         context.Logger.LogWarning(MoneyAlarmLog.ManualPayoutOverdue(escrowId, $"{op}:{leg}", ageHours));
                         lines++;
+                    }
+
+                    if (await IsNewlyOverdueAsync(item, escrowId, queuedAt, context))
+                    {
+                        foreach (var leg in legs)
+                        {
+                            context.Logger.LogWarning(MoneyAlarmLog.ManualPayoutNewlyOverdue(escrowId, $"{op}:{leg}", ageHours));
+                            newly++;
+                        }
                     }
                 }
 
                 if (lastKey == null)
                 {
-                    return lines;
+                    return (lines, newly);
                 }
 
                 startKey = lastKey;
@@ -1546,7 +1561,40 @@ public class EscrowCronFunction
                 null, "sweep_failed", MoneyAlarmLog.OutcomeFailed, $"manual_payout_query:{ex.GetType().Name}"));
         }
 
-        return lines;
+        return (lines, newly);
+    }
+
+    /// <summary>
+    /// FUP-06: true once per queue entry: when the row's <c>manualPayoutOverdueLoggedFor</c> is not its queue time
+    /// and the conditional write that sets it lands (a false answer means an earlier run announced it, or the entry
+    /// closed or was queued again since the read). A row the write cannot be keyed on, or a write that fails for
+    /// another reason, announces anyway: the next run may announce it again, but a new overdue leg is never hidden.
+    /// </summary>
+    private async Task<bool> IsNewlyOverdueAsync(
+        Dictionary<string, object> item, string? escrowId, string? queuedAt, ILambdaContext context)
+    {
+        if (queuedAt != null && GetStringOrNull(item, ManualPayoutFields.OverdueLoggedFor) == queuedAt)
+        {
+            return false;
+        }
+
+        var createdAt = GetStringOrNull(item, "createdAt");
+        if (escrowId == null || createdAt == null || queuedAt == null)
+        {
+            return true; // an index row always carries all three
+        }
+
+        try
+        {
+            return await _escrowRepo.TryMarkManualPayoutOverdueLoggedAsync(escrowId, createdAt, queuedAt);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Manual payout report: the newly overdue marker of {MoneyAlarmLog.LogId(escrowId)} was not written: "
+                + $"[{ex.GetType().Name}]. Announced anyway; the next run may announce it again.");
+            return true;
+        }
     }
 
     /// <summary>
@@ -2061,6 +2109,7 @@ public class EscrowCronFunction
             { "skipped", counts.Skipped.ToString() },
             { "overdue", counts.Overdue.ToString() },
             { "manualOverdue", counts.ManualOverdue.ToString() },
+            { "manualNewlyOverdue", counts.ManualNewlyOverdue.ToString() },
             { "invariantFailures", counts.Invariant.ToString() },
             { "truncated", counts.Truncated ? "true" : "false" },
             { "completedAt", DateTime.UtcNow.ToString("o") }
@@ -2068,7 +2117,7 @@ public class EscrowCronFunction
         context.Logger.LogInformation(
             $"Ledger sweep complete: {counts.Seen} rows seen, {counts.Done} done, {counts.Sent} sent, {counts.Failed} failed, "
             + $"{counts.Manual} manual, {counts.Blocked} blocked, {counts.Skipped} skipped, {counts.Overdue} overdue, "
-            + $"{counts.ManualOverdue} manual overdue, {counts.Invariant} invariant failures.");
+            + $"{counts.ManualOverdue} manual overdue ({counts.ManualNewlyOverdue} newly), {counts.Invariant} invariant failures.");
 
         return new APIGatewayProxyResponse
         {

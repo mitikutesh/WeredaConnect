@@ -381,4 +381,40 @@ public class TruckerGpsEvidenceTests
         attempt.Outcome.Should().Be(TruckerGpsOutcome.OutOfRangeAttempt);
         new[] { reached, unmeasured, attempt }.Should().OnlyContain(v => !v.IsAnomaly && v.Description == null);
     }
+
+    // ── FUP-265: where the trucker's phone checked in at the drop-off ──────────────
+
+    private static TrackPoint? CheckInPoint(IReadOnlyDictionary<string, object>? order)
+        => TruckerGpsEvidence.DropoffCheckInPoint(order, DeliveryId, Trucker, PickedUpAt, ConfirmedAt);
+
+    [Fact]
+    public void DropoffCheckInPoint_IsTheFixOfTheTruckersOwnCheckIn_MeasuredOrNot()
+    {
+        CheckInPoint(StampedOrder(checkIn: DropoffEntry(ConfirmedAt.AddMinutes(-30), 1.2, at: Addis))).Should().Be(Addis);
+        CheckInPoint(StampedOrder(checkIn: DropoffEntry(ConfirmedAt.AddMinutes(-30), null, at: Addis))).Should().Be(Addis);
+    }
+
+    [Fact]
+    public void DropoffCheckInPoint_NeverTheOutOfRangeAttempt_NorAnotherTruckersOrAnotherDeliverysCheckIn()
+    {
+        var checkIn = DropoffEntry(ConfirmedAt.AddMinutes(-30), 1.2, at: Addis);
+
+        // The attempt was out of range of every drop-off point: not where the handoff was.
+        CheckInPoint(StampedOrder(attempt: DropoffEntry(ConfirmedAt.AddMinutes(-30), 12.4, at: Addis))).Should().BeNull();
+        CheckInPoint(StampedOrder(checkIn: DropoffEntry(ConfirmedAt.AddMinutes(-30), 1.2, by: "someone-else", at: Addis)))
+            .Should().BeNull();
+        CheckInPoint(StampedOrder(checkIn: checkIn, activeDeliveryId: "del-earlier")).Should().BeNull();
+        CheckInPoint(StampedOrder(checkIn: DropoffEntry(PickedUpAt.AddSeconds(-1), 1.2, at: Addis))).Should().BeNull();
+        CheckInPoint(StampedOrder()).Should().BeNull();
+        CheckInPoint(null).Should().BeNull();
+    }
+
+    [Fact]
+    public void DropoffCheckInPoint_ACheckInWithoutAFix_IsNull()
+    {
+        var checkIn = DropoffEntry(ConfirmedAt.AddMinutes(-30), 1.2, at: Addis);
+        checkIn.Remove(PickupJudgement.EntryLatitude);
+
+        CheckInPoint(StampedOrder(checkIn: checkIn)).Should().BeNull();
+    }
 }

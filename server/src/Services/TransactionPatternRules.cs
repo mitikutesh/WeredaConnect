@@ -102,6 +102,8 @@ internal readonly record struct PaymentSample(decimal AmountEtb, DateTime PaidAt
 /// are when the scans reached the server; <see cref="PickupCapturedAtUtc"/> is when the trucker's phone
 /// made the pickup scan (the pickup operation's <c>timestamp</c>), which is earlier when it was offline.
 /// The confirming operation's own <c>timestamp</c> is not used: it comes from the buyer's phone.
+/// <see cref="DropoffSource"/> says where the drop-off point comes from (FUP-265): the buyer's drop-off scan
+/// as written, or the point that bounds it (<see cref="TransactionPatternRules.BoundedDropoff"/>).
 /// </summary>
 internal readonly record struct DeliveryTimeFacts(
     double? PickupLat,
@@ -110,7 +112,24 @@ internal readonly record struct DeliveryTimeFacts(
     double? DropoffLng,
     DateTime? PickedUpAtUtc,
     DateTime? ConfirmedAtUtc,
-    DateTime? PickupCapturedAtUtc);
+    DateTime? PickupCapturedAtUtc,
+    DeliveryDropoffSource DropoffSource = DeliveryDropoffSource.BuyerScan);
+
+/// <summary>
+/// FUP-265: where the drop-off point of the impossible delivery time rule comes from. The buyer's scan is the
+/// buyer's phone; the two others are points the trucker sent or set, which bound it.
+/// </summary>
+internal enum DeliveryDropoffSource
+{
+    /// <summary>The buyer's <c>gpsDropoff</c>, sent with the confirm.</summary>
+    BuyerScan,
+
+    /// <summary>The trucker's own drop-off check-in of ESC-36 (with <c>dropoffClassification</c> on).</summary>
+    TruckerCheckIn,
+
+    /// <summary>The trip's destination point, which the trucker set on the trip.</summary>
+    TripDestination
+}
 
 /// <summary>
 /// FRD-09 transaction pattern rules as pure decisions over data the caller read (no I/O, deterministic
@@ -265,6 +284,8 @@ internal static class TransactionPatternRules
     /// clock set behind only makes the trip look longer (one set ahead is not stored, beyond 5 minutes). No
     /// time from the buyer's phone is used, so a buyer's clock or client cannot shorten the trip. Missing
     /// coordinates or times skip, and so does a point at (0, 0), which is a phone with no fix, not a place.
+    /// The rule judges these facts as given; the hook writes a row only from facts whose drop-off side is
+    /// bounded by a point the trucker controls (<see cref="BoundedDropoff"/>, FUP-265).
     /// </summary>
     public static PatternHit? ImpossibleDeliveryTime(DeliveryTimeFacts facts, TransactionPatternSettings settings)
     {
@@ -292,10 +313,43 @@ internal static class TransactionPatternRules
 
         var minutes = Math.Max(0, (int)Math.Floor(tripTime.TotalMinutes));
         return new PatternHit(FraudDetectionService.ImpossibleDeliveryTimeSignal,
-            $"Delivered {minutes} minutes after pickup with the pickup and drop-off scans "
+            $"Delivered {minutes} minutes after pickup with the pickup scan and {DropoffName(facts.DropoffSource)} "
             + $"{km.ToString("0.0", CultureInfo.InvariantCulture)} km apart; at {settings.MaxDeliveryKmh} km/h that "
             + $"takes at least {(int)Math.Ceiling(fastest.TotalMinutes)} minutes.");
     }
+
+    /// <summary>
+    /// FUP-265: the facts with the buyer's drop-off point bounded by <paramref name="bound"/>, a point the
+    /// trucker controls (<paramref name="boundSource"/>: the trucker's drop-off check-in or the trip's
+    /// destination). The drop-off side becomes whichever of the two is nearer to the stored pickup, so the
+    /// buyer's point can only shorten the distance, never make it longer than the trucker's own point says.
+    /// Null when there is nothing to bound by (no point, or one at (0, 0)) or nothing to bound (no pickup or no
+    /// buyer's point, or one at (0, 0)): the rule is not judged, so no row ever rests on the buyer's point alone.
+    /// </summary>
+    public static DeliveryTimeFacts? BoundedDropoff(
+        DeliveryTimeFacts facts, TrackPoint? bound, DeliveryDropoffSource boundSource)
+    {
+        if (bound == null || IsNoFix(bound.Latitude, bound.Longitude)
+            || facts.PickupLat is not { } pickupLat || facts.PickupLng is not { } pickupLng
+            || facts.DropoffLat is not { } dropoffLat || facts.DropoffLng is not { } dropoffLng
+            || IsNoFix(pickupLat, pickupLng) || IsNoFix(dropoffLat, dropoffLng))
+        {
+            return null;
+        }
+
+        var toBuyerScan = FraudDetectionService.HaversineDistanceKm(pickupLat, pickupLng, dropoffLat, dropoffLng);
+        var toBound = FraudDetectionService.HaversineDistanceKm(pickupLat, pickupLng, bound.Latitude, bound.Longitude);
+        return toBound < toBuyerScan
+            ? facts with { DropoffLat = bound.Latitude, DropoffLng = bound.Longitude, DropoffSource = boundSource }
+            : facts;
+    }
+
+    private static string DropoffName(DeliveryDropoffSource source) => source switch
+    {
+        DeliveryDropoffSource.TruckerCheckIn => "the trucker's drop-off check-in",
+        DeliveryDropoffSource.TripDestination => "the trip's destination",
+        _ => "the drop-off scan"
+    };
 
     /// <summary>
     /// ESC-33, buyer griefing (three-party spec 4.11, reputation-architecture.md section 13): the buyer's

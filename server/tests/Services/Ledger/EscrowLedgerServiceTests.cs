@@ -764,6 +764,81 @@ public class EscrowLedgerServiceTests
         _alarms.Should().Contain(l => l.StartsWith("MANUAL_PAYOUT_OVERDUE") && l.Contains("ref=release.farmer"));
     }
 
+    // FUP-06: the edge-triggered line, so a standing manual-payouts-overdue alarm cannot mask a new leg.
+
+    [Fact]
+    public async Task AManualRowThatBecomesOverdue_IsAnnouncedOnce_WhileTheOverdueLineRepeats()
+    {
+        Seed();
+        _gateway.Script.Enqueue((false, TelebirrGatewayErrors.PayoutNotSupported, null));
+        _gateway.Script.Enqueue((false, TelebirrGatewayErrors.PayoutNotSupported, null));
+        await Service().ReleaseAsync(Release(), "system");
+
+        _now += TimeSpan.FromHours(23);
+        var young = await SweepAsync();
+        young.ManualNewlyOverdue.Should().Be(0);
+        _ledger.OverdueMarkWrites.Should().Be(0);
+
+        _now += TimeSpan.FromHours(2);
+        var first = await SweepAsync();
+        first.ManualOverdue.Should().Be(2);
+        first.ManualNewlyOverdue.Should().Be(2);
+        _alarms.Should().Contain("MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=escrow-order-o1 ref=release.farmer ageHours=25");
+        _alarms.Should().Contain(l => l.StartsWith("MANUAL_PAYOUT_NEWLY_OVERDUE") && l.Contains("ref=release.trucker.trucker-1"));
+        _ledger.Row(EscrowId, "release#farmer").ManualOverdueLoggedFor.Should().Be(_ledger.Row(EscrowId, "release#farmer").DueAt);
+
+        _alarms.Clear();
+        _now += TimeSpan.FromMinutes(15);
+        var second = await SweepAsync();
+        second.ManualOverdue.Should().Be(2);
+        second.ManualNewlyOverdue.Should().Be(0);
+        _alarms.Should().Contain(l => l.StartsWith("MANUAL_PAYOUT_OVERDUE"));
+        _alarms.Should().NotContain(l => l.Contains("MANUAL_PAYOUT_NEWLY_OVERDUE"));
+        _ledger.OverdueMarkWrites.Should().Be(2); // the marked rows are skipped without a write
+    }
+
+    [Fact]
+    public async Task AMarkerLeftFromAnEarlierStayInManual_DoesNotSilenceThisStay()
+    {
+        Seed();
+        _gateway.Script.Enqueue((false, TelebirrGatewayErrors.PayoutNotSupported, null));
+        _gateway.Script.Enqueue((false, TelebirrGatewayErrors.PayoutNotSupported, null));
+        await Service().ReleaseAsync(Release(), "system");
+        // The rows carry a marker for another dueAt: a stay in manual announced before this one.
+        foreach (var row in _ledger.RowsOf(EscrowId).Where(r => r.Status == LedgerFields.StatusManual))
+        {
+            _ledger.Rows[(row.EscrowId, row.Ref)] = row with { ManualOverdueLoggedFor = "2026-01-01T00:00:00.0000000Z" };
+        }
+
+        _now += TimeSpan.FromHours(25);
+        var counts = await SweepAsync();
+
+        counts.ManualNewlyOverdue.Should().Be(2);
+        _alarms.Clear();
+        (await SweepAsync()).ManualNewlyOverdue.Should().Be(0);
+        _alarms.Should().NotContain(l => l.Contains("MANUAL_PAYOUT_NEWLY_OVERDUE"));
+    }
+
+    [Fact]
+    public async Task AMarkerThatCannotBeWritten_AnnouncesAnyway_AndTheNextSweepAnnouncesThatRowAgain()
+    {
+        Seed();
+        _gateway.Script.Enqueue((false, TelebirrGatewayErrors.PayoutNotSupported, null));
+        _gateway.Script.Enqueue((false, TelebirrGatewayErrors.PayoutNotSupported, null));
+        await Service().ReleaseAsync(Release(), "system");
+        _ledger.ThrowOnNextOverdueMark = new Amazon.DynamoDBv2.Model.ProvisionedThroughputExceededException("throttled");
+
+        _now += TimeSpan.FromHours(25);
+        var first = await SweepAsync();
+
+        first.ManualNewlyOverdue.Should().Be(2);
+        _alarms.Count(l => l.StartsWith("MANUAL_PAYOUT_NEWLY_OVERDUE")).Should().Be(2);
+        _alarms.Clear();
+        var second = await SweepAsync();
+        second.ManualNewlyOverdue.Should().Be(1);
+        _alarms.Count(l => l.StartsWith("MANUAL_PAYOUT_NEWLY_OVERDUE")).Should().Be(1);
+    }
+
     // ── Disputes ────────────────────────────────────────────────────────────
 
     [Fact]

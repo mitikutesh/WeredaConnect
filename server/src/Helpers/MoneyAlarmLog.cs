@@ -15,6 +15,7 @@ namespace WeredaConnect.Server.Helpers;
 /// <code>
 /// ESCROW_SETTLEMENT_FAILED escrowId=&lt;id&gt; action=&lt;action&gt; outcome=&lt;failed|unknown&gt; code=&lt;code&gt;
 /// MANUAL_PAYOUT_OVERDUE escrowId=&lt;id&gt; ref=&lt;ref&gt; ageHours=&lt;n&gt;
+/// MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=&lt;id&gt; ref=&lt;ref&gt; ageHours=&lt;n&gt;
 /// ADMIN_QUEUE_OVERDUE orderId=&lt;id&gt; reason=&lt;code&gt; ageHours=&lt;n&gt; [escrowId=&lt;id&gt;]
 /// DISPUTE_VERDICT_ORDER_MISMATCH escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
@@ -104,6 +105,15 @@ namespace WeredaConnect.Server.Helpers;
 /// "Additions in 1.13.0" and "Additions in 1.15.0".
 /// </para>
 /// <para>
+/// FUP-06: <c>MANUAL_PAYOUT_OVERDUE</c> repeats every run, so its alarm stays in ALARM while any leg is
+/// overdue and a leg that becomes overdue meanwhile changed nothing. <c>MANUAL_PAYOUT_NEWLY_OVERDUE</c>, with the
+/// same fields, is logged next to it once per manual payout: by the hourly report for a 1.x queue entry (the escrow
+/// row's <c>manualPayoutOverdueLoggedFor</c>, keyed on <c>manualPayoutQueuedAt</c>) and by the ledger sweep for a
+/// ledger row in <c>manual</c> (the row's <c>manualOverdueLoggedFor</c>, keyed on its <c>dueAt</c>), each marker
+/// written by a conditional write before the line. A marker that could not be written logs the line anyway, so
+/// the next run may repeat it. Its alarm counts single lines and clears within minutes (escrow-protocol 2.24.0).
+/// </para>
+/// <para>
 /// ESC-10 adds <c>ESCROW_SETTLEMENT_FAILED</c> actions from escrow-cron: <c>sweep_truncated</c> for a paged
 /// sweep its budget stopped (<c>code=&lt;sweep&gt;:&lt;pages|rows|time&gt;</c>), <c>auto_release_blocked</c> and
 /// <c>auto_refund_blocked</c> once per escrow and reason when the order and delivery check first blocks a
@@ -132,6 +142,9 @@ public static class MoneyAlarmLog
 {
     public const string SettlementFailedToken = "ESCROW_SETTLEMENT_FAILED";
     public const string ManualPayoutOverdueToken = "MANUAL_PAYOUT_OVERDUE";
+
+    /// <summary>FUP-06: a manual payout leg past <see cref="QueueAlarmAfter"/> for the first time, logged once per payout.</summary>
+    public const string ManualPayoutNewlyOverdueToken = "MANUAL_PAYOUT_NEWLY_OVERDUE";
     public const string AdminQueueOverdueToken = "ADMIN_QUEUE_OVERDUE";
     public const string DisputeVerdictOrderMismatchToken = "DISPUTE_VERDICT_ORDER_MISMATCH";
     public const string DisputeVerdictSettlementBlockedToken = "DISPUTE_VERDICT_SETTLEMENT_BLOCKED";
@@ -211,6 +224,10 @@ public static class MoneyAlarmLog
 
     public static string ManualPayoutOverdue(string? escrowId, string? reference, int ageHours)
         => $"{ManualPayoutOverdueToken} escrowId={LogId(escrowId)} ref={Safe(reference)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>FUP-06: the first <see cref="ManualPayoutOverdue"/> report of a leg, with the same fields.</summary>
+    public static string ManualPayoutNewlyOverdue(string? escrowId, string? reference, int ageHours)
+        => $"{ManualPayoutNewlyOverdueToken} escrowId={LogId(escrowId)} ref={Safe(reference)} ageHours={Math.Max(0, ageHours)}";
 
     /// <summary>ESC-20: the invariant <paramref name="check"/> (I1 to I4) fails for a ledger write or on a sweep re-check.</summary>
     public static string LedgerInvariant(string? escrowId, string? reference, string? check)

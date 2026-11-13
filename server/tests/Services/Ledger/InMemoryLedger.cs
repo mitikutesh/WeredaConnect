@@ -228,7 +228,8 @@ internal sealed class InMemoryLedger : IEscrowLedgerRepository
             }
         }
 
-        var after = transition.After;
+        // Like the real BuildRowUpdate, a transition never touches the FUP-06 marker.
+        var after = transition.After with { ManualOverdueLoggedFor = current.ManualOverdueLoggedFor };
         if (after.Status != LedgerFields.StatusDone && after.DueAt == null)
         {
             after = after with { DueAt = after.UpdatedAt };
@@ -266,6 +267,33 @@ internal sealed class InMemoryLedger : IEscrowLedgerRepository
             .Select(e => Copy(e.EscrowId)!)
             .ToList();
         return Task.FromResult((items, (Dictionary<string, AttributeValue>?)null));
+    }
+
+    /// <summary>FUP-06: throws from the next newly-overdue marker write instead of writing it.</summary>
+    public Exception? ThrowOnNextOverdueMark { get; set; }
+
+    /// <summary>FUP-06: the newly-overdue marker writes asked for, landed or not.</summary>
+    public int OverdueMarkWrites { get; private set; }
+
+    public Task<bool> TryMarkManualOverdueLoggedAsync(string escrowId, string reference, string dueAt)
+    {
+        OverdueMarkWrites++;
+        if (ThrowOnNextOverdueMark is { } toThrow)
+        {
+            ThrowOnNextOverdueMark = null;
+            throw toThrow;
+        }
+
+        if (!Rows.TryGetValue((escrowId, reference), out var current)
+            || current.Status != LedgerFields.StatusManual
+            || current.DueAt != dueAt
+            || current.ManualOverdueLoggedFor == dueAt)
+        {
+            return Task.FromResult(false);
+        }
+
+        Rows[(escrowId, reference)] = current with { ManualOverdueLoggedFor = dueAt };
+        return Task.FromResult(true);
     }
 
     public Task<(List<LedgerRow> Rows, Dictionary<string, AttributeValue>? Next)> QueryOpenAsync(

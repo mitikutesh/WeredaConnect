@@ -1066,6 +1066,28 @@ public sealed class EscrowRepository : IEscrowRepository
         return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
     }
 
+    /// <inheritdoc />
+    public Task<bool> TryMarkManualPayoutOverdueLoggedAsync(string escrowId, string createdAt, string queuedAt)
+        => TryConditionalUpdateAsync(new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #logged = :queuedAt",
+            ConditionExpression = "#marker = :open AND #queuedAt = :queuedAt"
+                                  + " AND (attribute_not_exists(#logged) OR #logged <> :queuedAt)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#marker", ManualPayoutFields.Marker },
+                { "#queuedAt", ManualPayoutFields.QueuedAt },
+                { "#logged", ManualPayoutFields.OverdueLoggedFor }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":open", new AttributeValue { S = ManualPayoutFields.MarkerOpen } },
+                { ":queuedAt", new AttributeValue { S = queuedAt } }
+            }
+        });
+
     private static Dictionary<string, AttributeValue> EscrowKey(string escrowId, string createdAt) => new()
     {
         { "escrowId", new AttributeValue { S = escrowId } },

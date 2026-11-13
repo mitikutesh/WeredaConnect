@@ -2553,7 +2553,8 @@ public partial class SyncFunction
     /// with a trucker: the impossible delivery time, written on the delivery's trucker (not the caller, who is
     /// usually the buyer). The pickup side (point, <c>pickedUpAt</c>, <c>pickupCapturedAt</c>) comes from the row
     /// as it was before this write, the drop-off side from the written row (FUP-246), so the confirm cannot move
-    /// the pickup. A self-pickup has no trucker and no trip between the scans.
+    /// the pickup. The buyer's drop-off point is bounded by a point the trucker controls before a row is written
+    /// (<see cref="DeliveryTimeHitsAsync"/>, FUP-265). A self-pickup has no trucker and no trip between the scans.
     /// </summary>
     private async Task TryRecordDeliveryPatternSignalsAsync(
         SyncOperationRequest operation, Dictionary<string, AttributeValue> existing,
@@ -2578,9 +2579,53 @@ public partial class SyncFunction
             && AttrString(written, "truckerId") is { Length: > 0 } truckerId)
         {
             await TryRecordPatternSignalsAsync(truckerId, operation.EntityId, "delivery", "delivery_time",
-                rules => Task.FromResult(rules.CheckDeliveryTime(TransactionPatternRules.DeliveryTimeFactsFrom(existing, written))),
-                context);
+                rules => DeliveryTimeHitsAsync(rules, existing, written, truckerId), context);
         }
+    }
+
+    /// <summary>
+    /// FUP-265 (fraud-detection-architecture.md 15.1): the impossible delivery time on the trucker, never from a
+    /// drop-off point the buyer alone controls. The buyer's <c>gpsDropoff</c> is judged first, with no read: the
+    /// bound below only ever shortens the distance, so a trip it does not flag is never flagged. When it does,
+    /// the drop-off side is bounded by a point the trucker controls (<see cref="TransactionPatternRules.BoundedDropoff"/>):
+    /// with <c>dropoffClassification</c> on, the trucker's own drop-off check-in of this delivery (ESC-36, one
+    /// strongly consistent order read, as FUP-245 reads it), else the trip's destination point, which the trucker
+    /// set. Neither (a trip without a destination point and no check-in): no row. A failed read throws to
+    /// <see cref="TryRecordPatternSignalsAsync"/>, which logs it and writes nothing.
+    /// </summary>
+    private async Task<IReadOnlyList<PatternHit>> DeliveryTimeHitsAsync(
+        TransactionPatternService rules, Dictionary<string, AttributeValue> existing,
+        Dictionary<string, AttributeValue> written, string truckerId)
+    {
+        var facts = TransactionPatternRules.DeliveryTimeFactsFrom(existing, written);
+        if (rules.CheckDeliveryTime(facts).Count == 0)
+        {
+            return Array.Empty<PatternHit>();
+        }
+
+        TrackPoint? bound = null;
+        var source = DeliveryDropoffSource.TripDestination;
+        if (DropoffJudgementOn
+            && AttrString(existing, "orderId") is { Length: > 0 } orderId
+            && facts is { PickedUpAtUtc: { } pickedUpAt, ConfirmedAtUtc: { } confirmedAt })
+        {
+            var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+            bound = TruckerGpsEvidence.DropoffCheckInPoint(
+                order, AttrString(existing, "deliveryId") ?? "", truckerId, pickedUpAt, confirmedAt);
+            source = DeliveryDropoffSource.TruckerCheckIn;
+        }
+
+        if (bound == null && AttrString(existing, "tripId") is { Length: > 0 } tripId)
+        {
+            var trip = await GetTripItemAsync(tripId);
+            bound = TripTrack.PointOf(trip == null ? null : CropRepository.FromItem(trip),
+                "destinationLatitude", "destinationLongitude");
+            source = DeliveryDropoffSource.TripDestination;
+        }
+
+        return TransactionPatternRules.BoundedDropoff(facts, bound, source) is { } bounded
+            ? rules.CheckDeliveryTime(bounded)
+            : Array.Empty<PatternHit>();
     }
 
     /// <summary>
