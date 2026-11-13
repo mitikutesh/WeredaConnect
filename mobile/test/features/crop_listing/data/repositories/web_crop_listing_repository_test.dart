@@ -319,6 +319,79 @@ void main() {
     });
   });
 
+  // FUP-149: the web parse read a status the app has no name for as
+  // `active`. The server leaves deleted listings out of its lists and
+  // answers 404 for one (crop-listing-api 1.10.0); a deleted row that still
+  // comes is left out the same way.
+  group('WebCropListingRepository deleted rows (FUP-149)', () {
+    late _MockApiClient api;
+    late WebCropListingRepository repository;
+
+    Map<String, dynamic> crop(String id, Map<String, dynamic> extra) => {
+          'cropId': id,
+          'farmerId': 'farmer-1',
+          'cropType': 'teff',
+          'quantityKg': 10,
+          'pricePerKg': 50,
+          'status': 'available',
+          'createdAt': '2026-11-01T00:00:00.000Z',
+          'updatedAt': '2026-11-01T00:00:00.000Z',
+          'version': 1,
+          ...extra,
+        };
+
+    final deletions = <Map<String, dynamic>>[
+      {'status': 'deleted', 'deletedAt': '2026-11-12T08:00:00.000Z'},
+      {'status': 'deleted'},
+      {'deletedAt': '2026-11-12T08:00:00.000Z'},
+    ];
+
+    setUp(() {
+      api = _MockApiClient();
+      repository = WebCropListingRepository(
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/crops',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'crops': [
+            crop('live', {}),
+            for (var i = 0; i < deletions.length; i++)
+              crop('gone-$i', deletions[i]),
+          ],
+        },
+      );
+    });
+
+    test("the buyer's browse leaves them out", () async {
+      final listings = await repository.getActiveListings();
+      expect(listings.map((l) => l.listingId), ['live']);
+    });
+
+    test("the farmer's own list leaves them out", () async {
+      final listings = await repository.getListingsByFarmer('farmer-1');
+      expect(listings.map((l) => l.listingId), ['live']);
+    });
+
+    test('a deleted row read by id is not found', () async {
+      for (final deletion in deletions) {
+        when(() => api.get<Map<String, dynamic>>('/crops/gone')).thenAnswer(
+          (_) async => {'crop': crop('gone', deletion)},
+        );
+        expect(
+          await repository.getListingById('gone'),
+          isNull,
+          reason: '$deletion',
+        );
+      }
+    });
+  });
+
   // ESC-12: the delete used to go out without a version, so the server's
   // version check always conflicted and nothing was deleted; a conflict now
   // fails on web, so the delete reads the real version first.

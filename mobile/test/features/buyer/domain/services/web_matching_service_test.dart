@@ -171,6 +171,21 @@ void main() {
     expect(capturedCropParams()['status'], 'available');
   });
 
+  // FUP-149: the server leaves deleted listings out of `GET /crops`
+  // (crop-listing-api 1.10.0); one that still comes is never a candidate.
+  test('a deleted row is never a candidate', () async {
+    stubCrops([
+      cropDto(cropId: 'wheat-1'),
+      {...cropDto(cropId: 'gone-1'), 'status': 'deleted'},
+      {...cropDto(cropId: 'gone-2'), 'deletedAt': '2026-11-12T08:00:00Z'},
+    ]);
+    stubNoTrips();
+
+    final results = await service.matchListingsForIntent(intent());
+
+    expect(results.map((r) => r.listing.listingId), ['wheat-1']);
+  });
+
   test('drops listings outside the price near-miss band', () async {
     // Budget 100; +15% band = 115. The 200/kg listing is excluded.
     stubCrops([
