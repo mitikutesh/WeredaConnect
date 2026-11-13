@@ -167,6 +167,34 @@ void main() {
       expect(platform.requests, 2);
     });
 
+    test('web: "Allow" with a slow first fix still takes the fix', () async {
+      // The request ends only after a first fix: past the limit it is still
+      // running, but the site is already granted.
+      platform
+        ..state = LocationPermission.denied
+        ..answer = null
+        ..stateAfterRequest = LocationPermission.whileInUse;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isTrue);
+      expect(result.latitude, 9.03);
+    });
+
+    test('web: without the Permissions API the re-read is not blocked',
+        () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever
+        ..stateAfterRequest = LocationPermission.unableToDetermine;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isFalse);
+      expect(result.permissionDeniedForever, isFalse);
+      expect(result.unavailableReason, 'Location permission denied');
+    });
+
     test('phone: a request denied for good is believed as it is', () async {
       platform
         ..state = LocationPermission.denied

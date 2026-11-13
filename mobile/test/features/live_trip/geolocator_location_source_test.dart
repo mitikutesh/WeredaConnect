@@ -196,6 +196,27 @@ void main() {
       expect(await fixOf(web(), askPermission: true), isNotNull);
     });
 
+    test('"Allow" with a slow first fix still takes the fix', () async {
+      // The request ends only after a first fix: past the limit it is still
+      // running, but the site is already granted.
+      platform
+        ..state = LocationPermission.denied
+        ..answer = null
+        ..stateAfterRequest = LocationPermission.whileInUse;
+
+      expect(await fixOf(web(), askPermission: true), isNotNull);
+    });
+
+    test('without the Permissions API the re-read gives none', () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever
+        ..stateAfterRequest = LocationPermission.unableToDetermine;
+
+      expect(await fixOf(web(), askPermission: true), isNull);
+      expect(platform.fixSettings, isNull);
+    });
+
     test('a blocked site gives none', () async {
       platform
         ..state = LocationPermission.denied

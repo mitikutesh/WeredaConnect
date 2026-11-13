@@ -43,7 +43,7 @@ class GeolocatorLocationSource implements LocationSource {
     bool isWeb = kIsWeb,
     Duration fixTimeout = CheckInCadence.fixTimeout,
   })  : supportsBackground = supportsBackground ??
-            (!kIsWeb && defaultTargetPlatform == TargetPlatform.android),
+            (!isWeb && defaultTargetPlatform == TargetPlatform.android),
         _isWeb = isWeb,
         _fixTimeout = fixTimeout;
 
