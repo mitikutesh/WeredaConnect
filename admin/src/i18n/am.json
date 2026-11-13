@@ -616,7 +616,15 @@
     "transactionHistory": "የግብይት ታሪክ",
     "deleted": "የተሰረዘ ተጠቃሚ",
     "suspendReason": "የእገዳ ምክንያት",
-    "suspendReason_fraud_confirmed": "በማጭበርበሪያ ግምገማ ማጭበርበር ተረጋግጧል"
+    "suspendReason_fraud_confirmed": "በማጭበርበሪያ ግምገማ ማጭበርበር ተረጋግጧል",
+    "companyName": "የኩባንያ ስም",
+    "profileHistory": "የመገለጫ ታሪክ",
+    "profileHistoryEmpty": "የመገለጫ ለውጥ የለም።",
+    "profileHistoryUnavailable": "የመገለጫ ታሪክ ሊጫን አልቻለም።",
+    "profileHistoryDeleted": "ለተሰረዘ መለያ አይታይም።",
+    "profileHistoryMore": "የቅርብ ጊዜዎቹ 50 ለውጦች ብቻ ይታያሉ።",
+    "profileHistoryNoDetail": "ዝርዝሩ አይገኝም።",
+    "profileHistoryNone": "(የለም)"
   },
   "revenue": {
     "title": "የገቢ ትንተና",
@@ -843,6 +851,7 @@
     "action_user_unsuspend": "የተጠቃሚው እገዳ ተነስቷል (አስተዳዳሪ)",
     "action_user_verify": "ተጠቃሚው ተረጋግጧል (አስተዳዳሪ)",
     "action_user_change_role": "የተጠቃሚው ሚና ተቀይሯል (አስተዳዳሪ)",
+    "action_profile_edited": "መገለጫ ተቀይሯል",
     "action_delivery_updated": "ማድረስ ተዘምኗል",
     "action_delivery_cancelled": "ማድረስ ተሰርዟል",
     "action_admin_dispute_resolved": "ክርክር ተፈትቷል (አስተዳዳሪ)",

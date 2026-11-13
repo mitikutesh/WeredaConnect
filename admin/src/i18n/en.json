@@ -616,7 +616,15 @@
     "transactionHistory": "Transaction History",
     "deleted": "Deleted user",
     "suspendReason": "Suspend reason",
-    "suspendReason_fraud_confirmed": "Fraud confirmed in Fraud Review"
+    "suspendReason_fraud_confirmed": "Fraud confirmed in Fraud Review",
+    "companyName": "Company name",
+    "profileHistory": "Profile history",
+    "profileHistoryEmpty": "No profile edits.",
+    "profileHistoryUnavailable": "Profile history could not be loaded.",
+    "profileHistoryDeleted": "Not shown for a deleted account.",
+    "profileHistoryMore": "Only the latest 50 edits are shown.",
+    "profileHistoryNoDetail": "Details not available.",
+    "profileHistoryNone": "(none)"
   },
   "revenue": {
     "title": "Revenue Analytics",
@@ -843,6 +851,7 @@
     "action_user_unsuspend": "User suspension lifted (admin)",
     "action_user_verify": "User verified (admin)",
     "action_user_change_role": "User role changed (admin)",
+    "action_profile_edited": "Profile edited",
     "action_delivery_updated": "Delivery updated",
     "action_delivery_cancelled": "Delivery cancelled",
     "action_admin_dispute_resolved": "Dispute resolved (admin)",

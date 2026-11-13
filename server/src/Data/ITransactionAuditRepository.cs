@@ -28,6 +28,12 @@ public interface ITransactionAuditRepository
     /// <summary>All events for a single entity (orderId/deliveryId) via EntityIndex, oldest first.</summary>
     Task<List<Dictionary<string, object>>> GetByEntityAsync(string entityId);
 
+    /// <summary>
+    /// FUP-317: the newest <paramref name="limit"/> events of a transaction (PK), newest first, and whether it holds
+    /// older ones.
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, bool More)> GetLatestByTransactionAsync(string transactionId, int limit);
+
     /// <summary>Recent events across all transactions (newest first) for the admin audit log.</summary>
     Task<List<Dictionary<string, object>>> GetRecentAsync(int limit);
 }

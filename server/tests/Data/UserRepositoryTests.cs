@@ -257,6 +257,102 @@ public class UserRepositoryTests
         Assert.Equal(409, result.Error.HttpStatus);
     }
 
+    // --- FUP-317: the profile edit with its transaction-audit row ---
+
+    private const string AuditTable = "test-transaction-audit";
+
+    private static Dictionary<string, object> AuditEntry() => new()
+    {
+        ["auditId"] = "txaudit-profile-user-123",
+        ["transactionId"] = "profile-user-123",
+        ["timestamp"] = "2026-11-13T10:00:00.0000000Z",
+        ["entityType"] = "user",
+        ["entityId"] = "user-123",
+        ["action"] = "profile_edited",
+        ["actor"] = "user-123",
+        ["metadata"] = "[{\"field\":\"displayName\",\"from\":\"Abebe\",\"to\":\"Abebe K.\"}]"
+    };
+
+    [Fact]
+    public async Task UpdateUserWithAuditAsync_WritesTheUserAndTheRowInOneTransaction()
+    {
+        TransactWriteItemsRequest? sent = null;
+        _mockDynamoDb.TransactWriteItemsAsync(Arg.Do<TransactWriteItemsRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new TransactWriteItemsResponse());
+        var repository = new UserRepository(_mockDynamoDb, TableName, AuditTable);
+
+        var result = await repository.UpdateUserWithAuditAsync(CreateTestUser() with { DisplayName = "Abebe K." }, 1, AuditEntry());
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, result.Value!.Version);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+        Assert.Equal(2, sent!.TransactItems.Count);
+
+        // The same update as UpdateUserAsync: version and deletion guarded.
+        var update = sent.TransactItems[0].Update;
+        Assert.Equal(TableName, update.TableName);
+        Assert.Equal("user-123", update.Key["userId"].S);
+        Assert.Equal("#v = :expectedVersion AND attribute_not_exists(#deletionState)", update.ConditionExpression);
+        Assert.Equal("Abebe K.", update.ExpressionAttributeValues[":name"].S);
+        Assert.Equal("2", update.ExpressionAttributeValues[":newVersion"].N);
+
+        // The row, append-only.
+        var put = sent.TransactItems[1].Put;
+        Assert.Equal(AuditTable, put.TableName);
+        Assert.Equal("attribute_not_exists(transactionId)", put.ConditionExpression);
+        Assert.Equal("profile-user-123", put.Item["transactionId"].S);
+        Assert.Equal("profile_edited", put.Item["action"].S);
+        Assert.Equal(AuditEntry()["metadata"], put.Item["metadata"].S);
+    }
+
+    [Theory]
+    [InlineData("ConditionalCheckFailed", "None")]
+    [InlineData("None", "ConditionalCheckFailed")]
+    [InlineData("TransactionConflict", "None")]
+    public async Task UpdateUserWithAuditAsync_ACancelledTransaction_IsTheVersionConflict(string userReason, string auditReason)
+    {
+        _mockDynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TransactionCanceledException("cancelled")
+            {
+                CancellationReasons = [new CancellationReason { Code = userReason }, new CancellationReason { Code = auditReason }]
+            });
+        var repository = new UserRepository(_mockDynamoDb, TableName, AuditTable);
+
+        var result = await repository.UpdateUserWithAuditAsync(CreateTestUser(), 1, AuditEntry());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("AUTH_019", result.Error!.Code);
+        Assert.Equal(409, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task UpdateUserWithAuditAsync_AValidationError_IsThrown_LikeUpdateUserAsync()
+    {
+        _mockDynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TransactionCanceledException("cancelled")
+            {
+                CancellationReasons = [new CancellationReason { Code = "ValidationError" }, new CancellationReason { Code = "None" }]
+            });
+        var repository = new UserRepository(_mockDynamoDb, TableName, AuditTable);
+
+        await Assert.ThrowsAsync<TransactionCanceledException>(
+            () => repository.UpdateUserWithAuditAsync(CreateTestUser(), 1, AuditEntry()));
+    }
+
+    [Fact]
+    public async Task UpdateUserWithAuditAsync_WithoutAnAuditTable_IsThePlainUpdate()
+    {
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        var result = await _repository.UpdateUserWithAuditAsync(CreateTestUser(), 1, AuditEntry());
+
+        Assert.True(result.IsSuccess);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+        await _mockDynamoDb.DidNotReceive().TransactWriteItemsAsync(
+            Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>());
+    }
+
     // --- Marshalling ---
 
     [Fact]

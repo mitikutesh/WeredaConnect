@@ -1,13 +1,13 @@
 # User Entity Contract
 
 ## Version
-2.2.0
+2.3.0
 
 ## Parties
 - **Mobile** (client): caches the signed-in user in Isar (`core/database/schemas/user.dart`) for offline sign-in and display
 - **Web** (client): keeps the same fields in memory (`core/models/web/user.dart`)
 - **Backend** (server): owns the authoritative row in the DynamoDB users table (`server/src/Data/UserRepository.cs`, `Models/UserDto.cs`)
-- **Admin**: reads users and applies the admin user actions
+- **Admin**: reads users and applies the admin user actions; since 2.3.0 shows a user's profile edit history
 - **Infrastructure** (CDK): provisions the users table and its three indexes (`infra/lib/stacks/database-stack.ts`)
 
 ---
@@ -26,7 +26,7 @@ built. 2.0.0 also adds the reputation attributes of EPIC ESC P2, marked PLANNED.
 | Part | State |
 |---|---|
 | Sections 1, 3 to 11 | as built on `main` (2026-11-07) |
-| Section 14 (profile read and edit) | BUILT (2.2.0, SIM-56) |
+| Section 14 (profile read and edit) | BUILT (2.2.0, SIM-56); the edit's audit row and the admin history BUILT (2.3.0, FUP-317) |
 | Section 2 (`reputation`, `ratingSum`, `ratingCount`, `ratingsAggregatedAt`) | BUILT (2.1.0, ESC-28): written by the reputation stream, the order-cron's daily job and backfill, the rating create and registration; ESC-29 reads them (`reputation-api.md` 1.1.0, `rating-api.md` 1.3.0) |
 
 ---
@@ -308,7 +308,7 @@ ESC-28 additions on the same row (built in 2.1.0):
 | `VerifyOtpFunction` | `isPhoneVerified` | `UpdateUserAsync` (one retry on a conflict) | +1 |
 | `LoginFunction`, a new install | `knownDevices` | `UpdateUserAsync`; a failure is logged and the login goes on | +1 |
 | `FaydaVerifyFunction` (`/user/fayda-link`) | `faydaId`, `faydaVerified`, `faydaVerifiedAt`, `faydaAuthenticatedAt`, `fullName` when empty, `isPhoneVerified` | `UpdateUserAsync` (one retry) | +1 |
-| `SyncFunction`, `user` entity | `preferredLanguage`; since 2.2.0 `displayName`, `woreda` and a company buyer's `companyName` (only the fields that change; no write when nothing does) | `UpdateUserAsync` | +1 |
+| `SyncFunction`, `user` entity | `preferredLanguage`; since 2.2.0 `displayName`, `woreda` and a company buyer's `companyName` (only the fields that change; no write when nothing does) | `UpdateUserAsync`; since 2.3.0 a change of the profile text is `UpdateUserWithAuditAsync`: the same update and its transaction-audit `profile_edited` row in one `TransactWriteItems` (section 14) | +1 |
 | `AdminFunction` user action | `suspend`: `suspended`, `suspendReason`; `unsuspend`: `suspended: false`, removes `suspendReason`; `verify`: `faydaVerified`; `change_role`: `role`; each with `updatedAt` | `UpdateItem`, `attribute_exists(userId)`; audited (transaction-audit `user_{action}`) | not bumped |
 | Account deletion | section 7 | `UpdateItem` | +1 on the tombstone |
 | `ReputationService` (ESC-28) | `reputation` | section 2 | not bumped |
@@ -475,6 +475,9 @@ never screened.
     and `UpdateUserAsync` never writes them.
 13. **Nothing writes reputation onto a deleting account** (`attribute_not_exists
     (deletionState)` on every reputation write).
+14. **Every accepted change of `displayName`, `woreda` or `companyName` has exactly one
+    transaction-audit `profile_edited` row**, written in the same transaction (2.3.0); a refused,
+    unchanged or language-only edit has none.
 
 ---
 
@@ -583,12 +586,80 @@ Whether open listings and trips should take the new name is follow-up FUP-316.
   take the new values, so the account sheet and the profile show them at once. A server read that
   comes back after a save started is not applied.
 
+### Audit row and admin history (BUILT: FUP-317, 2.3.0)
+
+The users row keeps only the new values, so each accepted edit of the profile text leaves one
+transaction-audit row, and a name changed around a disputed order or a fraud case can be traced.
+
+- **When.** Rule 5's write, when at least one of `displayName`, `woreda` and `companyName`
+  changes. A refused edit, an unchanged echo and a language-only change write no row (the language
+  is a preference, not identity).
+- **Atomic.** The users update and the row go in one `TransactWriteItems`
+  (`UpdateUserWithAuditAsync`), so an edit never lands without its row and a row never exists for
+  an edit that did not land. The update keeps its conditions (`version`, `attribute_not_exists
+  (deletionState)`); the row is put with `attribute_not_exists(transactionId)` (the table is
+  append-only). A failed condition or a concurrent transaction on either row is the version
+  conflict (`USER_PROFILE_CONFLICT`, retried); a validation error is thrown as before. Without the
+  `TRANSACTION_AUDIT_TABLE` variable (tests) the edit is the plain update. No new grant: sync
+  already has `UpdateItem` on the users table and `PutItem` on the audit table.
+- **The row** (transaction-audit table, `TransactionAuditWriter.BuildOnceEntry`):
+
+  | Attribute | Value |
+  |---|---|
+  | `transactionId` | `profile-{userId}`: one partition per user holding only these rows (the admin action rows use `{userId}`, the deletion rows `account-{userId}`) |
+  | `timestamp` | when the edit was saved, ISO 8601 UTC |
+  | `auditId` | `txaudit-profile-{userId}-profile_edited-{timestamp digits}` |
+  | `entityType`, `entityId` | `user`, the `userId` (`EntityIndex` finds it with the user's other rows) |
+  | `action` | `profile_edited` |
+  | `actor`, `actorRole` | the user and the role on the row (only the user edits their profile) |
+  | `ipAddress`, `correlationId` | from the `/sync` request |
+  | `metadata` | JSON array of the changed fields in the order `displayName`, `woreda`, `companyName`: `[{"field":"displayName","from":"Abebe","to":"Abebe K."}]`; `from` is left out when the row had no value |
+  | `fromState`, `toState` | not set (the FRD-19 advisory reads only these and the action, never `metadata`, so the values never reach the reviewer) |
+
+- **Personal data.** The values are names and places, not secrets. They are never logged: the
+  CloudWatch line names the fields only. The table is admin-read only (the admin Lambda; the sync
+  Lambda only writes) and has no TTL, like every audit row (`account-deletion.md`: retained, never
+  rewritten). An account deletion does not remove these rows today, so a deleted account's old
+  names stay in its `profile-{userId}` partition; whether deletion should remove that partition is
+  open (TASK FUP-419). The admin never shows them for a deleting or deleted account (below).
+- **Admin.** `GET /admin/users/{id}` (admin group only, like every admin route) adds, next to
+  `user` and `suspendReason`:
+
+  ```json
+  {
+    "profileHistory": [
+      {
+        "editedAt": "2026-11-13T09:00:00.0000000Z",
+        "actor": "550e8400-e29b-41d4-a716-446655440000",
+        "actorRole": "buyer",
+        "changes": [
+          { "field": "displayName", "from": "Almaz", "to": "Almaz T." },
+          { "field": "companyName", "from": "Old Traders", "to": "Meki Grain Traders" }
+        ]
+      }
+    ],
+    "profileHistoryMore": false
+  }
+  ```
+
+  One `Query` of `profile-{userId}`, newest first, at most 50 edits; `profileHistoryMore` is true
+  when older ones exist (the route does not page further). An empty list means no edits. Both
+  fields are absent when the audit table is not configured, when the read fails (a warning with
+  the exception type only; the user detail still answers) and for an account with
+  `deletionState` (the ACC-05 rule: a deleted account's names are not shown). A row whose
+  `metadata` cannot be read is listed with no changes.
+- **Admin app.** User detail > "Profile history": each edit's time and, per field, the old value,
+  an arrow and the new value (`(none)` for a missing one); texts for no edits, a history that
+  could not be loaded, a deleted account and the 50-edit cap, in en, am and om. The audit log
+  labels the `profile_edited` action ("Profile edited") without the values.
+
 ---
 
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.3.0 | 2026-11-13 | FUP-317 (section 14, "Audit row and admin history"): an accepted change of `displayName`, `woreda` or `companyName` writes one transaction-audit `profile_edited` row (partition `profile-{userId}`, the old and new values of the changed fields in `metadata`, actor, role, IP, correlation id) in the same `TransactWriteItems` as the users update; a refused, unchanged or language-only edit writes none; a failed condition on either row is `USER_PROFILE_CONFLICT`. `GET /admin/users/{id}` adds `profileHistory` (newest first, at most 50) and `profileHistoryMore`, left out when the table is unconfigured, the read fails or the account has `deletionState`. Invariant 14. The values are never logged; account deletion keeps the rows (open: TASK FUP-419). No change for the apps |
 | 2.2.0 | 2026-11-12 | Profile read and edit (SIM-56, section 14): `GET /user/profile` returns the caller's profile view (`userId`, `displayName`, `fullName`, `role`, `woreda`, `preferredLanguage`, `buyerType`, `companyName`, `version`; never `faydaId`, `knownDevices` or the phone) (`401`, `404 AUTH_013`, `410 ACCOUNT_004`, `403 AUTH_025`, `503 USER_PROFILE_UNAVAILABLE`); the `/sync` `user` entity also edits `displayName`, `woreda` and a company buyer's `companyName` (trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name, then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing); copies on listings, trips, orders, deliveries and messages are not rewritten. `UpdateUserAsync` writes `companyName` from the copy when present and `REMOVE`s `faydaId` and an empty `woreda` when the row has none (a `NULL` `FaydaIdIndex` key and an empty `RoleWaredaIndex` key were refused, answering the 2.0.0 open question) |
 | 2.1.2 | 2026-11-12 | FUP-162: two more writers of `ratingSum`, `ratingCount` and `ratingsAggregatedAt` for the farmers and truckers the ESC-28 backfill skipped (no `woreda`): the rating create's heal of an unstamped ratee and the backfill's one-off users `Scan` (`rating-api.md` 1.5.0). Shape unchanged |
 | 2.1.1 | 2026-11-11 | ESC-29: `suspended` also refuses `/sync` and the write endpoints of `reputation-api.md` 8.4 (`403 AUTH_025`); the section 2 attributes are now read by `GET /reputation/*`, `GET /ratings`, the `/sync` gates and the owner stamps (`reputation-api.md` 1.2.0, `rating-api.md` 1.4.0), a row without `ratingsAggregatedAt` contributing no rating. Shape unchanged, never returned in the `user` object |
@@ -604,5 +675,5 @@ Whether open listings and trips should take the new name is follow-up FUP-316.
 
 ---
 
-**Last Updated**: 2026-11-12
-**Version**: 2.2.0
+**Last Updated**: 2026-11-13
+**Version**: 2.3.0

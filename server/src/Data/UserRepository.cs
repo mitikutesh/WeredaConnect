@@ -15,10 +15,14 @@ public sealed class UserRepository : IUserRepository
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _tableName;
 
-    public UserRepository(IAmazonDynamoDB dynamoDb, string tableName)
+    /// <summary>FUP-317: where <see cref="UpdateUserWithAuditAsync"/> puts its row; null or empty, it writes none.</summary>
+    private readonly string? _transactionAuditTable;
+
+    public UserRepository(IAmazonDynamoDB dynamoDb, string tableName, string? transactionAuditTable = null)
     {
         _dynamoDb = dynamoDb ?? throw new ArgumentNullException(nameof(dynamoDb));
         _tableName = tableName ?? throw new ArgumentNullException(nameof(tableName));
+        _transactionAuditTable = transactionAuditTable;
     }
 
     public async Task<AuthResult<UserDto>> CreateUserAsync(UserDto user)
@@ -99,7 +103,20 @@ public sealed class UserRepository : IUserRepository
         return FromItem(response.Items[0]);
     }
 
-    public async Task<AuthResult<UserDto>> UpdateUserAsync(UserDto user, int expectedVersion)
+    public Task<AuthResult<UserDto>> UpdateUserAsync(UserDto user, int expectedVersion)
+        => WriteUserAsync(user, expectedVersion, auditEntry: null);
+
+    /// <inheritdoc />
+    public Task<AuthResult<UserDto>> UpdateUserWithAuditAsync(
+        UserDto user, int expectedVersion, Dictionary<string, object> auditEntry)
+        => WriteUserAsync(user, expectedVersion, string.IsNullOrEmpty(_transactionAuditTable) ? null : auditEntry);
+
+    /// <summary>
+    /// The profile write. With <paramref name="auditEntry"/> (FUP-317) the same update and the transaction-audit row go
+    /// in one <c>TransactWriteItems</c>: both land or neither does.
+    /// </summary>
+    private async Task<AuthResult<UserDto>> WriteUserAsync(
+        UserDto user, int expectedVersion, Dictionary<string, object>? auditEntry)
     {
         var now = DateTime.UtcNow.ToString("o");
         var newVersion = expectedVersion + 1;
@@ -199,7 +216,14 @@ public sealed class UserRepository : IUserRepository
 
         try
         {
-            await _dynamoDb.UpdateItemAsync(request);
+            if (auditEntry == null)
+            {
+                await _dynamoDb.UpdateItemAsync(request);
+            }
+            else
+            {
+                await _dynamoDb.TransactWriteItemsAsync(WithAuditRow(request, auditEntry));
+            }
 
             var updatedUser = user with
             {
@@ -214,7 +238,58 @@ public sealed class UserRepository : IUserRepository
             return AuthResult<UserDto>.Failure(409, "AUTH_019",
                 "User was modified by another request. Please retry.", "version");
         }
+        catch (TransactionCanceledException ex) when (IsConflict(ex))
+        {
+            // FUP-317: the version or deletion condition, the audit key, or a concurrent transaction on either row.
+            return AuthResult<UserDto>.Failure(409, "AUTH_019",
+                "User was modified by another request. Please retry.", "version");
+        }
     }
+
+    /// <summary>
+    /// FUP-317: the users update of <paramref name="update"/> and the audit row's put, in that order. The put is
+    /// conditional, so a row at the same key is never overwritten (the audit table is append-only).
+    /// </summary>
+    private TransactWriteItemsRequest WithAuditRow(UpdateItemRequest update, Dictionary<string, object> auditEntry)
+        => new()
+        {
+            TransactItems =
+            [
+                new TransactWriteItem
+                {
+                    Update = new Update
+                    {
+                        TableName = update.TableName,
+                        Key = update.Key,
+                        UpdateExpression = update.UpdateExpression,
+                        ConditionExpression = update.ConditionExpression,
+                        ExpressionAttributeNames = update.ExpressionAttributeNames,
+                        ExpressionAttributeValues = update.ExpressionAttributeValues
+                    }
+                },
+                new TransactWriteItem
+                {
+                    Put = new Put
+                    {
+                        // Set: UpdateUserWithAuditAsync passes no row without it.
+                        TableName = _transactionAuditTable!,
+                        Item = auditEntry
+                            .Where(kv => kv.Value != null)
+                            .ToDictionary(kv => kv.Key, kv => DynamoDbHelper.ToAttributeValue(kv.Value)),
+                        ConditionExpression = "attribute_not_exists(transactionId)"
+                    }
+                }
+            ]
+        };
+
+    /// <summary>
+    /// A cancelled transaction that a retry can get through: a failed condition or a concurrent transaction. A
+    /// validation error or throttling is thrown, as <see cref="UpdateUserAsync"/> throws it.
+    /// </summary>
+    private static bool IsConflict(TransactionCanceledException ex)
+        => ex.CancellationReasons is { Count: > 0 } reasons
+           && reasons.Any(r => r?.Code is "ConditionalCheckFailed" or "TransactionConflict")
+           && reasons.All(r => r?.Code is null or "None" or "ConditionalCheckFailed" or "TransactionConflict");
 
     public Task DeleteUserAsync(string userId)
         => _dynamoDb.DeleteItemAsync(new DeleteItemRequest

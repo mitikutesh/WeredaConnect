@@ -616,7 +616,15 @@
     "transactionHistory": "Seenaa Daldala",
     "deleted": "Fayyadamaa haqame",
     "suspendReason": "Sababa dhaabbii",
-    "suspendReason_fraud_confirmed": "Gamaaggama gowwoomsaatiin gowwoomsaan mirkanaa'eera"
+    "suspendReason_fraud_confirmed": "Gamaaggama gowwoomsaatiin gowwoomsaan mirkanaa'eera",
+    "companyName": "Maqaa dhaabbataa",
+    "profileHistory": "Seenaa piroofaayilii",
+    "profileHistoryEmpty": "Jijjiiramni piroofaayilii hin jiru.",
+    "profileHistoryUnavailable": "Seenaan piroofaayilii fe'amuu hin dandeenye.",
+    "profileHistoryDeleted": "Herrega haqameef hin agarsiifamu.",
+    "profileHistoryMore": "Jijjiirama dhihoo 50 qofatu agarsiifama.",
+    "profileHistoryNoDetail": "Bal'inni hin argamu.",
+    "profileHistoryNone": "(hin jiru)"
   },
   "revenue": {
     "title": "Xiinxala Galii",
@@ -843,6 +851,7 @@
     "action_user_unsuspend": "Dhorkaan fayyadamaa ka'e (bulchaa)",
     "action_user_verify": "Fayyadamaan mirkanaa'e (bulchaa)",
     "action_user_change_role": "Gaheen fayyadamaa jijjiirame (bulchaa)",
+    "action_profile_edited": "Piroofaayiliin jijjiirame",
     "action_delivery_updated": "Geejjibni haaromfame",
     "action_delivery_cancelled": "Geejjibni haqame",
     "action_admin_dispute_resolved": "Waldhabdeen furame (bulchaa)",
