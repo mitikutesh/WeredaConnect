@@ -101,7 +101,8 @@ public sealed class PickupJudgementDynamoDbTests
     {
         var orderId = await SeedJudgeableAsync(DateTime.UtcNow.AddHours(30));
         var before = await ReadAsync(orderId);
-        OrderDeadlines.Stored(before)!.Value.Kind.Should().Be(OrderDeadlines.Kind.PickupJudgement);
+        // FUP-286: the check-in reminder comes before the judgement, both the sweep's.
+        OrderDeadlines.Stored(before)!.Value.Kind.Should().Be(OrderDeadlines.Kind.PickupReminder);
         before[OrderDeadlines.ShardField].Should().Be(OrderDeadlines.Shard, "the judgement is the sweep's");
 
         (await Repo.TryRecordCheckInAsync(orderId, CreatedAt, PickupJudgement.Kind.ArrivedPickup, Entry(Id("trucker")), whileOpen: true))
@@ -119,6 +120,48 @@ public sealed class PickupJudgementDynamoDbTests
         arrived[PickupJudgement.EntryBy].Should().Be(Id("trucker"));
         arrived[PickupJudgement.EntryDistanceChecked].Should().Be(true);
         PickupJudgement.ViewOf(after)!.Keys.Should().BeEquivalentTo(PickupJudgement.Kind.ArrivedPickup, PickupJudgement.Kind.CropsReady);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task FUP286_TheReminderStamp_MovesTheDeadlineToTheJudgement_WithoutAVersionBump_AndOnlyWhilePending()
+    {
+        var deadline = DateTime.UtcNow.AddHours(3);
+        var orderId = await SeedJudgeableAsync(deadline);
+        var before = await ReadAsync(orderId);
+        var due = OrderDeadlines.Stored(before)!.Value;
+        due.Kind.Should().Be(OrderDeadlines.Kind.PickupReminder);
+        due.AtIso.Should().Be(OrderCommitment.Iso(
+            DateTime.Parse(PickupDeadline.Format(deadline), null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime()
+            - OrderTimings.Defaults.ReminderLead));
+
+        var expected = new Dictionary<string, string>
+        {
+            { "status", "accepted" }, { PickupJudgement.Field, PickupJudgement.Outcome.Pending }
+        };
+        (await Repo.TryStampAsync(orderId,
+            new Dictionary<string, object> { { PickupJudgement.ReminderAtField, OrderCommitment.Iso(DateTime.UtcNow) } }, expected))
+            .Should().BeTrue();
+
+        var after = await ReadAsync(orderId);
+        after["version"].Should().Be(before["version"]);
+        after.Should().ContainKey(PickupJudgement.ReminderAtField);
+        OrderDeadlines.Stored(after)!.Value.Kind.Should().Be(OrderDeadlines.Kind.PickupJudgement);
+
+        // A judged order takes no reminder: the stamp's condition fails.
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Orders,
+            Key = new Dictionary<string, AttributeValue> { ["orderId"] = new() { S = orderId }, ["createdAt"] = new() { S = CreatedAt } },
+            UpdateExpression = "SET #pj = :judged",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#pj", PickupJudgement.Field } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":judged", new AttributeValue { S = PickupJudgement.Outcome.TruckerNoShow } }
+            }
+        });
+        (await Repo.TryStampAsync(orderId,
+            new Dictionary<string, object> { { PickupJudgement.ReminderAtField, OrderCommitment.Iso(DateTime.UtcNow) } }, expected))
+            .Should().BeFalse();
     }
 
     [LocalDynamoDbFact]

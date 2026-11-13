@@ -32,45 +32,55 @@ public class NotificationRulesTests
 
     /// <summary>
     /// A DynamoDB-JSON stream image from plain values: a string is <c>S</c>, a number <c>N</c>, a
-    /// bool <c>BOOL</c>; a null value leaves the attribute out.
+    /// bool <c>BOOL</c>, a map of the same (FUP-286: the check-ins) <c>M</c>; a null value leaves the
+    /// attribute out.
     /// </summary>
     internal static StreamImage Image(IReadOnlyDictionary<string, object?> attributes)
     {
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer))
         {
-            writer.WriteStartObject();
-            foreach (var (key, value) in attributes)
+            WriteAttributes(writer, attributes);
+        }
+
+        using var doc = JsonDocument.Parse(Encoding.UTF8.GetString(buffer.ToArray()));
+        return new StreamImage(doc.RootElement.Clone());
+    }
+
+    private static void WriteAttributes(Utf8JsonWriter writer, IEnumerable<KeyValuePair<string, object?>> attributes)
+    {
+        writer.WriteStartObject();
+        foreach (var (key, value) in attributes)
+        {
+            if (value == null)
             {
-                if (value == null)
-                {
-                    continue;
-                }
+                continue;
+            }
 
-                writer.WriteStartObject(key);
-                switch (value)
-                {
-                    case string s:
-                        writer.WriteString("S", s);
-                        break;
-                    case bool b:
-                        writer.WriteBoolean("BOOL", b);
-                        break;
-                    case IFormattable number:
-                        writer.WriteString("N", number.ToString(null, CultureInfo.InvariantCulture));
-                        break;
-                    default:
-                        throw new ArgumentException($"Unsupported attribute type for {key}");
-                }
-
-                writer.WriteEndObject();
+            writer.WriteStartObject(key);
+            switch (value)
+            {
+                case string s:
+                    writer.WriteString("S", s);
+                    break;
+                case bool b:
+                    writer.WriteBoolean("BOOL", b);
+                    break;
+                case IFormattable number:
+                    writer.WriteString("N", number.ToString(null, CultureInfo.InvariantCulture));
+                    break;
+                case IReadOnlyDictionary<string, object?> map:
+                    writer.WritePropertyName("M");
+                    WriteAttributes(writer, map);
+                    break;
+                default:
+                    throw new ArgumentException($"Unsupported attribute type for {key}");
             }
 
             writer.WriteEndObject();
         }
 
-        using var doc = JsonDocument.Parse(Encoding.UTF8.GetString(buffer.ToArray()));
-        return new StreamImage(doc.RootElement.Clone());
+        writer.WriteEndObject();
     }
 
     private static Dictionary<string, object?> With(Dictionary<string, object?> row, params (string Key, object? Value)[] changes)

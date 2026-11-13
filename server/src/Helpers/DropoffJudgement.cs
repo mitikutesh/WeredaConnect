@@ -400,6 +400,61 @@ public static class DropoffJudgement
            && Str(escrow, "deliveryConfirmedAt").Length == 0
            && (Str(escrow, "deliveryId").Length == 0 || Str(escrow, "deliveryId") == deliveryId);
 
+    // ── the silent buyer's reminder and the pushes (FUP-338) ─────────────────
+
+    /// <summary>
+    /// FUP-338: server-only order field, when the order cron stamped the silent buyer's reminder (ISO 8601 UTC):
+    /// <see cref="OrderTimings.ReminderLead"/> before T9, once per order (the cron stamps it only while it is absent, in a
+    /// write conditioned on the status and the pending judgement). The order notifier tells the buyer only when it
+    /// appears, so a second stamp would tell nobody.
+    /// </summary>
+    public const string ReminderAtField = "dropoffReminderAt";
+
+    /// <summary>
+    /// FUP-338: when the silent buyer's reminder is due: T9 (<see cref="SilentBuyerDeadline"/>) less
+    /// <see cref="OrderTimings.ReminderLead"/>, on a pending order with a counted check-in and no reminder stamped yet.
+    /// Null otherwise, and when that time is not after the check-in's receipt (a lead as long as the window: the
+    /// arrival push already said when).
+    /// </summary>
+    public static DateTime? ReminderDueAt(IReadOnlyDictionary<string, object> order, OrderTimings timings)
+    {
+        if (!IsPending(order)
+            || Str(order, ReminderAtField).Length > 0
+            || CountedCheckIn(order) is not { } entry
+            || ReceivedAt(entry) is not { } received
+            || SilentBuyerDeadline(order, timings) is not { } t9)
+        {
+            return null;
+        }
+
+        var at = t9 - timings.ReminderLead;
+        return at > received ? at : null;
+    }
+
+    /// <summary>
+    /// FUP-338: the reason of a dispute the order cron opened, as its escrow carries it: the
+    /// <c>disputeDescription</c> the cron writes starts with the reason code and a colon (the escrow's own
+    /// <c>disputeReason</c> stays <c>other</c>). Null for any other text. The order notifier tells the three parties
+    /// such a dispute from the order row, with its reason, and not a second time from the escrow row.
+    /// </summary>
+    public static string? DisputeReasonOfDescription(string? description)
+    {
+        if (string.IsNullOrEmpty(description))
+        {
+            return null;
+        }
+
+        foreach (var reason in new[] { OverdueReason, SilentBuyerReason, OutOfRangeReason })
+        {
+            if (description.StartsWith(reason + ":", StringComparison.Ordinal))
+            {
+                return reason;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// The system's dispute reason a delivery carries (<see cref="OverdueReason"/>, <see cref="OutOfRangeReason"/> or
     /// <see cref="SilentBuyerReason"/>), when the order cron opened it; else null.

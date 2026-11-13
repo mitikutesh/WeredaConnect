@@ -349,11 +349,61 @@ public class PickupJudgementTests
     [Fact]
     public void AJudgeableOrder_IsDueForItsJudgement_AMinuteAfterItsDeadline()
     {
-        var next = OrderDeadlines.Next(Order());
+        // Its check-in reminder (FUP-286) went out already.
+        var order = Order();
+        order[PickupJudgement.ReminderAtField] = Iso(Deadline.AddHours(-6));
+
+        var next = OrderDeadlines.Next(order);
 
         next.Should().NotBeNull();
         next!.Value.Kind.Should().Be(OrderDeadlines.Kind.PickupJudgement);
         next.Value.At.Should().Be(Deadline + PickupJudgement.SettleMargin);
+    }
+
+    // ── the check-in reminder (FUP-286) ─────────────────────────────────────
+
+    [Fact]
+    public void FUP286_AJudgeableOrder_IsFirstDueForItsCheckInReminder_TheLeadBeforeItsDeadline()
+    {
+        var next = OrderDeadlines.Next(Order(), OrderTimings.Defaults);
+
+        next.Should().Be(new OrderDeadline(Deadline.AddHours(-6), OrderDeadlines.Kind.PickupReminder));
+        OrderDeadlines.IsSwept(OrderDeadlines.Kind.PickupReminder).Should().BeTrue();
+        PickupJudgement.MissingKinds(Order()).Should().Equal(PickupJudgement.Kind.ArrivedPickup, PickupJudgement.Kind.CropsReady);
+    }
+
+    [Fact]
+    public void FUP286_TheReminder_FollowsTheSsmLead_AndNeverComesBeforeTheWindowOpens()
+    {
+        var timings = OrderTimings.Defaults with { ReminderLead = TimeSpan.FromHours(10) };
+        PickupJudgement.ReminderDueAt(Order(), timings).Should().Be(Deadline.AddHours(-10));
+
+        // pickupDate 24 hours before the deadline: the window opens 48 hours before it, so a 60 hour lead waits for it.
+        var order = Order();
+        order[OrderCommitment.PickupDateField] = Iso(Deadline.AddHours(-24));
+        PickupJudgement.ReminderDueAt(order, OrderTimings.Defaults with { ReminderLead = TimeSpan.FromHours(60) })
+            .Should().Be(Deadline.AddHours(-48));
+    }
+
+    [Fact]
+    public void FUP286_NoReminder_OnceStamped_OnceEveryoneCheckedIn_OrWithoutAPendingJudgement()
+    {
+        var stamped = Order();
+        stamped[PickupJudgement.ReminderAtField] = Iso(Deadline.AddHours(-6));
+        PickupJudgement.ReminderDueAt(stamped, OrderTimings.Defaults).Should().BeNull();
+
+        var both = Order(false, Arrived(Deadline.AddHours(-8)), Ready(Deadline.AddHours(-9)));
+        PickupJudgement.MissingKinds(both).Should().BeEmpty();
+        PickupJudgement.ReminderDueAt(both, OrderTimings.Defaults).Should().BeNull();
+        OrderDeadlines.Next(both, OrderTimings.Defaults)!.Value.Kind.Should().Be(OrderDeadlines.Kind.PickupJudgement);
+
+        // One party in: the other is still reminded.
+        PickupJudgement.MissingKinds(Order(false, Arrived(Deadline.AddHours(-8)))).Should().Equal(PickupJudgement.Kind.CropsReady);
+        PickupJudgement.ReminderDueAt(Order(false, Arrived(Deadline.AddHours(-8))), OrderTimings.Defaults).Should().NotBeNull();
+
+        var judged = Order();
+        judged[PickupJudgement.Field] = PickupJudgement.Outcome.TruckerNoShow;
+        PickupJudgement.ReminderDueAt(judged, OrderTimings.Defaults).Should().BeNull();
     }
 
     [Fact]

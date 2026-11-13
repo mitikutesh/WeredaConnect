@@ -515,6 +515,64 @@ public class OrderCronDropoffJudgementTests
         await AssertNotFrozen();
     }
 
+    // ===== the silent buyer's reminder (FUP-338) =====
+
+    [Fact]
+    public async Task FUP338_TheReminder_IsStampedOnce_TheLeadBeforeT9_NothingIsJudged()
+    {
+        // Checked in 43 hours ago: T9 in 5 hours, the reminder due an hour ago.
+        Serve(Order(TimeSpan.FromHours(20), CheckIn(hoursAgo: 43)));
+
+        var actual = await RunAsync();
+
+        Assert.Contains("\"dropoffReminders\":\"1\"", actual.Body);
+        Assert.Contains("\"dropoffJudged\":\"0\"", actual.Body);
+        await _orders.Received(1).TryStampAsync(OrderId,
+            Arg.Is<Dictionary<string, object>>(f => f.Count == 1 && f.ContainsKey(DropoffJudgement.ReminderAtField)),
+            Arg.Is<IReadOnlyDictionary<string, string>>(e =>
+                e["status"] == "in_transit" && e[DropoffJudgement.Field] == DropoffJudgement.Outcome.Pending));
+        await AssertNotConfirmed();
+        await AssertNotFrozen();
+        await AssertNoOrderWrite();
+    }
+
+    [Theory]
+    [InlineData(41, false, true)] // the reminder not due yet
+    [InlineData(43, true, true)] // already stamped
+    [InlineData(0, false, false)] // no check-in: T8 is the trucker's, nobody is reminded
+    public async Task FUP338_NoReminder_BeforeItIsDue_OnceStamped_OrWithoutACheckIn(double hoursAgo, bool stamped, bool checkedIn)
+    {
+        var order = Order(TimeSpan.FromHours(20), checkedIn ? CheckIn(hoursAgo) : null);
+        if (stamped)
+        {
+            order[DropoffJudgement.ReminderAtField] = Iso(_now.AddHours(-1));
+        }
+
+        Serve(order);
+
+        var actual = await RunAsync();
+
+        Assert.Contains("\"dropoffReminders\":\"0\"", actual.Body);
+        await _orders.DidNotReceive().TryStampAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(),
+            Arg.Any<IReadOnlyDictionary<string, string>>());
+    }
+
+    [Fact]
+    public async Task FUP338_WithTheFlagOff_TheReminderIsNeverSent_TheStampIsClearedWhenItFallsDue()
+    {
+        Serve(Order(TimeSpan.FromHours(20), CheckIn(hoursAgo: 43)));
+
+        var actual = await RunAsync(flag: false);
+
+        Assert.Contains("\"dropoffReminders\":\"0\"", actual.Body);
+        await _orders.Received(1).TryStampAsync(OrderId,
+            Arg.Is<Dictionary<string, object>>(f =>
+                f.Count == 1 && f.ContainsKey(DropoffJudgement.Field) && f[DropoffJudgement.Field] == null),
+            Arg.Is<IReadOnlyDictionary<string, string>>(e => e[DropoffJudgement.Field] == DropoffJudgement.Outcome.Pending));
+        await AssertNotConfirmed();
+        await AssertNotFrozen();
+    }
+
     // ===== a party acted first =====
 
     [Fact]

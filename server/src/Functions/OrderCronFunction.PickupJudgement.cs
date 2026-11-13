@@ -35,10 +35,15 @@ public partial class OrderCronFunction
         Dictionary<string, object> order, string orderId, CommitmentRun run,
         EscrowService escrow, ICropRepository crops, ITripRepository trips)
     {
-        if (PickupJudgement.JudgeAt(order) is not { } judgeAt || PickupJudgement.DeadlineOf(order) is not { } deadline
-            || run.Now <= judgeAt)
+        if (PickupJudgement.JudgeAt(order) is not { } judgeAt || PickupJudgement.DeadlineOf(order) is not { } deadline)
         {
             return DeadlineOutcome.None;
+        }
+
+        if (run.Now <= judgeAt)
+        {
+            // FUP-286: before the judgement, the check-in reminder when it falls due.
+            return await RemindPickupCheckInAsync(order, orderId, run);
         }
 
         // The order can lag its delivery: a delivery that left pending was picked up (the scan).
@@ -97,6 +102,28 @@ public partial class OrderCronFunction
         }
 
         return DeadlineOutcome.Applied;
+    }
+
+    /// <summary>
+    /// FUP-286: the check-in reminder, <see cref="OrderTimings.ReminderLead"/> before <c>pickupDeadlineAt</c>, while a
+    /// party has not checked in: the marker <see cref="PickupJudgement.ReminderAtField"/> is stamped once, while the
+    /// order is still <c>accepted</c> and pending (no version bump); the order notifier tells each party who has not
+    /// checked in when it appears. A stamp the cron makes only after the deadline (a cron that was down) tells nobody.
+    /// </summary>
+    private async Task<DeadlineOutcome> RemindPickupCheckInAsync(Dictionary<string, object> order, string orderId, CommitmentRun run)
+    {
+        if (PickupJudgement.ReminderDueAt(order, OrderTimings.Current) is not { } remindAt || run.Now < remindAt)
+        {
+            return DeadlineOutcome.None;
+        }
+
+        return await StampAsync(orderId,
+            new Dictionary<string, object> { { PickupJudgement.ReminderAtField, run.NowIso } },
+            new Dictionary<string, string>
+            {
+                { "status", "accepted" }, { PickupJudgement.Field, PickupJudgement.Outcome.Pending }
+            },
+            "pickup check-in reminder", run, () => run.PickupReminders++);
     }
 
     /// <summary>The judgement fields every outcome writes; they also end the P1 marker's deadline.</summary>
@@ -286,13 +313,31 @@ public partial class OrderCronFunction
     /// <summary>
     /// ESC-34, the flag turned off while an order waited for its judgement: the P1 marker as for any
     /// accepted order, and the stamp cleared (stored as a null attribute, which no read returns), so the
-    /// apps show the buyer's deadline cancel again and the check-ins close.
+    /// apps show the buyer's deadline cancel again and the check-ins close. FUP-286: when the check-in reminder falls
+    /// due first, it is never sent with the flag off: the stamp alone is cleared then, and the P1 notice waits for the
+    /// deadline as on any accepted order.
     /// </summary>
     private async Task<DeadlineOutcome> EndPickupJudgementAsync(Dictionary<string, object> order, string orderId, CommitmentRun run)
     {
-        if (PickupJudgement.DeadlineOf(order) is not { } deadline || deadline >= run.Now)
+        if (PickupJudgement.DeadlineOf(order) is not { } deadline)
         {
             return DeadlineOutcome.None;
+        }
+
+        if (deadline >= run.Now)
+        {
+            if (PickupJudgement.ReminderDueAt(order, OrderTimings.Current) is not { } remindAt || run.Now < remindAt)
+            {
+                return DeadlineOutcome.None;
+            }
+
+            return await StampAsync(orderId,
+                new Dictionary<string, object> { { PickupJudgement.Field, null! } },
+                new Dictionary<string, string>
+                {
+                    { "status", "accepted" }, { PickupJudgement.Field, PickupJudgement.Outcome.Pending }
+                },
+                "pickup judgement end", run, () => { });
         }
 
         return await StampAsync(orderId,
