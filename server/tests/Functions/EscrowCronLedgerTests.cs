@@ -210,6 +210,91 @@ public class EscrowCronLedgerTests
         var summary = JsonSerializer.Deserialize(response.Body, AppJsonContext.Default.DictionaryStringString)!;
         (summary["ledgerTransportLegsBlocked"], summary["ledgerTransportLegsOverdue"]).Should().Be(("1", "0"));
         ((TestLambdaLogger)context.Logger).Buffer.ToString().Should().NotContain("TRUCKER_PAYOUT_OVERDUE");
+        ((TestLambdaLogger)context.Logger).Buffer.ToString().Should().NotContain("TRUCKER_PAYOUT_NEWLY_OVERDUE");
+        _ledger.TransportOverdueMarkWrites.Should().Be(0);
+    }
+
+    // FUP-436: the edge-triggered line, so a standing trucker-payouts-overdue alarm cannot mask a new transport leg.
+
+    private string SeedOwedTransportLeg(double releasedHoursAgo)
+    {
+        var releasedAt = DateTime.UtcNow.AddHours(-releasedHoursAgo).ToString("o");
+        Seed("released", e =>
+        {
+            e[LedgerEscrowFields.LegStatus] = new Dictionary<string, object>
+            {
+                ["crop"] = "released", ["transport"] = "held", ["commission"] = "kept"
+            };
+            e[LedgerEscrowFields.ReleasedTotal] = 15_000m;
+            e["releasedAt"] = releasedAt;
+        });
+        Verified("trucker-5", "+251911000052", false);
+        return releasedAt;
+    }
+
+    private static (Dictionary<string, string> Summary, string Logs) Ran(APIGatewayProxyResponse response, TestLambdaContext context)
+        => (JsonSerializer.Deserialize(response.Body, AppJsonContext.Default.DictionaryStringString)!,
+            ((TestLambdaLogger)context.Logger).Buffer.ToString());
+
+    private static int Count(string logs, string token) => logs.Split('\n').Count(l => l.Contains(token + " "));
+
+    [Fact]
+    public async Task ATransportLegThatBecomesOverdue_IsAnnouncedOnce_OnItsReleaseTime_WhileTheOverdueLineRepeats()
+    {
+        var releasedAt = SeedOwedTransportLeg(30);
+        var versionBefore = _ledger.Escrow(EscrowId)["version"];
+        var first = new TestLambdaContext { RemainingTime = TimeSpan.FromMinutes(4), Logger = new TestLambdaLogger() };
+
+        var (summary, logs) = Ran(await _function.FunctionHandler(Cron("auto_release_and_refund"), first), first);
+
+        summary["ledgerTransportLegsNewlyOverdue"].Should().Be("1");
+        logs.Should().Contain($"TRUCKER_PAYOUT_NEWLY_OVERDUE escrowId={EscrowId} reason=phone_unverified ageHours=30");
+        _ledger.Escrow(EscrowId)[TruckerPayoutFields.OverdueLoggedFor].Should().Be(releasedAt);
+        _ledger.Escrow(EscrowId)["version"].Should().Be(versionBefore); // the marker moves no version
+
+        var second = new TestLambdaContext { RemainingTime = TimeSpan.FromMinutes(4), Logger = new TestLambdaLogger() };
+        var (again, againLogs) = Ran(await _function.FunctionHandler(Cron("auto_release_and_refund"), second), second);
+
+        (again["ledgerTransportLegsOverdue"], again["ledgerTransportLegsNewlyOverdue"]).Should().Be(("1", "0"));
+        Count(againLogs, "TRUCKER_PAYOUT_OVERDUE").Should().Be(1);
+        Count(againLogs, "TRUCKER_PAYOUT_NEWLY_OVERDUE").Should().Be(0);
+        _ledger.TransportOverdueMarkWrites.Should().Be(1); // the marked escrow is skipped without a write
+    }
+
+    [Fact]
+    public async Task ATransportMarkerOfAnEarlierRelease_DoesNotSilenceThisOne()
+    {
+        SeedOwedTransportLeg(26);
+        _ledger.Escrow(EscrowId)[TruckerPayoutFields.OverdueLoggedFor] = "2026-01-01T00:00:00.0000000Z";
+        var context = new TestLambdaContext { RemainingTime = TimeSpan.FromMinutes(4), Logger = new TestLambdaLogger() };
+
+        var (summary, logs) = Ran(await _function.FunctionHandler(Cron("auto_release_and_refund"), context), context);
+
+        summary["ledgerTransportLegsNewlyOverdue"].Should().Be("1");
+        Count(logs, "TRUCKER_PAYOUT_NEWLY_OVERDUE").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ATransportMarkerThatCannotBeWritten_AnnouncesAnyway_AndTheNextRunAnnouncesItAgain()
+    {
+        SeedOwedTransportLeg(30);
+        _ledger.ThrowOnNextTransportOverdueMark = new ProvisionedThroughputExceededException("throttled");
+        var first = new TestLambdaContext { RemainingTime = TimeSpan.FromMinutes(4), Logger = new TestLambdaLogger() };
+
+        var (summary, logs) = Ran(await _function.FunctionHandler(Cron("auto_release_and_refund"), first), first);
+
+        summary["ledgerTransportLegsNewlyOverdue"].Should().Be("1");
+        logs.Should().Contain(
+            $"Ledger transport retry: the newly overdue marker of {EscrowId} was not written: [ProvisionedThroughputExceededException]");
+        _ledger.Escrow(EscrowId).Should().NotContainKey(TruckerPayoutFields.OverdueLoggedFor);
+
+        var second = new TestLambdaContext { RemainingTime = TimeSpan.FromMinutes(4), Logger = new TestLambdaLogger() };
+        var (again, _) = Ran(await _function.FunctionHandler(Cron("auto_release_and_refund"), second), second);
+        again["ledgerTransportLegsNewlyOverdue"].Should().Be("1");
+
+        var third = new TestLambdaContext { RemainingTime = TimeSpan.FromMinutes(4), Logger = new TestLambdaLogger() };
+        var (quiet, _) = Ran(await _function.FunctionHandler(Cron("auto_release_and_refund"), third), third);
+        quiet["ledgerTransportLegsNewlyOverdue"].Should().Be("0");
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
@@ -62,7 +63,7 @@ public class EscrowServiceReleaseBlockedOverdueTests
     private static string HoursAgo(double hours) => DateTime.UtcNow.AddHours(-hours).ToString("o");
 
     /// <summary>A 1.x escrow of 20,000 ETB (above the Fayda threshold) the sweep is about to release.</summary>
-    private void Escrow(string? reason = null, string? reasonAt = null, string status = "escrowed")
+    private Dictionary<string, object> Escrow(string? reason = null, string? reasonAt = null, string status = "escrowed")
     {
         var item = new Dictionary<string, object>
         {
@@ -94,6 +95,7 @@ public class EscrowServiceReleaseBlockedOverdueTests
 
         _escrowRepo.GetByIdAsync(EscrowId).Returns(item);
         _escrowRepo.GetByIdAsync(EscrowId, Arg.Any<bool>()).Returns(item);
+        return item;
     }
 
     private static ReleaseEscrowRequest Release(string trigger = "delivery_confirmed") => new()
@@ -212,6 +214,127 @@ public class EscrowServiceReleaseBlockedOverdueTests
 
         result.Error!.Code.Should().Be("ESCROW_029");
         OverdueLines.Should().BeEmpty();
+    }
+
+    // ── FUP-436: the edge-triggered RELEASE_BLOCKED_NEWLY_OVERDUE, once per stored block ─────────────────
+
+    private IEnumerable<string> NewlyLines => _alarms.Where(l => l.StartsWith(MoneyAlarmLog.ReleaseBlockedNewlyOverdueToken + " "));
+
+    [Fact]
+    public async Task NewlyOverdue_TheFirstOverdueRun_MarksTheBlockOnItsStoredTime_AndAnnouncesIt()
+    {
+        var reasonAt = HoursAgo(30);
+        Escrow("release:payout:phone_unverified", reasonAt);
+        _escrowRepo.TryMarkSettlementBlockOverdueLoggedAsync(EscrowId, CreatedAt, "release:payout:phone_unverified", reasonAt)
+            .Returns(true);
+
+        await Service().ReleaseAsync(Release(), "system");
+
+        OverdueLines.Should().ContainSingle();
+        NewlyLines.Should().ContainSingle()
+            .Which.Should().Be("RELEASE_BLOCKED_NEWLY_OVERDUE escrowId=escrow-001 leg=farmer reason=phone_unverified ageHours=30");
+        await _escrowRepo.Received(1).TryMarkSettlementBlockOverdueLoggedAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task NewlyOverdue_ABlockAlreadyAnnounced_RepeatsOnlyTheOverdueLine_WithoutAWrite()
+    {
+        var reasonAt = HoursAgo(50);
+        Escrow("release:payout:fayda_required", reasonAt)[SettlementBlockFields.OverdueLoggedFor] = reasonAt;
+        Farmer(fayda: false);
+
+        await Service().ReleaseAsync(Release(), "system");
+
+        OverdueLines.Should().ContainSingle();
+        NewlyLines.Should().BeEmpty();
+        await _escrowRepo.DidNotReceiveWithAnyArgs().TryMarkSettlementBlockOverdueLoggedAsync(default!, default!, default!, default!);
+    }
+
+    [Fact]
+    public async Task NewlyOverdue_AMarkerOfAnEarlierBlock_IsWrittenAgain_AndARefusedConditionAnnouncesNothing()
+    {
+        // The marker names the time of an earlier block on this escrow; the write is refused (another run marked
+        // it, or the escrow was released or the reason cleared since the read).
+        var reasonAt = HoursAgo(26);
+        Escrow("release:payout:phone_unverified", reasonAt)[SettlementBlockFields.OverdueLoggedFor] = HoursAgo(200);
+        _escrowRepo.TryMarkSettlementBlockOverdueLoggedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(false);
+
+        await Service().ReleaseAsync(Release(), "system");
+
+        OverdueLines.Should().ContainSingle();
+        NewlyLines.Should().BeEmpty();
+        await _escrowRepo.Received(1).TryMarkSettlementBlockOverdueLoggedAsync(
+            EscrowId, CreatedAt, "release:payout:phone_unverified", reasonAt);
+    }
+
+    [Fact]
+    public async Task NewlyOverdue_TheMarkerWriteThrows_AnnouncesAnyway_AndTheBlockIsStillAudited()
+    {
+        var reasonAt = HoursAgo(30);
+        Escrow("release:payout:phone_unverified", reasonAt);
+        _escrowRepo.TryMarkSettlementBlockOverdueLoggedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .ThrowsAsync(new Amazon.DynamoDBv2.Model.ProvisionedThroughputExceededException("throttled"));
+
+        var result = await Service().ReleaseAsync(Release(), "system");
+
+        result.Error!.Code.Should().Be("ESCROW_029");
+        NewlyLines.Should().ContainSingle().Which.Should().EndWith("leg=farmer reason=phone_unverified ageHours=30");
+        // The audit row of the block is still ensured after the marker failed.
+        await _auditRepo.ReceivedWithAnyArgs().AppendIfAbsentAsync(default!);
+    }
+
+    [Fact]
+    public async Task NewlyOverdue_ABlockYoungerThanADay_IsNeitherMarkedNorAnnounced()
+    {
+        Escrow("release:payout:phone_unverified", HoursAgo(23));
+        _escrowRepo.TryMarkSettlementBlockOverdueLoggedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(true);
+
+        await Service().ReleaseAsync(Release(), "system");
+
+        NewlyLines.Should().BeEmpty();
+        await _escrowRepo.DidNotReceiveWithAnyArgs().TryMarkSettlementBlockOverdueLoggedAsync(default!, default!, default!, default!);
+    }
+
+    [Fact]
+    public async Task NewlyOverdue_AnAdminsRelease_NeverMarksOrAnnounces()
+    {
+        Escrow("release:payout:phone_unverified", HoursAgo(30));
+        _escrowRepo.TryMarkSettlementBlockOverdueLoggedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(true);
+
+        await Service().ReleaseAsync(
+            Release("admin_override") with { IdempotencyKey = $"admin-1:{EscrowId}:release:1" },
+            "admin-1", role: "admin", adminGroupVerified: true);
+
+        NewlyLines.Should().BeEmpty();
+        await _escrowRepo.DidNotReceiveWithAnyArgs().TryMarkSettlementBlockOverdueLoggedAsync(default!, default!, default!, default!);
+    }
+
+    [Fact]
+    public async Task NewlyOverdue_AReasonStoredByAnotherRunMeanwhile_IsKeyedOnThatRunsTime()
+    {
+        Escrow();
+        _escrowRepo.TrySetSettlementBlockReasonAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<string>())
+            .Returns(false);
+        var latestAt = HoursAgo(26);
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(new Dictionary<string, object>
+        {
+            ["escrowId"] = EscrowId,
+            ["status"] = "escrowed",
+            ["createdAt"] = CreatedAt,
+            [SettlementBlockFields.Reason] = "release:payout:phone_unverified",
+            [SettlementBlockFields.ReasonAt] = latestAt
+        });
+        _escrowRepo.TryMarkSettlementBlockOverdueLoggedAsync(EscrowId, CreatedAt, "release:payout:phone_unverified", latestAt)
+            .Returns(true);
+
+        await Service().ReleaseAsync(Release(), "system");
+
+        NewlyLines.Should().ContainSingle().Which.Should().EndWith("leg=farmer reason=phone_unverified ageHours=26");
     }
 
     [Fact]
@@ -333,6 +456,26 @@ public class EscrowServiceReleaseBlockedOverdueTests
         OverdueLines.Should().ContainSingle()
             .Which.Should().Be("RELEASE_BLOCKED_OVERDUE escrowId=escrow-order-o41 leg=trucker reason=phone_unverified ageHours=25");
         _ledgerGateway.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SweepSplitVerdict_TruckerBlockedADay_AnnouncesTheTruckerOnce()
+    {
+        // FUP-436: the split's trucker block is keyed on its own stored time, like the farmer's.
+        Farmer();
+        Trucker(phoneVerified: false);
+        SeedSplit("release:trucker:phone_unverified", 25);
+        var reasonAt = (string)_ledger.Escrows[LedgerEscrowId][SettlementBlockFields.ReasonAt];
+        _ledger.EscrowRepo.TryMarkSettlementBlockOverdueLoggedAsync(
+                LedgerEscrowId, CreatedAt, "release:trucker:phone_unverified", reasonAt)
+            .Returns(true, false);
+
+        await LedgerService().SettleSplitVerdictAsync(LedgerEscrowId);
+        await LedgerService().SettleSplitVerdictAsync(LedgerEscrowId);
+
+        OverdueLines.Should().HaveCount(2);
+        NewlyLines.Should().ContainSingle()
+            .Which.Should().Be("RELEASE_BLOCKED_NEWLY_OVERDUE escrowId=escrow-order-o41 leg=trucker reason=phone_unverified ageHours=25");
     }
 
     [Fact]

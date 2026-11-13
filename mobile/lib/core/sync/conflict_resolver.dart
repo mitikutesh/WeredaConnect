@@ -1,6 +1,7 @@
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/crop_status_wire.dart';
 import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
@@ -102,6 +103,24 @@ class ConflictResolver {
     int serverVersion,
   ) async {
     try {
+      // FUP-149: the listing was deleted (on another device of the farmer, or
+      // a delete that won a race with this one). The app has no status for
+      // that, and the parse below made it a local draft: server wins by
+      // removing the local listing.
+      if (isDeletedCropRow(serverData)) {
+        await _isar.writeTxn(
+          () => _isar.cropListings.deleteByListingId(operation.entityId),
+        );
+        return {
+          'entityType': operation.entityType,
+          'entityId': operation.entityId,
+          'action': operation.action,
+          'serverVersion': serverVersion,
+          'removed': true,
+          'resolvedAt': DateTime.now().toUtc().toIso8601String(),
+        };
+      }
+
       // Find the local CropListing entity (may be null if deleted locally)
       var listing = await _isar.cropListings
           .filter()

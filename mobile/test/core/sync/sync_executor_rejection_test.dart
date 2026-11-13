@@ -780,6 +780,276 @@ void main() {
     });
   });
 
+  // FUP-456: the trucker's "Mark in transit" queued offline behind a pickup
+  // is sent at the pickup's version plus one. While the server holds the
+  // delivery `pending` it answers `DELIVERY_INVALID_TRANSITION`, which
+  // retries, and the revert skips a delivery with an upload on its way, so
+  // the phone stayed in transit. A pickup refused by a code that undoes it
+  // now rejects the same user's status changes queued after it, before the
+  // revert, which flags them with the pickup.
+  group('status changes queued behind a refused pickup', () {
+    const pickup = '{"status":"pickedUp","scannedQrNonce":"n","version":1}';
+    const gpsRefusal = 'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is '
+        '11.1km from listing location (max 5km).';
+    const invalidTransition = 'DELIVERY_INVALID_TRANSITION: Cannot transition '
+        "from 'pending' to 'inTransit'.";
+
+    // Ops of one user for one entity use distinct actions: the idempotency
+    // key has millisecond resolution.
+    Future<void> enqueueAs(
+      String userId,
+      String operationId, {
+      required String action,
+      required String data,
+      String entityId = 'del-1',
+    }) =>
+        syncQueue.enqueue(
+          userId: userId,
+          entityType: 'delivery',
+          entityId: entityId,
+          action: action,
+          data: data,
+          operationId: operationId,
+        );
+
+    Future<void> enqueuePickup() =>
+        enqueueAs('trucker-1', 'op-1', action: 'update', data: pickup);
+
+    Future<void> enqueueInTransit({String entityId = 'del-1'}) => enqueueAs(
+          'trucker-1',
+          'op-transit',
+          action: 'update-transit',
+          data: '{"status":"inTransit","version":2}',
+          entityId: entityId,
+        );
+
+    Map<String, dynamic> transient(String operationId) =>
+        error(operationId, 'Internal server error.');
+
+    for (final message in [
+      gpsRefusal,
+      'DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.',
+      "DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server "
+          'for this pickup. Contact support.',
+    ]) {
+      test(
+          'the in-transit mark is rejected before the revert: '
+          '${message.split(':').first}', () async {
+        final waitingAtRevert = <int>[];
+        executor.dispose();
+        executor = buildExecutor(
+          securityEvents: events,
+          onPermanentRejection: (op, message) async {
+            waitingAtRevert.add(
+              (await syncQueue.waitingOperationsFor('delivery', 'del-1'))
+                  .length,
+            );
+            reverts.add((op, message));
+          },
+        );
+        // The phone's queue: the pickup, the drop-off code the scan screen
+        // queues behind it (ESC-35), then the trucker's "Mark in transit".
+        await enqueuePickup();
+        await enqueueAs(
+          'trucker-1',
+          'op-dropoff-code',
+          action: 'update-dropoff',
+          data: '{"dropoffQrNonce":"d.abc","version":2}',
+        );
+        await enqueueInTransit();
+        replyWith([
+          error('op-1', message),
+          {
+            'operationId': 'op-dropoff-code',
+            'status': 'deferred',
+            'message': 'DELIVERY_NONCE_PENDING: Waiting for the pickup to '
+                'sync. Will retry automatically.',
+          },
+          error('op-transit', invalidTransition),
+        ]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-transit'), isTrue);
+        expect(await isRejected('op-dropoff-code'), isTrue);
+        expect(waitingAtRevert, [0]);
+        expect(reverts.single.$1.operationId, 'op-1');
+        // Flagged with the pickup: none counts as "Sync failed".
+        expect((await syncQueue.getOperation('op-transit'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        // One announcement for the delivery: the pickup's refusal.
+        expect(rejections().single.message, message);
+        // A reconnect sends nothing.
+        expect(await syncQueue.retryFailed(), 0);
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+
+    // A build before FUP-439 retried a GPS refusal: the mark may already be
+    // out of retries when the pickup is refused for good. A reconnect would
+    // send it again (SyncQueue.retryFailed).
+    test('a mark out of retries is rejected too', () async {
+      await enqueuePickup();
+      await enqueueInTransit();
+      for (var i = 0; i < SyncQueue.maxRetries; i++) {
+        await syncQueue.markAsFailed('op-transit');
+      }
+      replyWith([error('op-1', gpsRefusal)]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(sentOperationIds.single, ['op-1']);
+      expect(await isRejected('op-transit'), isTrue);
+      expect((await syncQueue.getOperation('op-transit'))!.reverted, isTrue);
+      expect(await syncQueue.retryFailed(), 0);
+      expect(await syncQueue.getFailedCount(), 0);
+    });
+
+    // Never another user's operation: the farmer's QR nonce and the buyer's
+    // confirm on a shared phone settle on their own answers.
+    test("another user's operations stay", () async {
+      await enqueuePickup();
+      await enqueueAs(
+        'farmer-2',
+        'op-farmer-nonce',
+        action: 'update',
+        data: '{"qrNonce":"q","version":1}',
+      );
+      await enqueueAs(
+        'buyer-1',
+        'op-buyer-confirm',
+        action: 'update',
+        data: '{"status":"delivered","scannedQrNonce":"n","version":2}',
+      );
+      replyWith([
+        error('op-1', gpsRefusal),
+        transient('op-farmer-nonce'),
+        transient('op-buyer-confirm'),
+      ]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      for (final id in ['op-farmer-nonce', 'op-buyer-confirm']) {
+        final op = await syncQueue.getOperation(id);
+        expect(SyncQueue.isRejected(op!), isFalse, reason: id);
+        expect(op.status, SyncStatus.pending, reason: id);
+      }
+    });
+
+    // Only what the pickup carries: the delivery's create is queued before
+    // it, and another delivery's mark is not built on it.
+    test(
+        'an operation queued before the pickup, or of another delivery, '
+        'stays', () async {
+      await enqueueAs(
+        'trucker-1',
+        'op-create',
+        action: 'create',
+        data: '{"status":"pending","version":1}',
+      );
+      await enqueuePickup();
+      await enqueueInTransit(entityId: 'del-2');
+      replyWith([
+        transient('op-create'),
+        error(
+            'op-1',
+            'DELIVERY_CODE_MISMATCH: The typed code does not match '
+                'this delivery.'),
+        error('op-transit', invalidTransition),
+      ]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      for (final id in ['op-create', 'op-transit']) {
+        final op = await syncQueue.getOperation(id);
+        expect(SyncQueue.isRejected(op!), isFalse, reason: id);
+        expect(op.status, SyncStatus.pending, reason: id);
+      }
+    });
+
+    // Nothing is reverted, so nothing would flag a rejected mark: the user
+    // would see a "Sync failed" operation for a change still on the phone.
+    test('a permanent refusal that undoes nothing leaves it waiting', () async {
+      await enqueuePickup();
+      await enqueueInTransit();
+      replyWith([
+        error(
+          'op-1',
+          'DELIVERY_UNAUTHORIZED: Only the trucker can mark as pickedUp.',
+        ),
+        error('op-transit', invalidTransition),
+      ]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      expect(reverts, isEmpty);
+      final mark = await syncQueue.getOperation('op-transit');
+      expect(SyncQueue.isRejected(mark!), isFalse);
+      expect(mark.status, SyncStatus.pending);
+    });
+
+    test('a transient pickup failure keeps it', () async {
+      await enqueuePickup();
+      await enqueueInTransit();
+      replyWith([transient('op-1'), error('op-transit', invalidTransition)]);
+
+      await executor.executeBatch();
+
+      for (final id in ['op-1', 'op-transit']) {
+        final op = await syncQueue.getOperation(id);
+        expect(SyncQueue.isRejected(op!), isFalse, reason: id);
+        expect(op.status, SyncStatus.pending, reason: id);
+      }
+      expect(reverts, isEmpty);
+    });
+
+    // Only a pickup: the buyer's dispute behind a refused delivery confirm
+    // is left to its own answer (FUP-479).
+    test('a refused delivery confirm leaves a dispute behind it', () async {
+      await enqueueAs(
+        'buyer-1',
+        'op-1',
+        action: 'update',
+        data: '{"status":"delivered","scannedQrNonce":"n","version":2}',
+      );
+      await enqueueAs(
+        'buyer-1',
+        'op-dispute',
+        action: 'update-dispute',
+        data: '{"status":"disputed","disputeReason":"Short","version":3}',
+      );
+      replyWith([
+        error(
+          'op-1',
+          'DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is 16.2km from '
+              'the drop-off point (max 5km).',
+        ),
+        error(
+          'op-dispute',
+          'DELIVERY_INVALID_TRANSITION: Cannot transition from '
+              "'pickedUp' to 'disputed'.",
+        ),
+      ]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      final dispute = await syncQueue.getOperation('op-dispute');
+      expect(SyncQueue.isRejected(dispute!), isFalse);
+      expect(dispute.status, SyncStatus.pending);
+    });
+  });
+
   // ESC-07: a dispute the server could not freeze the payment for, or one
   // after the 48-hour window, is refused for good; the local dispute is undone
   // and explained. A dispute whose freeze was undecided keeps retrying.

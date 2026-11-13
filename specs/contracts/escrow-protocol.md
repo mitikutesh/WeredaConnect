@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.24.0
+2.26.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -1571,7 +1571,7 @@ Success (`200`):
 | `401` | `ESCROW_005` | Not authenticated |
 | `403` | `ESCROW_025` | Caller's role claim is not `buyer` |
 | `403` | `ESCROW_026` | Caller is not the order's buyer |
-| `400` | `ESCROW_033` | `orderId` missing, or the body is not valid JSON |
+| `400` | `ESCROW_033` | `orderId` absent (since 2.26.0; before, `"Invalid JSON in request body."` without a `field`), `null` or blank (`"orderId is required."`, `field: orderId`), or the body is not valid JSON (`"Invalid JSON in request body."`, no `field`) |
 | `404` | `ESCROW_033` | Order not found |
 | `409` | `ESCROW_024` | The order is already funded |
 | `409` | `ESCROW_030` | The order is not waiting for payment (status other than `payment_submitted`), or its payment time ran out (20 hours after `paymentSubmittedAt`) |
@@ -2137,6 +2137,7 @@ ESCROW_SETTLEMENT_FAILED escrowId=<id> action=<action> outcome=<failed|unknown> 
 MANUAL_PAYOUT_OVERDUE escrowId=<id> ref=<ref> ageHours=<n>
 MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=<id> ref=<ref> ageHours=<n>   (2.24.0, once per leg)
 TRUCKER_PAYOUT_OVERDUE escrowId=<id> reason=<reason> ageHours=<n>   (1.11.0)
+TRUCKER_PAYOUT_NEWLY_OVERDUE escrowId=<id> reason=<reason> ageHours=<n>   (2.25.0, once per leg)
 ADMIN_QUEUE_OVERDUE orderId=<id> reason=<code> ageHours=<n>
 DISPUTE_PROPAGATION_FAILED escrowId=<id> orderId=<id> deliveryId=<id> legs=<legs>   (1.26.0)
 DELIVERY_DISPUTE_FROZEN escrowId=<id> orderId=<id> deliveryId=<id>   (1.26.0, a rate, not a failure)
@@ -2192,7 +2193,9 @@ Lambda's log group publishing the same metric.
 The overdue line is a `LogWarning`: a log level above Warning on escrow-cron silences the
 manual payout alarm. Since 2.24.0 (FUP-06) the first report of each leg also logs
 `MANUAL_PAYOUT_NEWLY_OVERDUE` (a `LogWarning` too), so a leg that becomes overdue while
-`manual-payouts-overdue` is already in ALARM is still announced (§Additions in 2.24.0).
+`manual-payouts-overdue` is already in ALARM is still announced (§Additions in 2.24.0). Since 2.25.0
+(FUP-436) the trucker retries, the system's blocked release and the ledger sweep do the same for
+`TRUCKER_PAYOUT_OVERDUE`, `RELEASE_BLOCKED_OVERDUE` and `LEDGER_ROW_OVERDUE` (§Additions in 2.25.0).
 
 ### Dispute tokens (1.26.0, FUP-27)
 
@@ -2231,7 +2234,10 @@ every id on both lines goes through `LogId`.
 | `${prefix}-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `ORDER_ESCROW_LINK_FAILED`, `ORDER_ESCROW_REFUND_SCHEDULE_FAILED`, `DISPUTE_NO_ESCROW`, `ORDER_TRANSPORT_CANCEL_LATE_DELIVERY`, `ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED` and `QR_GATE_UNDECIDED` in the sync log group (replaces `${prefix}-order-escrow-create-failed`) | any line in 15 minutes |
 | `${prefix}-manual-payouts-overdue` | `MANUAL_PAYOUT_OVERDUE` in the escrow-cron log group | any line in 15 minutes, same hold and clear as settlement failures; a leg that stays blocked keeps it in ALARM (1.8.0 known limits), and a leg that becomes overdue meanwhile notifies through the next row (2.24.0). The admin acts on the Manual Payouts page (`/payouts`) |
 | `${prefix}-manual-payouts-newly-overdue` (2.24.0) | `MANUAL_PAYOUT_NEWLY_OVERDUE` in the escrow-cron log group (once per leg: the hourly 1.x report, the ledger sweep) | any line in 5 minutes, evaluated over 2 periods: fires within minutes and clears by itself 5 to 15 minutes later, so each run with a newly overdue leg notifies, also while the row above is in ALARM. Its OK says nothing about the payout |
-| `${prefix}-trucker-payouts-overdue` (1.11.0) | `TRUCKER_PAYOUT_OVERDUE` in the escrow-cron log group | same as manual payouts overdue: a trucker leg still owed (not queued) more than 24 hours after it went pending; see Additions in 1.11.0 |
+| `${prefix}-trucker-payouts-overdue` (1.11.0) | `TRUCKER_PAYOUT_OVERDUE` in the escrow-cron log group | same as manual payouts overdue: a trucker leg still owed (not queued) more than 24 hours after it went pending; see Additions in 1.11.0. A leg that becomes overdue meanwhile notifies through the next row (2.25.0) |
+| `${prefix}-trucker-payouts-newly-overdue` (2.25.0) | `TRUCKER_PAYOUT_NEWLY_OVERDUE` in the escrow-cron log group (once per owed leg: the 1.x retry, the ledger transport retry) | the shape of `manual-payouts-newly-overdue`: fires within minutes, clears by itself 5 to 15 minutes later, also while the row above is in ALARM; its OK says nothing about the payout |
+| `${prefix}-releases-blocked-newly-overdue` (2.25.0) | `RELEASE_BLOCKED_NEWLY_OVERDUE` in the escrow-cron log group (once per stored block) | the same; the edge twin of `releases-blocked-overdue` (§Additions in 2.19.0) |
+| `${prefix}-ledger-rows-newly-overdue` (2.25.0) | `LEDGER_ROW_NEWLY_OVERDUE` in the escrow-cron log group (once per open ledger row) | the same; the edge twin of `ledger-rows-overdue` (§Additions in 2.2.0) |
 | `${prefix}-admin-queue-overdue` | `ADMIN_QUEUE_OVERDUE` in the escrow-cron log group | same; an entry that stays undecided keeps it in ALARM (1.13.0, runbook in `.ai/deployment.md`) |
 | `${prefix}-dispute-propagation-failed` (1.26.0) | `DISPUTE_PROPAGATION_FAILED` in the escrow, sync and escrow-cron log groups | any line in 15 minutes, same hold and clear as settlement failures; runbook in `.ai/deployment.md` |
 | `${prefix}-escrow-delivery-stamp-failures` (2.1.0) | `ESCROW_DELIVERY_STAMP_FAILED` in the sync and escrow-cron log groups | any line in 15 minutes, same hold and clear as settlement failures; a confirmed delivery whose escrow is not stamped, so the auto-release cannot pay it (§Additions in 2.1.0); runbook in `.ai/deployment.md` |
@@ -2290,8 +2296,8 @@ When the condition fails the handler re-reads the escrow (strongly consistent):
 | Another verdict recorded | `409 ADMIN_010` "A different verdict is already recorded for this escrow." |
 | Anything else | `409 ADMIN_010` "Escrow is not in a disputed state." |
 
-Errors: `400 ADMIN_005` (body is not JSON or misses `resolution` or `action`), `400 ADMIN_014`
-(`resolution` or `action` invalid, field named), `403 ESCROW_015` (not in the admin group),
+Errors: `400 ADMIN_005` (body is not JSON), `400 ADMIN_014` (`resolution` or `action` invalid, or
+since 2.26.0 missing, field named; before, a missing one was `400 ADMIN_005`), `403 ESCROW_015` (not in the admin group),
 `404 ADMIN_003`, the `409` rows above. The response body is unchanged.
 
 From 1.21.0 (FUP-16) the endpoint decides the order and the delivery before it writes, and a verdict
@@ -4420,7 +4426,8 @@ trucker is paid (`ESCROW_029` is still the answer, the hourly release retries); 
 the transport leg held while the farmer is paid, and the hourly run (`ledgerTransportLegs*` in its
 summary) pays it once the gate passes. Such a leg has no ledger row, so while it is still blocked more
 than 24 hours after `releasedAt` the run logs the 1.x `TRUCKER_PAYOUT_OVERDUE escrowId=.. reason=..
-ageHours=..` line (alarm `${prefix}-trucker-payouts-overdue`). The run reads the owed escrows from the
+ageHours=..` line (alarm `${prefix}-trucker-payouts-overdue`; since 2.25.0 also `TRUCKER_PAYOUT_NEWLY_OVERDUE` once
+per leg). The run reads the owed escrows from the
 oldest every hour, at most 500 a run (no cursor yet). A buyer refund to an unverified phone is `manual`,
 `PAYEE_NOT_VERIFIED` (F7). At call time a payee who lost verification is not called: the row waits an
 hour (`lastCode: PAYEE_BLOCKED:<reason>`, audited once per reason). The escrow Lambda, the escrow cron and
@@ -4436,7 +4443,8 @@ again before acting. `sent`, or a stamp older than 15 minutes: the status check 
 `pending` without a stamp, or `failed`: the gates, then the call. A stamp younger than 15 minutes is
 skipped. I1 and I3 are re-checked on every escrow it touched. `LEDGER_ROW_OVERDUE escrowId=.. ref=..
 status=.. ageHours=..` (ref with `#` as `.`) for a row open more than 24 hours (alarm
-`${prefix}-ledger-rows-overdue`), and `MANUAL_PAYOUT_OVERDUE` with `ref=<ledger ref>` for a manual row
+`${prefix}-ledger-rows-overdue`; since 2.25.0 also `LEDGER_ROW_NEWLY_OVERDUE` once per row), and
+`MANUAL_PAYOUT_OVERDUE` with `ref=<ledger ref>` for a manual row
 older than 24 hours. The response summarises the run; `truncated: true` also logs `sweep_truncated`.
 
 **The 1.x sweeps leave a decided ledger escrow alone.** Every status sweep (release, refund, verdict,
@@ -5547,6 +5555,7 @@ RELEASE_BLOCKED_OVERDUE escrowId=<id> leg=<farmer|trucker> reason=<reason> ageHo
 `TRUCKER_PAYOUT_OVERDUE`: the line repeats every hourly run, so the alarm stays in ALARM for the whole episode
 (one notification, no hourly flap) and clears by itself 75 to 90 minutes after the payee verifies and the next
 run pays. While it is in ALARM a second escrow that becomes overdue is not announced again (read the lines).
+Since 2.25.0 (FUP-436) `RELEASE_BLOCKED_NEWLY_OVERDUE` and its edge alarm `releases-blocked-newly-overdue` announce it.
 Not edge-triggered: one line per escrow would clear the alarm after 75 minutes while the farmer still waits.
 
 ### Admin escrow detail
@@ -6083,6 +6092,68 @@ Use a shared operations address, never a personal one, and set it in the environ
 deploy passes only `environment`, so a context value would be dropped by the next deploy. Whether staging and prod
 have a confirmed subscriber today cannot be read from the code; `.ai/deployment.md` (Monitoring) has the check.
 
+## Additions in 2.25.0 (newly overdue lines for the trucker leg, the blocked release and the ledger row, FUP-436)
+
+Extends the 2.24.0 edge line to three more level-triggered overdue lines. `TRUCKER_PAYOUT_OVERDUE`,
+`RELEASE_BLOCKED_OVERDUE` and `LEDGER_ROW_OVERDUE` repeat on every run for every overdue item, so
+`trucker-payouts-overdue`, `releases-blocked-overdue` and `ledger-rows-overdue` stay in ALARM while any item is
+overdue, and an item that became overdue meanwhile notified nobody. These three name money a party is owed: a trucker
+leg after the farmer was paid, a release the identity gate holds back, a payout or refund row the gateway has not
+finished. No party sees anything new: no endpoint, DTO, status, amount, timing or notification of a party changes.
+
+### The lines
+
+```
+TRUCKER_PAYOUT_NEWLY_OVERDUE escrowId=<id> reason=<reason> ageHours=<n>
+RELEASE_BLOCKED_NEWLY_OVERDUE escrowId=<id> leg=<farmer|trucker> reason=<reason> ageHours=<n>
+LEDGER_ROW_NEWLY_OVERDUE escrowId=<id> ref=<ref> status=<pending|sent|failed> ageHours=<n>
+```
+
+Each carries the fields of its level line, formatted the same way, and is logged right after it (`LogWarning` from
+the trucker retries, the money alarm sink from the escrow service and the ledger sweep), once per item and
+since-time: by the first run that reports the item overdue.
+
+| Line | Logged by | Once per | Marker (a conditional write, before the line) |
+|---|---|---|---|
+| `TRUCKER_PAYOUT_NEWLY_OVERDUE` | the hourly 1.x trucker retry (1.11.0) | owed leg | on the escrow row, `truckerPayoutOverdueLoggedFor = truckerPayoutPendingSince`, only while `truckerPayoutPending = true` with that pending time and the marker does not hold it yet. A leg without a pending time (before 1.11.0; such a leg is parked, not retried) cannot be keyed and is announced on every run that reports it (reachable only when the retry of such a leg throws; otherwise it is parked or skipped before the report) |
+| `TRUCKER_PAYOUT_NEWLY_OVERDUE` | the hourly ledger transport retry (2.2.0, F2) | owed transport leg | on the escrow row, `truckerPayoutOverdueLoggedFor = releasedAt`, only while it is a ledger escrow whose transport leg is `held`, released at that time, and the marker does not hold it yet |
+| `RELEASE_BLOCKED_NEWLY_OVERDUE` | the escrow service, on the system's release (escrow-cron only, 2.19.0) | stored block | on the escrow row, `settlementBlockOverdueLoggedFor = settlementBlockReasonAt`, only while the row stores that reason with that time and the marker does not hold it yet. A reason that changes, or a block stored again after the gate passed, has a new time and is announced again |
+| `LEDGER_ROW_NEWLY_OVERDUE` | the 15 minute ledger sweep's overdue report | open row | on the ledger row, `overdueLoggedFor = createdAt`, only while the row is in the status read (`pending`, `sent` or `failed`) with that `createdAt` and the marker does not hold it yet. The level line counts the age from `createdAt` across those statuses, so a move between them is not announced again; a `manual` row keeps its 2.24.0 line |
+
+- The 2.24.0 rules hold. Each report reads the marker from the row it already reads (`StatusExpiresIndex` and
+  `LedgerOpenIndex`, projection ALL; the release reads the escrow row) and skips a marked item without a write. A
+  refused condition logs nothing. Any other failure of the write logs the line anyway, with a warning that names
+  the escrow and the exception type (`Trucker retry:`, `Ledger transport retry:`, `Release blocked report:` on
+  stdout, `Ledger overdue report:`), so the next run may announce the same item again.
+- The markers are server bookkeeping: no `version` or `updatedAt` moves (no settlement compare-and-set is refused
+  because of one), no read returns them, the escrow stream derives no notification from them (its rules look at the
+  status, the block reasons and the queue marker), and the payout, the release, the clear of a block and every
+  ledger row write leave them in place.
+- An item already overdue when 2.25.0 is deployed has no marker, so the first run after the deploy announces it
+  once: one notification per alarm.
+- The 2.24.0 gap holds for these too: a Lambda killed between the marker write and the line leaves the item marked
+  and unannounced. `escrow-cron-errors` fires for the kill and the level line keeps listing the item.
+- Run summaries: `truckerLegsNewlyOverdue` and `ledgerTransportLegsNewlyOverdue` (hourly), `newlyOverdue` (ledger
+  sweep). The release line has no counter, like its level line.
+
+**Alarms** `<prefix>-trucker-payouts-newly-overdue` (metric `TruckerPayoutsNewlyOverdue`),
+`<prefix>-releases-blocked-newly-overdue` (`ReleasesBlockedNewlyOverdue`) and `<prefix>-ledger-rows-newly-overdue`
+(`LedgerRowsNewlyOverdue`): one filter each, on the escrow-cron log group, with no default value, and the shape of
+`manual-payouts-newly-overdue` (Sum over 5 minute periods, 2 evaluation periods, 1 datapoint, missing data not
+breaching, ALARM and OK on the alarm topic), on the dashboard. Each fires within minutes of the run that logged a
+line and clears by itself 5 to 15 minutes later, also while its level alarm is in ALARM; its OK says nothing about
+the item. The level alarms' descriptions point at their twins. Each token is a whole term, so no level filter counts
+an edge line and no edge filter counts a level line.
+
+### Not in 2.25.0
+
+- `admin-queue-overdue` keeps no twin: three producers (the queue report, a capped escrow whose order is missing, an
+  `/escrow/initiate` escrow with no order), two tables, and a due time that moves with the pickup deadline; the
+  queue entry lives on the order row, which syncs to the parties. Follow-up FUP-466.
+- `dispute-verdict-wait-overdue` keeps no twin: the line is also logged by an admin's release or refund in the escrow
+  Lambda, whose log group has no filter for it, so only the system's call may write a marker; and the wait is an
+  admin's recorded choice, not a payout that failed. Follow-up FUP-467.
+
 ---
 
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
@@ -6429,6 +6500,8 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.26.0 | 2026-11-13 | Missing members on the admin and checkout bodies (FUP-148, as 2.3.0 did for initiate and dispute; 2.25.0 belongs to a change in flight). `POST /escrow/order-checkout`: an absent `orderId` answers `400 ESCROW_033` `"orderId is required."` with `field: orderId`, as a `null` or blank one already did. `POST /admin/disputes/{id}/resolve`: an absent `resolution` or `action` answers `400 ADMIN_014` with its `field`, as a `null` or wrong one already did. `POST /admin/fraud-signals/{id}/action` and `POST /admin/users/{id}/action`: an absent, `null` or blank `action` answers `400 ADMIN_009` `"action is required."` with `field: action` (`fraud-detection-architecture.md` 3.40.0, section 19); a `null` one was `ADMIN_009` without a `field`. Each is checked right after the body is read, before any read or write. Before, an absent member failed deserialization and answered `400 ESCROW_033` or `400 ADMIN_005` `"Invalid JSON in request body."` without a `field`. A body that is not JSON keeps that answer. The apps and the admin always send these members; every code is one they already map; no app change |
+| 2.25.0 | 2026-11-13 | Newly overdue lines for the trucker leg, the blocked release and the ledger row (FUP-436, from FUP-06; §Additions in 2.25.0). escrow-cron logs `TRUCKER_PAYOUT_NEWLY_OVERDUE`, `RELEASE_BLOCKED_NEWLY_OVERDUE` and `LEDGER_ROW_NEWLY_OVERDUE` (the fields of their level lines) once per item, on the first run that reports it overdue, each after a conditional marker write keyed on the item's since-time: on the escrow row `truckerPayoutOverdueLoggedFor` (`truckerPayoutPendingSince` for a 1.x leg, `releasedAt` for a ledger transport leg) and `settlementBlockOverdueLoggedFor` (`settlementBlockReasonAt`), on an open ledger row `overdueLoggedFor` (`createdAt`); no version or `updatedAt` change; a write that fails for a reason other than its condition logs the line anyway. New filters and edge-triggered alarms `trucker-payouts-newly-overdue`, `releases-blocked-newly-overdue` and `ledger-rows-newly-overdue` (5 minute periods, 2 evaluation periods, 1 datapoint), which notify even while their level alarms are in ALARM. Run summaries `truckerLegsNewlyOverdue`, `ledgerTransportLegsNewlyOverdue` and `newlyOverdue`. `admin-queue-overdue` and `dispute-verdict-wait-overdue` keep no twin (Not in 2.25.0). No endpoint, DTO, status, amount or client change |
 | 2.24.0 | 2026-11-13 | The newly overdue manual payout line (FUP-06, closes the last ESC-13 money alarm gap; §Additions in 2.24.0). escrow-cron logs `MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=.. ref=.. ageHours=..` (the fields of `MANUAL_PAYOUT_OVERDUE`) once per manual payout leg, on the first run that reports it overdue: the hourly report for a 1.x queue entry (marker `manualPayoutOverdueLoggedFor = manualPayoutQueuedAt` on the escrow row) and the ledger sweep for a ledger row in `manual` (marker `manualOverdueLoggedFor = dueAt` on the row), each marker a conditional write before the line, with no version or `updatedAt` change; a write that fails for a reason other than its condition logs the line anyway. New filter and edge-triggered alarm `manual-payouts-newly-overdue` (5 minute periods, 2 evaluation periods, 1 datapoint), which notifies even while `manual-payouts-overdue` is in ALARM. Run summaries `manualPayoutsNewlyOverdue` and `manualNewlyOverdue`. The alarm topic takes optional email subscribers from `alarmEmails` in the environment config (default none). No endpoint, DTO, status, amount or client change. 2.23.0 is another change's number |
 | 2.23.0 | 2026-11-13 | queryOrder reconciliation (FUP-37, ESC-45 D7 follow-up; §Additions in 2.23.0). Live deployments only. `ITelebirrGateway.QueryOrderAsync` calls `POST /payment/v1/merchant/queryOrder` (`order_status` read before `trade_status`; `PAY_SUCCESS` normalized to `Completed`; any error or unknown status decides nothing; the mock answers deterministically). New escrow-cron action `order_payment_reconcile` (rule every 15 minutes): for a `payment_submitted` order within an hour of T2 with its checkout windows closed it queries every checkout of the current payment attempt (at most 10; 40 queries per run); a paid one is recorded in the webhook inbox exactly as a verified `Completed` notification (D8 hold, then the pending row under the notification's key), so the inbox sweep funds the order through the webhook's funding path, once; the verdict (`paid`, `not_paid`, `unresolved`, `gave_up` a day past the deadline) is written on the checkout slot (`paymentQueryVerdict`, `paymentQueryCycle`, `paymentQueriedAt`). A stuck `unknown` (or `opening` with its mapping) checkout is queried too: closed or failed at Telebirr frees the buyer (slot `failed`), paid goes to the inbox. The order cron (`TELEBIRR_QUERY_ORDER_ENABLED`, GetItem on escrow-idempotency) fails an order with a checkout only on a `not_paid`, `paid` or `gave_up` verdict for its payment attempt. New tokens `ORDER_PAYMENT_QUERY_UNRESOLVED` (escrow-cron) and `ORDER_PAYMENT_QUERY_OVERDUE` (order-cron, no verdict 2 hours past the deadline) feed `order-payment-problems`; escrow-audit `order_payment_reconciled`, `order_checkout_reconciled`, `order_payment_query_gave_up`. No client, route, DTO or table change |
 | 2.22.0 | 2026-11-13 | The delivery payment hidden on live builds (FUP-69, §Additions in 2.22.0). Client only (mobile and web, the same delivery screen): a build that pays through live Telebirr (`TELEBIRR_LIVE=true`, or any production build) no longer shows the buyer's "Pay for Delivery" on a pending delivery, the only entry to the screen that calls `POST /escrow/initiate`, which the server refuses there with `422 ESCROW_039` since 1.18.0 (FUP-36). Demo builds keep it; the farmer and the trucker never had it. No server, endpoint, DTO, string or notification change; an older app on a live deployment still gets the `ESCROW_039` text. Retiring the path waits until those apps have aged out: the first build carrying 2.22.0 released, and `minOrderAppBuild` at least that build wherever the server runs live Telebirr ("Not in 2.22.0") |
@@ -6507,6 +6580,6 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 ---
 
-**Last Updated**: 2026-11-12
+**Last Updated**: 2026-11-13
 **Version**: 2.0.0
 **Status**: Draft (Phase R4)

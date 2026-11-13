@@ -817,7 +817,8 @@ class AppLocalizationsAm extends AppLocalizations {
   String get deliveryGpsNotCaptured => 'አልተቀረጸም';
 
   @override
-  String get deliveryGpsPermissionDenied => 'የአካባቢ ፈቃድ ተከልክሏል';
+  String get deliveryGpsPermissionDenied =>
+      'የቦታ ፈቃድ አልተሰጠም። \"ቦታን እንደገና ሞክር\" የሚለውን ይንኩ እና ይፍቀዱ።';
 
   @override
   String get deliveryQrShowInstructionBuyer => 'ገዢው ሲወስድ ይህን ኪዩአር ለገዢው አሳይ';
@@ -5046,6 +5047,13 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get qrRetryLocation => 'ቦታን እንደገና ሞክር';
+
+  @override
+  String get qrSelfPickupNeedsGps => 'እርሻው ላይ ማንሳቱን ለማረጋገጥ አካባቢዎ ያስፈልጋል።';
+
+  @override
+  String get qrLocationNoSignal =>
+      'እስካሁን የቦታ ምልክት አልተገኘም። የቦታ አገልግሎት መብራቱን አረጋግጠው ወደ ክፍት ቦታ ይውጡ፣ ከዚያ \"ቦታን እንደገና ሞክር\" የሚለውን ይንኩ።';
 
   @override
   String get qrPickupSavedCheckOnline =>

@@ -884,28 +884,48 @@ public class AdminFunctionTests
         return item;
     }
 
-    // FUP-127 audit: the admin request bodies mark their members required and carry no initializer.
-    // An absent one is ADMIN_005; an explicit null must be refused, never dereferenced.
+    // FUP-127 audit, FUP-148: the admin request bodies mark no member required. An absent member (it was
+    // ADMIN_005 "Invalid JSON in request body." with no field), a null or a blank one is answered with
+    // the member's own code and field, before any read, and nothing is written.
     [Theory]
-    [InlineData("/admin/disputes/escrow-9/resolve", "{\"action\":\"release\"}", "ADMIN_005")]
-    [InlineData("/admin/disputes/escrow-9/resolve", "{\"resolution\":\"farmer_wins\"}", "ADMIN_005")]
-    [InlineData("/admin/disputes/escrow-9/resolve", "{\"resolution\":null,\"action\":\"release\"}", "ADMIN_014")]
-    [InlineData("/admin/disputes/escrow-9/resolve", "{\"resolution\":\"farmer_wins\",\"action\":null}", "ADMIN_014")]
-    [InlineData("/admin/users/user-1/action", "{}", "ADMIN_005")]
-    [InlineData("/admin/users/user-1/action", "{\"action\":null}", "ADMIN_009")]
-    public async Task AdminBody_AbsentOrNullRequiredMember_Returns400(string path, string body, string code)
+    [InlineData("/admin/disputes/escrow-9/resolve", "{\"action\":\"release\"}", "ADMIN_014", "resolution")]
+    [InlineData("/admin/disputes/escrow-9/resolve", "{\"resolution\":null,\"action\":\"release\"}", "ADMIN_014", "resolution")]
+    [InlineData("/admin/disputes/escrow-9/resolve", "{\"resolution\":\"\",\"action\":\"release\"}", "ADMIN_014", "resolution")]
+    [InlineData("/admin/disputes/escrow-9/resolve", "{}", "ADMIN_014", "resolution")]
+    [InlineData("/admin/disputes/escrow-9/resolve", "{\"resolution\":\"farmer_wins\"}", "ADMIN_014", "action")]
+    [InlineData("/admin/disputes/escrow-9/resolve", "{\"resolution\":\"farmer_wins\",\"action\":null}", "ADMIN_014", "action")]
+    [InlineData("/admin/disputes/escrow-9/resolve", "{\"resolution\":\"partial_refund\"}", "ADMIN_014", "action")]
+    [InlineData("/admin/users/user-1/action", "{}", "ADMIN_009", "action")]
+    [InlineData("/admin/users/user-1/action", "{\"action\":null}", "ADMIN_009", "action")]
+    [InlineData("/admin/users/user-1/action", "{\"action\":\" \",\"reason\":\"spam\"}", "ADMIN_009", "action")]
+    public async Task AdminBody_MissingMember_Returns400WithItsCodeAndField(
+        string path, string body, string code, string field)
     {
         var response = await _function.FunctionHandler(AdminGroupRequest("POST", path, body), _context);
 
         response.StatusCode.Should().Be(400, response.Body);
         response.Body.Should().Contain($"\"code\":\"{code}\"");
+        response.Body.Should().Contain($"\"field\":\"{field}\"");
+        await _dynamoDb.DidNotReceive().QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>());
         await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]
-    [InlineData("{}", "ADMIN_005")]
-    [InlineData("{\"action\":null}", "ADMIN_009")]
-    public async Task FraudActionBody_AbsentOrNullAction_Returns400(string body, string code)
+    [InlineData("/admin/users/user-1/action", "{}")]
+    [InlineData("/admin/users/user-1/action", "{\"action\":null}")]
+    public async Task UserActionBody_MissingAction_SaysItIsRequired(string path, string body)
+    {
+        var response = await _function.FunctionHandler(AdminGroupRequest("POST", path, body), _context);
+
+        response.StatusCode.Should().Be(400, response.Body);
+        response.Body.Should().Contain("\"message\":\"action is required.\"");
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"action\":null}")]
+    [InlineData("{\"action\":\"\",\"notes\":\"n\"}")]
+    public async Task FraudActionBody_MissingAction_Returns400Admin009WithField(string body)
     {
         var fn = new AdminFunction(_dynamoDb, UsersTable, FraudSignalsTable);
         var signalId = WeredaConnect.Server.Services.FraudDetectionService
@@ -915,7 +935,10 @@ public class AdminFunctionTests
             AdminGroupRequest("POST", $"/admin/fraud-signals/{signalId}/action", body), _context);
 
         response.StatusCode.Should().Be(400, response.Body);
-        response.Body.Should().Contain($"\"code\":\"{code}\"");
+        response.Body.Should().Contain("\"code\":\"ADMIN_009\"");
+        response.Body.Should().Contain("\"message\":\"action is required.\"");
+        response.Body.Should().Contain("\"field\":\"action\"");
+        await _dynamoDb.DidNotReceive().GetItemAsync(Arg.Any<GetItemRequest>(), Arg.Any<CancellationToken>());
         await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
     }
 

@@ -257,6 +257,67 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
     }
 
     /// <inheritdoc />
+    public Task<bool> TryMarkRowOverdueLoggedAsync(string escrowId, string reference, string status, string createdAt)
+        => TryConditionalUpdateAsync(new UpdateItemRequest
+        {
+            TableName = _ledgerTable,
+            Key = RowKey(escrowId, reference),
+            UpdateExpression = "SET #logged = :created",
+            ConditionExpression = "#status = :status AND #created = :created"
+                                  + " AND (attribute_not_exists(#logged) OR #logged <> :created)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                ["#status"] = LedgerFields.Status,
+                ["#created"] = LedgerFields.CreatedAt,
+                ["#logged"] = LedgerFields.OverdueLoggedFor
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":status"] = S(status),
+                [":created"] = S(createdAt)
+            }
+        });
+
+    /// <inheritdoc />
+    public Task<bool> TryMarkTransportOverdueLoggedAsync(string escrowId, string createdAt, string releasedAt)
+        => TryConditionalUpdateAsync(new UpdateItemRequest
+        {
+            TableName = _escrowsTable,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #logged = :released",
+            ConditionExpression = "#model = :ledger AND #legs.#transport = :held AND #releasedAt = :released"
+                                  + " AND (attribute_not_exists(#logged) OR #logged <> :released)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                ["#model"] = LedgerEscrowFields.SettlementModel,
+                ["#legs"] = LedgerEscrowFields.LegStatus,
+                ["#transport"] = LedgerEscrowFields.LegTransport,
+                ["#releasedAt"] = "releasedAt",
+                ["#logged"] = TruckerPayoutFields.OverdueLoggedFor
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":ledger"] = S(LedgerEscrowFields.ModelLedger),
+                [":held"] = S(LedgerEscrowFields.Held),
+                [":released"] = S(releasedAt)
+            }
+        });
+
+    /// <summary>An update whose refused condition answers false; any other failure throws.</summary>
+    private async Task<bool> TryConditionalUpdateAsync(UpdateItemRequest request)
+    {
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? Next)> QueryOwedTransportLegsAsync(
         string status, Dictionary<string, AttributeValue>? startKey)
     {
@@ -665,7 +726,8 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
             ClaimedBy = Str(ManualPayoutClaimFields.LedgerClaimedBy),
             ClaimedAt = Str(ManualPayoutClaimFields.LedgerClaimedAt),
             ClaimExpiresAt = Str(ManualPayoutClaimFields.LedgerClaimExpiresAt),
-            ManualOverdueLoggedFor = Str(LedgerFields.ManualOverdueLoggedFor)
+            ManualOverdueLoggedFor = Str(LedgerFields.ManualOverdueLoggedFor),
+            OverdueLoggedFor = Str(LedgerFields.OverdueLoggedFor)
         };
     }
 
