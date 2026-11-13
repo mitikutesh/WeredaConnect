@@ -3008,7 +3008,7 @@ order:
 | Delivery | Order | Result |
 |---|---|---|
 | no delivery repository, or an `orderId` and no order repository | | blocked `repo_unavailable` |
-| | the escrow is not the order's own and `escrow-order-{orderId}` holds or paid the money (`initiated`, `escrowed`, `released`, `disputed`, `dispute_resolved`) | blocked `double_escrow`, before any other read or a freeze |
+| | the escrow is not the order's own and `escrow-order-{orderId}` holds or paid the money (`initiated`, `escrowed`, `released`, `disputed`, `dispute_resolved`; `held` since FRD-03, `completed` since 2.19.0) | blocked `double_escrow`, before any other read or a freeze |
 | the escrow names none / the row is missing | | blocked `no_delivery` / `delivery_missing` |
 | any | `dispute_resolved`, or a `disputed` delivery with `disputeResolution` | blocked `dispute_resolved` (never frozen) |
 | `disputed` | any | frozen (below) |
@@ -3039,8 +3039,8 @@ and, when it names one, its order, both strongly consistent (a read that throws 
 `auto_refund_exception`). Order escrows keep the 1.13.0 order rules unchanged. In order:
 
 1. No repository: blocked `repo_unavailable`. The order's own escrow (`escrow-order-{orderId}`) holds or
-   paid the money too (`initiated`, `escrowed`, `released`, `disputed`, `dispute_resolved`): blocked
-   `double_escrow`.
+   paid the money too (`initiated`, `escrowed`, `released`, `disputed`, `dispute_resolved`; `held` since FRD-03,
+   `completed` since 2.19.0): blocked `double_escrow`.
 2. The escrow names an order that is missing: the 1.13.0 missing-order rule (skipped, never refunded;
    from the cap plus 24 hours `ADMIN_QUEUE_OVERDUE orderId=<id> reason=order_missing` every run).
 3. A resolved dispute: blocked `dispute_resolved`. A disputed delivery or order: frozen, as above. No
@@ -5613,12 +5613,20 @@ Then, after the idempotency check and the escrow read:
 | `502` | `ESCROW_013` | the gateway refused; nothing moved, try again |
 | `503` | `ESCROW_012` | the order's escrow could not be read, or the decision's audit row could not be written; nothing moved |
 
-**What stays as it was.** The sweeps keep blocking `double_escrow` exactly as in 1.15.0. Their set of order
-escrow statuses is unchanged and does not include `completed`: an initiate escrow next to a `completed` order
-escrow is checked against its order like any other escrow (blocked `order_settled` once the order is settled;
-FUP-348), while the admin detail marks it `doubleEscrow` and the refund accepts it. The order escrow and
-the order keep their money and status; the order-money sweep (1.17.0) reads the order's own escrow first. A
-refunded double escrow is never touched by a sweep again.
+**The sweeps' double escrow check now counts `completed` (a double payment path closed).** Since 1.15.0 the
+auto-release and the `/escrow/initiate` refund check (and from FRD-03 on, with `held`) treated the order's own
+escrow as holding the money when it was `initiated`, `escrowed`, `released`, `disputed`, `dispute_resolved` or
+`held`, never `completed`. A second
+escrow next to an order escrow that had paid out in full was then checked against its order like any other: while
+the order still showed the trade in flight (its follow to `settled` failed or lagged, or the completed escrow
+still owed a trucker leg or held an open manual payout, so the order stays `disbursing`), a delivered, confirmed
+second escrow past its dispute window was released, paying the farmer twice, and an expired unconfirmed one was
+stamped for that release. The set is now this refund's rule plus `initiated` (one definition in the server, so
+the two cannot drift): `initiated`, `escrowed`, `released`, `completed`, `disputed`, `dispute_resolved`, `held`.
+Such a second escrow is blocked `double_escrow` by both sweeps (audited once, one `ESCROW_SETTLEMENT_FAILED
+action=auto_release_blocked|auto_refund_blocked` line) and waits for this refund. Every other row settles as
+before. The order escrow and the order keep their money and status; the order-money sweep (1.17.0) reads the
+order's own escrow first. A refunded double escrow is never touched by a sweep again.
 
 ### Admin page
 
@@ -5646,7 +5654,6 @@ transaction-audit; the admin Lambda reads the escrows table.
   through the held exit or the dispute verdict first (FUP-347).
 - The overdue clock restarts when the block reason changes; a payee who moves from one identity rule to the
   next can wait up to a day longer before the alarm fires.
-- The sweeps' double escrow check leaves out an order escrow that is `completed` (FUP-348).
 
 ---
 
@@ -5994,7 +6001,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
-| 2.19.0 | 2026-11-13 | The payout gate's overdue alarm and the double escrow refund (FUP-41, closes two 1.15.0 known limits; §Additions in 2.19.0). The hourly sweep's release blocked by the payout identity gate with the reason already stored for 24 hours or more logs `RELEASE_BLOCKED_OVERDUE escrowId=.. leg=<farmer|trucker> reason=.. ageHours=..` on every run (escrow-cron; the 1.x and ledger release and the split verdict; not an admin's release, not a risk block); new metric filter and alarm `releases-blocked-overdue`, level-triggered like the other overdue alarms. `POST /escrow/refund` with `doubleEscrow: true` (admin group, `trigger: admin_override`, a reason of 10 to 500 characters) refunds an `/escrow/initiate` escrow whose order's own escrow holds or paid the money (`escrowed`, `released`, `completed`, `disputed`, `dispute_resolved`, `held`, read strongly consistent on every call), else `409 ESCROW_049`; the decision is recorded by a conditional write on what was read (`doubleEscrowRefund*`, server-only) and audited (`double_escrow_refund`, escrow-audit and transaction-audit) before the existing 1.x refund runs without the order hop; a replay answers the refund made. Admin escrow DTO: `settlementBlockReason`, `settlementBlockReasonAt`, and on the detail route `orderEscrowStatus` and `doubleEscrow`. Admin: Sweep block row and the Second payment card on the escrow page (en, am, om). No client, route, table or grant change |
+| 2.19.0 | 2026-11-13 | The payout gate's overdue alarm and the double escrow refund (FUP-41, closes two 1.15.0 known limits; §Additions in 2.19.0). The hourly sweep's release blocked by the payout identity gate with the reason already stored for 24 hours or more logs `RELEASE_BLOCKED_OVERDUE escrowId=.. leg=<farmer|trucker> reason=.. ageHours=..` on every run (escrow-cron; the 1.x and ledger release and the split verdict; not an admin's release, not a risk block); new metric filter and alarm `releases-blocked-overdue`, level-triggered like the other overdue alarms. `POST /escrow/refund` with `doubleEscrow: true` (admin group, `trigger: admin_override`, a reason of 10 to 500 characters) refunds an `/escrow/initiate` escrow whose order's own escrow holds or paid the money (`escrowed`, `released`, `completed`, `disputed`, `dispute_resolved`, `held`, read strongly consistent on every call), else `409 ESCROW_049`; the decision is recorded by a conditional write on what was read (`doubleEscrowRefund*`, server-only) and audited (`double_escrow_refund`, escrow-audit and transaction-audit) before the existing 1.x refund runs without the order hop; a replay answers the refund made. The sweeps' double escrow check now counts an order escrow that is `completed` (one rule with the refund, plus `initiated`), closing a path that released a second escrow while its order still showed `disbursing`, a second payout to the farmer. Admin escrow DTO: `settlementBlockReason`, `settlementBlockReasonAt`, and on the detail route `orderEscrowStatus` and `doubleEscrow`. Admin: Sweep block row and the Second payment card on the escrow page (en, am, om). No client, route, table or grant change |
 | 2.18.0 | 2026-11-12 | Correcting a recorded payout reference (FUP-218, closes the 2.12.0 known limit; §Additions in 2.18.0). `POST /admin/payouts/{escrowId}/{ref}/correct` (admin group, the existing `{action}` route) with `oldExternalRef`, `externalRef` and a `reason` of 10 to 500 characters (`400 ESCROW_048`): for a 1.x leg or ledger row an admin recorded, one transaction writes the new reference (`manual{Leg}Ref` and the escrow's settlement reference field when it holds the old one, or the ledger row's `telebirrRef` and its escrow's field), deletes the old `payout-ref#` item only while it names this leg, puts the new one only if no leg holds it (`409 ESCROW_047` naming where) and writes the escrow-audit row `manual_payout_ref_corrected`; every item conditioned on what was read (3 attempts, then `409 ESCROW_036`); a replay answers `alreadyCorrected` and writes nothing; transaction-audit `admin_manual_payout_ref_corrected`. No amount, status, paid time or recorder changes. The 1.x close now conditions each settlement reference it copies from another paid leg on that leg still carrying it. Admin escrow DTO: `manualLegs` on a 1.x escrow. Admin: Correct reference on the escrow page (1.x legs and ledger rows an admin recorded), the `ESCROW_047` refusal in Manual Payouts links to the holding escrow. The admin Lambda gains DeleteItem on escrow-idempotency. 2.16.0 and 2.17.0 are other changes' numbers |
 | 2.17.0 | 2026-11-12 | Stuck Orders lists the pickup waits (FUP-170, closes the 2.7.0 "Not listed" gap). `GET /admin/orders/queue?source=deadline` reads, after the sweep's partition of `DeadlineIndex`, its new `watch` partition (order-lifecycle.md 2.14.0): an `accepted` order whose pickup deadline passed more than 30 minutes ago and whose overdue notice went out is listed with `reason: pickup_waiting` and `stuckSince` its pickup deadline, until its pickup or cancel, with a Query, never a Scan. Each order is listed only from the partition its state gives; the `nextToken` names its partition, and a token of an unknown partition is `400 ADMIN_005`. The admin page labels the new reason in en, am and om. Read only: no notice, cancel, refund, amount or status follows from the list; the sweep never reads the `watch` partition. 2.15.0 is another change's number |
 | 2.16.0 | 2026-11-12 | A confirmed hold is never "Refund pending" (FUP-97, §Additions in 2.16.0): `refundPending` on `EscrowDto` and the history rows is false for an `escrowed` escrow with `deliveryConfirmedAt` whose `expiresAt` has passed (the refund sweep never takes it; it waits for the dispute window and the FRD-13 payout delay); a refund decided on it (`refundReason`, a refunded ledger crop leg, an admin refund parked in the manual payout queue) reads true. `GET /escrow/history` rows carry `deliveryConfirmedAt` (additive, optional). The mobile and web fallback (an escrowed row past its expiry) skips a confirmed row, so the payee's expected payout day shows again. No endpoint, status, amount or timing change. 2.14.0 and 2.15.0 are other changes' numbers |

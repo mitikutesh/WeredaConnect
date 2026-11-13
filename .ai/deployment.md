@@ -944,11 +944,12 @@ ESC-10 lines on these alarms (escrow-cron log group; `specs/contracts/escrow-pro
   `delivery_<status>`, `delivery_missing`, `order_missing`, `double_escrow`, `freeze_*`: the trade and the money
   disagree; decide in the admin app, never by editing the escrow row. `delivery_moving`: goods are on the road
   behind an order that ended; a dispute and its verdict settle it. `double_escrow` (an `/escrow/initiate` escrow
-  next to the order's own escrow, which holds or paid the money; FUP-41): open `/escrows/<escrowId>`; the
-  "Second payment for this order" card refunds this escrow to the buyer (admin group, a reason, a confirm step).
-  The order, its delivery and the order's own escrow do not change. The card shows on any second escrow the page
-  marks as double, also one blocked `order_settled` next to a `completed` order escrow. With the live gateway the
-  refund waits in Manual Payouts like any refund.
+  next to the order's own escrow, which holds or paid the money, a `completed` one included since FUP-41): open
+  `/escrows/<escrowId>`; the "Second payment for this order" card refunds this escrow to the buyer (admin group, a
+  reason, a confirm step). The order, its delivery and the order's own escrow do not change. With the live gateway
+  the refund waits in Manual Payouts like any refund. A second escrow blocked before the FUP-41 deploy with another
+  reason (for example `order_settled` next to a `completed` order escrow) is blocked again as `double_escrow` on the
+  next run (one more alarm line) and the page offers the same card.
 - `ESCROW_SETTLEMENT_FAILED escrowId=<id> action=reconciliation_exception`: one initiated escrow's cancel failed; the
   next reconciliation retries it.
 - `ADMIN_QUEUE_OVERDUE orderId=- reason=no_order ageHours=<n> escrowId=<id>` (admin queue overdue): an

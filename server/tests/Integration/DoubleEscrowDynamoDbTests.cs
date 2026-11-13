@@ -329,6 +329,75 @@ public sealed class DoubleEscrowDynamoDbTests
         Paid($"release:{orderEscrowId}").Should().Be(0);
     }
 
+    /// <summary>
+    /// The order's own escrow paid out in full (<c>completed</c>) but its order still shows the trade in flight:
+    /// the escrow carries an open manual payout, so the order-money sweep keeps the order <c>disbursing</c>.
+    /// </summary>
+    private async Task CompleteOrderEscrowAsync(string orderEscrowId)
+    {
+        var row = await EscrowRepo.GetByIdAsync(orderEscrowId, true);
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Escrows,
+            Key = new Dictionary<string, AttributeValue> { ["escrowId"] = S(orderEscrowId), ["createdAt"] = S(Str(row, "createdAt")!) },
+            UpdateExpression = "SET #status = :completed, #marker = :open, #op = :release",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                ["#status"] = "status",
+                ["#marker"] = ManualPayoutFields.Marker,
+                ["#op"] = ManualPayoutFields.Op
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":completed"] = S("completed"),
+                [":open"] = S(ManualPayoutFields.MarkerOpen),
+                [":release"] = S(ManualPayoutFields.OpRelease)
+            }
+        });
+    }
+
+    [LocalDynamoDbFact]
+    public async Task SecondEscrowNextToACompletedOrderEscrow_OrderStillDisbursing_TheReleaseSweepBlocksIt_NeverPaysTwice()
+    {
+        var (initiateId, orderEscrowId, orderId, _) = await SeedDoubleEscrowAsync("released");
+        await CompleteOrderEscrowAsync(orderEscrowId);
+
+        await SweepAsync();
+        await SweepAsync();
+
+        Paid($"release:{initiateId}").Should().Be(0, "the farmer was paid by the order's own escrow");
+        Str(await OrderRepo.GetByIdAsync(orderId, consistentRead: true), "status").Should().Be("disbursing");
+        var row = await EscrowRepo.GetByIdAsync(initiateId, true);
+        Str(row, "status").Should().Be("escrowed");
+        Str(row, SettlementBlockFields.Reason).Should().Be("release:trade:double_escrow");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task ExpiredSecondEscrowNextToACompletedOrderEscrow_TheRefundSweepBlocksIt_AndNeverStampsItForRelease()
+    {
+        var (initiateId, orderEscrowId, orderId, _) = await SeedDoubleEscrowAsync("released");
+        await CompleteOrderEscrowAsync(orderEscrowId);
+        // Unconfirmed and expired: the refund sweep's row, not the release sweep's.
+        var created = Str(await EscrowRepo.GetByIdAsync(initiateId, true), "createdAt")!;
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Escrows,
+            Key = new Dictionary<string, AttributeValue> { ["escrowId"] = S(initiateId), ["createdAt"] = S(created) },
+            UpdateExpression = "REMOVE deliveryConfirmedAt, disputeWindowEndsAt"
+        });
+
+        await SweepAsync();
+        await SweepAsync();
+
+        Str(await OrderRepo.GetByIdAsync(orderId, consistentRead: true), "status").Should().Be("disbursing");
+        var row = await EscrowRepo.GetByIdAsync(initiateId, true);
+        Str(row, "status").Should().Be("escrowed");
+        Str(row, SettlementBlockFields.Reason).Should().Be("refund:trade:double_escrow");
+        row.Should().NotContainKey("deliveryConfirmedAt", "a stamp would hand it to the release sweep");
+        Paid($"release:{initiateId}").Should().Be(0);
+        Paid($"refund:{initiateId}").Should().Be(0);
+    }
+
     [LocalDynamoDbFact]
     public async Task DoubleEscrow_WhoseOrderEscrowIsOnlyInitiated_IsRefused_AndNothingIsWritten()
     {
