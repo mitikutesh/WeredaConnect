@@ -147,8 +147,6 @@ public sealed class SyncFunctionDeliveryPhotoTests
     [InlineData("pickup", PickupKey, TruckerId, "pending", null, null)]
     [InlineData("dropoff", DropoffKey, BuyerId, "pickedUp", "2026-11-12T08:00:00Z", null)]
     [InlineData("dropoff", DropoffKey, BuyerId, "inTransit", "2026-11-12T08:00:00Z", null)]
-    // A system dispute at T8 (no confirm): the buyer's confirm never happened.
-    [InlineData("dropoff", DropoffKey, BuyerId, "disputed", "2026-11-12T08:00:00Z", null)]
     public async Task FUP140_APhotoWhoseHandoffIsNotOnTheRow_Waits(
         string type, string key, string caller, string status, string? pickedUpAt, string? confirmedAt)
     {
@@ -194,6 +192,175 @@ public sealed class SyncFunctionDeliveryPhotoTests
         var result = await SendAsync(TruckerId, "pickup", PickupKey);
 
         MessageOf(result).Should().StartWith("DELIVERY_PHOTO_REFUSED: ");
+    }
+
+    [Fact]
+    public async Task FUP140_AStaleRead_IsReadAgainConsistently_BeforeThePhotoWaits()
+    {
+        // The pickup landed a moment ago (earlier in this batch, or the web's handoff call): the eventually
+        // consistent read may still show it pending. The consistent read decides.
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && !r.ConsistentRead), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { Delivery("pending") } });
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.ConsistentRead), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>> { Delivery("pickedUp", pickedUpAt: "2026-11-12T08:00:00Z") }
+            });
+        SetupObject(PickupKey, 1024);
+
+        var result = await SendAsync(TruckerId, "pickup", PickupKey);
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        await _dynamoDb.Received(1).QueryAsync(Arg.Is<QueryRequest>(r => r.ConsistentRead), Arg.Any<CancellationToken>());
+        await _dynamoDb.Received(1).UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FUP140_APhotoThatWaits_WasJudgedOnAConsistentRead()
+    {
+        SetupDelivery(Delivery("pending"));
+        SetupObject(PickupKey, 1024);
+
+        var result = await SendAsync(TruckerId, "pickup", PickupKey);
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        await _dynamoDb.Received(1).QueryAsync(Arg.Is<QueryRequest>(r => r.ConsistentRead), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FUP140_TheConsistentReadFailing_IsDeferred()
+    {
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && !r.ConsistentRead), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { Delivery("pending") } });
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.ConsistentRead), Arg.Any<CancellationToken>())
+            .Throws(new ProvisionedThroughputExceededException("throttled"));
+        SetupObject(PickupKey, 1024);
+
+        var result = await SendAsync(TruckerId, "pickup", PickupKey);
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        MessageOf(result).Should().StartWith("DELIVERY_PHOTO_PENDING: The delivery could not be read.");
+        await AssertNothingWrittenAsync();
+    }
+
+    // ── FUP-140: the buyer's drop-off photo on a system dispute (late evidence) ──
+
+    /// <summary>
+    /// The buyer confirmed offline before the order cron's T8 (or T9) run and synced after: the confirm is refused,
+    /// but the photo of what arrived is kept as late evidence on the dispute no admin has decided, marked late like
+    /// FUP-373's arrival photo. Only the photo is written, never the status.
+    /// </summary>
+    [Theory]
+    [InlineData(DropoffJudgement.OverdueReason)]
+    [InlineData(DropoffJudgement.OutOfRangeReason)]
+    [InlineData(DropoffJudgement.SilentBuyerReason)]
+    public async Task FUP140_ASystemDispute_TakesTheBuyersDropoffPhoto_AsLateEvidence(string reason)
+    {
+        SetupDelivery(SystemDisputed(reason));
+        SetupObject(DropoffKey, 120 * 1024);
+        var before = DateTime.UtcNow.AddSeconds(-1);
+
+        var result = await SendAsync(BuyerId, "dropoff", DropoffKey);
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        await _dynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.UpdateExpression == "SET #photo = :ref, #kept = :kept, #keptVersion = :keptVersion, #photoVersion = :version, #lateAt = :lateAt"
+            && r.ExpressionAttributeNames["#photo"] == "dropoffPhotoRef"
+            && r.ExpressionAttributeNames["#kept"] == "dropoffPhotoKeptRef"
+            && r.ExpressionAttributeValues[":kept"].S == DeliveryPhotoKeys.KeptKeyOf(DropoffKey)
+            && r.ExpressionAttributeNames["#lateAt"] == DropoffJudgement.DropoffPhotoLateAtField
+            && r.ExpressionAttributeNames["#resolution"] == "disputeResolution"
+            && r.ConditionExpression.EndsWith(" AND #status = :disputed AND attribute_not_exists(#resolution)")
+            && !r.UpdateExpression.Contains("#status")
+            && !r.ExpressionAttributeNames.Values.Contains("version")), Arg.Any<CancellationToken>());
+        var write = _dynamoDb.ReceivedCalls().Select(c => c.GetArguments()[0]).OfType<UpdateItemRequest>().Single();
+        OrderCommitment.TryParseUtc(write.ExpressionAttributeValues[":lateAt"].S, out var lateAt).Should().BeTrue();
+        lateAt.Should().BeOnOrAfter(before);
+        // The admin's timeline row, as for the late arrival photo.
+        var audit = _auditRows.Should().ContainSingle().Subject;
+        audit["entityType"].Should().Be("delivery");
+        audit["entityId"].Should().Be(DeliveryId);
+        audit["action"].Should().Be("delivery_photo");
+        audit["metadata"].Should().Be("type=dropoff;late=true");
+    }
+
+    [Theory]
+    // An admin decided the dispute: nothing more is taken.
+    [InlineData("system", DropoffJudgement.OverdueReason, "buyer_wins")]
+    // A dispute nobody's cron opened, without a confirm (an admin's disposition before the drop-off).
+    [InlineData("admin-1", "not_delivered", "refund_buyer")]
+    [InlineData(TruckerId, DropoffJudgement.OverdueReason, null)]
+    public async Task FUP140_AnyOtherDisputeWithoutAConfirm_RefusesTheDropoffPhotoForGood(
+        string disputedBy, string reason, string? resolution)
+    {
+        // The confirm can no longer come, so the photo is refused (final, silent) instead of waiting forever.
+        var item = SystemDisputed(reason);
+        item["disputedBy"] = new AttributeValue { S = disputedBy };
+        if (resolution != null)
+        {
+            item["disputeResolution"] = new AttributeValue { S = resolution };
+        }
+
+        SetupDelivery(item);
+        SetupObject(DropoffKey, 1024);
+
+        var result = await SendAsync(BuyerId, "dropoff", DropoffKey);
+
+        MessageOf(result).Should().StartWith("DELIVERY_PHOTO_REFUSED: ");
+        await _s3.DidNotReceive().CopyObjectAsync(Arg.Any<CopyObjectRequest>(), Arg.Any<CancellationToken>());
+        await AssertNothingWrittenAsync();
+        _auditRows.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task FUP140_APickupPhotoOnADisputeBeforeThePickup_IsRefusedForGood()
+    {
+        var item = SystemDisputed(DropoffJudgement.OverdueReason);
+        item["disputedBy"] = new AttributeValue { S = "admin-1" };
+        SetupDelivery(item);
+        SetupObject(PickupKey, 1024);
+
+        var result = await SendAsync(TruckerId, "pickup", PickupKey);
+
+        MessageOf(result).Should().StartWith("DELIVERY_PHOTO_REFUSED: ");
+        await AssertNothingWrittenAsync();
+    }
+
+    [Fact]
+    public async Task FUP140_AVerdictLandingBeforeTheWrite_RefusesTheLateDropoffPhoto()
+    {
+        var decided = SystemDisputed(DropoffJudgement.OverdueReason);
+        decided["disputeResolution"] = new AttributeValue { S = "buyer_wins" };
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable), Arg.Any<CancellationToken>())
+            .Returns(
+                new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { SystemDisputed(DropoffJudgement.OverdueReason) } },
+                new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { decided } });
+        SetupObject(DropoffKey, 1024);
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns<UpdateItemResponse>(_ => throw new ConditionalCheckFailedException("verdict"));
+
+        var result = await SendAsync(BuyerId, "dropoff", DropoffKey);
+
+        MessageOf(result).Should().StartWith("DELIVERY_PHOTO_REFUSED: ");
+        _auditRows.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task FUP140_TheDropoffPhotoOfAConfirmedThenDisputedDelivery_IsNotLate()
+    {
+        // The buyer confirmed, then disputed within the window: the confirm is on the row, the photo is on time.
+        var item = SystemDisputed(DropoffJudgement.OverdueReason);
+        item["disputedBy"] = new AttributeValue { S = BuyerId };
+        item["confirmedAt"] = new AttributeValue { S = "2026-11-12T14:00:00Z" };
+        SetupDelivery(item);
+        SetupObject(DropoffKey, 1024);
+
+        var result = await SendAsync(BuyerId, "dropoff", DropoffKey);
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        await _dynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            !r.ExpressionAttributeNames.ContainsKey("#lateAt")), Arg.Any<CancellationToken>());
+        _auditRows.Should().BeEmpty();
     }
 
     [Theory]

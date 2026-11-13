@@ -864,6 +864,18 @@ public class DeliveryFunctionTests
     }
 
     [Fact]
+    public void FUP140_MapToDeliveryDto_CarriesTheLateDropoffPhotoMarker_ForTheAdminEvidence()
+    {
+        // The buyer's drop-off photo attached on a system dispute without a confirm carries when; a confirmed one none.
+        var delivery = CreateDeliveryItem("del-001", "disputed");
+        delivery["dropoffPhotoRef"] = "uploads/photos/del-001/dropoff-1763000000000.jpg";
+        delivery["dropoffPhotoLateAt"] = "2026-11-13T11:00:00.0000000Z";
+
+        Assert.Equal("2026-11-13T11:00:00.0000000Z", DeliveryFunction.MapToDeliveryDto(delivery).DropoffPhotoLateAt);
+        Assert.Null(DeliveryFunction.MapToDeliveryDto(CreateDeliveryItem("del-001", "delivered")).DropoffPhotoLateAt);
+    }
+
+    [Fact]
     public void MapToDeliveryDto_LegacyRowWithoutCargo_LeavesCargoNull()
     {
         var dto = DeliveryFunction.MapToDeliveryDto(CreateDeliveryItem("del-001"));

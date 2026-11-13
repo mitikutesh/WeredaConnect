@@ -420,9 +420,7 @@ void main() {
       expect(SyncQueue.isRejected(photo), isFalse);
     });
 
-    test(
-        'a delivery confirm the server reverted rejects the drop-off photo, '
-        "not the pickup's", () async {
+    Future<void> enqueueConfirmWithPhotos() async {
       await queue.enqueue(
         userId: _userId,
         entityType: 'delivery',
@@ -443,9 +441,16 @@ void main() {
         );
       }
       uploader.answer = () async => throw const NetworkException();
-      // T8 disputed the delivery while the buyer's confirm waited offline.
+    }
+
+    test(
+        'a delivery confirm the server reverted rejects the drop-off photo, '
+        "not the pickup's", () async {
+      await enqueueConfirmWithPhotos();
+      // A check-in moved the delivery in transit (a new version) while the
+      // buyer's confirm waited offline.
       answers['op-confirm'] = conflictWith({
-        'status': 'disputed',
+        'status': 'inTransit',
         'pickedUpAt': '2026-11-12T08:30:00Z',
       });
 
@@ -458,6 +463,42 @@ void main() {
       expect(
         (await queue.getOperation('op-pickup-photo'))!.status,
         SyncStatus.pending,
+      );
+    });
+
+    test(
+        "a delivery confirm that met the system's T8 dispute keeps its "
+        'drop-off photo: the server takes it as late evidence', () async {
+      await enqueueConfirmWithPhotos();
+      answers['op-confirm'] = conflictWith({
+        'status': 'disputed',
+        'pickedUpAt': '2026-11-12T08:30:00Z',
+        'disputedBy': 'system',
+        'disputeReason': 'delivery_overdue',
+      });
+
+      await executor.executeBatch();
+
+      final photo = await queue.getOperation('op-dropoff-photo');
+      expect(photo!.status, SyncStatus.pending);
+      expect(SyncQueue.isRejected(photo), isFalse);
+    });
+
+    test('a dispute an admin decided gives the drop-off photo up', () async {
+      await enqueueConfirmWithPhotos();
+      answers['op-confirm'] = conflictWith({
+        'status': 'disputed',
+        'pickedUpAt': '2026-11-12T08:30:00Z',
+        'disputedBy': 'system',
+        'disputeReason': 'delivery_overdue',
+        'disputeResolution': 'buyer_wins',
+      });
+
+      await executor.executeBatch();
+
+      expect(
+        SyncQueue.isRejected((await queue.getOperation('op-dropoff-photo'))!),
+        isTrue,
       );
     });
   });
@@ -499,6 +540,24 @@ void main() {
         'confirmedAt': '2026-11-12T14:00:00Z',
       }),
       isEmpty,
+    );
+    // An undecided dispute keeps the drop-off photo (late evidence on the
+    // system's T8 or T9 dispute, refused by the server on any other); a
+    // decided one gives it up.
+    expect(
+      handoffPhotoTypesUndoneByConflict('update', 'delivered', {
+        'status': 'disputed',
+        'disputedBy': 'system',
+        'disputeReason': 'silent_buyer',
+      }),
+      isEmpty,
+    );
+    expect(
+      handoffPhotoTypesUndoneByConflict('update', 'delivered', {
+        'status': 'disputed',
+        'disputeResolution': 'buyer_wins',
+      }),
+      ['dropoff'],
     );
     // Neither a pickup nor a confirm (in transit, a dispute): no photo.
     expect(

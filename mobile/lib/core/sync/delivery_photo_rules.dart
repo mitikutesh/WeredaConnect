@@ -87,7 +87,10 @@ List<String> handoffPhotoTypesOf(String action, Object? status) {
 /// may still attach. The server holds a photo back until its handoff is on
 /// the row (`delivery-verification-api.md` 2.14.0), so without this the
 /// photo would wait forever. A create's photos wait for handoffs queued
-/// behind it, so a conflicted create gives none up.
+/// behind it, so a conflicted create gives none up. A delivery confirm that
+/// meets an undecided dispute (no `disputeResolution`) keeps its drop-off
+/// photo: on the system's T8 or T9 dispute the server keeps it as late
+/// evidence of what arrived, and refuses it for good on any other.
 List<String> handoffPhotoTypesUndoneByConflict(
   String action,
   Object? status,
@@ -108,7 +111,9 @@ List<String> handoffPhotoTypesUndoneByConflict(
     return taken ? const [] : const ['pickup'];
   }
   if (status == 'delivered') {
-    final taken = has('confirmedAt') || serverStatus == 'delivered';
+    final taken = has('confirmedAt') ||
+        serverStatus == 'delivered' ||
+        (serverStatus == 'disputed' && !has('disputeResolution'));
     return taken ? const [] : const ['dropoff'];
   }
   return const [];

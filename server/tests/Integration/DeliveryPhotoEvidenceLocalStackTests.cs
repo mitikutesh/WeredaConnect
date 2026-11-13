@@ -162,7 +162,7 @@ public sealed class DeliveryPhotoEvidenceLocalStackTests : IAsyncLifetime
             ConsistentRead = true
         })).Item;
 
-    private async Task<JsonElement> AttachAsync(string photoRef)
+    private async Task<JsonElement> AttachAsync(string photoRef, string type = "pickup")
     {
         var syncMeta = Substitute.For<ISyncMetadataRepository>();
         syncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
@@ -172,7 +172,7 @@ public sealed class DeliveryPhotoEvidenceLocalStackTests : IAsyncLifetime
             UploadsBucket = Bucket,
             DeliveryPhotoS3 = _s3,
         };
-        var trucker = $"trucker-{_run}";
+        var taker = type == "pickup" ? $"trucker-{_run}" : $"buyer-{_run}";
         var request = new APIGatewayProxyRequest
         {
             Body = JsonSerializer.Serialize(new SyncRequest
@@ -184,9 +184,9 @@ public sealed class DeliveryPhotoEvidenceLocalStackTests : IAsyncLifetime
                     new()
                     {
                         OperationId = $"op-{Guid.NewGuid():N}",
-                        IdempotencyKey = $"{trucker}:delivery_photo:{DeliveryId}#pickup:create:{Guid.NewGuid():N}",
+                        IdempotencyKey = $"{taker}:delivery_photo:{DeliveryId}#{type}:create:{Guid.NewGuid():N}",
                         EntityType = DeliveryPhotoKeys.EntityType,
-                        EntityId = $"{DeliveryId}#pickup",
+                        EntityId = $"{DeliveryId}#{type}",
                         Action = "create",
                         Data = new Dictionary<string, object> { ["photoRef"] = photoRef }
                     }
@@ -194,7 +194,10 @@ public sealed class DeliveryPhotoEvidenceLocalStackTests : IAsyncLifetime
             }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }),
             RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
             {
-                Authorizer = new APIGatewayCustomAuthorizerContext { { "userId", trucker }, { "custom:role", "trucker" } }
+                Authorizer = new APIGatewayCustomAuthorizerContext
+                {
+                    { "userId", taker }, { "custom:role", type == "pickup" ? "trucker" : "buyer" }
+                }
             }
         };
 
@@ -295,5 +298,50 @@ public sealed class DeliveryPhotoEvidenceLocalStackTests : IAsyncLifetime
         again["copied"].Should().Be("0");
         var keptVersions = await _s3.ListVersionsAsync(new ListVersionsRequest { BucketName = Bucket, Prefix = "evidence/" });
         (keptVersions.Versions ?? new List<S3ObjectVersion>()).Should().ContainSingle();
+    }
+
+    [LocalDynamoDbTheory]
+    [InlineData(null, "success")]
+    [InlineData("buyer_wins", "error")]
+    public async Task TheBuyersDropoffPhoto_OnTheT8Dispute_IsKeptAsLateEvidence_UntilAVerdict(string? resolution, string expected)
+    {
+        var dropoffKey = $"uploads/photos/{DeliveryId}/dropoff-1700000000000.jpg";
+        var extra = new Dictionary<string, AttributeValue>
+        {
+            ["pickedUpAt"] = new() { S = "2026-11-09T09:00:00.0000000Z" },
+            ["disputedBy"] = new() { S = DropoffJudgement.SystemActor },
+            ["disputeReason"] = new() { S = DropoffJudgement.OverdueReason }
+        };
+        if (resolution != null)
+        {
+            extra[DropoffJudgement.DisputeResolutionField] = new() { S = resolution };
+        }
+
+        await SeedDeliveryAsync("disputed", extra);
+        await _s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = Bucket,
+            Key = dropoffKey,
+            ContentType = "image/jpeg",
+            InputStream = new MemoryStream(Encoding.UTF8.GetBytes("what arrived"))
+        });
+
+        var result = await AttachAsync(dropoffKey, "dropoff");
+
+        result.GetProperty("status").GetString().Should().Be(expected, result.ToString());
+        var row = await RowAsync();
+        row["status"].S.Should().Be("disputed");
+        if (resolution == null)
+        {
+            row["dropoffPhotoRef"].S.Should().Be(dropoffKey);
+            row.Should().ContainKey(DropoffJudgement.DropoffPhotoLateAtField);
+            var (text, _) = await ReadAsync(row["dropoffPhotoKeptRef"].S, row["dropoffPhotoKeptVersionId"].S);
+            text.Should().Be("what arrived");
+        }
+        else
+        {
+            result.GetProperty("message").GetString().Should().StartWith("DELIVERY_PHOTO_REFUSED: ");
+            row.Should().NotContainKey("dropoffPhotoRef");
+        }
     }
 }

@@ -21,9 +21,11 @@ namespace WeredaConnect.Server.Functions;
 ///   the HEAD saw (<c>pickupPhotoVersionId</c>, <c>dropoffPhotoVersionId</c>; the reads sign that
 ///   version, so a second PUT within the presign window cannot swap the evidence): the version and
 ///   <c>updatedAt</c> do not move, so a handoff queued on another phone never conflicts with it.
-/// - FUP-140 (2.14.0): a pickup or drop-off photo waits (<c>deferred</c>) until its handoff is on the row,
-///   and before the write the pinned version is copied to its kept key, recorded in the same write
-///   (<c>{type}PhotoKeptRef</c>, <c>{type}PhotoKeptVersionId</c>); the reads sign that copy.
+/// - FUP-140 (2.14.0): a pickup or drop-off photo waits (<c>deferred</c>) until its handoff is on the row
+///   (judged on a strongly consistent read), except the buyer's drop-off photo on a system dispute no admin
+///   has decided, taken as late evidence (<c>dropoffPhotoLateAt</c>); and before the write the pinned version
+///   is copied to its kept key, recorded in the same write (<c>{type}PhotoKeptRef</c>,
+///   <c>{type}PhotoKeptVersionId</c>); the reads sign that copy.
 ///
 /// Every refusal starts with <c>DELIVERY_PHOTO_</c> and is final; a storage or table read that
 /// fails is <c>deferred</c> (the phone keeps the operation without using a retry).
@@ -104,10 +106,32 @@ public partial class SyncFunction
         }
 
         var stateAnswer = PhotoStateAnswer(operation, existing, type, photoRef!);
+        if (stateAnswer?.Message == HandoffPendingMessage)
+        {
+            // FUP-140: the read above is eventually consistent, and the handoff may have landed a moment ago (in this
+            // very batch, or the web's handoff call just before its attach): judge a strongly consistent read before
+            // telling the phone to wait, so a photo never waits a sync (or, on the web, is lost) for a stale read.
+            try
+            {
+                existing = await GetDeliveryItemAsync(deliveryId, consistentRead: true) ?? existing;
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning($"DELIVERY_PHOTO read failed for {MoneyAlarmLog.LogId(deliveryId)}: [{ex.GetType().Name}]");
+                return PhotoResult(operation, "deferred", "DELIVERY_PHOTO_PENDING: The delivery could not be read. Will retry automatically.");
+            }
+
+            stateAnswer = PhotoStateAnswer(operation, existing, type, photoRef!);
+        }
+
         if (stateAnswer != null)
         {
             return stateAnswer;
         }
+
+        // FUP-140: a drop-off photo past the state answer without its confirm on the row is late evidence on a system
+        // dispute no admin has decided (DropoffJudgement.TakesLateDropoffPhoto), marked late below.
+        var lateDropoff = type == DeliveryPhotoKeys.Dropoff && !HandoffOnRow(existing, type);
 
         // ESC-36: the arrival photo belongs to the drop-off, so it attaches only while the goods are on the road;
         // FUP-373: or as late evidence on the T8 dispute no admin has decided (an offline check-in synced late),
@@ -207,12 +231,13 @@ public partial class SyncFunction
 
         var condition = "attribute_exists(deliveryId) AND attribute_not_exists(#photo) "
             + "AND #status <> :cancelled AND attribute_not_exists(deletedAt)";
-        if (lateArrival)
+        var late = lateArrival || lateDropoff;
+        if (late)
         {
             // FUP-373: attached after the money froze, so it is marked late with the server's time, and only
             // while the dispute still waits for an admin: a verdict leaves the status disputed, so the
-            // condition checks the verdict itself.
-            names["#lateAt"] = DropoffJudgement.ArrivalPhotoLateAtField;
+            // condition checks the verdict itself. FUP-140: the buyer's late drop-off photo the same way.
+            names["#lateAt"] = lateArrival ? DropoffJudgement.ArrivalPhotoLateAtField : DropoffJudgement.DropoffPhotoLateAtField;
             names["#resolution"] = DropoffJudgement.DisputeResolutionField;
             values[":lateAt"] = new AttributeValue { S = OrderCommitment.Iso(DateTime.UtcNow) };
             values[":disputed"] = new AttributeValue { S = "disputed" };
@@ -253,16 +278,16 @@ public partial class SyncFunction
                        : PhotoResult(operation, "deferred", "DELIVERY_PHOTO_PENDING: The photo could not be attached yet. Will retry automatically."));
         }
 
-        if (lateArrival)
+        if (late)
         {
             var status = AttrString(existing, "status");
             var orderId = AttrString(existing, "orderId");
             await EmitTxAuditAsync(context, orderId.Length > 0 ? orderId : deliveryId, "delivery", deliveryId,
-                "delivery_photo", status, status, metadata: $"type={DeliveryPhotoKeys.Arrival};late=true");
+                "delivery_photo", status, status, metadata: $"type={type};late=true");
         }
 
         context.Logger.LogInformation(
-            $"DELIVERY_PHOTO attached deliveryId={MoneyAlarmLog.LogId(deliveryId)} type={type} bytes={size} late={lateArrival}");
+            $"DELIVERY_PHOTO attached deliveryId={MoneyAlarmLog.LogId(deliveryId)} type={type} bytes={size} late={late}");
         return new SyncOperationResult
         {
             OperationId = operation.OperationId,
@@ -291,12 +316,23 @@ public partial class SyncFunction
         };
     }
 
+    /// <summary>FUP-140: the answer of a pickup or drop-off photo whose handoff is not on the row yet.</summary>
+    private const string HandoffPendingMessage =
+        "DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet. Will retry automatically.";
+
+    /// <summary>FUP-140: whether the row shows the handoff a photo of <paramref name="type"/> belongs to.</summary>
+    private static bool HandoffOnRow(Dictionary<string, AttributeValue> delivery, string type)
+        => DeliveryPhotoKeys.HandoffOnRow(type, AttrString(delivery, "status"),
+            AttrString(delivery, "pickedUpAt"), AttrString(delivery, "confirmedAt"));
+
     /// <summary>
     /// The answer the row's state already decides, or null to go on: a cancelled delivery refuses,
     /// the same key again succeeds without a write, another key of this handoff refuses. FUP-140: a
     /// pickup or drop-off photo whose handoff is not on the row yet waits (<c>deferred</c>): the handoff
     /// may still be on its way (deferred itself), and one the server never took (refused, or reverted by a
-    /// conflict) must not get a photo; the phone drops that photo when it learns so.
+    /// conflict) must not get a photo; the phone drops that photo when it learns so. Except the buyer's
+    /// drop-off photo on a system dispute no admin has decided, which goes on as late evidence; on any other
+    /// disputed delivery the handoff can no longer come, so the photo is refused for good.
     /// </summary>
     private static SyncOperationResult? PhotoStateAnswer(
         SyncOperationRequest operation, Dictionary<string, AttributeValue> delivery, string type, string photoRef)
@@ -309,11 +345,15 @@ public partial class SyncFunction
         var stored = AttrString(delivery, DeliveryPhotoKeys.FieldOf(type));
         if (string.IsNullOrEmpty(stored))
         {
-            return DeliveryPhotoKeys.HandoffOnRow(type, AttrString(delivery, "status"),
-                AttrString(delivery, "pickedUpAt"), AttrString(delivery, "confirmedAt"))
-                ? null
-                : PhotoResult(operation, "deferred",
-                    "DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet. Will retry automatically.");
+            if (HandoffOnRow(delivery, type)
+                || (type == DeliveryPhotoKeys.Dropoff && DropoffJudgement.TakesLateDropoffPhoto(DynamoDbHelper.FromItem(delivery))))
+            {
+                return null;
+            }
+
+            return AttrString(delivery, "status") == "disputed"
+                ? PhotoResult(operation, "error", "DELIVERY_PHOTO_REFUSED: The delivery is disputed without this handoff.")
+                : PhotoResult(operation, "deferred", HandoffPendingMessage);
         }
 
         return stored == photoRef

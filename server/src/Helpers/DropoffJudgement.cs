@@ -113,6 +113,12 @@ public static class DropoffJudgement
     public const string ArrivalPhotoLateAtField = "arrivalPhotoLateAt";
 
     /// <summary>
+    /// FUP-140: server-only delivery field, when the buyer's drop-off photo was attached as late evidence on a system
+    /// dispute without a confirm (<see cref="TakesLateDropoffPhoto"/>); absent on a photo of a confirmed delivery.
+    /// </summary>
+    public const string DropoffPhotoLateAtField = "dropoffPhotoLateAt";
+
+    /// <summary>
     /// The delivery field an admin's verdict or disposition stamps. The verdict never changes <see cref="Field"/>,
     /// so late drop-off evidence reads this to stop once the dispute is decided (FUP-373).
     /// </summary>
@@ -430,6 +436,16 @@ public static class DropoffJudgement
     public static bool TakesLateArrivalPhoto(IReadOnlyDictionary<string, object> delivery)
         => SystemDisputeReasonOf(delivery) is OverdueReason or OutOfRangeReason
            && Str(delivery, DisputeResolutionField).Length == 0;
+
+    /// <summary>
+    /// FUP-140: whether the buyer's drop-off photo is taken as late evidence on a delivery the buyer never confirmed:
+    /// on a dispute the order cron opened (T8's <see cref="OverdueReason"/> or <see cref="OutOfRangeReason"/>, T9's
+    /// <see cref="SilentBuyerReason"/>) that no admin has decided yet. A buyer who confirmed offline before the run
+    /// gets the confirm refused when it syncs after, but the photo shows what arrived. The attach writes it with
+    /// <see cref="DropoffPhotoLateAtField"/> and never the status, as the late arrival photo.
+    /// </summary>
+    public static bool TakesLateDropoffPhoto(IReadOnlyDictionary<string, object> delivery)
+        => SystemDisputeReasonOf(delivery) != null && Str(delivery, DisputeResolutionField).Length == 0;
 
     // ── what the parties read ───────────────────────────────────────────────
 
