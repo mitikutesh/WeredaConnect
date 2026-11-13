@@ -146,7 +146,7 @@ export interface EnvironmentConfig {
    */
   readonly pickupClassification?: boolean;
   /**
-   * DROPOFF_CLASSIFICATION_ENABLED on the sync, delivery and order-cron Lambdas (ESC-36,
+   * DROPOFF_CLASSIFICATION_ENABLED on the sync, delivery, order-cron and admin Lambdas (ESC-36,
    * delivery-verification-api.md P.4). On (and only with `commitmentsEnabled`), an order picked up under it
    * is judged at T8 (no drop-off check-in 72 hours after pickup: the escrow frozen and the order disputed as
    * `delivery_overdue`, which restricts the trucker with `reputationPenalties`) or T9 (48 hours after the
@@ -155,7 +155,8 @@ export interface EnvironmentConfig {
    * `silent_buyer`). Off, nothing changes. Its own flag, not `pickupClassification`: that one goes on with
    * the ESC-34 client (FUP-285), and turning on T8 before the app sends the drop-off check-in would dispute
    * every delivery a buyer did not confirm within 72 hours. Default false everywhere. Turn it on only after
-   * the app build that sends the drop-off check-in and the arrival photo is the minimum (`minOrderAppBuild`).
+   * the app build that sends the drop-off check-in and the arrival photo is the minimum (`minOrderAppBuild`,
+   * FUP-336) and the buyer is told of the trucker's arrival and of the coming auto-confirm (FUP-338).
    */
   readonly dropoffClassification?: boolean;
   /**

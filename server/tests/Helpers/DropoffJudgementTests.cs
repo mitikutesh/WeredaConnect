@@ -204,15 +204,60 @@ public class DropoffJudgementTests
     [Fact]
     public void ThePickupStamp_CarriesT8AndThePointsKnown()
     {
-        var stamp = DropoffJudgement.PickupStamp(PickedUp, new TrackPoint(9.03, 38.74), new TrackPoint(9.01, 38.76), OrderTimings.Defaults);
+        var stamp = DropoffJudgement.PickupStamp(PickedUp, new TrackPoint(9.03, 38.74), new TrackPoint(9.01, 38.76),
+            tripRead: true, OrderTimings.Defaults, PickedUp);
 
         stamp[DropoffJudgement.Field].Should().Be(DropoffJudgement.Outcome.Pending);
         stamp[DropoffJudgement.DeadlineField].Should().Be(Iso(T8));
         stamp[DropoffJudgement.OrderLatitudeField].Should().Be(9.03);
         stamp[DropoffJudgement.TripLongitudeField].Should().Be(38.76);
+        stamp[DropoffJudgement.TripReadField].Should().Be(true);
 
-        DropoffJudgement.PickupStamp(PickedUp, null, null, OrderTimings.Defaults)
+        DropoffJudgement.PickupStamp(PickedUp, null, null, tripRead: false, OrderTimings.Defaults, PickedUp)
             .Keys.Should().BeEquivalentTo(new[] { DropoffJudgement.Field, DropoffJudgement.DeadlineField });
+    }
+
+    [Fact]
+    public void AStampThatLandsLate_StillLeavesADayToCheckIn()
+    {
+        // The first advance failed; a later one stamps the order 80 hours after the pickup.
+        var now = PickedUp.AddHours(80);
+
+        var stamp = DropoffJudgement.PickupStamp(PickedUp, null, null, tripRead: true, OrderTimings.Defaults, now);
+
+        stamp[DropoffJudgement.DeadlineField].Should().Be(Iso(now + DropoffJudgement.LateStampGrace));
+    }
+
+    // ===== FUP-204: the trucker came, out of range of the buyer's pin =====
+
+    [Fact]
+    public void FUP204_AnOutOfRangeAttemptByT8_IsAnAdminReview_NotAnOverdueDelivery()
+    {
+        var order = Order();
+        order[DropoffJudgement.AttemptField] = CheckIn(T8.AddHours(-3), measured: false);
+
+        DropoffJudgement.Decide(order, arrivalPhoto: true, truckerHeld: false, escrowPlain: true)
+            .Should().Be(DropoffJudgement.Decision.OutOfRangeReview);
+        DropoffJudgement.Due(order, OrderTimings.Defaults)!.Value.Kind.Should().Be(OrderDeadlines.Kind.DeliveryOverdue,
+            "an attempt never counts as a check-in: the order is still looked at at T8");
+
+        order[DropoffJudgement.AttemptField] = CheckIn(T8.AddMinutes(10), measured: false);
+        DropoffJudgement.Decide(order, true, false, true).Should().Be(DropoffJudgement.Decision.DeliveryOverdue, "one after T8 is too late");
+    }
+
+    [Fact]
+    public void TheLivePoints_AreReadPointByPoint_AndATripReadAtPickupStaysAsItWas()
+    {
+        var order = Order();
+        DropoffJudgement.ReadsLiveOrderPoint(order).Should().BeTrue();
+        DropoffJudgement.ReadsLiveTripPoint(order).Should().BeTrue("the trip could not be read at pickup");
+
+        order[DropoffJudgement.TripReadField] = true;
+        DropoffJudgement.ReadsLiveTripPoint(order).Should().BeFalse("a destination added after the handoff never counts");
+
+        order[DropoffJudgement.OrderLatitudeField] = "9.03";
+        order[DropoffJudgement.OrderLongitudeField] = "38.74";
+        DropoffJudgement.ReadsLiveOrderPoint(order).Should().BeFalse();
     }
 
     [Fact]

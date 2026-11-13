@@ -642,6 +642,7 @@
     "adminQueue_late_pickup_evidence": "Pickup evidence arrived after the judgement",
     "adminQueue_delivery_overdue": "Delivery overdue, the money could not be frozen, an admin decides",
     "adminQueue_silent_buyer": "Silent buyer, the money could be neither confirmed nor frozen, an admin decides",
+    "adminQueue_dropoff_out_of_range": "The trucker checked in more than 5 km from the drop-off, an admin decides",
     "status_awaiting_transport": "Transport fell through",
     "action_trucker_responded": "Trucker responded",
     "farmerResponse": "Farmer's answer",
@@ -1082,6 +1083,7 @@
     "reason_late_pickup_evidence": "Pickup evidence arrived after the judgement",
     "reason_delivery_overdue": "Delivery overdue: no drop-off check-in 72 hours after pickup",
     "reason_silent_buyer": "Silent buyer: no answer 48 hours after the drop-off check-in",
+    "reason_dropoff_out_of_range": "The trucker checked in more than 5 km from the drop-off, an admin decides",
     "reason_pickup_waiting": "Pickup overdue, the notice was sent, still not picked up"
   },
   "reputation": {

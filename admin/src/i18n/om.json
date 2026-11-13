@@ -642,6 +642,7 @@
     "adminQueue_late_pickup_evidence": "Ragaan fudhannaa murtii booda dhufeera",
     "adminQueue_delivery_overdue": "Geejjibni tureera, maallaqni dhorkamuu hin dandeenye, bulchaan murteessa",
     "adminQueue_silent_buyer": "Bitaan callisee jira, maallaqni mirkanaa'uus dhorkamuus hin dandeenye, bulchaan murteessa",
+    "adminQueue_dropoff_out_of_range": "Konkolaattichi bakka buufannaa irraa km 5 ol fagaatee galmeesse, bulchaan murteessa",
     "status_awaiting_transport": "Geejjibni hin argamne",
     "action_trucker_responded": "Konkolaataan fe'aa deebiseera",
     "farmerResponse": "Deebii qonnaan bulaa",
@@ -1082,6 +1083,7 @@
     "reason_late_pickup_evidence": "Ragaan fudhannaa murtii booda dhufeera",
     "reason_delivery_overdue": "Geejjibni tureera: sa'aatii 72 fudhannaa booda galmeen buufannaa hin jiru",
     "reason_silent_buyer": "Bitaan callisee jira: sa'aatii 48 galmee buufannaa booda deebiin hin jiru",
+    "reason_dropoff_out_of_range": "Konkolaattichi bakka buufannaa irraa km 5 ol fagaatee galmeesse, bulchaan murteessa",
     "reason_pickup_waiting": "Fudhachuun tureera, beeksisni ergameera, ammallee hin fudhatamne"
   },
   "reputation": {

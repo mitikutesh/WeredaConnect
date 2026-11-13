@@ -263,6 +263,14 @@ public interface IOrderRepository
     Task<bool> TryRecordDropoffCheckInAsync(string orderId, Dictionary<string, object> entry, bool whileOpen);
 
     /// <summary>
+    /// ESC-36, FUP-204: keep the trucker's first out-of-range drop-off check-in as <c>dropoffAttempt</c>, server-only
+    /// evidence that never counts as a check-in, under the conditions of an open
+    /// <see cref="TryRecordDropoffCheckInAsync"/> (no version bump, the deadline unchanged). False when one is
+    /// stored already or the order is no longer waiting for its drop-off judgement.
+    /// </summary>
+    Task<bool> TryRecordDropoffAttemptAsync(string orderId, Dictionary<string, object> entry);
+
+    /// <summary>
     /// ESC-09: one page of the <c>StatusCreatedAtIndex</c> partition for <paramref name="status"/>,
     /// oldest first, without the rows the money sweep marked as decided at that status
     /// (<see cref="OrderMoneyFields.SweepSkip"/>). <paramref name="limit"/> is the evaluation limit.

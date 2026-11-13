@@ -245,6 +245,68 @@ public class OrderCronDropoffJudgementTests
     }
 
     [Fact]
+    public async Task T8_TheQueueEntryFailing_StampsNothing_AndTriesAgainLater()
+    {
+        Serve(Order(TimeSpan.FromMinutes(-30)));
+        _escrow["refundReason"] = "order_cancelled";
+        _orders.TryEnterAdminQueueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .ThrowsAsync(new AmazonDynamoDBExceptionStub());
+
+        var actual = await RunAsync();
+
+        Assert.Contains("\"retried\":\"1\"", actual.Body);
+        await _orders.DidNotReceive().TryStampAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(),
+            Arg.Any<IReadOnlyDictionary<string, string>>());
+        Assert.DoesNotContain(OrderCronFunction.DeliveryOverdueToken, Logs);
+    }
+
+    [Fact]
+    public async Task T8_AnOrderQueuedForAnotherReason_IsStamped_AndTheMissingEntryIsAlarmed()
+    {
+        var order = Order(TimeSpan.FromMinutes(-30));
+        Serve(order);
+        _escrow["refundReason"] = "order_cancelled";
+        _orders.TryEnterAdminQueueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(false);
+        order[AdminQueueFields.Marker] = AdminQueueFields.MarkerOpen;
+        order[AdminQueueFields.Reason] = AdminQueueFields.ReasonHoldCap;
+
+        await RunAsync();
+
+        Assert.Contains($"{OrderCronFunction.DropoffQueueNotWrittenToken} orderId=", Logs);
+        Assert.Contains($"queued={MoneyAlarmLog.LogId(AdminQueueFields.ReasonHoldCap)}", Logs);
+        await _orders.Received(1).TryStampAsync(OrderId,
+            Arg.Is<Dictionary<string, object>>(f => (string)f[DropoffJudgement.Field] == DropoffJudgement.Outcome.Queued),
+            Arg.Any<IReadOnlyDictionary<string, string>>());
+        Assert.Contains("outcome=queued", Logs);
+    }
+
+    // ===== FUP-204: the buyer's pin the only point, the trucker came out of range =====
+
+    [Fact]
+    public async Task FUP204_AnOutOfRangeAttemptByT8_GoesToTheAdmin_NoFreezeNoDisputeNoR12()
+    {
+        var order = Order(TimeSpan.FromMinutes(-30));
+        var attempt = CheckIn(hoursAgo: 5, measured: false);
+        attempt[PickupJudgement.EntryOutOfRange] = true;
+        order[DropoffJudgement.AttemptField] = attempt;
+        Serve(order);
+
+        var actual = await RunAsync();
+
+        Assert.Contains("\"dropoffJudged\":\"1\"", actual.Body);
+        await AssertNotFrozen();
+        await AssertNoOrderWrite();
+        await _deliveries.DidNotReceive().TryMarkDropoffDisputedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string>());
+        await _orders.Received(1).TryEnterAdminQueueAsync(OrderId, DropoffJudgement.OutOfRangeReason, EscrowId, Arg.Any<string>(), "in_transit");
+        await _orders.Received(1).TryStampAsync(OrderId,
+            Arg.Is<Dictionary<string, object>>(f => (string)f[DropoffJudgement.Field] == DropoffJudgement.Outcome.Queued),
+            Arg.Any<IReadOnlyDictionary<string, string>>());
+        Assert.Contains("outcome=queued", Logs);
+    }
+
+    [Fact]
     public async Task T8_AnUnreadableEscrow_WritesNothing_AndTriesAgainLater()
     {
         Serve(Order(TimeSpan.FromMinutes(-30)));

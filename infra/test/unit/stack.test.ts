@@ -2382,14 +2382,14 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
     }
   });
 
-  test('ESC-36: every environment keeps the drop-off judgement off on sync, deliveries and order-cron', () => {
+  test('ESC-36: every environment keeps the drop-off judgement off on sync, deliveries, order-cron and admin', () => {
     const templates: [string, ReturnType<typeof liveTemplate>][] = [
       ['dev', liveTemplate(environments['dev'])],
       ['staging', liveTemplate(environments['staging'])],
       ['prod', liveTemplate(environments['prod'])],
     ];
     for (const [envName, template] of templates) {
-      for (const fn of ['sync', 'deliveries', 'order-cron']) {
+      for (const fn of ['sync', 'deliveries', 'order-cron', 'admin']) {
         template.hasResourceProperties('AWS::Lambda::Function', {
           FunctionName: `wereda-connect-${envName}-${fn}`,
           Environment: { Variables: Match.objectLike({ DROPOFF_CLASSIFICATION_ENABLED: 'false' }) },

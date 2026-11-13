@@ -1554,7 +1554,9 @@ is unsupported as before.
   neither `version` nor `updatedAt`.
 - Refusals, permanent as above: `CHECKIN_NOT_PARTY`, `CHECKIN_NOT_OPEN` (not stamped, judged, or the
   delivery no longer on the road), `CHECKIN_TOO_FAR` (more than 5 km from both the order's drop-off point
-  and the trip's destination as stamped at pickup), the new `CHECKIN_PHOTO_REQUIRED` (no arrival photo on
+  and the trip's destination as stamped at pickup; the first such attempt with its photo, before T8, is kept
+  on the server as evidence and the message ends "The attempt was kept for review."; the client still treats
+  it as a refusal and may check in again closer), the new `CHECKIN_PHOTO_REQUIRED` (no arrival photo on
   the delivery yet: attach it, then check in again) and `CHECKIN_TOO_LATE` (after T8 or the overdue
   judgement: kept as late evidence).
 - The order rows (`GET /orders`, `GET /orders/{id}`, the order rows of `/sync` results) carry it as
@@ -1565,7 +1567,8 @@ is unsupported as before.
   treats them as any server change of the row (server wins).
 
 Clients: FUP-336 (the trucker's "Arrived at drop-off" with GPS and the arrival photo, queued offline, the
-refusal texts, and the parties' view of the judgement). The flag stays off until that build is the minimum.
+refusal texts, and the parties' view of the judgement). The flag stays off until that build is the minimum and
+the buyer's pushes of FUP-338 (the trucker arrived, the coming auto-confirm) are live.
 
 ---
 
@@ -1602,7 +1605,7 @@ The buyer's confirm:
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.59.0 | 2026-11-13 | The drop-off check-in (ESC-36, `delivery-verification-api.md` 2.10.0 P.4), server only, behind the new flag `dropoffClassification` (off everywhere): `handoff_check_in` takes `arrived_dropoff` from the order's trucker (GPS within 5 km of the drop-off points stamped at pickup, after the arrival photo `delivery_photo` `{deliveryId}#arrival`), up to T8; new permanent refusal `CHECKIN_PHOTO_REQUIRED`; each kind exists only with its own flag. Order rows gain `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt`, `disputeReason` and `checkIns.arrived_dropoff`; deliveries gain `arrivalPhotoRef`, `arrivalPhotoUrl` (detail only) and `autoConfirmedAt`. Clients: FUP-336. 1.58.1 is FUP-285. |
+| 1.59.0 | 2026-11-13 | The drop-off check-in (ESC-36, `delivery-verification-api.md` 2.10.0 P.4), server only, behind the new flag `dropoffClassification` (off everywhere): `handoff_check_in` takes `arrived_dropoff` from the order's trucker (GPS within 5 km of the drop-off points stamped at pickup, after the arrival photo `delivery_photo` `{deliveryId}#arrival`), up to T8; new permanent refusal `CHECKIN_PHOTO_REQUIRED`; a `CHECKIN_TOO_FAR` attempt with its photo is kept on the server as evidence (message suffix); each kind exists only with its own flag. Order rows gain `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt`, `disputeReason` and `checkIns.arrived_dropoff`; deliveries gain `arrivalPhotoRef`, `arrivalPhotoUrl` (detail only) and `autoConfirmedAt`. Clients: FUP-336. 1.58.1 is FUP-285. |
 | 1.58.1 | 2026-11-13 | Arrival check-ins, the clients (FUP-285, no wire change): mobile and web send `handoff_check_in` from the order detail with exactly the server's fields; every `CHECKIN_*` refusal and the unsupported-entity answer to `handoff_check_in` (flag off) is a permanent refusal that takes the local mark back, reads the order again and is explained per code; the buyer's deadline cancel is hidden on a stamped order. See "Arrival check-ins", Clients. |
 | 1.58.0 | 2026-11-13 | The trucker's drop-off code (ESC-35, `delivery-verification-api.md` 2.7.0): a `delivery` update carrying only `dropoffQrNonce` from the delivery's trucker stores the trucker's drop-off nonce (nothing else, no version move; dropped from anyone else or with a `status`; `deferred` while the delivery is `pending`, refused `DELIVERY_VALIDATION` after 14 days); a registration never replaces a stored code, only `dropoffQrRenew: true` (the trucker's confirmed New drop-off code) does, and a code not stored answers `success` with the message `DROPOFF_CODE_SUPERSEDED` or `DROPOFF_CODE_NOT_STORED`; the buyer's `delivered` is checked against it once stored, with `DELIVERY_CODE_LOCKED` (renewable) for its lock and a new `deferred` text, without a signal, for a tagged scan whose nonce has not synced or that differs from the stored code but was scanned after it (`DELIVERY_NONCE_MISSING` after 14 days). Mobile queues the registration behind the pickup and on every open of the drop-off QR (never twice while waiting), and a renewal drops the drop-off codes still queued; web sends it at once and again on open and shows the `success` messages. Web names the trucker in the wait and lock texts when the server's text is the trucker's; the shared lock text no longer names the farmer. 1.57.0 is taken by another open branch. |
 | 1.57.0 | 2026-11-12 | Profile text on the `user` entity (SIM-56, `user-entity.md` 2.2.0): `displayName`, `woreda` and a company buyer's `companyName` beside `preferredLanguage`, at least one of the four; trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name (`USER_PROFILE_VALIDATION`), then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing. Every other key is still ignored. The read is `GET /user/profile` (not a sync pull) |

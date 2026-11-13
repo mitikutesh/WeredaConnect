@@ -1503,8 +1503,10 @@ export class ApiStack extends cdk.Stack {
         CROPS_TABLE: props.cropsTable.tableName,
         // LT-12: the track reads the delivery's order for the buyer's drop-off note.
         ORDERS_TABLE: props.ordersTable.tableName,
-        // ESC-36: on, POST /deliveries/{id}/photos takes the trucker's arrival photo of a delivery on the road.
+        // ESC-36: on (and only with COMMITMENTS_ENABLED, as on sync, which attaches it), POST
+        // /deliveries/{id}/photos takes the trucker's arrival photo of a delivery on the road.
         DROPOFF_CLASSIFICATION_ENABLED: dropoffClassification,
+        COMMITMENTS_ENABLED: commitmentsEnabled,
       },
       timeout: cdk.Duration.seconds(15),
       memorySize: 512,
@@ -3156,6 +3158,10 @@ export class ApiStack extends cdk.Stack {
         REPUTATION_PENALTIES_ENABLED: reputationPenalties,
         // ESC-32: the policy (thresholds, tag and restriction limits), read only while the flag is on.
         REPUTATION_POLICY_PARAM: reputationPolicyParam.parameterName,
+        // ESC-36: an admin's handoff_confirmed re-open (FUP-287) stamps the drop-off judgement, as the order's
+        // first move after a pickup does in sync (both flags, as there; the trip is read for its destination).
+        DROPOFF_CLASSIFICATION_ENABLED: dropoffClassification,
+        COMMITMENTS_ENABLED: commitmentsEnabled,
       },
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,

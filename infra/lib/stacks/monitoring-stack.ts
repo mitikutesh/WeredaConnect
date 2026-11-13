@@ -1342,12 +1342,14 @@ export class MonitoringStack extends cdk.Stack {
     // check-in from the trucker. order-cron logs ORDER_DELIVERY_OVERDUE orderId=.. deliveryId=..
     // outcome=disputed|queued once per order it judges: disputed (the escrow frozen, the order and delivery
     // disputed as delivery_overdue, the trucker restricted pending review when reputationPenalties is on) or
-    // queued (the money could not be frozen, so the order waits in the admin queue). Each line is an order an
-    // admin must look at, so any line alarms. Behind dropoffClassification (off everywhere): no line today.
-    // No default: billed only in the hours a line appears.
+    // queued (the money could not be frozen, or the trucker came but out of range of every drop-off point, so the
+    // order waits in the admin queue). DROPOFF_QUEUE_NOT_WRITTEN orderId=.. reason=.. queued=..: a drop-off judgement
+    // that goes to the admin found the order already queued for another reason (the hold cap), so its own reason
+    // is not on the entry. Each line is an order an admin must look at, so any line alarms. Behind
+    // dropoffClassification (off everywhere): no line today. No default: billed only in the hours a line appears.
     new logs.MetricFilter(this, 'OrderCronDeliveryOverdueFilter', {
       logGroup: orderCronLogGroup,
-      filterPattern: logs.FilterPattern.literal('"ORDER_DELIVERY_OVERDUE"'),
+      filterPattern: logs.FilterPattern.anyTerm('ORDER_DELIVERY_OVERDUE', 'DROPOFF_QUEUE_NOT_WRITTEN'),
       metricNamespace,
       metricName: 'DeliveryOverdue',
       metricValue: '1',
@@ -1359,8 +1361,9 @@ export class MonitoringStack extends cdk.Stack {
         'orderId=.. deliveryId=.. outcome=disputed: the trucker sent no drop-off check-in within 72 hours of the ' +
         'pickup; the escrow is frozen and the order is disputed as delivery_overdue. Decide the dispute in Disputes ' +
         'and the trucker\'s DELIVERY_OVERDUE review in Appeals. outcome=queued: the money could not be frozen (no ' +
-        'escrow, a refund armed, Manual Payouts or a settlement in flight), so nothing moved and the order waits in ' +
-        'Stuck Orders. Never edit the rows by hand.',
+        'escrow, a refund armed, Manual Payouts or a settlement in flight) or the trucker came but more than 5 km from ' +
+        'every drop-off point, so nothing moved and the order waits in Stuck Orders. DROPOFF_QUEUE_NOT_WRITTEN: such an ' +
+        'order was already queued for another reason; decide its drop-off too. Never edit the rows by hand.',
       metric: new cloudwatch.Metric({
         namespace: metricNamespace,
         metricName: 'DeliveryOverdue',

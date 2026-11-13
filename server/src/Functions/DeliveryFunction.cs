@@ -52,9 +52,13 @@ public class DeliveryFunction
 
     /// <summary>
     /// ESC-36: <c>dropoffClassification</c> (env <c>DROPOFF_CLASSIFICATION_ENABLED</c>). On, the trucker may
-    /// ask for the <c>arrival</c> photo of a delivery on the road; off, the type does not exist.
+    /// ask for the <c>arrival</c> photo of a delivery on the road; off, the type does not exist. Only with
+    /// <c>COMMITMENTS_ENABLED</c>, as on sync, which attaches the photo.
     /// </summary>
-    internal bool DropoffClassificationEnabled { get; init; } = DropoffJudgement.IsEnabled;
+    internal bool DropoffClassificationEnabled { get; init; } = DropoffJudgement.IsEnabled && Services.OrderCommitment.IsEnabled;
+
+    /// <summary>The photo types this Lambda takes, for its validation text.</summary>
+    private string PhotoTypesText => DropoffClassificationEnabled ? "'pickup', 'dropoff' or 'arrival'" : "'pickup' or 'dropoff'";
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -576,13 +580,13 @@ public class DeliveryFunction
 
         if (photoRequest == null || string.IsNullOrEmpty(photoRequest.Type))
         {
-            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Missing or invalid 'type' field. Must be 'pickup' or 'dropoff'.", "type");
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", $"Missing or invalid 'type' field. Must be {PhotoTypesText}.", "type");
         }
 
         var photoType = photoRequest.Type.ToLowerInvariant();
         if (!DeliveryPhotoKeys.IsType(photoType, allowArrival: DropoffClassificationEnabled))
         {
-            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Invalid photo type. Must be 'pickup' or 'dropoff'.", "type");
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", $"Invalid photo type. Must be {PhotoTypesText}.", "type");
         }
 
         if (photoRequest.SizeBytes is not long sizeBytes || sizeBytes < 1 || sizeBytes > DeliveryPhotoKeys.MaxBytes)

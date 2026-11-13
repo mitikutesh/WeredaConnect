@@ -26,7 +26,9 @@ namespace WeredaConnect.Server.Helpers;
 /// <see cref="OrderTimings.DeliveryOverdue"/>, 72 hours): the order and its delivery go to
 /// <c>disputed</c> with the reason <c>delivery_overdue</c> after the escrow froze, which reputation rule
 /// R12 turns into <c>DELIVERY_OVERDUE</c> on the trucker. It rests on the trucker's own missing check-in
-/// alone (FUP-204): once the trucker checked in, the buyer's silence leads to T9, never to T8.</item>
+/// alone (FUP-204): once the trucker checked in, the buyer's silence leads to T9, never to T8; and a trucker
+/// who tried by T8 but was out of range of every point (<see cref="AttemptField"/>: the only point may be the
+/// buyer's own pin) goes to the admin queue instead, with no dispute and no R12.</item>
 /// <item>T9: a drop-off check-in, and the buyer neither confirmed nor disputed within
 /// <see cref="OrderTimings.SilentBuyerWindow"/> (48 hours) of its receipt: the order cron confirms the
 /// delivery as the system when the evidence is complete (the check-in measured within 5 km, the arrival
@@ -56,6 +58,28 @@ public static class DropoffJudgement
 
     /// <summary>Server-only order map: the trucker's drop-off check-in (the <see cref="PickupJudgement"/> entry fields).</summary>
     public const string CheckInField = "dropoffCheckIn";
+
+    /// <summary>
+    /// Server-only order map: the trucker's first drop-off check-in that was more than 5 km from every drop-off
+    /// point, with its photo attached (the entry fields, <c>outOfRange: true</c>). It never counts as a
+    /// check-in, but at T8 it sends the order to the admin queue instead of the overdue dispute: the buyer's
+    /// own pin can be the only point, and a buyer who pinned far away must not be able to put
+    /// <c>DELIVERY_OVERDUE</c> on a trucker who came (FUP-204).
+    /// </summary>
+    public const string AttemptField = "dropoffAttempt";
+
+    /// <summary>
+    /// Server-only order field: <c>true</c> when the stamp at pickup read the trip, whether or not it had a
+    /// destination. Only a trip that could not be read then is read live at the check-in: a booked trip may
+    /// gain a destination later (trip-listing-api 2.1.0), and that one the trucker would choose after the handoff.
+    /// </summary>
+    public const string TripReadField = "dropoffTripRead";
+
+    /// <summary>
+    /// A stamp that lands late (the order's first advance after the pickup failed and a later one stamped it)
+    /// still leaves the trucker at least this long to check in: T8 is never before the stamp plus this.
+    /// </summary>
+    public static readonly TimeSpan LateStampGrace = TimeSpan.FromHours(24);
 
     /// <summary>
     /// Server-only order fields: the order's own drop-off point and the trip's destination point as they
@@ -105,6 +129,9 @@ public static class DropoffJudgement
 
     public const string SilentBuyerReason = Outcome.SilentBuyer;
 
+    /// <summary>The admin queue reason of a T8 whose trucker checked in out of range (<see cref="AttemptField"/>): no dispute, no R12.</summary>
+    public const string OutOfRangeReason = "dropoff_out_of_range";
+
     /// <summary>The refusal of a drop-off check-in sent without its attached arrival photo (permanent).</summary>
     public const string PhotoRequiredCode = "CHECKIN_PHOTO_REQUIRED";
 
@@ -145,6 +172,15 @@ public static class DropoffJudgement
             ? entry
             : null;
 
+    /// <summary>The trucker's out-of-range attempt received by T8, or null (<see cref="AttemptField"/>).</summary>
+    public static IReadOnlyDictionary<string, object>? CountedAttempt(IReadOnlyDictionary<string, object> order)
+        => order.TryGetValue(AttemptField, out var raw) && raw is IReadOnlyDictionary<string, object> entry
+           && ReceivedAt(entry) is { } received
+           && DeadlineOf(order) is { } deadline
+           && received <= deadline
+            ? entry
+            : null;
+
     /// <summary>The server's receipt time of a stored check-in, or null.</summary>
     public static DateTime? ReceivedAt(IReadOnlyDictionary<string, object> entry)
         => OrderCommitment.TryParseUtc(Str(entry, PickupJudgement.EntryReceivedAt), out var at) ? at : null;
@@ -166,6 +202,17 @@ public static class DropoffJudgement
             ? new OrderDeadline(received + timings.SilentBuyerWindow + PickupJudgement.SettleMargin, OrderDeadlines.Kind.SilentBuyer)
             : new OrderDeadline(deadline + PickupJudgement.SettleMargin, OrderDeadlines.Kind.DeliveryOverdue);
     }
+
+    /// <summary>Whether the check-in should read the order's own point live: none was stamped at pickup.</summary>
+    public static bool ReadsLiveOrderPoint(IReadOnlyDictionary<string, object> order)
+        => TripTrack.PointOf(order, OrderLatitudeField, OrderLongitudeField) == null;
+
+    /// <summary>
+    /// Whether the check-in should read the trip's destination live: none was stamped and the stamp could not
+    /// read the trip (<see cref="TripReadField"/>). A trip read at pickup without a destination stays without one.
+    /// </summary>
+    public static bool ReadsLiveTripPoint(IReadOnlyDictionary<string, object> order)
+        => TripTrack.PointOf(order, TripLatitudeField, TripLongitudeField) == null && !Bool(order, TripReadField);
 
     /// <summary>The order's drop-off points as stamped at pickup: its own, then the trip's destination.</summary>
     public static IReadOnlyList<TrackPoint> StampedPoints(IReadOnlyDictionary<string, object> order)
@@ -199,17 +246,30 @@ public static class DropoffJudgement
 
     /// <summary>
     /// The fields the order's first move out of <c>accepted</c> after a trucker's pickup adds: the
-    /// pending judgement, T8 counted from <paramref name="pickedUpAt"/>, and the drop-off points known now
-    /// (the order's own, the trip's destination). A point that is not known is left out.
+    /// pending judgement, T8 counted from <paramref name="pickedUpAt"/> (never before <paramref name="nowUtc"/>
+    /// plus <see cref="LateStampGrace"/>, so a stamp that lands late still opens a check-in window), and the
+    /// drop-off points known now (the order's own, the trip's destination). A point that is not known is
+    /// left out; <paramref name="tripRead"/> records that the trip was read (with or without a destination).
     /// </summary>
     public static Dictionary<string, object> PickupStamp(
-        DateTime pickedUpAt, TrackPoint? orderPoint, TrackPoint? tripPoint, OrderTimings timings)
+        DateTime pickedUpAt, TrackPoint? orderPoint, TrackPoint? tripPoint, bool tripRead, OrderTimings timings, DateTime nowUtc)
     {
+        var t8 = pickedUpAt + timings.DeliveryOverdue;
+        if (t8 < nowUtc + LateStampGrace)
+        {
+            t8 = nowUtc + LateStampGrace;
+        }
+
         var fields = new Dictionary<string, object>
         {
             { Field, Outcome.Pending },
-            { DeadlineField, OrderCommitment.Iso(pickedUpAt + timings.DeliveryOverdue) }
+            { DeadlineField, OrderCommitment.Iso(t8) }
         };
+        if (tripRead)
+        {
+            fields[TripReadField] = true;
+        }
+
         if (orderPoint != null)
         {
             fields[OrderLatitudeField] = orderPoint.Latitude;
@@ -242,8 +302,11 @@ public static class DropoffJudgement
     /// <summary>What the order cron does with a pending order whose delivery is still on the road.</summary>
     public enum Decision
     {
-        /// <summary>T8: no counted drop-off check-in.</summary>
+        /// <summary>T8: no counted drop-off check-in and no out-of-range attempt.</summary>
         DeliveryOverdue,
+
+        /// <summary>T8 with an out-of-range attempt by the trucker (<see cref="AttemptField"/>): the admin queue.</summary>
+        OutOfRangeReview,
 
         /// <summary>T9: everything is in place to confirm for the silent buyer.</summary>
         AutoConfirm,
@@ -254,15 +317,17 @@ public static class DropoffJudgement
 
     /// <summary>
     /// The decision on a pending order whose delivery is still on the road, at the due time
-    /// <see cref="Due"/> gave. FUP-204: without a counted check-in it is always T8, whatever the buyer
-    /// did; with one it is never T8, whatever the buyer did (a buyer who withholds the scan makes a T9).
+    /// <see cref="Due"/> gave. FUP-204: with a counted check-in it is never T8, whatever the buyer did (a
+    /// buyer who withholds the scan makes a T9). Without one, T8; but when the trucker tried to check in by
+    /// T8 and was out of range (the only point may be the buyer's own pin), an admin decides instead of the
+    /// overdue dispute, so the buyer's pin cannot put <c>DELIVERY_OVERDUE</c> on a trucker who came.
     /// </summary>
     public static Decision Decide(
         IReadOnlyDictionary<string, object> order, bool arrivalPhoto, bool truckerHeld, bool escrowPlain)
     {
         if (CountedCheckIn(order) is not { } entry)
         {
-            return Decision.DeliveryOverdue;
+            return CountedAttempt(order) != null ? Decision.OutOfRangeReview : Decision.DeliveryOverdue;
         }
 
         return Bool(entry, PickupJudgement.EntryDistanceChecked) && arrivalPhoto && !truckerHeld && escrowPlain
@@ -322,7 +387,7 @@ public static class DropoffJudgement
     /// <summary>The server-only fields a client never reads back raw (the view replaces the check-in).</summary>
     public static readonly string[] HiddenFields =
     {
-        CheckInField, OrderLatitudeField, OrderLongitudeField, TripLatitudeField, TripLongitudeField
+        CheckInField, AttemptField, TripReadField, OrderLatitudeField, OrderLongitudeField, TripLatitudeField, TripLongitudeField
     };
 
     // ── reading ─────────────────────────────────────────────────────────────

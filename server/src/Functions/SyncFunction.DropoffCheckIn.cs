@@ -33,16 +33,18 @@ public partial class SyncFunction
 
     /// <summary>
     /// ESC-36: the drop-off judgement's fields for a trucked order's first move out of <c>accepted</c>: T8
-    /// from the delivery's <c>pickedUpAt</c> (the server's time of the pickup; now when it cannot be read),
-    /// the order's own drop-off point and the trip's destination as they are now, so a check-in is measured
-    /// against the place the parties agreed on at the handoff (FUP-204). A trip that cannot be read leaves
-    /// its point out and the check-in falls back to the live trip; the advance is never refused for it.
+    /// from the delivery's <c>pickedUpAt</c> (the server's time of the pickup; now when it cannot be read; never
+    /// before now plus <see cref="DropoffJudgement.LateStampGrace"/>), the order's own drop-off point and the
+    /// trip's destination as they are now, so a check-in is measured against the place the parties agreed on at
+    /// the handoff (FUP-204). A trip that cannot be read leaves its point out and the check-in falls back to the
+    /// live trip; the advance is never refused for it.
     /// </summary>
     private async Task<Dictionary<string, object>> DropoffStampAsync(Dictionary<string, object> order, ILambdaContext context)
     {
         var now = DateTime.UtcNow;
         var pickedUpAt = now;
         TrackPoint? tripPoint = null;
+        var tripRead = false;
         try
         {
             var deliveryId = ItemString(order, "activeDeliveryId");
@@ -59,6 +61,7 @@ public partial class SyncFunction
             {
                 var trip = await GetTripItemAsync(tripId);
                 tripPoint = TripTrack.PlannedDropoff(trip == null ? null : CropRepository.FromItem(trip), order: null);
+                tripRead = trip != null;
             }
         }
         catch (Exception ex)
@@ -68,7 +71,7 @@ public partial class SyncFunction
                 + $"could not be read [{ex.GetType().Name}]; stamped from now and the live trip.");
         }
 
-        return DropoffJudgement.PickupStamp(pickedUpAt, OrderDeliveryLocation.Of(order), tripPoint, OrderTimings.Current);
+        return DropoffJudgement.PickupStamp(pickedUpAt, OrderDeliveryLocation.Of(order), tripPoint, tripRead, OrderTimings.Current, now);
     }
 
     // ── handoff_check_in, kind arrived_dropoff ──────────────────────────────
@@ -164,13 +167,26 @@ public partial class SyncFunction
         // own point on a trip without a destination) the check-in is kept unmeasured, and a silent buyer's
         // delivery is then never confirmed automatically (T9 disputes it instead).
         var distanceKm = DropoffJudgement.NearestKm(checkIn.Latitude!.Value, checkIn.Longitude!.Value, points);
+        var late = window == CheckInWindow.Late;
         if (distanceKm is { } km && km > PickupJudgement.RadiusKm)
         {
+            // FUP-204: the only point may be the buyer's own pin, which the buyer set. The first such attempt (photo
+            // attached, before T8) is kept as server-only evidence: at T8 it sends the order to an admin instead
+            // of the overdue dispute, so a pin far from where the buyer really is cannot cost the trucker.
+            var attemptKept = !late && await KeepDropoffAttemptAsync(
+                orderId, PickupJudgement.Entry(checkIn, callerId, nowUtc, distanceKm, late: false), context);
+            if (attemptKept)
+            {
+                var attemptStatus = ItemString(order, "status");
+                await EmitTxAuditAsync(context, orderId, "order", orderId, "handoff_check_in", attemptStatus, attemptStatus,
+                    metadata: $"kind={PickupJudgement.Kind.ArrivedDropoff};outOfRange=true;distanceKm={DropoffJudgement.Km(km)}");
+            }
+
             return CheckInResult(operation,
-                $"{PickupJudgement.TooFarCode}: You are {DropoffJudgement.Km(km)} km from the drop-off (at most 5 km).");
+                $"{PickupJudgement.TooFarCode}: You are {DropoffJudgement.Km(km)} km from the drop-off (at most 5 km)."
+                + (attemptKept ? " The attempt was kept for review." : string.Empty));
         }
 
-        var late = window == CheckInWindow.Late;
         if (!await _orderRepo.TryRecordDropoffCheckInAsync(
                 orderId, PickupJudgement.Entry(checkIn, callerId, nowUtc, distanceKm, late), whileOpen: !late))
         {
@@ -249,31 +265,44 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// The points a drop-off check-in is measured against: the ones stamped at pickup, else (an order
-    /// stamped while they could not be read) the order's own point and the trip's destination now.
+    /// The points a drop-off check-in is measured against, point by point: the ones stamped at pickup; for
+    /// the order's own point not stamped, the order's live one (only the buyer sets it, and a nearer extra
+    /// point only helps the trucker); for the trip's destination not stamped, the live one only when the
+    /// stamp could not read the trip (<see cref="DropoffJudgement.ReadsLiveTripPoint"/>: a destination the
+    /// trucker adds after the handoff never counts).
     /// </summary>
     private async Task<IReadOnlyList<TrackPoint>> DropoffPointsAsync(
         Dictionary<string, object> order, Dictionary<string, AttributeValue> delivery)
     {
-        var stamped = DropoffJudgement.StampedPoints(order);
-        if (stamped.Count > 0)
-        {
-            return stamped;
-        }
-
-        var points = new List<TrackPoint>(2);
-        if (OrderDeliveryLocation.Of(order) is { } own)
+        var points = DropoffJudgement.StampedPoints(order).ToList();
+        if (DropoffJudgement.ReadsLiveOrderPoint(order) && OrderDeliveryLocation.Of(order) is { } own)
         {
             points.Add(own);
         }
 
         var tripId = AttrString(delivery, "tripId");
-        if (tripId.Length > 0
+        if (DropoffJudgement.ReadsLiveTripPoint(order)
+            && tripId.Length > 0
             && TripTrack.PlannedDropoff(await GetTripItemAsync(tripId) is { } trip ? CropRepository.FromItem(trip) : null, order: null) is { } destination)
         {
             points.Add(destination);
         }
 
         return points;
+    }
+
+    /// <summary>FUP-204: keep the out-of-range attempt (best effort; false when it was not stored).</summary>
+    private async Task<bool> KeepDropoffAttemptAsync(string orderId, Dictionary<string, object> entry, ILambdaContext context)
+    {
+        try
+        {
+            return await _orderRepo.TryRecordDropoffAttemptAsync(orderId, entry);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Drop-off check-in: the out-of-range attempt of order {MoneyAlarmLog.LogId(orderId)} could not be kept [{ex.GetType().Name}].");
+            return false;
+        }
     }
 }

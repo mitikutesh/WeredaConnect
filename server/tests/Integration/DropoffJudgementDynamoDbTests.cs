@@ -44,8 +44,11 @@ public sealed class DropoffJudgementDynamoDbTests
 
     private string TripId => Id("trip");
 
-    /// <summary>An order picked up with the flag on: the stamp written by the order's own advance.</summary>
-    private async Task SeedOrderAsync(DateTime t8)
+    /// <summary>
+    /// An order picked up with the flag on: the stamp written by the order's own advance. Without
+    /// <paramref name="tripPoint"/> the buyer's own pin is the only point (the trip was read, it had none).
+    /// </summary>
+    private async Task SeedOrderAsync(DateTime t8, bool tripPoint = true)
     {
         await Ddb.PutItemAsync(new PutItemRequest
         {
@@ -69,8 +72,9 @@ public sealed class DropoffJudgementDynamoDbTests
             }
         });
 
-        var advance = DropoffJudgement.PickupStamp(t8 - OrderTimings.Defaults.DeliveryOverdue,
-            new TrackPoint(9.03, 38.74), new TrackPoint(9.01, 38.76), OrderTimings.Defaults);
+        var pickedUpAt = t8 - OrderTimings.Defaults.DeliveryOverdue;
+        var advance = DropoffJudgement.PickupStamp(pickedUpAt, new TrackPoint(9.03, 38.74),
+            tripPoint ? new TrackPoint(9.01, 38.76) : null, tripRead: true, OrderTimings.Defaults, nowUtc: pickedUpAt);
         advance["status"] = "in_transit";
         (await Repo.UpdateAsync(OrderId, advance, 6)).IsSuccess.Should().BeTrue();
     }
@@ -273,6 +277,38 @@ public sealed class DropoffJudgementDynamoDbTests
         order[DropoffJudgement.DisputeReasonField].Should().Be(DropoffJudgement.OverdueReason);
         order[DropoffJudgement.Field].Should().Be(DropoffJudgement.Outcome.DeliveryOverdue);
         OrderDeadlines.Stored(order).Should().BeNull();
+    }
+
+    [LocalDynamoDbFact]
+    public async Task FUP204_TheBuyersPinTheOnlyPoint_ATruckerWhoCameOutOfRange_GoesToAnAdmin_NotToTheOverdueDispute()
+    {
+        // The trip has no destination, so the buyer's own pin is the only point; the trucker's photo-backed
+        // check-in more than 5 km from it is kept as an attempt, never as a check-in.
+        await SeedOrderAsync(DateTime.UtcNow.AddMinutes(-30), tripPoint: false);
+        var before = await ReadOrderAsync();
+        var attempt = Entry(DateTime.UtcNow.AddHours(-5));
+        attempt[PickupJudgement.EntryDistanceChecked] = false;
+        attempt[PickupJudgement.EntryOutOfRange] = true;
+        (await Repo.TryRecordDropoffAttemptAsync(OrderId, attempt)).Should().BeTrue();
+        (await Repo.TryRecordDropoffAttemptAsync(OrderId, attempt)).Should().BeFalse("the first attempt is kept");
+        var withAttempt = await ReadOrderAsync();
+        withAttempt["version"].Should().Be(before["version"]);
+        OrderDeadlines.Stored(withAttempt).Should().Be(OrderDeadlines.Stored(before), "an attempt is no check-in");
+        await SeedDeliveryAsync();
+        await SeedEscrowAsync();
+
+        var response = await RunAsync(Cron());
+
+        response.Body.Should().Contain("\"dropoffJudged\":\"1\"");
+        var order = await ReadOrderAsync();
+        order["status"].Should().Be("in_transit");
+        order[DropoffJudgement.Field].Should().Be(DropoffJudgement.Outcome.Queued);
+        order[AdminQueueFields.Reason].Should().Be(DropoffJudgement.OutOfRangeReason);
+        order.Should().NotContainKey(DropoffJudgement.DisputeReasonField, "no R12");
+        OrderDeadlines.Stored(order).Should().BeNull();
+        (await new EscrowRepository(Ddb, _db.Escrows).GetByIdAsync($"escrow-order-{OrderId}", consistentRead: true))!["status"]
+            .Should().Be("escrowed", "nothing is frozen");
+        (await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!["status"].Should().Be("inTransit");
     }
 
     [LocalDynamoDbFact]

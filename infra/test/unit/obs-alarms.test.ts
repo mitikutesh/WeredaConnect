@@ -182,6 +182,7 @@ describe('ESC-36: an overdue delivery (T8)', () => {
   const LINES = [
     'ORDER_DELIVERY_OVERDUE orderId=ord-1 deliveryId=del-1 outcome=disputed escrow=frozen: no delivery by its deadline; an admin reviews the dispute and the trucker.',
     'ORDER_DELIVERY_OVERDUE orderId=ord-1 deliveryId=del-1 outcome=queued escrow=RefusedRefundScheduled: no delivery by its deadline; an admin reviews the dispute and the trucker.',
+    'DROPOFF_QUEUE_NOT_WRITTEN orderId=ord-1 reason=silent_buyer queued=hold-cap: the order waits in the admin queue for another reason; decide its drop-off too.',
   ];
   const NEIGHBOURS = [
     'DROPOFF_JUDGED orderId=ord-1 outcome=delivery_overdue',
@@ -192,7 +193,8 @@ describe('ESC-36: an overdue delivery (T8)', () => {
 
   test.each([false, true])('one filter, on the order-cron log group, bare and prefixed (live %s)', (live) => {
     const template = monitoringTemplate(live);
-    const [filter] = expectRareTokenFilters(template, 'DeliveryOverdue', '"ORDER_DELIVERY_OVERDUE"', [lg('order-cron')]);
+    const [filter] = expectRareTokenFilters(template, 'DeliveryOverdue', '?"ORDER_DELIVERY_OVERDUE" ?"DROPOFF_QUEUE_NOT_WRITTEN"',
+      [lg('order-cron')]);
     expectMatches(filter.Properties.FilterPattern, LINES, NEIGHBOURS);
     expectDefangedTextMatchesNothing([filter.Properties.FilterPattern]);
   });
@@ -210,7 +212,7 @@ describe('ESC-36: an overdue delivery (T8)', () => {
       OKActions: notifiesTopic,
     });
     const description = alarmNamed(template, 'wereda-connect-dev-delivery-overdue').Properties.AlarmDescription ?? '';
-    for (const token of ['ORDER_DELIVERY_OVERDUE', 'outcome=disputed', 'outcome=queued', '.ai/deployment.md']) {
+    for (const token of ['ORDER_DELIVERY_OVERDUE', 'DROPOFF_QUEUE_NOT_WRITTEN', 'outcome=disputed', 'outcome=queued', '.ai/deployment.md']) {
       expect([token, description.includes(token)]).toEqual([token, true]);
     }
     expect(description.length).toBeLessThanOrEqual(1024);
@@ -220,6 +222,7 @@ describe('ESC-36: an overdue delivery (T8)', () => {
   test('the server writes the token the filter reads', () => {
     const cron = serverSource('Functions/OrderCronFunction.DropoffJudgement.cs');
     expect(cron).toContain('DeliveryOverdueToken = "ORDER_DELIVERY_OVERDUE"');
+    expect(cron).toContain('DropoffQueueNotWrittenToken = "DROPOFF_QUEUE_NOT_WRITTEN"');
     expect(cron).toContain('$"{DeliveryOverdueToken} orderId={MoneyAlarmLog.LogId(orderId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)} "');
   });
 });

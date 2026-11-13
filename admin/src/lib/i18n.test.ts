@@ -350,7 +350,7 @@ describe("legs and stuck order strings exist in every locale", () => {
         // ESC-34: the judgement's deadline kind and its queue reasons.
         "pickup_judgement", "both_present_no_scan", "unchecked_check_in", "late_pickup_evidence",
         // ESC-36: T8 and T9 (deadline kinds and queue reasons of the same names).
-        "delivery_overdue", "silent_buyer",
+        "delivery_overdue", "silent_buyer", "dropoff_out_of_range",
       ].map((r) => `stuckOrders.reason_${r}`),
     ];
     for (const locale of locales) {

@@ -72,6 +72,7 @@ public sealed class SyncFunctionDropoffCheckInTests
                 _recorded.Add((call.ArgAt<Dictionary<string, object>>(1), call.ArgAt<bool>(2)));
                 return true;
             });
+        _orders.TryRecordDropoffAttemptAsync(OrderId, Arg.Any<Dictionary<string, object>>()).Returns(true);
         _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable), Arg.Any<CancellationToken>())
             .Returns(_ => new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { DeliveryItem() } });
         _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == TripsTable), Arg.Any<CancellationToken>())
@@ -134,6 +135,15 @@ public sealed class SyncFunctionDropoffCheckInTests
         }
 
         return item;
+    }
+
+    private void ServeTripDestination(double latitude, double longitude)
+    {
+        var trip = TripItem();
+        trip["destinationLatitude"] = new AttributeValue { N = Text(latitude) };
+        trip["destinationLongitude"] = new AttributeValue { N = Text(longitude) };
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == TripsTable), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { trip } });
     }
 
     private static Dictionary<string, AttributeValue> TripItem() => new()
@@ -231,12 +241,58 @@ public sealed class SyncFunctionDropoffCheckInTests
     }
 
     [Fact]
-    public async Task AFixFarFromBothPoints_IsRefused_TooFar()
+    public async Task AFixFarFromBothPoints_IsRefused_TooFar_AndKeptAsAnAttempt()
     {
+        var result = await CheckInAsync(TruckerId, Arrived(FarLat));
+
+        MessageOf(result).Should().StartWith($"{PickupJudgement.TooFarCode}: ").And.EndWith("The attempt was kept for review.");
+        await NoWriteAsync();
+        await _orders.Received(1).TryRecordDropoffAttemptAsync(OrderId, Arg.Is<Dictionary<string, object>>(e =>
+            (bool)e[PickupJudgement.EntryOutOfRange] && !(bool)e[PickupJudgement.EntryDistanceChecked] && (string)e[PickupJudgement.EntryBy] == TruckerId));
+    }
+
+    [Fact]
+    public async Task FUP204_TheBuyersPinTheOnlyPoint_AFarCheckIn_IsKeptAsAnAttempt_AndALaterTripDestinationNeverCounts()
+    {
+        // The trip was read at pickup without a destination; the trucker added one since, right where the
+        // fix is. Only the buyer's pin, 19 km away, counts.
+        _order = Order();
+        _order.Remove(DropoffJudgement.TripLatitudeField);
+        _order.Remove(DropoffJudgement.TripLongitudeField);
+        _order[DropoffJudgement.TripReadField] = true;
+        ServeTripDestination(FarLat, OrderLon);
+
         var result = await CheckInAsync(TruckerId, Arrived(FarLat));
 
         MessageOf(result).Should().StartWith($"{PickupJudgement.TooFarCode}: ");
         await NoWriteAsync();
+        await _orders.Received(1).TryRecordDropoffAttemptAsync(OrderId, Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task ATripThatCouldNotBeReadAtPickup_IsReadLive_PointByPoint()
+    {
+        // Only the buyer's pin was stamped (the trip read failed): the trip's live destination counts.
+        _order = Order();
+        _order.Remove(DropoffJudgement.TripLatitudeField);
+        _order.Remove(DropoffJudgement.TripLongitudeField);
+        ServeTripDestination(FarLat, OrderLon);
+
+        var result = await CheckInAsync(TruckerId, Arrived(FarLat));
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        ((bool)_recorded.Single().Entry[PickupJudgement.EntryDistanceChecked]).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AFarCheckInAfterT8_IsNotKept()
+    {
+        _order = Order(deadline: DateTime.UtcNow.AddMinutes(-5));
+
+        var result = await CheckInAsync(TruckerId, Arrived(FarLat));
+
+        MessageOf(result).Should().StartWith($"{PickupJudgement.TooFarCode}: ").And.NotContain("kept");
+        await _orders.DidNotReceive().TryRecordDropoffAttemptAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
     [Fact]
