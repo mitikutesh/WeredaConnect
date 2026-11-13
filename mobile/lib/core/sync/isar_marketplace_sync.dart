@@ -15,6 +15,7 @@ import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
+import 'package:wereda_connect/core/sync/dropoff_check_in_preflight.dart';
 import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/order_lead_store.dart';
@@ -182,6 +183,8 @@ class IsarMarketplaceSync implements MarketplaceSync {
           // the path of the one it took (its upload waits in the queue).
           d.pickupPhotoRef ??= _localPhotoPath(existing.pickupPhotoRef);
           d.dropoffPhotoRef ??= _localPhotoPath(existing.dropoffPhotoRef);
+          // ESC-36 (FUP-336): the same for the trucker's arrival photo.
+          d.arrivalPhotoRef ??= _localPhotoPath(existing.arrivalPhotoRef);
         }
         await _isar.deliverys.put(d);
       }
@@ -277,7 +280,9 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// check-in (ESC-34, FUP-285) wrote nothing to the order, and its mark went
   /// with the rejected operation: the order is read again ([pullOrder], best
   /// effort), so a late one the server kept for review, or the judgement,
-  /// shows. Other entity types are left alone.
+  /// shows; a drop-off check-in refused for its missing arrival photo also
+  /// forgets the photo path the phone kept ([_forgetArrivalPhoto], FUP-336).
+  /// Other entity types are left alone.
   Future<void> revertRejected(SyncOperation operation, String message) async {
     if (operation.entityType == 'delivery') {
       await _revertRejectedDelivery(operation);
@@ -286,6 +291,9 @@ class IsarMarketplaceSync implements MarketplaceSync {
     if (operation.entityType == handoffCheckInEntityType) {
       final orderId = parseHandoffCheckInEntityId(operation.entityId)?.orderId;
       if (orderId == null) return;
+      if (message.startsWith(CheckInRefusal.photoRequired)) {
+        await _forgetArrivalPhoto(operation);
+      }
       _lastOrderPull = null;
       try {
         await pullOrder(orderId);
@@ -668,6 +676,29 @@ class IsarMarketplaceSync implements MarketplaceSync {
   static String? _localPhotoPath(String? ref) =>
       ref != null && ref.startsWith('/') ? ref : null;
 
+  /// ESC-36 (FUP-336): the server refused a drop-off check-in
+  /// `CHECKIN_PHOTO_REQUIRED`, so the arrival photo this phone kept for its
+  /// delivery never reached it (the upload was given up). The phone forgets
+  /// that file's path, so the next "Arrived at drop-off" takes a new photo
+  /// instead of counting on one the server will never get. A server key
+  /// stays.
+  Future<void> _forgetArrivalPhoto(SyncOperation operation) async {
+    final deliveryId = dropoffCheckInDeliveryIdOf(operation.data);
+    if (deliveryId == null) return;
+    await _isar.writeTxn(() async {
+      final delivery = await _isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(deliveryId)
+          .findFirst();
+      if (delivery == null ||
+          _localPhotoPath(delivery.arrivalPhotoRef) == null) {
+        return;
+      }
+      delivery.arrivalPhotoRef = null;
+      await _isar.deliverys.put(delivery);
+    });
+  }
+
   Future<Set<String>> _entityIdsWithPendingUploads() async {
     final ops = await _isar.syncOperations
         .filter()
@@ -898,6 +929,10 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ..status = _parseDeliveryStatus(m['status'] as String?)
       ..pickupPhotoRef = m['pickupPhotoRef'] as String?
       ..dropoffPhotoRef = m['dropoffPhotoRef'] as String?
+      // ESC-36 (FUP-336): the trucker's arrival photo and the system's
+      // confirm for a silent buyer.
+      ..arrivalPhotoRef = m['arrivalPhotoRef'] as String?
+      ..autoConfirmedAt = _tryParseUtc(m['autoConfirmedAt'] as String?)
       ..disputeReason = m['disputeReason'] as String?
       ..pickedUpAt = _tryParseUtc(m['pickedUpAt'] as String?)
       ..confirmedAt = _tryParseUtc(m['confirmedAt'] as String?)

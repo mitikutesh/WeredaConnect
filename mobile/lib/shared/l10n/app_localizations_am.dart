@@ -5742,4 +5742,115 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get checkInAlreadyGiven => 'አስቀድመው አረጋግጠዋል።';
+
+  @override
+  String get deliveryPhotoArrival => 'የመድረሻ ፎቶ';
+
+  @override
+  String deliveryAutoConfirmedAt(String time) {
+    return 'ሹፌሩ ማውረጃ ቦታ መድረሱን ካረጋገጠ በኋላ ገዢው ምላሽ ስላልሰጠ ሲስተሙ $time አረጋግጦታል።';
+  }
+
+  @override
+  String get dropoffCheckInTitle => 'ማውረጃ ቦታ መድረስ';
+
+  @override
+  String get dropoffCheckInPartyTrucker => 'ሹፌሩ ማውረጃ ቦታ ላይ';
+
+  @override
+  String get dropoffCheckInButton => 'ማውረጃ ቦታ ደርሻለሁ';
+
+  @override
+  String get dropoffCheckInPhotoHint =>
+      'መጀመሪያ ማውረጃ ቦታ ላይ የእቃውን ፎቶ ያንሱ፤ ከዚያ ቦታዎ ይነበባል።';
+
+  @override
+  String dropoffCheckInTruckerNote(String time) {
+    return 'ማውረጃ ቦታ ሲደርሱ እስከ $time ድረስ ያረጋግጡ። እስከዚያ ካላረጋገጡ ማድረሱ እንደዘገየ ለድጋፍ ሰጪዎች ይተላለፋል።';
+  }
+
+  @override
+  String dropoffCheckInWaitingNote(String time) {
+    return 'ሹፌሩ እስከ $time ድረስ ማውረጃ ቦታ መድረሱን ያረጋግጣል። እስከዚያ ካላረጋገጠ ማድረሱ እንደዘገየ ለድጋፍ ሰጪዎች ይተላለፋል።';
+  }
+
+  @override
+  String dropoffCheckInBuyerConfirmBy(String time) {
+    return 'ሹፌሩ ማውረጃ ቦታ መድረሱን አረጋግጧል። ምርቱን ሲቀበሉ ማድረሱን ያረጋግጡ። እስከ $time ካላረጋገጡ ማድረሱ በእርስዎ ምትክ ሊረጋገጥ ይችላል።';
+  }
+
+  @override
+  String dropoffCheckInPartyConfirmBy(String time) {
+    return 'ሹፌሩ ማውረጃ ቦታ መድረሱን አረጋግጧል። ገዢው እስከ $time ካላረጋገጠ ማድረሱ በገዢው ምትክ ሊረጋገጥ ይችላል።';
+  }
+
+  @override
+  String get dropoffCheckInOutcomeSoon => 'የመጨረሻው ጊዜ አልፏል። ውጤቱ በቅርቡ ይገለጻል።';
+
+  @override
+  String get dropoffCheckInNeedsLocation =>
+      'ቦታዎን ማግኘት አልቻልንም። የቦታ አገልግሎትን አብርተው ማውረጃ ቦታ ላይ እንደገና ይሞክሩ።';
+
+  @override
+  String get dropoffCheckInLocationBlocked =>
+      'ለዚህ መተግበሪያ የቦታ ፈቃድ ተከልክሏል። በመተግበሪያው ቅንብሮች ውስጥ ይፍቀዱ፣ ከዚያ ማውረጃ ቦታ ላይ እንደገና ይሞክሩ።';
+
+  @override
+  String get dropoffCheckInLocationBlockedWeb =>
+      'ለዚህ ድረ ገጽ የቦታ ፈቃድ ተከልክሏል። በአሳሹ የድረ ገጽ ቅንብሮች ውስጥ ይፍቀዱ፣ ከዚያ ማውረጃ ቦታ ላይ እንደገና ይሞክሩ።';
+
+  @override
+  String get dropoffJudgementClosed =>
+      'ማድረሱ ከመጨረሻው ጊዜ በፊት ተረጋግጧል ወይም ቅሬታ ቀርቦበታል።';
+
+  @override
+  String get dropoffJudgementAutoConfirmed =>
+      'በሲስተሙ ተረጋግጧል፤ ሹፌሩ ማውረጃ ቦታ መድረሱን ካረጋገጠ በኋላ ገዢው ምላሽ አልሰጠም። ገዢው በተለመደው 48 ሰዓት ውስጥ አሁንም ችግር ማሳወቅ ይችላል።';
+
+  @override
+  String get dropoffJudgementSilentBuyer =>
+      'ሹፌሩ መድረሱን ካረጋገጠ በኋላ ገዢው ምላሽ አልሰጠም፤ ማድረሱም በራሱ ሊረጋገጥ አልቻለም። ድጋፍ ሰጪዎች እያጣሩት ነው፤ ገንዘቡ እንደተያዘ ይቆያል።';
+
+  @override
+  String get dropoffJudgementDeliveryOverdue =>
+      'እስከ ማድረሻው የመጨረሻ ጊዜ የማውረጃ ቦታ ማረጋገጫ አልደረሰም። ድጋፍ ሰጪዎች እያጣሩት ነው፤ ገንዘቡ እንደተያዘ ይቆያል።';
+
+  @override
+  String get dropoffJudgementOutOfRange =>
+      'ሹፌሩ ለማረጋገጥ ሞክሯል፣ ነገር ግን ከማውረጃ ቦታው ከ5 ኪ.ሜ በላይ ርቆ ነበር። ድጋፍ ሰጪዎች እያጣሩት ነው፤ ገንዘቡ እንደተያዘ ይቆያል።';
+
+  @override
+  String get dropoffJudgementQueued =>
+      'ድጋፍ ሰጪዎች ይህን ማድረሻ እየገመገሙ ነው። ገንዘቡ እንደተያዘ ይቆያል።';
+
+  @override
+  String get dropoffJudgementOther => 'የማድረሱ ውሳኔ ተሰጥቷል።';
+
+  @override
+  String get errorCheckInPhotoRequired =>
+      'የመድረሻ ፎቶው ሰርቨሩ ጋር አልደረሰም። መጀመሪያ የመድረሻ ፎቶውን ያንሱ፣ ከዚያ ማውረጃ ቦታ ላይ እንደገና ያረጋግጡ።';
+
+  @override
+  String get errorDropoffCheckInNotOpen =>
+      'ለዚህ ማድረሻ የማውረጃ ቦታ ማረጋገጫ አልተከፈተም፤ ስለዚህ ማረጋገጫዎ አልተቀመጠም።';
+
+  @override
+  String get errorDropoffCheckInNotParty =>
+      'ማውረጃ ቦታ መድረሱን የሚያረጋግጠው የትዕዛዙ ሹፌር ብቻ ነው። ማረጋገጫዎ አልተቀመጠም።';
+
+  @override
+  String get errorDropoffCheckInTooFar =>
+      'ከማውረጃ ቦታው ከ5 ኪ.ሜ በላይ ርቀዋል። ማረጋገጫዎ አልተቀመጠም፤ ሲቀርቡ እንደገና ያረጋግጡ።';
+
+  @override
+  String get errorDropoffCheckInTooFarKept =>
+      'ከማውረጃ ቦታው ከ5 ኪ.ሜ በላይ ርቀዋል። ማረጋገጫዎ አልተቀመጠም፣ ነገር ግን ይህ ሙከራ ለግምገማ ተቀምጧል። ሲቀርቡ እንደገና ያረጋግጡ።';
+
+  @override
+  String get errorDropoffCheckInTooLate =>
+      'ማረጋገጫዎ ሰርቨሩ ጋር የደረሰው ከማድረሻው የመጨረሻ ጊዜ በኋላ ስለሆነ አይቆጠርም። ለግምገማ ተቀምጧል።';
+
+  @override
+  String get errorDropoffCheckInClosed =>
+      'የማድረሻው የመጨረሻ ጊዜ ስላለፈ ማረጋገጫ ተዘግቷል። ማረጋገጫዎ አልተቀመጠም።';
 }

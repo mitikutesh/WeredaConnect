@@ -45,7 +45,11 @@ Future<String?> fetchDeliveryPhotoUrl(String deliveryId, PhotoType type) async {
   // GET /deliveries/{id} answers {"delivery": {...}}; accept a bare object too.
   final delivery = data['delivery'] ?? data;
   if (delivery is! Map) return null;
-  final url =
-      delivery[type == PhotoType.pickup ? 'pickupPhotoUrl' : 'dropoffPhotoUrl'];
+  final url = delivery[switch (type) {
+    PhotoType.pickup => 'pickupPhotoUrl',
+    PhotoType.dropoff => 'dropoffPhotoUrl',
+    // ESC-36 (FUP-336): the trucker's arrival photo, signed the same way.
+    PhotoType.arrival => 'arrivalPhotoUrl',
+  }];
   return url is String && url.isNotEmpty ? url : null;
 }

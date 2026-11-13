@@ -84,12 +84,13 @@ abstract final class DeliveryConstants {
   );
 
   /// Shape of a photo key issued by `POST /deliveries/{id}/photos`:
-  /// `uploads/photos/{deliveryId}/{pickup|dropoff}-{ms}.{webp|jpg}` (the
-  /// phone sends WebP, the browser JPEG; FRD-12). Mirrors the server's
-  /// `DeliveryPhotoKeys`: a `delivery_photo` attach with any other key is
-  /// refused, so a local file path must never be sent.
+  /// `uploads/photos/{deliveryId}/{pickup|dropoff|arrival}-{ms}.{webp|jpg}`
+  /// (the phone sends WebP, the browser JPEG; FRD-12; the trucker's arrival
+  /// photo is ESC-36's). Mirrors the server's `DeliveryPhotoKeys`: a
+  /// `delivery_photo` attach with any other key is refused, so a local file
+  /// path must never be sent.
   static final RegExp serverPhotoRefRegex = RegExp(
-    r'^uploads/photos/[a-zA-Z0-9\-]+/(pickup|dropoff)-\d+\.(webp|jpg)$',
+    r'^uploads/photos/[a-zA-Z0-9\-]+/(pickup|dropoff|arrival)-\d+\.(webp|jpg)$',
   );
 
   /// True when [ref] is a server upload key that belongs to [deliveryId].

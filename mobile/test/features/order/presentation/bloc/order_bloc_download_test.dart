@@ -221,4 +221,14 @@ class _FakeOrderRepository extends BaseOrderRepository {
     HandoffCheckInFix? fix,
   }) =>
       throw UnimplementedError();
+
+  @override
+  Future<bool> checkInAtDropoff(
+    String orderId,
+    String userId, {
+    required String deliveryId,
+    required HandoffCheckInFix? fix,
+    String? arrivalPhotoRef,
+  }) =>
+      throw UnimplementedError();
 }

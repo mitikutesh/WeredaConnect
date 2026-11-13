@@ -125,4 +125,24 @@ abstract class BaseOrderRepository {
     required String kind,
     HandoffCheckInFix? fix,
   });
+
+  /// ESC-36 (FUP-336): the trucker's drop-off check-in (`arrived_dropoff`) on
+  /// an order on the road stamped for the drop-off judgement, with [fix],
+  /// which it needs. The server refuses it until the trucker's arrival photo
+  /// of [deliveryId] is attached, so a new [arrivalPhotoRef] (this phone's
+  /// file, or on web the key the browser just uploaded) goes first: queued
+  /// ahead of the check-in on the phone (the check-in waits for it), attached
+  /// before it is sent on web. Null when the delivery has its photo already.
+  /// A refusal on web throws `SyncRejectedException` with its `CHECKIN_*`
+  /// code. Throws `CheckInNotAllowedException` when the check-in is not this
+  /// user's to give, not open, or has no usable fix
+  /// (`checkDropoffCheckInAllowed`). Returns true when it was queued or sent,
+  /// false when this user had already given it (nothing is sent again).
+  Future<bool> checkInAtDropoff(
+    String orderId,
+    String userId, {
+    required String deliveryId,
+    required HandoffCheckInFix? fix,
+    String? arrivalPhotoRef,
+  });
 }

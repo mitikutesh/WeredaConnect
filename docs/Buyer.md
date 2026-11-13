@@ -123,6 +123,8 @@ When a delivery is created and still pending, the buyer sees:
 
 **Pay for Delivery** opens the **Initiate Payment Screen**.
 
+Only demo builds show **Pay for Delivery**. A build that pays through live Telebirr (`TELEBIRR_LIVE=true`, or any production build) leaves it out: the buyer pays the order from its own page (Pay Now), and the server refuses this delivery payment there (`ESCROW_039`, escrow-protocol.md 2.22.0, FUP-69).
+
 #### Initiate Payment Screen
 
 ```

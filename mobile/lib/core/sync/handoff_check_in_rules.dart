@@ -1,11 +1,15 @@
 /// Wire rules for the arrival check-ins of an accepted order (ESC-34,
-/// FUP-285, `sync-protocol.md` 1.55.0 "Arrival check-ins"). Pure Dart: the
+/// FUP-285, `sync-protocol.md` 1.55.0 "Arrival check-ins") and the trucker's
+/// drop-off check-in (ESC-36, FUP-336, 1.59.0). Pure Dart: the
 /// mobile sync queue and executor, the web order repository and the error
 /// texts all use them.
 library;
 
 /// The create-only sync entity of a check-in.
 const String handoffCheckInEntityType = 'handoff_check_in';
+
+/// The kind of the trucker's drop-off check-in (ESC-36, FUP-336).
+const String dropoffCheckInKind = 'arrived_dropoff';
 
 /// The entity id of the [kind] check-in of an order: `{orderId}#{kind}`. It
 /// names the check-in, not the order, so a check-in waiting on the phone
@@ -37,7 +41,28 @@ abstract final class CheckInRefusal {
   /// It reached the server after the deadline: kept on the order as late
   /// evidence, never counted.
   static const tooLate = 'CHECKIN_TOO_LATE';
+
+  /// ESC-36 (FUP-336): a drop-off check-in reached the server without the
+  /// trucker's arrival photo attached to the delivery.
+  static const photoRequired = 'CHECKIN_PHOTO_REQUIRED';
 }
+
+/// The end of a `CHECKIN_TOO_FAR` message when the server kept the drop-off
+/// attempt as evidence (`sync-protocol.md` 1.59.0): the first one with its
+/// photo, before T8.
+const String checkInAttemptKeptSuffix = 'The attempt was kept for review.';
+
+/// Whether a drop-off check-in refused `CHECKIN_TOO_FAR` was kept for review.
+bool isCheckInAttemptKeptMessage(String? message) =>
+    message != null &&
+    message.startsWith(CheckInRefusal.tooFar) &&
+    message.trimRight().endsWith(checkInAttemptKeptSuffix);
+
+/// Data key of a queued drop-off check-in naming its delivery (FUP-336). A
+/// `_` key: the sync executor never sends it (`wireOperationData`); the
+/// phone's preflight holds the check-in back while the arrival photo of that
+/// delivery still waits in the queue.
+const String handoffCheckInDeliveryIdKey = '_deliveryId';
 
 /// Whether the server refused a check-in for good: any `CHECKIN_*` error.
 bool isCheckInRejectionMessage(String? message) =>

@@ -292,4 +292,22 @@ void main() {
 
     expect(uploader.calls.single.type, 'dropoff');
   });
+
+  test("ESC-36: the trucker's arrival photo goes up as the arrival", () async {
+    const arrivalKey = 'uploads/photos/$_deliveryId/arrival-1700000000000.webp';
+    uploader.answer = () async => arrivalKey;
+    final op = _photoOp(type: 'arrival');
+
+    expect(await preflight(op), isTrue);
+
+    expect(uploader.calls.single.type, 'arrival');
+    expect(jsonDecode(op.data)[deliveryPhotoRefKey], arrivalKey);
+    expect(
+      parseDeliveryPhotoEntityId('$_deliveryId#arrival'),
+      (deliveryId: _deliveryId, type: 'arrival'),
+    );
+    expect(parseDeliveryPhotoEntityId('$_deliveryId#other'), isNull);
+    await preflight.onSynced(op);
+    expect(attached.single['type'], 'arrival');
+  });
 }

@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.21.0
+2.22.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -299,7 +299,8 @@ Since 1.16.0 this `/escrow/initiate` path is **not usable with live Telebirr**: 
 is the client idempotency key (`{userId}:{entityType}:{entityId}:{action}:{timestamp}`), which breaks
 Telebirr's documented `^[A-Za-z0-9]+$` (ESC-45). Since 1.18.0 the server **refuses it up front with
 `422 ESCROW_039`** whenever its gateway is live Telebirr (FUP-36, §Additions in 1.18.0): nothing is
-written, and the buyer pays the order through the order checkout (§Additions in 1.5.0). The mock
+written, and the buyer pays the order through the order checkout (§Additions in 1.5.0). Since 2.22.0
+a live build of the apps no longer offers it (FUP-69, §Additions in 2.22.0). The mock
 gateway and the local simulator are unchanged. The webhook still serves this path: only `Failed`,
 `Failure` or `Expired` cancel the escrow (a `Pending` or `Paying` notification changes nothing), and
 only a notification at most 300 s old is processed.
@@ -3335,7 +3336,7 @@ Mobile and web show `ESCROW_039` with its own message in en, am and om
 (`escrowErrorDeliveryPaymentUnavailable`). A `422` whose body carries an `ESCROW_*` code now keeps
 that code in both repositories (before, `ESCROW_010` and this code fell to the generic text). The
 mobile delivery payment flow itself is not removed: mock deployments still use it. Hiding it when
-the server is live is ESC-46 / ESC-23.
+the server is live is ESC-46 / ESC-23. (Done in 2.22.0, FUP-69: a live build no longer shows it.)
 
 ### Not in 1.18.0 (known limits)
 
@@ -3343,7 +3344,8 @@ the server is live is ESC-46 / ESC-23.
   and `scripts/e2e_full_flow.py --telebirr-sim-url` drive `/escrow/initiate` and are refused under
   the host rule; the order checkout works there. Either move them to the checkout or give the
   simulator an explicit marker in its credentials.
-- Retiring the path once ESC-46 / ESC-23 remove the client flow.
+- Retiring the path once ESC-46 / ESC-23 remove the client flow. (2.22.0 hides it on live builds and
+  says when the path may go: "Not in 2.22.0".)
 
 ---
 
@@ -5860,6 +5862,52 @@ or sync change.
 
 ---
 
+## Additions in 2.22.0 (the delivery payment hidden on live builds, FUP-69)
+
+Client only (mobile and web), no server change. Since 1.18.0 the server refuses `POST /escrow/initiate` with
+`422 ESCROW_039` whenever its gateway is live Telebirr (FUP-36), but the apps still offered the buyer the entry
+that leads there: "Pay for Delivery" on a pending delivery, which opens the payment screen that calls this path
+(or queues the call while offline). On a live deployment that button could only end in the `ESCROW_039` text.
+
+### The rule
+
+- A build that pays through live Telebirr (the apps' `Environment.telebirrLive`: the `TELEBIRR_LIVE=true`
+  define, or any production build; ESC-44) never shows "Pay for Delivery". The buyer pays the order from its
+  own page (Pay Now, §Additions in 1.5.0). The delivery's other steps are unchanged (Confirm Delivery, the
+  self-pickup scan, Cancel Delivery, Raise Dispute).
+- A demo build (the mock gateway or the local simulator) keeps it as before: the buyer of a pending delivery
+  whose linked order holds no money yet.
+- The farmer and the trucker never had it; unchanged.
+- Mobile and web run the same delivery screen. The web app never showed the button in practice (it reads the
+  linked order from the phone's local database, which the web build does not have); the rule now hides it there
+  too.
+- No route, link or notification opens the payment screen directly: the delivery's button was its only entry.
+  A live build therefore queues no new delivery payment. A payment queued by an earlier build is sent once
+  online, meets `ESCROW_039`, and fails at once with its text (2.8.0).
+- An app from before 2.22.0 on a live deployment still shows the button, and its buyer gets the `ESCROW_039`
+  text (en, am, om) on using it, as since 1.18.0.
+
+No endpoint, DTO, status, string or notification changes. Farmer, trucker and buyer visibility is unchanged.
+
+### Not in 2.22.0 (retiring the path)
+
+`POST /escrow/initiate` stays until the apps that offer it on a live deployment have aged out. Aged out means
+both of:
+
+1. The first app build that carries 2.22.0 has been released. The build is the `+N` of `version:` in
+   `mobile/pubspec.yaml` and `ApiConfig.appBuild`, 3 today, so 4 or later; the release bumps it.
+2. `minOrderAppBuild` (`MIN_ORDER_APP_BUILD`, ESC-25) is at least that build in every environment whose server
+   runs live Telebirr (prod always; dev or staging with `enableTelebirrLive`). An app below it is refused every
+   order operation on `/sync` (`APP_UPDATE_REQUIRED`, sync-protocol.md 1.41.0), so an answer other than
+   `ESCROW_039` to its leftover button costs it nothing it could still use.
+
+Retiring then also takes the entry out of demo builds and moves the test drivers that still call the path
+(`scripts/e2e_full_flow.py`, `scripts/e2e_test.py`) to the order checkout. It keeps the webhook for the
+delivery escrows that still exist, the sweeps' double escrow checks and FUP-41's double escrow refund (2.19.0)
+while any such escrow is open, and the apps' `ESCROW_039` text.
+
+---
+
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
 
 > **P.1 to P.9 and P.11 to P.13 are built in 2.2.0** (ESC-20, "Additions in 2.2.0", which says where the
@@ -6204,6 +6252,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.22.0 | 2026-11-13 | The delivery payment hidden on live builds (FUP-69, §Additions in 2.22.0). Client only (mobile and web, the same delivery screen): a build that pays through live Telebirr (`TELEBIRR_LIVE=true`, or any production build) no longer shows the buyer's "Pay for Delivery" on a pending delivery, the only entry to the screen that calls `POST /escrow/initiate`, which the server refuses there with `422 ESCROW_039` since 1.18.0 (FUP-36). Demo builds keep it; the farmer and the trucker never had it. No server, endpoint, DTO, string or notification change; an older app on a live deployment still gets the `ESCROW_039` text. Retiring the path waits until those apps have aged out: the first build carrying 2.22.0 released, and `minOrderAppBuild` at least that build wherever the server runs live Telebirr ("Not in 2.22.0") |
 | 2.21.0 | 2026-11-13 | The verdict's admin exit, the overdue wait, the override removed (FUP-64, closes three 1.21.0 known limits; §Additions in 2.21.0). New disposition `settle_as_is` on `POST /admin/disputes/{id}/resolve` (admin group, with `farmer_wins` or `buyer_wins`, a reason of 10 to 500 characters; `partial_refund` `400 ADMIN_014`) for a verdict no goods disposition fits: recorded and audited as every disposition (`dispute_resolved_settled_as_is`), it closes a live order at `dispute_resolved` (straight from before delivery, through the verdict hops from `delivered` or `disputed`) and writes no delivery; the hourly sweep then releases or refunds through the usual path, re-checking that it still fits. A `buyer_wins` always fits (on a `disbursing` or `settled` order it flags the order, `disputeOverride*`, so its contact closes); a `farmer_wins` only for goods that left the farm, did not come back, on an order that shows no payout in its status or its other escrows (one paid, a release in flight, queued or decided by a verdict) and never on a second escrow while the order's own escrow holds the money (FUP-41's double escrow) (else `422 ADMIN_016` with the reason); a split never (`ADMIN_016`). A no-fit verdict without a disposition answers `422 ADMIN_015` when `settle_as_is` would settle it. A recorded `wait_for_delivery` seven days old logs `DISPUTE_VERDICT_WAIT_OVERDUE` on every sweep (new alarm `${prefix}-dispute-verdict-wait-overdue`, escrow-cron). `overrideOrderMismatch` no longer settles a `dispute_resolved` escrow (still checked; kept for ESC-09 Part B). The order-money sweep counts an order settled as it is as consistent. Admin: the choice, its label, en/am/om. No app change (`order-lifecycle.md` 2.19.0) |
 | 2.20.0 | 2026-11-13 | The hold-cap stamp waits on a standing queue entry (FUP-334, §Additions in 2.20.0). The escrow cron's `holdCapReachedAt` stamp (1.13.0 step 4) is one transaction with a `ConditionCheck` that the order's admin queue entry is still the one it wrote or read (`adminQueue = open`, the same `adminQueuedAt` and `adminQueueEscrowId`), so an entry removed between the read and the stamp (the admin's pickup re-open, FUP-287; a report clear) never leaves a capped escrow with no entry. A refused check, or an escrow no longer `escrowed`, writes nothing and logs the info line `ORDER_ESCROW_HOLD_CAP_STAMP_SKIPPED ... reason=queue_entry_changed|escrow_changed`, with no settlement-failure line or alarm; the escrow stays in the sweep windows and the next run decides again (a no longer queued order gets its own `hold_cap` entry, and the stamp waits on that one). No endpoint, DTO, status, amount or client change; escrow-cron's existing `ConditionCheckItem` on orders covers it. 2.19.0 and 2.20.0 are other changes' numbers |
 | 2.19.0 | 2026-11-13 | The payout gate's overdue alarm and the double escrow refund (FUP-41, closes two 1.15.0 known limits; §Additions in 2.19.0). The hourly sweep's release blocked by the payout identity gate with the reason already stored for 24 hours or more logs `RELEASE_BLOCKED_OVERDUE escrowId=.. leg=<farmer|trucker> reason=.. ageHours=..` on every run (escrow-cron; the 1.x and ledger release and the split verdict; not an admin's release, not a risk block); new metric filter and alarm `releases-blocked-overdue`, level-triggered like the other overdue alarms. `POST /escrow/refund` with `doubleEscrow: true` (admin group, `trigger: admin_override`, a reason of 10 to 500 characters) refunds an `/escrow/initiate` escrow whose order's own escrow holds or paid the money (`escrowed`, `released`, `completed`, `disputed`, `dispute_resolved`, `held`, read strongly consistent on every call), else `409 ESCROW_049`; the decision is recorded by a conditional write on what was read (`doubleEscrowRefund*`, server-only) and audited (`double_escrow_refund`, escrow-audit and transaction-audit) before the existing 1.x refund runs without the order hop; a replay answers the refund made. The sweeps' double escrow check now counts an order escrow that is `completed` (one rule with the refund, plus `initiated`), closing a path that released a second escrow while its order still showed `disbursing`, a second payout to the farmer. Admin escrow DTO: `settlementBlockReason`, `settlementBlockReasonAt`, and on the detail route `orderEscrowStatus` and `doubleEscrow`. Admin: Sweep block row and the Second payment card on the escrow page (en, am, om). No client, route, table or grant change |
