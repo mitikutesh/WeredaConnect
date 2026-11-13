@@ -301,5 +301,23 @@ public sealed class EdgeOverdueMarkersDynamoDbTests
 
         indexed.Should().NotBeNull();
         indexed!.OverdueLoggedFor.Should().Be(createdAt);
+
+        // A status move (pending to sent, the row transition the sweep writes) keeps it too, so the row is
+        // announced once across its open statuses (the marker keys on createdAt).
+        var later = DateTime.UtcNow.AddSeconds(1).ToString("o");
+        var sent = stamped with { Status = LedgerFields.StatusSent, UpdatedAt = later, CallingSince = null, Version = stamped.Version + 1 };
+        (await Ledger.TransitionAsync(new LedgerTransition
+        {
+            Before = stamped,
+            After = sent,
+            Audits = new[]
+            {
+                new LedgerAudit(escrowId, LedgerRefs.AuditTimestamp(later, reference, "ledger_sent"), "ledger_sent", "", "",
+                    "system", $"ref={reference}")
+            }
+        })).Should().Be(LedgerWrite.Written);
+        var moved = (await Ledger.GetRowAsync(escrowId, reference))!;
+        (moved.Status, moved.Version, moved.OverdueLoggedFor).Should().Be((LedgerFields.StatusSent, 6, createdAt));
+        (await Ledger.TryMarkRowOverdueLoggedAsync(escrowId, reference, LedgerFields.StatusSent, createdAt)).Should().BeFalse();
     }
 }
