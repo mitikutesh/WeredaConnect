@@ -116,6 +116,8 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
         int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => _inner.QueryOpenManualPayoutsAsync(limit, exclusiveStartKey);
     public Task<bool> TryMarkManualPayoutOverdueLoggedAsync(string escrowId, string createdAt, string queuedAt)
         => _inner.TryMarkManualPayoutOverdueLoggedAsync(escrowId, createdAt, queuedAt);
+    public Task<bool> TryMarkTruckerPayoutOverdueLoggedAsync(string escrowId, string createdAt, string pendingSince)
+        => _inner.TryMarkTruckerPayoutOverdueLoggedAsync(escrowId, createdAt, pendingSince);
     public Task<Dictionary<string, object>?> GetByDeliveryIdAsync(string deliveryId) => _inner.GetByDeliveryIdAsync(deliveryId);
     public Task<List<Dictionary<string, object>>> QueryByOrderIdAsync(string orderId, int limit = 5) => _inner.QueryByOrderIdAsync(orderId, limit);
     public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByBuyerAsync(
@@ -136,6 +138,8 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
         => _inner.TrySetSettlementBlockReasonAsync(escrowId, createdAt, expectedStatus, reason, reasonAt);
     public Task<bool> TryClearSettlementBlockReasonAsync(string escrowId, string createdAt, string storedReason)
         => _inner.TryClearSettlementBlockReasonAsync(escrowId, createdAt, storedReason);
+    public Task<bool> TryMarkSettlementBlockOverdueLoggedAsync(string escrowId, string createdAt, string reason, string reasonAt)
+        => _inner.TryMarkSettlementBlockOverdueLoggedAsync(escrowId, createdAt, reason, reasonAt);
     public Task<bool> TryRecordDoubleEscrowRefundAsync(
         string escrowId, string createdAt, string orderId, string by, string reason, string at, string orderEscrowStatus)
         => _inner.TryRecordDoubleEscrowRefundAsync(escrowId, createdAt, orderId, by, reason, at, orderEscrowStatus);

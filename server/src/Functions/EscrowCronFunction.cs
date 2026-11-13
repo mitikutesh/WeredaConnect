@@ -604,9 +604,11 @@ public class EscrowCronFunction
             { "truckerLegsFailed", trucker.Failed.ToString() },
             { "truckerLegsDeferred", trucker.Deferred.ToString() },
             { "truckerLegsOverdue", trucker.Overdue.ToString() },
+            { "truckerLegsNewlyOverdue", trucker.NewlyOverdue.ToString() },
             { "ledgerTransportLegsDecided", ledgerTransport.Decided.ToString() },
             { "ledgerTransportLegsBlocked", ledgerTransport.Blocked.ToString() },
             { "ledgerTransportLegsOverdue", ledgerTransport.Overdue.ToString() },
+            { "ledgerTransportLegsNewlyOverdue", ledgerTransport.NewlyOverdue.ToString() },
             { "adminQueueEntered", _adminQueueEntered.ToString() },
             { "adminQueueOverdue", (queueOverdue + _adminQueueOverdue).ToString() },
             { "adminQueueCleared", queueCleared.ToString() },
@@ -633,7 +635,8 @@ public class EscrowCronFunction
             + $"{_manualPayoutsWaiting} waiting for a manual payout, {overdueCount} manual payout legs overdue "
             + $"({newlyOverdueCount} newly), "
             + $"{parkedCount} stale settlement locks parked, trucker legs: {trucker.Paid} paid, {trucker.Queued} queued, "
-            + $"{trucker.Blocked} blocked, {trucker.Failed} failed, {trucker.Deferred} deferred, {trucker.Overdue} overdue, "
+            + $"{trucker.Blocked} blocked, {trucker.Failed} failed, {trucker.Deferred} deferred, {trucker.Overdue} overdue "
+            + $"({trucker.NewlyOverdue} newly), "
             + $"{_adminQueueEntered} orders entered the admin queue, "
             + $"{queueOverdue + _adminQueueOverdue} admin queue entries overdue, {queueCleared} cleared, "
             + $"{_releaseBlocked} releases and {_refundBlocked} refunds blocked, {_disputesFrozen} disputed trades frozen, "
@@ -2108,6 +2111,7 @@ public class EscrowCronFunction
             { "blocked", counts.Blocked.ToString() },
             { "skipped", counts.Skipped.ToString() },
             { "overdue", counts.Overdue.ToString() },
+            { "newlyOverdue", counts.NewlyOverdue.ToString() },
             { "manualOverdue", counts.ManualOverdue.ToString() },
             { "manualNewlyOverdue", counts.ManualNewlyOverdue.ToString() },
             { "invariantFailures", counts.Invariant.ToString() },
@@ -2116,7 +2120,8 @@ public class EscrowCronFunction
         };
         context.Logger.LogInformation(
             $"Ledger sweep complete: {counts.Seen} rows seen, {counts.Done} done, {counts.Sent} sent, {counts.Failed} failed, "
-            + $"{counts.Manual} manual, {counts.Blocked} blocked, {counts.Skipped} skipped, {counts.Overdue} overdue, "
+            + $"{counts.Manual} manual, {counts.Blocked} blocked, {counts.Skipped} skipped, {counts.Overdue} overdue "
+            + $"({counts.NewlyOverdue} newly), "
             + $"{counts.ManualOverdue} manual overdue ({counts.ManualNewlyOverdue} newly), {counts.Invariant} invariant failures.");
 
         return new APIGatewayProxyResponse
@@ -2188,6 +2193,9 @@ public class EscrowCronFunction
         public int Decided { get; set; }
         public int Blocked { get; set; }
         public int Overdue { get; set; }
+
+        /// <summary>FUP-436: transport legs announced overdue for the first time on this run.</summary>
+        public int NewlyOverdue { get; set; }
     }
 
     /// <summary>
@@ -2198,7 +2206,8 @@ public class EscrowCronFunction
     /// blocked more than 24 hours after the farmer was paid (<c>releasedAt</c>) logs the 1.x
     /// <c>TRUCKER_PAYOUT_OVERDUE</c> line every run (alarm <c>trucker-payouts-overdue</c>): no ledger row exists
     /// for it, so <c>LEDGER_ROW_OVERDUE</c> cannot. The read starts from the oldest row every run (no cursor;
-    /// blocked rows at the head can hold back newer ones past the cap, a follow-up).
+    /// blocked rows at the head can hold back newer ones past the cap, a follow-up). FUP-436: the first run that
+    /// reports a leg overdue also logs <c>TRUCKER_PAYOUT_NEWLY_OVERDUE</c> (see <see cref="IsTransportLegNewlyOverdueAsync"/>).
     /// </summary>
     private async Task<LedgerTransportCounts> RetryLedgerTransportLegsAsync(ILambdaContext context)
     {
@@ -2241,17 +2250,26 @@ public class EscrowCronFunction
                         switch (retry.Outcome)
                         {
                             case EscrowService.LedgerCallOutcome.Blocked:
-                                counts.Blocked++;
-                                if (ParseUtc(GetStringOrNull(escrow, "releasedAt")) is { } releasedAt
-                                    && DateTime.UtcNow - releasedAt >= MoneyAlarmLog.QueueAlarmAfter)
                                 {
-                                    context.Logger.LogWarning(MoneyAlarmLog.TruckerPayoutOverdue(
-                                        GetStringOrNull(escrow, "escrowId"), retry.BlockReason ?? "blocked",
-                                        (int)(DateTime.UtcNow - releasedAt).TotalHours));
-                                    counts.Overdue++;
-                                }
+                                    counts.Blocked++;
+                                    var releasedAtText = GetStringOrNull(escrow, "releasedAt");
+                                    if (ParseUtc(releasedAtText) is { } releasedAt
+                                        && DateTime.UtcNow - releasedAt >= MoneyAlarmLog.QueueAlarmAfter)
+                                    {
+                                        var escrowId = GetStringOrNull(escrow, "escrowId");
+                                        var reason = retry.BlockReason ?? "blocked";
+                                        var ageHours = (int)(DateTime.UtcNow - releasedAt).TotalHours;
+                                        context.Logger.LogWarning(MoneyAlarmLog.TruckerPayoutOverdue(escrowId, reason, ageHours));
+                                        counts.Overdue++;
+                                        if (await IsTransportLegNewlyOverdueAsync(ledger, escrow, escrowId, releasedAtText!, context))
+                                        {
+                                            context.Logger.LogWarning(MoneyAlarmLog.TruckerPayoutNewlyOverdue(escrowId, reason, ageHours));
+                                            counts.NewlyOverdue++;
+                                        }
+                                    }
 
-                                break;
+                                    break;
+                                }
                             case null:
                                 break;
                             default:
@@ -2271,6 +2289,78 @@ public class EscrowCronFunction
         return counts;
     }
 
+    /// <summary>
+    /// FUP-436: true once per owed transport leg, keyed on the escrow's <c>releasedAt</c> (its overdue age counts
+    /// from there), with the rules of <see cref="IsNewlyOverdueAsync"/>: a marker that already names it answers false
+    /// without a write; otherwise the conditional write decides (false: another run marked it, or the leg was paid
+    /// since the read).
+    /// </summary>
+    private static async Task<bool> IsTransportLegNewlyOverdueAsync(
+        IEscrowLedgerRepository ledger, Dictionary<string, object> escrow, string? escrowId, string releasedAt,
+        ILambdaContext context)
+    {
+        if (GetStringOrNull(escrow, TruckerPayoutFields.OverdueLoggedFor) == releasedAt)
+        {
+            return false;
+        }
+
+        var createdAt = GetStringOrNull(escrow, "createdAt");
+        if (escrowId == null || createdAt == null)
+        {
+            return true; // an index row always carries both
+        }
+
+        return await MarkNewlyOverdueAsync(
+            () => ledger.TryMarkTransportOverdueLoggedAsync(escrowId, createdAt, releasedAt), "Ledger transport retry",
+            escrowId, context);
+    }
+
+    /// <summary>
+    /// FUP-436: true once per owed 1.x trucker leg, keyed on its <c>truckerPayoutPendingSince</c>, with the rules of
+    /// <see cref="IsNewlyOverdueAsync"/>. A leg without a pending time (before ESC-04; such a leg is parked, not
+    /// retried) cannot be keyed, so it is announced on every run that reports it.
+    /// </summary>
+    private async Task<bool> IsTruckerLegNewlyOverdueAsync(
+        Dictionary<string, object> row, string? escrowId, ILambdaContext context)
+    {
+        var since = GetStringOrNull(row, TruckerPayoutFields.PendingSince);
+        if (since != null && GetStringOrNull(row, TruckerPayoutFields.OverdueLoggedFor) == since)
+        {
+            return false;
+        }
+
+        var createdAt = GetStringOrNull(row, "createdAt");
+        if (escrowId == null || createdAt == null || since == null)
+        {
+            return true;
+        }
+
+        return await MarkNewlyOverdueAsync(
+            () => _escrowRepo.TryMarkTruckerPayoutOverdueLoggedAsync(escrowId, createdAt, since), "Trucker retry",
+            escrowId, context);
+    }
+
+    /// <summary>
+    /// FUP-436: one newly overdue marker write. Its answer when it lands or its condition is refused; a write that
+    /// fails for another reason (throttling, IAM) announces anyway with a warning that names the escrow, so the next
+    /// run may announce the item again, but a newly overdue item is never hidden.
+    /// </summary>
+    private static async Task<bool> MarkNewlyOverdueAsync(
+        Func<Task<bool>> mark, string report, string escrowId, ILambdaContext context)
+    {
+        try
+        {
+            return await mark();
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"{report}: the newly overdue marker of {MoneyAlarmLog.LogId(escrowId)} was not written: "
+                + $"[{ex.GetType().Name}]. Announced anyway; the next run may announce it again.");
+            return true;
+        }
+    }
+
     /// <summary>What the trucker retry did this run (ESC-04).</summary>
     private sealed class TruckerRetryCounts
     {
@@ -2280,6 +2370,9 @@ public class EscrowCronFunction
         public int Failed { get; set; }
         public int Deferred { get; set; }
         public int Overdue { get; set; }
+
+        /// <summary>FUP-436: legs announced overdue for the first time on this run.</summary>
+        public int NewlyOverdue { get; set; }
     }
 
     /// <summary>
@@ -2288,7 +2381,8 @@ public class EscrowCronFunction
     /// went pending in this run waits for the next one. A trucker lock (and so a gateway call) is
     /// taken only while the run has more than <see cref="TruckerRetryTimeReserve"/> left and fewer
     /// than <see cref="MaxTruckerGatewayCallsPerRun"/> calls were made. Every leg still owed more
-    /// than 24 hours after it went pending logs <c>TRUCKER_PAYOUT_OVERDUE</c>, so none waits silently.
+    /// than 24 hours after it went pending logs <c>TRUCKER_PAYOUT_OVERDUE</c>, so none waits silently, and
+    /// (FUP-436) the first run that reports it also logs <c>TRUCKER_PAYOUT_NEWLY_OVERDUE</c>.
     /// A failed query logs <c>sweep_failed</c>; rows past the read cap log <c>sweep_truncated</c>.
     /// </summary>
     private async Task<TruckerRetryCounts> RetryPendingTruckerLegsAsync(ILambdaContext context, DateTime runStart)
@@ -2377,8 +2471,15 @@ public class EscrowCronFunction
             var age = pendingSince is { } at ? now - at : MoneyAlarmLog.QueueAlarmAfter; // unreadable time: overdue
             if (age >= MoneyAlarmLog.QueueAlarmAfter)
             {
-                context.Logger.LogWarning(MoneyAlarmLog.TruckerPayoutOverdue(escrowId, result.Reason ?? "pending", (int)age.TotalHours));
+                var reason = result.Reason ?? "pending";
+                context.Logger.LogWarning(MoneyAlarmLog.TruckerPayoutOverdue(escrowId, reason, (int)age.TotalHours));
                 counts.Overdue++;
+                // FUP-436: the first run that reports the leg, so a standing trucker-payouts-overdue cannot mask it.
+                if (await IsTruckerLegNewlyOverdueAsync(row, escrowId, context))
+                {
+                    context.Logger.LogWarning(MoneyAlarmLog.TruckerPayoutNewlyOverdue(escrowId, reason, (int)age.TotalHours));
+                    counts.NewlyOverdue++;
+                }
             }
         }
 

@@ -228,8 +228,12 @@ internal sealed class InMemoryLedger : IEscrowLedgerRepository
             }
         }
 
-        // Like the real BuildRowUpdate, a transition never touches the FUP-06 marker.
-        var after = transition.After with { ManualOverdueLoggedFor = current.ManualOverdueLoggedFor };
+        // Like the real BuildRowUpdate, a transition never touches the FUP-06 and FUP-436 markers.
+        var after = transition.After with
+        {
+            ManualOverdueLoggedFor = current.ManualOverdueLoggedFor,
+            OverdueLoggedFor = current.OverdueLoggedFor
+        };
         if (after.Status != LedgerFields.StatusDone && after.DueAt == null)
         {
             after = after with { DueAt = after.UpdatedAt };
@@ -293,6 +297,62 @@ internal sealed class InMemoryLedger : IEscrowLedgerRepository
         }
 
         Rows[(escrowId, reference)] = current with { ManualOverdueLoggedFor = dueAt };
+        return Task.FromResult(true);
+    }
+
+    /// <summary>FUP-436: throws from the next open-row marker write instead of writing it.</summary>
+    public Exception? ThrowOnNextOpenRowOverdueMark { get; set; }
+
+    /// <summary>FUP-436: the open-row marker writes asked for, landed or not.</summary>
+    public int OpenRowOverdueMarkWrites { get; private set; }
+
+    public Task<bool> TryMarkRowOverdueLoggedAsync(string escrowId, string reference, string status, string createdAt)
+    {
+        OpenRowOverdueMarkWrites++;
+        if (ThrowOnNextOpenRowOverdueMark is { } toThrow)
+        {
+            ThrowOnNextOpenRowOverdueMark = null;
+            throw toThrow;
+        }
+
+        if (!Rows.TryGetValue((escrowId, reference), out var current)
+            || current.Status != status
+            || current.CreatedAt != createdAt
+            || current.OverdueLoggedFor == createdAt)
+        {
+            return Task.FromResult(false);
+        }
+
+        Rows[(escrowId, reference)] = current with { OverdueLoggedFor = createdAt };
+        return Task.FromResult(true);
+    }
+
+    /// <summary>FUP-436: the transport-leg marker writes asked for, landed or not.</summary>
+    public int TransportOverdueMarkWrites { get; private set; }
+
+    /// <summary>FUP-436: throws from the next transport-leg marker write instead of writing it.</summary>
+    public Exception? ThrowOnNextTransportOverdueMark { get; set; }
+
+    public Task<bool> TryMarkTransportOverdueLoggedAsync(string escrowId, string createdAt, string releasedAt)
+    {
+        TransportOverdueMarkWrites++;
+        if (ThrowOnNextTransportOverdueMark is { } toThrow)
+        {
+            ThrowOnNextTransportOverdueMark = null;
+            throw toThrow;
+        }
+
+        if (!Escrows.TryGetValue(escrowId, out var item)
+            || !LedgerEscrowFields.IsLedger(item)
+            || item["createdAt"]?.ToString() != createdAt
+            || !LedgerEscrow.From(item).IsHeld(LedgerEscrowFields.LegTransport)
+            || (item.TryGetValue("releasedAt", out var released) ? released?.ToString() : null) != releasedAt
+            || (item.TryGetValue(TruckerPayoutFields.OverdueLoggedFor, out var logged) ? logged?.ToString() : null) == releasedAt)
+        {
+            return Task.FromResult(false);
+        }
+
+        item[TruckerPayoutFields.OverdueLoggedFor] = releasedAt;
         return Task.FromResult(true);
     }
 

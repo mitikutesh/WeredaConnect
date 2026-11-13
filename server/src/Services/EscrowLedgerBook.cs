@@ -45,6 +45,13 @@ internal sealed record LedgerRow
     /// </summary>
     public string? ManualOverdueLoggedFor { get; init; }
 
+    /// <summary>
+    /// FUP-436: the <see cref="CreatedAt"/> of a row open in <c>pending</c>, <c>sent</c> or <c>failed</c> whose overdue
+    /// line the ledger sweep has announced (<c>LEDGER_ROW_NEWLY_OVERDUE</c>). Bookkeeping, no version; never written
+    /// by a row write.
+    /// </summary>
+    public string? OverdueLoggedFor { get; init; }
+
     public bool IsOfAmount => LedgerRefs.IsRowOfAmount(Ref);
 
     /// <summary>A row the gateway pays out of the platform account to the buyer.</summary>

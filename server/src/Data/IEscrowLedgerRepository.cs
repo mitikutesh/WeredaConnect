@@ -67,6 +67,22 @@ internal interface IEscrowLedgerRepository
     Task<bool> TryMarkManualOverdueLoggedAsync(string escrowId, string reference, string dueAt);
 
     /// <summary>
+    /// FUP-436: record that the ledger sweep announced this open row's overdue (<c>overdueLoggedFor = createdAt</c>),
+    /// only while the row is still in <paramref name="status"/> (<c>pending</c>, <c>sent</c> or <c>failed</c>), was
+    /// created at <paramref name="createdAt"/> and is not announced yet. No version moves. False when the condition
+    /// failed; any other failure throws.
+    /// </summary>
+    Task<bool> TryMarkRowOverdueLoggedAsync(string escrowId, string reference, string status, string createdAt);
+
+    /// <summary>
+    /// FUP-436: record on the escrow row that the hourly run announced its owed transport leg, released to the farmer
+    /// at <paramref name="releasedAt"/> (<c>truckerPayoutOverdueLoggedFor = releasedAt</c>), only while it is a ledger
+    /// escrow whose transport leg is still held, released at that time, and not announced yet. No version or
+    /// <c>updatedAt</c> moves. False when the condition failed; any other failure throws.
+    /// </summary>
+    Task<bool> TryMarkTransportOverdueLoggedAsync(string escrowId, string createdAt, string releasedAt);
+
+    /// <summary>
     /// F2: one page of ledger escrows in <paramref name="status"/> (<c>StatusExpiresIndex</c>, oldest first) whose
     /// crop leg is decided and whose transport leg is still held: the trucker failed the identity gate at the
     /// release. The hourly retry pays them once the gate passes.
