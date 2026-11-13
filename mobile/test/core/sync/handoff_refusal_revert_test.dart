@@ -49,7 +49,10 @@ const _deliveryId = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
 /// together must end with the server's `pending` on the phone, nothing left
 /// to resend and nothing counted as "Sync failed". Before FUP-439 the code
 /// was retried; with it permanent but the registration still waiting, the
-/// revert skipped the delivery and the phone kept `pickedUp`.
+/// revert skipped the delivery and the phone kept `pickedUp`. FUP-456 adds
+/// the trucker's "Mark in transit" queued behind the pickup, which the server
+/// answers with a retried `DELIVERY_INVALID_TRANSITION` and which held the
+/// revert back the same way, so the phone stayed `inTransit`.
 void main() {
   late Isar isar;
   late Directory tempDir;
@@ -222,6 +225,92 @@ void main() {
       refusal,
     );
     // A reconnect sends nothing.
+    await executor.syncNow();
+    expect(syncPosts, 1);
+  });
+
+  test(
+      'a pickup refused for its GPS with "Mark in transit" queued behind it '
+      'puts the phone back to pending and sends the mark no more', () async {
+    await deliveries.confirmPickup(
+      deliveryId: _deliveryId,
+      truckerId: 'trucker-1',
+      gpsPickup: LatLng()
+        ..latitude = 9.1
+        ..longitude = 38.7,
+      scannedQrNonce: 'n',
+    );
+    // Idempotency keys have millisecond resolution.
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+    await deliveries.persistDropoffQrNonce(
+      deliveryId: _deliveryId,
+      nonce: 'd.abc',
+      truckerId: 'trucker-1',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+    // Still offline, the trucker drives off.
+    await deliveries.markInTransit(
+      deliveryId: _deliveryId,
+      truckerId: 'trucker-1',
+    );
+    expect((await loadDelivery()).status, DeliveryStatus.inTransit);
+
+    final ops = await queue.waitingOperationsFor('delivery', _deliveryId);
+    expect(ops, hasLength(3));
+    final pickup = ops.firstWhere((op) => op.data.contains('pickedUp'));
+    final registration =
+        ops.firstWhere((op) => op.data.contains('dropoffQrNonce'));
+    final mark = ops.firstWhere((op) => op.data.contains('inTransit'));
+    // Sent at the pickup's version plus one.
+    expect(mark.data, contains('"version":2'));
+    const refusal = 'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is 11.1km '
+        'from listing location (max 5km).';
+    adapter.onPost(
+      '/sync',
+      (server) => server.reply(200, {
+        'syncBatchId': 'b',
+        'results': [
+          {
+            'operationId': pickup.operationId,
+            'status': 'error',
+            'message': refusal,
+          },
+          {
+            'operationId': registration.operationId,
+            'status': 'deferred',
+            'message': 'DELIVERY_NONCE_PENDING: Waiting for the pickup to '
+                'sync. Will retry automatically.',
+          },
+          {
+            'operationId': mark.operationId,
+            'status': 'error',
+            'message': 'DELIVERY_INVALID_TRANSITION: Cannot transition from '
+                "'pending' to 'inTransit'.",
+          },
+        ],
+      }),
+      data: Matchers.any,
+    );
+
+    await executor.executeBatch();
+    await waitFor(() => emitted.whereType<SyncOperationRejected>().isNotEmpty);
+
+    final delivery = await loadDelivery();
+    expect(delivery.status, DeliveryStatus.pending);
+    expect(delivery.version, 1);
+    expect(
+      SyncQueue.isRejected((await queue.getOperation(mark.operationId))!),
+      isTrue,
+    );
+    expect(await queue.waitingOperationsFor('delivery', _deliveryId), isEmpty);
+    expect(await queue.getFailedCount(), 0);
+    // Told once, with the pickup's own text.
+    expect(
+      emitted.whereType<SyncOperationRejected>().single.message,
+      refusal,
+    );
+    // A reconnect sends nothing.
+    expect(await queue.retryFailed(), 0);
     await executor.syncNow();
     expect(syncPosts, 1);
   });
