@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.13.0
+2.13.1
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -1831,7 +1831,8 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 > `pickupClassification`: that one goes on with the ESC-34 client (FUP-285), and T8 on before the app sends the
 > drop-off check-in would dispute every delivery a buyer did not confirm within 72 hours. Server only. Before the
 > flag goes on: the client (FUP-336), and the pushes that tell the buyer the trucker arrived and when the delivery
-> will be confirmed for them (FUP-338): a silent buyer must be told before T9 confirms for them. The text below
+> will be confirmed for them (FUP-338, built in 2.13.1: `notifications-api.md` 1.6.0): a silent buyer must be told
+> before T9 confirms for them. The text below
 > "As built" is the plan; where the two differ, "As built" wins.
 
 **As built (2.10.0).**
@@ -1941,8 +1942,10 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
   admin decides it in Disputes (FUP-340).
 - **Not done by the cron**, unlike a buyer's confirm in sync: the buyer-side patterns of a confirm (FRD-09:
   there is no buyer action to judge), the trucker's `GPS_ANOMALY` row (FUP-245), the trip's completion when
-  its last delivery is done (ESC-17, FUP-337) and the pushes (`delivery_arrived`, the silent buyer notice,
-  FUP-338).
+  its last delivery is done (ESC-17, FUP-337). The pushes are the order notifier's, from the cron's writes
+  (2.13.1, FUP-338, `notifications-api.md` 1.6.0): `delivery_arrived` when the check-in counts, the silent
+  buyer's reminder (`dropoffReminderAt`, `reminder-lead-hours` before T9), and the judged outcomes in their
+  own words (`auto_confirmed` to the buyer and the farmer, the system's disputes to all three parties).
 - **Who can drive them (FUP-204).** T8 rests on the trucker's own missing check-in: the buyer can neither
   move the drop-off after pickup (the stamped points) nor take the delivery off the road, a buyer who
   withholds the scan after the trucker's check-in makes a T9, never a T8, and a buyer whose pin (set before
@@ -1990,7 +1993,7 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 - Pushes from spec 4.12: `pickup_reminder`, `delivery_arrived` (`notifications-api.md` bumps with the
   tickets). UI strings in en, am and om for every check-in, refusal and push.
 - Nothing in 2.0.0 changes a built transition, nonce rule, code or photo rule.
-- 2.6.0 (ESC-34) built P.2's order fields, codes and reasons. 2.10.0 (ESC-36) built P.4: `arrived_dropoff`, the arrival photo, `silent_buyer` and `delivery_overdue`. Still open: the pushes `pickup_reminder` (FUP-286) and `delivery_arrived` (FUP-338) of spec 4.12, and the clients (FUP-285, FUP-336).
+- 2.6.0 (ESC-34) built P.2's order fields, codes and reasons. 2.10.0 (ESC-36) built P.4: `arrived_dropoff`, the arrival photo, `silent_buyer` and `delivery_overdue`. The clients followed (FUP-285, FUP-336); 2.13.1 notes the pushes of spec 4.12 as built (FUP-286, FUP-338, `notifications-api.md` 1.6.0): `pickup_reminder`, the counterpart's check-in notices, `delivery_arrived`, the silent buyer's reminder and the judged outcomes' words.
 
 ## Changelog
 
@@ -2040,9 +2043,10 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 2.11.0 | 2026-11-13 | Re-open of a trucker no-show (FUP-330, P.2 "Re-open of a trucker no-show"): new `POST /admin/orders/{orderId}/reopen-no-show` (the route, admin group and body of `reopen-pickup`) takes a `trucker_no_show` order still `awaiting_transport` from the judgement (the buyer has not chosen) whose escrow still simply holds the money back in one transaction: `pending` to `accepted` (`pickupJudgement: pending`, a new `pickupDeadlineAt`, empty `checkIns` so the new window counts fresh ones, judged again; the trucker creates the new pending delivery) or `handoff_confirmed` to `pickup_confirmed` (`scanned`) with the delivery the judgement cancelled `cancelled → pickedUp` and the slot claimed for it (with `dropoffClassification` on, the drop-off judgement stamped in the same write); both restore `truckerResponse: accepted`, remove `transportFailure`, `faultParty`, `buyerChoiceDeadlineAt` and `buyerChoiceReminderAt`, take the trip booking back (conditioned on the room left and the trip `open` or `matched`), answer the admin queue entry as `reopen-pickup` does and stamp `pickupReopen`; refused when the trip is gone, cancelled, departed or full (new `409 PICKUP_REOPEN_TRIP_UNAVAILABLE`), when the buyer chose or the money moved, and on a changed version; a replay answers `alreadyApplied`. Then the trucker's `NO_SHOW` is excused through ESC-32's decision path (`noShowEvent` in the answer, audited `reputation_excused`). `pickupEvidence` gains `noShowReopenExits`; `reopen-pickup`'s refusal of a trucker no-show names the new action. New admin-only transition `cancelled → pickedUp`. No money moves; no app change. Admin: Re-open the no-show on the transaction page, en, am, om. `order-lifecycle.md` 2.20.0 |
 | 2.12.0 | 2026-11-13 | Gaps of the trucker no-show re-open (FUP-363, P.2): (a) the order cron closes a trip that carried only the no-show order within 15 minutes of the judgement (`cancelReason: expired`), so the re-open refused most single-order trips with `PICKUP_REOPEN_TRIP_UNAVAILABLE`; it now opens such a trip again in the re-open's transaction (`cancelled → open`, or `matched` when the order fills it, conditioned on the version read, `expired`, no booking and the room; audit `trip=revived`; `trip-listing-api.md` 2.7.0), while a trip its trucker cancelled stays refused. Decision: the cron's close is unchanged. (b) The judgement's own cancel of the pending delivery stamps the new server-only `cancelledByJudgementAt` in the same write, and a confirmed handoff brings back only a delivery that carries it (at or after the order's `pickupDeadlineAt`), instead of one cancelled at or after `pickupJudgedAt`: a judgement the cron retried after a failed order write now gets its delivery back, while a party's, an admin's (FUP-19) or an earlier window's cancel stays refused. The revive removes the stamp; the delivery update is also conditioned on it. Deliveries cancelled by a judgement before 2.12.0 carry no stamp: their orders take the `pending` exit only. Server only, no app or admin change. `order-lifecycle.md` 2.21.0 |
 | 2.13.0 | 2026-11-13 | Late drop-off evidence (FUP-373, P.4), behind `dropoffClassification` (flag off: nothing changes): a check-in the trucker made offline at the drop-off before T8 and synced after the order cron's T8 run kept no late entry, because the T8 dispute refused the arrival photo (`DELIVERY_PHOTO_REFUSED`) and the check-in then failed the photo check (`CHECKIN_PHOTO_REQUIRED`). Now (a) `POST /deliveries/{id}/photos` and `delivery_photo` `{deliveryId}#arrival` also take the arrival photo on the system's T8 dispute (`disputedBy: system`, `delivery_overdue` or `dropoff_out_of_range`) that no admin has decided (no `disputeResolution`), writing the photo, its version id and the new server-only `arrivalPhotoLateAt` (returned on the delivery reads) in one update conditioned on `disputed` and no `disputeResolution`, with no status, version or `updatedAt` move, and the audit row `delivery_photo` (`type=arrival;late=true`); T9's `silent_buyer`, a party's and a decided dispute still refuse it; (b) a late `arrived_dropoff` (after T8, or after the overdue or out-of-range judgement, or `queued`) skips the photo check and is kept with `late: true` and answered `CHECKIN_TOO_LATE`; a late one more than 5 km away is kept as the late `dropoffAttempt` (never counted at T8) when none is stored, also `CHECKIN_TOO_LATE`; (c) once an admin decided the delivery's dispute (`disputeResolution`), a late check-in is `CHECKIN_NOT_OPEN`. The admin's dispute Photos tab marks a late arrival photo with its attach time (en, am, om), the timeline shows the late entries. Clients (`sync-protocol.md` 1.60.0): the drop-off texts say the check-in was more than 5 km from the order's drop-off point, not that the trucker was (the buyer's pin may be wrong, FUP-204) |
+| 2.13.1 | 2026-11-13 | Doc only: the pushes of spec 4.12 are built (FUP-286 and FUP-338, `notifications-api.md` 1.6.0, `order-lifecycle.md` 2.23.0), behind the same flags: P.4's precondition for `dropoffClassification` (the buyer told when the trucker checks in, with T9, and again before T9) is met. No endpoint, field or code change here |
 
 ---
 
 **Last Updated**: 2026-11-13
-**Version**: 2.13.0
+**Version**: 2.13.1
 **Status**: Draft (Phase R4.2)

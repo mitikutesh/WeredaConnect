@@ -21,7 +21,9 @@ namespace WeredaConnect.Server.Helpers;
 ///   <c>{minutes}</c> (a whole number, never a clock time);
 /// - <c>[ ... ]</c> is an optional part, dropped whole when any token in it has no value, so a
 ///   missing param never leaves a dangling word; a missing token outside one renders as nothing;
-/// - an unknown language renders <see cref="FallbackLanguage"/>, an unknown type a generic line.
+/// - an unknown language renders <see cref="FallbackLanguage"/>, an unknown type a generic line;
+/// - FUP-286 and FUP-338: a type whose <c>reason</c> has words of its own (a judged pickup or drop-off,
+///   <see cref="ReasonKeys"/>) renders those instead of the type's.
 ///
 /// Never a phone number: names are scrubbed of digit runs before they are placed. The body is
 /// capped below 140 characters.
@@ -67,9 +69,30 @@ public static class PushText
         {
             template = Generic[lang];
         }
+        else if (p.TryGetValue(NotificationParams.Reason, out var reason)
+                 && ByReason(lang).TryGetValue(ReasonKey(type, reason), out var specific))
+        {
+            template = specific;
+        }
 
         return (Cap(Fill(template.Title, lang, p), MaxTitleLength), Cap(Fill(template.Body, lang, p), MaxBodyLength));
     }
+
+    /// <summary>
+    /// FUP-286 and FUP-338: the (type, reason) pairs with words of their own, as <c>type#reason</c>; every one in
+    /// all three languages (parity-tested).
+    /// </summary>
+    public static IReadOnlyCollection<string> ReasonKeys => EnByReason.Keys;
+
+    /// <summary>The key of a type's text for one reason: <c>type#reason</c>.</summary>
+    public static string ReasonKey(string type, string reason) => type + "#" + reason;
+
+    private static Dictionary<string, Template> ByReason(string language) => language switch
+    {
+        "en" => EnByReason,
+        "om" => OmByReason,
+        _ => AmByReason
+    };
 
     /// <summary>The supported language of a stored preference (<c>en</c>, <c>EN</c>, <c>en-US</c>), else the fallback.</summary>
     public static string LanguageOf(string? language)
@@ -718,7 +741,77 @@ public static class PushText
             "Points were added[ for {cause}].[ Added: {points}.][ Total: {total}.] See My reputation to learn why or to appeal."),
         [NotificationTypes.TierChanged] = new(
             "Your reputation changed",
-            "{tierline}[ You can take new orders again after {until}.]")
+            "{tierline}[ You can take new orders again after {until}.]"),
+        // FUP-286: the arrival check-ins of the pickup.
+        [NotificationTypes.PickupReminder] = new(
+            "Reminder: check in for the pickup",
+            "The pickup check-in[ for {qty} {crop}] closes[ at {deadline}]. Please open the order and check in."),
+        [NotificationTypes.TruckerArrived] = new(
+            "The trucker has arrived",
+            "Trucker {trucker} has arrived to collect the order[ of {qty} {crop}]. Please have the crops and your QR code ready."),
+        [NotificationTypes.BuyerArrived] = new(
+            "The buyer has arrived",
+            "Buyer {buyer} has arrived to collect the order[ of {qty} {crop}]. Please have the crops and your QR code ready."),
+        [NotificationTypes.CropsReady] = new(
+            "The crops are ready",
+            "Farmer {farmer} says the crops[ for the order of {qty} {crop}] are ready for pickup."),
+        // FUP-338: the drop-off check-in; {deadline} is T9.
+        [NotificationTypes.DeliveryArrived] = new(
+            "The truck has arrived",
+            "Trucker {trucker} has arrived. Please confirm or report a problem[ by {deadline}]; after that it may be confirmed for you."),
+        [NotificationTypes.DeliveryConfirmReminder] = new(
+            "Reminder: confirm your delivery",
+            "Please confirm the delivery[ of {qty} {crop}] or report a problem[ by {deadline}]. If you do neither, it may be confirmed for you.")
+    };
+
+    /// <summary>
+    /// FUP-286: a pickup judged for an admin (both checked in and nothing scanned, or an arrival that could not be
+    /// measured), to all three parties. Declared before the table that uses it (static fields start in order).
+    /// </summary>
+    private static readonly Template EnPickupReview = new(
+        "Pickup under review",
+        "The pickup[ of {qty} {crop}] was not confirmed with the QR code. Our team is checking it; the money stays held.");
+
+    /// <summary>
+    /// FUP-286 and FUP-338: the words of a judged pickup or drop-off, by <see cref="ReasonKey"/>. Plain and without
+    /// blame: what the check-ins show, never who is at fault. am and om are machine drafted and await native review.
+    /// </summary>
+    private static readonly Dictionary<string, Template> EnByReason = new(StringComparer.Ordinal)
+    {
+        [ReasonKey(NotificationTypes.TransportFailed, PickupJudgement.TruckerNoShowFailure)] = new(
+            "The trucker did not check in",
+            "The trucker did not check in at the farm[ for {qty} {crop}]. Please decide[ by {deadline}]. You can cancel for a full refund."),
+        [ReasonKey(NotificationTypes.TransportFailedKeepCrops, PickupJudgement.TruckerNoShowFailure)] = new(
+            "The trucker did not check in",
+            "The trucker did not check in at your farm[ for {qty} {crop}]. Please keep the crops until the buyer decides."),
+        [ReasonKey(NotificationTypes.PickupMissed, PickupJudgement.Outcome.TruckerNoShow)] = new(
+            "Pickup check-in missed",
+            "No arrival check-in reached us by the deadline[ for {qty} {crop}]. The buyer now decides. If you were there, contact support."),
+        [ReasonKey(NotificationTypes.OrderCancelled, PickupJudgement.FarmerNoShowReason)] = new(
+            "Order cancelled",
+            "The order[ of {qty} {crop}] was cancelled because the crops were not marked ready by the deadline. The money goes back to the buyer."),
+        [ReasonKey(NotificationTypes.OrderCancelled, PickupJudgement.BuyerNoShowReason)] = new(
+            "Order cancelled",
+            "The order[ of {qty} {crop}] was cancelled because it was not collected by the deadline. The money goes back to the buyer."),
+        [ReasonKey(NotificationTypes.PickupOverdue, PickupJudgement.Outcome.BothPresentNoScan)] = EnPickupReview,
+        [ReasonKey(NotificationTypes.PickupOverdue, PickupJudgement.Outcome.UncheckedCheckIn)] = EnPickupReview,
+        [ReasonKey(NotificationTypes.PickupMissed, PickupJudgement.Outcome.BothPresentNoScan)] = EnPickupReview,
+        [ReasonKey(NotificationTypes.PickupMissed, PickupJudgement.Outcome.UncheckedCheckIn)] = EnPickupReview,
+        [ReasonKey(NotificationTypes.Delivered, DropoffJudgement.Outcome.AutoConfirmed)] = new(
+            "Delivery confirmed for you",
+            "Your order[ of {qty} {crop}] was confirmed as delivered because there was no answer. If something is wrong, report it[ by {deadline}]."),
+        [ReasonKey(NotificationTypes.DeliveredPayoutPending, DropoffJudgement.Outcome.AutoConfirmed)] = new(
+            "Delivered, payment coming",
+            "The delivery[ of {qty} {crop}] was confirmed by the system after the buyer did not answer. You are paid after the 48 hour check."),
+        [ReasonKey(NotificationTypes.DisputeOpened, DropoffJudgement.OverdueReason)] = new(
+            "Delivery under review",
+            "The delivery[ of {qty} {crop}] was not recorded by its deadline. Our team is checking it; the money stays held."),
+        [ReasonKey(NotificationTypes.DisputeOpened, DropoffJudgement.SilentBuyerReason)] = new(
+            "Delivery under review",
+            "The delivery[ of {qty} {crop}] was not confirmed after the truck arrived. Our team is checking it; the money stays held."),
+        [ReasonKey(NotificationTypes.DisputeOpened, DropoffJudgement.OutOfRangeReason)] = new(
+            "Delivery under review",
+            "The truck's arrival[ for {qty} {crop}] could not be matched to the drop-off place. Our team is checking it; the money stays held.")
     };
 
     private static readonly Dictionary<string, Template> Am = new(StringComparer.Ordinal)
@@ -827,7 +920,68 @@ public static class PushText
             "[{cause} ምክንያት ]የቅጣት ነጥብ ተጨምሯል።[ የተጨመረ፦ {points}።][ ጠቅላላ፦ {total}።] ምክንያቱን ለማየት ወይም ይግባኝ ለማለት የእኔ ዝና የሚለውን ይክፈቱ።"),
         [NotificationTypes.TierChanged] = new(
             "ዝናዎ ተቀይሯል",
-            "{tierline}[ ከ{until} በኋላ እንደገና አዲስ ትዕዛዝ መቀበል ይችላሉ።]")
+            "{tierline}[ ከ{until} በኋላ እንደገና አዲስ ትዕዛዝ መቀበል ይችላሉ።]"),
+        // FUP-286 and FUP-338 (machine drafted, native review owed).
+        [NotificationTypes.PickupReminder] = new(
+            "ማስታወሻ: የመጫኛ ማረጋገጫ",
+            "[የ{qty} {crop} ]የመጫኛ ማረጋገጫው[ {deadline} ላይ] ይዘጋል። እባክዎ ትዕዛዙን ከፍተው ያረጋግጡ።"),
+        [NotificationTypes.TruckerArrived] = new(
+            "የጭነት መኪና ሹፌሩ ደርሰዋል",
+            "የጭነት መኪና ሹፌር {trucker}[ የ{qty} {crop}] ትዕዛዙን ለመውሰድ ደርሰዋል። እባክዎ ሰብሉንና የQR ኮድዎን ያዘጋጁ።"),
+        [NotificationTypes.BuyerArrived] = new(
+            "ገዢው ደርሰዋል",
+            "ገዢ {buyer}[ የ{qty} {crop}] ትዕዛዙን ለመውሰድ ደርሰዋል። እባክዎ ሰብሉንና የQR ኮድዎን ያዘጋጁ።"),
+        [NotificationTypes.CropsReady] = new(
+            "ሰብሉ ዝግጁ ነው",
+            "ገበሬ {farmer}[ የ{qty} {crop}] ሰብሉ ለመጫን ዝግጁ መሆኑን አሳውቀዋል።"),
+        [NotificationTypes.DeliveryArrived] = new(
+            "የጭነት መኪናው ደርሷል",
+            "የጭነት መኪና ሹፌር {trucker} ደርሰዋል። እባክዎ[ እስከ {deadline}] ያረጋግጡ ወይም ችግር ያሳውቁ፤ ከዚያ በኋላ ለእርስዎ ሊረጋገጥ ይችላል።"),
+        [NotificationTypes.DeliveryConfirmReminder] = new(
+            "ማስታወሻ: ርክክቡን ያረጋግጡ",
+            "እባክዎ[ የ{qty} {crop}] ርክክቡን[ እስከ {deadline}] ያረጋግጡ ወይም ችግር ያሳውቁ። ሁለቱንም ካላደረጉ ለእርስዎ ሊረጋገጥ ይችላል።")
+    };
+
+    private static readonly Template AmPickupReview = new(
+        "መጫኛው እየተጣራ ነው",
+        "[የ{qty} {crop} ]መጫኛው በQR ኮድ አልተረጋገጠም። ቡድናችን እያጣራው ነው፤ ገንዘቡ ተይዞ ይቆያል።");
+
+    private static readonly Dictionary<string, Template> AmByReason = new(StringComparer.Ordinal)
+    {
+        [ReasonKey(NotificationTypes.TransportFailed, PickupJudgement.TruckerNoShowFailure)] = new(
+            "የጭነት መኪና ሹፌሩ አላረጋገጠም",
+            "የጭነት መኪና ሹፌሩ[ ለ{qty} {crop}] እርሻው ላይ መድረሱን አላረጋገጠም። እባክዎ[ እስከ {deadline}] ይወስኑ፤ ከሰረዙ ገንዘብዎ ሙሉ በሙሉ ይመለሳል።"),
+        [ReasonKey(NotificationTypes.TransportFailedKeepCrops, PickupJudgement.TruckerNoShowFailure)] = new(
+            "የጭነት መኪና ሹፌሩ አላረጋገጠም",
+            "የጭነት መኪና ሹፌሩ[ ለ{qty} {crop}] እርሻዎ ላይ መድረሱን አላረጋገጠም። ገዢው እስኪወስን ድረስ እባክዎ ሰብሉን ይያዙ።"),
+        [ReasonKey(NotificationTypes.PickupMissed, PickupJudgement.Outcome.TruckerNoShow)] = new(
+            "የመድረስ ማረጋገጫ አልደረሰም",
+            "[ለ{qty} {crop} ]እስከ መጨረሻው ጊዜ የመድረስ ማረጋገጫ አልደረሰንም። አሁን ገዢው ይወስናል። እዚያ ከነበሩ ድጋፍ ሰጪዎችን ያነጋግሩ።"),
+        [ReasonKey(NotificationTypes.OrderCancelled, PickupJudgement.FarmerNoShowReason)] = new(
+            "ትዕዛዙ ተሰርዟል",
+            "[የ{qty} {crop} ]ትዕዛዙ ተሰርዟል፤ እስከ መጨረሻው ጊዜ ሰብሉ ዝግጁ መሆኑ አልተረጋገጠም። ገንዘቡ ለገዢው ይመለሳል።"),
+        [ReasonKey(NotificationTypes.OrderCancelled, PickupJudgement.BuyerNoShowReason)] = new(
+            "ትዕዛዙ ተሰርዟል",
+            "[የ{qty} {crop} ]ትዕዛዙ እስከ መጨረሻው ጊዜ ስላልተወሰደ ተሰርዟል። ገንዘቡ ለገዢው ይመለሳል።"),
+        [ReasonKey(NotificationTypes.PickupOverdue, PickupJudgement.Outcome.BothPresentNoScan)] = AmPickupReview,
+        [ReasonKey(NotificationTypes.PickupOverdue, PickupJudgement.Outcome.UncheckedCheckIn)] = AmPickupReview,
+        [ReasonKey(NotificationTypes.PickupMissed, PickupJudgement.Outcome.BothPresentNoScan)] = AmPickupReview,
+        [ReasonKey(NotificationTypes.PickupMissed, PickupJudgement.Outcome.UncheckedCheckIn)] = AmPickupReview,
+        [ReasonKey(NotificationTypes.Delivered, DropoffJudgement.Outcome.AutoConfirmed)] = new(
+            "ርክክቡ ለእርስዎ ተረጋግጧል",
+            "ምላሽ ስላልተሰጠ[ የ{qty} {crop}] ትዕዛዝዎ እንደደረሰ ተረጋግጧል። ችግር ካለ[ እስከ {deadline}] ያሳውቁ።"),
+        [ReasonKey(NotificationTypes.DeliveredPayoutPending, DropoffJudgement.Outcome.AutoConfirmed)] = new(
+            "ደርሷል፤ ክፍያዎ ይመጣል",
+            "ገዢው ምላሽ ስላልሰጡ[ የ{qty} {crop}] ርክክቡ በሲስተሙ ተረጋግጧል። ከ48 ሰዓት ማረጋገጫ በኋላ ይከፈልዎታል።"),
+        [ReasonKey(NotificationTypes.DisputeOpened, DropoffJudgement.OverdueReason)] = new(
+            "ርክክቡ እየተጣራ ነው",
+            "[የ{qty} {crop} ]ርክክቡ እስከ መጨረሻው ጊዜ አልተመዘገበም። ቡድናችን እያጣራው ነው፤ ገንዘቡ ተይዞ ይቆያል።"),
+        [ReasonKey(NotificationTypes.DisputeOpened, DropoffJudgement.SilentBuyerReason)] = new(
+            "ርክክቡ እየተጣራ ነው",
+            "[የ{qty} {crop} ]ርክክቡ የጭነት መኪናው ከደረሰ በኋላ አልተረጋገጠም። ቡድናችን እያጣራው ነው፤ ገንዘቡ ተይዞ ይቆያል።"),
+        [ReasonKey(NotificationTypes.DisputeOpened, DropoffJudgement.OutOfRangeReason)] = new(
+            "ርክክቡ እየተጣራ ነው",
+            "የጭነት መኪናው መድረስ[ ለ{qty} {crop}] ከማውረጃ ቦታው ጋር ሊገናኝ አልቻለም። ቡድናችን እያጣራው ነው፤ ገንዘቡ ተይዞ ይቆያል።")
     };
 
     private static readonly Dictionary<string, Template> Om = new(StringComparer.Ordinal)
@@ -936,6 +1090,67 @@ public static class PushText
             "Qabxiin adabbii dabalameera[ sababa {cause}].[ Dabalame: {points}.][ Waliigala: {total}.] Sababa beekuuf ykn iyyachuuf Maqaa Gaarii Koo banaa."),
         [NotificationTypes.TierChanged] = new(
             "Maqaan gaariin keessan jijjiirameera",
-            "{tierline}[ Erga {until} booda ajaja haaraa fudhachuu dandeessu.]")
+            "{tierline}[ Erga {until} booda ajaja haaraa fudhachuu dandeessu.]"),
+        // FUP-286 and FUP-338 (machine drafted, native review owed).
+        [NotificationTypes.PickupReminder] = new(
+            "Yaadachiisa: mirkaneessa fudhannaa",
+            "Mirkaneessi fudhannaa[ ajaja {crop} {qty}][ {deadline} tti] cufama. Maaloo ajaja banaatii mirkaneessaa."),
+        [NotificationTypes.TruckerArrived] = new(
+            "Konkolaataan fe'aa ga'eera",
+            "Konkolaataan fe'aa {trucker} ajaja[ {crop} {qty}] fudhachuuf ga'eera. Maaloo midhaan fi koodii QR keessan qopheessaa."),
+        [NotificationTypes.BuyerArrived] = new(
+            "Bitataan ga'eera",
+            "Bitataan {buyer} ajaja[ {crop} {qty}] fudhachuuf ga'eera. Maaloo midhaan fi koodii QR keessan qopheessaa."),
+        [NotificationTypes.CropsReady] = new(
+            "Midhaan qophaa'eera",
+            "Qonnaan bulaan {farmer} midhaan ajaja[ {crop} {qty}] fe'uuf qophaa'uu isaa beeksiseera."),
+        [NotificationTypes.DeliveryArrived] = new(
+            "Konkolaataan ga'eera",
+            "{trucker} ga'eera.[ Hanga {deadline} tti] mirkaneessaa ykn rakkoo gabaasaa; sana booda isiniif mirkanaa'uu danda'a."),
+        [NotificationTypes.DeliveryConfirmReminder] = new(
+            "Yaadachiisa: geejjiba mirkaneessaa",
+            "Maaloo geejjiba[ hanga {deadline} tti] mirkaneessaa ykn rakkoo gabaasaa; sana booda isiniif mirkanaa'uu danda'a.")
+    };
+
+    private static readonly Template OmPickupReview = new(
+        "Fudhannaan sakatta'amaa jira",
+        "Fudhannaan[ {crop} {qty}] koodii QR'n hin mirkanoofne. Gareen keenya ni qorata; maallaqni qabamee tura.");
+
+    private static readonly Dictionary<string, Template> OmByReason = new(StringComparer.Ordinal)
+    {
+        [ReasonKey(NotificationTypes.TransportFailed, PickupJudgement.TruckerNoShowFailure)] = new(
+            "Konkolaataan hin mirkaneessine",
+            "Konkolaataan maasiitti ga'uu hin mirkaneessine. Maaloo[ hanga {deadline} tti] murteessaa; yoo haqxan maallaqni deebi'a."),
+        [ReasonKey(NotificationTypes.TransportFailedKeepCrops, PickupJudgement.TruckerNoShowFailure)] = new(
+            "Konkolaataan hin mirkaneessine",
+            "Konkolaataan maasii keessanitti ga'uu hin mirkaneessine. Hanga bitataan murteessutti maaloo midhaan qabadhaa."),
+        [ReasonKey(NotificationTypes.PickupMissed, PickupJudgement.Outcome.TruckerNoShow)] = new(
+            "Mirkaneessi ga'umsaa hin dhufne",
+            "Hanga yeroo dhumaatti mirkaneessi ga'umsaa nu hin geenye. Amma bitataan murteessa. Achi turtan yoo ta'e deeggarsa quunnamaa."),
+        [ReasonKey(NotificationTypes.OrderCancelled, PickupJudgement.FarmerNoShowReason)] = new(
+            "Ajajni haqameera",
+            "Ajajni[ {crop} {qty}] haqameera: hanga yeroo dhumaatti qophaa'uun midhaanii hin mirkanoofne. Maallaqni bitataaf deebi'a."),
+        [ReasonKey(NotificationTypes.OrderCancelled, PickupJudgement.BuyerNoShowReason)] = new(
+            "Ajajni haqameera",
+            "Ajajni[ {crop} {qty}] hanga yeroo dhumaatti waan hin fudhatamneef haqameera. Maallaqni bitataaf deebi'a."),
+        [ReasonKey(NotificationTypes.PickupOverdue, PickupJudgement.Outcome.BothPresentNoScan)] = OmPickupReview,
+        [ReasonKey(NotificationTypes.PickupOverdue, PickupJudgement.Outcome.UncheckedCheckIn)] = OmPickupReview,
+        [ReasonKey(NotificationTypes.PickupMissed, PickupJudgement.Outcome.BothPresentNoScan)] = OmPickupReview,
+        [ReasonKey(NotificationTypes.PickupMissed, PickupJudgement.Outcome.UncheckedCheckIn)] = OmPickupReview,
+        [ReasonKey(NotificationTypes.Delivered, DropoffJudgement.Outcome.AutoConfirmed)] = new(
+            "Geejjibni isiniif mirkanaa'eera",
+            "Deebiin waan hin jirreef ajajni keessan ga'uun isaa mirkanaa'eera. Rakkoon yoo jiraate[ hanga {deadline} tti] gabaasaa."),
+        [ReasonKey(NotificationTypes.DeliveredPayoutPending, DropoffJudgement.Outcome.AutoConfirmed)] = new(
+            "Ga'eera, kaffaltiin ni dhufa",
+            "Bitataan deebii waan hin kenninef geejjibni sirnaan mirkanaa'eera. Mirkaneessa sa'aatii 48 booda kaffaltiin keessan ni ergama."),
+        [ReasonKey(NotificationTypes.DisputeOpened, DropoffJudgement.OverdueReason)] = new(
+            "Geejjibni sakatta'amaa jira",
+            "Geejjibni[ {crop} {qty}] hanga yeroo isaatti hin galmoofne. Gareen keenya ni qorata; maallaqni qabamee tura."),
+        [ReasonKey(NotificationTypes.DisputeOpened, DropoffJudgement.SilentBuyerReason)] = new(
+            "Geejjibni sakatta'amaa jira",
+            "Erga konkolaataan ga'ee booda geejjibni[ {crop} {qty}] hin mirkanoofne. Gareen keenya ni qorata; maallaqni qabamee tura."),
+        [ReasonKey(NotificationTypes.DisputeOpened, DropoffJudgement.OutOfRangeReason)] = new(
+            "Geejjibni sakatta'amaa jira",
+            "Ga'umsi konkolaataa[ {crop} {qty}] bakka buusuu waliin wal hin simne. Gareen keenya ni qorata; maallaqni qabamee tura.")
     };
 }

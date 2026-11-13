@@ -3262,8 +3262,11 @@ export class ApiStack extends cdk.Stack {
     // ESC-16: every Lambda that writes orders derives the order's next deadline with the same
     // timings, so each reads the order timing parameters (one GetParameters per container). The
     // trips Lambda too: its orderLeadHours (FUP-122) is the response window the order create checks.
+    // FUP-338: and the order notifier, which tells the buyer T9 (silent-buyer-hours) by the order
+    // cron's own rule; it reads them only for a drop-off check-in or its reminder.
     for (const fn of [
       syncFn, deliveryFn, escrowFn, escrowCronFn, telebirrWebhookFn, orderFn, messageFn, orderCronFn, adminFn, tripFn,
+      orderNotifyStreamFn,
     ]) {
       if (fn) {
         readsOrderTimings(fn.function);

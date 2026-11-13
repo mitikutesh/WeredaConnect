@@ -171,6 +171,8 @@ public partial class AdminFunction
             set[PickupDeadline.Field] = deadlineAt!;
             remove.Add(PickupJudgement.JudgedAtField);
             remove.Add(OrderCommitment.PickupOverdueNotifiedAtField);
+            // FUP-286: the new window has its own check-in reminder.
+            remove.Add(PickupJudgement.ReminderAtField);
             // The new window counts fresh check-ins: a late arrival kept from the judged window would stay late, and a
             // repeat check-in answers with the stored one, so the trucker could never check in again.
             set[PickupJudgement.CheckInsField] = new Dictionary<string, object>();

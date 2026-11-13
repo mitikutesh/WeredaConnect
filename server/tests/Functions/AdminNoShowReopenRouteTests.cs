@@ -296,7 +296,7 @@ public class AdminNoShowReopenRouteTests
                  {
                      OrderCommitment.TransportFailureField, OrderCommitment.FaultPartyField,
                      OrderCommitment.BuyerChoiceDeadlineAtField, OrderCommitment.BuyerChoiceReminderAtField,
-                     PickupJudgement.JudgedAtField, OrderCommitment.PickupOverdueNotifiedAtField,
+                     PickupJudgement.JudgedAtField, OrderCommitment.PickupOverdueNotifiedAtField, PickupJudgement.ReminderAtField,
                      AdminQueueFields.Marker, AdminQueueFields.QueuedAt, AdminQueueFields.Reason, AdminQueueFields.EscrowId
                  })
         {
@@ -310,9 +310,10 @@ public class AdminNoShowReopenRouteTests
         checkIns.M.Should().BeEmpty();
 
         // Judged again a minute after the new deadline, in the sweep's partition; the buyer-choice deadline is gone.
-        values[":ndKind"].S.Should().Be(OrderDeadlines.Kind.PickupJudgement);
+        // FUP-286: nobody has checked in in the new window, so its check-in reminder comes first, 6 hours before.
+        values[":ndKind"].S.Should().Be(OrderDeadlines.Kind.PickupReminder);
         values[":ndShard"].S.Should().Be(OrderDeadlines.Shard);
-        values[":ndAt"].S.Should().Be("2026-11-24T08:01:00.0000000Z");
+        values[":ndAt"].S.Should().Be("2026-11-24T02:00:00.0000000Z");
 
         Conditioned(update).Should().Equal(new Dictionary<string, string>
         {
@@ -443,7 +444,8 @@ public class AdminNoShowReopenRouteTests
         response.StatusCode.Should().Be(200, response.Body);
         var order = _transactions.Single().TransactItems[0].Update;
         order.ExpressionAttributeNames.Values.Should().NotContain(DropoffJudgement.Field);
-        order.ExpressionAttributeValues[":ndKind"].S.Should().Be(OrderDeadlines.Kind.PickupJudgement);
+        // The pickup's own deadline (FUP-286: its check-in reminder first), never a drop-off one.
+        order.ExpressionAttributeValues[":ndKind"].S.Should().Be(OrderDeadlines.Kind.PickupReminder);
     }
 
     [Fact]

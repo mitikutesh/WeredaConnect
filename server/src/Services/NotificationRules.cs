@@ -75,11 +75,22 @@ public static class NotificationRules
     /// </summary>
     public static IReadOnlyList<NotificationEvent> Derive(
         string table, string eventName, StreamImage oldImage, StreamImage newImage, DateTime recordTimeUtc)
+        => Derive(table, eventName, oldImage, newImage, recordTimeUtc, static () => OrderTimings.Current);
+
+    /// <summary>
+    /// <see cref="Derive(string, string, StreamImage, StreamImage, DateTime)"/> with the order timings given: FUP-338's
+    /// T9 (the drop-off check-in's receipt plus <c>silent-buyer-hours</c>) is computed with them, by the same rule the
+    /// order cron judges by (<see cref="DropoffJudgement.SilentBuyerDeadline"/>). They are asked for only when a T9 is
+    /// needed, so a batch without a drop-off event never reads them.
+    /// </summary>
+    public static IReadOnlyList<NotificationEvent> Derive(
+        string table, string eventName, StreamImage oldImage, StreamImage newImage, DateTime recordTimeUtc,
+        Func<OrderTimings> timings)
     {
         return table switch
         {
             OrdersTable when eventName == ModifyEvent && oldImage.Exists && newImage.Exists
-                => DeriveOrder(oldImage, newImage, recordTimeUtc),
+                => DeriveOrder(oldImage, newImage, recordTimeUtc, timings),
             DeliveriesTable when eventName == InsertEvent && newImage.Exists
                 => DeriveDelivery(newImage),
             DeliveriesTable when eventName == ModifyEvent && oldImage.Exists && newImage.Exists
@@ -151,10 +162,11 @@ public static class NotificationRules
 
     /// <summary>
     /// An order row changed: one status move (the strongest row of the matrix), the farmer's
-    /// accept that keeps a trip order <c>funded</c> and asks the trucker, and the cron's reminder
-    /// and pickup-overdue markers.
+    /// accept that keeps a trip order <c>funded</c> and asks the trucker, the cron's reminder
+    /// and pickup-overdue markers, and the check-ins with their reminders (FUP-286, FUP-338).
     /// </summary>
-    private static IReadOnlyList<NotificationEvent> DeriveOrder(StreamImage old, StreamImage row, DateTime recordTimeUtc)
+    private static IReadOnlyList<NotificationEvent> DeriveOrder(
+        StreamImage old, StreamImage row, DateTime recordTimeUtc, Func<OrderTimings> timings)
     {
         var orderId = row.String("orderId");
         if (orderId.Length == 0)
@@ -176,6 +188,8 @@ public static class NotificationRules
         }
 
         OrderMarkers(events, old, row);
+        PickupCheckIns(events, old, row);
+        DropoffCheckIn(events, old, row, timings);
         return events.Events;
     }
 
@@ -268,14 +282,39 @@ public static class NotificationRules
             case "delivered":
                 {
                     // The one exception to "the actor is never told": the entry opens the buyer's own
-                    // 48 hour window to report a problem.
+                    // 48 hour window to report a problem. FUP-338: a delivery the order cron confirmed for a
+                    // silent buyer (T9) says so to the buyer and the farmer (reason auto_confirmed).
+                    var autoConfirmed = BecameValue(old, row, DropoffJudgement.Field, DropoffJudgement.Outcome.AutoConfirmed)
+                        ? DropoffJudgement.Outcome.AutoConfirmed
+                        : null;
                     var windowEnd = recordTimeUtc + DisputeWindow;
                     events.Add(buyer, NotificationTypes.Delivered,
-                        Params((NotificationParams.DeadlineAt, Iso(windowEnd))), deadlineUtc: windowEnd);
-                    events.Add(farmer, NotificationTypes.DeliveredPayoutPending, FarmerLeg(row));
+                        Params((NotificationParams.DeadlineAt, Iso(windowEnd)), (NotificationParams.Reason, autoConfirmed)),
+                        deadlineUtc: windowEnd);
+                    var farmerLeg = FarmerLeg(row);
+                    farmerLeg[NotificationParams.Reason] = autoConfirmed;
+                    events.Add(farmer, NotificationTypes.DeliveredPayoutPending, farmerLeg);
                     if (TruckerResponse(row, to) == Response.Accepted)
                     {
                         events.Add(trucker, NotificationTypes.DeliveredPayoutPending, TruckerLeg(row));
+                    }
+
+                    break;
+                }
+
+            case "disputed":
+                {
+                    // FUP-338: the order cron's own drop-off dispute (T8 delivery_overdue, T9 silent_buyer, or T8 with
+                    // the trucker's out-of-range attempt) tells all three parties why, in the write that stamps the
+                    // judgement. Its escrow row stays silent (DeriveEscrow); every other dispute is told from the escrow.
+                    var judged = row.String(DropoffJudgement.Field);
+                    if (judged is DropoffJudgement.OverdueReason or DropoffJudgement.SilentBuyerReason or DropoffJudgement.OutOfRangeReason
+                        && old.String(DropoffJudgement.Field) != judged)
+                    {
+                        var why = Params((NotificationParams.Reason, judged));
+                        events.Add(buyer, NotificationTypes.DisputeOpened, why);
+                        events.Add(farmer, NotificationTypes.DisputeOpened, why);
+                        events.Add(trucker, NotificationTypes.DisputeOpened, why);
                     }
 
                     break;
@@ -288,7 +327,8 @@ public static class NotificationRules
                 events.Add(buyer, NotificationTypes.OrderSettled);
                 break;
 
-                // disputed and dispute_resolved: the escrow row carries them (DeriveEscrow).
+                // dispute_resolved, and every dispute but the drop-off judgement's: the escrow row carries
+                // them (DeriveEscrow).
         }
     }
 
@@ -381,10 +421,138 @@ public static class NotificationRules
 
         if (Appeared(old, row, PickupOverdueNotifiedAtField))
         {
-            events.Add(row.String("buyerId"), NotificationTypes.PickupOverdue);
-            events.Add(row.String("farmerId"), NotificationTypes.PickupMissed);
-            events.Add(row.String("truckerId"), NotificationTypes.PickupMissed);
+            // FUP-286: the pickup judgement (ESC-34) stamps the notice in the write that records its outcome. A
+            // pickup judged scanned tells nobody (the crops left the farm); any other outcome is the reason, so the
+            // text says what was found. A no-show's status move above already told the parties it names, so here
+            // only the trucker judged absent (pickup_missed) or, for an outcome an admin decides, all three.
+            var judged = JudgedPickupOutcome(old, row);
+            if (judged == PickupJudgement.Outcome.Scanned)
+            {
+                return;
+            }
+
+            var reason = Params((NotificationParams.Reason, judged));
+            events.Add(row.String("buyerId"), NotificationTypes.PickupOverdue, reason);
+            events.Add(row.String("farmerId"), NotificationTypes.PickupMissed, reason);
+            events.Add(row.String("truckerId"), NotificationTypes.PickupMissed, reason);
         }
+    }
+
+    /// <summary>The pickup judgement's outcome when this write recorded it (not <c>pending</c>), else null.</summary>
+    private static string? JudgedPickupOutcome(StreamImage old, StreamImage row)
+    {
+        var judged = row.String(PickupJudgement.Field);
+        return judged.Length > 0 && judged != PickupJudgement.Outcome.Pending && judged != old.String(PickupJudgement.Field)
+            ? judged
+            : null;
+    }
+
+    // ===== orders: the check-ins (FUP-286, FUP-338) =====
+
+    /// <summary>
+    /// FUP-286 (ESC-34, spec 4.12): the arrival check-ins of the pickup. A check-in received before the deadline
+    /// tells the counterpart: the trucker's (or a self-pickup buyer's) "I have arrived" tells the farmer, the
+    /// farmer's "Crops are ready" tells the one who collects. A late one (evidence only) tells nobody. The cron's
+    /// reminder marker tells each party who has not checked in yet, until <c>pickupDeadlineAt</c>. Each entry and
+    /// the marker are written once (conditionally), so each is told once.
+    /// </summary>
+    private static void PickupCheckIns(EventSet events, StreamImage old, StreamImage row)
+    {
+        var selfPickup = PickupJudgement.IsSelfPickup(row.String(FulfillmentField), row.String("tripId"), row.String("truckerId"));
+        var farmer = row.String("farmerId");
+        var collector = selfPickup ? row.String("buyerId") : row.String("truckerId");
+
+        if (CheckInArrived(old, row, PickupJudgement.Kind.ArrivedPickup))
+        {
+            events.Add(farmer, selfPickup ? NotificationTypes.BuyerArrived : NotificationTypes.TruckerArrived);
+        }
+
+        if (CheckInArrived(old, row, PickupJudgement.Kind.CropsReady))
+        {
+            events.Add(collector, NotificationTypes.CropsReady);
+        }
+
+        // A marker stamped only after the deadline (the cron was down) tells nobody.
+        if (Appeared(old, row, PickupJudgement.ReminderAtField)
+            && TryParseUtc(row.String(PickupJudgement.ReminderAtField), out var remindedAt)
+            && TryParseUtc(row.String(PickupDeadline.Field), out var deadline)
+            && remindedAt < deadline)
+        {
+            var checkIns = row.Map(PickupJudgement.CheckInsField);
+            if (!checkIns.Has(PickupJudgement.Kind.ArrivedPickup))
+            {
+                events.AddWithDeadline(collector, NotificationTypes.PickupReminder, row, PickupDeadline.Field);
+            }
+
+            if (!checkIns.Has(PickupJudgement.Kind.CropsReady))
+            {
+                events.AddWithDeadline(farmer, NotificationTypes.PickupReminder, row, PickupDeadline.Field);
+            }
+        }
+    }
+
+    /// <summary>The check-in of <paramref name="kind"/> was stored by this write and is not late.</summary>
+    private static bool CheckInArrived(StreamImage old, StreamImage row, string kind)
+    {
+        if (old.Map(PickupJudgement.CheckInsField).Has(kind))
+        {
+            return false;
+        }
+
+        var entry = row.Map(PickupJudgement.CheckInsField).Map(kind);
+        return entry.Exists && entry.Bool(PickupJudgement.EntryLate) != true;
+    }
+
+    /// <summary>
+    /// FUP-338 (ESC-36, spec 4.12): the trucker's drop-off check-in, counted (before T8, not late), tells the buyer
+    /// <c>delivery_arrived</c> with T9, when the delivery may be confirmed for them; the cron's reminder marker tells
+    /// them again before T9. Only the buyer: the push names the trucker, never where the check-in was made.
+    /// </summary>
+    private static void DropoffCheckIn(EventSet events, StreamImage old, StreamImage row, Func<OrderTimings> timings)
+    {
+        var arrived = Appeared(old, row, DropoffJudgement.CheckInField);
+        var reminded = Appeared(old, row, DropoffJudgement.ReminderAtField);
+        if ((!arrived && !reminded) || SilentBuyerDeadline(row, timings) is not { } t9)
+        {
+            return;
+        }
+
+        // A reminder stamped only after T9 (the cron was down) tells nobody.
+        if (!arrived && (!TryParseUtc(row.String(DropoffJudgement.ReminderAtField), out var remindedAt) || remindedAt >= t9))
+        {
+            return;
+        }
+
+        events.Add(row.String("buyerId"),
+            arrived ? NotificationTypes.DeliveryArrived : NotificationTypes.DeliveryConfirmReminder,
+            Params((NotificationParams.DeadlineAt, Iso(t9))), deadlineUtc: t9);
+    }
+
+    /// <summary>
+    /// T9 of a pending order from its image, by <see cref="DropoffJudgement.SilentBuyerDeadline"/> (the cron's rule):
+    /// null without a counted check-in. The timings are read only when there is one.
+    /// </summary>
+    private static DateTime? SilentBuyerDeadline(StreamImage row, Func<OrderTimings> timings)
+    {
+        var entry = row.Map(DropoffJudgement.CheckInField);
+        if (!entry.Exists)
+        {
+            return null;
+        }
+
+        var order = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            [DropoffJudgement.Field] = row.String(DropoffJudgement.Field),
+            [DropoffJudgement.DeadlineField] = row.String(DropoffJudgement.DeadlineField),
+            [DropoffJudgement.CheckInField] = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                [PickupJudgement.EntryReceivedAt] = entry.String(PickupJudgement.EntryReceivedAt),
+                [PickupJudgement.EntryLate] = entry.Bool(PickupJudgement.EntryLate) == true
+            }
+        };
+        return DropoffJudgement.IsPending(order) && DropoffJudgement.CountedCheckIn(order) != null
+            ? DropoffJudgement.SilentBuyerDeadline(order, timings())
+            : null;
     }
 
     /// <summary>Names, crop, quantity and the order total: what every order event can say.</summary>
@@ -605,6 +773,14 @@ public static class NotificationRules
             case "disputed":
                 {
                     var disputer = row.String("disputedBy");
+                    // FUP-338: the order cron's drop-off dispute is told from the order row, with its reason, in the
+                    // write that stamps the judgement (DeriveOrder); not a second time here.
+                    if (disputer == DropoffJudgement.SystemActor
+                        && DropoffJudgement.DisputeReasonOfDescription(row.String("disputeDescription")) != null)
+                    {
+                        break;
+                    }
+
                     var opened = Params((NotificationParams.Party, RoleOf(row, disputer)));
                     foreach (var party in new[] { buyer, farmer, trucker })
                     {

@@ -59,6 +59,28 @@ public static class NotificationTypes
     /// <summary>LT-07: a check-in put the truck within 5 km of the drop-off (deliveries table, the <c>nearbyNotifiedAt</c> stamp).</summary>
     public const string TruckNearby = "truck_nearby";
 
+    // Arrival check-ins of the pickup (FUP-286, ESC-34; orders table: the checkIns entries and the reminder marker).
+
+    /// <summary>The check-in window closes soon and the recipient has not checked in (<c>pickupReminderAt</c> stamped).</summary>
+    public const string PickupReminder = "pickup_reminder";
+
+    /// <summary>To the farmer: the trucker's "I have arrived" at the farm was received.</summary>
+    public const string TruckerArrived = "trucker_arrived";
+
+    /// <summary>To the farmer of a self-pickup: the buyer's "I have arrived" at the farm was received.</summary>
+    public const string BuyerArrived = "buyer_arrived";
+
+    /// <summary>To the trucker (or the buyer collecting): the farmer's "Crops are ready" was received.</summary>
+    public const string CropsReady = "crops_ready";
+
+    // The drop-off check-in (FUP-338, ESC-36; orders table: dropoffCheckIn and the reminder marker).
+
+    /// <summary>To the buyer: the trucker checked in at the drop-off; carries T9, when the delivery may be confirmed for them.</summary>
+    public const string DeliveryArrived = "delivery_arrived";
+
+    /// <summary>To the buyer: T9 comes soon and the delivery is neither confirmed nor disputed (<c>dropoffReminderAt</c> stamped).</summary>
+    public const string DeliveryConfirmReminder = "delivery_confirm_reminder";
+
     public const string Delivered = "delivered";
     public const string DeliveredPayoutPending = "delivered_payout_pending";
 
@@ -90,13 +112,15 @@ public static class NotificationTypes
         DeliveryScheduled, BuyerCollecting, PickedUp, HandoffRecorded, InTransit, TruckNearby, Delivered, DeliveredPayoutPending,
         OrderSettled, RefundSent, PayoutSent, PayoutBlocked, PayoutProcessing,
         DisputeOpened, DisputeReceived, DisputeResolved, UnderReview,
-        PenaltyRecorded, TierChanged
+        PenaltyRecorded, TierChanged,
+        PickupReminder, TruckerArrived, BuyerArrived, CropsReady, DeliveryArrived, DeliveryConfirmReminder
     };
 
     /// <summary>Types that ask the recipient to do something; their push carries a deadline-bound time to live.</summary>
     public static readonly IReadOnlySet<string> ActionRequired = new HashSet<string>(StringComparer.Ordinal)
     {
-        OrderRequest, TransportRequest, TransportFailed, PaymentFailed, Delivered, PickupOverdue, PayoutBlocked, RequestReminder
+        OrderRequest, TransportRequest, TransportFailed, PaymentFailed, Delivered, PickupOverdue, PayoutBlocked, RequestReminder,
+        PickupReminder, DeliveryArrived, DeliveryConfirmReminder
     };
 }
 
@@ -111,6 +135,14 @@ public static class NotificationParams
     public const string AmountEtb = "amountEtb";
     public const string DeadlineAt = "deadlineAt";
     public const string PickupDate = "pickupDate";
+
+    /// <summary>
+    /// A code, never free text. FUP-286 and FUP-338: also the judgement behind a judged pickup's or drop-off's event
+    /// (<c>trucker_no_show</c> on <c>pickup_missed</c>, a pickup outcome sent to the admin queue on
+    /// <c>pickup_overdue</c> and <c>pickup_missed</c>, <c>auto_confirmed</c> on <c>delivered</c> and
+    /// <c>delivered_payout_pending</c>, the system's dispute reason on <c>dispute_opened</c>); <c>PushText</c> then
+    /// renders that outcome's own words.
+    /// </summary>
     public const string Reason = "reason";
     public const string CancelledBy = "cancelledBy";
     public const string Resolution = "resolution";
