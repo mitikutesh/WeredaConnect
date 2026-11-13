@@ -259,4 +259,126 @@ public class TruckerGpsEvidenceTests
 
         Judge(checkIns).Outcome.Should().Be(TruckerGpsOutcome.Consistent);
     }
+
+    // ── FUP-245: the drop-off check-in of ESC-36 first ──────────────
+
+    private const string DeliveryId = "del-001";
+
+    /// <summary>A drop-off entry as the check-in handler stores it, at the farm unless a test says else.</summary>
+    private static Dictionary<string, object> DropoffEntry(
+        DateTime receivedAt, double? distanceKm, string by = Trucker, TrackPoint? at = null)
+    {
+        var fix = at ?? Pickup;
+        return PickupJudgement.Entry(
+            new ParsedCheckIn("order-001", PickupJudgement.Kind.ArrivedDropoff, receivedAt, fix.Latitude, fix.Longitude, 20),
+            by, receivedAt, distanceKm, late: false);
+    }
+
+    /// <summary>An order stamped at pickup (ESC-36) whose active delivery is this one, with the given entries.</summary>
+    private static Dictionary<string, object> StampedOrder(
+        Dictionary<string, object>? checkIn = null, Dictionary<string, object>? attempt = null, string activeDeliveryId = DeliveryId)
+    {
+        var order = new Dictionary<string, object>
+        {
+            { "orderId", "order-001" },
+            { "activeDeliveryId", activeDeliveryId },
+            { "truckerId", Trucker },
+            { DropoffJudgement.Field, DropoffJudgement.Outcome.Pending }
+        };
+        if (checkIn != null)
+        {
+            order[DropoffJudgement.CheckInField] = checkIn;
+        }
+
+        if (attempt != null)
+        {
+            order[DropoffJudgement.AttemptField] = attempt;
+        }
+
+        return order;
+    }
+
+    private static TruckerDropoffEvidence? Evidence(IReadOnlyDictionary<string, object>? order)
+        => TruckerGpsEvidence.DropoffEvidence(order, DeliveryId, Trucker, PickedUpAt, ConfirmedAt);
+
+    [Fact]
+    public void DropoffEvidence_TheTruckersCheckIn_IsTheEvidence_MeasuredOrNot()
+    {
+        var receivedAt = ConfirmedAt.AddMinutes(-30);
+
+        Evidence(StampedOrder(checkIn: DropoffEntry(receivedAt, distanceKm: 1.2)))
+            .Should().Be(new TruckerDropoffEvidence(receivedAt, IsAttempt: false, Measured: true));
+        // No point was fixed at pickup: kept unmeasured.
+        Evidence(StampedOrder(checkIn: DropoffEntry(receivedAt, distanceKm: null)))
+            .Should().Be(new TruckerDropoffEvidence(receivedAt, IsAttempt: false, Measured: false));
+    }
+
+    [Fact]
+    public void DropoffEvidence_WithoutACheckIn_TheOutOfRangeAttemptIs_AndACheckInWinsOverIt()
+    {
+        var attemptAt = ConfirmedAt.AddMinutes(-50);
+        var attempt = DropoffEntry(attemptAt, distanceKm: 12.4);
+        attempt[PickupJudgement.EntryOutOfRange].Should().Be(true);
+
+        Evidence(StampedOrder(attempt: attempt))
+            .Should().Be(new TruckerDropoffEvidence(attemptAt, IsAttempt: true, Measured: false));
+        Evidence(StampedOrder(checkIn: DropoffEntry(ConfirmedAt.AddMinutes(-20), distanceKm: 0.4), attempt: attempt))!
+            .IsAttempt.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DropoffEvidence_NoneOnTheOrder_IsNull_SoTheRoadCheckInsDecide()
+    {
+        Evidence(null).Should().BeNull();
+        Evidence(StampedOrder()).Should().BeNull();
+        // An order picked up with the flag off is not stamped and takes no drop-off check-in.
+        var unstamped = StampedOrder(checkIn: DropoffEntry(ConfirmedAt.AddMinutes(-30), distanceKm: 1.2));
+        unstamped.Remove(DropoffJudgement.Field);
+        Evidence(unstamped).Should().BeNull();
+    }
+
+    [Fact]
+    public void DropoffEvidence_OfAnotherTrucker_AnotherDelivery_OrOutsideTheDeliverysWindow_IsNotThisTruckersEvidence()
+    {
+        Evidence(StampedOrder(checkIn: DropoffEntry(ConfirmedAt.AddMinutes(-30), 1.2, by: "someone-else"))).Should().BeNull();
+        Evidence(StampedOrder(checkIn: DropoffEntry(ConfirmedAt.AddMinutes(-30), 1.2), activeDeliveryId: "del-earlier"))
+            .Should().BeNull();
+        // Received before this delivery's pickup, or after the confirmation and the clock skew.
+        Evidence(StampedOrder(checkIn: DropoffEntry(PickedUpAt.AddSeconds(-1), 1.2))).Should().BeNull();
+        Evidence(StampedOrder(checkIn: DropoffEntry(ConfirmedAt + TruckerGpsEvidence.ClockSkew + TimeSpan.FromSeconds(1), 1.2)))
+            .Should().BeNull();
+        // Both ends of the window count.
+        Evidence(StampedOrder(checkIn: DropoffEntry(PickedUpAt, 1.2))).Should().NotBeNull();
+        Evidence(StampedOrder(checkIn: DropoffEntry(ConfirmedAt + TruckerGpsEvidence.ClockSkew, 1.2))).Should().NotBeNull();
+        // No id to match on: nothing.
+        TruckerGpsEvidence.DropoffEvidence(StampedOrder(checkIn: DropoffEntry(ConfirmedAt.AddMinutes(-30), 1.2), activeDeliveryId: ""),
+            "", Trucker, PickedUpAt, ConfirmedAt).Should().BeNull();
+    }
+
+    [Fact]
+    public void DropoffEvidence_ACheckInKeptAfterT8_StillCounts()
+    {
+        // Kept as late evidence by the handler: it is still the trucker's phone at the drop-off before the confirm.
+        var late = DropoffEntry(ConfirmedAt.AddMinutes(-30), 1.2);
+        late[PickupJudgement.EntryLate] = true;
+
+        Evidence(StampedOrder(checkIn: late))!.Measured.Should().BeTrue();
+    }
+
+    [Fact]
+    public void JudgeDropoff_NeverWritesTheRow()
+    {
+        var at = ConfirmedAt.AddMinutes(-30);
+
+        var reached = TruckerGpsEvidence.JudgeDropoff(new TruckerDropoffEvidence(at, IsAttempt: false, Measured: true));
+        var unmeasured = TruckerGpsEvidence.JudgeDropoff(new TruckerDropoffEvidence(at, IsAttempt: false, Measured: false));
+        var attempt = TruckerGpsEvidence.JudgeDropoff(new TruckerDropoffEvidence(at, IsAttempt: true, Measured: false));
+
+        reached.Outcome.Should().Be(TruckerGpsOutcome.CheckedInAtDropoff);
+        // No drop-off point was fixed at pickup: as a trip without a destination point on the road check-ins.
+        unmeasured.Outcome.Should().Be(TruckerGpsOutcome.NoDropoffPoint);
+        // FUP-204: the point the attempt missed may be the buyer's own pin.
+        attempt.Outcome.Should().Be(TruckerGpsOutcome.OutOfRangeAttempt);
+        new[] { reached, unmeasured, attempt }.Should().OnlyContain(v => !v.IsAnomaly && v.Description == null);
+    }
 }

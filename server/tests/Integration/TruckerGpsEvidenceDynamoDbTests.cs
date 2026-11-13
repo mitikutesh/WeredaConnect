@@ -58,7 +58,8 @@ public sealed class TruckerGpsEvidenceDynamoDbTests
 
     private static string Iso(DateTime at) => at.ToString("o", CultureInfo.InvariantCulture);
 
-    private SyncFunction Sync()
+    /// <summary>The sync Lambda; FUP-245: <paramref name="dropoffOn"/> sets <c>dropoffClassification</c> and the commitments it needs.</summary>
+    private SyncFunction Sync(bool dropoffOn = false)
     {
         var syncMeta = Substitute.For<ISyncMetadataRepository>();
         syncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
@@ -67,19 +68,33 @@ public sealed class TruckerGpsEvidenceDynamoDbTests
             AlarmLog = _ => { }
         };
         return new SyncFunction(syncMeta, new CropRepository(Ddb, _db.Crops), Ddb, _db.Trips, _db.Deliveries,
-            fraudService: fraud, orderRepo: new OrderRepository(Ddb, _db.Orders), tripLocationRepo: Locations)
+            fraudService: fraud, orderRepo: Orders, tripLocationRepo: Locations)
         {
-            GpsAnomalyOnTrucker = true
+            GpsAnomalyOnTrucker = true,
+            CommitmentsEnabled = dropoffOn,
+            DropoffClassificationEnabled = dropoffOn
         };
     }
 
-    private sealed record Trade(string TripId, string DeliveryId, string BuyerId, string TruckerId);
+    private OrderRepository Orders => new(Ddb, _db.Orders);
 
-    /// <summary>An inter-woreda trip to <paramref name="destination"/> and its delivery, picked up four hours ago at <paramref name="pickup"/>.</summary>
-    private async Task<Trade> SeedTradeAsync(TrackPoint pickup, TrackPoint destination)
+    private sealed record Trade(string TripId, string DeliveryId, string BuyerId, string TruckerId, string? OrderId = null);
+
+    /// <summary>
+    /// An inter-woreda trip to <paramref name="destination"/> and its delivery, picked up four hours ago at <paramref name="pickup"/>.
+    /// FUP-245: with <paramref name="withOrder"/>, the delivery's order too, stamped at pickup as ESC-36 stamps it
+    /// (the order's advance to <c>in_transit</c>, the destination as the trip's point), with no drop-off check-in yet.
+    /// </summary>
+    private async Task<Trade> SeedTradeAsync(TrackPoint pickup, TrackPoint destination, bool withOrder = false)
     {
         var trade = new Trade(Id($"trip-{Guid.NewGuid():N}"), Id($"delivery-{Guid.NewGuid():N}"),
-            Id($"buyer-{Guid.NewGuid():N}"), Id($"trucker-{Guid.NewGuid():N}"));
+            Id($"buyer-{Guid.NewGuid():N}"), Id($"trucker-{Guid.NewGuid():N}"), withOrder ? Id($"order-{Guid.NewGuid():N}") : null);
+        var pickedUpAt = DateTime.UtcNow.AddHours(-4);
+        if (trade.OrderId != null)
+        {
+            await SeedStampedOrderAsync(trade, destination, pickedUpAt);
+        }
+
         await Ddb.PutItemAsync(new PutItemRequest
         {
             TableName = _db.Trips,
@@ -96,34 +111,81 @@ public sealed class TruckerGpsEvidenceDynamoDbTests
                 ["version"] = new AttributeValue { N = "1" }
             }
         });
+        var delivery = new Dictionary<string, AttributeValue>
+        {
+            ["deliveryId"] = S(trade.DeliveryId),
+            ["tripId"] = S(trade.TripId),
+            ["listingId"] = S(Id("listing")),
+            ["buyerId"] = S(trade.BuyerId),
+            ["farmerId"] = S(Id("farmer")),
+            ["truckerId"] = S(trade.TruckerId),
+            ["participantId"] = S(trade.BuyerId),
+            ["qrToken"] = S("qr-token-it"),
+            ["qrNonce"] = S("nonce-it"),
+            ["pickupPhotoVersionId"] = S("photo-version-pickup-1"),
+            ["dropoffPhotoVersionId"] = S("photo-version-dropoff-1"),
+            ["status"] = S("pickedUp"),
+            ["pickedUpAt"] = S(Iso(pickedUpAt)),
+            ["gpsPickup"] = new AttributeValue
+            {
+                M = new Dictionary<string, AttributeValue> { ["latitude"] = N(pickup.Latitude), ["longitude"] = N(pickup.Longitude) }
+            },
+            ["createdAt"] = S(CreatedAt),
+            ["updatedAt"] = S(CreatedAt),
+            ["version"] = new AttributeValue { N = "1" }
+        };
+        if (trade.OrderId != null)
+        {
+            delivery["orderId"] = S(trade.OrderId);
+        }
+
+        await Ddb.PutItemAsync(new PutItemRequest { TableName = _db.Deliveries, Item = delivery });
+        return trade;
+    }
+
+    /// <summary>FUP-245: the order accepted, then advanced to <c>in_transit</c> with ESC-36's stamp in the same write.</summary>
+    private async Task SeedStampedOrderAsync(Trade trade, TrackPoint destination, DateTime pickedUpAt)
+    {
         await Ddb.PutItemAsync(new PutItemRequest
         {
-            TableName = _db.Deliveries,
+            TableName = _db.Orders,
             Item = new Dictionary<string, AttributeValue>
             {
-                ["deliveryId"] = S(trade.DeliveryId),
-                ["tripId"] = S(trade.TripId),
-                ["listingId"] = S(Id("listing")),
+                ["orderId"] = S(trade.OrderId!),
+                ["createdAt"] = S(CreatedAt),
+                ["status"] = S("accepted"),
+                ["version"] = new AttributeValue { N = "6" },
                 ["buyerId"] = S(trade.BuyerId),
                 ["farmerId"] = S(Id("farmer")),
                 ["truckerId"] = S(trade.TruckerId),
-                ["participantId"] = S(trade.BuyerId),
-                ["qrToken"] = S("qr-token-it"),
-                ["qrNonce"] = S("nonce-it"),
-                ["pickupPhotoVersionId"] = S("photo-version-pickup-1"),
-                ["dropoffPhotoVersionId"] = S("photo-version-dropoff-1"),
-                ["status"] = S("pickedUp"),
-                ["pickedUpAt"] = S(Iso(DateTime.UtcNow.AddHours(-4))),
-                ["gpsPickup"] = new AttributeValue
-                {
-                    M = new Dictionary<string, AttributeValue> { ["latitude"] = N(pickup.Latitude), ["longitude"] = N(pickup.Longitude) }
-                },
-                ["createdAt"] = S(CreatedAt),
-                ["updatedAt"] = S(CreatedAt),
-                ["version"] = new AttributeValue { N = "1" }
+                ["tripId"] = S(trade.TripId),
+                ["listingId"] = S(Id("listing")),
+                ["quantity"] = new AttributeValue { N = "500" },
+                ["activeDeliveryId"] = S(trade.DeliveryId),
+                [OrderCommitment.FulfillmentField] = S(OrderCommitment.Fulfillment.Trucker)
             }
         });
-        return trade;
+        var advance = DropoffJudgement.PickupStamp(
+            pickedUpAt, orderPoint: null, destination, tripRead: true, OrderTimings.Defaults, DateTime.UtcNow);
+        advance["status"] = "in_transit";
+        (await Orders.UpdateAsync(trade.OrderId!, advance, 6)).IsSuccess.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// FUP-245: the trucker's "Arrived at drop-off" as the check-in handler keeps it (the conditional write of
+    /// ESC-36), received <paramref name="ago"/> before now: <paramref name="distanceKm"/> within 5 km is the
+    /// drop-off check-in, beyond it the out-of-range attempt.
+    /// </summary>
+    private async Task DropoffCheckInAsync(Trade trade, TimeSpan ago, TrackPoint at, double distanceKm)
+    {
+        var receivedAt = DateTime.UtcNow - ago;
+        var entry = PickupJudgement.Entry(
+            new ParsedCheckIn(trade.OrderId!, PickupJudgement.Kind.ArrivedDropoff, receivedAt, at.Latitude, at.Longitude, 20),
+            trade.TruckerId, receivedAt, distanceKm, late: false);
+        var kept = distanceKm > PickupJudgement.RadiusKm
+            ? await Orders.TryRecordDropoffAttemptAsync(trade.OrderId!, entry)
+            : await Orders.TryRecordDropoffCheckInAsync(trade.OrderId!, entry, whileOpen: true);
+        kept.Should().BeTrue();
     }
 
     /// <summary>A check-in as the ingest stores it (LT-05), captured <paramref name="ago"/> before now.</summary>
@@ -135,7 +197,7 @@ public sealed class TruckerGpsEvidenceDynamoDbTests
             null, LocationPingRules.FormatUtc(captured.AddSeconds(3)), LocationPingRules.ExpiresAt(captured)));
     }
 
-    private async Task<JsonElement> ConfirmAsync(Trade trade, TrackPoint gpsDropoff)
+    private async Task<JsonElement> ConfirmAsync(Trade trade, TrackPoint gpsDropoff, bool dropoffOn = false)
     {
         var request = new APIGatewayProxyRequest
         {
@@ -171,7 +233,7 @@ public sealed class TruckerGpsEvidenceDynamoDbTests
             }
         };
 
-        var response = await Sync().FunctionHandler(request, new TestLambdaContext());
+        var response = await Sync(dropoffOn).FunctionHandler(request, new TestLambdaContext());
         response.StatusCode.Should().Be(200, response.Body);
         return JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0].Clone();
     }
@@ -262,5 +324,72 @@ public sealed class TruckerGpsEvidenceDynamoDbTests
             .Select(r => r["signalKey"].S).OrderBy(k => k, StringComparer.Ordinal).Should().Equal(
                 $"{FraudDetectionService.AttributionSlotPrefix}GPS_ANOMALY#slot#1",
                 $"{FraudDetectionService.AttributionSlotPrefix}GPS_ANOMALY#source#{trade.BuyerId}");
+    }
+
+    // ── FUP-245: the trucker's drop-off check-in (ESC-36) first ──────
+
+    /// <summary>The FUP-203 anomaly on the road: both of the trucker's check-ins at the farm, the last ten minutes ago.</summary>
+    private async Task EveryRoadCheckInAtTheFarmAsync(Trade trade)
+    {
+        await CheckInAsync(trade.TripId, trade.TruckerId, TimeSpan.FromMinutes(70), new TrackPoint(7.6702, 36.8301));
+        await CheckInAsync(trade.TripId, trade.TruckerId, TimeSpan.FromMinutes(10), new TrackPoint(7.6705, 36.8302));
+    }
+
+    [LocalDynamoDbFact]
+    public async Task Confirm_FUP245_TheTruckersDropoffCheckIn_IsReadFirst_AndClears_WhateverTheRoadCheckInsSay()
+    {
+        // The drop-off check-in kept on the real orders table (a nested map) is read back strongly consistent at the
+        // confirmation and decides: no row, although every road check-in is at the farm.
+        var trade = await SeedTradeAsync(Jimma, Addis, withOrder: true);
+        await EveryRoadCheckInAtTheFarmAsync(trade);
+        await DropoffCheckInAsync(trade, TimeSpan.FromMinutes(30), Addis, distanceKm: 0.3);
+
+        var result = await ConfirmAsync(trade, gpsDropoff: Addis, dropoffOn: true);
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        (await PartitionOf(trade.TruckerId)).Should().BeEmpty("the trucker's own drop-off check-in clears: no row, no slot");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task Confirm_FUP245_AnOutOfRangeAttemptAlone_WritesNoRowOnTheTrucker()
+    {
+        // FUP-204: the attempt may have missed only the buyer's pin, so it never decides the row; the road check-ins
+        // at the farm are not read in its place.
+        var trade = await SeedTradeAsync(Jimma, Addis, withOrder: true);
+        await EveryRoadCheckInAtTheFarmAsync(trade);
+        await DropoffCheckInAsync(trade, TimeSpan.FromMinutes(15), new TrackPoint(7.6705, 36.8302), distanceKm: 258.8);
+
+        var result = await ConfirmAsync(trade, gpsDropoff: Addis, dropoffOn: true);
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        (await PartitionOf(trade.TruckerId)).Should().BeEmpty();
+    }
+
+    [LocalDynamoDbFact]
+    public async Task Confirm_FUP245_NoDropoffCheckInOnTheOrder_FallsBackToTheRoadCheckIns()
+    {
+        var trade = await SeedTradeAsync(Jimma, Addis, withOrder: true);
+        await EveryRoadCheckInAtTheFarmAsync(trade);
+
+        var result = await ConfirmAsync(trade, gpsDropoff: Addis, dropoffOn: true);
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        var signal = (await PartitionOf(trade.TruckerId)).Should().ContainSingle(r => r["recordType"].S == "signal").Subject;
+        signal["signalType"].S.Should().Be("GPS_ANOMALY");
+        signal[FraudDetectionService.SourceUserIdAttribute].S.Should().Be(trade.BuyerId);
+        signal["description"].S.Should().StartWith("Trucker check-in 10 min before the confirmation: 0.06 km from the pickup point");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task Confirm_FUP245_DropoffClassificationOff_TheDropoffCheckInIsNotRead_AsBefore()
+    {
+        var trade = await SeedTradeAsync(Jimma, Addis, withOrder: true);
+        await EveryRoadCheckInAtTheFarmAsync(trade);
+        await DropoffCheckInAsync(trade, TimeSpan.FromMinutes(30), Addis, distanceKm: 0.3);
+
+        var result = await ConfirmAsync(trade, gpsDropoff: Addis, dropoffOn: false);
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        (await PartitionOf(trade.TruckerId)).Should().ContainSingle(r => r["recordType"].S == "signal");
     }
 }

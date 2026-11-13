@@ -8,7 +8,14 @@ namespace WeredaConnect.Server.Helpers;
 /// <summary>A check-in of the trucker's own phone that counts as evidence of where the truck was (FUP-203).</summary>
 public sealed record TruckerCheckIn(DateTime CapturedAtUtc, double Latitude, double Longitude);
 
-/// <summary>What the trucker's own check-ins say about a confirmed delivery (FUP-203).</summary>
+/// <summary>
+/// The trucker's own drop-off evidence of ESC-36 on the order (FUP-245): the drop-off check-in, or without one the
+/// out-of-range attempt (<c>IsAttempt</c>). <c>Measured</c>: a check-in measured within 5 km of a drop-off point
+/// fixed at pickup.
+/// </summary>
+public sealed record TruckerDropoffEvidence(DateTime ReceivedAtUtc, bool IsAttempt, bool Measured);
+
+/// <summary>What the trucker's own check-ins say about a confirmed delivery (FUP-203, FUP-245).</summary>
 public enum TruckerGpsOutcome
 {
     /// <summary>No road check-in of the trucker in the delivery's window, or none fresh: no evidence, no row.</summary>
@@ -19,7 +26,8 @@ public enum TruckerGpsOutcome
 
     /// <summary>
     /// The trip has no destination point (a trip from before trip-listing-api 2.1.0): only the buyer's order point
-    /// would be left to judge by, and it may only clear.
+    /// would be left to judge by, and it may only clear. FUP-245: also the trucker's drop-off check-in that had no
+    /// point to be measured against (none was fixed at pickup).
     /// </summary>
     NoDropoffPoint,
 
@@ -28,6 +36,18 @@ public enum TruckerGpsOutcome
 
     /// <summary>From its last check-in the truck could still have reached the drop-off by the confirmation.</summary>
     CouldReachDropoff,
+
+    /// <summary>
+    /// FUP-245: the trucker's own drop-off check-in (ESC-36) was within 5 km of a drop-off point fixed at pickup:
+    /// the truck reached the drop-off.
+    /// </summary>
+    CheckedInAtDropoff,
+
+    /// <summary>
+    /// FUP-245: only the trucker's out-of-range drop-off attempt (ESC-36, FUP-204). Not evidence of a fake by itself:
+    /// the point it missed may be the buyer's own pin, so no row.
+    /// </summary>
+    OutOfRangeAttempt,
 
     /// <summary>The trucker's own evidence is anomalous: the trucker's row is written (through the attribution guard).</summary>
     Anomaly
@@ -49,6 +69,12 @@ public sealed record TruckerGpsVerdict(TruckerGpsOutcome Outcome, string? Descri
 /// check-in of the window was near the drop-off, and from the last one the truck could not have reached the
 /// trip's destination by the confirmation at a speed no truck reaches. Pure: the caller reads the window's rows,
 /// the trip and the order.
+/// <para>
+/// FUP-245: with <c>dropoffClassification</c> on, the trucker's drop-off check-in of ESC-36 (taken by the
+/// trucker's phone at the handoff) is read first and, when the order holds one for the delivery, decides in place
+/// of the road check-ins (<see cref="DropoffEvidence"/>, <see cref="JudgeDropoff"/>); without one the road
+/// check-ins decide as above.
+/// </para>
 /// </summary>
 public static class TruckerGpsEvidence
 {
@@ -194,6 +220,55 @@ public static class TruckerGpsEvidence
             + $"{toDropoffKm:0.0} km from the drop-off point."));
     }
 
+    /// <summary>
+    /// FUP-245: the trucker's own drop-off evidence for the delivery on <paramref name="order"/> (read strongly
+    /// consistent at the confirmation): the stored drop-off check-in (<see cref="DropoffJudgement.CheckInField"/>),
+    /// else the kept out-of-range attempt (<see cref="DropoffJudgement.AttemptField"/>). An entry counts only on an
+    /// order stamped at pickup whose active delivery is <paramref name="deliveryId"/>, sent by
+    /// <paramref name="truckerId"/> (the delivery's trucker as stored), and received by the server in the
+    /// delivery's window (from <paramref name="pickedUpAtUtc"/> to the confirmation plus <see cref="ClockSkew"/>).
+    /// A check-in kept after T8 counts too: it is still the trucker's phone at the drop-off before the confirm.
+    /// Null when there is none: the road check-ins decide.
+    /// </summary>
+    public static TruckerDropoffEvidence? DropoffEvidence(
+        IReadOnlyDictionary<string, object>? order, string deliveryId, string truckerId,
+        DateTime pickedUpAtUtc, DateTime confirmedAtUtc)
+    {
+        if (order == null || deliveryId.Length == 0 || truckerId.Length == 0
+            || !DropoffJudgement.IsStamped(order) || Str(order, "activeDeliveryId") != deliveryId)
+        {
+            return null;
+        }
+
+        var until = confirmedAtUtc + ClockSkew;
+        TruckerDropoffEvidence? Of(IReadOnlyDictionary<string, object>? entry, bool attempt)
+            => entry != null
+               && Str(entry, PickupJudgement.EntryBy) == truckerId
+               && DropoffJudgement.ReceivedAt(entry) is { } received
+               && received >= pickedUpAtUtc
+               && received <= until
+                ? new TruckerDropoffEvidence(received, attempt, !attempt && DropoffJudgement.IsMeasured(entry))
+                : null;
+
+        return Of(DropoffJudgement.CheckInOf(order), attempt: false) ?? Of(DropoffJudgement.AttemptOf(order), attempt: true);
+    }
+
+    /// <summary>
+    /// FUP-245: the verdict from the trucker's drop-off evidence, in place of the road check-ins. It never writes
+    /// the row. ESC-36 keeps a check-in only within 5 km of a drop-off point fixed at pickup (the truck reached the
+    /// drop-off: <see cref="TruckerGpsOutcome.CheckedInAtDropoff"/>) or, with no point fixed, unmeasured (no
+    /// destination point: <see cref="TruckerGpsOutcome.NoDropoffPoint"/>, as on the road check-ins). An
+    /// out-of-range attempt is not evidence of a fake by itself: the point it missed may be the buyer's own pin
+    /// (FUP-204), and the buyer's input never decides the trucker's row (<see cref="TruckerGpsOutcome.OutOfRangeAttempt"/>).
+    /// </summary>
+    public static TruckerGpsVerdict JudgeDropoff(TruckerDropoffEvidence evidence)
+        => new(evidence.IsAttempt ? TruckerGpsOutcome.OutOfRangeAttempt
+            : evidence.Measured ? TruckerGpsOutcome.CheckedInAtDropoff
+            : TruckerGpsOutcome.NoDropoffPoint);
+
     private static double NearestKm(TruckerCheckIn checkIn, IReadOnlyList<TrackPoint> points)
         => points.Min(p => GpsValidator.HaversineDistance(checkIn.Latitude, checkIn.Longitude, p.Latitude, p.Longitude));
+
+    private static string Str(IReadOnlyDictionary<string, object> item, string key)
+        => item.TryGetValue(key, out var value) ? value?.ToString() ?? string.Empty : string.Empty;
 }

@@ -11,6 +11,7 @@ namespace WeredaConnect.Server.Functions;
 /// FUP-203 (fraud-detection-architecture.md Rule 4 and sections 14.3 and 15.3): the trucker's
 /// <c>GPS_ANOMALY</c> row of a confirmed delivery, judged from the trucker's own check-ins
 /// (<see cref="TruckerGpsEvidence"/>), never from the drop-off coordinates the confirming buyer sends.
+/// FUP-245: the trucker's drop-off check-in of ESC-36 first, the road check-ins without one.
 /// </summary>
 public partial class SyncFunction
 {
@@ -23,7 +24,9 @@ public partial class SyncFunction
     /// one per buyer and trucker, two per trucker in 30 days). The ids, the pickup time and the pickup point
     /// come from the row as stored before this write, never from the request. No check-in, a stale one, sharing
     /// declined (D2), a window read that stopped at its page cap, no pickup point or a trip without a destination
-    /// point: no row.
+    /// point: no row. FUP-245: with <c>dropoffClassification</c> on, the trucker's drop-off check-in of ESC-36
+    /// is read first and, when there is one, judges instead (it clears or leaves no row; a trucker who declined
+    /// sharing is judged from it too).
     /// A self-pickup has no trucker. Nothing of the check-ins goes back to the caller. Best effort: a failed
     /// read or write is logged and never fails the confirm.
     /// </summary>
@@ -74,6 +77,10 @@ public partial class SyncFunction
     /// (woredas and destination point) only with a fresh check-in, then the order's own drop-off point only when
     /// Rule 4 flags every check-in and the trip has a destination. Null when the stored row lacks what the rule
     /// needs.
+    /// FUP-245: with <c>dropoffClassification</c> on (<see cref="DropoffJudgementOn"/>), the order is read first
+    /// (strongly consistent), and the trucker's own drop-off check-in of ESC-36 on it, else the kept out-of-range
+    /// attempt, decides in place of the road check-ins (<see cref="TruckerGpsEvidence.JudgeDropoff"/>); without
+    /// either, the road check-ins decide and that read serves the order's point. With the flag off nothing changes.
     /// </summary>
     private async Task<TruckerGpsVerdict?> JudgeTruckerGpsEvidenceAsync(
         Dictionary<string, AttributeValue> existing, string truckerId, string confirmedAtText)
@@ -85,6 +92,20 @@ public partial class SyncFunction
             || StoredPoint(existing, "gpsPickup") is not { } pickup)
         {
             return null;
+        }
+
+        var orderId = AttrString(existing, "orderId");
+        Dictionary<string, object>? order = null;
+        var orderRead = false;
+        if (DropoffJudgementOn && !string.IsNullOrEmpty(orderId))
+        {
+            order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+            orderRead = true;
+            if (TruckerGpsEvidence.DropoffEvidence(
+                    order, AttrString(existing, "deliveryId") ?? "", truckerId, pickedUpAt, confirmedAt) is { } dropoff)
+            {
+                return TruckerGpsEvidence.JudgeDropoff(dropoff);
+            }
         }
 
         var (from, to) = TruckerGpsEvidence.WindowKeys(pickedUpAt, confirmedAt);
@@ -118,11 +139,10 @@ public partial class SyncFunction
         }
 
         // The order's own drop-off point (the confirm accepts it too; locked at pickup) may only clear the trucker.
-        // Read strongly consistent.
-        var orderId = AttrString(existing, "orderId");
+        // Read strongly consistent (once: FUP-245's read above serves it).
         var orderPoint = string.IsNullOrEmpty(orderId)
             ? null
-            : OrderDeliveryLocation.Of(await _orderRepo.GetByIdAsync(orderId, consistentRead: true));
+            : OrderDeliveryLocation.Of(orderRead ? order : await _orderRepo.GetByIdAsync(orderId, consistentRead: true));
 
         var maxTruckKmh = PatternRules?.Settings.MaxDeliveryKmh ?? TransactionPatternSettings.Default.MaxDeliveryKmh;
         return TruckerGpsEvidence.Judge(
