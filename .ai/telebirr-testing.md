@@ -85,8 +85,9 @@ TELEBIRR_CREDS_FILE="$(git rev-parse --show-toplevel)/tools/telebirr-sandbox/cre
 This acquires a fabric token, signs + posts a `preOrder`, and asserts the
 returned `toPayUrl`. `QueryOrder_against_live_simulator` (FUP-430) then asks
 `queryOrder` before and after a payment, after the window and for an order the
-simulator never created (`tools/telebirr-sandbox/README.md`, queryOrder). The signing scheme is proven byte-identical to the simulator
-by `TelebirrSignatureServiceTests` (a Node-produced signature verifies in C#).
+simulator never created (`tools/telebirr-sandbox/README.md`, queryOrder).
+The signing scheme is proven byte-identical to the simulator by
+`TelebirrSignatureServiceTests` (a Node-produced signature verifies in C#).
 
 ### 2c. Manual browser walk-through of the pay page
 
