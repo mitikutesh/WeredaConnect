@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.6.1
+2.8.0
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -118,13 +118,15 @@ Cancelled trips are never listed, for any role: a trip with `status: cancelled` 
 
 Open trips that have left are not listed (2.2.0, L-7). A trip has left once its departure day is over in Ethiopia (Africa/Addis_Ababa, UTC+3 all year): `departureDate` is the instant of Ethiopia midnight on the day the trucker picked, and trucks run late, so a trip stays listed all of its day. The browse of `status=open` (the default) therefore returns only trips with `departureDate` at or after the start of today in Ethiopia (21:00 UTC the day before). The cutoff is part of the DynamoDB key condition on the `StatusDepartureDateIndex` sort key, not a filter: departed trips are never read and never leave a page short. The string compare is exact because `departureDate` is stored as UTC with milliseconds (1.3.0). Not affected: the trucker's own list (`truckerId`, the trucker sees every trip; the apps mark a passed day as "Date passed"), `GET /trips/{id}` (orders and the live trip still read the trip), and the other statuses. A `nextToken` read before the cutoff moved (Ethiopia midnight between two pages) still works: that page starts at the token and drops the trips that have left. The apps apply the same cutoff to their cached open trips, so an offline phone does not offer a truck that left either. On a buyer's phone the trip pull keeps only what the browse returns (other truckers' trips the server no longer lists are dropped from the cache), so a read by id from that cache, such as a conversation's trip context or the live trip's vehicle line, finds nothing for an open trip that has left and those screens show without it.
 
+The trucker's phone pulls the trucker's own trips (2.8.0, FUP-374). The server moves a trucker's trip without any upload from the phone: `matched` when a funding fills it (2.0.0), `delivered` (2.4.0), and `open` or `matched` again when an admin's trucker no-show re-open opens a trip the order cron closed (2.7.0). Before 2.8.0 the trucker's phone never read its own trips back, so it kept its last local copy; a phone that learned of the close from a conflict answer held the trip as `cancelled`, hid it from the home card, read the live trip as closed and refused locally to start it. Mobile now reads `GET /trips?truckerId={own id}&limit=50` with no `status` (every page; the request web already makes for the trucker's home card) when the trucker's home card or My trips list loads, at most once per 30 seconds per trucker, best effort (offline, the stored trips show). Each listed trip replaces the stored row unless a trip upload for it is still on its way (its own outcome settles the row) or the stored row has a higher `version` (the `TruckerIdCreatedAtIndex` lags a change just synced); the place ids only the phone keeps stay on the row, a trip of another trucker in the answer is never stored, and nothing is deleted (cancelled trips are not listed, so a missing trip says nothing). It is not the buyer's market pull: a trucker never reads other truckers' trips, and the server keeps a trucker's `GET /trips` to their own trips whatever the client asks. Web reads the server on every view and is unchanged.
+
 **Query Parameters**:
 
 | Parameter | Type | Required | Description | Example |
 |-----------|------|----------|-------------|---------|
 | `fromWoreda` | string | No | Filter by origin woreda | `fromWoreda=Bishoftu` |
 | `toWoreda` | string | No | Filter by destination woreda | `toWoreda=Addis Ababa` |
-| `status` | string | No | Filter by status (default: open). `cancelled` always returns an empty page. | `status=open` |
+| `status` | string | No | Filter by status (default: open). `cancelled` always returns an empty page. A trucker's own list (`truckerId`) without `status` returns every status except `cancelled` (2.8.0 documents it; the server has always done so). | `status=open` |
 | `minCapacity` | number | No | Minimum available capacity (quintals) | `minCapacity=50` |
 | `maxPrice` | number | No | Maximum price per quintal (ETB) | `maxPrice=150` |
 | `departureDateFrom` | string | No | Earliest departure date (ISO 8601) | `departureDateFrom=2026-02-17T00:00:00Z` |
@@ -592,9 +594,10 @@ Common route patterns:
 | 2.5.2 | 2026-11-11 | Docs only, no behaviour change (FUP-132): the infrastructure claims corrected against the CDK code, as in `crop-listing-api.md` 1.10.0. No CloudFront cache in front of `GET /trips` (none exists, responses are `no-store`, and a shared cache on a role-filtered list would be a visibility risk), no 100 req/s per user or 200 req/s per IP limits; the real limits are the HTTP API stage throttle (25 req/s per route, burst 50, all callers together), 60 sync requests per minute per user (`SYNC_RATE_LIMITED`) and the Lambda reserved concurrency (staging and prod only; dev sets none) |
 | 2.6.0 | 2026-11-11 | Owner reputation and restricted truckers (ESC-29, `reputation-api.md` 1.2.0 sections 7 and 8.3), all off in every environment. With `reputationPublicTags` on, `GET /trips` and `GET /trips/{id}` return `ownerTier` (`good` or `low`), `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt`, copied onto the trip by the server (stamped at create, refreshed when the trucker's reputation changes, without a `version` or `updatedAt` change); a client value is dropped. With `reputationPenalties` on, a buyer's `GET /trips` leaves out the trips of a trucker whose stored tier is `restricted` (the page may be short, as for cancelled trips); the trucker's own list, `GET /trips/{id}` and an admin's browse are not filtered, and a restricted trucker's `trip` create is refused with `REPUTATION_RESTRICTED` (`sync-protocol.md` 1.48.0). Role visibility is unchanged: a trucker sees only their own trips, a buyer every trip on the market |
 | 2.6.1 | 2026-11-12 | `TRIP_HAS_BOOKINGS` only to an app that sends `X-App-Build` (FUP-241, rules 12 and 13, `sync-protocol.md` 1.52.0): an app without the header gets the same sentence as `SYNC_VALIDATION:`, which it treats as permanent. Apps that send the header get the code as before. Server only |
+| 2.8.0 | 2026-11-13 | The trucker's phone pulls the trucker's own trips (FUP-374, Browse Trips). The server moves a trucker's trip without an upload from the phone (`matched` at a funding, `delivered`, and since 2.7.0 `open` or `matched` again after an admin's trucker no-show re-open), but mobile never read the trucker's own trips back, so a phone that stored the order cron's close from a conflict answer kept the trip `cancelled` and could not start it. The trucker's home card and My trips list now read `GET /trips?truckerId=` with no `status` first (best effort, 30 seconds throttle per trucker) and replace each stored row, except one with a trip upload on its way or a higher stored `version`; the phone's place ids are kept, another trucker's trip is never stored, nothing is deleted. This supersedes the 2.7.0 text that the phone takes a reopened trip up "through the next pull of own open trips": mobile had no such pull. The `status` row of the query table now says that a trucker's own list without `status` returns every status but `cancelled` (unchanged server behaviour). Role visibility unchanged. Mobile only; no server or wire change |
 
 ---
 
-**Last Updated**: 2026-11-12
-**Version**: 2.6.1
+**Last Updated**: 2026-11-13
+**Version**: 2.8.0
 **Status**: Draft (Phase R4.1)

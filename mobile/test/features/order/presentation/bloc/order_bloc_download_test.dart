@@ -99,6 +99,9 @@ class _SpyMarketplaceSync implements MarketplaceSync {
   Future<void> pullTrips() async {}
 
   @override
+  Future<void> pullOwnTrips({required String truckerId}) async {}
+
+  @override
   Future<void> pullDeliveries() async {}
 
   @override

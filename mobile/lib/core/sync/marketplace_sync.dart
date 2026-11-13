@@ -21,6 +21,18 @@ abstract class MarketplaceSync {
   /// Fetch all open trips from the server into local storage.
   Future<void> pullTrips();
 
+  /// FUP-374: fetch the trucker's own trips, whatever their status
+  /// (`GET /trips?truckerId=`, no status filter; the server answers a
+  /// trucker with their own trips only and leaves out cancelled ones), into
+  /// local storage. The status the server sets on a trucker's trip (`matched`
+  /// once a funding fills it, `delivered`, or `open` / `matched` again after
+  /// an admin's no-show re-open revived a trip the order cron closed) reaches
+  /// the phone this way; uploads never bring it. A row with a trip upload
+  /// still on its way is left alone, and a row is never moved to an older
+  /// server version. Never reads another trucker's trips: it is not the
+  /// buyer's market pull ([pullTrips]).
+  Future<void> pullOwnTrips({required String truckerId});
+
   /// Fetch the current user's deliveries from the server into local storage.
   ///
   /// Deliveries are created/updated by whichever party acts (trucker confirms

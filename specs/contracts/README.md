@@ -66,7 +66,7 @@ Each contract file follows this structure:
 | Delivery Verification API | `delivery-verification-api.md` | 2.11.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Account Deletion | `account-deletion.md` | 1.7.1 | Mobile, Backend, Infrastructure, Admin |
 | Crop Listing API | `crop-listing-api.md` | 1.13.0 | Mobile, Web, Backend, Infrastructure |
-| Trip Listing API | `trip-listing-api.md` | 2.6.1 | Mobile, Backend |
+| Trip Listing API | `trip-listing-api.md` | 2.8.0 | Mobile, Backend |
 | Buyer Match API | `match-api.md` | 1.5.0 | Mobile, Backend |
 | Match Events (`match_event` sync entity) | `match-events.md` | n/a | Mobile, Backend |
 | Push Alerts API (device tokens, `buyer_intent` sync, `GET /intents`) | `push-alerts-api.md` | 1.5.0 | Mobile, Web, Backend, Infrastructure |
