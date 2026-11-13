@@ -278,6 +278,35 @@ public class OrderPaymentReconcilerTests
     }
 
     [Fact]
+    public async Task A_hold_that_fails_still_hands_the_payment_to_the_inbox_but_writes_no_verdict_this_run()
+    {
+        // The order cron may have read the pending inbox set before the row existed, so a paid verdict
+        // without the hold could let it fail the order. The next run writes the hold and the verdict.
+        StubOrders(Order(Due));
+        StubSlot(1, OrderCheckoutOutcome.UrlIssued, Now.AddHours(-2));
+        StubMapping(1, Cycle(Due));
+        Answer(1, Paid());
+        _orders.TryHoldForPaymentAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        await RunAsync();
+
+        await _inbox.Received(1).RecordAsync($"webhook-inbox:{Merch(1)}:TB-PAY-1:Completed", Arg.Any<string>(), OrderId,
+            Merch(1), Arg.Any<TelebirrWebhookBiz>(), Now);
+        await _checkouts.DidNotReceiveWithAnyArgs().RecordQueryVerdictAsync(default!, default, default!, default!, default);
+        Logs.Should().Contain("no verdict this run").And.NotContain(OrderPaymentReconciler.UnresolvedToken);
+
+        // Next run: the hold lands, the row is already there, the attempt is settled as paid.
+        _orders.TryHoldForPaymentAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>()).Returns(true);
+        _inbox.RecordAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<TelebirrWebhookBiz>(), Arg.Any<DateTime>()).Returns(false);
+
+        await RunAsync();
+
+        await VerdictReceived(OrderCheckoutQuery.Paid);
+    }
+
+    [Fact]
     public async Task A_day_past_the_deadline_an_unresolved_attempt_is_given_up_alarmed_and_audited()
     {
         var longAgo = TimeSpan.FromHours(49);

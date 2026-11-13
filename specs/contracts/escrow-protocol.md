@@ -5965,7 +5965,10 @@ because the funding write is conditional and another `payment_order_id` on a fun
 (`ORDER_PAYMENT_DUPLICATE`, alarmed, refunded as before). Escrow-audit
 `order_payment_reconciled` (actor `system`, `telebirrRef` the payment id) and the info line
 `ORDER_PAYMENT_RECONCILED`. A paid answer without its `payment_order_id`, or whose inbox write fails, is
-unresolved.
+unresolved. When the hold write throws, the inbox row is still written but the run writes no verdict for the
+order (a warning, not paged): the order cron may have read its pending inbox set before the row existed, so only
+the hold keeps the order out of `payment_failed`. The next run writes the hold again, finds the row, and writes
+`paid`.
 
 **The verdict** is written on the order's checkout slot (`order-checkout:{orderId}` in escrow-idempotency:
 `paymentQueryVerdict`, `paymentQueryCycle` (the order's `paymentSubmittedAt`), `paymentQueriedAt`), conditional
@@ -5993,7 +5996,8 @@ pending inbox row and the hold protect the order while the payment applies; a pa
 alarmed there) or `gave_up`. Otherwise it waits: an `unresolved` verdict written within the hour is paged by
 escrow-cron; no verdict, or an older one, more than 2 hours past the deadline logs `ORDER_PAYMENT_QUERY_OVERDUE
 orderId=.. hoursPastDeadline=.. verdict=..` every hourly run (the reconciliation is not reaching the order). A
-slot that cannot be read waits a run. An order with no slot (no checkout ever opened) fails as before. Off (the
+slot that cannot be read waits a run, and more than 2 hours past the deadline it logs the same line with
+`verdict=unreadable [<exception type>]`, so a read that keeps failing pages. An order with no slot (no checkout ever opened) fails as before. Off (the
 mock), nothing changes.
 
 ### Alarms and infrastructure

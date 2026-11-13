@@ -224,7 +224,16 @@ public sealed class OrderPaymentReconciler
             if (answer.State == TelebirrPaymentState.Paid)
             {
                 // A paid answer that could not reach the inbox was alarmed there.
-                if (await RecordPaidAsync(orderId, mapping, answer, now, run))
+                var handed = await RecordPaidAsync(orderId, mapping, answer, now, run);
+                if (handed == PaidHandoff.HoldMissing)
+                {
+                    // No verdict this run: the order cron read the pending inbox set before this row
+                    // existed, so only the hold keeps it out of payment_failed. The next run writes the
+                    // hold again, finds the inbox row, and settles the verdict as paid.
+                    return;
+                }
+
+                if (handed == PaidHandoff.InInbox)
                 {
                     paid = true;
                 }
@@ -424,18 +433,21 @@ public sealed class OrderPaymentReconciler
     /// under the notification's own key, <c>webhook-inbox:{merch}:{payment}:Completed</c>. The inbox sweep
     /// applies it through the webhook's funding path (amount, currency and attempt checks, the funding
     /// write conditional on <c>payment_submitted</c>, the escrow, stock and audit rows); a row that is
-    /// already there (the notification, or an earlier run) is left as it is. True when the payment is in
-    /// the inbox; false (alarmed) when it could not be put there.
+    /// already there (the notification, or an earlier run) is left as it is. <see cref="PaidHandoff.InInbox"/>
+    /// when the payment is in the inbox and the hold was written; <see cref="PaidHandoff.HoldMissing"/> when
+    /// the row was written but the hold threw (no paid verdict this run); <see cref="PaidHandoff.Alarmed"/>
+    /// when it could not be put there.
     /// </summary>
-    private async Task<bool> RecordPaidAsync(
+    private async Task<PaidHandoff> RecordPaidAsync(
         string orderId, OrderCheckoutMapping mapping, TelebirrQueryOrderResult answer, DateTime now, Run run)
     {
         if (string.IsNullOrEmpty(answer.PaymentOrderId))
         {
             LogUnresolved(run, orderId, mapping.MerchOrderId, answer, "paid_without_payment_order_id");
-            return false;
+            return PaidHandoff.Alarmed;
         }
 
+        var held = true;
         try
         {
             await _orders.TryHoldForPaymentAsync(
@@ -443,9 +455,11 @@ public sealed class OrderPaymentReconciler
         }
         catch (Exception ex)
         {
-            // The pending inbox row below keeps the order out of payment_failed on its own.
+            // The inbox row is still written below so the sweep can fund the order, but the order cron
+            // may have read the pending inbox set before it: the caller writes no paid verdict this run.
+            held = false;
             run.Context.Logger.LogWarning(
-                $"Order payment reconcile: hold not written for order {MoneyAlarmLog.LogId(orderId)} [{ex.GetType().Name}].");
+                $"Order payment reconcile: hold not written for order {MoneyAlarmLog.LogId(orderId)} [{ex.GetType().Name}]; no verdict this run.");
         }
 
         var biz = new TelebirrWebhookBiz
@@ -466,7 +480,7 @@ public sealed class OrderPaymentReconciler
         catch (Exception ex)
         {
             LogUnresolved(run, orderId, mapping.MerchOrderId, answer, $"inbox_write_{ex.GetType().Name}");
-            return false;
+            return PaidHandoff.Alarmed;
         }
 
         var ids = $"orderId={MoneyAlarmLog.LogId(orderId)} merchOrderId={MoneyAlarmLog.LogId(mapping.MerchOrderId)} "
@@ -474,7 +488,7 @@ public sealed class OrderPaymentReconciler
         if (!recorded)
         {
             run.Context.Logger.LogInformation($"Order payment reconcile: the payment is already in the webhook inbox: {ids}.");
-            return true;
+            return held ? PaidHandoff.InInbox : PaidHandoff.HoldMissing;
         }
 
         run.Context.Logger.LogInformation(
@@ -482,7 +496,15 @@ public sealed class OrderPaymentReconciler
         await TryAuditAsync(orderId, "order_payment_reconciled",
             $"orderId={orderId},merchOrderId={mapping.MerchOrderId},paymentOrderId={answer.PaymentOrderId},"
             + $"amount={answer.TotalAmount},telebirrStatus={answer.Status},source=queryOrder", run, answer.PaymentOrderId);
-        return true;
+        return held ? PaidHandoff.InInbox : PaidHandoff.HoldMissing;
+    }
+
+    /// <summary>What <see cref="RecordPaidAsync"/> did with a paid answer.</summary>
+    private enum PaidHandoff
+    {
+        InInbox,
+        HoldMissing,
+        Alarmed,
     }
 
     private static void LogUnresolved(Run run, string orderId, string merchOrderId, TelebirrQueryOrderResult answer, string reason)

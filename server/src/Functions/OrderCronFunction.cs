@@ -676,6 +676,10 @@ public partial class OrderCronFunction
             return true;
         }
 
+        var cycle = GetString(order, "paymentSubmittedAt");
+        var clockStart = ParseUtcOrNull(cycle) ?? ParseUtcOrNull(GetString(order, "createdAt"));
+        var pastDeadline = clockStart == null ? TimeSpan.Zero : now - (clockStart.Value + verification);
+
         OrderCheckoutSlot? slot;
         try
         {
@@ -683,19 +687,27 @@ public partial class OrderCronFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogWarning(
-                $"Payment-failed sweep: the checkout of order {MoneyAlarmLog.LogId(orderId)} could not be read [{ex.GetType().Name}]; it waits a run.");
+            // A read that keeps failing (a lost grant, throttling) must not hold orders unpaged.
+            if (pastDeadline > PaymentQueryOverdueAfter)
+            {
+                context.Logger.LogError(
+                    $"{PaymentQueryOverdueToken} orderId={MoneyAlarmLog.LogId(orderId)} "
+                    + $"hoursPastDeadline={pastDeadline.TotalHours.ToString("F0", CultureInfo.InvariantCulture)} "
+                    + $"verdict=unreadable [{ex.GetType().Name}]");
+            }
+            else
+            {
+                context.Logger.LogWarning(
+                    $"Payment-failed sweep: the checkout of order {MoneyAlarmLog.LogId(orderId)} could not be read [{ex.GetType().Name}]; it waits a run.");
+            }
+
             return false;
         }
 
-        var cycle = GetString(order, "paymentSubmittedAt");
         if (slot == null || slot.QuerySettles(cycle))
         {
             return true;
         }
-
-        var clockStart = ParseUtcOrNull(cycle) ?? ParseUtcOrNull(GetString(order, "createdAt"));
-        var pastDeadline = clockStart == null ? TimeSpan.Zero : now - (clockStart.Value + verification);
         var freshUnresolved = slot.QueryVerdict == OrderCheckoutQuery.Unresolved
                               && string.Equals(slot.QueryCycle ?? "", cycle, StringComparison.Ordinal)
                               && slot.QueriedAtUtc is { } queriedAt && now - queriedAt < PaymentQueryFresh;

@@ -406,6 +406,25 @@ public class OrderCronFunctionTests
     }
 
     [Fact]
+    public async Task HandleAutoCancelExpired_Live_UnreadableSlot_WaitsAndIsAlarmedOnlyTwoHoursPastTheDeadline()
+    {
+        // A read that keeps failing (a lost grant, throttling) must not hold orders unpaged.
+        var now = DateTime.UtcNow;
+        StubSubmittedOrders(
+            SubmittedOrder("order-recent", now.AddHours(-30), now.AddHours(-25)),
+            SubmittedOrder("order-late", now.AddHours(-30), now.AddHours(-27)));
+        _checkouts.GetSlotAsync(Arg.Any<string>()).ThrowsAsync(new AmazonDynamoDBException("AccessDenied"));
+
+        await LiveCron().FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        await _mockOrderRepo.DidNotReceive().TryMarkPaymentFailedAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>());
+        Assert.DoesNotContain($"{OrderCronFunction.PaymentQueryOverdueToken} orderId=order-recent", CronLogs);
+        Assert.Contains(
+            $"{OrderCronFunction.PaymentQueryOverdueToken} orderId=order-late hoursPastDeadline=3 verdict=unreadable [AmazonDynamoDBException]",
+            CronLogs);
+    }
+
+    [Fact]
     public async Task HandleAutoCancelExpired_Live_FreshUnresolvedVerdict_WaitsWithoutItsOwnAlarm()
     {
         // escrow-cron alarms an unresolved answer itself; a stale one means it stopped reaching the order.
