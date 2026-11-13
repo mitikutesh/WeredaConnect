@@ -231,6 +231,31 @@ public class TripRepositoryTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task QueryTripsByTruckerAsync_ReadsTheTruckersTripsNewestCreatedFirst()
+    {
+        // FUP-385 (trip-listing-api 2.9.0): the trucker's phone stops paging its own-trip pull at
+        // a page that ends on an old delivered trip, which holds only because every later page
+        // holds trips created before it.
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = [CreateTripDynamoItem()],
+                LastEvaluatedKey = new Dictionary<string, AttributeValue>()
+            });
+
+        await _repository.QueryTripsByTruckerAsync("trucker-789", limit: 50);
+
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r =>
+                r.IndexName == "TruckerIdCreatedAtIndex" &&
+                r.KeyConditionExpression == "#truckerId = :truckerId" &&
+                r.ExpressionAttributeValues[":truckerId"].S == "trucker-789" &&
+                r.ScanIndexForward == false &&
+                r.Limit == 50),
+            Arg.Any<CancellationToken>());
+    }
+
     private sealed class FixedClock(string nowUtc) : TimeProvider
     {
         private readonly DateTimeOffset _now = DateTimeOffset.Parse(nowUtc, CultureInfo.InvariantCulture);

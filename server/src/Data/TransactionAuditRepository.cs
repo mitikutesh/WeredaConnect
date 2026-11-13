@@ -94,6 +94,29 @@ public sealed class TransactionAuditRepository : ITransactionAuditRepository
             idValue: entityId);
     }
 
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, bool More)> GetLatestByTransactionAsync(
+        string transactionId, int limit)
+    {
+        // One page, newest first. One row more than asked tells whether older rows exist (a LastEvaluatedKey alone
+        // also comes back when the page ends exactly on the last row).
+        var response = await _dynamoDb.QueryAsync(new QueryRequest
+        {
+            TableName = _tableName,
+            KeyConditionExpression = "transactionId = :id",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":id", new AttributeValue { S = transactionId } }
+            },
+            ScanIndexForward = false,
+            Limit = limit + 1
+        });
+
+        var items = (response.Items ?? []).Select(DynamoDbHelper.FromItem).ToList();
+        var more = items.Count > limit;
+        return (more ? items.GetRange(0, limit) : items, more);
+    }
+
     private async Task<List<Dictionary<string, object>>> QueryAllAsync(
         string keyCondition, string? indexName, string idValue)
     {

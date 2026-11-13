@@ -7,6 +7,7 @@ using FluentAssertions;
 using NSubstitute;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using Xunit;
 
@@ -17,7 +18,8 @@ namespace WeredaConnect.Server.Tests.Integration;
 /// <c>user</c> entity and <c>GET /user/profile</c>, on a users table with the deployed indexes
 /// (<c>PhoneIndex</c>, <c>RoleWaredaIndex</c>, <c>FaydaIdIndex</c>), so a write that gives an
 /// index key a wrong type is refused here as it would be on AWS. The collection's shared users
-/// table has no indexes, so this class makes its own.
+/// table has no indexes, so this class makes its own. FUP-317: with its own transaction-audit
+/// table too, where an accepted edit of the profile text writes one row in the same transaction.
 /// </summary>
 [Collection(LocalDynamoDbCollection.Name)]
 [Trait("Category", "Integration")]
@@ -37,7 +39,8 @@ public sealed class UserProfileEditDynamoDbTests : IAsyncLifetime
 
     private IAmazonDynamoDB Ddb => _db.Client;
     private string Table => $"users-profile-{_run}";
-    private UserRepository Users => new(Ddb, Table);
+    private string AuditTable => $"txaudit-profile-{_run}";
+    private UserRepository Users => new(Ddb, Table, AuditTable);
 
     public async Task InitializeAsync()
     {
@@ -68,14 +71,36 @@ public sealed class UserProfileEditDynamoDbTests : IAsyncLifetime
         });
         _created = true;
 
-        for (var i = 0; i < 50; i++)
+        // FUP-317: the transaction-audit table as deployed (database-stack.ts).
+        await Ddb.CreateTableAsync(new CreateTableRequest
         {
-            if ((await Ddb.DescribeTableAsync(Table)).Table.TableStatus == TableStatus.ACTIVE)
-            {
-                return;
-            }
+            TableName = AuditTable,
+            BillingMode = BillingMode.PAY_PER_REQUEST,
+            KeySchema =
+            [
+                new KeySchemaElement("transactionId", KeyType.HASH),
+                new KeySchemaElement("timestamp", KeyType.RANGE)
+            ],
+            AttributeDefinitions =
+            [
+                new AttributeDefinition("transactionId", ScalarAttributeType.S),
+                new AttributeDefinition("timestamp", ScalarAttributeType.S),
+                new AttributeDefinition("entityId", ScalarAttributeType.S)
+            ],
+            GlobalSecondaryIndexes = [Index("EntityIndex", "entityId", "timestamp")]
+        });
 
-            await Task.Delay(100);
+        foreach (var table in new[] { Table, AuditTable })
+        {
+            for (var i = 0; i < 50; i++)
+            {
+                if ((await Ddb.DescribeTableAsync(table)).Table.TableStatus == TableStatus.ACTIVE)
+                {
+                    break;
+                }
+
+                await Task.Delay(100);
+            }
         }
     }
 
@@ -84,6 +109,7 @@ public sealed class UserProfileEditDynamoDbTests : IAsyncLifetime
         if (_created)
         {
             await Ddb.DeleteTableAsync(Table);
+            await Ddb.DeleteTableAsync(AuditTable);
         }
     }
 
@@ -172,6 +198,19 @@ public sealed class UserProfileEditDynamoDbTests : IAsyncLifetime
         response.StatusCode.Should().Be(200);
         return response.Body;
     }
+
+    /// <summary>The user's profile edit rows (FUP-317), oldest first.</summary>
+    private async Task<List<Dictionary<string, AttributeValue>>> AuditRowsAsync(string userId)
+        => (await Ddb.QueryAsync(new QueryRequest
+        {
+            TableName = AuditTable,
+            KeyConditionExpression = "transactionId = :id",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":id"] = new() { S = $"profile-{userId}" } },
+            ConsistentRead = true
+        })).Items;
+
+    private static List<ProfileFieldChange> Changes(Dictionary<string, AttributeValue> row)
+        => JsonSerializer.Deserialize<List<ProfileFieldChange>>(row["metadata"].S, Json)!;
 
     private async Task<Dictionary<string, AttributeValue>> RowAsync(string userId)
         => (await Ddb.GetItemAsync(new GetItemRequest
@@ -296,5 +335,132 @@ public sealed class UserProfileEditDynamoDbTests : IAsyncLifetime
         row["displayName"].S.Should().Be("Abebe Kebede");
         row["woreda"].S.Should().Be("Adama");
         row["version"].N.Should().Be("1");
+    }
+
+    // ── FUP-317: the audit row of a profile edit ──────────────────────
+
+    [LocalDynamoDbFact]
+    public async Task AnAcceptedEdit_LeavesOneAuditRow_ARefusedNoOpOrLanguageOnlyEditNone()
+    {
+        var seeded = await SeedAsync("audited", "farmer");
+
+        (await EditAsync(seeded.UserId, "farmer", new Dictionary<string, object>
+        {
+            ["displayName"] = "Abebe K.",
+            ["woreda"] = "Meki"
+        })).Should().Contain("\"status\":\"success\"", ((TestLambdaLogger)_ctx.Logger).Buffer.ToString());
+
+        var rows = await AuditRowsAsync(seeded.UserId);
+        var row = rows.Should().ContainSingle().Subject;
+        row["action"].S.Should().Be("profile_edited");
+        row["entityType"].S.Should().Be("user");
+        row["entityId"].S.Should().Be(seeded.UserId);
+        row["actor"].S.Should().Be(seeded.UserId);
+        row["actorRole"].S.Should().Be("farmer");
+        Changes(row).Should().Equal(
+            new ProfileFieldChange { Field = "displayName", From = "Abebe Kebede", To = "Abebe K." },
+            new ProfileFieldChange { Field = "woreda", From = "Adama", To = "Meki" });
+
+        // Refused (a phone number), unchanged, and a language-only change: no row.
+        (await EditAsync(seeded.UserId, "farmer", new Dictionary<string, object> { ["displayName"] = "Call 0911 223 344" }))
+            .Should().Contain("AUTH_027");
+        (await EditAsync(seeded.UserId, "farmer", new Dictionary<string, object> { ["displayName"] = "Abebe K." }))
+            .Should().Contain("\"status\":\"success\"");
+        (await EditAsync(seeded.UserId, "farmer", new Dictionary<string, object> { ["preferredLanguage"] = "en" }))
+            .Should().Contain("\"status\":\"success\"");
+        (await AuditRowsAsync(seeded.UserId)).Should().ContainSingle();
+        (await RowAsync(seeded.UserId))["preferredLanguage"].S.Should().Be("en");
+
+        // A second edit: a second row.
+        (await EditAsync(seeded.UserId, "farmer", new Dictionary<string, object> { ["woreda"] = "Ziway" }))
+            .Should().Contain("\"status\":\"success\"");
+        rows = await AuditRowsAsync(seeded.UserId);
+        rows.Should().HaveCount(2);
+        Changes(rows[1]).Should().Equal(new ProfileFieldChange { Field = "woreda", From = "Meki", To = "Ziway" });
+    }
+
+    [LocalDynamoDbFact]
+    public async Task AVersionRace_WritesNeitherTheUserNorTheRow()
+    {
+        var seeded = await SeedAsync("raced", "farmer");
+        var entry = ProfileEditAudit.Entry(
+            seeded, new Dictionary<string, string> { ["displayName"] = "Abebe K." },
+            new AuditContext { Actor = seeded.UserId, ActorRole = "farmer" }, DateTime.UtcNow.ToString("o"));
+
+        // Read at version 1, but another write bumped it first.
+        (await Users.UpdateUserAsync(seeded with { PreferredLanguage = "om" }, 1)).IsSuccess.Should().BeTrue();
+        var result = await Users.UpdateUserWithAuditAsync(seeded with { DisplayName = "Abebe K." }, 1, entry);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Code.Should().Be("AUTH_019");
+        (await RowAsync(seeded.UserId))["displayName"].S.Should().Be("Abebe Kebede");
+        (await AuditRowsAsync(seeded.UserId)).Should().BeEmpty();
+    }
+
+    [LocalDynamoDbFact]
+    public async Task ADeletingAccount_TakesNeitherTheEditNorTheRow()
+    {
+        var seeded = await SeedAsync("deleting", "farmer");
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = Table,
+            Key = new Dictionary<string, AttributeValue> { ["userId"] = new() { S = seeded.UserId } },
+            UpdateExpression = "SET deletionState = :s",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":s"] = new() { S = "in_progress" } }
+        });
+        var entry = ProfileEditAudit.Entry(
+            seeded, new Dictionary<string, string> { ["displayName"] = "Abebe K." },
+            new AuditContext { Actor = seeded.UserId }, DateTime.UtcNow.ToString("o"));
+
+        var result = await Users.UpdateUserWithAuditAsync(seeded with { DisplayName = "Abebe K." }, 1, entry);
+
+        result.Error!.Code.Should().Be("AUTH_019");
+        (await AuditRowsAsync(seeded.UserId)).Should().BeEmpty();
+    }
+
+    [LocalDynamoDbFact]
+    public async Task TheAdminUserDetail_ListsTheNameHistory_NewestFirst()
+    {
+        var seeded = await SeedAsync("history", "farmer");
+        await EditAsync(seeded.UserId, "farmer", new Dictionary<string, object> { ["displayName"] = "Abebe K." });
+        await EditAsync(seeded.UserId, "farmer", new Dictionary<string, object> { ["displayName"] = "Abebe Kebede Tola" });
+
+        var response = await new AdminFunction(Ddb, Table, transactionAuditTable: AuditTable).FunctionHandler(
+            new APIGatewayProxyRequest
+            {
+                HttpMethod = "GET",
+                Path = $"/admin/users/{seeded.UserId}",
+                RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+                {
+                    Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" }, { "role", "admin" } }
+                }
+            }, _ctx);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        using var doc = JsonDocument.Parse(response.Body);
+        doc.RootElement.GetProperty("profileHistoryMore").GetBoolean().Should().BeFalse();
+        var history = doc.RootElement.GetProperty("profileHistory").EnumerateArray().ToList();
+        history.Should().HaveCount(2);
+        string Change(JsonElement edit, string key) => edit.GetProperty("changes")[0].GetProperty(key).GetString()!;
+        Change(history[0], "from").Should().Be("Abebe K.");
+        Change(history[0], "to").Should().Be("Abebe Kebede Tola");
+        Change(history[1], "from").Should().Be("Abebe Kebede");
+        Change(history[1], "to").Should().Be("Abebe K.");
+        string.CompareOrdinal(history[0].GetProperty("editedAt").GetString(), history[1].GetProperty("editedAt").GetString())
+            .Should().BePositive();
+
+        // The audit log lists the edits without the names (the history above is the only place they are read).
+        var log = await new AdminFunction(Ddb, Table, transactionAuditTable: AuditTable).FunctionHandler(
+            new APIGatewayProxyRequest
+            {
+                HttpMethod = "GET",
+                Path = "/admin/audit",
+                RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+                {
+                    Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" }, { "role", "admin" } }
+                }
+            }, _ctx);
+        log.StatusCode.Should().Be(200, log.Body);
+        log.Body.Should().Contain("profile_edited").And.NotContain("Abebe K.").And.NotContain("Abebe Kebede Tola");
     }
 }

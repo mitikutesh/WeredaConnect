@@ -37,7 +37,18 @@ public class SyncFunctionUserProfileTests
         // UpdateUserAsync echoes the saved user with the version bumped, like the real repo.
         _users.UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>())
             .Returns(ci => AuthResult<UserDto>.Success(ci.Arg<UserDto>() with { Version = ci.ArgAt<int>(1) + 1 }));
+        // FUP-317: the same for the write that carries the audit row.
+        _users.UpdateUserWithAuditAsync(Arg.Any<UserDto>(), Arg.Any<int>(), Arg.Any<Dictionary<string, object>>())
+            .Returns(ci => AuthResult<UserDto>.Success(ci.Arg<UserDto>() with { Version = ci.ArgAt<int>(1) + 1 }));
         _fn = new SyncFunction(_meta, _crop, _ddb, "trips", "deliveries", userRepo: _users);
+    }
+
+    /// <summary>Neither profile write ran: no users row change and no audit row.</summary>
+    private async Task AssertNothingWrittenAsync()
+    {
+        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await _users.DidNotReceive().UpdateUserWithAuditAsync(
+            Arg.Any<UserDto>(), Arg.Any<int>(), Arg.Any<Dictionary<string, object>>());
     }
 
     private static UserDto User(string id, string language, int version = 3) => new()
@@ -117,7 +128,7 @@ public class SyncFunctionUserProfileTests
             _ctx);
 
         Assert.Contains("USER_PROFILE_VALIDATION", response.Body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]
@@ -130,7 +141,7 @@ public class SyncFunctionUserProfileTests
             _ctx);
 
         Assert.Contains("USER_PROFILE_VALIDATION", response.Body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]
@@ -142,7 +153,7 @@ public class SyncFunctionUserProfileTests
         var response = await _fn.FunctionHandler(Req(UserOp("farmer-2"), "farmer-1"), _ctx);
 
         Assert.Contains("USER_PROFILE_UNAUTHORIZED", response.Body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]
@@ -154,7 +165,7 @@ public class SyncFunctionUserProfileTests
             Req(UserOp("farmer-1", action: "create"), "farmer-1"), _ctx);
 
         Assert.Contains("USER_PROFILE_VALIDATION", response.Body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]
@@ -165,7 +176,7 @@ public class SyncFunctionUserProfileTests
         var response = await _fn.FunctionHandler(Req(UserOp("farmer-1"), "farmer-1"), _ctx);
 
         Assert.Contains("success", response.Body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]
@@ -199,8 +210,9 @@ public class SyncFunctionUserProfileTests
         var body = await EditAsync("farmer-1", Data(("displayName", "  Abebe K. "), ("woreda", " Meki ")));
 
         Assert.Contains("\"status\":\"success\"", body);
-        await _users.Received(1).UpdateUserAsync(
-            Arg.Is<UserDto>(u => u.DisplayName == "Abebe K." && u.Woreda == "Meki" && u.PreferredLanguage == "am"), 4);
+        await _users.Received(1).UpdateUserWithAuditAsync(
+            Arg.Is<UserDto>(u => u.DisplayName == "Abebe K." && u.Woreda == "Meki" && u.PreferredLanguage == "am"), 4,
+            Arg.Any<Dictionary<string, object>>());
     }
 
     [Fact]
@@ -220,7 +232,7 @@ public class SyncFunctionUserProfileTests
             ("version", 99)));
 
         Assert.Contains("\"status\":\"success\"", body);
-        await _users.Received(1).UpdateUserAsync(
+        await _users.Received(1).UpdateUserWithAuditAsync(
             Arg.Is<UserDto>(u => u.DisplayName == "Abebe K."
                 && u.Role == "farmer"
                 && u.PhoneNumber == "+251900100001"
@@ -229,7 +241,7 @@ public class SyncFunctionUserProfileTests
                 && u.IsPhoneVerified
                 && !u.Suspended
                 && u.BuyerType == null),
-            3);
+            3, Arg.Any<Dictionary<string, object>>());
     }
 
     [Fact]
@@ -250,7 +262,7 @@ public class SyncFunctionUserProfileTests
             ("DisplayName", "Call 0911223344")));
 
         Assert.Contains("\"status\":\"success\"", body);
-        await _users.Received(1).UpdateUserAsync(
+        await _users.Received(1).UpdateUserWithAuditAsync(
             Arg.Is<UserDto>(u => u.Woreda == "Meki"
                 && u.DisplayName == null
                 && u.Role == "farmer"
@@ -259,7 +271,7 @@ public class SyncFunctionUserProfileTests
                 && !u.Suspended
                 && u.BuyerType == null
                 && u.CompanyName == null),
-            3);
+            3, Arg.Any<Dictionary<string, object>>());
     }
 
     [Fact]
@@ -270,7 +282,7 @@ public class SyncFunctionUserProfileTests
         var body = await EditAsync("farmer-1", Data(("displayName", "Abebe 0911 22 33 44"), ("preferredLanguage", "om")));
 
         Assert.Contains($"AUTH_027: Remove the phone number from displayName. {PhoneRefusalTail}", body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]
@@ -282,7 +294,7 @@ public class SyncFunctionUserProfileTests
             Data(("woreda", "Adama +251 911 223344"), ("companyName", "Traders 0711223344")), role: "buyer");
 
         Assert.Contains($"AUTH_027: Remove the phone number from woreda, companyName. {PhoneRefusalTail}", body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]
@@ -294,8 +306,9 @@ public class SyncFunctionUserProfileTests
         var body = await EditAsync("farmer-1", Data(("displayName", "Abebe 0911223344"), ("woreda", "Meki")));
 
         Assert.Contains("\"status\":\"success\"", body);
-        await _users.Received(1).UpdateUserAsync(
-            Arg.Is<UserDto>(u => u.DisplayName == "Abebe 0911223344" && u.Woreda == "Meki"), 3);
+        await _users.Received(1).UpdateUserWithAuditAsync(
+            Arg.Is<UserDto>(u => u.DisplayName == "Abebe 0911223344" && u.Woreda == "Meki"), 3,
+            Arg.Any<Dictionary<string, object>>());
     }
 
     [Fact]
@@ -307,7 +320,7 @@ public class SyncFunctionUserProfileTests
 
         Assert.Contains("\"status\":\"success\"", body);
         Assert.Contains("\"serverVersion\":7", body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Theory]
@@ -321,7 +334,7 @@ public class SyncFunctionUserProfileTests
         var body = await EditAsync("farmer-1", Data((field, value)));
 
         Assert.Contains($"USER_PROFILE_VALIDATION: {expected}", body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]
@@ -332,7 +345,7 @@ public class SyncFunctionUserProfileTests
         var body = await EditAsync("farmer-1", Data(("woreda", new string('a', 101))));
 
         Assert.Contains("USER_PROFILE_VALIDATION: woreda must not exceed 100 characters.", body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]
@@ -343,7 +356,7 @@ public class SyncFunctionUserProfileTests
         var body = await EditAsync("farmer-1", Data(("displayName", 42)));
 
         Assert.Contains("USER_PROFILE_VALIDATION: displayName must be a string.", body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]
@@ -354,8 +367,9 @@ public class SyncFunctionUserProfileTests
         var body = await EditAsync("buyer-1", Data(("companyName", "Meki Grain Traders")), role: "buyer");
 
         Assert.Contains("\"status\":\"success\"", body);
-        await _users.Received(1).UpdateUserAsync(
-            Arg.Is<UserDto>(u => u.CompanyName == "Meki Grain Traders" && u.BuyerType == "company"), 3);
+        await _users.Received(1).UpdateUserWithAuditAsync(
+            Arg.Is<UserDto>(u => u.CompanyName == "Meki Grain Traders" && u.BuyerType == "company"), 3,
+            Arg.Any<Dictionary<string, object>>());
     }
 
     [Theory]
@@ -368,19 +382,123 @@ public class SyncFunctionUserProfileTests
         var body = await EditAsync("user-1", Data(("companyName", "Acme")), role: role);
 
         Assert.Contains("USER_PROFILE_VALIDATION: companyName can only be changed by a company buyer.", body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]
     public async Task AConcurrentWrite_AnswersConflict()
     {
         StubUser(User("farmer-1", "am"));
-        _users.UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>())
+        _users.UpdateUserWithAuditAsync(Arg.Any<UserDto>(), Arg.Any<int>(), Arg.Any<Dictionary<string, object>>())
             .Returns(AuthResult<UserDto>.Failure(409, "AUTH_019", "User was modified by another request. Please retry.", "version"));
 
         var body = await EditAsync("farmer-1", Data(("displayName", "Abebe K.")));
 
         Assert.Contains("USER_PROFILE_CONFLICT", body);
+    }
+
+    // ── FUP-317: the audit row of a profile edit ──────────────────────
+
+    /// <summary>The audit row the one audited write received.</summary>
+    private Dictionary<string, object> AuditRow()
+    {
+        var call = _users.ReceivedCalls().Single(c => c.GetMethodInfo().Name == nameof(IUserRepository.UpdateUserWithAuditAsync));
+        return (Dictionary<string, object>)call.GetArguments()[2]!;
+    }
+
+    private static List<ProfileFieldChange> Changes(Dictionary<string, object> row)
+        => JsonSerializer.Deserialize<List<ProfileFieldChange>>((string)row["metadata"], Json)!;
+
+    [Fact]
+    public async Task AnEdit_WritesOneAuditRow_WithWhoWhenAndTheOldAndNewValues()
+    {
+        StubUser(User("farmer-1", "am", version: 4) with { DisplayName = "Abebe" });
+        var before = DateTime.UtcNow.ToString("o");
+
+        var body = await EditAsync("farmer-1", Data(("displayName", "  Abebe K. "), ("woreda", " Meki ")));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        var row = AuditRow();
+        Assert.Equal("profile-farmer-1", row["transactionId"]);
+        Assert.Equal("profile_edited", row["action"]);
+        Assert.Equal("user", row["entityType"]);
+        Assert.Equal("farmer-1", row["entityId"]);
+        Assert.Equal("farmer-1", row["actor"]);
+        Assert.Equal("farmer", row["actorRole"]);
+        Assert.True(string.CompareOrdinal((string)row["timestamp"], before) >= 0);
+        Assert.False(row.ContainsKey("fromState"));
+        Assert.False(row.ContainsKey("toState"));
+        Assert.Equal(
+            new[]
+            {
+                new ProfileFieldChange { Field = "displayName", From = "Abebe", To = "Abebe K." },
+                new ProfileFieldChange { Field = "woreda", From = "Test Woreda", To = "Meki" },
+            },
+            Changes(row));
+    }
+
+    [Fact]
+    public async Task TheRow_ListsOnlyTheFieldsThatChange_NeverTheLanguage()
+    {
+        StubUser(Buyer("buyer-1", "company", "Old Traders") with { DisplayName = "Almaz" });
+
+        var body = await EditAsync("buyer-1",
+            Data(("displayName", "Almaz"), ("woreda", "Test Woreda"), ("companyName", "Meki Grain Traders"),
+                ("preferredLanguage", "om")),
+            role: "buyer");
+
+        Assert.Contains("\"status\":\"success\"", body);
+        var row = AuditRow();
+        Assert.Equal("buyer", row["actorRole"]);
+        Assert.Equal(
+            new[] { new ProfileFieldChange { Field = "companyName", From = "Old Traders", To = "Meki Grain Traders" } },
+            Changes(row));
+        await _users.Received(1).UpdateUserWithAuditAsync(
+            Arg.Is<UserDto>(u => u.PreferredLanguage == "om" && u.CompanyName == "Meki Grain Traders"), 3,
+            Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task ANameTheRowNeverHad_HasNoOldValue()
+    {
+        StubUser(User("farmer-1", "am"));
+
+        await EditAsync("farmer-1", Data(("displayName", "Abebe")));
+
+        var change = Assert.Single(Changes(AuditRow()));
+        Assert.Equal("displayName", change.Field);
+        Assert.Null(change.From);
+        Assert.Equal("Abebe", change.To);
+        Assert.DoesNotContain("\"from\"", (string)AuditRow()["metadata"]);
+    }
+
+    [Fact]
+    public async Task ALanguageOnlyChange_WritesNoAuditRow()
+    {
+        StubUser(User("farmer-1", "am"));
+
+        var response = await _fn.FunctionHandler(Req(UserOp("farmer-1"), "farmer-1"), _ctx);
+
+        Assert.Contains("success", response.Body);
+        await _users.Received(1).UpdateUserAsync(Arg.Is<UserDto>(u => u.PreferredLanguage == "om"), 3);
+        await _users.DidNotReceive().UpdateUserWithAuditAsync(
+            Arg.Any<UserDto>(), Arg.Any<int>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task TheValues_NeverReachTheLog()
+    {
+        StubUser(User("farmer-1", "am") with { DisplayName = "Abebe Original" });
+
+        await EditAsync("farmer-1", Data(("displayName", "Abebe Renamed"), ("woreda", "Meki Town")));
+
+        var log = ((TestLambdaLogger)_ctx.Logger).Buffer.ToString();
+        Assert.Contains("SIM-56: profile updated", log);
+        Assert.DoesNotContain("Abebe Original", log);
+        Assert.DoesNotContain("Abebe Renamed", log);
+        Assert.DoesNotContain("Meki Town", log);
+        Assert.DoesNotContain("Test Woreda", log);
     }
 
     // ── SIM-56: GET /user/profile ─────────────────────────────────────
@@ -438,7 +556,7 @@ public class SyncFunctionUserProfileTests
         Assert.DoesNotContain("FAYDA-SUB-1", response.Body);
         Assert.DoesNotContain("install-1", response.Body);
         Assert.DoesNotContain("+251900100001", response.Body);
-        await _users.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]

@@ -697,7 +697,8 @@ public partial class SyncFunction
             cropsTable,
             fraudSignalsTable,
             new RateLimitRepository(_dynamoDb, rateLimitTable));
-        _userRepo = new UserRepository(_dynamoDb, usersTable);
+        // FUP-317: a profile edit writes its transaction-audit row in the same transaction.
+        _userRepo = new UserRepository(_dynamoDb, usersTable, Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE"));
 
         // Intents are optional: the buyer_intent sync handler is only reachable once
         // the intents table is provisioned (push-alerts feature). Absent env → null.
@@ -2142,7 +2143,9 @@ public partial class SyncFunction
     /// verification or any admin field through this path. The field rules run first, then the
     /// FUP-52 phone screen with the registration's `AUTH_027` code and text; a refusal writes
     /// nothing, the language included. Lets the language chosen in Settings follow the user to
-    /// other devices and gives ESC-21 the right language for order notifications.
+    /// other devices and gives ESC-21 the right language for order notifications. FUP-317: an
+    /// accepted change of the profile text writes one transaction-audit row in the same
+    /// transaction (<see cref="ProfileEditAudit"/>).
     /// </summary>
     private async Task<SyncOperationResult> ProcessUserAsync(
         SyncOperationRequest operation,
@@ -2252,10 +2255,17 @@ public partial class SyncFunction
             edited = edited with { PreferredLanguage = canonical! };
         }
 
-        var updated = await _userRepo.UpdateUserAsync(edited, user.Version);
+        // FUP-317: a change of the profile text lands together with its transaction-audit row (who, when, the old and
+        // new values), or not at all. A language-only change is a preference and writes no row.
+        var updated = changed.Count > 0
+            ? await _userRepo.UpdateUserWithAuditAsync(edited, user.Version, ProfileEditAudit.Entry(
+                user, changed,
+                (_batchAudit ?? AuditContext.ForSystem(authenticatedUserId)) with { Actor = authenticatedUserId, ActorRole = user.Role },
+                DateTime.UtcNow.ToString("o")))
+            : await _userRepo.UpdateUserAsync(edited, user.Version);
         if (!updated.IsSuccess)
         {
-            // A rare concurrent write bumped the version; the client retries the op.
+            // A rare concurrent write bumped the version (or took the audit key); the client retries the op.
             return new SyncOperationResult
             {
                 OperationId = operation.OperationId,

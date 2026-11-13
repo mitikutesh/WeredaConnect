@@ -335,6 +335,50 @@ public sealed record AdminUserDetailResponse
     /// reject (section 18.1). Admin-only: <see cref="UserDto.SuspendReason"/> is never serialized to a party.
     /// </summary>
     public string? SuspendReason { get; init; }
+
+    /// <summary>
+    /// FUP-317 (user-entity.md 2.3.0 section 14): the user's accepted profile edits, newest first, at most 50; empty
+    /// when there are none. Absent when the transaction-audit table is not configured or could not be read, and for a
+    /// deleting or deleted account (<see cref="ProfileHistoryHidden"/>).
+    /// </summary>
+    public List<AdminProfileEditDto>? ProfileHistory { get; init; }
+
+    /// <summary>FUP-317: true when the user has older edits than the ones listed; absent with the history.</summary>
+    public bool? ProfileHistoryMore { get; init; }
+
+    /// <summary>
+    /// FUP-317: true when the account has <c>deletionState</c> and the history is withheld (its old names are not
+    /// shown, ACC-05); absent otherwise. Tells the admin app "deleted account" apart from "could not be read".
+    /// </summary>
+    public bool? ProfileHistoryHidden { get; init; }
+}
+
+/// <summary>FUP-317: one accepted profile edit on the admin user detail, from its transaction-audit row.</summary>
+public sealed record AdminProfileEditDto
+{
+    /// <summary>When the edit was saved (the row's <c>timestamp</c>, ISO 8601 UTC).</summary>
+    public required string EditedAt { get; init; }
+
+    /// <summary>Who saved it: the user's own id (only the user edits their profile).</summary>
+    public required string Actor { get; init; }
+
+    public string? ActorRole { get; init; }
+
+    /// <summary>The fields that changed, in the order displayName, woreda, companyName; empty when unreadable.</summary>
+    public required List<ProfileFieldChange> Changes { get; init; }
+}
+
+/// <summary>
+/// FUP-317: one changed profile field with its value before and after the edit. <c>From</c> is absent when the row had
+/// no value. Also the shape of the audit row's <c>metadata</c> (a JSON array of these).
+/// </summary>
+public sealed record ProfileFieldChange
+{
+    public required string Field { get; init; }
+
+    public string? From { get; init; }
+
+    public string? To { get; init; }
 }
 
 /// <summary>

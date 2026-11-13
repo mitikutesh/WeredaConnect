@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -171,11 +172,13 @@ void main() {
 
     IsarMarketplaceSync buildSync({
       Future<String?> Function()? currentUserId,
+      DateTime Function()? clock,
     }) =>
         IsarMarketplaceSync(
           api: api,
           isar: isar,
           getCurrentUserId: currentUserId,
+          clock: clock,
         );
 
     test(
@@ -1001,6 +1004,331 @@ void main() {
             queryParameters: any(named: 'queryParameters'),
           ),
         ).called(1);
+      });
+
+      // FUP-385: the pull ran every 30 seconds on the trucker's home and
+      // read the whole history each time.
+      group('FUP-385: the cost of the pull', () {
+        var now = DateTime.utc(2026, 11, 13, 9);
+        DateTime clock() => now;
+        late List<Map<String, dynamic>> requests;
+
+        setUp(() {
+          now = DateTime.utc(2026, 11, 13, 9);
+          requests = [];
+        });
+
+        /// The server's answer: [trips] (newest created first) in pages of
+        /// 50, the next page's start as the token.
+        void stubPages(List<Map<String, dynamic>> Function() trips) {
+          when(
+            () => api.get<Map<String, dynamic>>(
+              any(),
+              queryParameters: any(named: 'queryParameters'),
+            ),
+          ).thenAnswer((inv) async {
+            final params = Map<String, dynamic>.from(
+              inv.namedArguments[#queryParameters] as Map,
+            );
+            requests.add(params);
+            final all = trips();
+            final start = int.parse(params['nextToken'] as String? ?? '0');
+            final end = start + 50 < all.length ? start + 50 : all.length;
+            return {
+              'trips': all.sublist(start, end),
+              if (end < all.length) 'nextToken': '$end',
+            };
+          });
+        }
+
+        /// The trucker's trip number [i] of a long history, newest first:
+        /// created in August and September, delivered weeks ago.
+        Map<String, dynamic> historyTrip(
+          int i, {
+          String status = 'delivered',
+          int version = 3,
+          DateTime? departure,
+        }) {
+          final created =
+              DateTime.utc(2026, 9, 30).subtract(Duration(hours: i));
+          return {
+            ...serverTrip(tripId: 'trip-$i', status: status, version: version),
+            'createdAt': created.toIso8601String(),
+            'updatedAt': created.toIso8601String(),
+            'departureDate': (departure ?? created.add(const Duration(days: 2)))
+                .toIso8601String(),
+          };
+        }
+
+        Future<TripStatus?> statusOf(String tripId) async =>
+            (await isar.trips.filter().tripIdEqualTo(tripId).findFirst())
+                ?.status;
+
+        test(
+            'a trucker with 150 trips reads every page once, then one page '
+            'a pull, while the newest trip moves', () async {
+          var newestStatus = 'open';
+          var newestUpdated = now;
+          final history = [
+            for (var i = 1; i < 150; i++) historyTrip(i),
+          ];
+          stubPages(
+            () => [
+              {
+                ...serverTrip(tripId: 'trip-0', status: newestStatus),
+                'createdAt': '2026-11-12T08:00:00.000Z',
+                'updatedAt': newestUpdated.toIso8601String(),
+                'departureDate': '2026-11-20T21:00:00.000Z',
+              },
+              ...history,
+            ],
+          );
+          // An open trip the order cron closed after it left (never listed
+          // again, FUP-384) does not keep the paging going.
+          await isar.writeTxn(
+            () => isar.trips.put(
+              Trip()
+                ..tripId = 'trip-gone'
+                ..truckerId = 'trucker-1'
+                ..truckerName = 'Geleta'
+                ..truckerPhone = '+251931831670'
+                ..fromWoreda = 'Assosa'
+                ..toWoreda = 'AddisAbeba'
+                ..departureDate = DateTime.utc(2026, 8, 10)
+                ..capacity = 100
+                ..pricePerQuintal = 10
+                ..status = TripStatus.open
+                ..matchedListings = <String>[]
+                ..createdAt = DateTime.utc(2026, 8)
+                ..updatedAt = DateTime.utc(2026, 8)
+                ..version = 1,
+            ),
+          );
+          final sync = buildSync(clock: clock);
+
+          expect(await sync.pullOwnTrips(truckerId: 'trucker-1'), isTrue);
+          expect(requests, hasLength(3));
+          expect(
+            await isar.trips.filter().truckerIdEqualTo('trucker-1').count(),
+            151,
+          );
+
+          // The next pull: the first page ends on a trip the phone holds as
+          // delivered weeks ago.
+          requests.clear();
+          now = now.add(const Duration(seconds: 31));
+          expect(await sync.pullOwnTrips(truckerId: 'trucker-1'), isFalse);
+          expect(requests, hasLength(1));
+          expect(requests.single.containsKey('nextToken'), isFalse);
+
+          // A funding filled the newest trip: still one page, and the card
+          // is told to read again.
+          requests.clear();
+          newestStatus = 'matched';
+          newestUpdated = now;
+          now = now.add(const Duration(seconds: 31));
+          expect(await sync.pullOwnTrips(truckerId: 'trucker-1'), isTrue);
+          expect(requests, hasLength(1));
+          expect(await statusOf('trip-0'), TripStatus.matched);
+
+          // A new run of the app reads every page once again.
+          requests.clear();
+          await buildSync(clock: clock).pullOwnTrips(truckerId: 'trucker-1');
+          expect(requests, hasLength(3));
+        });
+
+        test(
+            'a trip the phone holds as cancelled that an admin re-opened on '
+            'a later page is still read', () async {
+          // trip-120 left two days ago, booked (posted weeks ahead).
+          var trip120 = historyTrip(
+            120,
+            status: 'matched',
+            departure: now.subtract(const Duration(days: 2)),
+          );
+          stubPages(
+            () => [
+              for (var i = 0; i < 150; i++)
+                if (i == 120) trip120 else historyTrip(i),
+            ],
+          );
+          final sync = buildSync(clock: clock);
+          await sync.pullOwnTrips(truckerId: 'trucker-1');
+
+          // The phone learned of the cron's close from a conflict answer...
+          await isar.writeTxn(() async {
+            final row = (await isar.trips
+                .filter()
+                .tripIdEqualTo('trip-120')
+                .findFirst())!
+              ..status = TripStatus.cancelled
+              ..version = 4;
+            await isar.trips.put(row);
+          });
+          // ...and an admin's no-show re-open opened the trip again.
+          trip120 = historyTrip(
+            120,
+            status: 'matched',
+            version: 5,
+            departure: now.subtract(const Duration(days: 2)),
+          );
+
+          requests.clear();
+          now = now.add(const Duration(seconds: 31));
+          expect(await sync.pullOwnTrips(truckerId: 'trucker-1'), isTrue);
+
+          expect(requests, hasLength(3));
+          final row = (await isar.trips
+              .filter()
+              .tripIdEqualTo('trip-120')
+              .findFirst())!;
+          expect(row.status, TripStatus.matched);
+          expect(row.version, 5);
+        });
+
+        test(
+            'a trip the phone holds as in transit that left weeks ago, on a '
+            'later page, is read until the server finishes it', () async {
+          // trip-120 left 30 days ago and is still on the road.
+          var trip120 = historyTrip(
+            120,
+            status: 'inTransit',
+            departure: now.subtract(const Duration(days: 30)),
+          );
+          stubPages(
+            () => [
+              for (var i = 0; i < 150; i++)
+                if (i == 120) trip120 else historyTrip(i),
+            ],
+          );
+          final sync = buildSync(clock: clock);
+          await sync.pullOwnTrips(truckerId: 'trucker-1');
+          expect(await statusOf('trip-120'), TripStatus.inTransit);
+
+          // The buyer's late confirm finished it on the server.
+          trip120 = historyTrip(
+            120,
+            version: 4,
+            departure: now.subtract(const Duration(days: 30)),
+          );
+          requests.clear();
+          now = now.add(const Duration(seconds: 31));
+          expect(await sync.pullOwnTrips(truckerId: 'trucker-1'), isTrue);
+          expect(requests, hasLength(3));
+          expect(await statusOf('trip-120'), TripStatus.delivered);
+
+          // Delivered, it no longer keeps the paging going.
+          requests.clear();
+          now = now.add(const Duration(seconds: 31));
+          await sync.pullOwnTrips(truckerId: 'trucker-1');
+          expect(requests, hasLength(1));
+        });
+
+        test(
+            'the first page is read again when its last trip left within '
+            'the last 14 days', () async {
+          stubPages(
+            () => [
+              for (var i = 0; i < 60; i++)
+                historyTrip(
+                  i,
+                  departure:
+                      i == 49 ? now.subtract(const Duration(days: 13)) : null,
+                ),
+            ],
+          );
+          final sync = buildSync(clock: clock);
+          await sync.pullOwnTrips(truckerId: 'trucker-1');
+
+          requests.clear();
+          now = now.add(const Duration(seconds: 31));
+          await sync.pullOwnTrips(truckerId: 'trucker-1');
+
+          expect(requests, hasLength(2));
+        });
+
+        test(
+            'a load that comes while the pull is on its way waits for it '
+            'and makes no request of its own', () async {
+          final answer = Completer<Map<String, dynamic>>();
+          when(
+            () => api.get<Map<String, dynamic>>(
+              any(),
+              queryParameters: any(named: 'queryParameters'),
+            ),
+          ).thenAnswer((_) => answer.future);
+          final sync = buildSync(clock: clock);
+
+          final first = sync.pullOwnTrips(truckerId: 'trucker-1');
+          final second = sync.pullOwnTrips(truckerId: 'trucker-1');
+          answer.complete({
+            'trips': [serverTrip(status: 'matched', version: 2)],
+          });
+
+          expect(await first, isTrue);
+          expect(await second, isTrue);
+          verify(
+            () => api.get<Map<String, dynamic>>(
+              '/trips',
+              queryParameters: any(named: 'queryParameters'),
+            ),
+          ).called(1);
+          expect(await statusOf('trip-1'), TripStatus.matched);
+        });
+
+        test('a failed pull is not repeated within 30 seconds', () async {
+          when(
+            () => api.get<Map<String, dynamic>>(
+              any(),
+              queryParameters: any(named: 'queryParameters'),
+            ),
+          ).thenThrow(Exception('offline'));
+          final sync = buildSync(clock: clock);
+
+          await expectLater(
+            sync.pullOwnTrips(truckerId: 'trucker-1'),
+            throwsException,
+          );
+          expect(await sync.pullOwnTrips(truckerId: 'trucker-1'), isFalse);
+          verify(
+            () => api.get<Map<String, dynamic>>(
+              '/trips',
+              queryParameters: any(named: 'queryParameters'),
+            ),
+          ).called(1);
+
+          now = now.add(const Duration(seconds: 31));
+          await expectLater(
+            sync.pullOwnTrips(truckerId: 'trucker-1'),
+            throwsException,
+          );
+          verify(
+            () => api.get<Map<String, dynamic>>(
+              '/trips',
+              queryParameters: any(named: 'queryParameters'),
+            ),
+          ).called(1);
+        });
+
+        test(
+            'keeps the stored trucker name and phone when the server row '
+            'has none', () async {
+          await storeTrip(status: TripStatus.open, version: 1);
+          stubApi(
+            trips: [
+              serverTrip(status: 'matched', version: 2)
+                ..remove('truckerName')
+                ..remove('truckerPhone'),
+            ],
+          );
+
+          await buildSync().pullOwnTrips(truckerId: 'trucker-1');
+
+          final trip = await storedTrip();
+          expect(trip.status, TripStatus.matched);
+          expect(trip.truckerName, 'Geleta');
+          expect(trip.truckerPhone, '+251931831670');
+        });
       });
 
       group('the trucker\'s list (LoadTrips)', () {

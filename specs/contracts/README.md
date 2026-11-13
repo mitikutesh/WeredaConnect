@@ -58,15 +58,15 @@ Each contract file follows this structure:
 |----------|------|---------|---------|
 | Sync Protocol | `sync-protocol.md` | 1.61.0 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 2.16.0 | Mobile, Backend, Infrastructure |
-| User Entity (profile read and edit: `GET /user/profile`, the `/sync` `user` entity) | `user-entity.md` | 2.2.0 | Mobile, Web, Backend, Admin, Infrastructure |
+| User Entity (profile read and edit: `GET /user/profile`, the `/sync` `user` entity) | `user-entity.md` | 2.3.0 | Mobile, Web, Backend, Admin, Infrastructure |
 | Rating API | `rating-api.md` | 1.5.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Reputation API (penalty events, tiers, appeals, gates; events, aggregate, reads, appeal, gates and admin endpoints BUILT on the server; app BUILT behind the flags, ESC-31) | `reputation-api.md` | 1.8.1 | Mobile, Web, Backend, Admin, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.23.0 | Mobile, Backend, Admin |
 | Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.22.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 2.14.0 | Mobile, Web, Backend, Infrastructure, Admin |
-| Account Deletion | `account-deletion.md` | 1.7.2 | Mobile, Backend, Infrastructure, Admin |
+| Account Deletion | `account-deletion.md` | 1.7.3 | Mobile, Backend, Infrastructure, Admin |
 | Crop Listing API | `crop-listing-api.md` | 1.13.0 | Mobile, Web, Backend, Infrastructure |
-| Trip Listing API | `trip-listing-api.md` | 2.8.0 | Mobile, Backend |
+| Trip Listing API | `trip-listing-api.md` | 2.9.0 | Mobile, Backend |
 | Buyer Match API | `match-api.md` | 1.5.0 | Mobile, Backend |
 | Match Events (`match_event` sync entity) | `match-events.md` | n/a | Mobile, Backend |
 | Push Alerts API (device tokens, `buyer_intent` sync, `GET /intents`) | `push-alerts-api.md` | 1.5.0 | Mobile, Web, Backend, Infrastructure |

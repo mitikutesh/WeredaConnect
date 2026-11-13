@@ -60,15 +60,36 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// the same phone is not throttled by the last one's pull.
   String? _lastOwnTripTruckerId;
 
+  /// FUP-385: the own-trip pull on its way, and its trucker. A load that
+  /// asks for the same trucker meanwhile waits for it instead of returning
+  /// before the trips land.
+  Future<bool>? _ownTripPull;
+  String? _ownTripPullTruckerId;
+
+  /// FUP-385: the truckers whose own trips this run of the app read to the
+  /// last page. Until then a pull reads every page; after it a pull may stop
+  /// early ([_ownTripPagingDone]).
+  final Set<String> _ownTripHistoryRead = {};
+
+  /// FUP-385: a delivered trip that departed this long ago is history: the
+  /// own-trip pull may stop paging at it, and a stored trip that is not
+  /// delivered keeps the paging going only while its departure is within
+  /// this window or ahead.
+  static const _ownTripSettledAge = Duration(days: 14);
+
+  final DateTime Function() _clock;
+
   IsarMarketplaceSync({
     required ApiClient api,
     required Isar isar,
     Future<String?> Function()? getCurrentUserId,
     OrderLeadStore? orderLeadStore,
+    DateTime Function()? clock,
   })  : _api = api,
         _isar = isar,
         _getCurrentUserId = getCurrentUserId,
-        _orderLeadStore = orderLeadStore ?? OrderLeadStore();
+        _orderLeadStore = orderLeadStore ?? OrderLeadStore(),
+        _clock = clock ?? DateTime.now;
 
   @override
   Future<void> pullAll() async {
@@ -87,7 +108,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
       await _keepLocalPhotos(crops);
       await _isar.cropListings.putAllByListingId(crops);
     });
-    _lastCropPull = DateTime.now();
+    _lastCropPull = _clock();
   }
 
   @override
@@ -103,7 +124,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
     // FUP-122: kept with the trips it came with; none from the server
     // (before trip-listing-api 2.3.0) forgets the old value.
     await _orderLeadStore.write(orderLeadHours);
-    _lastTripPull = DateTime.now();
+    _lastTripPull = _clock();
   }
 
   /// FUP-374: the trucker's own trips with the status the server holds. The
@@ -115,18 +136,46 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// Server wins as in [pullOrders]: a row with a trip upload still on its
   /// way is skipped (its own outcome settles it), and a server copy older
   /// than the stored row (the trucker index lags a change just synced) is
-  /// skipped. The place ids, which only this phone keeps, stay on the row.
-  /// Nothing is deleted: the server does not list cancelled trips, so a
-  /// missing trip says nothing. A trip of another trucker in the answer is
-  /// never stored.
+  /// skipped. The place ids, which only this phone keeps, stay on the row,
+  /// and so do the stored trucker name and phone when the server's row has
+  /// none (FUP-385, as the conflict resolver keeps them). Nothing is deleted:
+  /// the server does not list cancelled trips, so a missing trip says
+  /// nothing. A trip of another trucker in the answer is never stored.
+  ///
+  /// FUP-385 (trip-listing-api 2.9.0): the throttle is stamped when the pull
+  /// starts, and a call for the same trucker while it is on its way waits
+  /// for it. The first pull of a run reads every page; later ones stop at
+  /// the page that ends on a trip this phone already holds as delivered and
+  /// that departed more than [_ownTripSettledAge] ago ([_ownTripPagingDone]).
+  /// True when the pull stored a trip that is new to the phone or changed
+  /// (so a screen that painted the stored trips reads them again); false
+  /// when it was throttled or found nothing new.
   @override
-  Future<void> pullOwnTrips({required String truckerId}) async {
-    if (truckerId.isEmpty) return;
-    if (_lastOwnTripTruckerId == truckerId && _isFresh(_lastOwnTripPull)) {
-      return;
+  Future<bool> pullOwnTrips({required String truckerId}) {
+    if (truckerId.isEmpty) return Future.value(false);
+    final onItsWay = _ownTripPull;
+    if (onItsWay != null && _ownTripPullTruckerId == truckerId) {
+      return onItsWay;
     }
-    final trips = await _fetchOwnTrips(truckerId);
+    if (_lastOwnTripTruckerId == truckerId && _isFresh(_lastOwnTripPull)) {
+      return Future.value(false);
+    }
+    // Stamped before the request: a failed pull is not repeated within the
+    // window either (offline, the next load would fail the same way).
+    _lastOwnTripPull = _clock();
+    _lastOwnTripTruckerId = truckerId;
+    final pull = _pullOwnTrips(truckerId);
+    _ownTripPull = pull;
+    _ownTripPullTruckerId = truckerId;
+    return pull.whenComplete(() {
+      if (identical(_ownTripPull, pull)) _ownTripPull = null;
+    });
+  }
 
+  Future<bool> _pullOwnTrips(String truckerId) async {
+    final (trips, lastPage) = await _fetchOwnTrips(truckerId);
+
+    var changed = false;
     await _isar.writeTxn(() async {
       // Read inside the write so a change queued while the request was in
       // flight wins over the server copy.
@@ -150,13 +199,27 @@ class IsarMarketplaceSync implements MarketplaceSync {
             ..id = existing.id
             ..fromPlaceId = existing.fromPlaceId
             ..toPlaceId = existing.toPlaceId;
+          // An older server row without them reads as empty.
+          if (trip.truckerName.isEmpty) trip.truckerName = existing.truckerName;
+          if (trip.truckerPhone.isEmpty) {
+            trip.truckerPhone = existing.truckerPhone;
+          }
         }
+        if (existing == null || _ownTripMoved(existing, trip)) changed = true;
         await _isar.trips.put(trip);
       }
     });
-    _lastOwnTripPull = DateTime.now();
-    _lastOwnTripTruckerId = truckerId;
+    if (lastPage) _ownTripHistoryRead.add(truckerId);
+    return changed;
   }
+
+  /// The server's [listed] copy differs from the [stored] row: another
+  /// version or status, or another `updatedAt` (a booking moves the trip's
+  /// `updatedAt` and room, not its `version`).
+  static bool _ownTripMoved(Trip stored, Trip listed) =>
+      stored.version != listed.version ||
+      stored.status != listed.status ||
+      !stored.updatedAt.isAtSameMomentAs(listed.updatedAt);
 
   @override
   Future<void> pullDeliveries() async {
@@ -190,7 +253,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
         await _isar.deliverys.put(d);
       }
     });
-    _lastDeliveryPull = DateTime.now();
+    _lastDeliveryPull = _clock();
   }
 
   @override
@@ -216,7 +279,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
         await _isar.orders.put(o);
       }
     });
-    _lastOrderPull = DateTime.now();
+    _lastOrderPull = _clock();
   }
 
   @override
@@ -617,7 +680,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
   }
 
   bool _isFresh(DateTime? last) =>
-      last != null && DateTime.now().difference(last) < _minRefreshInterval;
+      last != null && _clock().difference(last) < _minRefreshInterval;
 
   /// Drop cached marketplace crops (other users' listings) so sold/withdrawn
   /// ones disappear from browse + matching — but NEVER delete:
@@ -800,13 +863,20 @@ class IsarMarketplaceSync implements MarketplaceSync {
     return (results, orderLeadHours);
   }
 
-  /// FUP-374: every page of the trucker's own trips, all statuses
-  /// (`GET /trips?truckerId=`, the request the web hero card makes). No
-  /// `status`: `status=open` would leave out the trips the server moved on.
-  Future<List<Trip>> _fetchOwnTrips(String truckerId) async {
+  /// FUP-374: the trucker's own trips, all statuses (`GET /trips?truckerId=`,
+  /// the request the web hero card makes), and whether the last page was
+  /// read. No `status`: `status=open` would leave out the trips the server
+  /// moved on. FUP-385: every page until this run has read them all once,
+  /// then up to the page [_ownTripPagingDone] accepts.
+  Future<(List<Trip>, bool)> _fetchOwnTrips(String truckerId) async {
+    final mayStop = _ownTripHistoryRead.contains(truckerId);
+    final stored = mayStop
+        ? await _isar.trips.filter().truckerIdEqualTo(truckerId).findAll()
+        : const <Trip>[];
+    final now = _clock();
     final results = <Trip>[];
     String? nextToken;
-    do {
+    while (true) {
       final params = <String, dynamic>{'truckerId': truckerId, 'limit': '50'};
       if (nextToken != null) params['nextToken'] = nextToken;
       final data = await _api.get<Map<String, dynamic>>(
@@ -816,12 +886,59 @@ class IsarMarketplaceSync implements MarketplaceSync {
       final items = data['trips'] as List<dynamic>? ??
           data['items'] as List<dynamic>? ??
           const <dynamic>[];
-      for (final item in items) {
-        results.add(_parseTrip(item as Map<String, dynamic>));
-      }
+      final page = [
+        for (final item in items) _parseTrip(item as Map<String, dynamic>),
+      ];
+      results.addAll(page);
       nextToken = data['nextToken'] as String?;
-    } while (nextToken != null && nextToken.isNotEmpty);
-    return results;
+      if (nextToken == null || nextToken.isEmpty) return (results, true);
+      if (mayStop && _ownTripPagingDone(page, results, stored, now)) {
+        return (results, false);
+      }
+    }
+  }
+
+  /// FUP-385: whether the own-trip pull has read enough once [page] is in.
+  /// The server lists a trucker's trips newest created first
+  /// (trip-listing-api 2.9.0), so the pages left hold only trips created
+  /// before [page]'s last one. They can stay unread when that last trip is
+  /// one this phone already holds as delivered (it read past it before),
+  /// with a departure more than [_ownTripSettledAge] before [now], and no
+  /// [stored] trip the server may still move was created before it and is
+  /// missing from [listed]. The server may still move a trip the phone holds
+  /// as `matched` or `inTransit`, whatever its departure (a start, the
+  /// delivered move, an admin's judgement), and an `open` or `cancelled` one
+  /// departing within that window or later (a booking, the close of a trip
+  /// that left, an admin's re-open, trip-listing-api 2.7.0).
+  static bool _ownTripPagingDone(
+    List<Trip> page,
+    List<Trip> listed,
+    List<Trip> stored,
+    DateTime now,
+  ) {
+    if (page.isEmpty) return false;
+    final last = page.last;
+    final cutoff = now.subtract(_ownTripSettledAge);
+    final known = stored.where((t) => t.tripId == last.tripId).firstOrNull;
+    if (last.status != TripStatus.delivered ||
+        known?.status != TripStatus.delivered ||
+        !last.departureDate.isBefore(cutoff)) {
+      return false;
+    }
+    final listedIds = {for (final t in listed) t.tripId};
+    bool mayMove(Trip t) => switch (t.status) {
+          TripStatus.matched || TripStatus.inTransit => true,
+          TripStatus.open ||
+          TripStatus.cancelled =>
+            !t.departureDate.isBefore(cutoff),
+          TripStatus.delivered => false,
+        };
+    return !stored.any(
+      (t) =>
+          mayMove(t) &&
+          t.createdAt.isBefore(last.createdAt) &&
+          !listedIds.contains(t.tripId),
+    );
   }
 
   CropListing _parseCrop(Map<String, dynamic> m) {

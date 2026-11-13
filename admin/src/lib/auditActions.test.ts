@@ -122,6 +122,8 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "user_unsuspend",
   "user_verify",
   "user_change_role",
+  // FUP-317: the user's own profile edit (entity user, SyncFunction)
+  "profile_edited",
   // ESC-29 and ESC-32: the party's appeal and the admin reputation actions (entity user)
   "reputation_appealed",
   "reputation_excused",

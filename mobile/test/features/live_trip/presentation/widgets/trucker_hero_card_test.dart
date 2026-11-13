@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -33,19 +35,23 @@ class MockDeliveryBloc extends Mock implements DeliveryBloc {}
 class MockTripRepository extends Mock implements BaseTripListingRepository {}
 
 /// FUP-374: the own-trip pull, standing in for the server answer landing in
-/// the phone's store ([onPull]); [fail] is offline.
+/// the phone's store ([onPull], a change); [fail] is offline. FUP-385:
+/// [landing] holds the answer back until the test completes it.
 class _FakeOwnTripSync extends Fake implements MarketplaceSync {
-  _FakeOwnTripSync({this.onPull, this.fail = false});
+  _FakeOwnTripSync({this.onPull, this.fail = false, this.landing});
 
   final void Function()? onPull;
   final bool fail;
+  final Future<void>? landing;
   final List<String> pulls = [];
 
   @override
-  Future<void> pullOwnTrips({required String truckerId}) async {
+  Future<bool> pullOwnTrips({required String truckerId}) async {
     pulls.add(truckerId);
+    await landing;
     if (fail) throw Exception('offline');
     onPull?.call();
+    return onPull != null;
   }
 }
 
@@ -136,9 +142,11 @@ void main() {
     expect(find.text("Scan each farmer's QR at pickup"), findsOneWidget);
   });
 
-  // FUP-374: on mobile the card pulls the trucker's own trips before it
-  // reads them, so a trip the server moved (open or matched again after an
-  // admin's no-show re-open) shows instead of the stored cancelled copy.
+  // FUP-374: on mobile the card pulls the trucker's own trips, so a trip the
+  // server moved (open or matched again after an admin's no-show re-open)
+  // shows instead of the stored cancelled copy. FUP-385: the stored trips
+  // paint first and the card reads them again only when the pull changed
+  // one.
   group('the own-trip pull', () {
     Widget buildCardWith(MarketplaceSync sync) => MultiProvider(
           providers: [
@@ -182,6 +190,103 @@ void main() {
       expect(sync.pulls, ['trucker-001']);
       expect(find.text('Meki → Addis Ababa'), findsOneWidget);
       expect(find.byKey(const Key('trucker_hero_load_failed')), findsNothing);
+    });
+
+    testWidgets(
+        'the stored trip paints before the pull lands, and the pulled one '
+        'after it', (tester) async {
+      var stored = trip();
+      when(() => repository.getMostRelevantTrip('trucker-001'))
+          .thenAnswer((_) async => stored);
+      // Flaky 3G: the answer is still on its way.
+      final landing = Completer<void>();
+      final sync = _FakeOwnTripSync(
+        landing: landing.future,
+        onPull: () => stored = trip(status: TripStatus.matched),
+      );
+
+      await tester.pumpWidget(buildCardWith(sync));
+      await tester.pumpAndSettle();
+
+      expect(sync.pulls, ['trucker-001']);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text('Meki → Addis Ababa'), findsOneWidget);
+      expect(find.text('Mar 5'), findsOneWidget);
+      expect(find.text('Matched'), findsNothing);
+
+      landing.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Matched'), findsOneWidget);
+      verify(() => repository.getMostRelevantTrip('trucker-001')).called(2);
+    });
+
+    testWidgets('a pull that changed nothing reads the trips once',
+        (tester) async {
+      when(() => repository.getMostRelevantTrip('trucker-001'))
+          .thenAnswer((_) async => trip());
+      final sync = _FakeOwnTripSync();
+
+      await tester.pumpWidget(buildCardWith(sync));
+      await tester.pumpAndSettle();
+
+      expect(sync.pulls, ['trucker-001']);
+      expect(find.text('Meki → Addis Ababa'), findsOneWidget);
+      verify(() => repository.getMostRelevantTrip('trucker-001')).called(1);
+      verify(() => repository.getRecentRoutes('trucker-001')).called(1);
+    });
+
+    // A fresh login: the store holds no trip of the trucker yet. "No active
+    // trip" while the first pull runs would invite a duplicate post.
+    testWidgets(
+        'with no stored trip the spinner stays until the pull brings the '
+        'trip', (tester) async {
+      Trip? stored;
+      when(() => repository.getMostRelevantTrip('trucker-001'))
+          .thenAnswer((_) async => stored);
+      final landing = Completer<void>();
+      final sync = _FakeOwnTripSync(
+        landing: landing.future,
+        onPull: () => stored = trip(status: TripStatus.matched),
+      );
+      final l10n = lookupAppLocalizations(const Locale('en'));
+
+      await tester.pumpWidget(buildCardWith(sync));
+      await tester.pump();
+      await tester.pump();
+
+      expect(sync.pulls, ['trucker-001']);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text(l10n.noActiveTrip), findsNothing);
+
+      landing.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text('Matched'), findsOneWidget);
+    });
+
+    testWidgets(
+        'with no stored trip and none on the server, "No active trip" shows '
+        'once the pull is done', (tester) async {
+      when(() => repository.getMostRelevantTrip('trucker-001'))
+          .thenAnswer((_) async => null);
+      final landing = Completer<void>();
+      final sync = _FakeOwnTripSync(landing: landing.future);
+      final l10n = lookupAppLocalizations(const Locale('en'));
+
+      await tester.pumpWidget(buildCardWith(sync));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text(l10n.noActiveTrip), findsNothing);
+
+      landing.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text(l10n.noActiveTrip), findsOneWidget);
     });
   });
 

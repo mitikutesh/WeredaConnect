@@ -37,6 +37,15 @@ public interface IUserRepository
     Task<AuthResult<UserDto>> UpdateUserAsync(UserDto user, int expectedVersion);
 
     /// <summary>
+    /// FUP-317: <see cref="UpdateUserAsync"/> and one transaction-audit row (<paramref name="auditEntry"/>) in one
+    /// transaction, so the change never lands without its row. The row is never written over an existing one; a
+    /// version conflict, a deleting account or a taken audit key is the same conflict as in
+    /// <see cref="UpdateUserAsync"/>, and nothing is written. Without a transaction-audit table configured it is
+    /// <see cref="UpdateUserAsync"/> alone.
+    /// </summary>
+    Task<AuthResult<UserDto>> UpdateUserWithAuditAsync(UserDto user, int expectedVersion, Dictionary<string, object> auditEntry);
+
+    /// <summary>
     /// Find a user by Fayda ID. Returns null if no user has this Fayda ID linked.
     /// Uses a table scan with filter — acceptable for duplicate check during registration.
     /// </summary>

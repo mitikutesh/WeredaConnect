@@ -2261,8 +2261,46 @@ public partial class AdminFunction
         }
 
         // FRD-07: the reason is admin-only, so it travels next to the user, not on the party DTO.
-        var response = new AdminUserDetailResponse { User = user, SuspendReason = user.SuspendReason };
+        // FUP-317: a deleting or deleted account's old names are not shown (account-deletion.md: names go; ACC-05).
+        var hidden = !string.IsNullOrEmpty(user.DeletionState);
+        var (history, more) = hidden ? (null, false) : await ProfileHistoryAsync(userId, context);
+        var response = new AdminUserDetailResponse
+        {
+            User = user,
+            SuspendReason = user.SuspendReason,
+            ProfileHistory = history,
+            ProfileHistoryMore = history == null ? null : more,
+            ProfileHistoryHidden = hidden ? true : null
+        };
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminUserDetailResponse);
+    }
+
+    /// <summary>
+    /// FUP-317: the user's newest profile edits from their <c>profile-{userId}</c> transaction-audit rows, newest
+    /// first. Null when the table is not configured or the read fails: the user detail still answers.
+    /// </summary>
+    private async Task<(List<AdminProfileEditDto>? History, bool More)> ProfileHistoryAsync(
+        string userId, ILambdaContext context)
+    {
+        var txRepo = TxAuditRepo();
+        if (txRepo == null)
+        {
+            return (null, false);
+        }
+
+        try
+        {
+            var (rows, more) = await txRepo.GetLatestByTransactionAsync(
+                ProfileEditAudit.TransactionId(userId), ProfileEditAudit.HistoryPageSize);
+            return (rows.Where(r => GetString(r, "action") == ProfileEditAudit.Action)
+                .Select(ProfileEditAudit.FromRow)
+                .ToList(), more);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning($"FUP-317: profile history read failed (non-fatal): [{ex.GetType().Name}]");
+            return (null, false);
+        }
     }
 
     private async Task<APIGatewayProxyResponse> HandleUserActionAsync(
@@ -2982,7 +3020,9 @@ public partial class AdminFunction
             IpAddress = GetStringOrNull(item, "ipAddress"),
             CorrelationId = GetStringOrNull(item, "correlationId"),
             Timestamp = ShownTimestamp(item) ?? "",
-            Metadata = GetStringOrNull(item, "metadata"),
+            // FUP-317: a profile edit's metadata is the old and new names; the audit log lists the edit without them.
+            // They are read only on the user detail, which hides them for a deleting or deleted account.
+            Metadata = GetString(item, "action") == ProfileEditAudit.Action ? null : GetStringOrNull(item, "metadata"),
         };
 
     /// <summary>
