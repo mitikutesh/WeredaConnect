@@ -145,7 +145,7 @@ public class AdminNoShowReopenRouteTests
         }
     };
 
-    /// <summary>The delivery the judgement cancelled, two seconds after the run's time.</summary>
+    /// <summary>The delivery the judgement cancelled, two seconds after the run's time, with its own stamp (FUP-363).</summary>
     private static Dictionary<string, AttributeValue> CancelledDelivery() => new()
     {
         ["deliveryId"] = S("del-9"),
@@ -157,7 +157,27 @@ public class AdminNoShowReopenRouteTests
         ["status"] = S("cancelled"),
         ["version"] = N("3"),
         ["createdAt"] = S("2026-11-20T09:00:00.0000000Z"),
-        ["updatedAt"] = S("2026-11-22T06:01:02.0000000Z")
+        ["updatedAt"] = S("2026-11-22T06:01:02.0000000Z"),
+        [PickupJudgement.DeliveryCancelledAtField] = S("2026-11-22T06:01:02.0000000Z")
+    };
+
+    /// <summary>
+    /// FUP-363: the trip as the order cron leaves it once the release emptied it and its day was over: closed as
+    /// <c>expired</c>, no booking left (DynamoDB drops the emptied sets), all its room free.
+    /// </summary>
+    private static Dictionary<string, AttributeValue> ExpiredTrip(string capacity = "40") => new()
+    {
+        ["tripId"] = S("trip-9"),
+        ["createdAt"] = S("2026-11-01T08:00:00.0000000Z"),
+        ["truckerId"] = S("trucker-9"),
+        ["status"] = S("cancelled"),
+        ["cancelReason"] = S(TripLifecycle.ExpiredCancelReason),
+        ["cancelledAt"] = S("2026-11-22T06:15:00.0000000Z"),
+        ["departureDate"] = S("2026-11-20T06:00:00.000Z"),
+        ["capacity"] = N(capacity),
+        ["remainingQuintals"] = N(capacity),
+        ["bookedQuintals"] = N("0"),
+        ["version"] = N("6")
     };
 
     private static Dictionary<string, AttributeValue> HeldEscrow() => new()
@@ -376,7 +396,11 @@ public class AdminNoShowReopenRouteTests
         delivery.Key["deliveryId"].S.Should().Be("del-9");
         delivery.Key["tripId"].S.Should().Be("trip-9");
         delivery.ConditionExpression.Should().StartWith("#status = :cancelled AND #v = :expected")
-            .And.Contain("attribute_not_exists(#cancelReason)").And.Contain("attribute_not_exists(#resolution)");
+            .And.Contain("attribute_not_exists(#cancelReason)").And.Contain("attribute_not_exists(#resolution)")
+            .And.Contain("attribute_exists(#judged)");
+        // FUP-363: the judgement's stamp goes with the cancel it marked.
+        delivery.UpdateExpression.Should().EndWith("REMOVE #judged");
+        delivery.ExpressionAttributeNames["#judged"].Should().Be(PickupJudgement.DeliveryCancelledAtField);
         delivery.ExpressionAttributeValues[":expected"].N.Should().Be("3");
         delivery.ExpressionAttributeValues[":next"].N.Should().Be("4");
         delivery.ExpressionAttributeValues[":pickedUp"].S.Should().Be("pickedUp");
@@ -536,11 +560,105 @@ public class AdminNoShowReopenRouteTests
     public async Task TheHandoff_IsRefused_ForADeliveryAPartyCancelledBeforeTheJudgement()
     {
         _delivery!["updatedAt"] = S("2026-11-21T10:00:00.0000000Z");
+        _delivery.Remove(PickupJudgement.DeliveryCancelledAtField);
 
         var response = await Function().FunctionHandler(Post(Handoff()), _context);
 
         response.StatusCode.Should().Be(409);
         response.Body.Should().Contain(PickupReopen.NotAllowedCode).And.Contain("before the judgement");
+        _transactions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task FUP363_AJudgementTheCronRetried_StillBringsItsDeliveryBack()
+    {
+        // The order write after the cancel failed; the next run judged it 15 minutes after the cancel.
+        _order[PickupJudgement.JudgedAtField] = S("2026-11-22T06:16:00.0000000Z");
+
+        var response = await Function().FunctionHandler(Post(Handoff()), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var items = _transactions.Should().ContainSingle().Subject.TransactItems;
+        items[2].Update.TableName.Should().Be(DeliveriesTable);
+        items[2].Update.Key["deliveryId"].S.Should().Be("del-9");
+    }
+
+    [Fact]
+    public async Task FUP363_AnAdminCancelAfterPickup_IsNeverBroughtBack()
+    {
+        _delivery!["cancelReason"] = S("admin_cancelled");
+        _delivery.Remove(PickupJudgement.DeliveryCancelledAtField);
+
+        var response = await Function().FunctionHandler(Post(Handoff()), _context);
+
+        response.StatusCode.Should().Be(409);
+        response.Body.Should().Contain(PickupReopen.NotAllowedCode).And.Contain("support or a dispute");
+        _transactions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task FUP363_ATripTheCronClosedAfterTheRelease_IsOpenedAgain_InTheSameTransaction()
+    {
+        _trip = ExpiredTrip();
+
+        var response = await Function().FunctionHandler(Post(Handoff()), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var items = _transactions.Should().ContainSingle().Subject.TransactItems;
+        items.Should().HaveCount(4, "the order, the trip, the delivery and the escrow check");
+        var trip = items[1].Update;
+        trip.TableName.Should().Be(TripsTable);
+        trip.Key["tripId"].S.Should().Be("trip-9");
+        trip.Key["createdAt"].S.Should().Be("2026-11-01T08:00:00.0000000Z");
+        trip.UpdateExpression.Should().StartWith("SET #status = :to")
+            .And.Contain("#v = :next").And.Contain("REMOVE #cancelReason, #cancelledAt")
+            .And.Contain("ADD #bookedIds :ids, #acceptedIds :ids");
+        trip.ConditionExpression.Should().StartWith("#v = :expected AND #status = :cancelled AND #cancelReason = :expired")
+            .And.Contain("attribute_not_exists(#deletedAt)").And.Contain("attribute_not_exists(#bookedIds)")
+            .And.Contain("attribute_not_exists(#acceptedIds)").And.Contain("#remaining >= :q");
+        var values = trip.ExpressionAttributeValues;
+        values[":to"].S.Should().Be("open", "35 quintals stay free");
+        values[":expected"].N.Should().Be("6");
+        values[":next"].N.Should().Be("7");
+        values[":q"].N.Should().Be("5");
+        values[":expired"].S.Should().Be(TripLifecycle.ExpiredCancelReason);
+        values[":ids"].SS.Should().Equal(OrderId);
+
+        TxAudits[0].Item["metadata"].S.Should().Contain(";trip=revived;");
+        _updates.Should().BeEmpty("the status is set in the transaction, never after it");
+        ((TestLambdaLogger)_context.Logger).Buffer.ToString()
+            .Should().Contain($"{NoShowReopen.LogToken} orderId={OrderId} exit=handoff_confirmed trip=revived");
+    }
+
+    [Fact]
+    public async Task FUP363_ARevivedTripTheOrderFills_IsMatchedInTheSameWrite()
+    {
+        _trip = ExpiredTrip(capacity: "5");
+
+        var response = await Function().FunctionHandler(Post(), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var trip = _transactions.Single().TransactItems[1].Update;
+        trip.ExpressionAttributeValues[":to"].S.Should().Be("matched");
+        _updates.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("trucker", false, "trip was cancelled")]
+    [InlineData(TripLifecycle.ExpiredCancelReason, true, "holds a booking")]
+    public async Task FUP363_ATripItsTruckerCancelled_OrOneStillBooked_StaysClosed(string cancelReason, bool booked, string why)
+    {
+        _trip = ExpiredTrip();
+        _trip["cancelReason"] = S(cancelReason);
+        if (booked)
+        {
+            _trip["bookedOrderIds"] = new AttributeValue { SS = new List<string> { "ord-7" } };
+        }
+
+        var response = await Function().FunctionHandler(Post(), _context);
+
+        response.StatusCode.Should().Be(409);
+        response.Body.Should().Contain(NoShowReopen.TripUnavailableCode).And.Contain(why);
         _transactions.Should().BeEmpty();
     }
 

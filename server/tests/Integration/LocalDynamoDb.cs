@@ -143,7 +143,9 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
             // FRD-15: the relationship scan reads a buyer's orders.
             ("BuyerIdCreatedAtIndex", "buyerId", "createdAt"),
             // ESC-16: the order cron's sparse deadline index.
-            ("DeadlineIndex", "deadlineShard", "nextDeadlineAt"));
+            ("DeadlineIndex", "deadlineShard", "nextDeadlineAt"),
+            // FUP-363: the order cron's departed trip walk reads a trip's orders (ESC-17).
+            ("TripIdIndex", "tripId", "createdAt"));
         await CreateAsync(Deliveries, ("deliveryId", "tripId"),
             ("ListingIndex", "listingId", "createdAt"),
             ("ParticipantIndex", "participantId", "createdAt"),

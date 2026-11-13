@@ -130,7 +130,10 @@ public partial class OrderCronFunction
     /// <summary>
     /// The pending delivery goes first (conditional on <c>pending</c>), so a pickup racing in wins and the
     /// next run judges it picked up. Null when the order has no delivery or it is already cancelled;
-    /// <see cref="DeadlineOutcome.Waiting"/> when it could not be cancelled.
+    /// <see cref="DeadlineOutcome.Waiting"/> when it could not be cancelled. FUP-363: the cancel carries the
+    /// judgement's own stamp (<see cref="PickupJudgement.DeliveryCancelledAtField"/>), so when the order write
+    /// after it fails and a later run judges again (a later <c>pickupJudgedAt</c>), a no-show re-open still
+    /// knows the judgement cancelled it.
     /// </summary>
     private async Task<DeadlineOutcome?> CancelPendingDeliveryFirstAsync(string orderId, string deliveryId, string reason, CommitmentRun run)
     {
@@ -141,7 +144,7 @@ public partial class OrderCronFunction
 
         try
         {
-            if (await _deliveryRepo.TryCancelPendingAsync(deliveryId))
+            if (await _deliveryRepo.TryCancelPendingForJudgementAsync(deliveryId))
             {
                 await TransactionAuditWriter.EmitAsync(
                     _transactionAuditRepo, run.Context, orderId, "delivery", deliveryId,
