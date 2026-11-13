@@ -22,7 +22,7 @@ npm run selftest
 # 2. C# gateway ↔ live simulator (real HTTP + PSS signing)
 TELEBIRR_SIM_URL=http://127.0.0.1:8790 \
 TELEBIRR_CREDS_FILE="$(pwd)/tools/telebirr-sandbox/credentials.local.json" \
-  dotnet test server --filter FullyQualifiedName~HoldFunds_against_live_simulator
+  dotnet test server --filter FullyQualifiedName~against_live_simulator
 
 # 3. Full marketplace→escrow flow against the deployed dev API (mock gateway)
 python3 scripts/e2e_full_flow.py
@@ -79,12 +79,15 @@ First run generates `keys/` (merchant + "Telebirr" RSA keypairs) and
 ```bash
 TELEBIRR_SIM_URL=http://127.0.0.1:8790 \
 TELEBIRR_CREDS_FILE="$(git rev-parse --show-toplevel)/tools/telebirr-sandbox/credentials.local.json" \
-  dotnet test server --filter FullyQualifiedName~HoldFunds_against_live_simulator
+  dotnet test server --filter FullyQualifiedName~against_live_simulator
 ```
 
 This acquires a fabric token, signs + posts a `preOrder`, and asserts the
-returned `toPayUrl`. The signing scheme is proven byte-identical to the simulator
-by `TelebirrSignatureServiceTests` (a Node-produced signature verifies in C#).
+returned `toPayUrl`. `QueryOrder_against_live_simulator` (FUP-430) then asks
+`queryOrder` before and after a payment, after the window and for an order the
+simulator never created (`tools/telebirr-sandbox/README.md`, queryOrder).
+The signing scheme is proven byte-identical to the simulator by
+`TelebirrSignatureServiceTests` (a Node-produced signature verifies in C#).
 
 ### 2c. Manual browser walk-through of the pay page
 

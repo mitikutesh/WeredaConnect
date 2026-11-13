@@ -1,8 +1,223 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 
+/// A location platform whose answers each test sets. A null [answer] or
+/// [fix] never comes, like the web plugin's prompt and fix under its
+/// microsecond time limit (FUP-441).
+class _FakeGeolocator extends GeolocatorPlatform
+    with MockPlatformInterfaceMixin {
+  /// The permission as checked (on web: the site's state).
+  LocationPermission state = LocationPermission.whileInUse;
+
+  /// What a request answers. `geolocator_web` answers deniedForever for any
+  /// error of its request, a dismissed prompt included.
+  LocationPermission? answer = LocationPermission.whileInUse;
+
+  /// The state once a request ran; unchanged when null.
+  LocationPermission? stateAfterRequest;
+
+  Position? fix = _position();
+  Object? checkError;
+  int checks = 0;
+  int requests = 0;
+  LocationSettings? settings;
+
+  @override
+  Future<bool> isLocationServiceEnabled() async => true;
+
+  @override
+  Future<LocationPermission> checkPermission() async {
+    checks++;
+    final error = checkError;
+    if (error != null) throw error;
+    return state;
+  }
+
+  @override
+  Future<LocationPermission> requestPermission() {
+    requests++;
+    state = stateAfterRequest ?? state;
+    final answer = this.answer;
+    return answer == null
+        ? Completer<LocationPermission>().future
+        : Future.value(answer);
+  }
+
+  @override
+  Future<Position> getCurrentPosition({LocationSettings? locationSettings}) {
+    settings = locationSettings;
+    final fix = this.fix;
+    return fix == null ? Completer<Position>().future : Future.value(fix);
+  }
+}
+
+Position _position() => Position(
+      latitude: 9.03,
+      longitude: 38.74,
+      timestamp: DateTime.utc(2026, 11, 13, 6),
+      accuracy: 12,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: 0,
+      headingAccuracy: 0,
+      speed: 0,
+      speedAccuracy: 0,
+    );
+
 void main() {
+  group('captureCurrentPosition (FUP-441)', () {
+    const limit = Duration(milliseconds: 50);
+    late _FakeGeolocator platform;
+
+    setUp(() {
+      platform = _FakeGeolocator();
+      GeolocatorPlatform.instance = platform;
+    });
+
+    GpsCaptureService web() => GpsCaptureService(isWeb: true, timeLimit: limit);
+    GpsCaptureService phone() =>
+        GpsCaptureService(isWeb: false, timeLimit: limit);
+
+    // A capture that does not end fails the test here, not after hours.
+    Future<GpsCaptureResult> capture(GpsCaptureService service) =>
+        service.captureCurrentPosition().timeout(const Duration(seconds: 5));
+
+    test('takes a high accuracy fix with its time limit', () async {
+      final result = await capture(web());
+
+      expect(result.isAvailable, isTrue);
+      expect(result.latitude, 9.03);
+      expect(result.longitude, 38.74);
+      expect(result.accuracy, 12);
+      expect(platform.settings?.accuracy, LocationAccuracy.high);
+      expect(platform.settings?.timeLimit, limit);
+      expect(platform.requests, 0);
+    });
+
+    test('a fix that never comes ends within the limit, web and phone',
+        () async {
+      platform.fix = null;
+
+      for (final service in [web(), phone()]) {
+        final result = await capture(service);
+        expect(result.isAvailable, isFalse);
+        expect(result.unavailableReason, 'GPS signal not available');
+        expect(result.permissionDeniedForever, isFalse);
+      }
+    });
+
+    test('web: a dismissed prompt is not blocked and is asked again', () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isFalse);
+      expect(result.permissionDeniedForever, isFalse);
+      expect(result.unavailableReason, 'Location permission denied');
+      expect(platform.checks, 2, reason: 'the site state is read again');
+
+      await capture(web());
+      expect(platform.requests, 2);
+    });
+
+    test('web: a blocked site still reads as blocked', () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever
+        ..stateAfterRequest = LocationPermission.deniedForever;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isFalse);
+      expect(result.permissionDeniedForever, isTrue);
+    });
+
+    test('web: a granted site whose first position failed takes the fix',
+        () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever
+        ..stateAfterRequest = LocationPermission.whileInUse;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isTrue);
+    });
+
+    test('web: a prompt nobody answers ends within the limit, asked again',
+        () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = null;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isFalse);
+      expect(result.permissionDeniedForever, isFalse);
+      expect(result.unavailableReason, 'Location permission denied');
+
+      await capture(web());
+      expect(platform.requests, 2);
+    });
+
+    test('web: "Allow" with a slow first fix still takes the fix', () async {
+      // The request ends only after a first fix: past the limit it is still
+      // running, but the site is already granted.
+      platform
+        ..state = LocationPermission.denied
+        ..answer = null
+        ..stateAfterRequest = LocationPermission.whileInUse;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isTrue);
+      expect(result.latitude, 9.03);
+    });
+
+    test('web: without the Permissions API the re-read is not blocked',
+        () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever
+        ..stateAfterRequest = LocationPermission.unableToDetermine;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isFalse);
+      expect(result.permissionDeniedForever, isFalse);
+      expect(result.unavailableReason, 'Location permission denied');
+    });
+
+    test('phone: a request denied for good is believed as it is', () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever;
+
+      final result = await capture(phone());
+
+      expect(result.permissionDeniedForever, isTrue);
+      expect(platform.checks, 1);
+    });
+
+    test('a failing platform call ends as unavailable, never throws', () async {
+      platform.checkError = const PermissionDefinitionsNotFoundException(
+        'no permission in the manifest',
+      );
+
+      final result = await capture(phone());
+
+      expect(result.isAvailable, isFalse);
+      expect(result.unavailableReason, 'GPS signal not available');
+    });
+  });
+
   group('GpsCaptureService', () {
     late GpsCaptureService service;
 
