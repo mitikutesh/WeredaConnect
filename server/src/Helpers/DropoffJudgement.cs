@@ -179,6 +179,13 @@ public static class DropoffJudgement
             ? entry
             : null;
 
+    /// <summary>The stored out-of-range attempt (<see cref="AttemptField"/>), or null.</summary>
+    public static IReadOnlyDictionary<string, object>? AttemptOf(IReadOnlyDictionary<string, object> order)
+        => order.TryGetValue(AttemptField, out var raw) && raw is IReadOnlyDictionary<string, object> entry ? entry : null;
+
+    /// <summary>Whether a stored check-in was measured within 5 km of a drop-off point (<c>distanceChecked</c>).</summary>
+    public static bool IsMeasured(IReadOnlyDictionary<string, object> entry) => Bool(entry, PickupJudgement.EntryDistanceChecked);
+
     /// <summary>The trucker's out-of-range attempt received by T8, or null (<see cref="AttemptField"/>).</summary>
     public static IReadOnlyDictionary<string, object>? CountedAttempt(IReadOnlyDictionary<string, object> order)
         => order.TryGetValue(AttemptField, out var raw) && raw is IReadOnlyDictionary<string, object> entry
