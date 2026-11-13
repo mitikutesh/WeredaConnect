@@ -53,6 +53,11 @@ class IsarMarketplaceSync implements MarketplaceSync {
   DateTime? _lastTripPull;
   DateTime? _lastDeliveryPull;
   DateTime? _lastOrderPull;
+  DateTime? _lastOwnTripPull;
+
+  /// The trucker [_lastOwnTripPull] was for: another account signed in on
+  /// the same phone is not throttled by the last one's pull.
+  String? _lastOwnTripTruckerId;
 
   IsarMarketplaceSync({
     required ApiClient api,
@@ -98,6 +103,58 @@ class IsarMarketplaceSync implements MarketplaceSync {
     // (before trip-listing-api 2.3.0) forgets the old value.
     await _orderLeadStore.write(orderLeadHours);
     _lastTripPull = DateTime.now();
+  }
+
+  /// FUP-374: the trucker's own trips with the status the server holds. The
+  /// server moves a trucker's trip without any upload from this phone
+  /// (`matched` at a funding, `delivered`, an admin's no-show re-open that
+  /// opens a trip the order cron closed as `open` or `matched` again,
+  /// trip-listing-api 2.7.0), and a phone that learned of the close from a
+  /// conflict answer holds the row as `cancelled` and refuses to start it.
+  /// Server wins as in [pullOrders]: a row with a trip upload still on its
+  /// way is skipped (its own outcome settles it), and a server copy older
+  /// than the stored row (the trucker index lags a change just synced) is
+  /// skipped. The place ids, which only this phone keeps, stay on the row.
+  /// Nothing is deleted: the server does not list cancelled trips, so a
+  /// missing trip says nothing. A trip of another trucker in the answer is
+  /// never stored.
+  @override
+  Future<void> pullOwnTrips({required String truckerId}) async {
+    if (truckerId.isEmpty) return;
+    if (_lastOwnTripTruckerId == truckerId && _isFresh(_lastOwnTripPull)) {
+      return;
+    }
+    final trips = await _fetchOwnTrips(truckerId);
+
+    await _isar.writeTxn(() async {
+      // Read inside the write so a change queued while the request was in
+      // flight wins over the server copy.
+      final openTripUploads = (await _isar.syncOperations
+              .filter()
+              .entityTypeEqualTo('trip')
+              .not()
+              .statusEqualTo(SyncStatus.synced)
+              .findAll())
+          .where((op) => !SyncQueue.isRejected(op))
+          .map((op) => op.entityId)
+          .toSet();
+      for (final trip in trips) {
+        if (trip.tripId.isEmpty || trip.truckerId != truckerId) continue;
+        if (openTripUploads.contains(trip.tripId)) continue;
+        final existing =
+            await _isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+        if (existing != null) {
+          if (trip.version < existing.version) continue;
+          trip
+            ..id = existing.id
+            ..fromPlaceId = existing.fromPlaceId
+            ..toPlaceId = existing.toPlaceId;
+        }
+        await _isar.trips.put(trip);
+      }
+    });
+    _lastOwnTripPull = DateTime.now();
+    _lastOwnTripTruckerId = truckerId;
   }
 
   @override
@@ -400,6 +457,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
   Future<void> _revertRejectedTrip(SyncOperation operation) async {
     final tripId = operation.entityId;
     _lastTripPull = null;
+    _lastOwnTripPull = null;
     if (operation.action == 'create') {
       await _isar.writeTxn(() => _isar.trips.deleteByTripId(tripId));
       return;
@@ -711,6 +769,30 @@ class IsarMarketplaceSync implements MarketplaceSync {
       nextToken = data['nextToken'] as String?;
     } while (nextToken != null);
     return (results, orderLeadHours);
+  }
+
+  /// FUP-374: every page of the trucker's own trips, all statuses
+  /// (`GET /trips?truckerId=`, the request the web hero card makes). No
+  /// `status`: `status=open` would leave out the trips the server moved on.
+  Future<List<Trip>> _fetchOwnTrips(String truckerId) async {
+    final results = <Trip>[];
+    String? nextToken;
+    do {
+      final params = <String, dynamic>{'truckerId': truckerId, 'limit': '50'};
+      if (nextToken != null) params['nextToken'] = nextToken;
+      final data = await _api.get<Map<String, dynamic>>(
+        '/trips',
+        queryParameters: params,
+      );
+      final items = data['trips'] as List<dynamic>? ??
+          data['items'] as List<dynamic>? ??
+          const <dynamic>[];
+      for (final item in items) {
+        results.add(_parseTrip(item as Map<String, dynamic>));
+      }
+      nextToken = data['nextToken'] as String?;
+    } while (nextToken != null && nextToken.isNotEmpty);
+    return results;
   }
 
   CropListing _parseCrop(Map<String, dynamic> m) {

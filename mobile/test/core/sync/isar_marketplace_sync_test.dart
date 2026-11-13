@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +13,13 @@ import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/sync/isar_marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/order_lead_store.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
+
+import '../../helpers/wait_for.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -744,6 +752,298 @@ void main() {
         reason: 'pending local confirmation must survive the pull',
       );
       expect(stored.single.version, 3);
+    });
+
+    // FUP-374: the server moves a trucker's trip without an upload from the
+    // phone (matched at a funding, or open / matched again when an admin's
+    // no-show re-open revives a trip the order cron closed). The trucker's
+    // own-trip pull brings that status to the phone.
+    group('FUP-374: pullOwnTrips', () {
+      Map<String, dynamic> serverTrip({
+        String tripId = 'trip-1',
+        String truckerId = 'trucker-1',
+        String status = 'open',
+        int version = 1,
+      }) =>
+          {
+            ..._tripJson(tripId: tripId, truckerId: truckerId),
+            'status': status,
+            'version': version,
+          };
+
+      /// The phone's copy of trip-1.
+      Future<void> storeTrip({
+        required TripStatus status,
+        required int version,
+        String? toPlaceId,
+      }) =>
+          isar.writeTxn(
+            () => isar.trips.put(
+              Trip()
+                ..tripId = 'trip-1'
+                ..truckerId = 'trucker-1'
+                ..truckerName = 'Geleta'
+                ..truckerPhone = '+251931831670'
+                ..fromWoreda = 'Assosa'
+                ..toWoreda = 'AddisAbeba'
+                ..toPlaceId = toPlaceId
+                ..departureDate = DateTime.utc(2026, 6, 20, 21)
+                ..capacity = 100
+                ..pricePerQuintal = 10
+                ..status = status
+                ..matchedListings = <String>[]
+                ..createdAt = DateTime.utc(2026, 6, 18)
+                ..updatedAt = DateTime.utc(2026, 6, 18)
+                ..version = version,
+            ),
+          );
+
+      Future<Trip> storedTrip() async =>
+          (await isar.trips.filter().tripIdEqualTo('trip-1').findFirst())!;
+
+      /// The one update of trip-1 in the queue, written again on each call
+      /// (same id) with [status].
+      Future<void> queueTripUpdate({
+        required SyncStatus status,
+        int retryCount = 0,
+      }) =>
+          isar.writeTxn(
+            () => isar.syncOperations.put(
+              SyncOperation()
+                ..id = 1
+                ..operationId = 'op-t1'
+                ..idempotencyKey = 'trucker-1:trip:trip-1:update:1'
+                ..entityType = 'trip'
+                ..entityId = 'trip-1'
+                ..action = 'update'
+                ..data = '{"status":"cancelled","version":3}'
+                ..status = status
+                ..retryCount = retryCount
+                ..createdAt = DateTime.now(),
+            ),
+          );
+
+      test(
+          'reads every page of the trucker\'s own trips by truckerId, with no '
+          'status filter', () async {
+        final requests = <Map<String, dynamic>>[];
+        when(
+          () => api.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer((inv) async {
+          final params = Map<String, dynamic>.from(
+            inv.namedArguments[#queryParameters] as Map,
+          );
+          requests.add(params);
+          return params['nextToken'] == null
+              ? {
+                  'trips': [serverTrip(status: 'matched', version: 2)],
+                  'nextToken': 'page-2',
+                }
+              : {
+                  'trips': [
+                    serverTrip(
+                      tripId: 'trip-2',
+                      status: 'inTransit',
+                      version: 3,
+                    ),
+                  ],
+                };
+        });
+
+        await buildSync().pullOwnTrips(truckerId: 'trucker-1');
+
+        verify(
+          () => api.get<Map<String, dynamic>>(
+            '/trips',
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).called(2);
+        expect(requests.first, {'truckerId': 'trucker-1', 'limit': '50'});
+        expect(requests.last['nextToken'], 'page-2');
+        expect(requests.any((r) => r.containsKey('status')), isFalse);
+        expect(
+          {
+            for (final t in await isar.trips.where().findAll())
+              t.tripId: t.status,
+          },
+          {'trip-1': TripStatus.matched, 'trip-2': TripStatus.inTransit},
+        );
+      });
+
+      test(
+          'a trip stored as cancelled from a conflict answer comes back as '
+          'matched with the server\'s newer version, is the card\'s trip and '
+          'can start', () async {
+        // The order cron closed the trip (expired, v3); a conflict answer
+        // told the phone.
+        await storeTrip(status: TripStatus.cancelled, version: 3);
+        final repository =
+            TripListingRepository(isar: isar, syncQueue: SyncQueue(isar));
+        expect(await repository.getMostRelevantTrip('trucker-1'), isNull);
+        await expectLater(
+          repository.startTrip(tripId: 'trip-1', truckerId: 'trucker-1'),
+          throwsA(isA<TripValidationException>()),
+        );
+
+        // An admin's no-show re-open opened it again, full: matched, v4.
+        stubApi(trips: [serverTrip(status: 'matched', version: 4)]);
+        await buildSync().pullOwnTrips(truckerId: 'trucker-1');
+
+        final trip = await storedTrip();
+        expect(trip.status, TripStatus.matched);
+        expect(trip.version, 4);
+        expect(
+          (await repository.getMostRelevantTrip('trucker-1'))?.status,
+          TripStatus.matched,
+        );
+
+        final started = await repository.startTrip(
+          tripId: 'trip-1',
+          truckerId: 'trucker-1',
+        );
+        expect(started.status, TripStatus.inTransit);
+        final op = (await isar.syncOperations.where().findAll()).single;
+        expect(jsonDecode(op.data), {'status': 'inTransit', 'version': 4});
+      });
+
+      test('a trip re-opened as open replaces the stored cancelled row',
+          () async {
+        await storeTrip(status: TripStatus.cancelled, version: 3);
+        stubApi(trips: [serverTrip(version: 4)]);
+
+        await buildSync().pullOwnTrips(truckerId: 'trucker-1');
+
+        final trip = await storedTrip();
+        expect(trip.status, TripStatus.open);
+        expect(trip.version, 4);
+      });
+
+      test(
+          'a server copy older than the stored row is skipped (the trucker '
+          'index lags a start just synced)', () async {
+        await storeTrip(status: TripStatus.inTransit, version: 5);
+        stubApi(trips: [serverTrip(status: 'matched', version: 4)]);
+
+        await buildSync().pullOwnTrips(truckerId: 'trucker-1');
+
+        final trip = await storedTrip();
+        expect(trip.status, TripStatus.inTransit);
+        expect(trip.version, 5);
+      });
+
+      test(
+          'a trip upload still on its way keeps the row; a refused one does not',
+          () async {
+        // The trucker cancelled offline: the update waits in the queue.
+        await storeTrip(status: TripStatus.cancelled, version: 4);
+        await queueTripUpdate(status: SyncStatus.pending);
+        stubApi(trips: [serverTrip(status: 'matched', version: 4)]);
+
+        await buildSync().pullOwnTrips(truckerId: 'trucker-1');
+        expect((await storedTrip()).status, TripStatus.cancelled);
+
+        // Refused for good: the server's copy wins.
+        await queueTripUpdate(
+          status: SyncStatus.failed,
+          retryCount: SyncQueue.maxRetries + 1,
+        );
+        await buildSync().pullOwnTrips(truckerId: 'trucker-1');
+        expect((await storedTrip()).status, TripStatus.matched);
+      });
+
+      test(
+          'keeps the place ids only this phone has, and never stores another '
+          'trucker\'s trip', () async {
+        await storeTrip(
+          status: TripStatus.open,
+          version: 1,
+          toPlaceId: 'addis-ababa',
+        );
+        stubApi(
+          trips: [
+            serverTrip(status: 'matched', version: 2),
+            serverTrip(tripId: 'trip-x', truckerId: 'trucker-2'),
+          ],
+        );
+
+        await buildSync().pullOwnTrips(truckerId: 'trucker-1');
+
+        final trip = await storedTrip();
+        expect(trip.status, TripStatus.matched);
+        expect(trip.toPlaceId, 'addis-ababa');
+        expect(
+          await isar.trips.filter().tripIdEqualTo('trip-x').findFirst(),
+          isNull,
+        );
+      });
+
+      test('is throttled for the same trucker, not for another account',
+          () async {
+        stubApi(trips: [serverTrip()]);
+        final sync = buildSync();
+
+        await sync.pullOwnTrips(truckerId: 'trucker-1');
+        await sync.pullOwnTrips(truckerId: 'trucker-1');
+        verify(
+          () => api.get<Map<String, dynamic>>(
+            '/trips',
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).called(1);
+
+        await sync.pullOwnTrips(truckerId: 'trucker-2');
+        verify(
+          () => api.get<Map<String, dynamic>>(
+            '/trips',
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).called(1);
+      });
+
+      group('the trucker\'s list (LoadTrips)', () {
+        TripListingBloc buildBloc() => TripListingBloc(
+              repository:
+                  TripListingRepository(isar: isar, syncQueue: SyncQueue(isar)),
+              marketplaceSync: buildSync(),
+            );
+
+        test('shows the revived trip as matched', () async {
+          await storeTrip(status: TripStatus.cancelled, version: 3);
+          stubApi(trips: [serverTrip(status: 'matched', version: 4)]);
+          final bloc = buildBloc();
+          addTearDown(bloc.close);
+
+          bloc.add(const LoadTrips(truckerId: 'trucker-1'));
+          await waitFor(() => bloc.state is TripsLoaded);
+
+          final trips = (bloc.state as TripsLoaded).trips;
+          expect(trips.single.status, TripStatus.matched);
+          expect(trips.single.version, 4);
+        });
+
+        test('offline, shows the stored trips', () async {
+          await storeTrip(status: TripStatus.cancelled, version: 3);
+          when(
+            () => api.get<Map<String, dynamic>>(
+              any(),
+              queryParameters: any(named: 'queryParameters'),
+            ),
+          ).thenThrow(Exception('offline'));
+          final bloc = buildBloc();
+          addTearDown(bloc.close);
+
+          bloc.add(const LoadTrips(truckerId: 'trucker-1'));
+          await waitFor(() => bloc.state is TripsLoaded);
+
+          expect(
+            (bloc.state as TripsLoaded).trips.single.status,
+            TripStatus.cancelled,
+          );
+        });
+      });
     });
   });
 }
