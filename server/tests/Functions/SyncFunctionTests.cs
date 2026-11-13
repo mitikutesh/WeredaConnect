@@ -571,9 +571,9 @@ public partial class SyncFunctionTests
         Assert.Contains("SYNC_VALIDATION", response.Body);
     }
 
-    // FUP-127 audit: SyncRequest and SyncOperationRequest mark their members required and carry no
-    // initializer. A body that omits one is refused whole as SYNC_VALIDATION; one that sends null
-    // must not crash the batch.
+    // FUP-127 audit, FUP-148: SyncRequest and SyncOperationRequest mark no member required. A missing,
+    // null or blank batch member is refused whole as SYNC_VALIDATION with its field; an operation missing
+    // an identifying member is that operation's own SYNC_VALIDATION error. Neither may crash the batch.
     private const string AuditOp =
         "{\"operationId\":\"op-1\",\"idempotencyKey\":\"user:crop_listing:crop-1:create:12345\","
         + "\"entityType\":\"crop_listing\",\"entityId\":\"crop-1\",\"action\":\"create\",\"data\":{}}";
@@ -588,38 +588,37 @@ public partial class SyncFunctionTests
     };
 
     [Theory]
-    [InlineData("{\"clientId\":\"d-1\",\"operations\":[" + AuditOp + "]}")]
-    [InlineData("{\"syncBatchId\":\"b-1\",\"operations\":[" + AuditOp + "]}")]
-    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\"}")]
-    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":[{\"operationId\":\"op-1\"}]}")]
-    public async Task FunctionHandler_BodyWithoutARequiredMember_Returns400SyncValidation(string body)
+    // FUP-148: absent (it was "Invalid JSON in request body." with no field), null (it was accepted) or blank.
+    [InlineData("{\"clientId\":\"d-1\",\"operations\":[" + AuditOp + "]}", "syncBatchId", "syncBatchId is required.")]
+    [InlineData("{\"syncBatchId\":null,\"clientId\":\"d-1\",\"operations\":[" + AuditOp + "]}", "syncBatchId", "syncBatchId is required.")]
+    [InlineData("{\"syncBatchId\":\" \",\"clientId\":\"d-1\",\"operations\":[" + AuditOp + "]}", "syncBatchId", "syncBatchId is required.")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"operations\":[" + AuditOp + "]}", "clientId", "clientId is required.")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":null,\"operations\":[" + AuditOp + "]}", "clientId", "clientId is required.")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":\"\",\"operations\":[" + AuditOp + "]}", "clientId", "clientId is required.")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\"}", "operations", "Request must contain at least one operation.")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":null}", "operations", "Request must contain at least one operation.")]
+    [InlineData("{}", "syncBatchId", "syncBatchId is required.")]
+    public async Task FunctionHandler_MissingBatchMember_Returns400WithItsField_NothingApplied(
+        string body, string field, string message)
     {
         var response = await _function.FunctionHandler(RawSyncRequest(body), _context);
 
         Assert.Equal(400, response.StatusCode);
-        Assert.Contains("SYNC_VALIDATION", response.Body);
-    }
-
-    [Theory]
-    [InlineData("{\"syncBatchId\":null,\"clientId\":\"d-1\",\"operations\":[" + AuditOp + "]}")]
-    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":null,\"operations\":[" + AuditOp + "]}")]
-    public async Task FunctionHandler_NullBatchIdOrClientId_StillProcessesTheBatch(string body)
-    {
-        // Neither is dereferenced: the batch runs and the operation gets its own result.
-        var response = await _function.FunctionHandler(RawSyncRequest(body), _context);
-
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("\"operationId\":\"op-1\"", response.Body);
+        Assert.Contains("\"code\":\"SYNC_VALIDATION\"", response.Body);
+        Assert.Contains($"\"message\":\"{message}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+        await _mockSyncMeta.DidNotReceive().IdempotencyKeyExistsAsync(Arg.Any<string>());
+        await _mockCropRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
     [Fact]
-    public async Task FunctionHandler_NullOperations_Returns400SyncValidation()
+    public async Task FunctionHandler_NullBody_KeepsTheOperationsAnswerWithoutAField()
     {
-        var response = await _function.FunctionHandler(
-            RawSyncRequest("{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":null}"), _context);
+        var response = await _function.FunctionHandler(RawSyncRequest("null"), _context);
 
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("Request must contain at least one operation.", response.Body);
+        Assert.DoesNotContain("\"field\"", response.Body);
     }
 
     [Theory]
@@ -639,22 +638,63 @@ public partial class SyncFunctionTests
     }
 
     [Theory]
-    [InlineData("operationId")]
-    [InlineData("idempotencyKey")]
-    [InlineData("entityType")]
-    [InlineData("entityId")]
-    [InlineData("action")]
-    public async Task FunctionHandler_NullOperationMember_IsAnOperationError(string member)
+    [InlineData("operationId", "absent")]
+    [InlineData("operationId", "null")]
+    [InlineData("operationId", "empty")]
+    [InlineData("idempotencyKey", "absent")]
+    [InlineData("idempotencyKey", "null")]
+    [InlineData("idempotencyKey", "empty")]
+    [InlineData("entityType", "absent")]
+    [InlineData("entityType", "null")]
+    [InlineData("entityType", "empty")]
+    [InlineData("entityId", "absent")]
+    [InlineData("entityId", "null")]
+    [InlineData("entityId", "empty")]
+    [InlineData("action", "absent")]
+    [InlineData("action", "null")]
+    [InlineData("action", "empty")]
+    public async Task FunctionHandler_MissingOperationMember_IsThatOperationsSyncValidation_BatchGoesOn(
+        string member, string mode)
     {
-        var op = System.Text.RegularExpressions.Regex.Replace(
-            AuditOp, $"\"{member}\":\"[^\"]*\"", $"\"{member}\":null");
-        var body = "{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":[" + op + "]}";
+        // FUP-148: an absent member refused the whole batch ("Invalid JSON in request body."), a null one
+        // was "Missing required fields: ..." with no code. Now each is the operation's own SYNC_VALIDATION
+        // (permanent on every client) naming the member, and the other operation still gets its result.
+        var pattern = $"\"{member}\":\"[^\"]*\"";
+        var bad = mode switch
+        {
+            "absent" => System.Text.RegularExpressions.Regex.Replace(AuditOp, pattern + ",", ""),
+            "null" => System.Text.RegularExpressions.Regex.Replace(AuditOp, pattern, $"\"{member}\":null"),
+            _ => System.Text.RegularExpressions.Regex.Replace(AuditOp, pattern, $"\"{member}\":\"\""),
+        };
+        Assert.NotEqual(AuditOp, bad);
+        var good = AuditOp.Replace("op-1", "op-2").Replace("crop-1", "crop-2");
+        var body = "{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":[" + bad + "," + good + "]}";
 
         var response = await _function.FunctionHandler(RawSyncRequest(body), _context);
 
         Assert.Equal(200, response.StatusCode);
-        Assert.Contains("\"status\":\"error\"", response.Body);
-        Assert.Contains("Missing required fields", response.Body);
+        using var json = JsonDocument.Parse(response.Body);
+        var results = json.RootElement.GetProperty("results").EnumerateArray().ToList();
+        Assert.Equal(2, results.Count);
+        var refused = results[0];
+        Assert.Equal(member == "operationId" ? "unknown" : "op-1", refused.GetProperty("operationId").GetString());
+        Assert.Equal("error", refused.GetProperty("status").GetString());
+        Assert.Equal($"SYNC_VALIDATION: {member} is required.", refused.GetProperty("message").GetString());
+        Assert.Equal("op-2", results[1].GetProperty("operationId").GetString());
+        Assert.NotEqual($"SYNC_VALIDATION: {member} is required.",
+            results[1].TryGetProperty("message", out var other) ? other.GetString() : null);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_OperationWithOnlyAnOperationId_NamesTheFirstMissingMember()
+    {
+        var body = "{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":[{\"operationId\":\"op-1\"}]}";
+
+        var response = await _function.FunctionHandler(RawSyncRequest(body), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"message\":\"SYNC_VALIDATION: idempotencyKey is required.\"", response.Body);
+        await _mockSyncMeta.DidNotReceive().IdempotencyKeyExistsAsync(Arg.Any<string>());
     }
 
     [Fact]

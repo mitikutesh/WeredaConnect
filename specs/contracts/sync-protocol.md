@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.61.0
+1.64.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -51,6 +51,29 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
 - `clientVersion`: the version the client had when making the change. The server accepts it here (op level, preferred) or as `data.version` (what the shipped mobile and web clients send); when both are present the op-level value wins. `order` updates REQUIRE one of them: a versionless order update is rejected with `ORDER_VALIDATION: version is required for order updates ...` and nothing is written. For other entity types a missing version is treated as 0, which yields a `conflict` against any stored entity (1.3.0, SIM-08).
 - `timestamp` — ISO 8601, UTC; used for display ordering, NOT for conflict resolution
 - `data` — entity-specific payload; schema defined per `entityType`
+
+**Missing members (1.64.0, FUP-148).** No member of the body is marked required for the reader; the
+server checks them itself, right after the body is read (before the caller, the rate limit or any
+operation):
+
+- A missing, `null` or blank `syncBatchId` answers `400 SYNC_VALIDATION` `"syncBatchId is required."`
+  with `field: syncBatchId`; a `clientId` the same with `"clientId is required."` and
+  `field: clientId`; a missing, `null` or empty `operations` answers `"Request must contain at least
+  one operation."` (text unchanged) with `field: operations`. In that order; nothing in the batch is
+  applied. A body that is not JSON keeps `"Invalid JSON in request body."` and a JSON `null` body keeps
+  `"Request must contain at least one operation."`, both without a `field`.
+- An operation with a missing, `null` or empty `operationId`, `idempotencyKey`, `entityType`,
+  `entityId` or `action` is refused on its own: an `error` result with
+  `SYNC_VALIDATION: <member> is required.`, naming the first one missing in that order
+  (`operationId` is `unknown` in the result when it is the one missing). Nothing is read or stored for
+  it, and the other operations of the batch are processed. Every client treats `SYNC_VALIDATION` as
+  permanent (Retry Logic).
+- Before 1.64.0 an absent member at either level failed deserialization and the whole batch answered
+  `400 SYNC_VALIDATION` `"Invalid JSON in request body."` without a `field`; a `null` `syncBatchId` or
+  `clientId` was accepted; a `null` or empty operation member answered
+  `Missing required fields: operationId, idempotencyKey, entityType, entityId, action.` with no code,
+  which the mobile app retried. Every client sends all of them (mobile `clientId` `mobile-<ms>`, web
+  `web`), so no app change.
 
 **Idempotency Key Format**:
 ```
@@ -1662,6 +1685,7 @@ The buyer's confirm:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.64.0 | 2026-11-13 | Missing members (FUP-148, Request Format "Missing members"; 1.62.0 and 1.63.0 belong to changes in flight), as `escrow-protocol.md` 2.3.0 did for initiate and dispute. A missing, `null` or blank `syncBatchId` or `clientId` answers `400 SYNC_VALIDATION` with the member's text and `field`; a missing, `null` or empty `operations` keeps `"Request must contain at least one operation."` and gains `field: operations`. An operation missing an `operationId`, `idempotencyKey`, `entityType`, `entityId` or `action` (absent, `null` or empty) is its own `error` result `SYNC_VALIDATION: <member> is required.` and the rest of the batch goes on. Before, an absent member refused the whole batch as `"Invalid JSON in request body."` with no `field`, a `null` `syncBatchId` or `clientId` was accepted, and a `null` operation member answered `Missing required fields: ...` with no code (retried by mobile). No client sends such a body; no app change |
 | 1.61.0 | 2026-11-13 | Handoff photos (FUP-140, `delivery-verification-api.md` 2.14.0; 1.60.0 is FUP-373): the server holds a `pickup` or `dropoff` `delivery_photo` back (`deferred`, `DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet.`) until its handoff is on the delivery, and keeps a copy of each attached photo for the reads (server only); the buyer's drop-off photo on a dispute the order cron opened that no admin decided is kept as late evidence, and a disputed delivery without the handoff refuses the photo for good; mobile rejects the photo waiting behind a pickup or delivery confirm answered `conflict` whose `serverData` does not show that handoff (the drop-off photo stays when the row is an undecided dispute), and no longer counts S3's `400 RequestTimeout` or a `408` on the photo `PUT` toward the 3 refusals. Web unchanged (no queue; it attaches after a successful handoff). See "Handoff photos" |
 | 1.60.0 | 2026-11-13 | Late drop-off evidence (FUP-373, `delivery-verification-api.md` 2.13.0), behind `dropoffClassification`: a `handoff_check_in` `arrived_dropoff` received after T8 or after the T8 judgement is kept late and answered `CHECKIN_TOO_LATE` without the arrival photo check (before, a check-in queued offline before T8 whose photo the T8 dispute refused got `CHECKIN_PHOTO_REQUIRED` and kept nothing); a late one more than 5 km away is kept as a late attempt; a decided dispute closes it (`CHECKIN_NOT_OPEN`); `delivery_photo` `{deliveryId}#arrival` is taken on the system's undecided T8 dispute (`delivery_overdue`, `dropoff_out_of_range`) as evidence only, marked late (`arrivalPhotoLateAt` on the delivery rows). Clients, no wire change: the drop-off kind not taken (`CHECKIN_VALIDATION`, the drop-off flag rolled back) reads as not open; mobile forgets the kept arrival photo path when its `delivery_photo` is refused for good and deletes a new arrival photo taken while one already waits; the too-far and out-of-range texts name the check-in and the order's drop-off point, not the trucker. See "The drop-off check-in". |
 | 1.59.1 | 2026-11-13 | The drop-off check-in, the clients (FUP-336, no wire change): the trucker's "Arrived at drop-off" on the order detail takes the arrival photo, then a GPS fix; mobile queues `delivery_photo` `{deliveryId}#arrival` ahead of `handoff_check_in` `arrived_dropoff` and the sync preflight holds the check-in while the photo waits (the check-in carries the never-sent `_deliveryId`), web attaches the uploaded key then sends the check-in; every `CHECKIN_*` refusal takes the mark back with its drop-off text (`CHECKIN_PHOTO_REQUIRED` also forgets the phone's given-up photo path; a `CHECKIN_TOO_FAR` attempt kept for review says so); the parties read the check-in, T8, the buyer's T9 (receipt plus 48 hours) and every outcome's label on the order and delivery detail; the pulls, the web repositories and the conflict echo read the new fields. See "The drop-off check-in", Clients. |
@@ -1728,4 +1752,4 @@ The buyer's confirm:
 ---
 
 **Last Updated**: 2026-11-13
-**Version**: 1.61.0
+**Version**: 1.64.0
