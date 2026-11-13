@@ -6023,6 +6023,9 @@ before, only no longer failed while a payment may exist. Farmer, trucker and buy
   order; record the `order_status` values, the answer's signature and the refusal code for an unknown
   `merch_order_id`, then verify the answer's `sign` and read that code as "not paid").
 - `queryOrder` in the local simulator (`tools/telebirr-sandbox`): there it answers 404, an unresolved query.
+  (Done by FUP-430, local tooling only, no contract change: the simulator answers from its own order state,
+  `WAIT_PAY`, `PAY_SUCCESS`, `PAY_FAILED` or `ORDER_CLOSED`, and refuses an order it never created with a
+  placeholder code the server reads as unknown; see `tools/telebirr-sandbox/README.md`.)
 - A paid checkout on an order that already failed before 2.23.0, or whose payment attempt ended (a payment on an
   earlier attempt is classified `stale_checkout` by the inbox, alarmed, as before).
 
