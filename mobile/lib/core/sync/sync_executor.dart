@@ -324,8 +324,9 @@ class SyncBatchResult {
 ///   `DELIVERY_DISPUTE_REFUSED`, `DELIVERY_DISPUTE_EXPIRED`,
 ///   `MESSAGE_CONTACT_LOCKED`, `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`,
 ///   `TRIP_CAPACITY_EXCEEDED`, `CROP_HAS_ACTIVE_ORDERS`,
-///   `DELIVERY_NONCE_MISSING`, any `*_UNAUTHORIZED` but a role gate, a
-///   rating of another user's order, a changed immutable field, or
+///   `DELIVERY_NONCE_MISSING`, `DELIVERY_GPS_PROXIMITY` (FUP-439), any
+///   `*_UNAUTHORIZED` but a role gate, a rating of another user's order, a
+///   changed immutable field, or
 ///   `APP_UPDATE_REQUIRED` on an order → reject (never retried) and explain through a
 ///   [SyncOperationRejected] event; a refused order change, delivery cancel,
 ///   dispute or handoff, and a crop listing or trip change refused by one of
@@ -1296,7 +1297,9 @@ class SyncExecutor {
   /// handoff photo (1.39.0, FRD-12), a handoff without the farmer's QR nonce
   /// (`DELIVERY_NONCE_MISSING`, FUP-138), a change to a delivery already
   /// cancelled or a trip already over (`DELIVERY_ALREADY_CANCELLED`,
-  /// `TRIP_TERMINAL_STATE`, `TRIP_ALREADY_CANCELLED`, 1.45.0, FUP-128), and
+  /// `TRIP_TERMINAL_STATE`, `TRIP_ALREADY_CANCELLED`, 1.45.0, FUP-128), a
+  /// pickup or delivery confirm refused for its GPS (`DELIVERY_GPS_PROXIMITY`,
+  /// 1.62.0, FUP-439; reverted like a refused typed code), and
   /// the FRD-08 refusals no retry
   /// can pass: every `*_UNAUTHORIZED` code but a role gate, a rating of
   /// another user's order and a changed immutable field (1.27.0, FUP-110).
@@ -1430,6 +1433,9 @@ class SyncExecutor {
   /// when the whole batch was refused):
   /// - a refused `create` rejects the operations queued behind it for that
   ///   entity, which could only loop on a transient "not found";
+  /// - a refused handoff rejects its photo waiting behind it (FRD-12), and a
+  ///   pickup refused by a code that undoes it the trucker's drop-off code
+  ///   registration (FUP-439);
   /// - a refused order change (or any `ORDER_*` refusal), a delivery cancel
   ///   refused after pickup, a refused delivery dispute or handoff, a message
   ///   refused because its thread's contact is not open, and a crop listing
@@ -1450,7 +1456,7 @@ class SyncExecutor {
   Future<void> _settleRejections(
     List<(SyncOperation, String?)> rejected,
   ) async {
-    for (final (operation, _) in rejected) {
+    for (final (operation, message) in rejected) {
       if (operation.action == 'create') {
         await _syncQueue.rejectOpenOperationsFor(
           operation.entityType,
@@ -1470,6 +1476,23 @@ class SyncExecutor {
             deliveryPhotoEntityType,
             deliveryPhotoEntityId(operation.entityId, type),
           );
+        }
+        // FUP-439: a pickup refused by a code that undoes it also rejects the
+        // trucker's drop-off code registration queued behind it (ESC-35).
+        // The server holds that back while the delivery is pending, so it
+        // could only wait, and while it waited the revert below left the
+        // phone's pickup in place (another upload for the delivery was on
+        // its way). The revert then flags it with the pickup, so it leaves
+        // the "Sync failed" count; a refusal that undoes nothing leaves it.
+        if (_isPickup(operation) && _revertsLocalChange(operation, message)) {
+          for (final waiting in await _syncQueue.waitingOperationsFor(
+            'delivery',
+            operation.entityId,
+          )) {
+            if (_registersDropoffCode(waiting)) {
+              await _syncQueue.markAsRejected(waiting.operationId);
+            }
+          }
         }
       }
     }
@@ -1610,6 +1633,17 @@ class SyncExecutor {
     try {
       final data = jsonDecode(operation.data);
       return data is Map && data['status'] == 'pickedUp';
+    } on FormatException {
+      return false;
+    }
+  }
+
+  /// Whether a delivery operation registers the trucker's drop-off code
+  /// (ESC-35: an update carrying `dropoffQrNonce`).
+  static bool _registersDropoffCode(SyncOperation operation) {
+    try {
+      final data = jsonDecode(operation.data);
+      return data is Map && data['dropoffQrNonce'] is String;
     } on FormatException {
       return false;
     }

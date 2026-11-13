@@ -318,19 +318,75 @@ bool isTripOverMessage(String? message) =>
     (message.startsWith(tripTerminalStateCode) ||
         message.startsWith(tripAlreadyCancelledCode));
 
+/// Sync rejection prefix of a pickup or delivery confirm refused for its GPS
+/// (F12-SEC-05): `DELIVERY_GPS_PROXIMITY: <reason>: <text>` (FUP-439,
+/// sync-protocol.md 1.62.0). Nothing was written. Permanent: the same payload
+/// always gets the same answer, so the client undoes its local pickup or
+/// delivery instead of retrying. The reason ([DeliveryGpsRefusal]), never the
+/// text, picks what the user is told.
+const String deliveryGpsProximityCode = 'DELIVERY_GPS_PROXIMITY';
+
+/// Whether a /sync per-operation error message refuses a handoff for its GPS
+/// (`DELIVERY_GPS_PROXIMITY: ...`), whatever the reason.
+bool isDeliveryGpsProximityMessage(String? message) =>
+    message != null && message.startsWith(deliveryGpsProximityCode);
+
+/// Why a handoff was refused for its GPS: the reason token right after
+/// [deliveryGpsProximityCode].
+enum DeliveryGpsRefusal {
+  /// `pickup_far`: the trucker's pickup is more than 5 km from the listing.
+  pickupFar,
+
+  /// `self_pickup_no_fix`: a self-pickup confirm sent no location.
+  selfPickupNoFix,
+
+  /// `self_pickup_no_farm_point`: the listing has no point to check a
+  /// self-pickup against.
+  selfPickupNoFarmPoint,
+
+  /// `self_pickup_far`: a self-pickup confirm more than 5 km from the farm.
+  selfPickupFar,
+
+  /// `dropoff_far`: a delivery confirm more than 5 km from both drop-off
+  /// points.
+  dropoffFar,
+
+  /// No reason this build knows: a server before FUP-439 (its text comes
+  /// right after the code) or a reason added later.
+  unknown;
+
+  /// The reason of a [deliveryGpsProximityCode] refusal [message].
+  static DeliveryGpsRefusal fromMessage(String message) {
+    if (!isDeliveryGpsProximityMessage(message)) return unknown;
+    final rest = message.substring(deliveryGpsProximityCode.length);
+    final token = rest.startsWith(':')
+        ? rest.substring(1).trimLeft().split(':').first.trim()
+        : '';
+    return switch (token) {
+      'pickup_far' => pickupFar,
+      'self_pickup_no_fix' => selfPickupNoFix,
+      'self_pickup_no_farm_point' => selfPickupNoFarmPoint,
+      'self_pickup_far' => selfPickupFar,
+      'dropoff_far' => dropoffFar,
+      _ => unknown,
+    };
+  }
+}
+
 /// Whether a /sync per-operation error message refuses a delivery change for
 /// good and the client must put the delivery back from the server: a cancel
 /// after pickup (ESC-08), a dispute that was refused or too late (ESC-07), a
 /// typed handoff code that was refused (T-1), a handoff without the
-/// farmer's QR nonce (FUP-138), or a change to a delivery that is already
-/// cancelled (FUP-128).
+/// farmer's QR nonce (FUP-138), a change to a delivery that is already
+/// cancelled (FUP-128), or a handoff refused for its GPS (FUP-439).
 bool isRevertableDeliveryRejectionMessage(String? message) =>
     isDeliveryAlreadyCancelledMessage(message) ||
     isDeliveryCancelRefusalMessage(message) ||
     isDeliveryDisputeRefusalMessage(message) ||
     isDeliveryDisputeExpiredMessage(message) ||
     isDeliveryCodeRejectionMessage(message) ||
-    isDeliveryNonceMissingMessage(message);
+    isDeliveryNonceMissingMessage(message) ||
+    isDeliveryGpsProximityMessage(message);
 
 /// Sync rejection prefix when a farmer's or trucker's response to an order
 /// comes after its deadline (three-party commitments, spec section 8).
