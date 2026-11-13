@@ -914,6 +914,24 @@ public class NotificationRulesTests
     }
 
     [Fact]
+    public void TheNewlyOverdueMarkers_TellNobody()
+    {
+        // FUP-06 and FUP-436: escrow-cron's markers behind the newly overdue alarm lines are bookkeeping; a write
+        // that only sets one of them derives no event for any party.
+        var blocked = Escrow("escrowed",
+            (SettlementBlockFields.Reason, "release:payout:phone_unverified"), (SettlementBlockFields.ReasonAt, "2026-10-25T10:00:00Z"));
+        EscrowChange(blocked, With(blocked, (SettlementBlockFields.OverdueLoggedFor, "2026-10-25T10:00:00Z"))).Should().BeEmpty();
+
+        var owed = Escrow("released", (TruckerPayoutFields.Pending, true), (TruckerPayoutFields.BlockReason, "phone_unverified"),
+            (TruckerPayoutFields.PendingSince, "2026-10-25T10:00:00Z"));
+        EscrowChange(owed, With(owed, (TruckerPayoutFields.OverdueLoggedFor, "2026-10-25T10:00:00Z"))).Should().BeEmpty();
+
+        var queued = Escrow("escrowed", (ManualPayoutFields.Marker, "open"), (ManualPayoutFields.Op, "release"),
+            (ManualPayoutFields.QueuedAt, "2026-10-25T10:00:00Z"), ("manualFarmerStatus", "pending"));
+        EscrowChange(queued, With(queued, (ManualPayoutFields.OverdueLoggedFor, "2026-10-25T10:00:00Z"))).Should().BeEmpty();
+    }
+
+    [Fact]
     public void ManualPayoutQueueOpened_TellsEachPayeeWhoseLegWaits()
     {
         var events = EscrowChange(Escrow("escrowed"), Escrow("escrowed",

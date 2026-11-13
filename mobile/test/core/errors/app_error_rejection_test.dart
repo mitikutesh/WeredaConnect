@@ -250,6 +250,122 @@ void main() {
       }
     });
 
+    // FUP-439: a handoff refused for its GPS undid the local pickup or
+    // delivery; the reason token, never the text, picks what is said.
+    group('a handoff refused for its GPS', () {
+      const gpsRefusals = [
+        (
+          'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is 11.1km from '
+              'listing location (max 5km).',
+          DeliveryGpsRefusal.pickupFar,
+          AppErrorCode.deliveryGpsPickupFar,
+        ),
+        (
+          'DELIVERY_GPS_PROXIMITY: self_pickup_no_fix: Location is required '
+              'to confirm self-pickup at the farm.',
+          DeliveryGpsRefusal.selfPickupNoFix,
+          AppErrorCode.deliveryGpsSelfPickupNoFix,
+        ),
+        (
+          'DELIVERY_GPS_PROXIMITY: self_pickup_no_farm_point: This listing '
+              'has no registered location, so self-pickup cannot be verified.',
+          DeliveryGpsRefusal.selfPickupNoFarmPoint,
+          AppErrorCode.deliveryGpsSelfPickupNoFarmPoint,
+        ),
+        (
+          'DELIVERY_GPS_PROXIMITY: self_pickup_far: You are 11.1km from the '
+              'farm location (max 5km).',
+          DeliveryGpsRefusal.selfPickupFar,
+          AppErrorCode.deliveryGpsSelfPickupFar,
+        ),
+        (
+          'DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is 16.2km from '
+              'the drop-off point (max 5km).',
+          DeliveryGpsRefusal.dropoffFar,
+          AppErrorCode.deliveryGpsDropoffFar,
+        ),
+      ];
+
+      test('each reason has its own code, mobile and web', () {
+        for (final (message, reason, code) in gpsRefusals) {
+          expect(DeliveryGpsRefusal.fromMessage(message), reason);
+          expect(isDeliveryGpsProximityMessage(message), isTrue);
+          // Permanent, and the local delivery goes back to the server's.
+          expect(isRevertableDeliveryRejectionMessage(message), isTrue);
+          expect(
+            syncRejectionErrorCode(
+              entityType: 'delivery',
+              action: 'update',
+              message: message,
+            ),
+            code,
+            reason: message,
+          );
+          expect(mapErrorToCode(SyncRejectedException(message)), code);
+        }
+      });
+
+      test('the reason is read, not the text', () {
+        // The same wording under another reason reads as that reason.
+        expect(
+          DeliveryGpsRefusal.fromMessage(
+            'DELIVERY_GPS_PROXIMITY: dropoff_far: You are 11.1km from the '
+            'farm location (max 5km).',
+          ),
+          DeliveryGpsRefusal.dropoffFar,
+        );
+      });
+
+      test('a server without the reason, or a later reason, is not saved', () {
+        for (final message in [
+          'DELIVERY_GPS_PROXIMITY: Pickup GPS is 11.1km from listing location '
+              '(max 5km).',
+          'DELIVERY_GPS_PROXIMITY: Location is required to confirm '
+              'self-pickup at the farm.',
+          'DELIVERY_GPS_PROXIMITY: farm_moved: A later reason.',
+          'DELIVERY_GPS_PROXIMITY',
+        ]) {
+          expect(
+            DeliveryGpsRefusal.fromMessage(message),
+            DeliveryGpsRefusal.unknown,
+            reason: message,
+          );
+          // Still permanent and reverted.
+          expect(isRevertableDeliveryRejectionMessage(message), isTrue);
+          expect(
+            syncRejectionErrorCode(
+              entityType: 'delivery',
+              action: 'update',
+              message: message,
+            ),
+            AppErrorCode.changeNotSaved,
+            reason: message,
+          );
+        }
+        expect(isDeliveryGpsProximityMessage(null), isFalse);
+        expect(
+          isDeliveryGpsProximityMessage('DELIVERY_VALIDATION: gpsPickup x'),
+          isFalse,
+        );
+      });
+
+      test('each reason has its own text in en, am and om', () async {
+        for (final locale in ['en', 'am', 'om']) {
+          final l10n = await AppLocalizations.delegate.load(Locale(locale));
+          final texts = {
+            for (final (_, _, code) in gpsRefusals)
+              localizeErrorCode(code, l10n),
+          };
+          expect(texts, hasLength(gpsRefusals.length), reason: locale);
+          for (final text in texts) {
+            expect(text.trim(), isNotEmpty, reason: locale);
+            expect(text, isNot(l10n.errorChangeNotSaved), reason: locale);
+            expect(text, isNot(l10n.errorOccurred), reason: locale);
+          }
+        }
+      });
+    });
+
     test('any other refused change was not saved', () {
       for (final (entityType, message) in [
         ('crop_listing', 'FRAUD_VELOCITY_EXCEEDED: slow down'),

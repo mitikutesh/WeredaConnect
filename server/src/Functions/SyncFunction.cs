@@ -5663,7 +5663,8 @@ public partial class SyncFunction
                         };
                     }
 
-                    // F12-SEC-05: GPS proximity validation for pickup/delivery
+                    // F12-SEC-05: GPS proximity validation for pickup/delivery. FUP-439: each refusal
+                    // carries its own reason token, which the clients key on (GpsProximityRefusal).
                     var resolvedNewStatus = operation.Data.TryGetValue("status", out var statusForGps)
                         ? statusForGps?.ToString() : null;
 
@@ -5708,7 +5709,8 @@ public partial class SyncFunction
                                     {
                                         OperationId = operation.OperationId,
                                         Status = "error",
-                                        Message = $"DELIVERY_GPS_PROXIMITY: Pickup GPS is {distance:F1}km from listing location (max 5km)."
+                                        Message = GpsProximityRefusal.Message(GpsProximityRefusal.ReasonPickupFar,
+                                            $"Pickup GPS is {distance.ToString("F1", CultureInfo.InvariantCulture)}km from listing location (max 5km).")
                                     };
                                 }
                             }
@@ -5730,7 +5732,8 @@ public partial class SyncFunction
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = "DELIVERY_GPS_PROXIMITY: Location is required to confirm self-pickup at the farm."
+                            Message = GpsProximityRefusal.Message(GpsProximityRefusal.ReasonSelfPickupNoFix,
+                                "Location is required to confirm self-pickup at the farm.")
                         };
                     }
 
@@ -5776,7 +5779,8 @@ public partial class SyncFunction
                                 {
                                     OperationId = operation.OperationId,
                                     Status = "error",
-                                    Message = "DELIVERY_GPS_PROXIMITY: This listing has no registered location, so self-pickup cannot be verified."
+                                    Message = GpsProximityRefusal.Message(GpsProximityRefusal.ReasonSelfPickupNoFarmPoint,
+                                        "This listing has no registered location, so self-pickup cannot be verified.")
                                 };
                             }
 
@@ -5788,7 +5792,8 @@ public partial class SyncFunction
                                 {
                                     OperationId = operation.OperationId,
                                     Status = "error",
-                                    Message = $"DELIVERY_GPS_PROXIMITY: You are {spDistance:F1}km from the farm location (max 5km)."
+                                    Message = GpsProximityRefusal.Message(GpsProximityRefusal.ReasonSelfPickupFar,
+                                        $"You are {spDistance.ToString("F1", CultureInfo.InvariantCulture)}km from the farm location (max 5km).")
                                 };
                             }
                         }
@@ -5806,7 +5811,8 @@ public partial class SyncFunction
                                 {
                                     OperationId = operation.OperationId,
                                     Status = "error",
-                                    Message = $"DELIVERY_GPS_PROXIMITY: Dropoff GPS is {km.ToString("F1", CultureInfo.InvariantCulture)}km from the drop-off point (max 5km)."
+                                    Message = GpsProximityRefusal.Message(GpsProximityRefusal.ReasonDropoffFar,
+                                        $"Dropoff GPS is {km.ToString("F1", CultureInfo.InvariantCulture)}km from the drop-off point (max 5km).")
                                 };
                             }
                         }

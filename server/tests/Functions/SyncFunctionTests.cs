@@ -6775,7 +6775,8 @@ public partial class SyncFunctionTests
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Contains("DELIVERY_GPS_PROXIMITY", response.Body);
+        // FUP-439: the reason the clients key on.
+        Assert.Contains("DELIVERY_GPS_PROXIMITY: self_pickup_no_fix: ", response.Body);
     }
 
     [Fact]

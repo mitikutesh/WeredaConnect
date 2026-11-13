@@ -60,6 +60,9 @@ interface DynamoTableDef {
  * FUP-06 (not in the count above either): 1 alarm, one metric ($0.10), and 1 log filter metric without a
  * default (ManualPayoutsNewlyOverdue), billed only in the hours a line is written. The email subscriptions of
  * envConfig.alarmEmails stay inside the SNS email free tier at alarm volumes.
+ * FUP-436 (not in the count above either): 3 alarms, one metric each ($0.30), and 3 log filter metrics without a
+ * default (TruckerPayoutsNewlyOverdue, ReleasesBlockedNewlyOverdue, LedgerRowsNewlyOverdue), billed only in the
+ * hours a line is written.
  *
  * References Lambda functions and DynamoDB tables by name (no cross-stack refs needed).
  */
@@ -445,6 +448,21 @@ export class MonitoringStack extends cdk.Stack {
       metricValue: '1',
       defaultValue: 0,
     });
+    // FUP-436: the edge twins of three level-triggered lines, each logged once per item on the first run that
+    // reports it (a conditional marker on the escrow row or the ledger row keyed on the item's since-time). Their
+    // own terms, so no level filter counts them and no edge filter counts a level line. No default value, as
+    // FUP-06's: an hour without a line publishes nothing, and the alarms read missing data as not breaching.
+    const newlyOverdueFilter = (id: string, token: string, metricName: string) =>
+      new logs.MetricFilter(this, id, {
+        logGroup: escrowCronLogGroup,
+        filterPattern: logs.FilterPattern.literal(`"${token}"`),
+        metricNamespace,
+        metricName,
+        metricValue: '1',
+      });
+    newlyOverdueFilter('TruckerPayoutsNewlyOverdueFilter', 'TRUCKER_PAYOUT_NEWLY_OVERDUE', 'TruckerPayoutsNewlyOverdue');
+    newlyOverdueFilter('ReleasesBlockedNewlyOverdueFilter', 'RELEASE_BLOCKED_NEWLY_OVERDUE', 'ReleasesBlockedNewlyOverdue');
+    newlyOverdueFilter('LedgerRowsNewlyOverdueFilter', 'LEDGER_ROW_NEWLY_OVERDUE', 'LedgerRowsNewlyOverdue');
     // FUP-41: the hourly sweep's release that the payout identity gate blocks logs one line per escrow
     // per run once its stored reason is 24 hours old (escrow-protocol 2.19.0). escrow-cron only: it is
     // the only Lambda that releases as the system, and an admin's own release is not counted.
@@ -1198,6 +1216,37 @@ export class MonitoringStack extends cdk.Stack {
     manualPayoutsNewlyOverdueAlarm.addAlarmAction(snsAction);
     manualPayoutsNewlyOverdueAlarm.addOkAction(snsAction);
 
+    // FUP-436: the same edge-triggered shape as manual-payouts-newly-overdue for the other level-triggered overdue
+    // lines that name money a party is owed: two 5 minute periods, one datapoint, so each run that logs a newly
+    // overdue line notifies within minutes, also while the level alarm is in ALARM, and clears 5 to 15 minutes later.
+    const newlyOverdueAlarm = (
+      id: string,
+      nameSuffix: string,
+      metricName: string,
+      label: string,
+      description: string,
+    ): cloudwatch.Alarm => {
+      const alarm = new cloudwatch.Alarm(this, id, {
+        alarmName: `${prefix}-${nameSuffix}`,
+        alarmDescription: description,
+        metric: new cloudwatch.Metric({
+          namespace: metricNamespace,
+          metricName,
+          statistic: 'Sum',
+          period: cdk.Duration.minutes(5),
+          label,
+        }),
+        threshold: 0,
+        evaluationPeriods: 2,
+        datapointsToAlarm: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      alarm.addAlarmAction(snsAction);
+      alarm.addOkAction(snsAction);
+      return alarm;
+    };
+
     // ESC-04: a trucker leg the release could not pay is retried hourly, outside the manual
     // payout queue until the gateway cannot pay it; this alarm makes sure none waits silently.
     const truckerPayoutsOverdueAlarm = moneyLogAlarm(
@@ -1214,7 +1263,26 @@ export class MonitoringStack extends cdk.Stack {
         'no payable trucker. The hourly run copies the truckerId from the order when the delivery ' +
         'agrees; if the order has none the leg has no payee until ESC-20. Escalate, and never ' +
         'edit the escrow row by hand. reason=gateway_refused or queue_failed: see ' +
-        'escrow-settlement-failures. A leg in Manual Payouts is reported by manual-payouts-overdue instead.',
+        'escrow-settlement-failures. A leg in Manual Payouts is reported by manual-payouts-overdue instead. ' +
+        'While in ALARM a newly overdue leg does not notify here: trucker-payouts-newly-overdue does (FUP-436).',
+    );
+
+    // FUP-436: the edge twin. TRUCKER_PAYOUT_NEWLY_OVERDUE is logged once per owed leg (the 1.x retry and the ledger
+    // transport retry), so a leg that becomes overdue while the alarm above is in ALARM still notifies.
+    const truckerPayoutsNewlyOverdueAlarm = newlyOverdueAlarm(
+      'TruckerPayoutsNewlyOverdue',
+      'trucker-payouts-newly-overdue',
+      'TruckerPayoutsNewlyOverdue',
+      'Trucker Payouts Newly Overdue',
+      'A trucker leg has just passed 24 hours owed (TRUCKER_PAYOUT_NEWLY_OVERDUE in the escrow-cron log group, ' +
+        'with escrowId, reason and ageHours, the fields of TRUCKER_PAYOUT_OVERDUE). Logged once per leg by the ' +
+        'first hourly run that reports it overdue (a 1.x leg keyed on its pending time, a ledger transport leg on ' +
+        'its release time), so it fires even while trucker-payouts-overdue is already in ALARM for older legs. It ' +
+        'clears by itself 5 to 15 minutes later; that OK says nothing about the payout. The leg keeps its ' +
+        'TRUCKER_PAYOUT_OVERDUE line every run until it is paid. reason=phone_unverified or fayda_required: ask the ' +
+        'trucker to verify; any other reason: see trucker-payouts-overdue (runbook in .ai/deployment.md). Never ' +
+        'pay the trucker by hand. A line repeated for the same leg means its marker could not be written ' +
+        '(throttling or IAM on the escrows table); fix that.',
     );
 
     // FUP-41: a release the payout identity gate blocks was audited once (release_blocked_kyc) and then
@@ -1234,7 +1302,25 @@ export class MonitoringStack extends cdk.Stack {
         'that party to verify the phone or Fayda in the app; the next hourly run pays. reason=profile_missing: ' +
         'the payee account is gone; escalate. The escrow page in the admin app shows the reason (Sweep block). ' +
         'A suspended or CRITICAL payee is reported by risk-settlement-skipped instead. While in ALARM a newly ' +
-        'overdue release is not announced again: read the lines. Never edit the escrow row by hand.',
+        'overdue release does not notify here: releases-blocked-newly-overdue does (FUP-436). Never edit the ' +
+        'escrow row by hand.',
+    );
+
+    // FUP-436: the edge twin, once per stored block (keyed on settlementBlockReasonAt).
+    const releasesBlockedNewlyOverdueAlarm = newlyOverdueAlarm(
+      'ReleasesBlockedNewlyOverdue',
+      'releases-blocked-newly-overdue',
+      'ReleasesBlockedNewlyOverdue',
+      'Releases Blocked Newly Overdue',
+      'A release the payout identity gate blocks has just passed 24 hours (RELEASE_BLOCKED_NEWLY_OVERDUE in the ' +
+        'escrow-cron log group, with escrowId, leg, reason and ageHours, the fields of RELEASE_BLOCKED_OVERDUE). ' +
+        'Logged once per stored block (keyed on the time the gate first gave that reason) by the first hourly run ' +
+        'that reports it, so it fires even while releases-blocked-overdue is already in ALARM for other escrows. ' +
+        'It clears by itself 5 to 15 minutes later; that OK says nothing about the payee. No money moved. Open ' +
+        '/escrows/<escrowId> in the admin app (Sweep block); reason=phone_unverified or fayda_required: ask that ' +
+        'party to verify; reason=profile_missing: escalate (runbook in .ai/deployment.md). Never release by hand. ' +
+        'A line repeated for the same block means its marker could not be written (throttling or IAM on the ' +
+        'escrows table); fix that.',
     );
 
     // ESC-20: ledger rows that stay open. A row the gateway refused is retried (3 times, then the manual
@@ -1252,7 +1338,24 @@ export class MonitoringStack extends cdk.Stack {
         'status=sent: the gateway outcome is unknown and its status check keeps failing; do NOT pay by ' +
         'hand, search the merchant portal for the row gatewayRef first. status=failed: the gateway keeps ' +
         'refusing; after 3 refusals the row moves to Manual Payouts. Rows in Manual Payouts are reported ' +
-        'by manual-payouts-overdue (ref=<ledger ref>). Never edit a ledger row or the escrow by hand.',
+        'by manual-payouts-overdue (ref=<ledger ref>). Never edit a ledger row or the escrow by hand. While in ' +
+        'ALARM a newly overdue row does not notify here: ledger-rows-newly-overdue does (FUP-436).',
+    );
+
+    // FUP-436: the edge twin, once per open row (keyed on its createdAt, where its overdue age counts from).
+    const ledgerRowsNewlyOverdueAlarm = newlyOverdueAlarm(
+      'LedgerRowsNewlyOverdue',
+      'ledger-rows-newly-overdue',
+      'LedgerRowsNewlyOverdue',
+      'Ledger Rows Newly Overdue',
+      'An escrow ledger row has just passed 24 hours open (LEDGER_ROW_NEWLY_OVERDUE in the escrow-cron log group, ' +
+        'with escrowId, ref (# written as .), status and ageHours, the fields of LEDGER_ROW_OVERDUE). Logged once ' +
+        'per row (keyed on its createdAt, so a move between pending, sent and failed is not announced again) by ' +
+        'the first 15 minute ledger sweep that reports it, so it fires even while ledger-rows-overdue is already ' +
+        'in ALARM for older rows. It clears by itself 5 to 15 minutes later; that OK says nothing about the row. ' +
+        'status=sent: do NOT pay by hand, search the merchant portal for the row gatewayRef first; status=pending ' +
+        'or failed: see ledger-rows-overdue (runbook in .ai/deployment.md). A line repeated for the same row means ' +
+        'its marker could not be written (throttling or IAM on the escrow-ledger table); fix that.',
     );
 
     const ledgerInvariantAlarm = moneyLogAlarm(
@@ -2686,10 +2789,16 @@ export class MonitoringStack extends cdk.Stack {
           // FUP-06 a manual payout leg overdue for the first time
           manualPayoutsNewlyOverdueAlarm,
           truckerPayoutsOverdueAlarm,
+          // FUP-436 a trucker leg overdue for the first time
+          truckerPayoutsNewlyOverdueAlarm,
           // FUP-41 releases the payout identity gate blocks for a day
           releasesBlockedOverdueAlarm,
+          // FUP-436 a blocked release overdue for the first time
+          releasesBlockedNewlyOverdueAlarm,
           // ESC-20 escrow ledger
           ledgerRowsOverdueAlarm,
+          // FUP-436 a ledger row overdue for the first time
+          ledgerRowsNewlyOverdueAlarm,
           ledgerInvariantAlarm,
           adminQueueOverdueAlarm,
           disputeVerdictMismatchAlarm,

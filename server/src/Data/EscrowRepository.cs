@@ -1088,6 +1088,50 @@ public sealed class EscrowRepository : IEscrowRepository
             }
         });
 
+    /// <inheritdoc />
+    public Task<bool> TryMarkTruckerPayoutOverdueLoggedAsync(string escrowId, string createdAt, string pendingSince)
+        => TryConditionalUpdateAsync(new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #logged = :since",
+            ConditionExpression = "#pending = :true AND #since = :since"
+                                  + " AND (attribute_not_exists(#logged) OR #logged <> :since)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#pending", TruckerPayoutFields.Pending },
+                { "#since", TruckerPayoutFields.PendingSince },
+                { "#logged", TruckerPayoutFields.OverdueLoggedFor }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":true", new AttributeValue { BOOL = true } },
+                { ":since", new AttributeValue { S = pendingSince } }
+            }
+        });
+
+    /// <inheritdoc />
+    public Task<bool> TryMarkSettlementBlockOverdueLoggedAsync(string escrowId, string createdAt, string reason, string reasonAt)
+        => TryConditionalUpdateAsync(new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #logged = :at",
+            ConditionExpression = "#reason = :reason AND #reasonAt = :at"
+                                  + " AND (attribute_not_exists(#logged) OR #logged <> :at)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#reason", SettlementBlockFields.Reason },
+                { "#reasonAt", SettlementBlockFields.ReasonAt },
+                { "#logged", SettlementBlockFields.OverdueLoggedFor }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":reason", new AttributeValue { S = reason } },
+                { ":at", new AttributeValue { S = reasonAt } }
+            }
+        });
+
     private static Dictionary<string, AttributeValue> EscrowKey(string escrowId, string createdAt) => new()
     {
         { "escrowId", new AttributeValue { S = escrowId } },

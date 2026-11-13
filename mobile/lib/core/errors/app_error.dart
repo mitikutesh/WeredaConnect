@@ -106,6 +106,18 @@ enum AppErrorCode {
   deliveryCodeLockedDropoff,
   deliveryCodeGpsRequired,
 
+  /// FUP-439: the server refused a handoff for its GPS
+  /// (`DELIVERY_GPS_PROXIMITY`), one per reason ([DeliveryGpsRefusal]); the
+  /// local pickup or delivery was undone. The trucker's pickup more than
+  /// 5 km from the farm, a self-pickup without a location, on a listing
+  /// without a farm point or more than 5 km from the farm, and a delivery
+  /// confirm more than 5 km from the drop-off point.
+  deliveryGpsPickupFar,
+  deliveryGpsSelfPickupNoFix,
+  deliveryGpsSelfPickupNoFarmPoint,
+  deliveryGpsSelfPickupFar,
+  deliveryGpsDropoffFar,
+
   /// ESC-06: an accepted order may be cancelled only after a transport
   /// failure (`ORDER_CANCEL_NOT_ALLOWED`, or the local guard); nothing changed.
   orderCancelNotAllowed,
@@ -382,6 +394,9 @@ AppErrorCode mapErrorToCode(Object error) {
         when isDeliveryCodeRejectionMessage(message) =>
       _deliveryCodeErrorCode(message),
     SyncRejectedException(:final message)
+        when isDeliveryGpsProximityMessage(message) =>
+      _deliveryGpsErrorCode(message),
+    SyncRejectedException(:final message)
         when isContactLockedMessage(message) =>
       AppErrorCode.contactLocked,
     OrderCancelNotAllowedException() => AppErrorCode.orderCancelNotAllowed,
@@ -476,6 +491,13 @@ String localizeErrorCode(
     AppErrorCode.deliveryCodeLockedDropoff =>
       l10n.deliveryErrorCodeLockedDropoff,
     AppErrorCode.deliveryCodeGpsRequired => l10n.deliveryErrorCodeGpsRequired,
+    AppErrorCode.deliveryGpsPickupFar => l10n.deliveryErrorGpsPickupFar,
+    AppErrorCode.deliveryGpsSelfPickupNoFix =>
+      l10n.deliveryErrorGpsSelfPickupNoFix,
+    AppErrorCode.deliveryGpsSelfPickupNoFarmPoint =>
+      l10n.deliveryErrorGpsSelfPickupNoFarmPoint,
+    AppErrorCode.deliveryGpsSelfPickupFar => l10n.deliveryErrorGpsSelfPickupFar,
+    AppErrorCode.deliveryGpsDropoffFar => l10n.deliveryErrorGpsDropoffFar,
     AppErrorCode.orderCancelNotAllowed => l10n.errorOrderCancelNotAllowed,
     AppErrorCode.orderCancelPaymentBusy => l10n.errorOrderCancelPaymentBusy,
     AppErrorCode.contactLocked => l10n.contactClosedNote,
@@ -633,6 +655,9 @@ AppErrorCode syncRejectionErrorCode({
   if (isDeliveryCodeRejectionMessage(message)) {
     return _deliveryCodeErrorCode(message);
   }
+  if (isDeliveryGpsProximityMessage(message)) {
+    return _deliveryGpsErrorCode(message);
+  }
   if (isContactLockedMessage(message)) {
     return AppErrorCode.contactLocked;
   }
@@ -706,6 +731,21 @@ AppErrorCode _deliveryCodeErrorCode(String message) =>
             : message.startsWith(deliveryCodeGpsRequiredCode)
                 ? AppErrorCode.deliveryCodeGpsRequired
                 : AppErrorCode.deliveryCodeMismatch;
+
+/// The code of a handoff refused for its GPS (FUP-439), read from its reason
+/// token, never its text. A reason this build does not know (a server before
+/// FUP-439, or a later reason) says only that the change was not saved.
+AppErrorCode _deliveryGpsErrorCode(String message) =>
+    switch (DeliveryGpsRefusal.fromMessage(message)) {
+      DeliveryGpsRefusal.pickupFar => AppErrorCode.deliveryGpsPickupFar,
+      DeliveryGpsRefusal.selfPickupNoFix =>
+        AppErrorCode.deliveryGpsSelfPickupNoFix,
+      DeliveryGpsRefusal.selfPickupNoFarmPoint =>
+        AppErrorCode.deliveryGpsSelfPickupNoFarmPoint,
+      DeliveryGpsRefusal.selfPickupFar => AppErrorCode.deliveryGpsSelfPickupFar,
+      DeliveryGpsRefusal.dropoffFar => AppErrorCode.deliveryGpsDropoffFar,
+      DeliveryGpsRefusal.unknown => AppErrorCode.changeNotSaved,
+    };
 
 /// Convenience: classify and localize in one step from a caught error.
 String localizeError(Object error, AppLocalizations l10n) =>
