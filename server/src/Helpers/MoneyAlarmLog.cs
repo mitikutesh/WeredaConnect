@@ -20,7 +20,11 @@ namespace WeredaConnect.Server.Helpers;
 /// DISPUTE_VERDICT_ORDER_MISMATCH escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// TRUCKER_PAYOUT_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
+/// TRUCKER_PAYOUT_NEWLY_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
 /// RELEASE_BLOCKED_OVERDUE escrowId=&lt;id&gt; leg=&lt;farmer|trucker&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
+/// RELEASE_BLOCKED_NEWLY_OVERDUE escrowId=&lt;id&gt; leg=&lt;farmer|trucker&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
+/// LEDGER_ROW_OVERDUE escrowId=&lt;id&gt; ref=&lt;ref&gt; status=&lt;pending|sent|failed&gt; ageHours=&lt;n&gt;
+/// LEDGER_ROW_NEWLY_OVERDUE escrowId=&lt;id&gt; ref=&lt;ref&gt; status=&lt;pending|sent|failed&gt; ageHours=&lt;n&gt;
 /// DISPUTE_NO_ESCROW orderId=&lt;id&gt; deliveryId=&lt;id&gt;
 /// ORDER_MONEY_MISMATCH orderId=&lt;id&gt; escrowId=&lt;id&gt; orderStatus=&lt;s&gt; escrowStatus=&lt;s&gt; reason=&lt;reason&gt;
 /// RISK_SETTLEMENT_SKIPPED escrowId=&lt;id&gt; sweep=&lt;auto-release|auto-refund|dispute|payout-farmer|payout-trucker&gt; reason=&lt;flag_off|user_read_failed|score_unavailable|payee_flagged&gt; holdReason=&lt;reason&gt;
@@ -114,6 +118,16 @@ namespace WeredaConnect.Server.Helpers;
 /// the next run may repeat it. Its alarm counts single lines and clears within minutes (escrow-protocol 2.24.0).
 /// </para>
 /// <para>
+/// FUP-436: the same edge twin for three more level lines, with the fields of each, logged right after it once per
+/// item and since-time: <c>TRUCKER_PAYOUT_NEWLY_OVERDUE</c> by the hourly trucker retry (the escrow row's
+/// <c>truckerPayoutOverdueLoggedFor</c>, keyed on <c>truckerPayoutPendingSince</c> for a 1.x leg and on
+/// <c>releasedAt</c> for a ledger escrow's transport leg), <c>RELEASE_BLOCKED_NEWLY_OVERDUE</c> by the escrow
+/// service for the system's release (<c>settlementBlockOverdueLoggedFor</c>, keyed on
+/// <c>settlementBlockReasonAt</c>) and <c>LEDGER_ROW_NEWLY_OVERDUE</c> by the ledger sweep for a row open in
+/// <c>pending</c>, <c>sent</c> or <c>failed</c> (the row's <c>overdueLoggedFor</c>, keyed on its
+/// <c>createdAt</c>), with the FUP-06 rules (escrow-protocol 2.25.0).
+/// </para>
+/// <para>
 /// ESC-10 adds <c>ESCROW_SETTLEMENT_FAILED</c> actions from escrow-cron: <c>sweep_truncated</c> for a paged
 /// sweep its budget stopped (<c>code=&lt;sweep&gt;:&lt;pages|rows|time&gt;</c>), <c>auto_release_blocked</c> and
 /// <c>auto_refund_blocked</c> once per escrow and reason when the order and delivery check first blocks a
@@ -151,8 +165,14 @@ public static class MoneyAlarmLog
     public const string DisputeVerdictWaitOverdueToken = "DISPUTE_VERDICT_WAIT_OVERDUE";
     public const string TruckerPayoutOverdueToken = "TRUCKER_PAYOUT_OVERDUE";
 
+    /// <summary>FUP-436: a trucker leg owed past <see cref="QueueAlarmAfter"/> for the first time, logged once per leg.</summary>
+    public const string TruckerPayoutNewlyOverdueToken = "TRUCKER_PAYOUT_NEWLY_OVERDUE";
+
     /// <summary>FUP-41: a release the payout identity gate blocks has waited more than <see cref="QueueAlarmAfter"/>.</summary>
     public const string ReleaseBlockedOverdueToken = "RELEASE_BLOCKED_OVERDUE";
+
+    /// <summary>FUP-436: a release block past <see cref="QueueAlarmAfter"/> for the first time, logged once per stored block.</summary>
+    public const string ReleaseBlockedNewlyOverdueToken = "RELEASE_BLOCKED_NEWLY_OVERDUE";
     public const string DisputeNoEscrowToken = "DISPUTE_NO_ESCROW";
     public const string OrderMoneyMismatchToken = "ORDER_MONEY_MISMATCH";
     public const string RiskSettlementSkippedToken = "RISK_SETTLEMENT_SKIPPED";
@@ -174,6 +194,9 @@ public static class MoneyAlarmLog
 
     /// <summary>ESC-20: a ledger row has been open (pending, sent or failed) for more than 24 hours.</summary>
     public const string LedgerRowOverdueToken = "LEDGER_ROW_OVERDUE";
+
+    /// <summary>FUP-436: a ledger row open past <see cref="QueueAlarmAfter"/> for the first time, logged once per row.</summary>
+    public const string LedgerRowNewlyOverdueToken = "LEDGER_ROW_NEWLY_OVERDUE";
 
     /// <summary>The gateway definitely refused the settlement; no money moved.</summary>
     public const string OutcomeFailed = "failed";
@@ -237,6 +260,10 @@ public static class MoneyAlarmLog
     public static string LedgerRowOverdue(string? escrowId, string? reference, string? status, int ageHours)
         => $"{LedgerRowOverdueToken} escrowId={LogId(escrowId)} ref={LogRef(reference)} status={Safe(status)} ageHours={Math.Max(0, ageHours)}";
 
+    /// <summary>FUP-436: the first <see cref="LedgerRowOverdue"/> report of a row, with the same fields.</summary>
+    public static string LedgerRowNewlyOverdue(string? escrowId, string? reference, string? status, int ageHours)
+        => $"{LedgerRowNewlyOverdueToken} escrowId={LogId(escrowId)} ref={LogRef(reference)} status={Safe(status)} ageHours={Math.Max(0, ageHours)}";
+
     /// <summary>ESC-20: a ledger ref for a log line: <c>#</c> becomes <c>.</c>, then as <see cref="LogId"/> (a ref can embed a user id).</summary>
     public static string LogRef(string? reference) => LogId(reference?.Replace('#', '.'));
 
@@ -248,6 +275,10 @@ public static class MoneyAlarmLog
     public static string TruckerPayoutOverdue(string? escrowId, string? reason, int ageHours)
         => $"{TruckerPayoutOverdueToken} escrowId={LogId(escrowId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
 
+    /// <summary>FUP-436: the first <see cref="TruckerPayoutOverdue"/> report of a leg, with the same fields.</summary>
+    public static string TruckerPayoutNewlyOverdue(string? escrowId, string? reason, int ageHours)
+        => $"{TruckerPayoutNewlyOverdueToken} escrowId={LogId(escrowId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
+
     /// <summary>
     /// FUP-41: an hourly sweep's release of this escrow was blocked again by the payout identity gate for
     /// <paramref name="leg"/> (<c>farmer</c>, or <c>trucker</c> for a split verdict) with the same
@@ -255,6 +286,10 @@ public static class MoneyAlarmLog
     /// </summary>
     public static string ReleaseBlockedOverdue(string? escrowId, string? leg, string? reason, int ageHours)
         => $"{ReleaseBlockedOverdueToken} escrowId={LogId(escrowId)} leg={Safe(leg)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>FUP-436: the first <see cref="ReleaseBlockedOverdue"/> report of a stored block, with the same fields.</summary>
+    public static string ReleaseBlockedNewlyOverdue(string? escrowId, string? leg, string? reason, int ageHours)
+        => $"{ReleaseBlockedNewlyOverdueToken} escrowId={LogId(escrowId)} leg={Safe(leg)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
 
     /// <summary>FRD-03: a settlement sweep left an escrow unsettled for this run because of the risk gate.</summary>
     public static string RiskSettlementSkipped(string? escrowId, string? sweep, string? reason, string? holdReason)

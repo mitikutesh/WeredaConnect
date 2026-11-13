@@ -4564,7 +4564,8 @@ public sealed partial class EscrowService
     /// call stored the reason.
     /// FUP-41: with <paramref name="overdueLeg"/> (a payout identity gate block of the system's release), a call
     /// that finds the same reason stored at least <see cref="MoneyAlarmLog.QueueAlarmAfter"/> ago logs
-    /// <c>RELEASE_BLOCKED_OVERDUE</c>, once per call, so once per hourly run while the block lasts.
+    /// <c>RELEASE_BLOCKED_OVERDUE</c>, once per call, so once per hourly run while the block lasts. FUP-436: the
+    /// first of those calls also logs <c>RELEASE_BLOCKED_NEWLY_OVERDUE</c> (<see cref="IsReleaseBlockNewlyOverdueAsync"/>).
     /// </summary>
     public async Task<bool> NoteSettlementBlockedAsync(
         Dictionary<string, object> escrow, string expectedStatus, string reason, string auditAction,
@@ -4576,7 +4577,7 @@ public sealed partial class EscrowService
             var storedAt = GetStringOrNull(escrow, SettlementBlockFields.ReasonAt);
             if (GetStringOrNull(escrow, SettlementBlockFields.Reason) == reason && storedAt != null)
             {
-                ReportOverdue(escrowId, storedAt);
+                await ReportOverdueAsync(escrow, escrowId, storedAt);
                 await AuditBlockOnceAsync(escrowId, storedAt);
                 return false;
             }
@@ -4594,7 +4595,7 @@ public sealed partial class EscrowService
 
                 if (latestAt != reasonAt)
                 {
-                    ReportOverdue(escrowId, latestAt);
+                    await ReportOverdueAsync(latest, escrowId, latestAt);
                     await AuditBlockOnceAsync(escrowId, latestAt);
                     return false;
                 }
@@ -4610,8 +4611,10 @@ public sealed partial class EscrowService
         }
 
         // FUP-41: the same block, first stored a day or more ago (an unreadable time counts as overdue, as the
-        // trucker retry's does). Logged before the audit write, so a failed write never hides it.
-        void ReportOverdue(string id, string at)
+        // trucker retry's does). Logged before the audit write, so a failed write never hides it. FUP-436: the first
+        // call that reports the block (its marker, read with the row, does not name its stored time) also logs the
+        // edge line, so a standing releases-blocked-overdue alarm cannot mask a newly overdue release.
+        async Task ReportOverdueAsync(Dictionary<string, object> item, string id, string at)
         {
             if (overdueLeg == null)
             {
@@ -4621,8 +4624,12 @@ public sealed partial class EscrowService
             var age = ParseUtcTimeOrNull(at) is { } since ? DateTime.UtcNow - since : MoneyAlarmLog.QueueAlarmAfter;
             if (age >= MoneyAlarmLog.QueueAlarmAfter)
             {
-                AlarmLog(MoneyAlarmLog.ReleaseBlockedOverdue(
-                    id, overdueLeg, reason[(reason.LastIndexOf(':') + 1)..], (int)age.TotalHours));
+                var shortReason = reason[(reason.LastIndexOf(':') + 1)..];
+                AlarmLog(MoneyAlarmLog.ReleaseBlockedOverdue(id, overdueLeg, shortReason, (int)age.TotalHours));
+                if (await IsReleaseBlockNewlyOverdueAsync(item, id, GetString(escrow, "createdAt"), reason, at))
+                {
+                    AlarmLog(MoneyAlarmLog.ReleaseBlockedNewlyOverdue(id, overdueLeg, shortReason, (int)age.TotalHours));
+                }
             }
         }
 
@@ -4634,6 +4641,39 @@ public sealed partial class EscrowService
             {
                 AlarmLog(MoneyAlarmLog.SettlementFailed(id, alarmAction, MoneyAlarmLog.OutcomeFailed, reason));
             }
+        }
+    }
+
+    /// <summary>
+    /// FUP-436: true once per stored block, keyed on its <c>settlementBlockReasonAt</c>: when the marker read with
+    /// <paramref name="item"/> does not name it and the conditional write that sets it lands (false: another run
+    /// marked it, or the block was settled, cleared or stored again since the read). A row the write cannot be keyed
+    /// on, or a write that fails for another reason, announces anyway: the next run may announce it again, but a
+    /// newly overdue release is never hidden (the FUP-06 rules).
+    /// </summary>
+    private async Task<bool> IsReleaseBlockNewlyOverdueAsync(
+        Dictionary<string, object> item, string escrowId, string createdAt, string reason, string reasonAt)
+    {
+        if (GetStringOrNull(item, SettlementBlockFields.OverdueLoggedFor) == reasonAt)
+        {
+            return false;
+        }
+
+        if (escrowId.Length == 0 || createdAt.Length == 0)
+        {
+            return true;
+        }
+
+        try
+        {
+            return await _escrowRepo.TryMarkSettlementBlockOverdueLoggedAsync(escrowId, createdAt, reason, reasonAt);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"Release blocked report: the newly overdue marker of {MoneyAlarmLog.LogId(escrowId)} was not written: "
+                + $"[{ex.GetType().Name}]. Announced anyway; the next run may announce it again.");
+            return true;
         }
     }
 

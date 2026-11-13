@@ -192,6 +192,101 @@ public class EscrowCronTruckerRetryTests
 
         response.Body.Should().Contain("\"truckerLegsBlocked\":\"1\"");
         Logs.Should().NotContain("TRUCKER_PAYOUT_OVERDUE");
+        Logs.Should().NotContain("TRUCKER_PAYOUT_NEWLY_OVERDUE");
+        await _escrowRepo.DidNotReceiveWithAnyArgs().TryMarkTruckerPayoutOverdueLoggedAsync(default!, default!, default!);
+    }
+
+    // ──────────────────────────────────────────────
+    // FUP-436: the edge-triggered TRUCKER_PAYOUT_NEWLY_OVERDUE line, once per owed leg
+    // ──────────────────────────────────────────────
+
+    private IEnumerable<string> LogLines(string token) => Logs.Split('\n').Where(l => l.Contains(token + " "));
+
+    [Fact]
+    public async Task NewlyOverdue_TheFirstRunMarksTheLeg_OnItsPendingTime_AndAnnouncesIt()
+    {
+        var row = AddPending("escrow-t436", hoursAgo: 30, verified: false);
+        var since = (string)row[TruckerPayoutFields.PendingSince];
+        _escrowRepo.TryMarkTruckerPayoutOverdueLoggedAsync("escrow-t436", CreatedAt, since).Returns(true);
+
+        var response = await RunAsync();
+
+        LogLines("TRUCKER_PAYOUT_OVERDUE").Should().ContainSingle();
+        LogLines("TRUCKER_PAYOUT_NEWLY_OVERDUE").Should().ContainSingle()
+            .Which.Should().Contain("TRUCKER_PAYOUT_NEWLY_OVERDUE escrowId=escrow-t436 reason=profile_missing ageHours=30");
+        response.Body.Should().Contain("\"truckerLegsOverdue\":\"1\"").And.Contain("\"truckerLegsNewlyOverdue\":\"1\"");
+        await _escrowRepo.Received(1).TryMarkTruckerPayoutOverdueLoggedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task NewlyOverdue_ALegAlreadyAnnounced_RepeatsOnlyTheOverdueLine_WithoutAWrite()
+    {
+        var row = AddPending("escrow-t436", hoursAgo: 50, verified: false);
+        row[TruckerPayoutFields.OverdueLoggedFor] = row[TruckerPayoutFields.PendingSince];
+
+        var response = await RunAsync();
+
+        LogLines("TRUCKER_PAYOUT_OVERDUE").Should().ContainSingle();
+        LogLines("TRUCKER_PAYOUT_NEWLY_OVERDUE").Should().BeEmpty();
+        response.Body.Should().Contain("\"truckerLegsNewlyOverdue\":\"0\"");
+        await _escrowRepo.DidNotReceiveWithAnyArgs().TryMarkTruckerPayoutOverdueLoggedAsync(default!, default!, default!);
+    }
+
+    [Fact]
+    public async Task NewlyOverdue_AMarkerOfAnEarlierPendingTime_IsWrittenAgain_AndARefusedConditionAnnouncesNothing()
+    {
+        // The marker names another pending time (an earlier owed episode), so this one is new to the report; the
+        // write's condition fails (another run marked it, or the leg was paid meanwhile).
+        var row = AddPending("escrow-t436", hoursAgo: 26, verified: false);
+        row[TruckerPayoutFields.OverdueLoggedFor] = "2026-09-01T10:00:00.0000000Z";
+        _escrowRepo.TryMarkTruckerPayoutOverdueLoggedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()).Returns(false);
+
+        await RunAsync();
+
+        LogLines("TRUCKER_PAYOUT_OVERDUE").Should().ContainSingle();
+        LogLines("TRUCKER_PAYOUT_NEWLY_OVERDUE").Should().BeEmpty();
+        await _escrowRepo.Received(1).TryMarkTruckerPayoutOverdueLoggedAsync(
+            "escrow-t436", CreatedAt, (string)row[TruckerPayoutFields.PendingSince]);
+    }
+
+    [Fact]
+    public async Task NewlyOverdue_TheMarkerWriteThrows_AnnouncesAnyway_AndTheRetryGoesOn()
+    {
+        AddPending("escrow-ta", hoursAgo: 40, verified: false);
+        AddPending("escrow-tb", hoursAgo: 30, verified: false);
+        _escrowRepo.TryMarkTruckerPayoutOverdueLoggedAsync(Arg.Is("escrow-ta"), Arg.Any<string>(), Arg.Any<string>())
+            .ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
+        _escrowRepo.TryMarkTruckerPayoutOverdueLoggedAsync(Arg.Is("escrow-tb"), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(true);
+
+        var response = await RunAsync();
+
+        response.StatusCode.Should().Be(200);
+        Logs.Should().Contain("TRUCKER_PAYOUT_NEWLY_OVERDUE escrowId=escrow-ta reason=profile_missing ageHours=40");
+        Logs.Should().Contain("TRUCKER_PAYOUT_NEWLY_OVERDUE escrowId=escrow-tb reason=profile_missing ageHours=30");
+        Logs.Should().Contain(
+            "Trucker retry: the newly overdue marker of escrow-ta was not written: [ProvisionedThroughputExceededException]");
+        response.Body.Should().Contain("\"truckerLegsNewlyOverdue\":\"2\"");
+    }
+
+    [Fact]
+    public async Task NewlyOverdue_TwoRuns_TheSecondSeesItsOwnMarker_AndAnnouncesNothing()
+    {
+        // The marker the first run wrote is on the row the next run reads.
+        var row = AddPending("escrow-t436", hoursAgo: 30, verified: false);
+        _escrowRepo.TryMarkTruckerPayoutOverdueLoggedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(call =>
+            {
+                row[TruckerPayoutFields.OverdueLoggedFor] = call.ArgAt<string>(2);
+                return true;
+            });
+
+        await RunAsync();
+        await RunAsync();
+
+        LogLines("TRUCKER_PAYOUT_OVERDUE").Should().HaveCount(2);
+        LogLines("TRUCKER_PAYOUT_NEWLY_OVERDUE").Should().ContainSingle();
+        await _escrowRepo.Received(1).TryMarkTruckerPayoutOverdueLoggedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
     }
 
     [Fact]

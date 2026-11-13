@@ -2919,6 +2919,10 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-dispute-verdict-wait-overdue',
     // FUP-06: a manual payout leg overdue for the first time (newly-overdue-alarm.test.ts).
     'wereda-connect-dev-manual-payouts-newly-overdue',
+    // FUP-436: the edge twins of the trucker, release-blocked and ledger row overdue alarms (edge-overdue-alarms.test.ts).
+    'wereda-connect-dev-trucker-payouts-newly-overdue',
+    'wereda-connect-dev-releases-blocked-newly-overdue',
+    'wereda-connect-dev-ledger-rows-newly-overdue',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -3565,6 +3569,8 @@ describe('MonitoringStack', () => {
     'DisputeVerdictWaitOverdue',
     // FUP-06: a manual payout leg overdue for the first time (newly-overdue-alarm.test.ts).
     'ManualPayoutsNewlyOverdue',
+    // FUP-436: the edge twins of the trucker, release-blocked and ledger row overdue lines (edge-overdue-alarms.test.ts).
+    'TruckerPayoutsNewlyOverdue', 'ReleasesBlockedNewlyOverdue', 'LedgerRowsNewlyOverdue',
   ];
   // FUP-81: the other filters of those log groups, each named, so a new filter there must be
   // sorted into one list or the other. The JSON audit filters match a field exactly (client text
@@ -3643,8 +3649,9 @@ describe('MonitoringStack', () => {
     // FUP-231 added OrderDeadlineRefundStalled (2: order-cron and escrow-cron); FUP-41 added
     // ReleasesBlockedOverdue (1: escrow-cron); FUP-64 added DisputeVerdictWaitOverdue (1: escrow-cron); FUP-06 added
     // ManualPayoutsNewlyOverdue (1: escrow-cron); FUP-37 added two OrderPaymentProblems sources (escrow-cron and
-    // order-cron, live only).
-    expect(patterns.length).toBe(32);
+    // order-cron, live only); FUP-436 added TruckerPayoutsNewlyOverdue, ReleasesBlockedNewlyOverdue and
+    // LedgerRowsNewlyOverdue (1 each: escrow-cron).
+    expect(patterns.length).toBe(35);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the
