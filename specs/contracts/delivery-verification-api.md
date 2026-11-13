@@ -1,14 +1,14 @@
 # Delivery Verification API Contract
 
 ## Version
-2.9.0
+2.11.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
 - **Web** (client) -- the same handoffs in the browser; uploads handoff photos as they are taken (1.25.0)
 - **Backend** (server) -- validating delivery state transitions, GPS proximity, and storing evidence
 - **Infrastructure** -- the uploads bucket and its CORS, the Lambdas' photo grants (1.25.0)
-- **Admin** -- the handoff photos on the transaction detail, dispute evidence (1.25.0); the cancel after pickup (2.9.0)
+- **Admin** -- the handoff photos on the transaction detail, dispute evidence (1.25.0); the cancel after pickup (2.9.0); the re-open of a trucker no-show (2.11.0)
 
 ---
 
@@ -733,8 +733,10 @@ delivered → disputed     (any participant raises a dispute within 48 hours; th
 System only, never through sync (1.16.0): `pending`, `pickedUp` or `inTransit` `→ cancelled` or
 `→ disputed`, by an admin's dispute disposition (see the dispute verdict paragraphs above). Admin only
 (2.9.0): `pickedUp` or `inTransit` `→ cancelled` by the admin cancel after pickup, once the money is decided.
+Admin only (2.11.0): `cancelled → pickedUp` for the one delivery a trucker no-show judgement cancelled, by
+the no-show re-open with a confirmed handoff (P.2, "Re-open of a trucker no-show"), in the order's transaction.
 
-`cancelled` is final. An update that reaches a cancelled delivery (or a row soft-deleted before
+`cancelled` is final for every party. An update that reaches a cancelled delivery (or a row soft-deleted before
 1.9.0) is refused with `DELIVERY_ALREADY_CANCELLED`. Since 2.2.0 (FUP-128) a caller whose `version`
 is behind the stored one and who may make the change (the trucker for `pickedUp` and `inTransit`,
 the buyer for `delivered`, any party for `disputed`; without a status the trucker, or the farmer
@@ -1577,7 +1579,7 @@ taking a refund path. Not behind the flag: it only acts on orders the flag judge
   `both_present_no_scan` and `unchecked_check_in` on an order still `accepted`, the two outcomes that
   moved nothing. Refused: an order not judged (`pending`, or never stamped), `scanned`, a trucker no-show
   (its delivery was cancelled and its trip booking released, and the buyer chooses again in
-  `awaiting_transport`), a farmer or self-pickup buyer no-show (`cancelled` with the refund armed in the
+  `awaiting_transport`; since 2.11.0 its own action re-opens it, below, and the message says so), a farmer or self-pickup buyer no-show (`cancelled` with the refund armed in the
   cancel's transaction, which the hourly sweep sends), and an order that moved on after its judgement
   (an admin refund, a dispute). A wrong no-show's `NO_SHOW` event is excused on the party's reputation
   (`reputation-api.md` 9.3). The money must still be held as the judgement left it (`409
@@ -1629,6 +1631,78 @@ taking a refund path. Not behind the flag: it only acts on orders the flag judge
   point, each check-in with its times, fix, distance, measurement and lateness) in en, am and om, and
   the "Re-open the pickup" action when `reopenExits` is not empty: what happened, the new deadline (24,
   48 or 72 hours), the reason, then a confirm before anything is sent.
+
+**Re-open of a trucker no-show (BUILT in 2.11.0, FUP-330).** A trucker no-show judgement cancelled the
+pending delivery, released the order's `activeDeliveryId` slot and its trip booking, and left the order in
+`awaiting_transport` with an R10 `NO_SHOW` on the trucker. When a real scan reached the server after the
+judgement (the alarmed `ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED ... reason=late_pickup_evidence`), the goods
+may be on the truck. After reconciling with the parties, the admin re-opens it, while the buyer has not
+chosen and the escrow still simply holds the money. Not behind the flag: only an order the flag judged
+carries `pickupJudgement`, and an order without it is refused.
+
+- **The evidence** gains `noShowReopenExits`: the exits this action takes for the order as read (none,
+  `pending`, or `pending` and `handoff_confirmed`). `reopenExits` stays empty for a trucker no-show.
+- **The action.** `POST /admin/orders/{orderId}/reopen-no-show` (the same route, authorizer, admin group
+  and body as `reopen-pickup`: `exit`, `reason` of 10 to 500 characters, `expectedVersion`, `deadlineHours`
+  1 to 168 with `pending`, and the same `400 PICKUP_REOPEN_INVALID`). Each refusal writes nothing:
+
+  | Check | Answer |
+  |---|---|
+  | `expectedVersion` is not the order's version | `409 PICKUP_REOPEN_CHANGED` |
+  | the order is not judged `trucker_no_show`; it is no longer `awaiting_transport` (the buyer cancelled for the refund, the farmer cancelled, or the buyer-choice deadline cancelled it); its `transportFailure` or `truckerResponse` changed since the judgement; it names no trip, trucker or quantity; or it was never stamped | `409 PICKUP_REOPEN_NOT_ALLOWED` (the message says why; a judgement `reopen-pickup` takes names that action) |
+  | the order's escrow does not simply hold the money (as for `reopen-pickup`: a refund armed by a cancel or the sweep, a settlement lock, a confirmed delivery, the manual payout queue, `held` for review, any status but `escrowed`) | `409 PICKUP_REOPEN_MONEY_NOT_HELD` |
+  | `handoff_confirmed` only: no delivery the judgement cancelled. The delivery is the one the order escrow links (`deliveryId`, linked at the delivery's create and kept through its cancel), else the one the order's slot still names. It must be this order's and on its trip, `cancelled` with no `cancelReason`, verdict or `deletedAt`, and cancelled (`updatedAt`) at or after `pickupJudgedAt` (the judgement cancels it first, in the same run, so a party's earlier cancel is never brought back); no other delivery may hold the slot | `409 PICKUP_REOPEN_NOT_ALLOWED` |
+  | the trip cannot take the booking back: gone, deleted or `cancelled` (the order cron closes an `open` trip left with no booking once its day is over, `cancelReason: expired`, so a trip that carried only this order is usually closed by the time of a re-open; TASK FUP-363), departed (`inTransit` or `delivered`), another trucker's, or full (`remainingQuintals`, or the capacity on a row without bookings, below the order's quintals, unless the trip still holds this order's booking) | `409 PICKUP_REOPEN_TRIP_UNAVAILABLE` (new) |
+
+  | Exit | Order | Delivery |
+  |---|---|---|
+  | `pending` | `awaiting_transport → accepted`; `pickupJudgement: pending`, `pickupDeadlineAt` now plus `deadlineHours`, `pickupJudgedAt` and `pickupOverdueNotifiedAt` removed, `checkIns` kept (a late one stays late); the deadline index entry derived from the row: `pickup_judgement` at the new deadline plus one minute, in the swept partition | none written: the order is as right after the trucker's accept, so the trucker creates the new pending delivery from the order as usual (the create claims the free slot, or takes it over from the cancelled delivery a failed release left in it, and links the order escrow to the new delivery) |
+  | `handoff_confirmed` | `awaiting_transport → pickup_confirmed`; `pickupJudgement: scanned` (`pickupJudgedAt` and the deadline kept); `activeDeliveryId` and `activeDeliveryClaimedAt` claim the slot for the delivery; no deadline index entry | `cancelled → pickedUp`, `pickedUpAt` and `updatedAt` the server's time, version plus one; nothing a scan carries (no `gpsPickup`, `pickupCapturedAt` or photo), as for `reopen-pickup`'s confirmed handoff |
+
+  Both exits restore `truckerResponse: accepted`, remove `transportFailure`, `faultParty`,
+  `buyerChoiceDeadlineAt` and `buyerChoiceReminderAt`, answer the judgement's admin queue entry (the
+  `late_pickup_evidence` a late scan or check-in wrote) as `reopen-pickup` answers it (removed, kept as
+  `hold_cap`, left alone, or none may land), stamp `pickupReopen` (`fromJudgement: trucker_no_show`) and move
+  `version` by one. They take the trip booking back: the order's quintals leave `remainingQuintals` and join
+  `bookedQuintals`, and the order joins `bookedOrderIds` and `acceptedOrderIds`, conditioned as a funding's
+  reservation (room for the quintals, the order not booked, the trip `open` or `matched`, not deleted). A
+  trip that still holds the booking (the release never landed) only gets `acceptedOrderIds` again,
+  conditioned on the booking. A trip the booking fills moves `open → matched` after the commit (best effort,
+  as after a reservation).
+
+  One DynamoDB transaction: the order update conditioned on `expectedVersion`, `status: awaiting_transport`,
+  `pickupJudgement`, `transportFailure` and `truckerResponse` as read, and on the queue entry and the slot as
+  read; the trip update; the delivery update (`handoff_confirmed`) conditioned on `cancelled` at its version
+  with no `cancelReason`, verdict or `deletedAt`; the escrow check of `reopen-pickup`. A condition that fails
+  is `409 PICKUP_REOPEN_CHANGED` (also when another order took the trip's room in between). No money moves:
+  the escrow is only checked. The same request again answers `200` with `alreadyApplied: true`, writes nothing
+  on the order and retries the excuse below. `200`: the answer of `reopen-pickup` plus `noShowEvent`. Audit:
+  `admin_pickup_reopened` from `awaiting_transport` (`metadata`
+  `exit=...;judgement=trucker_no_show;deadlineAt=...;deliveryId=...;trip=reserved|kept;queue=...;reason=...`)
+  and, for a confirmed handoff, the delivery's `picked_up` row (`cancelled` to `pickedUp`, `handoff=admin`);
+  the structured log `PICKUP_NO_SHOW_REOPEN` and `PICKUP_NO_SHOW_REOPENED orderId=... exit=... trip=...`.
+- **The trucker's `NO_SHOW` is excused** (not put into review): after the order's transaction, in the same
+  request, the event of rule R10 (`NOSHOW#{orderId}` on the order's trucker) goes through ESC-32's decision
+  path (`reputation-api.md` 9.3, `excuse`, the admin as `decidedBy`), with the note `Excused: support
+  re-opened this pickup after checking a scan that reached the server late.`, which the trucker reads (the
+  admin's reason stays in the audit trail), audited `reputation_excused` on the trucker (`metadata`
+  `event=NOSHOW#...;note=...;source=reopen-no-show`). The answer's `noShowEvent` says what happened:
+  `excused`; `already_excused`; `not_recorded` (no such event: none is recorded while `reputationPenalties`
+  was off at the judgement, or the stream has not recorded it yet; the admin excuses it on the reputation
+  page if it appears); `not_counted` (its points expired); `upheld` (an admin upheld it before, so it stays,
+  TASK FUP-197); `off` (`reputationPenalties` is off here); `failed` (the same request again retries it). The
+  excuse never undoes the re-open, and the re-open's own write yields no reputation event (R10 fires only when
+  `transportFailure` becomes `trucker_no_show`). The `NO_SHOW` fraud signal the event wrote (ESC-33) stays
+  (TASK FUP-360). A second trucker no-show on the same order after a `pending` re-open meets the excused
+  `NOSHOW#` slot and records nothing (TASK FUP-359).
+- **Notifications.** None of its own: the order stream reads `awaiting_transport → accepted` (the buyer and
+  the farmer get `order_confirmed`, carrying the trip's `pickupDate` rather than the new deadline, TASK
+  FUP-361) or `awaiting_transport → pickup_confirmed` (`picked_up` to the buyer, `handoff_recorded` to the
+  farmer).
+- **Admin app.** "Re-open the no-show" next to "Re-open the pickup" on the transaction page when
+  `noShowReopenExits` is not empty: the same three steps, with texts that say the trip booking is taken
+  back and the no-show excused, and the result says what happened to the `NO_SHOW`; en, am and om (am and
+  om machine drafted, TASK FUP-362).
 
 **Planning notes (2.0.0).**
 
@@ -1813,9 +1887,10 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 2.7.0 | 2026-11-13 | The trucker's drop-off nonce BUILT (ESC-35, P.3; see QR Secret Storage), not flagged: the trucker's phone makes its own nonce after the pickup (tag `d.`) and registers it with a status-less update carrying only `dropoffQrNonce`, stored in `delivery-qr-secrets` (`dropoffNonce`, `dropoffIssuedAt`) next to the farmer's nonce, never on the delivery, no version move; only the trucker, `deferred` while the delivery is `pending` (refused after 14 days), nothing stored once delivered; the buyer's `delivered` of a trucker delivery is checked against it once stored (scan or typed code, its own 14-day freshness, the `delivered` leg's single use, a lock the trucker's new code clears with `DELIVERY_CODE_LOCKED`), else against the farmer's nonce (1.22.0, unchanged); a registration never replaces a stored code, only a renewal (`dropoffQrRenew`, the trucker's confirmed New drop-off code) does, and a code not stored answers `success` with `DROPOFF_CODE_SUPERSEDED` or `DROPOFF_CODE_NOT_STORED`; a tagged scan whose nonce has not synced, or that differs from the stored one but was scanned after it, is `deferred` without a signal (refused after 14 days with `DELIVERY_NONCE_MISSING`). Clients: the drop-off QR shows the trucker's own code, made at pickup, sent again on every open (never twice in a phone's queue), never made on open, made or replaced only by a confirmed New drop-off code (older queued codes dropped); the buyer's scan screen names the trucker in the wait and lock texts. Survey 4.5 answered in P.3. `sync-protocol.md` 1.58.0 |
 | 2.8.0 | 2026-11-13 | The admin side of the pickup judgement (FUP-287, P.2 "The admin side"): `GET /admin/transactions/{orderId}` returns `pickupEvidence` (the judgement, the deadline, the stamped farm point, each check-in with its receipt and capture times, fix, accuracy, distance, `distanceChecked`, `late`, `outOfRange` and sender, the exits the re-open takes and the last re-open), admin only, the parties' `OrderDto` unchanged. New `POST /admin/orders/{orderId}/reopen-pickup` (admin group; `exit`, a `reason` of 10 to 500 characters, `expectedVersion`, `deadlineHours` 1 to 168 with `pending`): only `both_present_no_scan` and `unchecked_check_in` on an `accepted` order whose escrow still simply holds the money; `pending` restamps the judgement with a new `pickupDeadlineAt` (judged again a minute after it, check-ins kept), `handoff_confirmed` moves the pending delivery to `pickedUp` and the order to `pickup_confirmed` (`scanned`), refused for a self-pickup; both answer the judgement's admin queue entry (removed, or kept as `hold_cap` when the escrow's hold cap rides on it; none may land on an order read without one) and stamp `pickupReopen`, in one transaction conditioned on what was read; new codes `PICKUP_REOPEN_INVALID`, `PICKUP_REOPEN_NOT_ALLOWED`, `PICKUP_REOPEN_CHANGED`, `PICKUP_REOPEN_MONEY_NOT_HELD`; a replay answers `alreadyApplied`; transaction-audit `admin_pickup_reopened`. No-show judgements are not re-opened (TASK FUP-330, FUP-331). Admin evidence card and action in en, am, om. `order-lifecycle.md` 2.16.0, `data-models.md` 1.16.0. 2.7.0 is ESC-35's |
 | 2.9.0 | 2026-11-13 | Admin cancel after pickup (FUP-19, spec E9; see the paragraph after Cancel): `POST /admin/deliveries/{id}/cancel` (route `POST /admin/deliveries/{id}/{action}`, admin group only) with a reason of 10 to 500 characters and the delivery version read moves a `pickedUp` or `inTransit` delivery to `cancelled` (`cancelReason: admin_cancelled`, `cancelledAt`, version plus one, no `deletedAt`) with its transaction-audit row `admin_delivery_cancelled` (the admin and the reason) in one transaction conditioned on the delivery's status and version and on the order's and every escrow's status as read; refused while any escrow of the order or the delivery is not `completed`, `cancelled` or `refunded` (`DELIVERY_ADMIN_CANCEL_MONEY_HELD`), for an order whose goods arrived or that is missing, and for a delivery not on the road (`DELIVERY_ADMIN_CANCEL_NOT_ALLOWED`); `DELIVERY_ADMIN_CANCEL_INVALID`, `DELIVERY_ADMIN_CANCEL_CHANGED`; a replay answers `alreadyCancelled`. No order, money, trip, booking or stock moves. A delivery an admin cancelled keeps its order's slot, so the order takes no new delivery. Admin: Cancel delivery on the transaction page, en, am and om. No app change: the apps already show a cancelled delivery with no action. |
+| 2.11.0 | 2026-11-13 | Re-open of a trucker no-show (FUP-330, P.2 "Re-open of a trucker no-show"): new `POST /admin/orders/{orderId}/reopen-no-show` (the route, admin group and body of `reopen-pickup`) takes a `trucker_no_show` order still `awaiting_transport` from the judgement (the buyer has not chosen) whose escrow still simply holds the money back in one transaction: `pending` to `accepted` (`pickupJudgement: pending`, a new `pickupDeadlineAt`, judged again; the trucker creates the new pending delivery) or `handoff_confirmed` to `pickup_confirmed` (`scanned`) with the delivery the judgement cancelled `cancelled → pickedUp` and the slot claimed for it; both restore `truckerResponse: accepted`, remove `transportFailure`, `faultParty`, `buyerChoiceDeadlineAt` and `buyerChoiceReminderAt`, take the trip booking back (conditioned on the room left and the trip `open` or `matched`), answer the admin queue entry as `reopen-pickup` does and stamp `pickupReopen`; refused when the trip is gone, cancelled, departed or full (new `409 PICKUP_REOPEN_TRIP_UNAVAILABLE`), when the buyer chose or the money moved, and on a changed version; a replay answers `alreadyApplied`. Then the trucker's `NO_SHOW` is excused through ESC-32's decision path (`noShowEvent` in the answer, audited `reputation_excused`). `pickupEvidence` gains `noShowReopenExits`; `reopen-pickup`'s refusal of a trucker no-show names the new action. New admin-only transition `cancelled → pickedUp`. No money moves; no app change. Admin: Re-open the no-show on the transaction page, en, am, om. `order-lifecycle.md` 2.19.0. 2.10.0 is ESC-36's |
 
 ---
 
 **Last Updated**: 2026-11-13
-**Version**: 2.9.0
+**Version**: 2.11.0
 **Status**: Draft (Phase R4.2)

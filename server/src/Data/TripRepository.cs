@@ -441,6 +441,60 @@ public sealed class TripRepository : ITripRepository
             }
         };
 
+    /// <summary>
+    /// FUP-330: the booking a trucker no-show judgement released, taken back for an admin's re-open, as an item of the
+    /// order's transaction. The order's quintals leave <c>remainingQuintals</c> (the capacity on a row without
+    /// bookings) and join <c>bookedQuintals</c>, and the order is added to <c>bookedOrderIds</c> and
+    /// <c>acceptedOrderIds</c> (the trucker had accepted it), conditioned as a funding's reservation: room for the
+    /// quintals, the order not booked, the trip <c>open</c> or <c>matched</c> and not deleted. A trip still holding the
+    /// booking (the release never landed) takes <see cref="BuildConfirmBookingItem"/> instead. The <c>open → matched</c>
+    /// move of a trip this fills is the caller's, after the commit, as after a reservation.
+    /// </summary>
+    public TransactWriteItem BuildReclaimBookingItem(string tripId, string tripCreatedAt, string orderId, double quintals, string nowIso)
+    {
+        if (quintals <= 0 || double.IsNaN(quintals) || double.IsInfinity(quintals))
+        {
+            throw new ArgumentOutOfRangeException(nameof(quintals), quintals, "A booking must take a positive number of quintals.");
+        }
+
+        return new TransactWriteItem
+        {
+            Update = new Update
+            {
+                TableName = _tableName,
+                Key = TripKey(tripId, tripCreatedAt),
+                UpdateExpression =
+                    "SET #remaining = if_not_exists(#remaining, #capacity) - :q, #booked = if_not_exists(#booked, :zero) + :q, #updated = :now"
+                    + " ADD #bookedIds :ids, #acceptedIds :ids",
+                ConditionExpression =
+                    "((attribute_not_exists(#remaining) AND #capacity >= :q) OR #remaining >= :q)"
+                    + " AND (attribute_not_exists(#bookedIds) OR NOT contains(#bookedIds, :orderId))"
+                    + " AND #status IN (:open, :matched) AND attribute_not_exists(#deletedAt)",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#remaining", RemainingField },
+                    { "#capacity", "capacity" },
+                    { "#booked", BookedField },
+                    { "#updated", "updatedAt" },
+                    { "#bookedIds", BookedIdsField },
+                    { "#acceptedIds", AcceptedIdsField },
+                    { "#status", "status" },
+                    { "#deletedAt", "deletedAt" }
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":q", Number(quintals) },
+                    { ":zero", new AttributeValue { N = "0" } },
+                    { ":now", new AttributeValue { S = nowIso } },
+                    { ":ids", new AttributeValue { SS = new List<string> { orderId } } },
+                    { ":orderId", new AttributeValue { S = orderId } },
+                    { ":open", new AttributeValue { S = OpenStatus } },
+                    { ":matched", new AttributeValue { S = MatchedStatus } }
+                }
+            }
+        };
+    }
+
     /// <inheritdoc />
     public async Task<(List<Dictionary<string, AttributeValue>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDepartedOpenAsync(
         string departedBeforeIso,

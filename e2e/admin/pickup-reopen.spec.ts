@@ -226,3 +226,118 @@ test.describe("Pickup judgement re-open (FUP-287)", () => {
     await expect(page.getByLabel("How you reconciled it")).toBeVisible();
   });
 });
+
+/**
+ * FUP-330 (delivery-verification-api.md 2.11.0 P.2): a judged trucker no-show, still waiting for the buyer's choice,
+ * is re-opened through its own action next to the judgement's (`reopen-no-show`): the trip booking is taken back and
+ * the trucker's no-show excused, which the answer reports. The server side is covered by AdminNoShowReopenRouteTests,
+ * NoShowReopenTests and NoShowReopenDynamoDbTests.
+ */
+function noShowDetail(state: State) {
+  const reopened = state.reopened;
+  const status = reopened === "handoff_confirmed" ? "pickup_confirmed" : reopened ? "accepted" : "awaiting_transport";
+  return {
+    order: {
+      orderId: "ord-9",
+      status,
+      version: reopened ? 9 : 8,
+      buyerId: "buyer-9",
+      buyerName: "Selam Traders",
+      farmerId: "farmer-9",
+      farmerName: "Almaz Bekele",
+      truckerId: "trucker-9",
+      truckerName: "Chala Tolosa",
+      cropType: "teff",
+      quantity: 500,
+    },
+    escrow: null,
+    delivery: { deliveryId: "del-9", status: reopened === "handoff_confirmed" ? "pickedUp" : "cancelled" },
+    timeline: [],
+    pickupEvidence: {
+      judgement: reopened === "pending" ? "pending" : reopened ? "scanned" : "trucker_no_show",
+      judgedAt: reopened === "pending" ? undefined : "2026-11-22T06:01:00Z",
+      deadlineAt: reopened === "pending" ? "2026-11-24T08:00:00Z" : "2026-11-22T06:00:00Z",
+      selfPickup: false,
+      checkIns: {
+        crops_ready: { receivedAt: "2026-11-21T08:00:00Z", by: "farmer-9", distanceChecked: false, late: false, outOfRange: false },
+      },
+      reopenExits: [],
+      noShowReopenExits: reopened ? [] : ["pending", "handoff_confirmed"],
+      ...(reopened ? { lastReopen: { at: "2026-11-23T08:00:00Z", exit: reopened, fromJudgement: "trucker_no_show" } } : {}),
+    },
+  };
+}
+
+async function mockNoShowApi(page: Page, state: State): Promise<Captured> {
+  const captured: Captured = { posts: [] };
+  await page.route(/\/admin\//, (route) => json(route, {}));
+  await page.route(/\/admin\/transactions\/ord-9$/, (route) => json(route, noShowDetail(state)));
+  await page.route(/\/admin\/orders\/ord-9\/reopen-no-show$/, (route) => {
+    const body = route.request().postDataJSON() as { exit: "pending" | "handoff_confirmed" };
+    captured.posts.push({ path: "ord-9/reopen-no-show", body });
+    if (state.refuse) {
+      return json(route, { error: state.refuse }, 409);
+    }
+
+    state.reopened = body.exit;
+    return json(route, { orderId: "ord-9", exit: body.exit, alreadyApplied: false, noShowEvent: "excused", message: "ok" });
+  });
+  return captured;
+}
+
+test.describe("Trucker no-show re-open (FUP-330)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+  });
+
+  test("an admin re-opens a trucker no-show with a new window, and the no-show is excused", async ({ page }) => {
+    await seedAdminSession(page);
+    const captured = await mockNoShowApi(page, {});
+    await page.goto("/transactions/ord-9");
+
+    await expect(page.getByText("The trucker did not show up")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Re-open the pickup" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Re-open the no-show" }).click();
+    await page.getByLabel("How you reconciled it").fill(REASON);
+    await page.getByRole("button", { name: "Review" }).click();
+    await expect(
+      page.getByText(
+        "Re-open the no-show with a new deadline 24 hours from now, take the trip booking back and excuse the trucker's no-show?",
+      ),
+    ).toBeVisible();
+    expect(captured.posts).toEqual([]);
+    await page.getByRole("button", { name: "Yes, re-open" }).click();
+
+    await expect(page.getByRole("status")).toHaveText(
+      "The no-show is re-opened: the trucker has a new window until the new deadline. The trucker's no-show is excused.",
+    );
+    expect(captured.posts).toEqual([
+      {
+        path: "ord-9/reopen-no-show",
+        body: { exit: "pending", reason: REASON, expectedVersion: 8, deadlineHours: 24 },
+      },
+    ]);
+    // The page reloads the order: pending again, no action left to take.
+    await expect(page.getByText("Waiting for the pickup deadline")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Re-open the no-show" })).toHaveCount(0);
+  });
+
+  test("a trip that cannot take the order back is shown in words and the form stays", async ({ page }) => {
+    await seedAdminSession(page);
+    await mockNoShowApi(page, {
+      refuse: { code: "PICKUP_REOPEN_TRIP_UNAVAILABLE", message: "The order's trip is full." },
+    });
+    await page.goto("/transactions/ord-9");
+
+    await page.getByRole("button", { name: "Re-open the no-show" }).click();
+    await page.getByRole("radio", { name: /Handoff confirmed/ }).check();
+    await page.getByLabel("How you reconciled it").fill(REASON);
+    await page.getByRole("button", { name: "Review" }).click();
+    await page.getByRole("button", { name: "Yes, re-open" }).click();
+
+    await expect(page.getByRole("alert")).toHaveText(
+      "The trip cannot take the order back (full, departed, cancelled or gone). Reload to see it as it is now.",
+    );
+    await expect(page.getByLabel("How you reconciled it")).toBeVisible();
+  });
+});

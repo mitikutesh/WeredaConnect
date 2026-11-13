@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import en from "@/i18n/en.json";
 import { t, type Locale } from "@/lib/i18n";
+import { NO_SHOW_EVENTS } from "@/lib/pickup";
 
 /* Every key the manual payouts page (ESC-02) reads must exist in all three locales,
  * otherwise the page shows the raw key to an Amharic or Afan Oromo admin. */
@@ -379,9 +380,14 @@ describe("pickup judgement strings exist in every locale", () => {
       : Object.entries(value as Record<string, unknown>).flatMap(([k, v]) => flatten(`${prefix}.${k}`, v));
   const keys = [
     ...flatten("pickup", en.pickup),
-    ...["PICKUP_REOPEN_INVALID", "PICKUP_REOPEN_NOT_ALLOWED", "PICKUP_REOPEN_CHANGED", "PICKUP_REOPEN_MONEY_NOT_HELD"].map(
-      (code) => `errors.${code}`,
-    ),
+    ...[
+      "PICKUP_REOPEN_INVALID",
+      "PICKUP_REOPEN_NOT_ALLOWED",
+      "PICKUP_REOPEN_CHANGED",
+      "PICKUP_REOPEN_MONEY_NOT_HELD",
+      // FUP-330
+      "PICKUP_REOPEN_TRIP_UNAVAILABLE",
+    ].map((code) => `errors.${code}`),
   ];
   for (const locale of locales) {
     it(`${locale} has every pickup key and the codes`, () => {
@@ -401,6 +407,9 @@ describe("pickup judgement strings exist in every locale", () => {
       expect(sent.filter((key) => t(key, locale) === key)).toEqual([]);
       expect(t("pickup.reopen.hoursOption", locale)).toContain("{hours}");
       expect(t("pickup.reopen.confirmPending", locale)).toContain("{hours}");
+      // FUP-330: the trucker no-show re-open's confirm, and a line for every noShowEvent the server sends.
+      expect(t("pickup.noShowReopen.confirmPending", locale)).toContain("{hours}");
+      expect(NO_SHOW_EVENTS.map((e) => `pickup.noShowEvent_${e}`).filter((key) => t(key, locale) === key)).toEqual([]);
     }
   });
 });

@@ -597,6 +597,42 @@ public sealed class DeliveryRepository : IDeliveryRepository
         }
     };
 
+    /// <summary>
+    /// FUP-330: the delivery a trucker no-show judgement cancelled, back to <c>pickedUp</c> when an admin confirms the
+    /// handoff a late scan proved, as an item of the order's transaction: the status, <c>pickedUpAt</c> and
+    /// <c>updatedAt</c> the server's time, the version moved by one, conditioned on the delivery still <c>cancelled</c>
+    /// at the version read with no <c>cancelReason</c>, verdict or soft delete (the judgement's plain cancel). As with
+    /// <see cref="BuildConfirmedPickupItem"/>, nothing a scan would have carried is written.
+    /// </summary>
+    public TransactWriteItem BuildRevivedPickupItem(string deliveryId, string tripId, int expectedVersion, string nowIso) => new()
+    {
+        Update = new Update
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            UpdateExpression = "SET #status = :pickedUp, #pickedUpAt = :now, #updated = :now, #v = :next",
+            ConditionExpression = "#status = :cancelled AND #v = :expected AND attribute_not_exists(#cancelReason)"
+                                  + " AND attribute_not_exists(#resolution) AND attribute_not_exists(#deletedAt)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }, { "#pickedUpAt", "pickedUpAt" }, { "#updated", "updatedAt" }, { "#v", "version" },
+                { "#cancelReason", "cancelReason" }, { "#resolution", "disputeResolution" }, { "#deletedAt", "deletedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":pickedUp", new AttributeValue { S = "pickedUp" } },
+                { ":cancelled", new AttributeValue { S = "cancelled" } },
+                { ":now", new AttributeValue { S = nowIso } },
+                { ":expected", new AttributeValue { N = expectedVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":next", new AttributeValue { N = (expectedVersion + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) } }
+            }
+        }
+    };
+
     /// <inheritdoc />
     public async Task<bool> TryStampNearbyAsync(
         string deliveryId, string tripId, string notifiedAt, double distanceKm, int? minutes)

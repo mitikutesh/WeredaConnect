@@ -40,6 +40,13 @@ public sealed record AdminPickupEvidenceDto
     /// </summary>
     public List<string> ReopenExits { get; init; } = new();
 
+    /// <summary>
+    /// FUP-330: the exits <c>POST /admin/orders/{orderId}/reopen-no-show</c> takes for a trucker no-show as read:
+    /// <c>pending</c>, <c>handoff_confirmed</c>, or none. The action reads the order, its delivery, its trip and its
+    /// escrow again before it writes (a trip that cannot take the booking back is refused then).
+    /// </summary>
+    public List<string> NoShowReopenExits { get; init; } = new();
+
     /// <summary>The last re-open, when an admin re-opened the judgement.</summary>
     public AdminPickupReopenDto? LastReopen { get; init; }
 }
@@ -85,7 +92,7 @@ public sealed record AdminPickupReopenDto
     /// <summary><c>pending</c> or <c>handoff_confirmed</c>.</summary>
     public string? Exit { get; init; }
 
-    /// <summary>The judgement it re-opened (<c>both_present_no_scan</c> or <c>unchecked_check_in</c>).</summary>
+    /// <summary>The judgement it re-opened (<c>both_present_no_scan</c>, <c>unchecked_check_in</c> or, FUP-330, <c>trucker_no_show</c>).</summary>
     public string? FromJudgement { get; init; }
 
     /// <summary>The new pickup deadline of a <c>pending</c> re-open.</summary>
@@ -133,6 +140,13 @@ public sealed record PickupReopenResponse
 
     /// <summary>The order already carried this re-open (same exit from the same version): nothing was written.</summary>
     public bool AlreadyApplied { get; init; }
+
+    /// <summary>
+    /// FUP-330, a trucker no-show re-open only: what happened to the trucker's <c>NO_SHOW</c> event
+    /// (<see cref="Helpers.NoShowReopen.NoShowEvent"/>: <c>excused</c>, <c>already_excused</c>, <c>not_recorded</c>,
+    /// <c>not_counted</c>, <c>upheld</c>, <c>off</c> or <c>failed</c>). Absent on <c>reopen-pickup</c>.
+    /// </summary>
+    public string? NoShowEvent { get; init; }
 
     public required string Message { get; init; }
 }

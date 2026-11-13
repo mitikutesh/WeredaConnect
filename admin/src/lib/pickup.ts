@@ -28,8 +28,22 @@ export interface PickupEvidence {
   pointLongitude?: number;
   checkIns?: Record<string, CheckInEvidence>;
   reopenExits: ReopenExit[];
+  /** FUP-330: the exits the trucker no-show re-open takes (POST /admin/orders/{orderId}/reopen-no-show). */
+  noShowReopenExits?: ReopenExit[];
   lastReopen?: { at?: string; exit?: string; fromJudgement?: string; deadlineAt?: string };
 }
+
+/** Which re-open: FUP-287's of a judgement that left the order accepted, or FUP-330's of a trucker no-show. */
+export type ReopenKind = "judgement" | "noShow";
+
+/** The route action of each re-open. */
+export const REOPEN_ACTIONS: Record<ReopenKind, "reopen-pickup" | "reopen-no-show"> = {
+  judgement: "reopen-pickup",
+  noShow: "reopen-no-show",
+};
+
+/** What a trucker no-show re-open did with the trucker's NO_SHOW event (`noShowEvent` of the answer). */
+export const NO_SHOW_EVENTS = ["excused", "already_excused", "not_recorded", "not_counted", "upheld", "off", "failed"] as const;
 
 /** The two check-in kinds of the judgement, in the order they are shown. */
 export const CHECK_IN_KINDS = ["arrived_pickup", "crops_ready"] as const;
