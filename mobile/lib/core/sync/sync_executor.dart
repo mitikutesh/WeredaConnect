@@ -1657,7 +1657,7 @@ class SyncExecutor {
   /// transit" (a cancel needs a pending delivery, a dispute a delivered
   /// one). It was sent at the pickup's version plus one, so while the server
   /// holds the delivery `pending` it can only be refused. Another user's
-  /// operation (the farmer's `qrNonce` on a shared phone) and one queued
+  /// status change (a buyer's confirm on a shared phone) and one queued
   /// before the pickup (the delivery's create) are never matched.
   static bool _changesStatusAfter(
     SyncOperation waiting,

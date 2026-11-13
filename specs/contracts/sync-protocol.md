@@ -1701,7 +1701,7 @@ version plus one, so while the server holds the delivery `pending` it is answere
 (three times, then again on every reconnect). The phone stayed `inTransit`, and with
 `pickupClassification` on, T7 judged a trucker no-show while the trucker held the goods. Since 1.63.0,
 when the queue rejects a pickup by a code that puts the delivery back, it also rejects, before the
-revert, every operation of that delivery still waiting (pending, or failed with retries left) that sets
+revert, every operation of that delivery still waiting (pending, or failed and not yet rejected) that sets
 a `status`, was queued after the pickup and belongs to the same user (the `{userId}:` prefix of the
 idempotency key), and the revert flags it with the pickup: the phone shows the server's `pending`, the
 mark is never sent again, nothing counts as "Sync failed", and the pickup's refusal is the one
