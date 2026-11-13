@@ -5,17 +5,21 @@ import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_delivery_location.dart';
+import 'package:wereda_connect/core/models/order_dropoff_check_in.dart';
 import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/sync_operation.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
 /// Offline-first repository for order CRUD operations.
@@ -757,6 +761,86 @@ class OrderRepository extends BaseOrderRepository {
       operationId: _uuid.v4(),
     );
     return true;
+  }
+
+  /// ESC-36 (FUP-336): the trucker's drop-off check-in, queued behind the
+  /// arrival photo (offline-first). A new [arrivalPhotoRef] (this phone's
+  /// file of [deliveryId]) is kept on the local delivery, so the photo shows
+  /// and the next attempt does not ask for another, and queued as
+  /// `delivery_photo` `{deliveryId}#arrival` (the sync preflight uploads it),
+  /// unless one already waits. The check-in names its delivery in a `_` key,
+  /// never sent: the sync preflight holds it back while that photo waits.
+  /// As for [checkIn], the queued operation is the local mark and every
+  /// `CHECKIN_*` refusal takes it back.
+  @override
+  Future<bool> checkInAtDropoff(
+    String orderId,
+    String userId, {
+    required String deliveryId,
+    required HandoffCheckInFix? fix,
+    String? arrivalPhotoRef,
+  }) async {
+    final order = await _withQueuedCheckIns(
+      await _findOrder(orderId),
+      userId: userId,
+    );
+    final now = DateTime.now().toUtc();
+    if (!checkDropoffCheckInAllowed(order, userId, fix, now)) return false;
+    final photo = arrivalPhotoRef;
+    final photoId = deliveryPhotoEntityId(deliveryId, arrivalPhotoType);
+    if (photo != null &&
+        DeliveryConstants.isLocalPhotoPath(photo, deliveryId) &&
+        !await _syncQueue.hasWaitingOperationsFor(
+          deliveryPhotoEntityType,
+          photoId,
+        )) {
+      await _keepArrivalPhoto(deliveryId, photo);
+      await _syncQueue.enqueue(
+        userId: userId,
+        entityType: deliveryPhotoEntityType,
+        entityId: photoId,
+        action: 'create',
+        data: jsonEncode({deliveryPhotoLocalPathKey: photo}),
+        operationId: _uuid.v4(),
+      );
+    }
+    await _syncQueue.enqueue(
+      userId: userId,
+      entityType: handoffCheckInEntityType,
+      entityId: handoffCheckInEntityId(orderId, CheckInKind.arrivedDropoff),
+      action: 'create',
+      data: jsonEncode({
+        ...handoffCheckInData(
+          orderId: orderId,
+          kind: CheckInKind.arrivedDropoff,
+          capturedAt: now,
+          fix: fix,
+        ),
+        handoffCheckInDeliveryIdKey: deliveryId,
+      }),
+      operationId: _uuid.v4(),
+    );
+    return true;
+  }
+
+  /// The local delivery shows the arrival photo this phone took until the
+  /// server's key replaces it (FRD-12's attach clean-up). A server key that is
+  /// there already stays.
+  Future<void> _keepArrivalPhoto(String deliveryId, String path) async {
+    await _isar.writeTxn(() async {
+      final delivery = await _isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(deliveryId)
+          .findFirst();
+      final current = delivery?.arrivalPhotoRef;
+      if (delivery == null ||
+          (current != null &&
+              DeliveryConstants.isServerPhotoRef(current, deliveryId))) {
+        return;
+      }
+      delivery.arrivalPhotoRef = path;
+      await _isar.deliverys.put(delivery);
+    });
   }
 
   /// [point] when the server takes it (inside Ethiopia's box), else null.

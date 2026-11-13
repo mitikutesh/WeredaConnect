@@ -32,6 +32,11 @@ class Delivery {
   LatLng? gpsDropoff;
   String? pickupPhotoRef;
   String? dropoffPhotoRef;
+
+  /// ESC-36: the trucker's arrival photo and the system's confirm for a
+  /// silent buyer (see the Isar schema).
+  String? arrivalPhotoRef;
+  DateTime? autoConfirmedAt;
   late DeliveryStatus status;
   DateTime? pickedUpAt;
   DateTime? confirmedAt;

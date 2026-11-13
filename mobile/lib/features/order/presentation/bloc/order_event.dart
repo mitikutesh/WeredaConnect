@@ -255,6 +255,36 @@ class CheckInAtPickup extends OrderEvent {
       ];
 }
 
+/// ESC-36 (FUP-336): the trucker's "Arrived at drop-off" on [orderId]: the
+/// arrival photo of [deliveryId] first ([arrivalPhotoRef], null when the
+/// delivery has it already), then the check-in with its GPS [fix].
+class CheckInAtDropoff extends OrderEvent {
+  final String orderId;
+  final String userId;
+  final String deliveryId;
+  final HandoffCheckInFix fix;
+  final String? arrivalPhotoRef;
+
+  const CheckInAtDropoff({
+    required this.orderId,
+    required this.userId,
+    required this.deliveryId,
+    required this.fix,
+    this.arrivalPhotoRef,
+  });
+
+  @override
+  List<Object?> get props => [
+        orderId,
+        userId,
+        deliveryId,
+        fix.latitude,
+        fix.longitude,
+        fix.accuracyM,
+        arrivalPhotoRef,
+      ];
+}
+
 /// Load a single order by its ID.
 class LoadOrderById extends OrderEvent {
   final String orderId;

@@ -5892,4 +5892,116 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get checkInAlreadyGiven => 'You have already checked in.';
+
+  @override
+  String get deliveryPhotoArrival => 'Arrival Photo';
+
+  @override
+  String deliveryAutoConfirmedAt(String time) {
+    return 'Confirmed by the system $time, after the buyer did not respond to the trucker\'s check-in at the drop-off.';
+  }
+
+  @override
+  String get dropoffCheckInTitle => 'Drop-off check-in';
+
+  @override
+  String get dropoffCheckInPartyTrucker => 'Trucker at the drop-off';
+
+  @override
+  String get dropoffCheckInButton => 'Arrived at drop-off';
+
+  @override
+  String get dropoffCheckInPhotoHint =>
+      'First take a photo of the goods at the drop-off, then your location is read.';
+
+  @override
+  String dropoffCheckInTruckerNote(String time) {
+    return 'Check in when you reach the drop-off, by $time. Without a check-in by then, the delivery goes to support as overdue.';
+  }
+
+  @override
+  String dropoffCheckInWaitingNote(String time) {
+    return 'The trucker checks in at the drop-off by $time. Without a check-in by then, the delivery goes to support as overdue.';
+  }
+
+  @override
+  String dropoffCheckInBuyerConfirmBy(String time) {
+    return 'The trucker has checked in at the drop-off. Confirm the delivery when you have the crops. If you have not confirmed by $time, the delivery may be confirmed for you.';
+  }
+
+  @override
+  String dropoffCheckInPartyConfirmBy(String time) {
+    return 'The trucker has checked in at the drop-off. If the buyer has not confirmed by $time, the delivery may be confirmed for them.';
+  }
+
+  @override
+  String get dropoffCheckInOutcomeSoon =>
+      'The deadline has passed. The outcome follows soon.';
+
+  @override
+  String get dropoffCheckInNeedsLocation =>
+      'We could not read your location. Turn on location and try again at the drop-off.';
+
+  @override
+  String get dropoffCheckInLocationBlocked =>
+      'Location is blocked for this app. Allow it in the app settings, then try again at the drop-off.';
+
+  @override
+  String get dropoffCheckInLocationBlockedWeb =>
+      'Location is blocked for this site. Allow it in the browser\'s site settings, then try again at the drop-off.';
+
+  @override
+  String get dropoffJudgementClosed =>
+      'The delivery was confirmed or disputed before the deadline.';
+
+  @override
+  String get dropoffJudgementAutoConfirmed =>
+      'Confirmed by the system: the buyer did not respond after the trucker checked in at the drop-off. The buyer can still report a problem within the usual 48 hours.';
+
+  @override
+  String get dropoffJudgementSilentBuyer =>
+      'The buyer did not respond after the trucker checked in, and the delivery could not be confirmed automatically. Support is looking into it and the money stays held.';
+
+  @override
+  String get dropoffJudgementDeliveryOverdue =>
+      'No drop-off check-in arrived by the delivery deadline. Support is looking into it and the money stays held.';
+
+  @override
+  String get dropoffJudgementOutOfRange =>
+      'The trucker tried to check in but was more than 5 km from the drop-off. Support is looking into it and the money stays held.';
+
+  @override
+  String get dropoffJudgementQueued =>
+      'Support is reviewing this delivery. The money stays held.';
+
+  @override
+  String get dropoffJudgementOther => 'The delivery was judged.';
+
+  @override
+  String get errorCheckInPhotoRequired =>
+      'The arrival photo has not reached the server. Take the arrival photo first, then check in at the drop-off again.';
+
+  @override
+  String get errorDropoffCheckInNotOpen =>
+      'Drop-off check-ins are not open for this delivery, so your check-in was not saved.';
+
+  @override
+  String get errorDropoffCheckInNotParty =>
+      'Only the order\'s trucker checks in at the drop-off. Your check-in was not saved.';
+
+  @override
+  String get errorDropoffCheckInTooFar =>
+      'You are more than 5 km from the drop-off. Your check-in was not saved, so check in again when you are closer.';
+
+  @override
+  String get errorDropoffCheckInTooFarKept =>
+      'You are more than 5 km from the drop-off. Your check-in was not saved, but this attempt was kept for review. Check in again when you are closer.';
+
+  @override
+  String get errorDropoffCheckInTooLate =>
+      'Your check-in reached the server after the delivery deadline, so it does not count. It was kept for review.';
+
+  @override
+  String get errorDropoffCheckInClosed =>
+      'The delivery deadline has passed, so check-ins are closed. Your check-in was not saved.';
 }

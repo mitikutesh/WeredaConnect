@@ -814,7 +814,12 @@ class SyncExecutor {
       if (go) {
         ready.add(op);
       } else {
-        _notReadyThisRun.add(key);
+        // FUP-336: a drop-off check-in waits only for its arrival photo,
+        // which this run's batch may attach: it is asked again in the next
+        // batch instead of waiting for the next run.
+        if (op.entityType != handoffCheckInEntityType) {
+          _notReadyThisRun.add(key);
+        }
         held++;
       }
     }

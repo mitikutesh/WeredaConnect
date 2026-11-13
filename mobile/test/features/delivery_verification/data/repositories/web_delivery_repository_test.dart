@@ -326,6 +326,30 @@ void main() {
 
       expect(delivery!.pickupPhotoRef, isNull);
       expect(delivery.dropoffPhotoRef, isNull);
+      expect(delivery.arrivalPhotoRef, isNull);
+      expect(delivery.autoConfirmedAt, isNull);
+    });
+
+    // FUP-336 (ESC-36): the trucker's arrival photo and the system's confirm
+    // for a silent buyer.
+    test("GET by id carries the arrival photo and the system's confirm",
+        () async {
+      const arrivalKey = 'uploads/photos/del-1/arrival-1700000000000.jpg';
+      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1')).thenAnswer(
+        (_) async => {
+          'delivery': {
+            ...row,
+            'arrivalPhotoRef': arrivalKey,
+            'autoConfirmedAt': '2026-11-10T08:01:00Z',
+          },
+        },
+      );
+
+      final delivery =
+          await repository.getDeliveryById('del-1', userId: 'buyer-1');
+
+      expect(delivery!.arrivalPhotoRef, arrivalKey);
+      expect(delivery.autoConfirmedAt, DateTime.utc(2026, 11, 10, 8, 1));
     });
   });
 

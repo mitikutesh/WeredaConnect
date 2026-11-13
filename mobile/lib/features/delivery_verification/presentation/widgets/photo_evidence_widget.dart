@@ -54,9 +54,7 @@ class PhotoEvidenceWidget extends StatelessWidget {
         _photo(context),
         const SizedBox(height: 6),
         Text(
-          photoType == PhotoType.pickup
-              ? AppLocalizations.of(context)!.deliveryPhotoPickup
-              : AppLocalizations.of(context)!.deliveryPhotoDropoff,
+          photoTypeLabel(AppLocalizations.of(context)!, photoType),
           style: const TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w500,
@@ -105,6 +103,14 @@ class PhotoEvidenceWidget extends StatelessWidget {
     );
   }
 }
+
+/// The name of a handoff photo under its tile.
+String photoTypeLabel(AppLocalizations l10n, PhotoType type) => switch (type) {
+      PhotoType.pickup => l10n.deliveryPhotoPickup,
+      PhotoType.dropoff => l10n.deliveryPhotoDropoff,
+      // ESC-36 (FUP-336): the trucker's arrival photo at the drop-off.
+      PhotoType.arrival => l10n.deliveryPhotoArrival,
+    };
 
 /// The 120 by 120 rounded tile a photo sits in.
 class _Frame extends StatelessWidget {
@@ -174,9 +180,7 @@ class _RemotePhotoState extends State<_RemotePhoto> {
     return _Frame(
       child: Semantics(
         image: true,
-        label: widget.photoType == PhotoType.pickup
-            ? AppLocalizations.of(context)!.deliveryPhotoPickup
-            : AppLocalizations.of(context)!.deliveryPhotoDropoff,
+        label: photoTypeLabel(AppLocalizations.of(context)!, widget.photoType),
         child: CachedNetworkImage(
           imageUrl: url,
           cacheKey: widget.photoRef,

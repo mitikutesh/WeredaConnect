@@ -1,5 +1,6 @@
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 
 /// ESC-34, the client part (FUP-285): the arrival check-ins of an accepted
 /// order and its pickup judgement, as the client reads them
@@ -10,10 +11,14 @@ import 'package:wereda_connect/core/models/order.dart';
 /// the pickup at the deadline by the time it received each check-in; these
 /// helpers only decide what to show and which button to offer.
 
-/// The check-in kinds (`arrived_dropoff` comes with ESC-36).
+/// The check-in kinds.
 abstract final class CheckInKind {
   static const arrivedPickup = 'arrived_pickup';
   static const cropsReady = 'crops_ready';
+
+  /// ESC-36 (FUP-336): the trucker at the drop-off, with the arrival photo
+  /// and a GPS fix (`order_dropoff_check_in.dart`).
+  static const arrivedDropoff = dropoffCheckInKind;
 }
 
 /// The values of [Order.pickupJudgement].
@@ -241,17 +246,24 @@ Map<String, Object> handoffCheckInData({
       },
     };
 
-/// Reads the pickup judgement and the check-ins of a server order map
+/// Reads the pickup judgement, the drop-off judgement (ESC-36,
+/// order-lifecycle 2.18.0, FUP-336) and the check-ins of a server order map
 /// (`GET /orders`, `GET /orders/{id}`, `/sync` rows) into [order]. An order
-/// accepted without the flag carries none, which clears the device's copy.
+/// accepted or picked up without the flags carries none, which clears the
+/// device's copy.
 void applyOrderCheckInFields(Order order, Map<String, dynamic> m) {
-  final judgement = m['pickupJudgement'];
   order
-    ..pickupJudgement =
-        judgement is String && judgement.isNotEmpty ? judgement : null
+    ..pickupJudgement = _text(m['pickupJudgement'])
     ..pickupJudgedAt = _utc(m['pickupJudgedAt'])
-    ..checkIns = parseOrderCheckIns(m['checkIns']);
+    ..checkIns = parseOrderCheckIns(m['checkIns'])
+    ..dropoffJudgement = _text(m['dropoffJudgement'])
+    ..dropoffJudgedAt = _utc(m['dropoffJudgedAt'])
+    ..dropoffDeadlineAt = _utc(m['dropoffDeadlineAt'])
+    ..disputeReason = _text(m['disputeReason']);
 }
+
+String? _text(Object? value) =>
+    value is String && value.isNotEmpty ? value : null;
 
 /// The check-ins of a server `checkIns` map (`{kind: {receivedAt,
 /// capturedAt?, distanceChecked, late}}`), in kind order; an entry without a

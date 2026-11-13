@@ -171,6 +171,8 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
         entityType: event.entityType,
         action: event.action,
         message: message,
+        // FUP-336: a check-in's kind picks its texts.
+        entityId: event.entityId,
       ),
       l10n,
       // ESC-31: a reputation refusal names the day the restriction ends.

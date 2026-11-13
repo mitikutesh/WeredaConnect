@@ -104,6 +104,30 @@ void main() {
     expect(deleted, [(_deliveryId, PhotoType.pickup)]);
   });
 
+  test("ESC-36: the trucker's arrival photo takes its key the same way",
+      () async {
+    const localArrival =
+        '/data/user/0/app/files/photos/$_deliveryId/arrival-1700000000000.webp';
+    const arrivalKey = 'uploads/photos/$_deliveryId/arrival-1700000000000.webp';
+    await isar.writeTxn(() async {
+      final row = await stored();
+      row.arrivalPhotoRef = localArrival;
+      await isar.deliverys.put(row);
+    });
+
+    await cleanup(
+      deliveryId: _deliveryId,
+      type: 'arrival',
+      photoRef: arrivalKey,
+      localPath: localArrival,
+    );
+
+    expect((await stored()).arrivalPhotoRef, arrivalKey);
+    expect((await stored()).pickupPhotoRef, _localPickup);
+    expect((await stored()).dropoffPhotoRef, _localDropoff);
+    expect(deleted, [(_deliveryId, PhotoType.arrival)]);
+  });
+
   test('a delivery gone from the phone still loses its files', () async {
     await cleanup(
       deliveryId: '660e8400-e29b-41d4-a716-446655440099',

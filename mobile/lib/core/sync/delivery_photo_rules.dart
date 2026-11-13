@@ -15,10 +15,15 @@ const String deliveryPhotoRefKey = 'photoRef';
 /// photo is uploaded, to delete the file after the attach.
 const String deliveryPhotoLocalPathKey = '_localPath';
 
-/// The entity id of a delivery's [type] photo (`pickup` or `dropoff`):
-/// `{deliveryId}#{type}`. It names the photo, not the delivery, so a photo
-/// still waiting to upload never holds back the delivery's own operations
-/// or its server refresh.
+/// The photo type of the trucker's arrival photo at the drop-off (ESC-36,
+/// FUP-336, `delivery-verification-api.md` 2.10.0): attached before the
+/// drop-off check-in, which the server refuses without it.
+const String arrivalPhotoType = 'arrival';
+
+/// The entity id of a delivery's [type] photo (`pickup`, `dropoff` or
+/// [arrivalPhotoType]): `{deliveryId}#{type}`. It names the photo, not the
+/// delivery, so a photo still waiting to upload never holds back the
+/// delivery's own operations or its server refresh.
 String deliveryPhotoEntityId(String deliveryId, String type) =>
     '$deliveryId#$type';
 
@@ -30,7 +35,9 @@ String deliveryPhotoEntityId(String deliveryId, String type) =>
   final separator = entityId.lastIndexOf('#');
   if (separator <= 0) return null;
   final type = entityId.substring(separator + 1);
-  if (type != 'pickup' && type != 'dropoff') return null;
+  if (type != 'pickup' && type != 'dropoff' && type != arrivalPhotoType) {
+    return null;
+  }
   return (deliveryId: entityId.substring(0, separator), type: type);
 }
 

@@ -75,6 +75,13 @@ class Order {
   DateTime? pickupJudgedAt;
   List<OrderCheckIn> checkIns = [];
 
+  /// ESC-36: the drop-off judgement, when it was made, T8 and the system's
+  /// dispute reason (order-lifecycle 2.18.0; see the Isar schema).
+  String? dropoffJudgement;
+  DateTime? dropoffJudgedAt;
+  DateTime? dropoffDeadlineAt;
+  String? disputeReason;
+
   /// FUP-285: check-ins made on the phone and not refused. Always empty on
   /// web, which sends a check-in at once (see the Isar schema).
   Map<String, QueuedCheckIn> queuedCheckIns = const {};

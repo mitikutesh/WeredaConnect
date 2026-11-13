@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_dropoff_check_in.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
@@ -15,6 +16,8 @@ import 'package:wereda_connect/features/delivery_verification/data/delivery_cons
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/initiate_payment_screen.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/dropoff_check_in_card.dart';
 import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
 import 'package:wereda_connect/features/live_trip/presentation/open_live_trip.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
@@ -181,6 +184,47 @@ class DeliveryDetailScreen extends StatelessWidget {
                                 deliveryId: delivery.deliveryId,
                                 notYet: l10n.deliveryNotYetDelivered,
                                 clock: clock,
+                              ),
+
+                              // ESC-36 (FUP-336): the system confirmed the
+                              // delivery for a buyer who said nothing.
+                              if (delivery.autoConfirmedAt != null) ...[
+                                const SizedBox(height: 12),
+                                FwNoteBox.cream(
+                                  key: const Key('delivery_auto_confirmed'),
+                                  icon: Icons.verified_outlined,
+                                  child: ClockText(
+                                    clock.deadline(
+                                      delivery.autoConfirmedAt!,
+                                      date: DateFormat.MMMd(),
+                                      sentence: l10n.deliveryAutoConfirmedAt,
+                                    ),
+                                  ),
+                                ),
+                              ],
+
+                              // ESC-36: the trucker's arrival photo at the
+                              // drop-off, which the server signs for the
+                              // delivery's three parties.
+                              if (delivery.arrivalPhotoRef?.isNotEmpty ??
+                                  false) ...[
+                                const SizedBox(height: 12),
+                                FwCard(
+                                  key: const Key('delivery_arrival_photo'),
+                                  child: PhotoEvidenceWidget(
+                                    photoRef: delivery.arrivalPhotoRef,
+                                    photoType: PhotoType.arrival,
+                                    deliveryId: delivery.deliveryId,
+                                    canCapture: false,
+                                  ),
+                                ),
+                              ],
+
+                              // ESC-36: the trucker's drop-off check-in and
+                              // what happens next, from the order.
+                              _DropoffSummary(
+                                delivery: delivery,
+                                currentUserId: currentUserId,
                               ),
 
                               if (delivery.status ==
@@ -915,6 +959,65 @@ class _StageCard extends StatelessWidget {
   }
 }
 
+/// ESC-36 (FUP-336): the drop-off check-in of the delivery's order as the
+/// order detail shows it, without the trucker's button: the check-in time,
+/// for the buyer by when to confirm before the delivery may be confirmed for
+/// them (T9), and the outcome. Read from the order repository (the phone's
+/// copy, or the server on web); nothing shows without the order, or on an
+/// order not stamped for the drop-off judgement.
+class _DropoffSummary extends StatefulWidget {
+  final Delivery delivery;
+  final String currentUserId;
+
+  const _DropoffSummary({
+    required this.delivery,
+    required this.currentUserId,
+  });
+
+  @override
+  State<_DropoffSummary> createState() => _DropoffSummaryState();
+}
+
+class _DropoffSummaryState extends State<_DropoffSummary> {
+  Order? _order;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final orderId = widget.delivery.orderId;
+    if (orderId == null || orderId.isEmpty) return;
+    Order? order;
+    try {
+      order = await context.read<OrderBloc>().repository.getOrderById(orderId);
+    } on Object catch (e) {
+      // No order side above this screen, or offline on web: nothing shows.
+      debugPrint('[DeliveryDetail] order not read: $e');
+    }
+    if (!mounted || order == null) return;
+    setState(() => _order = order);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final order = _order;
+    if (order == null || !DropoffCheckInCard.showsFor(order)) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: DropoffCheckInCard(
+        order: order,
+        userId: widget.currentUserId,
+        actions: false,
+      ),
+    );
+  }
+}
+
 /// The dispute on this delivery: the status and the reason given, on the
 /// red tint.
 class _DisputeCard extends StatelessWidget {
@@ -925,7 +1028,15 @@ class _DisputeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final reason = this.reason;
+    // ESC-36 (FUP-336): a dispute the system opened carries its code as the
+    // reason; it is shown as the outcome's label, never the raw code.
+    final reason = switch (this.reason) {
+      DropoffJudgementOutcome.deliveryOverdue ||
+      DropoffJudgementOutcome.dropoffOutOfRange ||
+      DropoffJudgementOutcome.silentBuyer =>
+        dropoffJudgementLabel(l10n, this.reason),
+      final other => other,
+    };
     return FwNoteBox(
       icon: Icons.warning_amber_rounded,
       background: AppTheme.statusErrorContainer,

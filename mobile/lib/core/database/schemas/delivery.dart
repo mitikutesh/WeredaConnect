@@ -92,6 +92,14 @@ class Delivery {
   /// Reference to dropoff photo evidence file
   String? dropoffPhotoRef;
 
+  /// ESC-36 (FUP-336): the trucker's arrival photo at the drop-off: the
+  /// server's key, or this phone's file while its upload waits in the queue.
+  String? arrivalPhotoRef;
+
+  /// ESC-36: when the order cron confirmed the delivery for a silent buyer
+  /// (UTC, T9). Null when the buyer confirmed. Server-written.
+  DateTime? autoConfirmedAt;
+
   /// Current status of the delivery
   @Index()
   @Enumerated(EnumType.name)

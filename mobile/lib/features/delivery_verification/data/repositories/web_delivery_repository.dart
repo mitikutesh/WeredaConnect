@@ -714,6 +714,11 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       // their presigned URLs from GET /deliveries/{id}.
       ..pickupPhotoRef = m['pickupPhotoRef'] as String?
       ..dropoffPhotoRef = m['dropoffPhotoRef'] as String?
+      // ESC-36 (FUP-336): the trucker's arrival photo and the system's
+      // confirm for a silent buyer.
+      ..arrivalPhotoRef = m['arrivalPhotoRef'] as String?
+      ..autoConfirmedAt =
+          DateTime.tryParse(m['autoConfirmedAt'] as String? ?? '')?.toUtc()
       ..pickedUpAt = DateTime.tryParse(m['pickedUpAt'] as String? ?? '')
       ..confirmedAt = DateTime.tryParse(m['confirmedAt'] as String? ?? '')
       ..disputeReason = m['disputeReason'] as String?

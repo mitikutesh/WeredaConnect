@@ -267,6 +267,13 @@ class ConflictResolver {
             _localPhotoPath(delivery!.pickupPhotoRef);
         delivery!.dropoffPhotoRef = serverData['dropoffPhotoRef'] as String? ??
             _localPhotoPath(delivery!.dropoffPhotoRef);
+        // ESC-36 (FUP-336): the trucker's arrival photo, kept the same way,
+        // and the system's confirm for a silent buyer.
+        delivery!.arrivalPhotoRef = serverData['arrivalPhotoRef'] as String? ??
+            _localPhotoPath(delivery!.arrivalPhotoRef);
+        delivery!.autoConfirmedAt =
+            DateTime.tryParse(serverData['autoConfirmedAt'] as String? ?? '')
+                ?.toUtc();
         delivery!.disputeReason = serverData['disputeReason'] as String?;
 
         // Timestamps

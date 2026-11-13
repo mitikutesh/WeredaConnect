@@ -45,6 +45,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/delivery_place.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/dropoff_check_in_card.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/dropoff_note.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
@@ -74,9 +75,14 @@ class OrderDetailScreen extends StatefulWidget {
   /// GPS when null.
   final GpsCaptureService? gpsService;
 
+  /// FUP-336: takes the trucker's arrival photo at the drop-off; the camera
+  /// when null.
+  final ArrivalPhotoTaker? takeArrivalPhoto;
+
   const OrderDetailScreen({
     required this.orderId,
     this.gpsService,
+    this.takeArrivalPhoto,
     super.key,
   });
 
@@ -344,6 +350,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               busy: state is OrderLoading,
               onRefresh: _onPullToRefresh,
               gpsService: widget.gpsService,
+              takeArrivalPhoto: widget.takeArrivalPhoto,
             );
           }
           return SafeArea(
@@ -416,6 +423,9 @@ class _OrderDetailBody extends StatelessWidget {
   /// FUP-285: the arrival check-in's GPS ([OrderDetailScreen.gpsService]).
   final GpsCaptureService? gpsService;
 
+  /// FUP-336: the arrival photo ([OrderDetailScreen.takeArrivalPhoto]).
+  final ArrivalPhotoTaker? takeArrivalPhoto;
+
   const _OrderDetailBody({
     required this.order,
     required this.onRefresh,
@@ -423,6 +433,7 @@ class _OrderDetailBody extends StatelessWidget {
     this.holdChecked = true,
     this.busy = false,
     this.gpsService,
+    this.takeArrivalPhoto,
   });
 
   @override
@@ -571,6 +582,16 @@ class _OrderDetailBody extends StatelessWidget {
                           userId: userId,
                           busy: busy,
                           gpsService: gpsService,
+                        ),
+
+                      // ── Drop-off check-in (ESC-36, FUP-336) ──────────
+                      if (DropoffCheckInCard.showsFor(order))
+                        DropoffCheckInCard(
+                          order: order,
+                          userId: userId,
+                          busy: busy,
+                          gpsService: gpsService,
+                          takeArrivalPhoto: takeArrivalPhoto,
                         ),
 
                       // Farmer · Answer a new order: what accepting and

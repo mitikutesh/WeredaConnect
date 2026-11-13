@@ -677,6 +677,41 @@ void main() {
       expect((await isar.deliverys.where().findFirst())!.pickupPhotoRef, key);
     });
 
+    // FUP-336 (ESC-36): the trucker's arrival photo is kept the same way,
+    // and the pull reads the system's confirm for a silent buyer.
+    test(
+        'pullDeliveries keeps the arrival photo path and reads '
+        'autoConfirmedAt', () async {
+      const local = '/data/user/0/app/files/photos/del-1/arrival-1.webp';
+      await isar.writeTxn(() async {
+        await isar.deliverys.put(
+          _localDelivery(status: DeliveryStatus.pickedUp, version: 2)
+            ..arrivalPhotoRef = local,
+        );
+      });
+
+      stubApi(deliveries: [_deliveryJson()]);
+      await buildSync(currentUserId: () async => 'trucker-1').pullDeliveries();
+      var stored = (await isar.deliverys.where().findFirst())!;
+      expect(stored.arrivalPhotoRef, local);
+      expect(stored.autoConfirmedAt, isNull);
+
+      const key = 'uploads/photos/del-1/arrival-1700000000000.webp';
+      stubApi(
+        deliveries: [
+          {
+            ..._deliveryJson(),
+            'arrivalPhotoRef': key,
+            'autoConfirmedAt': '2026-11-10T08:01:00Z',
+          },
+        ],
+      );
+      await buildSync(currentUserId: () async => 'trucker-1').pullDeliveries();
+      stored = (await isar.deliverys.where().findFirst())!;
+      expect(stored.arrivalPhotoRef, key);
+      expect(stored.autoConfirmedAt!.toUtc(), DateTime.utc(2026, 11, 10, 8, 1));
+    });
+
     test(
         'pullDeliveries never clobbers a delivery with an un-synced local '
         'write (offline buyer confirmation is preserved)', () async {

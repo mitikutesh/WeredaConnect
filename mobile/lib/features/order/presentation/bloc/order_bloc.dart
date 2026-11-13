@@ -1,7 +1,9 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
@@ -48,6 +50,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     on<UpdateDropoffNote>(_onUpdateDropoffNote);
     on<UpdateDeliveryLocation>(_onUpdateDeliveryLocation);
     on<CheckInAtPickup>(_onCheckInAtPickup);
+    on<CheckInAtDropoff>(_onCheckInAtDropoff);
     on<LoadOrderById>(_onLoadOrderById);
   }
 
@@ -293,6 +296,41 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       emit(CheckInSaved(kind: event.kind, alreadyGiven: !sent));
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+      if (e is SyncRejectedException) {
+        await _onReloadOrderQuietly(
+          LoadOrderById(orderId: event.orderId, quiet: true),
+          emit,
+        );
+      }
+    }
+  }
+
+  /// ESC-36 (FUP-336): the trucker's drop-off check-in, after the arrival
+  /// photo. As for the arrival check-in: a repeat sends nothing and says so,
+  /// and a refusal on web is said with the drop-off texts of its `CHECKIN_*`
+  /// code, then the order is read again quietly.
+  Future<void> _onCheckInAtDropoff(
+    CheckInAtDropoff event,
+    Emitter<OrderState> emit,
+  ) async {
+    emit(const OrderLoading());
+    try {
+      final sent = await _repository.checkInAtDropoff(
+        event.orderId,
+        event.userId,
+        deliveryId: event.deliveryId,
+        fix: event.fix,
+        arrivalPhotoRef: event.arrivalPhotoRef,
+      );
+      emit(
+        CheckInSaved(kind: CheckInKind.arrivedDropoff, alreadyGiven: !sent),
+      );
+    } on Object catch (e) {
+      final code =
+          e is SyncRejectedException && isCheckInRefusalMessage(e.message)
+              ? checkInErrorCode(e.message, kind: CheckInKind.arrivedDropoff)
+              : mapErrorToCode(e);
+      emit(OrderError(message: e.toString(), code: code));
       if (e is SyncRejectedException) {
         await _onReloadOrderQuietly(
           LoadOrderById(orderId: event.orderId, quiet: true),
