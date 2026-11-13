@@ -1,5 +1,6 @@
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/crop_status_wire.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
@@ -168,7 +169,11 @@ class WebMatchingService extends BaseMatchingService {
           data['items'] as List<dynamic>? ??
           const <dynamic>[];
       for (final item in items) {
-        crops.add(_parseCrop(item as Map<String, dynamic>));
+        final row = item as Map<String, dynamic>;
+        // FUP-149: a deleted listing is never a candidate (the server's list
+        // leaves it out; this guards a server that still sends one).
+        if (isDeletedCropRow(row)) continue;
+        crops.add(_parseCrop(row));
       }
       nextToken = data['nextToken'] as String?;
     } while (nextToken != null);

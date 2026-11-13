@@ -874,6 +874,29 @@ void main() {
       }
     });
 
+    // FUP-149: the read answers 404 for a deleted listing (crop-listing-api
+    // 1.10.0); a deleted row that still comes back is removed the same way,
+    // never put back as `active`.
+    test('a deleted row read back removes the local listing', () async {
+      for (final deletion in <Map<String, dynamic>>[
+        {'status': 'deleted', 'deletedAt': '2026-11-12T08:00:00.000Z'},
+        {'status': 'deleted'},
+        {'deletedAt': '2026-11-12T08:00:00.000Z'},
+      ]) {
+        await isar.writeTxn(() => isar.clear());
+        final op = await deleteThenReject();
+        answerCrop(
+          () async => {
+            'crop': {...serverCrop(), ...deletion},
+          },
+        );
+
+        await sync.revertRejected(op, 'CROP_HAS_ACTIVE_ORDERS: x');
+
+        expect(await loadCrop(), isNull, reason: '$deletion');
+      }
+    });
+
     test(
         'a failed read lowers the version, and the next crop pull, not '
         'throttled, overwrites the row', () async {

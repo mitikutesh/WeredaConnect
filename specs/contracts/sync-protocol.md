@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.61.0
+1.65.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -134,6 +134,18 @@ When the client receives `status: "conflict"`:
 3. **Update version**: Set local version to `serverVersion` to prevent future conflicts
 4. **Mark as synced**: Operation is marked as `synced`, not `failed` (conflict is resolved, not an error)
 5. **No user intervention**: For MVP, conflicts resolve automatically without UI notification
+
+**A deleted crop listing (1.65.0, FUP-149).** A `crop_listing` conflict whose `serverData` is a
+deleted listing (`deletedAt` set, or `status: deleted`, the rule of `crop-listing-api.md` 1.10.0:
+the farmer's other device deleted it, or a delete won a race with this one) removes the local
+listing; none is created when the phone has none. The app has no status for a deleted listing, and
+before 1.65.0 it kept the row as a local `draft`. The same rule holds wherever a client reads a
+crop row: the mobile crop pull (`GET /crops`) and the read behind a reverted listing
+(`GET /crops/{id}`) remove a deleted row's listing, the farmer's own included, and the web
+repository and matcher leave such a row out of their lists and read it by id as not found. The
+server already leaves deleted listings out of its lists and answers 404 for one by id, so these
+reads only guard against a row that still comes. Every other crop status maps as before. No wire
+change.
 
 **Rationale**:
 - Solo farmers rarely have conflicts (one user per device)
@@ -1662,6 +1674,7 @@ The buyer's confirm:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.65.0 | 2026-11-13 | A deleted crop listing on the clients (FUP-149; 1.62.0 to 1.64.0 are held by other open branches): a mobile `crop_listing` conflict whose `serverData` is a deleted listing (`deletedAt` set or `status: deleted`) removes the local listing instead of keeping it as a `draft`, and creates none; the mobile crop pull and the read behind a reverted listing remove a deleted row's listing (the farmer's own included) instead of storing it as `active`; the web repository and matcher leave a deleted row out and read it by id as not found. Other statuses map as before. No wire change. See "Client-Side Conflict Resolution (Mobile)" |
 | 1.61.0 | 2026-11-13 | Handoff photos (FUP-140, `delivery-verification-api.md` 2.14.0; 1.60.0 is FUP-373): the server holds a `pickup` or `dropoff` `delivery_photo` back (`deferred`, `DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet.`) until its handoff is on the delivery, and keeps a copy of each attached photo for the reads (server only); the buyer's drop-off photo on a dispute the order cron opened that no admin decided is kept as late evidence, and a disputed delivery without the handoff refuses the photo for good; mobile rejects the photo waiting behind a pickup or delivery confirm answered `conflict` whose `serverData` does not show that handoff (the drop-off photo stays when the row is an undecided dispute), and no longer counts S3's `400 RequestTimeout` or a `408` on the photo `PUT` toward the 3 refusals. Web unchanged (no queue; it attaches after a successful handoff). See "Handoff photos" |
 | 1.60.0 | 2026-11-13 | Late drop-off evidence (FUP-373, `delivery-verification-api.md` 2.13.0), behind `dropoffClassification`: a `handoff_check_in` `arrived_dropoff` received after T8 or after the T8 judgement is kept late and answered `CHECKIN_TOO_LATE` without the arrival photo check (before, a check-in queued offline before T8 whose photo the T8 dispute refused got `CHECKIN_PHOTO_REQUIRED` and kept nothing); a late one more than 5 km away is kept as a late attempt; a decided dispute closes it (`CHECKIN_NOT_OPEN`); `delivery_photo` `{deliveryId}#arrival` is taken on the system's undecided T8 dispute (`delivery_overdue`, `dropoff_out_of_range`) as evidence only, marked late (`arrivalPhotoLateAt` on the delivery rows). Clients, no wire change: the drop-off kind not taken (`CHECKIN_VALIDATION`, the drop-off flag rolled back) reads as not open; mobile forgets the kept arrival photo path when its `delivery_photo` is refused for good and deletes a new arrival photo taken while one already waits; the too-far and out-of-range texts name the check-in and the order's drop-off point, not the trucker. See "The drop-off check-in". |
 | 1.59.1 | 2026-11-13 | The drop-off check-in, the clients (FUP-336, no wire change): the trucker's "Arrived at drop-off" on the order detail takes the arrival photo, then a GPS fix; mobile queues `delivery_photo` `{deliveryId}#arrival` ahead of `handoff_check_in` `arrived_dropoff` and the sync preflight holds the check-in while the photo waits (the check-in carries the never-sent `_deliveryId`), web attaches the uploaded key then sends the check-in; every `CHECKIN_*` refusal takes the mark back with its drop-off text (`CHECKIN_PHOTO_REQUIRED` also forgets the phone's given-up photo path; a `CHECKIN_TOO_FAR` attempt kept for review says so); the parties read the check-in, T8, the buyer's T9 (receipt plus 48 hours) and every outcome's label on the order and delivery detail; the pulls, the web repositories and the conflict echo read the new fields. See "The drop-off check-in", Clients. |
@@ -1728,4 +1741,4 @@ The buyer's confirm:
 ---
 
 **Last Updated**: 2026-11-13
-**Version**: 1.61.0
+**Version**: 1.65.0
