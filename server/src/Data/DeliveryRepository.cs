@@ -1,5 +1,6 @@
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
+using WeredaConnect.Server.Helpers;
 
 namespace WeredaConnect.Server.Data;
 
@@ -415,7 +416,12 @@ public sealed class DeliveryRepository : IDeliveryRepository
     }
 
     /// <inheritdoc />
-    public async Task<bool> TryCancelPendingAsync(string deliveryId)
+    public Task<bool> TryCancelPendingAsync(string deliveryId) => CancelPendingAsync(deliveryId, judgement: false);
+
+    /// <inheritdoc />
+    public Task<bool> TryCancelPendingForJudgementAsync(string deliveryId) => CancelPendingAsync(deliveryId, judgement: true);
+
+    private async Task<bool> CancelPendingAsync(string deliveryId, bool judgement)
     {
         var existing = await GetItemAsync(deliveryId, consistentRead: true);
         if (existing == null)
@@ -433,7 +439,9 @@ public sealed class DeliveryRepository : IDeliveryRepository
                 { "deliveryId", new AttributeValue { S = deliveryId } },
                 { "tripId", new AttributeValue { S = tripId } }
             },
-            UpdateExpression = "SET #status = :cancelled, #updated = :now ADD #v :one",
+            UpdateExpression = judgement
+                ? "SET #status = :cancelled, #updated = :now, #judged = :now ADD #v :one"
+                : "SET #status = :cancelled, #updated = :now ADD #v :one",
             ConditionExpression = "#status = :pending",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
@@ -447,6 +455,10 @@ public sealed class DeliveryRepository : IDeliveryRepository
                 { ":one", new AttributeValue { N = "1" } }
             }
         };
+        if (judgement)
+        {
+            request.ExpressionAttributeNames["#judged"] = PickupJudgement.DeliveryCancelledAtField;
+        }
 
         try
         {
@@ -685,8 +697,10 @@ public sealed class DeliveryRepository : IDeliveryRepository
     /// FUP-330: the delivery a trucker no-show judgement cancelled, back to <c>pickedUp</c> when an admin confirms the
     /// handoff a late scan proved, as an item of the order's transaction: the status, <c>pickedUpAt</c> and
     /// <c>updatedAt</c> the server's time, the version moved by one, conditioned on the delivery still <c>cancelled</c>
-    /// at the version read with no <c>cancelReason</c>, verdict or soft delete (the judgement's plain cancel). As with
-    /// <see cref="BuildConfirmedPickupItem"/>, nothing a scan would have carried is written.
+    /// at the version read with no <c>cancelReason</c>, verdict or soft delete, and (FUP-363) carrying the judgement's
+    /// own cancel stamp (<see cref="PickupJudgement.DeliveryCancelledAtField"/>), which the write removes: the delivery
+    /// is no longer cancelled. As with <see cref="BuildConfirmedPickupItem"/>, nothing a scan would have carried is
+    /// written.
     /// </summary>
     public TransactWriteItem BuildRevivedPickupItem(string deliveryId, string tripId, int expectedVersion, string nowIso) => new()
     {
@@ -698,13 +712,15 @@ public sealed class DeliveryRepository : IDeliveryRepository
                 { "deliveryId", new AttributeValue { S = deliveryId } },
                 { "tripId", new AttributeValue { S = tripId } }
             },
-            UpdateExpression = "SET #status = :pickedUp, #pickedUpAt = :now, #updated = :now, #v = :next",
+            UpdateExpression = "SET #status = :pickedUp, #pickedUpAt = :now, #updated = :now, #v = :next REMOVE #judged",
             ConditionExpression = "#status = :cancelled AND #v = :expected AND attribute_not_exists(#cancelReason)"
-                                  + " AND attribute_not_exists(#resolution) AND attribute_not_exists(#deletedAt)",
+                                  + " AND attribute_not_exists(#resolution) AND attribute_not_exists(#deletedAt)"
+                                  + " AND attribute_exists(#judged)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#status", "status" }, { "#pickedUpAt", "pickedUpAt" }, { "#updated", "updatedAt" }, { "#v", "version" },
-                { "#cancelReason", "cancelReason" }, { "#resolution", "disputeResolution" }, { "#deletedAt", "deletedAt" }
+                { "#cancelReason", "cancelReason" }, { "#resolution", "disputeResolution" }, { "#deletedAt", "deletedAt" },
+                { "#judged", PickupJudgement.DeliveryCancelledAtField }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {

@@ -29,7 +29,8 @@ public partial class AdminFunction
     /// drop-off judgement stamped in the same write (ESC-36, as FUP-287's confirmed handoff does).</item>
     /// </list>
     /// Both restore <c>truckerResponse: accepted</c>, remove <c>transportFailure</c>, <c>faultParty</c>,
-    /// <c>buyerChoiceDeadlineAt</c> and <c>buyerChoiceReminderAt</c>, take the trip booking back, answer the judgement's
+    /// <c>buyerChoiceDeadlineAt</c> and <c>buyerChoiceReminderAt</c>, take the trip booking back (FUP-363: opening again
+    /// a trip the order cron closed as <c>expired</c> once the release left it empty), answer the judgement's
     /// admin queue entry as FUP-287 does and stamp <c>pickupReopen</c>, in one transaction conditioned on the order as
     /// read (version, status, judgement, transport failure, trucker response, queue entry, slot), the delivery as read,
     /// the trip's room and status, and the escrow still holding the money. Then the trucker's <c>NO_SHOW</c> is excused
@@ -222,9 +223,14 @@ public partial class AdminFunction
 
         var linked = new List<TransactWriteItem>
         {
-            tripPlan == NoShowReopen.TripPlan.Reserve
-                ? trips.BuildReclaimBookingItem(tripId, trip.CreatedAt, orderId, quintals, nowIso)
-                : trips.BuildConfirmBookingItem(tripId, trip.CreatedAt, orderId, nowIso)
+            tripPlan switch
+            {
+                NoShowReopen.TripPlan.Reserve => trips.BuildReclaimBookingItem(tripId, trip.CreatedAt, orderId, quintals, nowIso),
+                // FUP-363: the order cron closed the trip once the release left it empty; it opens again in this write.
+                NoShowReopen.TripPlan.Revive => trips.BuildReviveBookingItem(
+                    tripId, trip.CreatedAt, orderId, quintals, trip.Version, NoShowReopen.Fills(trip, quintals), nowIso),
+                _ => trips.BuildConfirmBookingItem(tripId, trip.CreatedAt, orderId, nowIso)
+            }
         };
         if (delivery != null)
         {
@@ -263,7 +269,8 @@ public partial class AdminFunction
                     : "The order changed since the page read it; nothing was written. Reload and check.");
         }
 
-        if (tripPlan == NoShowReopen.TripPlan.Reserve && trip.Status == "open" && trip.RemainingQuintals - quintals <= 0)
+        // A revived trip took open or matched in the transaction itself.
+        if (tripPlan == NoShowReopen.TripPlan.Reserve && trip.Status == "open" && NoShowReopen.Fills(trip, quintals))
         {
             await MarkTripFullAsync(trips, tripId, orderId, context);
         }
@@ -275,7 +282,12 @@ public partial class AdminFunction
         var checkInsNote = exit == PickupReopen.Exit.Pending && NoShowReopen.CheckInsNote(order) is { } cleared
             ? $";clearedCheckIns={cleared}"
             : "";
-        var tripNote = tripPlan == NoShowReopen.TripPlan.Reserve ? "reserved" : "kept";
+        var tripNote = tripPlan switch
+        {
+            NoShowReopen.TripPlan.Reserve => "reserved",
+            NoShowReopen.TripPlan.Revive => "revived",
+            _ => "kept"
+        };
         await TransactionAuditWriter.EmitAsync(
             TxAuditRepo(), context, orderId, "order", orderId, PickupReopen.AuditAction, OrderCommitment.AwaitingTransportStatus, status,
             auditContext,
