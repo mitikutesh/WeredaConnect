@@ -1,6 +1,7 @@
 using System.Globalization;
 using Amazon.DynamoDBv2.Model;
 using FluentAssertions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Services;
 using Xunit;
 
@@ -381,6 +382,71 @@ public class TransactionPatternRulesTests
 
         facts.Should().Be(new DeliveryTimeFacts(7.67, 36.83, 9.03, 38.74,
             Now.AddMinutes(-20), Now, Now.AddMinutes(-30)));
+    }
+
+    // ── FUP-265: the buyer's drop-off point bounded by a point the trucker controls ────────
+
+    private static readonly TrackPoint AddisDestination = new(9.03, 38.74);
+
+    // 4.7 km past Addis Ababa, seen from Jimma (inside the confirm's 5 km of the destination): 263.5 km from the
+    // pickup, at least 131.8 minutes at 120 km/h, where the destination itself needs 129.4.
+    private const double StretchedLat = 9.06, StretchedLng = 38.77;
+
+    [Fact]
+    public void FUP265_ABuyerPointStretchedPastTheDestination_IsJudgedFromTheDestination_AndMisses()
+    {
+        // 130.5 minutes: too fast for the buyer's stretched point, enough for the trucker's own destination.
+        var trip = Trip(TimeSpan.FromMinutes(130), TimeSpan.FromMinutes(130.5), StretchedLat, StretchedLng);
+        TransactionPatternRules.ImpossibleDeliveryTime(trip, Settings).Should().NotBeNull("the buyer's point alone flags it");
+
+        var bounded = TransactionPatternRules.BoundedDropoff(trip, AddisDestination, DeliveryDropoffSource.TripDestination);
+
+        bounded!.Value.DropoffLat.Should().Be(9.03);
+        bounded.Value.DropoffLng.Should().Be(38.74);
+        bounded.Value.DropoffSource.Should().Be(DeliveryDropoffSource.TripDestination);
+        TransactionPatternRules.ImpossibleDeliveryTime(bounded.Value, Settings).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(false, "the trip's destination")]
+    [InlineData(true, "the trucker's drop-off check-in")]
+    public void FUP265_AReallyImpossibleTrip_IsStillFlagged_WithTheDistanceToTheTrustedPoint(bool checkIn, string named)
+    {
+        var source = checkIn ? DeliveryDropoffSource.TruckerCheckIn : DeliveryDropoffSource.TripDestination;
+        var trip = Trip(TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(25), StretchedLat, StretchedLng);
+
+        var hit = TransactionPatternRules.ImpossibleDeliveryTime(
+            TransactionPatternRules.BoundedDropoff(trip, AddisDestination, source)!.Value, Settings);
+
+        hit!.Value.Description.Should().Contain($"with the pickup scan and {named} 258.9 km apart");
+    }
+
+    [Fact]
+    public void FUP265_ABuyerPointNearerThanTheBound_IsKept_SoAnEnRouteDropoffIsStillJudged()
+    {
+        // A buyer on the road 92.6 km from the farm, the trip going on to Addis Ababa: the nearer point counts.
+        var trip = Trip(TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(25), 8.10, 37.55);
+
+        var bounded = TransactionPatternRules.BoundedDropoff(trip, AddisDestination, DeliveryDropoffSource.TripDestination);
+
+        bounded.Should().Be(trip);
+        TransactionPatternRules.ImpossibleDeliveryTime(bounded!.Value, Settings)!.Value.Description
+            .Should().Contain("with the pickup scan and the drop-off scan 92.6 km apart");
+    }
+
+    [Fact]
+    public void FUP265_NoPointToBoundBy_OrNothingToBound_IsNotJudged()
+    {
+        var fast = Trip(TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(25));
+        const DeliveryDropoffSource destination = DeliveryDropoffSource.TripDestination;
+
+        // A trip without a destination point and no check-in: the buyer's point alone, so no judgement.
+        TransactionPatternRules.BoundedDropoff(fast, null, destination).Should().BeNull();
+        TransactionPatternRules.BoundedDropoff(fast, new TrackPoint(0, 0), destination).Should().BeNull();
+        TransactionPatternRules.BoundedDropoff(fast with { DropoffLat = 0, DropoffLng = 0 }, AddisDestination, destination)
+            .Should().BeNull();
+        TransactionPatternRules.BoundedDropoff(fast with { DropoffLat = null }, AddisDestination, destination).Should().BeNull();
+        TransactionPatternRules.BoundedDropoff(fast with { PickupLng = null }, AddisDestination, destination).Should().BeNull();
     }
 
     private static AttributeValue Point(double lat, double lng) => new()

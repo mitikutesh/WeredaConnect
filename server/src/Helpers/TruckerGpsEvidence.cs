@@ -254,6 +254,20 @@ public static class TruckerGpsEvidence
     }
 
     /// <summary>
+    /// FUP-265: where the trucker's own phone checked in at the drop-off for the delivery: the stored drop-off
+    /// check-in's fix, under the checks of <see cref="DropoffEvidence"/> (the order stamped at pickup, the delivery
+    /// active on it, sent by the delivery's trucker, received in the delivery's window). Never the out-of-range
+    /// attempt, which is not where the handoff was. Null when there is no such check-in or it holds no fix.
+    /// </summary>
+    public static TrackPoint? DropoffCheckInPoint(
+        IReadOnlyDictionary<string, object>? order, string deliveryId, string truckerId,
+        DateTime pickedUpAtUtc, DateTime confirmedAtUtc)
+        => DropoffEvidence(order, deliveryId, truckerId, pickedUpAtUtc, confirmedAtUtc) is { IsAttempt: false }
+           && DropoffJudgement.CheckInOf(order!) is { } entry
+            ? TripTrack.PointOf(entry, PickupJudgement.EntryLatitude, PickupJudgement.EntryLongitude)
+            : null;
+
+    /// <summary>
     /// FUP-245: the verdict from the trucker's drop-off evidence, in place of the road check-ins. It never writes
     /// the row. ESC-36 keeps a check-in only within 5 km of a drop-off point (fixed at pickup, or read live when none was) (the truck reached the
     /// drop-off: <see cref="TruckerGpsOutcome.CheckedInAtDropoff"/>) or, with no point fixed, unmeasured (no
