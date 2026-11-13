@@ -515,18 +515,26 @@ public partial class AdminFunction
         }
 
         // FUP-16: a disposition belongs to one verdict and always carries the admin's reason.
+        // FUP-64: settle_as_is goes with farmer_wins and buyer_wins (a split has the ledger's own path).
         var disposition = string.IsNullOrEmpty(body.Disposition) ? null : body.Disposition;
         string? dispositionReason = null;
         if (disposition != null)
         {
-            var dispositionVerdict = DisputeDisposition.VerdictOf(disposition);
-            if (dispositionVerdict == null)
+            if (disposition == DisputeDisposition.SettleAsIs)
+            {
+                if (body.Resolution is not ("farmer_wins" or "buyer_wins"))
+                {
+                    return LambdaResponse.Error(400, "ADMIN_014",
+                        $"disposition 'settle_as_is' goes with farmer_wins or buyer_wins, not {body.Resolution}.", "disposition");
+                }
+            }
+            else if (DisputeDisposition.VerdictOf(disposition) is not { } dispositionVerdict)
             {
                 return LambdaResponse.Error(400, "ADMIN_014",
-                    "disposition must be return_to_farmer, delivered_anyway, settle_now or wait_for_delivery.", "disposition");
+                    "disposition must be return_to_farmer, delivered_anyway, settle_now, wait_for_delivery or settle_as_is.",
+                    "disposition");
             }
-
-            if (dispositionVerdict != direction)
+            else if (dispositionVerdict != direction)
             {
                 return LambdaResponse.Error(400, "ADMIN_014",
                     $"disposition '{disposition}' goes with {dispositionVerdict}, not {body.Resolution}.", "disposition");
@@ -965,19 +973,53 @@ public partial class AdminFunction
     /// <summary>
     /// FUP-16: why a verdict whose legs cannot follow it is not recorded (or not changed) with
     /// <paramref name="disposition"/>; null when the disposition resolves it. Nothing is written on a refusal.
+    /// FUP-64: a verdict no goods disposition fits takes <c>settle_as_is</c> when it is safe
+    /// (<see cref="DispositionPlan.SettleAsIsRefusal"/>); otherwise it has no admin exit.
     /// </summary>
     private static APIGatewayProxyResponse? DispositionRefusal(
         DispositionPlan plan, string? disposition, string resolution, bool replay)
     {
         if (plan.Case == DispositionCase.NoFit)
         {
-            // A recorded verdict cannot change; before it is recorded the admin can still pick the other one.
+            if (plan.SettleAsIsRefusal is { } unsafeReason)
+            {
+                // A recorded verdict cannot change; before it is recorded the admin can still pick the other one.
+                return LambdaResponse.Error(422, "ADMIN_016",
+                    $"The order or delivery behind this verdict cannot follow {resolution} ({plan.Legs}) and no disposition fits: "
+                    + unsafeReason switch
+                    {
+                        "order_paid_out" => "the order already shows a payout, so a release could pay the farmer twice. ",
+                        "goods_returned" => "the goods went back to the farmer, so the farmer is not paid for them. ",
+                        _ => "nothing shows the goods left the farm, so the farmer is not paid for them. "
+                    }
+                    + (replay
+                        ? "Nothing was changed. The verdict is recorded and cannot change: escalate, the order must be repaired by hand."
+                        : "Nothing was recorded: bring the order to a status the verdict can follow, or choose the other verdict."));
+            }
+
+            if (disposition == null)
+            {
+                return LambdaResponse.Error(422, "ADMIN_015",
+                    $"The order or delivery behind this verdict cannot follow {resolution} ({plan.Legs}) and no goods choice fits. "
+                    + "Nothing was changed: choose settle_as_is with a reason (the money settles as the verdict says, the order "
+                    + "is closed as it is).",
+                    "disposition");
+            }
+
+            return disposition == DisputeDisposition.SettleAsIs
+                ? null
+                : LambdaResponse.Error(422, "ADMIN_016",
+                    $"{disposition} does not fit this order ({plan.Legs}); only settle_as_is does. Nothing was changed.",
+                    "disposition");
+        }
+
+        if (disposition == DisputeDisposition.SettleAsIs)
+        {
             return LambdaResponse.Error(422, "ADMIN_016",
-                $"The order or delivery behind this verdict cannot follow {resolution} ({plan.Legs}) and no disposition fits. "
-                + (replay
-                    ? "Nothing was changed. The verdict is recorded and cannot change: the order must be repaired by hand "
-                      + "first (for buyer_wins, the deprecated overrideOrderMismatch refund still settles it)."
-                    : "Nothing was recorded: bring the order to a status the verdict can follow, or choose the other verdict."));
+                "settle_as_is is only for a verdict no other choice fits; choose "
+                + (plan.Case == DispositionCase.GoodsMoving ? "return_to_farmer or delivered_anyway" : "wait_for_delivery or settle_now")
+                + ". Nothing was changed.",
+                "disposition");
         }
 
         if (disposition == null)
@@ -1160,6 +1202,9 @@ public partial class AdminFunction
                     "Verdict recorded. The goods count as delivered to the buyer; the settlement sweep refunds the buyer within the hour.",
                 DisputeDisposition.SettleNow =>
                     "Verdict recorded. The delivery is cancelled; the settlement sweep releases the funds to the farmer within the hour.",
+                DisputeDisposition.SettleAsIs => resolution == "buyer_wins"
+                    ? "Verdict recorded as it is. The order is closed where it was live; the settlement sweep refunds the buyer within the hour."
+                    : "Verdict recorded as it is. The order is closed where it was live; the settlement sweep releases the funds to the farmer within the hour.",
                 _ => "Verdict recorded. The funds are released to the farmer once the order is delivered."
             }
         }, AppJsonContext.Default.ResolveDisputeResponse);

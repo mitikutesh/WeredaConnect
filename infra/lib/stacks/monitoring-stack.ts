@@ -375,6 +375,19 @@ export class MonitoringStack extends cdk.Stack {
       defaultValue: 0,
     });
 
+    // FUP-64: a farmer_wins verdict whose admin chose wait_for_delivery a week ago and whose delivery
+    // still has not come. The hourly dispute sweep logs one line per such escrow per run (an age report,
+    // like MANUAL_PAYOUT_OVERDUE). escrow-cron only: only the sweep reports the age; an admin's own
+    // release of the same escrow logs the line too, and it is not counted.
+    new logs.MetricFilter(this, 'EscrowCronVerdictWaitOverdueFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"DISPUTE_VERDICT_WAIT_OVERDUE"'),
+      metricNamespace,
+      metricName: 'DisputeVerdictWaitOverdue',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
     // ESC-13: queue age. The hourly escrow-cron run logs one line per pending manual
     // payout leg older than 24 hours (ESC-02, ReportOverdueManualPayoutsAsync) and one per
     // admin stuck-order queue entry due for 24 hours (ESC-06, ReportAdminQueueAsync; plus
@@ -1178,9 +1191,27 @@ export class MonitoringStack extends cdk.Stack {
         'an order that moved since. No money moved; the escrow stays dispute_resolved and the ' +
         'hourly sweep tries again. Open Disputes > Awaiting settlement and record (or send ' +
         'again) a disposition: return_to_farmer or delivered_anyway for buyer_wins, settle_now ' +
-        'or wait_for_delivery for farmer_wins. A recorded wait_for_delivery is not alarmed (it ' +
-        'logs DISPUTE_VERDICT_WAITING_FOR_DELIVERY). If no disposition fits (ADMIN_016), repair ' +
-        'the order by hand (ESC-03, FUP-16).',
+        'or wait_for_delivery for farmer_wins, settle_as_is when none of those fits (FUP-64). A ' +
+        'recorded wait_for_delivery alarms on dispute-verdict-wait-overdue instead. If even ' +
+        'settle_as_is is refused (ADMIN_016: a farmer_wins whose goods never left the farm, came ' +
+        'back, or whose order shows a payout), escalate (ESC-03, FUP-16, FUP-64).',
+    );
+
+    // FUP-64: an age report, one line per waiting escrow per hourly sweep, so the money alarm shape holds
+    // it in ALARM while any wait is overdue (like manual-payouts-overdue).
+    const disputeVerdictWaitOverdueAlarm = moneyLogAlarm(
+      'DisputeVerdictWaitOverdue',
+      'dispute-verdict-wait-overdue',
+      'DisputeVerdictWaitOverdue',
+      'Dispute Verdict Wait Overdue',
+      'A farmer_wins dispute verdict whose admin chose wait_for_delivery has waited seven days or more and ' +
+        'its order is still not delivered (DISPUTE_VERDICT_WAIT_OVERDUE in the escrow-cron log group, one ' +
+        'line per escrow per hourly sweep, with escrowId, op, ageDays and legs). No money moved: the buyer\'s ' +
+        'payment is still held. Open Disputes > Awaiting settlement, check the order and its delivery in ' +
+        '/transactions/<orderId>, and choose again: settle_now once the goods were picked up and the trucker ' +
+        'stopped, or keep waiting. If the order was cancelled meanwhile, the mismatch alarm takes over and ' +
+        'settle_as_is is the exit. A wait whose goods never left the farm has no admin exit: escalate. While ' +
+        'the alarm is in ALARM a newly overdue wait is not announced again: read the lines (FUP-64).',
     );
 
     // FUP-27: before, a failed dispute mirror leg was only an escrow-audit row. Event-driven
@@ -2504,6 +2535,7 @@ export class MonitoringStack extends cdk.Stack {
           ledgerInvariantAlarm,
           adminQueueOverdueAlarm,
           disputeVerdictMismatchAlarm,
+          disputeVerdictWaitOverdueAlarm,
           disputeSettlementBlockedAlarm,
           disputePropagationFailedAlarm,
           escrowDeliveryStampFailuresAlarm,

@@ -197,6 +197,10 @@ describe("dispute disposition strings exist in every locale", () => {
     "dispositionHint_delivered_anyway",
     "dispositionHint_settle_now",
     "dispositionHint_wait_for_delivery",
+    // FUP-64: the exit of a verdict no goods disposition fits.
+    "caseNoFit",
+    "disposition_settle_as_is",
+    "dispositionHint_settle_as_is",
     "dispositionReason",
     "dispositionReasonHint",
     "confirmDisposition",
@@ -211,6 +215,7 @@ describe("dispute disposition strings exist in every locale", () => {
     "transactions.action_dispute_resolved_delivered_anyway",
     "transactions.action_dispute_resolved_settled_early",
     "transactions.action_dispute_resolved_waiting_for_delivery",
+    "transactions.action_dispute_resolved_settled_as_is",
     "common.cancel",
   ];
   for (const locale of locales) {

@@ -125,6 +125,7 @@ public static class MoneyAlarmLog
     public const string AdminQueueOverdueToken = "ADMIN_QUEUE_OVERDUE";
     public const string DisputeVerdictOrderMismatchToken = "DISPUTE_VERDICT_ORDER_MISMATCH";
     public const string DisputeVerdictSettlementBlockedToken = "DISPUTE_VERDICT_SETTLEMENT_BLOCKED";
+    public const string DisputeVerdictWaitOverdueToken = "DISPUTE_VERDICT_WAIT_OVERDUE";
     public const string TruckerPayoutOverdueToken = "TRUCKER_PAYOUT_OVERDUE";
     public const string DisputeNoEscrowToken = "DISPUTE_NO_ESCROW";
     public const string OrderMoneyMismatchToken = "ORDER_MONEY_MISMATCH";
@@ -236,6 +237,16 @@ public static class MoneyAlarmLog
     /// <summary>ESC-03: a dispute verdict's settlement failed closed (unreadable order, or a cancel or restock that did not land).</summary>
     public static string DisputeVerdictSettlementBlocked(string? escrowId, string? op, string? legs)
         => $"{DisputeVerdictSettlementBlockedToken} escrowId={LogId(escrowId)} op={Safe(op)} legs={LogId(legs?.Replace(',', '.'))}";
+
+    /// <summary>
+    /// FUP-64: a <c>farmer_wins</c> verdict whose admin chose <c>wait_for_delivery</c> still waits for its delivery a
+    /// week later, logged on every sweep that sees it. <c>ageDays</c> is whole days since the choice, <c>unknown</c>
+    /// when its time cannot be read.
+    /// </summary>
+    public static string DisputeVerdictWaitOverdue(string? escrowId, string? op, TimeSpan? waited, string? legs)
+        => $"{DisputeVerdictWaitOverdueToken} escrowId={LogId(escrowId)} op={Safe(op)} "
+           + $"ageDays={(waited is { } age ? Math.Max(0, (int)age.TotalDays).ToString(System.Globalization.CultureInfo.InvariantCulture) : "unknown")} "
+           + $"legs={LogId(legs?.Replace(',', '.'))}";
 
     /// <summary>
     /// ESC-07: a delivery of a funded order was disputed but no escrow holds its money, so the

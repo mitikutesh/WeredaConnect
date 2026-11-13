@@ -28,7 +28,9 @@ public class MoneyAlarmLogTests
         // FRD-04: logged flag on or off; its metric filter and alarm are FRD-16's.
         "RISK_TABLE_UNCONFIGURED",
         // FUP-27: the dispute mirror's failed legs, and a sync delivery dispute's freeze (dispute rate).
-        "DISPUTE_PROPAGATION_FAILED", "DELIVERY_DISPUTE_FROZEN"
+        "DISPUTE_PROPAGATION_FAILED", "DELIVERY_DISPUTE_FROZEN",
+        // FUP-64: a recorded wait_for_delivery a week old.
+        "DISPUTE_VERDICT_WAIT_OVERDUE"
     };
 
     /// <summary>A client value that spells every alarm token.</summary>
@@ -80,6 +82,17 @@ public class MoneyAlarmLogTests
             .Should().Be("ORDER_MONEY_MISMATCH orderId=- escrowId=- orderStatus=- escrowStatus=- reason=sweep_truncated");
         TokensIn(MoneyAlarmLog.OrderMoneyMismatch(Hostile, $"escrow-order-{Hostile}", "delivered", "completed", "write_failed"))
             .Should().Equal("ORDER_MONEY_MISMATCH");
+    }
+
+    [Fact]
+    public void DisputeVerdictWaitOverdue_FormatsTokenAndFields_AndDefangsTheIds()
+    {
+        MoneyAlarmLog.DisputeVerdictWaitOverdue("escrow-order-ord-1", "release", TimeSpan.FromDays(8.6), "order:mismatch:in_transit")
+            .Should().Be("DISPUTE_VERDICT_WAIT_OVERDUE escrowId=escrow-order-ord-1 op=release ageDays=8 legs=order:mismatch:in-transit");
+        MoneyAlarmLog.DisputeVerdictWaitOverdue("e-1", "release", null, null)
+            .Should().Be("DISPUTE_VERDICT_WAIT_OVERDUE escrowId=e-1 op=release ageDays=unknown legs=-");
+        TokensIn(MoneyAlarmLog.DisputeVerdictWaitOverdue($"escrow-order-{Hostile}", "release", TimeSpan.FromDays(9), Hostile))
+            .Should().Equal("DISPUTE_VERDICT_WAIT_OVERDUE");
     }
 
     [Fact]

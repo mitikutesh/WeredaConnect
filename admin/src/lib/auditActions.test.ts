@@ -77,7 +77,10 @@ const ESCROW_AUDIT_ACTIONS = [
   "dispute_verdict_mismatch",
   "dispute_verdict_propagation_failed",
   "dispute_settlement_blocked",
+  // Written before escrow-protocol 2.20.0 only (FUP-64 removed the override); old rows keep their label.
   "dispute_order_mismatch_overridden",
+  // FUP-64: the admin settled a verdict no goods disposition fits as it is.
+  "dispute_resolved_settled_as_is",
 ];
 
 /** Transaction-audit rows (TransactionAuditWriter callers) and the synthesised timeline rows. */
@@ -96,7 +99,10 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "delivery_cancelled",
   "dispute",
   "dispute_resolved",
+  // Written before escrow-protocol 2.20.0 only (FUP-64); old rows keep their label.
   "dispute_mismatch_override",
+  // FUP-64: the admin's settle_as_is (entity escrow).
+  "dispute_resolved_settled_as_is",
   "refund_mismatch_override",
   "admin_dispute_resolved",
   "admin_manual_payout",
