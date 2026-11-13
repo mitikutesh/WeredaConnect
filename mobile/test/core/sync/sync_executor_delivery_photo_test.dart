@@ -343,4 +343,32 @@ void main() {
     expect(reverts, isEmpty);
     expect(await queue.getFailedCount(), 0);
   });
+
+  test(
+      'FUP-373: a refused arrival photo is silent too, but goes to the '
+      'rejection handler once, which forgets its kept file', () async {
+    await queue.enqueue(
+      userId: _userId,
+      entityType: deliveryPhotoEntityType,
+      entityId: deliveryPhotoEntityId(_deliveryId, arrivalPhotoType),
+      action: 'create',
+      data: jsonEncode({deliveryPhotoLocalPathKey: _path}),
+      operationId: 'op-arrival',
+    );
+    answers['op-arrival'] = {
+      'status': 'error',
+      'message': 'DELIVERY_PHOTO_REFUSED: The arrival photo is taken while '
+          'the goods are on the road.',
+    };
+
+    await executor.executeBatch();
+
+    expect(
+      SyncQueue.isRejected((await queue.getOperation('op-arrival'))!),
+      isTrue,
+    );
+    expect(reverts.map((op) => op.operationId), ['op-arrival']);
+    expect(emitted.whereType<SyncOperationRejected>(), isEmpty);
+    expect(await queue.getFailedCount(), 0);
+  });
 }

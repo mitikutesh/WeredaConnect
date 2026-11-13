@@ -447,6 +447,58 @@ public sealed class SyncFunctionDropoffCheckInTests
         _recorded.Single().WhileOpen.Should().BeFalse();
     }
 
+    /// <summary>
+    /// FUP-373: a check-in made offline at the drop-off before T8 reaches the server after the T8 run (or after T8
+    /// before the run), its arrival photo not attached (refused or given up on the way). It is evidence only, never
+    /// counted, so the photo check does not stand between it and the late entry.
+    /// </summary>
+    [Theory]
+    [InlineData("in_transit", DropoffJudgement.Outcome.Pending, "inTransit")]
+    [InlineData("disputed", DropoffJudgement.Outcome.DeliveryOverdue, "disputed")]
+    [InlineData("disputed", DropoffJudgement.Outcome.DropoffOutOfRange, "disputed")]
+    [InlineData("in_transit", DropoffJudgement.Outcome.Queued, "inTransit")]
+    public async Task FUP373_ALateCheckInWithoutThePhoto_IsStillKeptAsLateEvidence(string status, string judgement, string deliveryStatus)
+    {
+        _order = Order(status: status, judgement: judgement, deadline: DateTime.UtcNow.AddHours(-3));
+        _deliveryStatus = deliveryStatus;
+        _arrivalPhoto = false;
+
+        var result = await CheckInAsync(TruckerId, Arrived());
+
+        MessageOf(result).Should().StartWith($"{PickupJudgement.TooLateCode}: ");
+        var (entry, whileOpen) = _recorded.Single();
+        whileOpen.Should().BeFalse();
+        ((bool)entry[PickupJudgement.EntryLate]).Should().BeTrue();
+        ((bool)entry[PickupJudgement.EntryDistanceChecked]).Should().BeTrue();
+        await _orders.DidNotReceive().TryRecordDropoffAttemptAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task FUP373_ALateFarCheckInWithoutThePhoto_IsTooFar_AndNothingIsKept()
+    {
+        _order = Order(status: "disputed", judgement: DropoffJudgement.Outcome.DeliveryOverdue, deadline: DateTime.UtcNow.AddHours(-3));
+        _deliveryStatus = "disputed";
+        _arrivalPhoto = false;
+
+        var result = await CheckInAsync(TruckerId, Arrived(FarLat));
+
+        MessageOf(result).Should().StartWith($"{PickupJudgement.TooFarCode}: ").And.NotContain("kept");
+        await NoWriteAsync();
+    }
+
+    [Fact]
+    public async Task FUP373_AfterT9_ACheckInWithoutThePhoto_IsStillNotOpen()
+    {
+        _order = Order(status: "disputed", judgement: DropoffJudgement.Outcome.SilentBuyer, deadline: DateTime.UtcNow.AddHours(-3));
+        _deliveryStatus = "disputed";
+        _arrivalPhoto = false;
+
+        var result = await CheckInAsync(TruckerId, Arrived());
+
+        MessageOf(result).Should().StartWith($"{PickupJudgement.NotOpenCode}: ");
+        await NoWriteAsync();
+    }
+
     [Fact]
     public async Task ASecondCheckIn_GetsTheFirstOnesAnswer_AndWritesNothing()
     {

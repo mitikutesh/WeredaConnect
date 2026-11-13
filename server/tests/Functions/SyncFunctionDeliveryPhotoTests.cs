@@ -413,6 +413,85 @@ public sealed class SyncFunctionDeliveryPhotoTests
         await AssertNothingWrittenAsync();
     }
 
+    /// <summary>
+    /// FUP-373: a check-in made offline at the drop-off before T8 syncs after the T8 run, its photo first. The
+    /// order cron's own T8 dispute, not yet decided by an admin, takes the arrival photo as late evidence: only the
+    /// photo is written, never the status.
+    /// </summary>
+    [Theory]
+    [InlineData(DropoffJudgement.OverdueReason)]
+    [InlineData(DropoffJudgement.OutOfRangeReason)]
+    public async Task FUP373_TheT8Dispute_TakesTheArrivalPhoto_AsLateEvidence(string reason)
+    {
+        SetupDelivery(SystemDisputed(reason));
+        SetupObject(ArrivalKey, 120 * 1024);
+
+        var result = await SendAsync(TruckerId, "arrival", ArrivalKey, dropoff: true);
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        await _dynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.UpdateExpression == "SET #photo = :ref, #photoVersion = :version"
+            && r.ExpressionAttributeNames["#photo"] == "arrivalPhotoRef"
+            && r.ExpressionAttributeValues[":ref"].S == ArrivalKey), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("system", DropoffJudgement.SilentBuyerReason, null)]
+    [InlineData("system", DropoffJudgement.OverdueReason, "buyer_wins")]
+    [InlineData(BuyerId, "not_received", null)]
+    [InlineData(TruckerId, DropoffJudgement.OverdueReason, null)]
+    public async Task FUP373_AnyOtherDispute_RefusesTheArrivalPhoto(string disputedBy, string reason, string? resolution)
+    {
+        var item = SystemDisputed(reason);
+        item["disputedBy"] = new AttributeValue { S = disputedBy };
+        if (resolution != null)
+        {
+            item["disputeResolution"] = new AttributeValue { S = resolution };
+        }
+
+        SetupDelivery(item);
+        SetupObject(ArrivalKey, 120 * 1024);
+
+        var result = await SendAsync(TruckerId, "arrival", ArrivalKey, dropoff: true);
+
+        MessageOf(result).Should().StartWith("DELIVERY_PHOTO_REFUSED: ");
+        await AssertNothingWrittenAsync();
+    }
+
+    [Fact]
+    public async Task FUP373_WithTheFlagOff_TheT8DisputeTakesNoArrivalPhoto()
+    {
+        SetupDelivery(SystemDisputed(DropoffJudgement.OverdueReason));
+        SetupObject(ArrivalKey, 120 * 1024);
+
+        var result = await SendAsync(TruckerId, "arrival", ArrivalKey);
+
+        MessageOf(result).Should().StartWith("DELIVERY_PHOTO_INVALID: ");
+        await AssertNothingWrittenAsync();
+    }
+
+    [Fact]
+    public async Task FUP373_TheBuyer_CannotAttachTheArrivalPhoto_OnTheT8Dispute()
+    {
+        SetupDelivery(SystemDisputed(DropoffJudgement.OverdueReason));
+        SetupObject(ArrivalKey, 120 * 1024);
+
+        var result = await SendAsync(BuyerId, "arrival", ArrivalKey, dropoff: true);
+
+        MessageOf(result).Should().Be("DELIVERY_PHOTO_FORBIDDEN: Only the trucker takes the arrival photo.");
+        await AssertNothingWrittenAsync();
+    }
+
+    /// <summary>A delivery the order cron disputed at T8 (or T9) with <paramref name="reason"/>.</summary>
+    private static Dictionary<string, AttributeValue> SystemDisputed(string reason)
+    {
+        var item = Delivery("disputed");
+        item["disputedBy"] = new AttributeValue { S = DropoffJudgement.SystemActor };
+        item["disputeReason"] = new AttributeValue { S = reason };
+        item["disputedAt"] = new AttributeValue { S = DateTime.UtcNow.AddMinutes(-30).ToString("o") };
+        return item;
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────
 
     private static string MessageOf(JsonElement result) => result.GetProperty("message").GetString() ?? "";

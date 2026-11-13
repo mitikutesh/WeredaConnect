@@ -384,6 +384,20 @@ public static class DropoffJudgement
             ? Str(delivery, "disputeReason")
             : null;
 
+    /// <summary>
+    /// Whether the trucker's arrival photo is taken for the delivery: while the goods are on the road
+    /// (<see cref="OnTheRoadDeliveryStatuses"/>), and (FUP-373) as late evidence on the T8 dispute the order cron
+    /// opened (<see cref="OverdueReason"/> or <see cref="OutOfRangeReason"/>) that no admin has decided yet (no
+    /// <c>disputeResolution</c>). A check-in the trucker made offline at the drop-off before T8 may reach the
+    /// server after the T8 run, its photo first; the attach writes only the photo, never the status, and the
+    /// admin sees it in the dispute evidence. T9's <see cref="SilentBuyerReason"/> takes none: a counted
+    /// check-in always had its photo.
+    /// </summary>
+    public static bool TakesArrivalPhoto(IReadOnlyDictionary<string, object> delivery)
+        => OnTheRoadDeliveryStatuses.Contains(Str(delivery, "status"))
+           || (SystemDisputeReasonOf(delivery) is OverdueReason or OutOfRangeReason
+               && Str(delivery, "disputeResolution").Length == 0);
+
     // ── what the parties read ───────────────────────────────────────────────
 
     /// <summary>The drop-off check-in as the parties read it (no coordinates, no sender), or null.</summary>

@@ -1,11 +1,16 @@
+using System.Text.Json;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
+using Amazon.S3;
+using Amazon.S3.Model;
 using FluentAssertions;
+using NSubstitute;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Helpers;
+using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
 
@@ -337,5 +342,146 @@ public sealed class DropoffJudgementDynamoDbTests
         escrow["status"].Should().Be("escrowed", "the release waits for the dispute window and the escrow cron");
         escrow["deliveryConfirmedAt"].Should().Be(delivery["confirmedAt"]);
         escrow.Should().ContainKey("disputeWindowEndsAt").And.ContainKey(PayoutDelayPolicy.ReleaseNotBeforeField);
+    }
+
+    // ===== FUP-373: a check-in made offline before T8 and synced after the T8 run =====
+
+    private const string Bucket = "test-uploads";
+
+    private static readonly JsonSerializerOptions SerializerOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+    private string ArrivalKey => $"uploads/photos/{DeliveryId}/arrival-1763000000000.webp";
+
+    /// <summary>
+    /// The sync Lambda on the real orders, deliveries and trips tables with <c>dropoffClassification</c> on; the
+    /// uploads bucket's HEAD answers for the arrival photo (S3 is not what this test is about).
+    /// </summary>
+    private SyncFunction Sync()
+    {
+        var syncMeta = Substitute.For<ISyncMetadataRepository>();
+        syncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
+        var s3 = Substitute.For<IAmazonS3>();
+        var head = new GetObjectMetadataResponse { ContentLength = 120 * 1024, VersionId = "v-late" };
+        head.Headers.ContentType = DeliveryPhotoKeys.ContentTypeOf(ArrivalKey);
+        s3.GetObjectMetadataAsync(Bucket, ArrivalKey, Arg.Any<CancellationToken>()).Returns(head);
+        return new SyncFunction(syncMeta, new CropRepository(Ddb, _db.Crops), Ddb, _db.Trips, _db.Deliveries,
+            fraudService: Substitute.For<IFraudDetectionService>(), orderRepo: Repo)
+        {
+            UploadsBucket = Bucket,
+            DeliveryPhotoS3 = s3,
+            CommitmentsEnabled = true,
+            DropoffClassificationEnabled = true
+        };
+    }
+
+    /// <summary>The phone's queue as one batch from the trucker, in order; the results in the same order.</summary>
+    private async Task<List<JsonElement>> SyncAsTruckerAsync(params (string EntityType, string EntityId, Dictionary<string, object> Data)[] operations)
+    {
+        var trucker = Id("trucker");
+        var request = new APIGatewayProxyRequest
+        {
+            Body = JsonSerializer.Serialize(new SyncRequest
+            {
+                SyncBatchId = $"batch-fup373-{_run}",
+                ClientId = "device-fup373",
+                Operations = operations.Select((op, i) => new SyncOperationRequest
+                {
+                    OperationId = $"op-fup373-{i}",
+                    IdempotencyKey = $"{trucker}:{op.EntityType}:{op.EntityId}:create:{Guid.NewGuid():N}",
+                    EntityType = op.EntityType,
+                    EntityId = op.EntityId,
+                    Action = "create",
+                    Data = op.Data
+                }).ToList()
+            }, SerializerOptions),
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+            {
+                Authorizer = new APIGatewayCustomAuthorizerContext { { "userId", trucker }, { "custom:role", "trucker" } }
+            }
+        };
+
+        var response = await Sync().FunctionHandler(request, new TestLambdaContext());
+        response.StatusCode.Should().Be(200, response.Body);
+        return JsonDocument.Parse(response.Body).RootElement.GetProperty("results").EnumerateArray().Select(r => r.Clone()).ToList();
+    }
+
+    private (string, string, Dictionary<string, object>) ArrivalPhotoOp()
+        => (DeliveryPhotoKeys.EntityType, $"{DeliveryId}#{DeliveryPhotoKeys.Arrival}",
+            new Dictionary<string, object> { { DeliveryPhotoKeys.PhotoRefField, ArrivalKey } });
+
+    /// <summary>The trucker's "Arrived at drop-off", tapped at the drop-off an hour before T8 (0.1 km from the buyer's pin).</summary>
+    private (string, string, Dictionary<string, object>) DropoffCheckInOp(DateTime t8)
+        => (PickupJudgement.EntityType, $"{OrderId}#{PickupJudgement.Kind.ArrivedDropoff}", new Dictionary<string, object>
+        {
+            { "orderId", OrderId }, { "kind", PickupJudgement.Kind.ArrivedDropoff }, { "capturedAt", OrderCommitment.Iso(t8.AddHours(-1)) },
+            { "latitude", 9.031 }, { "longitude", 38.74 }, { "accuracyM", 20 }
+        });
+
+    /// <summary>T8 ran with no check-in on the server: the delivery and the order are the system's overdue dispute.</summary>
+    private async Task<DateTime> JudgedOverdueAsync()
+    {
+        var t8 = DateTime.UtcNow.AddMinutes(-30);
+        await SeedOrderAsync(t8);
+        await SeedDeliveryAsync(arrivalPhoto: false);
+        await SeedEscrowAsync();
+        (await RunAsync(Cron())).Body.Should().Contain("\"dropoffJudged\":\"1\"");
+        (await ReadOrderAsync())[DropoffJudgement.Field].Should().Be(DropoffJudgement.Outcome.DeliveryOverdue);
+        DropoffJudgement.SystemDisputeReasonOf((await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!)
+            .Should().Be(DropoffJudgement.OverdueReason);
+        return t8;
+    }
+
+    [LocalDynamoDbFact]
+    public async Task FUP373_ALateOfflineCheckIn_SyncedAfterTheT8Run_KeepsItsPhotoAndItsLateEntry_AndMovesNothing()
+    {
+        var t8 = await JudgedOverdueAsync();
+        var orderBefore = await ReadOrderAsync();
+        var deliveryBefore = (await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!;
+
+        var results = await SyncAsTruckerAsync(ArrivalPhotoOp(), DropoffCheckInOp(t8));
+
+        results[0].GetProperty("status").GetString().Should().Be("success", results[0].ToString());
+        results[1].GetProperty("message").GetString().Should().StartWith($"{PickupJudgement.TooLateCode}: ");
+
+        // The photo is evidence on the dispute: written with its S3 version, the status and version untouched.
+        var delivery = (await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!;
+        delivery["arrivalPhotoRef"].Should().Be(ArrivalKey);
+        delivery["arrivalPhotoVersionId"].Should().Be("v-late");
+        delivery["status"].Should().Be("disputed");
+        delivery["version"].Should().Be(deliveryBefore["version"]);
+        delivery["updatedAt"].Should().Be(deliveryBefore["updatedAt"]);
+
+        // The check-in is kept late, never counted: the judgement and the order stand as they were.
+        var order = await ReadOrderAsync();
+        var kept = DropoffJudgement.CheckInOf(order)!;
+        kept[PickupJudgement.EntryLate].Should().Be(true);
+        kept[PickupJudgement.EntryDistanceChecked].Should().Be(true);
+        DropoffJudgement.CountedCheckIn(order).Should().BeNull();
+        DropoffJudgement.ViewOf(order)!.Late.Should().BeTrue();
+        order["status"].Should().Be("disputed");
+        order[DropoffJudgement.Field].Should().Be(DropoffJudgement.Outcome.DeliveryOverdue);
+        order["version"].Should().Be(orderBefore["version"]);
+        OrderDeadlines.Stored(order).Should().BeNull();
+
+        // The same batch again (the phone did not hear back) gets the same answers and writes nothing new.
+        var again = await SyncAsTruckerAsync(ArrivalPhotoOp(), DropoffCheckInOp(t8));
+        again[0].GetProperty("status").GetString().Should().Be("success");
+        again[1].GetProperty("message").GetString().Should().StartWith($"{PickupJudgement.TooLateCode}: ");
+        DropoffJudgement.CheckInOf(await ReadOrderAsync())![PickupJudgement.EntryReceivedAt]
+            .Should().Be(kept[PickupJudgement.EntryReceivedAt]);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task FUP373_ALateCheckIn_WhosePhotoNeverReachedTheServer_IsStillKeptLate()
+    {
+        var t8 = await JudgedOverdueAsync();
+
+        var results = await SyncAsTruckerAsync(DropoffCheckInOp(t8));
+
+        results[0].GetProperty("message").GetString().Should().StartWith($"{PickupJudgement.TooLateCode}: ");
+        var order = await ReadOrderAsync();
+        DropoffJudgement.CheckInOf(order)![PickupJudgement.EntryLate].Should().Be(true);
+        order[DropoffJudgement.Field].Should().Be(DropoffJudgement.Outcome.DeliveryOverdue);
+        (await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!.Should().NotContainKey("arrivalPhotoRef");
     }
 }

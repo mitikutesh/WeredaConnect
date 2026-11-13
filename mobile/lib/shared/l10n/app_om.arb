@@ -3413,14 +3413,14 @@
   "dropoffJudgementAutoConfirmed": "Sirnaan mirkanaa'eera: konkolaachisaan bakka buusuu ga'uu isaa erga mirkaneessee booda bitaan deebii hin kennine. Bitaan sa'aatii 48 idilee keessatti ammallee rakkoo gabaasuu danda'a.",
   "dropoffJudgementSilentBuyer": "Konkolaachisaan ga'uu isaa erga mirkaneessee booda bitaan deebii hin kennine, geejjibnis ofumaan mirkanaa'uu hin dandeenye. Deeggarsi ni qorata; maallaqni qabamee tura.",
   "dropoffJudgementDeliveryOverdue": "Hanga yeroo dhumaa geejjibaatti mirkaneessi bakka buusuu hin dhufne. Deeggarsi ni qorata; maallaqni qabamee tura.",
-  "dropoffJudgementOutOfRange": "Konkolaachisaan mirkaneessuuf yaaleera, garuu bakka buusuu irraa km 5 ol fagaatee ture. Deeggarsi ni qorata; maallaqni qabamee tura.",
+  "dropoffJudgementOutOfRange": "Mirkaneessi konkolaachisaa bakka buusuu ajajichaa irraa km 5 ol fagaatee ture. Deeggarsi ni qorata; maallaqni qabamee tura.",
   "dropoffJudgementQueued": "Deeggarsi geejjiba kana gamaaggamaa jira. Maallaqni qabamee tura.",
   "dropoffJudgementOther": "Murtiin geejjibaa kennameera.",
   "errorCheckInPhotoRequired": "Suuraan ga'umsaa sarvarii bira hin geenye. Jalqaba suuraa ga'umsaa kaasi, sana booda bakka buusuu irratti irra deebi'ii mirkaneessi.",
   "errorDropoffCheckInNotOpen": "Geejjiba kanaaf mirkaneessi bakka buusuu hin banamne; kanaaf mirkaneessi kee hin olkaa'amne.",
   "errorDropoffCheckInNotParty": "Bakka buusuu ga'uu kan mirkaneessu konkolaachisaa ajajaa qofa. Mirkaneessi kee hin olkaa'amne.",
-  "errorDropoffCheckInTooFar": "Bakka buusuu irraa km 5 ol fagaattee jirta. Mirkaneessi kee hin olkaa'amne; yeroo dhiyaattu irra deebi'ii mirkaneessi.",
-  "errorDropoffCheckInTooFarKept": "Bakka buusuu irraa km 5 ol fagaattee jirta. Mirkaneessi kee hin olkaa'amne, garuu yaaliin kun gamaaggamaaf olkaa'ameera. Yeroo dhiyaattu irra deebi'ii mirkaneessi.",
+  "errorDropoffCheckInTooFar": "Mirkaneessi kee bakka buusuu ajajichaa irraa km 5 ol fagaatee waan tureef hin olkaa'amne. Bakka sanatti yeroo dhiyaattu irra deebi'ii mirkaneessi.",
+  "errorDropoffCheckInTooFarKept": "Mirkaneessi kee bakka buusuu ajajichaa irraa km 5 ol fagaatee waan tureef hin olkaa'amne, garuu yaaliin kun gamaaggamaaf olkaa'ameera. Bakka sanatti yeroo dhiyaattu irra deebi'ii mirkaneessi.",
   "errorDropoffCheckInTooLate": "Mirkaneessi kee yeroo dhumaa geejjibaa booda sarvarii bira waan ga'eef hin lakkaa'amu. Gamaaggamaaf olkaa'ameera.",
   "errorDropoffCheckInClosed": "Yeroon dhumaa geejjibaa waan darbeef mirkaneessi cufameera. Mirkaneessi kee hin olkaa'amne."
 }

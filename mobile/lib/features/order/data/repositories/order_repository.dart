@@ -20,6 +20,7 @@ import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
 /// Offline-first repository for order CRUD operations.
@@ -39,15 +40,21 @@ class OrderRepository extends BaseOrderRepository {
   /// The signed-in user, whose own queued check-ins [getOrderById] shows
   /// (FUP-285). The app passes it; without it every user's show.
   final Future<String?> Function()? _currentUserId;
+
+  /// Deletes a photo file this phone took (FUP-373: an arrival photo taken
+  /// while another one already waits to upload); tests pass a fake.
+  final Future<void> Function(String path)? _deletePhotoFile;
   static const _uuid = Uuid();
 
   OrderRepository({
     required Isar isar,
     required SyncQueue syncQueue,
     Future<String?> Function()? currentUserId,
+    Future<void> Function(String path)? deletePhotoFile,
   })  : _isar = isar,
         _syncQueue = syncQueue,
-        _currentUserId = currentUserId;
+        _currentUserId = currentUserId,
+        _deletePhotoFile = deletePhotoFile;
 
   /// Get orders for a farmer, optionally filtered by status.
   @override
@@ -768,8 +775,9 @@ class OrderRepository extends BaseOrderRepository {
   /// file of [deliveryId]) is kept on the local delivery, so the photo shows
   /// and the next attempt does not ask for another, and queued as
   /// `delivery_photo` `{deliveryId}#arrival` (the sync preflight uploads it),
-  /// unless one already waits. The check-in names its delivery in a `_` key,
-  /// never sent: the sync preflight holds it back while that photo waits.
+  /// unless one already waits (then a new file is deleted, FUP-373: it would
+  /// never be sent). The check-in names its delivery in a `_` key, never
+  /// sent: the sync preflight holds it back while that photo waits.
   /// As for [checkIn], the queued operation is the local mark and every
   /// `CHECKIN_*` refusal takes it back.
   @override
@@ -789,20 +797,23 @@ class OrderRepository extends BaseOrderRepository {
     final photo = arrivalPhotoRef;
     final photoId = deliveryPhotoEntityId(deliveryId, arrivalPhotoType);
     if (photo != null &&
-        DeliveryConstants.isLocalPhotoPath(photo, deliveryId) &&
-        !await _syncQueue.hasWaitingOperationsFor(
-          deliveryPhotoEntityType,
-          photoId,
-        )) {
-      await _keepArrivalPhoto(deliveryId, photo);
-      await _syncQueue.enqueue(
-        userId: userId,
-        entityType: deliveryPhotoEntityType,
-        entityId: photoId,
-        action: 'create',
-        data: jsonEncode({deliveryPhotoLocalPathKey: photo}),
-        operationId: _uuid.v4(),
-      );
+        DeliveryConstants.isLocalPhotoPath(photo, deliveryId)) {
+      if (!await _syncQueue.hasWaitingOperationsFor(
+        deliveryPhotoEntityType,
+        photoId,
+      )) {
+        await _keepArrivalPhoto(deliveryId, photo);
+        await _syncQueue.enqueue(
+          userId: userId,
+          entityType: deliveryPhotoEntityType,
+          entityId: photoId,
+          action: 'create',
+          data: jsonEncode({deliveryPhotoLocalPathKey: photo}),
+          operationId: _uuid.v4(),
+        );
+      } else if (!await _isQueuedPhotoFile(photoId, photo)) {
+        await _deleteUnsentPhoto(photo);
+      }
     }
     await _syncQueue.enqueue(
       userId: userId,
@@ -841,6 +852,36 @@ class OrderRepository extends BaseOrderRepository {
       delivery.arrivalPhotoRef = path;
       await _isar.deliverys.put(delivery);
     });
+  }
+
+  /// Whether a `delivery_photo` [photoId] the server has not refused carries
+  /// the file [path] (the kept photo passed again for the next attempt).
+  Future<bool> _isQueuedPhotoFile(String photoId, String path) async {
+    final ops = await _syncQueue.unrejectedOperationsFor(
+      deliveryPhotoEntityType,
+      entityIdPrefix: photoId,
+    );
+    for (final op in ops) {
+      try {
+        final data = jsonDecode(op.data);
+        if (data is Map && data[deliveryPhotoLocalPathKey] == path) {
+          return true;
+        }
+      } on FormatException {
+        continue;
+      }
+    }
+    return false;
+  }
+
+  /// FUP-373: an arrival photo taken while another one already waits to
+  /// upload is never sent, so its file is not left on the phone. Best effort.
+  Future<void> _deleteUnsentPhoto(String path) async {
+    try {
+      await (_deletePhotoFile ?? PhotoManager().deleteLocalPhoto)(path);
+    } on Object catch (e) {
+      debugPrint('[OrderRepository] unsent arrival photo not deleted: $e');
+    }
   }
 
   /// [point] when the server takes it (inside Ethiopia's box), else null.

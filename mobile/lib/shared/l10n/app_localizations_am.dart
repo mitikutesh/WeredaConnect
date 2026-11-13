@@ -5817,7 +5817,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get dropoffJudgementOutOfRange =>
-      'ሹፌሩ ለማረጋገጥ ሞክሯል፣ ነገር ግን ከማውረጃ ቦታው ከ5 ኪ.ሜ በላይ ርቆ ነበር። ድጋፍ ሰጪዎች እያጣሩት ነው፤ ገንዘቡ እንደተያዘ ይቆያል።';
+      'የሹፌሩ ማረጋገጫ ከትዕዛዙ ማውረጃ ቦታ ከ5 ኪ.ሜ በላይ ርቆ ነበር። ድጋፍ ሰጪዎች እያጣሩት ነው፤ ገንዘቡ እንደተያዘ ይቆያል።';
 
   @override
   String get dropoffJudgementQueued =>
@@ -5840,11 +5840,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get errorDropoffCheckInTooFar =>
-      'ከማውረጃ ቦታው ከ5 ኪ.ሜ በላይ ርቀዋል። ማረጋገጫዎ አልተቀመጠም፤ ሲቀርቡ እንደገና ያረጋግጡ።';
+      'ማረጋገጫዎ ከትዕዛዙ ማውረጃ ቦታ ከ5 ኪ.ሜ በላይ ርቆ ስለነበር አልተቀመጠም። ወደዚያ ቦታ ሲቀርቡ እንደገና ያረጋግጡ።';
 
   @override
   String get errorDropoffCheckInTooFarKept =>
-      'ከማውረጃ ቦታው ከ5 ኪ.ሜ በላይ ርቀዋል። ማረጋገጫዎ አልተቀመጠም፣ ነገር ግን ይህ ሙከራ ለግምገማ ተቀምጧል። ሲቀርቡ እንደገና ያረጋግጡ።';
+      'ማረጋገጫዎ ከትዕዛዙ ማውረጃ ቦታ ከ5 ኪ.ሜ በላይ ርቆ ስለነበር አልተቀመጠም፣ ነገር ግን ይህ ሙከራ ለግምገማ ተቀምጧል። ወደዚያ ቦታ ሲቀርቡ እንደገና ያረጋግጡ።';
 
   @override
   String get errorDropoffCheckInTooLate =>

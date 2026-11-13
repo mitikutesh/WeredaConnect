@@ -1,5 +1,6 @@
 using Amazon.DynamoDBv2.Model;
 using Amazon.S3;
+using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
@@ -105,9 +106,9 @@ public partial class SyncFunction
             return stateAnswer;
         }
 
-        // ESC-36: the arrival photo belongs to the drop-off, so it attaches only while the goods are on the road.
-        if (type == DeliveryPhotoKeys.Arrival
-            && !DropoffJudgement.OnTheRoadDeliveryStatuses.Contains(AttrString(existing, "status")))
+        // ESC-36: the arrival photo belongs to the drop-off, so it attaches only while the goods are on the road;
+        // FUP-373: or as late evidence on the T8 dispute no admin has decided (an offline check-in synced late).
+        if (type == DeliveryPhotoKeys.Arrival && !DropoffJudgement.TakesArrivalPhoto(DynamoDbHelper.FromItem(existing)))
         {
             return PhotoResult(operation, "error", "DELIVERY_PHOTO_REFUSED: The arrival photo is taken while the goods are on the road.");
         }

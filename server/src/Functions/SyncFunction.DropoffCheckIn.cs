@@ -18,7 +18,7 @@ namespace WeredaConnect.Server.Functions;
 ///   attached (<c>delivery_photo</c> <c>{deliveryId}#arrival</c>). The first one is kept in the order's
 ///   <c>dropoffCheckIn</c> with the server's receipt time; the write moves neither the version nor
 ///   <c>updatedAt</c>, but it moves the next deadline from T8 to T9. One received after T8 is kept as late
-///   evidence and never counted. With the flag off the kind does not exist.
+///   evidence and never counted, with or without the photo (FUP-373). With the flag off the kind does not exist.
 /// The judgements run in the order cron (<see cref="DropoffJudgement.Decide"/>).
 /// </summary>
 public partial class SyncFunction
@@ -144,8 +144,11 @@ public partial class SyncFunction
             return CheckInResult(operation, $"{PickupJudgement.NotOpenCode}: This delivery is no longer on the road.");
         }
 
-        // Spec 4.8: the check-in needs the trucker's arrival photo, attached before it.
-        if (string.IsNullOrEmpty(AttrString(delivery, DeliveryPhotoKeys.FieldOf(DeliveryPhotoKeys.Arrival))))
+        // Spec 4.8: the check-in needs the trucker's arrival photo, attached before it. FUP-373: not a late one,
+        // which is evidence only and never counted: a check-in made offline at the drop-off before T8 and synced
+        // after the T8 run is kept late whether or not its photo got through (the photo is evidence of its own).
+        var late = window == CheckInWindow.Late;
+        if (!late && string.IsNullOrEmpty(AttrString(delivery, DeliveryPhotoKeys.FieldOf(DeliveryPhotoKeys.Arrival))))
         {
             return CheckInResult(operation,
                 $"{DropoffJudgement.PhotoRequiredCode}: Take the arrival photo first, then check in at the drop-off.");
@@ -167,7 +170,6 @@ public partial class SyncFunction
         // own point on a trip without a destination) the check-in is kept unmeasured, and a silent buyer's
         // delivery is then never confirmed automatically (T9 disputes it instead).
         var distanceKm = DropoffJudgement.NearestKm(checkIn.Latitude!.Value, checkIn.Longitude!.Value, points);
-        var late = window == CheckInWindow.Late;
         if (distanceKm is { } km && km > PickupJudgement.RadiusKm)
         {
             // FUP-204: the only point may be the buyer's own pin, which the buyer set. The first such attempt (photo

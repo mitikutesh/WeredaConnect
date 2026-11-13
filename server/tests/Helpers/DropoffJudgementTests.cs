@@ -298,6 +298,41 @@ public class DropoffJudgementTests
         DropoffJudgement.SystemDisputeReasonOf(delivery).Should().BeNull();
     }
 
+    [Theory]
+    [InlineData("pickedUp", null, null, null, true)]
+    [InlineData("inTransit", null, null, null, true)]
+    [InlineData("pending", null, null, null, false)]
+    [InlineData("delivered", null, null, null, false)]
+    [InlineData("cancelled", null, null, null, false)]
+    // FUP-373: the T8 dispute takes it as late evidence until an admin decides.
+    [InlineData("disputed", DropoffJudgement.SystemActor, DropoffJudgement.OverdueReason, null, true)]
+    [InlineData("disputed", DropoffJudgement.SystemActor, DropoffJudgement.OutOfRangeReason, null, true)]
+    [InlineData("disputed", DropoffJudgement.SystemActor, DropoffJudgement.OverdueReason, "buyer_wins", false)]
+    [InlineData("disputed", DropoffJudgement.SystemActor, DropoffJudgement.SilentBuyerReason, null, false)]
+    [InlineData("disputed", "buyer-1", DropoffJudgement.OverdueReason, null, false)]
+    [InlineData("disputed", "buyer-1", "not_received", null, false)]
+    public void TheArrivalPhoto_IsTakenOnTheRoad_OrOnTheUndecidedT8Dispute(
+        string status, string? disputedBy, string? reason, string? resolution, bool takes)
+    {
+        var delivery = new Dictionary<string, object> { { "status", status } };
+        if (disputedBy != null)
+        {
+            delivery["disputedBy"] = disputedBy;
+        }
+
+        if (reason != null)
+        {
+            delivery["disputeReason"] = reason;
+        }
+
+        if (resolution != null)
+        {
+            delivery["disputeResolution"] = resolution;
+        }
+
+        DropoffJudgement.TakesArrivalPhoto(delivery).Should().Be(takes);
+    }
+
     [Fact]
     public void TheNearestPoint_Measures()
     {

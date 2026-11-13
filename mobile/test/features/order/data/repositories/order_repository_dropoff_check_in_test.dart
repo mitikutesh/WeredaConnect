@@ -80,6 +80,7 @@ void main() {
   late Map<String, Map<String, Object>> answers;
   late bool photoReady;
   late Map<String, dynamic> serverOrder;
+  late List<String> deletedFiles;
 
   setUpAll(() async {
     await Isar.initializeIsarCore(download: true);
@@ -100,7 +101,12 @@ void main() {
       name: 'order_dropoff_${DateTime.now().microsecondsSinceEpoch}',
     );
     queue = SyncQueue(isar);
-    repo = OrderRepository(isar: isar, syncQueue: queue);
+    deletedFiles = [];
+    repo = OrderRepository(
+      isar: isar,
+      syncQueue: queue,
+      deletePhotoFile: (path) async => deletedFiles.add(path),
+    );
     source = _OnlineSource();
     dio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
     adapter = mock.DioAdapter(dio: dio);
@@ -347,6 +353,28 @@ void main() {
 
     expect(await ops(deliveryPhotoEntityType), hasLength(1));
     expect(await ops(handoffCheckInEntityType), hasLength(1));
+    // FUP-373: the new file would never be sent, so it is not left behind.
+    expect(deletedFiles, ['${_photoPath}x']);
+  });
+
+  test('FUP-373: the waiting photo passed again for the next try is kept',
+      () async {
+    await putOrder();
+    await putDelivery(arrivalPhotoRef: _photoPath);
+    await queue.enqueue(
+      userId: 'trucker-1',
+      entityType: deliveryPhotoEntityType,
+      entityId: _photoEntity,
+      action: 'create',
+      data: jsonEncode({deliveryPhotoLocalPathKey: _photoPath}),
+      operationId: 'op-photo',
+    );
+
+    expect(await checkIn(photo: _photoPath), isTrue);
+
+    expect(deletedFiles, isEmpty);
+    expect((await delivery()).arrivalPhotoRef, _photoPath);
+    expect(await ops(deliveryPhotoEntityType), hasLength(1));
   });
 
   test('refused on the phone: the wrong party, no fix, T8 passed', () async {
@@ -397,14 +425,19 @@ void main() {
           en.errorDropoffCheckInNotOpen,
       "CHECKIN_NOT_PARTY: Only the order's trucker checks in at the drop-off.":
           en.errorDropoffCheckInNotParty,
-      'CHECKIN_VALIDATION: arrived_dropoff is not taken yet.':
-          en.errorCheckInValidation,
+      // FUP-373: the drop-off flag rolled back, the pickup flag on.
+      'CHECKIN_VALIDATION: arrived_dropoff is not taken yet (it comes with '
+          'the drop-off check-in).': en.errorDropoffCheckInNotOpen,
+      'CHECKIN_VALIDATION: latitude and longitude are required for '
+          'arrived_dropoff.': en.errorCheckInValidation,
     };
 
     for (final MapEntry(key: message, value: text) in cases.entries) {
       final kept = message.endsWith(checkInAttemptKeptSuffix);
-      test('${message.split(':').first}${kept ? ' (attempt kept)' : ''}',
-          () async {
+      final flagOff = isDropoffKindNotTakenMessage(message);
+      test(
+          '${message.split(':').first}${kept ? ' (attempt kept)' : ''}'
+          '${flagOff ? ' (drop-off flag off)' : ''}', () async {
         await putOrder();
         await putDelivery(arrivalPhotoRef: _serverKey);
         await checkIn();
@@ -450,6 +483,75 @@ void main() {
 
     expect((await delivery()).arrivalPhotoRef, isNull);
     expect(rejectionTexts(), [en.errorCheckInPhotoRequired]);
+  });
+
+  test(
+      'FUP-373: the arrival photo refused for good forgets the kept file, '
+      'unannounced; the late check-in behind it says the late text', () async {
+    await putOrder();
+    await putDelivery();
+    await checkIn(photo: _photoPath);
+    expect((await delivery()).arrivalPhotoRef, _photoPath);
+    answers[deliveryPhotoEntityType] = {
+      'status': 'error',
+      'message': 'DELIVERY_PHOTO_REFUSED: The arrival photo is taken while '
+          'the goods are on the road.',
+    };
+    answers[handoffCheckInEntityType] = {
+      'status': 'error',
+      'message': 'CHECKIN_TOO_LATE: The delivery deadline passed before this '
+          'check-in reached the server. It was kept for review.',
+    };
+    serverOrder = _serverOrder(
+      checkIns: {
+        'arrived_dropoff': {
+          'receivedAt': DateTime.now().toUtc().toIso8601String(),
+          'distanceChecked': true,
+          'late': true,
+        },
+      },
+    );
+
+    await executor.syncNow();
+
+    expect(
+      [for (final batch in batches) batch.single['entityType']],
+      [deliveryPhotoEntityType, handoffCheckInEntityType],
+    );
+    expect(
+      SyncQueue.isRejected((await ops(deliveryPhotoEntityType)).single),
+      isTrue,
+    );
+    // The next "Arrived at drop-off" would take a new photo.
+    expect((await delivery()).arrivalPhotoRef, isNull);
+    // Only the check-in is said: the photo is background evidence.
+    expect(rejectionTexts(), [en.errorDropoffCheckInTooLate]);
+    expect(await queue.getFailedCount(), 0);
+    final order = (await repo.getOrderById('ord-1'))!;
+    expect(dropoffCheckInOf(order)!.isLate, isTrue);
+  });
+
+  test('FUP-373: a refused pickup photo leaves the arrival photo alone',
+      () async {
+    await putOrder();
+    await putDelivery(arrivalPhotoRef: _photoPath);
+    await queue.enqueue(
+      userId: 'trucker-1',
+      entityType: deliveryPhotoEntityType,
+      entityId: deliveryPhotoEntityId(_deliveryId, 'pickup'),
+      action: 'create',
+      data: jsonEncode({deliveryPhotoLocalPathKey: _photoPath}),
+      operationId: 'op-pickup-photo',
+    );
+    answers[deliveryPhotoEntityType] = {
+      'status': 'error',
+      'message': 'DELIVERY_PHOTO_EXISTS: This handoff already has its photo.',
+    };
+
+    await executor.executeBatch();
+
+    expect((await delivery()).arrivalPhotoRef, _photoPath);
+    expect(rejectionTexts(), isEmpty);
   });
 
   test(
