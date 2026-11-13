@@ -3508,6 +3508,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get actionCheckDelivery => 'Check the delivery';
 
   @override
+  String get actionCheckInAtFarm => 'Check in when you reach the farm';
+
+  @override
+  String get actionCropsReady => 'Check in when the crops are ready';
+
+  @override
+  String get actionCheckInAtDropoff => 'Check in when you reach the drop-off';
+
+  @override
+  String get actionConfirmDelivery => 'Confirm the delivery';
+
+  @override
   String actionDueBy(String time) {
     return 'Due $time';
   }

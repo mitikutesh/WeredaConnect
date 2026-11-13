@@ -3403,6 +3403,18 @@ class AppLocalizationsAm extends AppLocalizations {
   String get actionCheckDelivery => 'የደረሰውን ያረጋግጡ';
 
   @override
+  String get actionCheckInAtFarm => 'እርሻው ሲደርሱ ያረጋግጡ';
+
+  @override
+  String get actionCropsReady => 'ምርቱ ሲዘጋጅ ያረጋግጡ';
+
+  @override
+  String get actionCheckInAtDropoff => 'ማውረጃ ቦታ ሲደርሱ ያረጋግጡ';
+
+  @override
+  String get actionConfirmDelivery => 'ማድረሱን ያረጋግጡ';
+
+  @override
   String actionDueBy(String time) {
     return 'እስከ $time';
   }

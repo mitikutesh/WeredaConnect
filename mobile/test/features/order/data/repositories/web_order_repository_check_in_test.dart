@@ -261,6 +261,20 @@ void main() {
     }
   });
 
+  // FUP-327, FUP-371: web sends a check-in at once and keeps no queue, so
+  // Home's orders are as the server gave them, with no request.
+  test('Home: no queued check-ins on web, and nothing is read', () async {
+    serverHas(orderDto());
+    final order = (await repo.getOrderById('ord-1'))!;
+    clearInteractions(api);
+
+    final orders = await repo.ordersWithQueuedCheckIns([order], 'trucker-1');
+
+    expect(orders.single, same(order));
+    expect(orders.single.queuedCheckIns, isEmpty);
+    verifyZeroInteractions(api);
+  });
+
   test('another entity unsupported is not read as a check-in refusal', () {
     expect(
       mapErrorToCode(

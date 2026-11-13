@@ -339,6 +339,73 @@ void main() {
     expect(hasCheckInAwaitingServer(order), isFalse);
   });
 
+  // FUP-327: the order detail, the delivery detail and Home follow the
+  // window by the same edges.
+  group('the window edges', () {
+    final opens = _pickupDate.subtract(const Duration(hours: 24));
+
+    test('check-ins open, then a second after the deadline, then none', () {
+      expect(
+        nextPickupCheckInEdge(
+          _order(),
+          opens.subtract(const Duration(hours: 1)),
+        ),
+        opens,
+      );
+      expect(
+        nextPickupCheckInEdge(_order(), opens.add(const Duration(minutes: 1))),
+        _deadline.add(const Duration(seconds: 1)),
+      );
+      expect(
+        nextPickupCheckInEdge(
+          _order(),
+          _deadline.add(const Duration(hours: 1)),
+        ),
+        isNull,
+      );
+    });
+
+    test('a self-pickup order has only its deadline; a judged one none', () {
+      expect(
+        nextPickupCheckInEdge(_order(selfPickup: true), opens),
+        _deadline.add(const Duration(seconds: 1)),
+      );
+      expect(
+        nextPickupCheckInEdge(_order(judgement: 'scanned'), opens),
+        isNull,
+      );
+      expect(nextPickupCheckInEdge(_order(judgement: null), opens), isNull);
+    });
+
+    // A widget test runs the timers on fake time.
+    testWidgets('the timer waits for the edge, at most 12 hours at a time',
+        (tester) async {
+      final now = DateTime.utc(2026, 11, 2);
+      var fired = 0;
+      expect(checkInEdgeTimer(null, now, () => fired++), isNull);
+      expect(
+        checkInEdgeTimer(now.subtract(const Duration(seconds: 1)), now, () {
+          fired++;
+        }),
+        isNull,
+      );
+
+      checkInEdgeTimer(now.add(const Duration(minutes: 5)), now, () {
+        fired++;
+      });
+      await tester.pump(const Duration(minutes: 4));
+      expect(fired, 0);
+      await tester.pump(const Duration(minutes: 1));
+      expect(fired, 1);
+
+      checkInEdgeTimer(now.add(const Duration(days: 30)), now, () {
+        fired++;
+      });
+      await tester.pump(checkInMaxEdgeWait);
+      expect(fired, 2);
+    });
+  });
+
   group('handoffCheckInData', () {
     final at = DateTime.utc(2026, 11, 20, 6, 40);
 

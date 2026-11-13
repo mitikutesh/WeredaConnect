@@ -3541,6 +3541,18 @@ class AppLocalizationsOm extends AppLocalizations {
   String get actionCheckDelivery => 'Wanta ga\'e mirkaneessaa';
 
   @override
+  String get actionCheckInAtFarm => 'Yeroo maasii geessu mirkaneessaa';
+
+  @override
+  String get actionCropsReady => 'Yeroo midhaan qophaa\'u mirkaneessaa';
+
+  @override
+  String get actionCheckInAtDropoff => 'Yeroo bakka buusuu geessu mirkaneessaa';
+
+  @override
+  String get actionConfirmDelivery => 'Geejjiba mirkaneessaa';
+
+  @override
   String actionDueBy(String time) {
     return 'Hanga $time';
   }

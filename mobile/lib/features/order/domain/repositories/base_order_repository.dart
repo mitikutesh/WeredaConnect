@@ -23,6 +23,17 @@ abstract class BaseOrderRepository {
     String? statusFilter,
   });
 
+  /// FUP-327, FUP-371: [orders] with [userId]'s check-ins made on this
+  /// phone that the server has not refused ([Order.queuedCheckIns]), as
+  /// [getOrderById] gives them, read in one go and without the network
+  /// (Home's "Action needed" cards). Web sends a check-in at once and keeps
+  /// no queue: the orders as they are.
+  Future<List<Order>> ordersWithQueuedCheckIns(
+    List<Order> orders,
+    String userId,
+  ) async =>
+      orders;
+
   Future<Order?> getOrderById(String orderId);
 
   /// [dropoffNote] is the buyer's optional drop-off landmark (LT-12): sent

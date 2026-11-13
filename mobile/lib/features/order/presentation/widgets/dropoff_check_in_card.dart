@@ -41,9 +41,11 @@ class DropoffCheckInCard extends StatefulWidget {
   /// An action or a reload runs: the button takes no taps.
   final bool busy;
 
-  /// Offers the trucker's button. False where only the state is shown (the
-  /// delivery detail).
-  final bool actions;
+  /// The order's delivery where the screen holds it (the delivery detail,
+  /// FUP-371): the button goes by it and nothing is looked up until the
+  /// order is read again. Null: the trucker's delivery is looked up while
+  /// the button is offered (the order detail).
+  final Delivery? delivery;
 
   /// Where the fix comes from; the device's GPS when null.
   final GpsCaptureService? gpsService;
@@ -58,7 +60,7 @@ class DropoffCheckInCard extends StatefulWidget {
     required this.order,
     required this.userId,
     this.busy = false,
-    this.actions = true,
+    this.delivery,
     this.gpsService,
     this.takeArrivalPhoto,
     this.clock,
@@ -78,8 +80,8 @@ enum _Step { idle, photo, locating }
 class _DropoffCheckInCardState extends State<DropoffCheckInCard> {
   _Step _step = _Step.idle;
 
-  /// The order's delivery, looked up for the trucker's button: its id and
-  /// whether it has the arrival photo already.
+  /// The order's delivery for the trucker's button (given, or looked up):
+  /// its id and whether it has the arrival photo already.
   Delivery? _delivery;
 
   /// The arrival photo taken on a tap whose GPS fix then failed: the next
@@ -91,22 +93,20 @@ class _DropoffCheckInCardState extends State<DropoffCheckInCard> {
   /// open.
   Timer? _edge;
 
-  static const Duration _maxEdgeWait = Duration(hours: 12);
-
   Order get _order => widget.order;
 
   DateTime _now() => (widget.clock?.call() ?? DateTime.now()).toUtc();
 
   bool get _offersButton =>
-      widget.actions &&
       dropoffCheckInChanceFor(_order, widget.userId, _now()) ==
-          CheckInChance.open;
+      CheckInChance.open;
 
   @override
   void initState() {
     super.initState();
+    _delivery = widget.delivery;
     _scheduleEdge();
-    _lookUpDelivery();
+    if (_delivery == null) _lookUpDelivery();
   }
 
   @override
@@ -124,7 +124,8 @@ class _DropoffCheckInCardState extends State<DropoffCheckInCard> {
   }
 
   /// The trucker's delivery for this order, while the button is offered.
-  /// No delivery side above this card (or a failed lookup): no button.
+  /// No delivery side above this card (or a failed lookup): the given
+  /// delivery, else no button.
   Future<void> _lookUpDelivery() async {
     if (!_offersButton) return;
     Delivery? found;
@@ -142,23 +143,14 @@ class _DropoffCheckInCardState extends State<DropoffCheckInCard> {
       debugPrint('[DropoffCheckIn] delivery lookup failed: $e');
     }
     if (!mounted) return;
-    setState(() => _delivery = found);
+    setState(() => _delivery = found ?? widget.delivery);
   }
 
   /// A rebuild at the next deadline still ahead.
   void _scheduleEdge() {
     _edge?.cancel();
-    _edge = null;
-    if (!isDropoffJudgementPending(_order)) return;
     final now = _now();
-    final due = silentBuyerConfirmsAt(_order) ?? _order.dropoffDeadlineAt;
-    if (due == null) return;
-    final at = due.add(const Duration(seconds: 1));
-    if (!at.isAfter(now)) return;
-    // At most [_maxEdgeWait] at a time: a browser fires a longer timeout at
-    // once, and a rebuild on the way is harmless.
-    final wait = at.difference(now);
-    _edge = Timer(wait > _maxEdgeWait ? _maxEdgeWait : wait, () {
+    _edge = checkInEdgeTimer(nextDropoffCheckInEdge(_order, now), now, () {
       if (!mounted) return;
       setState(() {});
       _scheduleEdge();

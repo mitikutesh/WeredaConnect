@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
@@ -135,6 +137,39 @@ CheckInChance checkInChanceFor(Order order, String userId, DateTime nowUtc) {
   final opens = checkInOpensAt(order);
   if (opens != null && nowUtc.isBefore(opens)) return CheckInChance.notYet;
   return CheckInChance.open;
+}
+
+/// A screen that follows a check-in window looks again at most this long
+/// after it last looked: a browser fires a longer timeout at once (24.8 days
+/// overflows it), and a look on the way is harmless.
+const Duration checkInMaxEdgeWait = Duration(hours: 12);
+
+/// The next moment after [nowUtc] at which what the pickup check-ins of
+/// [order] offer changes: check-ins open ([checkInOpensAt]), or a second
+/// after the pickup deadline. Null once both passed or the order waits for
+/// no pickup judgement.
+DateTime? nextPickupCheckInEdge(Order order, DateTime nowUtc) {
+  if (!isPickupJudgementPending(order)) return null;
+  final deadline = order.pickupDeadlineAt;
+  final edges = [
+    checkInOpensAt(order),
+    if (deadline != null) deadline.add(const Duration(seconds: 1)),
+  ].whereType<DateTime>().where((at) => at.isAfter(nowUtc)).toList()
+    ..sort();
+  return edges.isEmpty ? null : edges.first;
+}
+
+/// A timer that calls [onEdge] at [edge], or after [checkInMaxEdgeWait]
+/// when [edge] is further away (the caller then looks again). Null when
+/// there is no [edge] after [nowUtc].
+Timer? checkInEdgeTimer(
+  DateTime? edge,
+  DateTime nowUtc,
+  void Function() onEdge,
+) {
+  if (edge == null || !edge.isAfter(nowUtc)) return null;
+  final wait = edge.difference(nowUtc);
+  return Timer(wait > checkInMaxEdgeWait ? checkInMaxEdgeWait : wait, onEdge);
 }
 
 /// The repositories' guard before a check-in is queued or sent. Returns

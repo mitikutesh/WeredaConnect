@@ -17,7 +17,7 @@ import 'package:wereda_connect/features/delivery_verification/data/delivery_cons
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/initiate_payment_screen.dart';
-import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/delivery_check_ins.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/dropoff_check_in_card.dart';
 import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
 import 'package:wereda_connect/features/live_trip/presentation/open_live_trip.dart';
@@ -46,8 +46,9 @@ import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// Full delivery details (a sibling of the Buyer · Order detail board): the
 /// delivery named in the header with its status pill, the timeline card,
-/// who is involved, the pickup and the drop-off evidence, and the role's
-/// next step pinned at the foot.
+/// who is involved, the pickup and the drop-off evidence with the order's
+/// check-ins (FUP-327, FUP-371), and the role's next step pinned at the
+/// foot.
 class DeliveryDetailScreen extends StatelessWidget {
   final Delivery delivery;
   final String currentUserId;
@@ -57,10 +58,19 @@ class DeliveryDetailScreen extends StatelessWidget {
   /// delivery payment (FUP-69).
   final bool? telebirrLive;
 
+  /// Where a check-in's GPS fix comes from; the device's GPS when null.
+  final GpsCaptureService? checkInGps;
+
+  /// Takes the trucker's arrival photo at the drop-off; the camera when
+  /// null.
+  final ArrivalPhotoTaker? takeArrivalPhoto;
+
   const DeliveryDetailScreen({
     required this.delivery,
     required this.currentUserId,
     this.telebirrLive,
+    this.checkInGps,
+    this.takeArrivalPhoto,
     super.key,
   });
 
@@ -177,6 +187,11 @@ class DeliveryDetailScreen extends StatelessWidget {
                                 notYet: l10n.deliveryNotYetPickedUp,
                                 clock: clock,
                               ),
+
+                              // ESC-34 (FUP-327): before pickup, the arrival
+                              // check-ins with the viewer's own button.
+                              if (delivery.status == DeliveryStatus.pending)
+                                _checkIns(const EdgeInsets.only(top: 12)),
                               const SizedBox(height: 16),
 
                               FwSectionLabel(
@@ -227,12 +242,11 @@ class DeliveryDetailScreen extends StatelessWidget {
                                 ),
                               ],
 
-                              // ESC-36: the trucker's drop-off check-in and
-                              // what happens next, from the order.
-                              _DropoffSummary(
-                                delivery: delivery,
-                                currentUserId: currentUserId,
-                              ),
+                              // ESC-36: the trucker's drop-off check-in, with
+                              // "Arrived at drop-off" on the road (FUP-371),
+                              // and what happens next, from the order.
+                              if (delivery.status != DeliveryStatus.pending)
+                                _checkIns(const EdgeInsets.only(top: 16)),
 
                               if (delivery.status ==
                                   DeliveryStatus.disputed) ...[
@@ -254,6 +268,16 @@ class DeliveryDetailScreen extends StatelessWidget {
       ),
     );
   }
+
+  /// The order's check-ins (FUP-327, FUP-371), with [padding] when a card
+  /// shows.
+  Widget _checkIns(EdgeInsetsGeometry padding) => DeliveryCheckIns(
+        delivery: delivery,
+        userId: currentUserId,
+        padding: padding,
+        gpsService: checkInGps,
+        takeArrivalPhoto: takeArrivalPhoto,
+      );
 
   static final ButtonStyle _primaryStyle = FilledButton.styleFrom(
     minimumSize: const Size.fromHeight(56),
@@ -967,65 +991,6 @@ class _StageCard extends StatelessWidget {
             canCapture: false,
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// ESC-36 (FUP-336): the drop-off check-in of the delivery's order as the
-/// order detail shows it, without the trucker's button: the check-in time,
-/// for the buyer by when to confirm before the delivery may be confirmed for
-/// them (T9), and the outcome. Read from the order repository (the phone's
-/// copy, or the server on web); nothing shows without the order, or on an
-/// order not stamped for the drop-off judgement.
-class _DropoffSummary extends StatefulWidget {
-  final Delivery delivery;
-  final String currentUserId;
-
-  const _DropoffSummary({
-    required this.delivery,
-    required this.currentUserId,
-  });
-
-  @override
-  State<_DropoffSummary> createState() => _DropoffSummaryState();
-}
-
-class _DropoffSummaryState extends State<_DropoffSummary> {
-  Order? _order;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final orderId = widget.delivery.orderId;
-    if (orderId == null || orderId.isEmpty) return;
-    Order? order;
-    try {
-      order = await context.read<OrderBloc>().repository.getOrderById(orderId);
-    } on Object catch (e) {
-      // No order side above this screen, or offline on web: nothing shows.
-      debugPrint('[DeliveryDetail] order not read: $e');
-    }
-    if (!mounted || order == null) return;
-    setState(() => _order = order);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final order = _order;
-    if (order == null || !DropoffCheckInCard.showsFor(order)) {
-      return const SizedBox.shrink();
-    }
-    return Padding(
-      padding: const EdgeInsets.only(top: 16),
-      child: DropoffCheckInCard(
-        order: order,
-        userId: widget.currentUserId,
-        actions: false,
       ),
     );
   }
