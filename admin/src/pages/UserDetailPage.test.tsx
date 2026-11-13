@@ -211,5 +211,14 @@ describe("UserDetailPage", () => {
       expect(screen.getByText("Not shown for a deleted account.")).toBeTruthy();
       expect(screen.queryByText(/Abebe/)).toBeNull();
     });
+
+    it("says the history is withheld while a deletion runs, not that it failed to load", () => {
+      /* deletionState in_progress: the phone is still on the row, so only the server knows; it says so. */
+      mocks.detail = { user: liveUser, profileHistoryHidden: true };
+      renderPage();
+
+      expect(screen.getByText("Not shown for a deleted account.")).toBeTruthy();
+      expect(screen.queryByText("Profile history could not be loaded.")).toBeNull();
+    });
   });
 });

@@ -159,6 +159,7 @@ public class AdminUserProfileHistoryTests
         var body = Json(response);
         body.GetProperty("profileHistory").GetArrayLength().Should().Be(0);
         body.GetProperty("profileHistoryMore").GetBoolean().Should().BeFalse();
+        body.TryGetProperty("profileHistoryHidden", out _).Should().BeFalse();
     }
 
     [Fact]
@@ -185,6 +186,7 @@ public class AdminUserProfileHistoryTests
         response.StatusCode.Should().Be(200);
         Json(response).TryGetProperty("profileHistory", out _).Should().BeFalse();
         Json(response).TryGetProperty("profileHistoryMore", out _).Should().BeFalse();
+        Json(response).TryGetProperty("profileHistoryHidden", out _).Should().BeFalse();
         Queries.Should().BeEmpty();
     }
 
@@ -199,6 +201,7 @@ public class AdminUserProfileHistoryTests
         response.StatusCode.Should().Be(200, response.Body);
         Json(response).GetProperty("user").GetProperty("userId").GetString().Should().Be("farmer-1");
         Json(response).TryGetProperty("profileHistory", out _).Should().BeFalse();
+        Json(response).TryGetProperty("profileHistoryHidden", out _).Should().BeFalse();
         ((TestLambdaLogger)_context.Logger).Buffer.ToString().Should()
             .Contain("FUP-317: profile history read failed (non-fatal): [ProvisionedThroughputExceededException]");
     }
@@ -220,6 +223,9 @@ public class AdminUserProfileHistoryTests
 
         response.StatusCode.Should().Be(200, response.Body);
         Json(response).TryGetProperty("profileHistory", out _).Should().BeFalse();
+        Json(response).TryGetProperty("profileHistoryMore", out _).Should().BeFalse();
+        // Said, so the admin app tells it apart from a read that failed.
+        Json(response).GetProperty("profileHistoryHidden").GetBoolean().Should().BeTrue();
         response.Body.Should().NotContain("\"Abebe\"");
         Queries.Should().BeEmpty();
     }
@@ -231,6 +237,42 @@ public class AdminUserProfileHistoryTests
 
         response.StatusCode.Should().Be(404);
         Queries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task TheAuditLog_ListsAProfileEdit_WithoutTheNames_AndKeepsOtherRowsMetadata()
+    {
+        _ddb.ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ScanResponse
+            {
+                Items =
+                [
+                    EditRow("2026-11-13T09:00:00.0000000Z",
+                        Meta(new ProfileFieldChange { Field = "displayName", From = "Abebe Original", To = "Abebe Renamed" })),
+                    EditRow("2026-11-12T09:00:00.0000000Z", "reported by phone", action: "user_suspend")
+                ],
+                LastEvaluatedKey = new Dictionary<string, AttributeValue>()
+            });
+
+        var response = await new AdminFunction(_ddb, UsersTable, transactionAuditTable: TxAuditTable).FunctionHandler(
+            new APIGatewayProxyRequest
+            {
+                HttpMethod = "GET",
+                Path = "/admin/audit",
+                RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+                {
+                    Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" }, { "role", "admin" } }
+                }
+            }, _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var entries = Json(response).GetProperty("entries").EnumerateArray().ToList();
+        var edit = entries.Single(e => e.GetProperty("action").GetString() == "profile_edited");
+        edit.GetProperty("entityId").GetString().Should().Be("farmer-1");
+        edit.TryGetProperty("metadata", out _).Should().BeFalse();
+        response.Body.Should().NotContain("Abebe Original").And.NotContain("Abebe Renamed");
+        entries.Single(e => e.GetProperty("action").GetString() == "user_suspend")
+            .GetProperty("metadata").GetString().Should().Be("reported by phone");
     }
 
     // ──────────────────────────────────────────────

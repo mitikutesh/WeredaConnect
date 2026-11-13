@@ -106,9 +106,12 @@ export function UserDetailPage() {
   const user = (resp?.user as Record<string, unknown>) || {};
   // FRD-07: admin-only, next to the user in the response; fraud_confirmed is the Fraud Review reject.
   const suspendReason = typeof resp?.suspendReason === "string" ? resp.suspendReason : "";
-  // FUP-317: newest first, at most 50; absent when the server could not read it.
+  // FUP-317: newest first, at most 50; absent when the server could not read it or withheld it. The server says
+  // profileHistoryHidden for a deleting or deleted account (the phone is still set while the deletion runs).
   const profileHistory = Array.isArray(resp?.profileHistory) ? (resp.profileHistory as ProfileEdit[]) : undefined;
   const profileHistoryMore = resp?.profileHistoryMore === true;
+  const profileHistoryHidden =
+    resp?.profileHistoryHidden === true || isDeletedUser(resp?.user as Record<string, unknown> | undefined);
 
   if (isLoading) {
     return <div className="text-text-muted">{t("common.loading")}</div>;
@@ -196,7 +199,7 @@ export function UserDetailPage() {
           <ProfileHistory
             history={profileHistory}
             more={profileHistoryMore}
-            deleted={isDeletedUser(resp?.user as Record<string, unknown> | undefined)}
+            deleted={profileHistoryHidden}
             t={t}
           />
         </div>

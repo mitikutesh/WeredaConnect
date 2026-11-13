@@ -338,12 +338,19 @@ public sealed record AdminUserDetailResponse
 
     /// <summary>
     /// FUP-317 (user-entity.md 2.3.0 section 14): the user's accepted profile edits, newest first, at most 50; empty
-    /// when there are none. Absent when the transaction-audit table is not configured or could not be read.
+    /// when there are none. Absent when the transaction-audit table is not configured or could not be read, and for a
+    /// deleting or deleted account (<see cref="ProfileHistoryHidden"/>).
     /// </summary>
     public List<AdminProfileEditDto>? ProfileHistory { get; init; }
 
     /// <summary>FUP-317: true when the user has older edits than the ones listed; absent with the history.</summary>
     public bool? ProfileHistoryMore { get; init; }
+
+    /// <summary>
+    /// FUP-317: true when the account has <c>deletionState</c> and the history is withheld (its old names are not
+    /// shown, ACC-05); absent otherwise. Tells the admin app "deleted account" apart from "could not be read".
+    /// </summary>
+    public bool? ProfileHistoryHidden { get; init; }
 }
 
 /// <summary>FUP-317: one accepted profile edit on the admin user detail, from its transaction-audit row.</summary>

@@ -646,12 +646,18 @@ transaction-audit row, and a name changed around a disputed order or a fraud cas
   when older ones exist (the route does not page further). An empty list means no edits. Both
   fields are absent when the audit table is not configured, when the read fails (a warning with
   the exception type only; the user detail still answers) and for an account with
-  `deletionState` (the ACC-05 rule: a deleted account's names are not shown). A row whose
-  `metadata` cannot be read is listed with no changes.
+  `deletionState` (the ACC-05 rule: a deleted account's names are not shown). In that last case
+  the response says `"profileHistoryHidden": true` (absent otherwise), since the phone is still on
+  the row while a deletion runs and the app cannot tell the account apart from a failed read. A
+  row whose `metadata` cannot be read is listed with no changes.
+- **Audit log.** `GET /admin/audit` lists `profile_edited` rows without `metadata`: the user detail
+  above is the only read of the names, so the audit log never shows them, whatever the account's
+  state. Every other row keeps its `metadata`.
 - **Admin app.** User detail > "Profile history": each edit's time and, per field, the old value,
   an arrow and the new value (`(none)` for a missing one); texts for no edits, a history that
-  could not be loaded, a deleted account and the 50-edit cap, in en, am and om. The audit log
-  labels the `profile_edited` action ("Profile edited") without the values.
+  could not be loaded, a deleted or deleting account (an empty phone or `profileHistoryHidden`)
+  and the 50-edit cap, in en, am and om. The audit log labels the `profile_edited` action
+  ("Profile edited") without the values.
 
 ---
 
@@ -659,7 +665,7 @@ transaction-audit row, and a name changed around a disputed order or a fraud cas
 
 | Version | Date | Change |
 |---------|------|--------|
-| 2.3.0 | 2026-11-13 | FUP-317 (section 14, "Audit row and admin history"): an accepted change of `displayName`, `woreda` or `companyName` writes one transaction-audit `profile_edited` row (partition `profile-{userId}`, the old and new values of the changed fields in `metadata`, actor, role, IP, correlation id) in the same `TransactWriteItems` as the users update; a refused, unchanged or language-only edit writes none; a failed condition on either row is `USER_PROFILE_CONFLICT`. `GET /admin/users/{id}` adds `profileHistory` (newest first, at most 50) and `profileHistoryMore`, left out when the table is unconfigured, the read fails or the account has `deletionState`. Invariant 14. The values are never logged; account deletion keeps the rows (open: TASK FUP-419). No change for the apps |
+| 2.3.0 | 2026-11-13 | FUP-317 (section 14, "Audit row and admin history"): an accepted change of `displayName`, `woreda` or `companyName` writes one transaction-audit `profile_edited` row (partition `profile-{userId}`, the old and new values of the changed fields in `metadata`, actor, role, IP, correlation id) in the same `TransactWriteItems` as the users update; a refused, unchanged or language-only edit writes none; a failed condition on either row is `USER_PROFILE_CONFLICT`. `GET /admin/users/{id}` adds `profileHistory` (newest first, at most 50) and `profileHistoryMore`, left out when the table is unconfigured, the read fails or the account has `deletionState` (then `profileHistoryHidden: true`). `GET /admin/audit` sends `profile_edited` rows without `metadata`. Invariant 14. The values are never logged; account deletion keeps the rows (open: TASK FUP-419). No change for the apps |
 | 2.2.0 | 2026-11-12 | Profile read and edit (SIM-56, section 14): `GET /user/profile` returns the caller's profile view (`userId`, `displayName`, `fullName`, `role`, `woreda`, `preferredLanguage`, `buyerType`, `companyName`, `version`; never `faydaId`, `knownDevices` or the phone) (`401`, `404 AUTH_013`, `410 ACCOUNT_004`, `403 AUTH_025`, `503 USER_PROFILE_UNAVAILABLE`); the `/sync` `user` entity also edits `displayName`, `woreda` and a company buyer's `companyName` (trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name, then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing); copies on listings, trips, orders, deliveries and messages are not rewritten. `UpdateUserAsync` writes `companyName` from the copy when present and `REMOVE`s `faydaId` and an empty `woreda` when the row has none (a `NULL` `FaydaIdIndex` key and an empty `RoleWaredaIndex` key were refused, answering the 2.0.0 open question) |
 | 2.1.2 | 2026-11-12 | FUP-162: two more writers of `ratingSum`, `ratingCount` and `ratingsAggregatedAt` for the farmers and truckers the ESC-28 backfill skipped (no `woreda`): the rating create's heal of an unstamped ratee and the backfill's one-off users `Scan` (`rating-api.md` 1.5.0). Shape unchanged |
 | 2.1.1 | 2026-11-11 | ESC-29: `suspended` also refuses `/sync` and the write endpoints of `reputation-api.md` 8.4 (`403 AUTH_025`); the section 2 attributes are now read by `GET /reputation/*`, `GET /ratings`, the `/sync` gates and the owner stamps (`reputation-api.md` 1.2.0, `rating-api.md` 1.4.0), a row without `ratingsAggregatedAt` contributing no rating. Shape unchanged, never returned in the `user` object |

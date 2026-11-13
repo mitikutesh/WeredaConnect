@@ -448,5 +448,19 @@ public sealed class UserProfileEditDynamoDbTests : IAsyncLifetime
         Change(history[1], "to").Should().Be("Abebe K.");
         string.CompareOrdinal(history[0].GetProperty("editedAt").GetString(), history[1].GetProperty("editedAt").GetString())
             .Should().BePositive();
+
+        // The audit log lists the edits without the names (the history above is the only place they are read).
+        var log = await new AdminFunction(Ddb, Table, transactionAuditTable: AuditTable).FunctionHandler(
+            new APIGatewayProxyRequest
+            {
+                HttpMethod = "GET",
+                Path = "/admin/audit",
+                RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+                {
+                    Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" }, { "role", "admin" } }
+                }
+            }, _ctx);
+        log.StatusCode.Should().Be(200, log.Body);
+        log.Body.Should().Contain("profile_edited").And.NotContain("Abebe K.").And.NotContain("Abebe Kebede Tola");
     }
 }
