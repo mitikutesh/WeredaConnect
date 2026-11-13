@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'package:wereda_connect/core/location/location_permission.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 
 /// GPS coordinate capture with Ethiopian bounds validation
@@ -12,17 +14,43 @@ import 'package:wereda_connect/features/delivery_verification/data/delivery_cons
 /// per-delivery for audit and proximity checks. Spoofing detection
 /// is deferred to F-14 (Fraud Detection).
 class GpsCaptureService {
-  /// Capture current GPS position.
+  /// [isWeb] and [timeLimit] are for tests.
+  GpsCaptureService({
+    bool isWeb = kIsWeb,
+    Duration timeLimit = DeliveryConstants.gpsCaptureTimeout,
+  })  : _isWeb = isWeb,
+        _timeLimit = timeLimit;
+
+  final bool _isWeb;
+  final Duration _timeLimit;
+
+  /// Capture current GPS position. Never throws.
   ///
   /// Returns [GpsCaptureResult.success] with coordinates and accuracy,
   /// or [GpsCaptureResult.unavailable] with a descriptive reason.
   ///
   /// Failure modes:
   /// - Location services disabled
-  /// - Permission denied
-  /// - Permission permanently denied
+  /// - Permission denied (on web also a dismissed prompt, or one nobody
+  ///   answers in time: the next capture asks again)
+  /// - Permission permanently denied (on web: the site is blocked)
   /// - Timeout (15 seconds)
+  ///
+  /// Each wait ends within the time limit here in Dart (FUP-441): the fix,
+  /// and on web the permission prompt ([requestLocationPermission]).
+  /// `geolocator_web` hands the browser the limit in microseconds where it
+  /// reads milliseconds (15 seconds become about 4.2 hours), so the plugin's
+  /// own limit does not hold there.
   Future<GpsCaptureResult> captureCurrentPosition() async {
+    try {
+      return await _capture();
+    } on Object catch (e) {
+      debugPrint('[GpsCapture] location failed: $e');
+      return const GpsCaptureResult.unavailable('GPS signal not available');
+    }
+  }
+
+  Future<GpsCaptureResult> _capture() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       return const GpsCaptureResult.unavailable(
@@ -32,7 +60,10 @@ class GpsCaptureService {
 
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
+      permission = await requestLocationPermission(
+        isWeb: _isWeb,
+        limit: _timeLimit,
+      );
       if (permission == LocationPermission.denied) {
         return const GpsCaptureResult.unavailable(
           'Location permission denied',
@@ -47,11 +78,11 @@ class GpsCaptureService {
 
     try {
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
+        locationSettings: LocationSettings(
           accuracy: LocationAccuracy.high,
-          timeLimit: DeliveryConstants.gpsCaptureTimeout,
+          timeLimit: _timeLimit,
         ),
-      );
+      ).timeout(_timeLimit);
       return GpsCaptureResult.success(
         latitude: position.latitude,
         longitude: position.longitude,

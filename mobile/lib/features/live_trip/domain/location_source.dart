@@ -36,7 +36,8 @@ abstract interface class LocationSource {
   /// null when there is none in time (no permission, services off, no
   /// signal). Never retried here: the caller skips to the next slot.
   /// [askPermission] asks for the location permission when it was not
-  /// decided yet: only for an action of the driver, in the foreground.
+  /// decided yet: only for an action of the driver, in the foreground. On
+  /// web a prompt nobody answers also ends within the time limit (null).
   Future<CheckInFix?> currentFix({bool askPermission = false});
 
   /// Run the foreground service with [notice] while sharing is on, and call
