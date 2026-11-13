@@ -2,6 +2,7 @@ import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
+import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/listing_report_rules.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -185,6 +186,34 @@ enum AppErrorCode {
   /// (`ORDER_DELIVERY_LOCATION_LOCKED`); the local change was undone.
   deliveryLocationLocked,
 
+  /// ESC-34 (FUP-285): the server refused an arrival check-in for good; the
+  /// local mark went back. `CHECKIN_NOT_OPEN`, or a server that takes no
+  /// check-ins (`pickupClassification` off).
+  checkInNotOpen,
+
+  /// `CHECKIN_NOT_PARTY`: not this user's check-in to give.
+  checkInNotParty,
+
+  /// `CHECKIN_TOO_EARLY`: before `pickupDate` minus 24 hours.
+  checkInTooEarly,
+
+  /// `CHECKIN_TOO_FAR`: an arrival more than 5 km from the farm.
+  checkInTooFar,
+
+  /// `CHECKIN_TOO_LATE`: it reached the server after the deadline; kept on
+  /// the order for review, never counted.
+  checkInTooLate,
+
+  /// `CHECKIN_VALIDATION`, or a `CHECKIN_*` code this build does not know.
+  checkInNotSaved,
+
+  /// The local guard: the pickup deadline passed on the device clock, so
+  /// no button is offered any more (FUP-285).
+  checkInClosed,
+
+  /// The local guard: an arrival without a usable GPS fix (FUP-285).
+  checkInNeedsLocation,
+
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
@@ -207,6 +236,15 @@ class OrderActionNotAllowedException implements Exception {
 /// deadline has not passed. Surfaced as [AppErrorCode.orderCancelNotAllowed].
 class OrderCancelNotAllowedException extends OrderActionNotAllowedException {
   const OrderCancelNotAllowedException(super.message);
+}
+
+/// FUP-285: the local guard refused an arrival check-in before anything was
+/// queued or sent. Surfaced as [code], one of the check-in texts (not the
+/// generic [AppErrorCode.orderRefused]).
+class CheckInNotAllowedException extends OrderActionNotAllowedException {
+  const CheckInNotAllowedException(super.message, this.code);
+
+  final AppErrorCode code;
 }
 
 /// The server already holds this rating (one per order and ratee), so the
@@ -297,6 +335,10 @@ AppErrorCode mapErrorToCode(Object error) {
     SyncRejectedException(:final message)
         when isContactInTextMessage(message) =>
       AppErrorCode.contactInText,
+    // FUP-285: a check-in refused on web (sent at once).
+    SyncRejectedException(:final message)
+        when isCheckInRefusalMessage(message) =>
+      checkInErrorCode(message),
     SyncRejectedException(:final message)
         when isRevertableRejectionMessage(message) =>
       AppErrorCode.orderRefused,
@@ -313,6 +355,7 @@ AppErrorCode mapErrorToCode(Object error) {
         when isContactLockedMessage(message) =>
       AppErrorCode.contactLocked,
     OrderCancelNotAllowedException() => AppErrorCode.orderCancelNotAllowed,
+    CheckInNotAllowedException(:final code) => code,
     OrderActionNotAllowedException() => AppErrorCode.orderRefused,
     AlreadyRatedException() => AppErrorCode.alreadyRated,
     TimeoutException() => AppErrorCode.timeout,
@@ -425,6 +468,14 @@ String localizeErrorCode(
         listingReportDailyLimit,
       ),
     AppErrorCode.deliveryLocationLocked => l10n.errorDeliveryLocationLocked,
+    AppErrorCode.checkInNotOpen => l10n.errorCheckInNotOpen,
+    AppErrorCode.checkInNotParty => l10n.errorCheckInNotParty,
+    AppErrorCode.checkInTooEarly => l10n.errorCheckInTooEarly,
+    AppErrorCode.checkInTooFar => l10n.errorCheckInTooFar,
+    AppErrorCode.checkInTooLate => l10n.errorCheckInTooLate,
+    AppErrorCode.checkInNotSaved => l10n.errorCheckInValidation,
+    AppErrorCode.checkInClosed => l10n.errorCheckInClosed,
+    AppErrorCode.checkInNeedsLocation => l10n.checkInNeedsLocation,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -464,6 +515,11 @@ AppErrorCode syncRejectionErrorCode({
     return isListingReportLimitMessage(message)
         ? AppErrorCode.reportLimitReached
         : AppErrorCode.reportNotSent;
+  }
+  // FUP-285: a refused arrival check-in says why; its mark went back.
+  if (entityType == handoffCheckInEntityType &&
+      isCheckInRefusalMessage(message)) {
+    return checkInErrorCode(message);
   }
   if (entityType == 'order') {
     if (isReputationRestrictedMessage(message)) {
@@ -541,6 +597,29 @@ AppErrorCode syncRejectionErrorCode({
   return isRevertableRejectionMessage(message)
       ? AppErrorCode.orderRefused
       : AppErrorCode.changeNotSaved;
+}
+
+/// The code of an arrival check-in refusal ([isCheckInRefusalMessage],
+/// FUP-285): one per `CHECKIN_*` code; the unsupported-entity answer of a
+/// server without check-ins reads as not open; an unknown code as not saved.
+AppErrorCode checkInErrorCode(String message) {
+  if (isCheckInUnsupportedMessage(message) ||
+      message.startsWith(CheckInRefusal.notOpen)) {
+    return AppErrorCode.checkInNotOpen;
+  }
+  if (message.startsWith(CheckInRefusal.tooLate)) {
+    return AppErrorCode.checkInTooLate;
+  }
+  if (message.startsWith(CheckInRefusal.tooFar)) {
+    return AppErrorCode.checkInTooFar;
+  }
+  if (message.startsWith(CheckInRefusal.tooEarly)) {
+    return AppErrorCode.checkInTooEarly;
+  }
+  if (message.startsWith(CheckInRefusal.notParty)) {
+    return AppErrorCode.checkInNotParty;
+  }
+  return AppErrorCode.checkInNotSaved;
 }
 
 /// The code of a typed handoff code refusal (T-1).

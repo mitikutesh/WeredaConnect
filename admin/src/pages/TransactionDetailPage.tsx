@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { LedgerCard, RecordedSplitRow, TruckerLegRows } from "@/components/escrows/MoneyLegs";
 import { HandoffPhoto, TransactionTimeline } from "@/components/transactions/TransactionTimeline";
+import { PickupEvidenceCard } from "@/components/transactions/PickupEvidenceCard";
 import { useLocale } from "@/hooks/useLocale";
 import { useTransactionDetail } from "@/hooks/useQuery";
 import { formatETB, formatDateTime } from "@/lib/i18n";
@@ -26,6 +27,7 @@ import {
 } from "@/lib/transaction";
 import { fill } from "@/lib/trail";
 import { partyName } from "@/lib/user";
+import type { PickupEvidence } from "@/lib/pickup";
 
 type Row = Record<string, unknown>;
 
@@ -59,6 +61,8 @@ export function TransactionDetailPage() {
   const escrow = resp.escrow as Row | null;
   const delivery = resp.delivery as Row | null;
   const timeline = (resp.timeline as Row[]) || [];
+  // FUP-287: the pickup judgement with its check-ins, admin only; absent for an order never judged by check-ins.
+  const pickupEvidence = resp.pickupEvidence as PickupEvidence | undefined;
 
   const status = s(order.status);
   const stage = deriveStage(status);
@@ -253,6 +257,10 @@ export function TransactionDetailPage() {
             <p className="text-sm text-text-muted">{t("transactions.noDelivery")}</p>
           )}
         </Card>
+
+        {pickupEvidence && (
+          <PickupEvidenceCard orderId={s(order.orderId)} version={Number(order.version) || 0} evidence={pickupEvidence} />
+        )}
 
         {/* Timeline */}
         <Card>

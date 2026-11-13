@@ -13,6 +13,7 @@ import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
+import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/location_ping_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/models/conflict_event.dart';
@@ -340,6 +341,11 @@ class SyncBatchResult {
 ///   sharing for the trip ([LocationSharingEndedHandler]).
 ///   `LOCATION_NOT_ACTIVE` comes as `deferred` and is re-queued like any
 ///   deferral
+/// - `error` with a `CHECKIN_*` code on an arrival check-in (ESC-34,
+///   FUP-285), or the unsupported-entity answer a server with
+///   `pickupClassification` off gives it → reject, never retried, undo
+///   through [PermanentRejectionHandler] (which reads the order again) and
+///   announce
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
 ///
 /// A refused `create` also rejects the operations queued behind it for that
@@ -1303,6 +1309,7 @@ class SyncExecutor {
         isContactInTextMessage(message) ||
         isLocationRejectionMessage(message) ||
         isDeliveryPhotoRejectionMessage(message) ||
+        isCheckInRefusalMessage(message) ||
         isUnretryableFraudSignalMessage(message);
   }
 
@@ -1322,10 +1329,13 @@ class SyncExecutor {
   /// Whether the client undoes the local change of a refused [operation]
   /// through [PermanentRejectionHandler]: any order refusal, any `ORDER_*`
   /// code, a refused delivery cancel, dispute or handoff, a message into a
-  /// closed thread, and a crop listing or trip refused by a code that says
-  /// what the server holds.
+  /// closed thread, a crop listing or trip refused by a code that says
+  /// what the server holds, and any refused arrival check-in (FUP-285: its
+  /// mark is the operation itself, gone once rejected; the handler reads
+  /// the order again, which shows a late one kept for review).
   static bool _revertsLocalChange(SyncOperation operation, String? message) =>
       operation.entityType == 'order' ||
+      operation.entityType == handoffCheckInEntityType ||
       isRevertableRejectionMessage(message) ||
       isRevertableDeliveryRejectionMessage(message) ||
       isContactLockedMessage(message) ||
@@ -1336,11 +1346,13 @@ class SyncExecutor {
   /// its local row went back to the server's view or was removed, and the
   /// user was told why, so nothing is left to act on. A crop listing or trip
   /// for the codes its revert undoes, every delivery the handler gets (it is
-  /// always put back, FUP-25), and a message refused because its thread is
-  /// closed (removed). Orders never count.
+  /// always put back, FUP-25), a message refused because its thread is
+  /// closed (removed), and a refused arrival check-in (nothing local to put
+  /// back, FUP-285). Orders never count.
   static bool _leavesFailedCount(SyncOperation operation, String? message) =>
       switch (operation.entityType) {
         'delivery' => true,
+        handoffCheckInEntityType => true,
         'message' => isContactLockedMessage(message),
         _ => _isRevertableListingOrTripRejection(operation.entityType, message),
       };

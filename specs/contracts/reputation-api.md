@@ -988,7 +988,7 @@ proposed change). All three default to off.
 
 `reputationPenalties` is turned on only where `commitmentsEnabled` is on: the events read the
 commitment fields. The P3 codes also need their producer's flag: `NO_SHOW` needs `pickupClassification`
-(ESC-34) and `DELIVERY_OVERDUE` needs `dropoffClassification` (ESC-36, `delivery-verification-api.md` 2.9.0).
+(ESC-34) and `DELIVERY_OVERDUE` needs `dropoffClassification` (ESC-36, `delivery-verification-api.md` 2.10.0).
 
 Policy numbers (points, caps, thresholds, windows) live in one SSM String parameter
 `/{prefix}/reputation/policy` (JSON), read once per Lambda container; a missing or out-of-range

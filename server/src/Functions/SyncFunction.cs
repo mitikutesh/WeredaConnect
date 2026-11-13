@@ -372,6 +372,8 @@ public partial class SyncFunction
         // pickup point stamped when the order became judgeable.
         PickupJudgement.Field, PickupJudgement.JudgedAtField, PickupJudgement.CheckInsField,
         PickupJudgement.PickupLatitudeField, PickupJudgement.PickupLongitudeField,
+        // FUP-287: the stamp of an admin's re-open of the judgement (written only by the admin Lambda).
+        PickupReopen.Field,
         // ESC-36: the drop-off judgement, its deadline, the drop-off check-in (written only by
         // handoff_check_in) and the drop-off points stamped at pickup. The order's disputeReason (written
         // only by the order cron's T8 and T9; rule R12 reads it) is not in AllowedOrderFields, so a client

@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.17.0
+2.18.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -68,8 +68,8 @@ created ──► pending_payment ──► payment_submitted ──► funded �
                              accepted ──► awaiting_transport   (system: trucker dropped out, trip cancelled, 2.0.0)
                              awaiting_transport ──► cancelled  (buyer, farmer, or the 48h buyer-choice deadline, 2.0.0)
    funded | accepted | pickup_confirmed | in_transit ──► dispute_resolved   (system, an admin dispute disposition, 1.21.0)
-                  pickup_confirmed | in_transit ──► disputed   (system: T8 delivery_overdue or T9 silent_buyer, 2.17.0)
-                  pickup_confirmed | in_transit ──► delivered  (system: T9 confirm for a silent buyer, 2.17.0)
+                  pickup_confirmed | in_transit ──► disputed   (system: T8 delivery_overdue or T9 silent_buyer, 2.18.0)
+                  pickup_confirmed | in_transit ──► delivered  (system: T9 confirm for a silent buyer, 2.18.0)
 ```
 
 Source of truth: `OrderTransitions` in `SyncFunction.cs`; the farmer's and the trucker's
@@ -630,6 +630,7 @@ or trucker may send theirs; anyone else gets `ORDER_UNAUTHORIZED`.
 | `pickupJudgement` (2.15.0) | `pending`, then `scanned`, `trucker_no_show`, `farmer_no_show`, `buyer_no_show`, `both_present_no_scan`, `unchecked_check_in` | the accept with `pickupClassification` on (`pending`); the cron's judgement (the outcome). A `farmerResponse` or `truckerResponse` of `no_show` names the absent party |
 | `pickupJudgedAt` (2.15.0) | ISO 8601 UTC | the cron's judgement |
 | `checkIns` (2.15.0) | map per kind (`arrived_pickup`, `crops_ready`) | `handoff_check_in` (`sync-protocol.md` 1.55.0); the accept stamps it empty |
+| `pickupReopen` (2.16.0, stored only: never in `GET /orders` or a `/sync` result) | map: `at`, `exit` (`pending`, `handoff_confirmed`), `fromJudgement`, `fromVersion`, `deadlineAt` (with `pending`) | an admin's re-open of the judgement (Pickup judgement, "Admin re-open"); no admin id, no reason |
 
 ### Deadlines (server time only)
 
@@ -665,8 +666,8 @@ three set together, or all three removed when nothing in the table below is pend
 | `pickup_overdue` | `accepted`, no `pickupOverdueNotifiedAt`, no `pickupJudgement: pending` | `pickupDeadlineAt` |
 | `pickup_judgement` (2.15.0) | `accepted`, `pickupJudgement: pending` (swept, whether or not a notice was stamped) | `pickupDeadlineAt` + 1 minute |
 | `pickup_waiting` (2.14.0, FUP-170; `deadlineShard = watch`) | `accepted`, `pickupOverdueNotifiedAt` stamped, no `pickupJudgement: pending` (since 2.15.0 also an order still `accepted` after its pickup judgement, which stamps the notice) | `pickupDeadlineAt` |
-| `delivery_overdue` (2.17.0, T8) | `pickup_confirmed` or `in_transit`, `dropoffJudgement: pending`, no counted drop-off check-in | `dropoffDeadlineAt` + 1 minute |
-| `silent_buyer` (2.17.0, T9) | `pickup_confirmed` or `in_transit`, `dropoffJudgement: pending`, a drop-off check-in received by `dropoffDeadlineAt` | its `receivedAt` + 48h (SSM `silent-buyer-hours`) + 1 minute |
+| `delivery_overdue` (2.18.0, T8) | `pickup_confirmed` or `in_transit`, `dropoffJudgement: pending`, no counted drop-off check-in | `dropoffDeadlineAt` + 1 minute |
+| `silent_buyer` (2.18.0, T9) | `pickup_confirmed` or `in_transit`, `dropoffJudgement: pending`, a drop-off check-in received by `dropoffDeadlineAt` | its `receivedAt` + 48h (SSM `silent-buyer-hours`) + 1 minute |
 
 `pickup_waiting` is not a deadline anything acts on: the order waits for its pickup or its cancel
 after the overdue notice went out, and the entry lets the admin's Stuck Orders list it with a Query
@@ -724,8 +725,8 @@ one retry); an SSM failure keeps every default:
 | `reminder-lead-hours` | 6 | the reminders |
 | `pickup-grace-hours` | 48 | T7, trip order: after the later of departure and acceptance |
 | `self-pickup-window-hours` | 168 | T7, self-pickup: after acceptance |
-| `delivery-overdue-hours` (2.17.0) | 72 | T8: after the delivery's `pickedUpAt` (stamped on the order at pickup). Never below 24 (`ORDER_TIMINGS_CLAMPED`): T8 restricts a trucker |
-| `silent-buyer-hours` (2.17.0) | 48 | T9: after the drop-off check-in's receipt. Never below 24 (`ORDER_TIMINGS_CLAMPED`): T9 confirms a delivery for a buyer who said nothing |
+| `delivery-overdue-hours` (2.18.0) | 72 | T8: after the delivery's `pickedUpAt` (stamped on the order at pickup). Never below 24 (`ORDER_TIMINGS_CLAMPED`): T8 restricts a trucker |
+| `silent-buyer-hours` (2.18.0) | 48 | T9: after the drop-off check-in's receipt. Never below 24 (`ORDER_TIMINGS_CLAMPED`): T9 confirms a delivery for a buyer who said nothing |
 
 **The escrow sweep (2.8.0).** With `COMMITMENTS_ENABLED` on, the escrow auto-refund sweep no longer
 extends a live order escrow 48 hours at a time: it holds it to the 21-day cap (T12) in one write, and
@@ -986,13 +987,32 @@ off while orders wait, the cron stamps the P1 marker and clears `pickupJudgement
   so an order still `accepted` after it (both present, an unmeasured arrival, a delivery the order
   lagged) and one whose stamp the flag turned off then wait in the `watch` partition as `pickup_waiting`
   (2.14.0, FUP-170). With the flag off nothing here applies and the 2.14.0 rules stand unchanged.
+- **Admin re-open (2.16.0, FUP-287).** `POST /admin/orders/{orderId}/reopen-pickup` (admin group,
+  `delivery-verification-api.md` 2.8.0 P.2 "The admin side") re-opens only `both_present_no_scan` and
+  `unchecked_check_in` on an order still `accepted` whose escrow still simply holds the money, with a
+  reason of 10 to 500 characters and the order version the admin read:
 
-## Drop-off judgement (2.17.0, ESC-36)
+  | Exit | Order | Deadline index |
+  |---|---|---|
+  | `pending` | stays `accepted`, `version` + 1; `pickupJudgement: pending`, `pickupDeadlineAt` now plus 1 to 168 hours, `pickupJudgedAt` and `pickupOverdueNotifiedAt` removed, `checkIns` kept | `pickup_judgement` at the new deadline plus one minute, in the swept partition (`0`): judged again |
+  | `handoff_confirmed` (not self-pickup) | `pickup_confirmed`, `version` + 1, `pickupJudgement: scanned`; its pending delivery `pickedUp` in the same transaction (the order follows its delivery, as after a scan) | none |
+
+  Both remove the judgement's admin queue entry (`both_present_no_scan`, `unchecked_check_in`,
+  `late_pickup_evidence`; a `hold_cap` entry stays), except when the order escrow reached its hold cap
+  while that entry stood: the escrow cron then stamped `holdCapReachedAt` instead of writing its own
+  entry, so the entry is kept as `adminQueueReason: hold_cap` (`delivery-verification-api.md` 2.8.0). An
+  order read without an entry takes none that lands before the write. Both stamp `pickupReopen`, in one
+  transaction conditioned on the version, the status, the judgement and the queue entry read, the
+  delivery read and the escrow still holding the money (without a hold cap, when the entry goes). No money moves, no reputation event follows (these two judgements have none). A
+  trucker, farmer or buyer no-show is never re-opened: it cancelled a delivery and released a trip
+  booking, or cancelled the order with its refund armed.
+
+## Drop-off judgement (2.18.0, ESC-36)
 
 Spec 4.5 (T8, T9), 4.8 "Silent buyer", E3 and E4, built behind `dropoffClassification` (env
 `DROPOFF_CLASSIFICATION_ENABLED` on the sync, deliveries and order-cron Lambdas, off in every environment, only
 with `COMMITMENTS_ENABLED`). The full rules, the drop-off check-in and the arrival photo are in
-`delivery-verification-api.md` 2.9.0 P.4 ("As built"); this section names what changes on the order.
+`delivery-verification-api.md` 2.10.0 P.4 ("As built"); this section names what changes on the order.
 
 - **Stamp.** The order's first move out of `accepted` after a trucker's pickup (the system follow of its
   delivery) also stamps, with the flag on, `dropoffJudgement: pending`, `dropoffDeadlineAt` (T8: the
@@ -1025,7 +1045,8 @@ with `COMMITMENTS_ENABLED`). The full rules, the drop-off check-in and the arriv
 
 ## Changelog
 
-- **2.17.0 (2026-11-13)**: Drop-off judgement (ESC-36, `delivery-verification-api.md` 2.9.0, `sync-protocol.md` 1.59.0), behind `dropoffClassification` (off everywhere): the order's first move out of `accepted` after a trucker's pickup stamps `dropoffJudgement: pending`, `dropoffDeadlineAt` (T8) and the drop-off points; the drop-off check-in fills `dropoffCheckIn` and moves the deadline to T9; `commitment_deadlines` judges T8 (`disputed`, `disputeReason: delivery_overdue`, the escrow frozen first, R12) and T9 (`delivered` for a silent buyer with the escrow stamped as a buyer's confirm, else `disputed` with `silent_buyer`); money neither freezable nor confirmable goes to the admin queue (`delivery_overdue`, `silent_buyer`). New system edges `pickup_confirmed | in_transit → disputed | delivered`, deadline kinds `delivery_overdue` and `silent_buyer`, SSM timings `delivery-overdue-hours` and `silent-buyer-hours` (never below 24), order fields `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt`, `disputeReason`, the repair walk over `pickup_confirmed` and `in_transit` (with the flag on). 2.16.0 is taken by another open branch.
+- **2.18.0 (2026-11-13)**: Drop-off judgement (ESC-36, `delivery-verification-api.md` 2.10.0, `sync-protocol.md` 1.59.0), behind `dropoffClassification` (off everywhere): the order's first move out of `accepted` after a trucker's pickup stamps `dropoffJudgement: pending`, `dropoffDeadlineAt` (T8) and the drop-off points; the drop-off check-in fills `dropoffCheckIn` and moves the deadline to T9; `commitment_deadlines` judges T8 (`disputed`, `disputeReason: delivery_overdue`, the escrow frozen first, R12) and T9 (`delivered` for a silent buyer with the escrow stamped as a buyer's confirm, else `disputed` with `silent_buyer`); money neither freezable nor confirmable goes to the admin queue (`delivery_overdue`, `silent_buyer`). New system edges `pickup_confirmed | in_transit → disputed | delivered`, deadline kinds `delivery_overdue` and `silent_buyer`, SSM timings `delivery-overdue-hours` and `silent-buyer-hours` (never below 24), order fields `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt`, `disputeReason`, the repair walk over `pickup_confirmed` and `in_transit` (with the flag on). 2.16.0 is FUP-287 and 2.17.0 FUP-19.
+- **2.16.0 (2026-11-13)**: Admin re-open of a judged pickup (FUP-287, `delivery-verification-api.md` 2.8.0): `POST /admin/orders/{orderId}/reopen-pickup` takes an `accepted` order judged `both_present_no_scan` or `unchecked_check_in` whose escrow still simply holds the money back to `pickupJudgement: pending` with a new `pickupDeadlineAt` (judged again a minute after it, `pickupJudgedAt` and `pickupOverdueNotifiedAt` removed, `checkIns` kept), or confirms the handoff (`pickup_confirmed`, `scanned`, the pending delivery `pickedUp` in the same transaction); both remove the judgement's admin queue entry (kept as `hold_cap` when the escrow's hold cap rides on it) and stamp the new stored-only `pickupReopen`. No-show judgements, `scanned`, unjudged orders and orders that moved on are refused. No money, status of the money, reputation or client change. Companion: `data-models.md` 1.16.0.
 - **2.15.0 (2026-11-12)**: Pickup judgement (ESC-34, `delivery-verification-api.md` 2.6.0, `sync-protocol.md` 1.55.0), behind `pickupClassification` (off everywhere): the accept of a flagged order stamps `pickupJudgement: pending`, `checkIns` and the farm's point; arrival check-ins fill `checkIns` without a version move; `commitment_deadlines` judges at the pickup deadline plus one minute (deadline kind `pickup_judgement`): `scanned`, `trucker_no_show` (`awaiting_transport`), `farmer_no_show` and `buyer_no_show` (`cancelled`, full refund in the cancel's transaction), `both_present_no_scan` and `unchecked_check_in` (admin queue, money held), plus `late_pickup_evidence` in the admin queue; new values `truckerResponse` / `farmerResponse` `no_show`, `transportFailure` `trucker_no_show`, `cancelReason` `farmer_no_show` and `buyer_no_show`; the buyer's deadline cancel is refused for a flagged order; a pickup after the judgement is refused `ORDER_DEADLINE_PASSED`. Off, nothing changes. Companion: `data-models.md` 1.14.0.
 - **2.14.0 (2026-11-12)**: The pickup wait stays indexed (FUP-170, `escrow-protocol.md` 2.17.0): an `accepted` order whose `pickupOverdueNotifiedAt` is stamped keeps a `DeadlineIndex` entry, kind `pickup_waiting` at its `pickupDeadlineAt`, in a second partition (`deadlineShard = watch`) that the `commitment_deadlines` sweep never reads, until the write that takes it out of `accepted` (pickup, cancel, `awaiting_transport`). The admin's Stuck Orders lists it under Missed deadlines with a Query; before, it left the index with its notice and showed up only at the 21 day hold cap. The sweep's reads, decisions, refunds and notices are unchanged; a lagging entry of such an order in the sweep's partition is moved, not retried or logged `ORDER_DEADLINE_STUCK`. `deadline_repair` stamps the entry on the orders notified before this version and then reads the `watch` partition to correct or remove the entries their orders no longer give. No status, money, client or field change (the three deadline attributes stay server-only).
 - **2.13.1 (2026-11-12)**: The 7 day refund sweep's own cancel of a stale `funded` or `awaiting_transport` order (`escrow_refunded`) gives the listing stock back fail closed before its refund (FUP-230, `escrow-protocol.md` 2.14.0): a restore that keeps conflicting or throws defers the refund to the next run, which restores first; the trip booking release still runs with the cancel. No status, field or client change.

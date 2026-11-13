@@ -469,6 +469,11 @@ class WeredaConnectApp extends StatelessWidget {
               repository: OrderRepository(
                 isar: IsarService.instance.db,
                 syncQueue: syncQueue,
+                // FUP-285: only the signed-in user's queued check-ins show.
+                currentUserId: () async => switch (authBloc.state) {
+                  AuthAuthenticated(:final userId) => userId,
+                  _ => null,
+                },
               ),
               marketplaceSync: marketplaceSync,
             ),

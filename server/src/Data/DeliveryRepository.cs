@@ -647,6 +647,40 @@ public sealed class DeliveryRepository : IDeliveryRepository
         }
     }
 
+    /// <summary>
+    /// FUP-287: the delivery's <c>pending → pickedUp</c> when an admin confirms a handoff a judged pickup refused,
+    /// as an item of the order's transaction: the status, <c>pickedUpAt</c> and <c>updatedAt</c> the server's time,
+    /// the version moved by one, conditioned on the delivery still <c>pending</c> at the version read. Nothing the
+    /// scan would have carried (<c>gpsPickup</c>, <c>pickupCapturedAt</c>, a photo) is written, so the delivery's
+    /// time and GPS fraud rules skip it. The key is <c>deliveryId</c> and <c>tripId</c>, as every delivery write.
+    /// </summary>
+    public TransactWriteItem BuildConfirmedPickupItem(string deliveryId, string tripId, int expectedVersion, string nowIso) => new()
+    {
+        Update = new Update
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            UpdateExpression = "SET #status = :pickedUp, #pickedUpAt = :now, #updated = :now, #v = :next",
+            ConditionExpression = "#status = :pending AND #v = :expected",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }, { "#pickedUpAt", "pickedUpAt" }, { "#updated", "updatedAt" }, { "#v", "version" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":pickedUp", new AttributeValue { S = "pickedUp" } },
+                { ":pending", new AttributeValue { S = "pending" } },
+                { ":now", new AttributeValue { S = nowIso } },
+                { ":expected", new AttributeValue { N = expectedVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":next", new AttributeValue { N = (expectedVersion + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) } }
+            }
+        }
+    };
+
     /// <inheritdoc />
     public async Task<bool> TryStampNearbyAsync(
         string deliveryId, string tripId, string notifiedAt, double distanceKm, int? minutes)

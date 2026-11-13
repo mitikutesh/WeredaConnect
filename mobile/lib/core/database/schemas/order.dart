@@ -184,6 +184,59 @@ class Order {
   /// is none: the trip's destination is then the drop-off.
   double? deliveryLatitude;
   double? deliveryLongitude;
+
+  /// ESC-34 (order-lifecycle 2.15.0): `pending` on an order accepted with
+  /// `pickupClassification` on, until the order cron judges its pickup at
+  /// the deadline; then the outcome (`scanned`, `trucker_no_show`,
+  /// `farmer_no_show`, `buyer_no_show`, `both_present_no_scan`,
+  /// `unchecked_check_in`). Null on every other order. Server-written.
+  String? pickupJudgement;
+
+  /// ESC-34: when the pickup was judged (UTC). Server-written.
+  DateTime? pickupJudgedAt;
+
+  /// ESC-34: the arrival check-ins the server received, one per kind
+  /// (`arrived_pickup`, `crops_ready`). Server-written; empty when none.
+  List<OrderCheckIn> checkIns = [];
+
+  /// FUP-285: the check-ins made on this phone that the server has not
+  /// refused, by kind (the local mark). Not stored: the order repository
+  /// reads them from the sync queue with the order, so a refused one is gone
+  /// as soon as the queue rejects it.
+  @ignore
+  Map<String, QueuedCheckIn> queuedCheckIns = const {};
+}
+
+/// FUP-285: a check-in made on this phone, as its sync operation stands.
+class QueuedCheckIn {
+  const QueuedCheckIn({required this.madeAt, this.sent = false});
+
+  /// When it was made on the phone (UTC).
+  final DateTime madeAt;
+
+  /// The server took it; its copy arrives with the next read of the order.
+  final bool sent;
+}
+
+/// ESC-34: one arrival check-in as the parties read it
+/// (`delivery-verification-api.md` 2.6.0): no coordinates, no sender.
+@embedded
+class OrderCheckIn {
+  /// `arrived_pickup` or `crops_ready`.
+  String kind = '';
+
+  /// When the server received it (UTC): the only time the judgement reads.
+  DateTime? receivedAt;
+
+  /// When the phone took it (UTC), kept by the server only when plausible.
+  DateTime? capturedAt;
+
+  /// Whether its GPS fix was measured against the farm.
+  bool distanceChecked = false;
+
+  /// It reached the server after the pickup deadline: kept for review,
+  /// never counted.
+  bool isLate = false;
 }
 
 /// Status of an order in its lifecycle

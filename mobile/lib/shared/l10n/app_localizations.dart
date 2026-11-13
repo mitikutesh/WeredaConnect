@@ -9796,6 +9796,234 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'These details were not accepted. Check each field and try again.'**
   String get profileEditRefused;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Order detail: title of the card with the check-ins at the farm
+  ///
+  /// In en, this message translates to:
+  /// **'Arrival check-ins'**
+  String get checkInTitle;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the trucker's I have arrived
+  ///
+  /// In en, this message translates to:
+  /// **'Trucker at the farm'**
+  String get checkInPartyTrucker;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the self-pickup buyer's I have arrived
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer at the farm'**
+  String get checkInPartyBuyer;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the farmer's Crops are ready
+  ///
+  /// In en, this message translates to:
+  /// **'Crops ready'**
+  String get checkInPartyFarmer;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the server received the check-in at this time (Ethiopia time)
+  ///
+  /// In en, this message translates to:
+  /// **'Received {time}'**
+  String checkInReceived(String time);
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the check-in reached the server after the pickup deadline; kept for review, not counted
+  ///
+  /// In en, this message translates to:
+  /// **'Late, received {time}'**
+  String checkInReceivedLate(String time);
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the viewer's own check-in waits in the phone's queue
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on this phone {time}, not sent yet'**
+  String checkInSavedOnPhone(String time);
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the viewer's own check-in was sent; the server's copy comes with the next refresh
+  ///
+  /// In en, this message translates to:
+  /// **'Sent {time}'**
+  String checkInSentFromPhone(String time);
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: no check-in of this kind yet
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet'**
+  String get checkInNotYet;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Order detail: the viewer's check-in opens 24 hours before the pickup day
+  ///
+  /// In en, this message translates to:
+  /// **'You can check in from {time}.'**
+  String checkInOpensAt(String time);
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Order detail: what the check-ins are for, under the rows while the pickup waits for its judgement
+  ///
+  /// In en, this message translates to:
+  /// **'If the QR code is not scanned by the pickup deadline, these check-ins decide what happens. What counts is when the server receives each one.'**
+  String get checkInPendingNote;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Order detail: the deadline passed and the server has not judged the pickup yet
+  ///
+  /// In en, this message translates to:
+  /// **'The pickup deadline has passed. The outcome follows soon.'**
+  String get checkInDeadlinePassedNote;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Button: the trucker (or the self-pickup buyer) says they are at the farm
+  ///
+  /// In en, this message translates to:
+  /// **'I have arrived'**
+  String get checkInArrivedButton;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Button: the farmer says the crops are ready for pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Crops are ready'**
+  String get checkInCropsReadyButton;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in button while the GPS fix is taken
+  ///
+  /// In en, this message translates to:
+  /// **'Finding your location'**
+  String get checkInLocating;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar: the arrival needs a GPS fix and none could be read
+  ///
+  /// In en, this message translates to:
+  /// **'We could not read your location. Turn on location and try again at the farm.'**
+  String get checkInNeedsLocation;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar: the check-in reached the server
+  ///
+  /// In en, this message translates to:
+  /// **'Check-in sent.'**
+  String get checkInSent;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome scanned
+  ///
+  /// In en, this message translates to:
+  /// **'The crops were picked up.'**
+  String get pickupJudgementScanned;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome trucker_no_show: the order waits in awaiting transport for the buyer
+  ///
+  /// In en, this message translates to:
+  /// **'Nobody checked in at the farm by the deadline. The buyer now chooses what happens to the order.'**
+  String get pickupJudgementTruckerNoShow;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome farmer_no_show (cancelReason farmer_no_show)
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer did not say the crops were ready by the deadline. The order was cancelled and the buyer gets a full refund.'**
+  String get pickupJudgementFarmerNoShow;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome buyer_no_show of a self-pickup order (cancelReason buyer_no_show)
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer did not come to collect the crops by the deadline. The order was cancelled and the money goes back to the buyer.'**
+  String get pickupJudgementBuyerNoShow;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome both_present_no_scan: the admin queue decides, money held
+  ///
+  /// In en, this message translates to:
+  /// **'Both checked in, but the QR code was not scanned. Support is looking into it and the money stays held.'**
+  String get pickupJudgementBothPresent;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome unchecked_check_in: the admin queue decides, money held
+  ///
+  /// In en, this message translates to:
+  /// **'The arrival could not be checked against the farm\'s location. Support is looking into it and the money stays held.'**
+  String get pickupJudgementUnchecked;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome this app version does not know
+  ///
+  /// In en, this message translates to:
+  /// **'The pickup was judged.'**
+  String get pickupJudgementOther;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Commitment row for the trucker: truckerResponse no_show (the pickup judgement found nobody at the farm)
+  ///
+  /// In en, this message translates to:
+  /// **'Did not come'**
+  String get commitmentTruckerNoShow;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Commitment row for the farmer: farmerResponse no_show (the pickup judgement found the crops not ready)
+  ///
+  /// In en, this message translates to:
+  /// **'Crops not ready'**
+  String get commitmentFarmerNoShow;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. transportFailure trucker_no_show
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker did not come to the farm'**
+  String get transportFailureTruckerNoShow;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_NOT_OPEN, or a server without check-ins: the order is no longer waiting for its pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Check-ins are not open for this order, so your check-in was not saved.'**
+  String get errorCheckInNotOpen;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_NOT_PARTY
+  ///
+  /// In en, this message translates to:
+  /// **'Only the order\'s farmer says the crops are ready, and only its trucker (or the buyer collecting it) says they have arrived. Your check-in was not saved.'**
+  String get errorCheckInNotParty;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_EARLY
+  ///
+  /// In en, this message translates to:
+  /// **'Too early: check-ins open 24 hours before the pickup day. Your check-in was not saved, so check in again then.'**
+  String get errorCheckInTooEarly;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_FAR: an arrival more than 5 km from the farm
+  ///
+  /// In en, this message translates to:
+  /// **'You are more than 5 km from the farm. Your check-in was not saved, so check in again when you get there.'**
+  String get errorCheckInTooFar;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_LATE: kept on the order as late evidence, never counted
+  ///
+  /// In en, this message translates to:
+  /// **'Your check-in reached the server after the pickup deadline, so it does not count. It was kept for review.'**
+  String get errorCheckInTooLate;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_VALIDATION, or a CHECKIN_ code this version does not know
+  ///
+  /// In en, this message translates to:
+  /// **'Your check-in was not saved. Try again, and update the app if it keeps happening.'**
+  String get errorCheckInValidation;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. The device clock says the pickup deadline passed before the check-in was sent; nothing was queued or sent
+  ///
+  /// In en, this message translates to:
+  /// **'The pickup deadline has passed, so check-ins are closed. Your check-in was not saved.'**
+  String get errorCheckInClosed;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar on the phone: the arrival needs a GPS fix and the location permission was denied for good
+  ///
+  /// In en, this message translates to:
+  /// **'Location is blocked for this app. Allow it in the app settings, then try again at the farm.'**
+  String get checkInLocationBlocked;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar on web: the arrival needs a GPS fix and the browser blocks location for the site
+  ///
+  /// In en, this message translates to:
+  /// **'Location is blocked for this site. Allow it in the browser\'s site settings, then try again at the farm.'**
+  String get checkInLocationBlockedWeb;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar action: opens the app's page in the phone settings to allow location
+  ///
+  /// In en, this message translates to:
+  /// **'Open settings'**
+  String get checkInOpenSettings;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar: a repeat tap found the check-in already given, nothing was sent again
+  ///
+  /// In en, this message translates to:
+  /// **'You have already checked in.'**
+  String get checkInAlreadyGiven;
 }
 
 class _AppLocalizationsDelegate
