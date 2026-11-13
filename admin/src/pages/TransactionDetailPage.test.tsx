@@ -30,6 +30,7 @@ vi.mock("@/hooks/useQuery", () => ({
     return mocks.ledger;
   },
   useCancelDelivery: () => ({ mutate: vi.fn(), isPending: false }),
+  useReopenPickup: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/hooks/useLocale", async () => {
@@ -346,5 +347,130 @@ describe("TransactionDetailPage legs and ledger (ESC-24)", () => {
     mocks.detail.data = detail(null);
     renderPage();
     expect(mocks.ledgerCalls).toEqual([]);
+  });
+});
+
+/* FUP-287: the pickup judgement as evidence (the check-ins with what the parties' view leaves out) and the
+ * re-open action, in the admin's language. */
+describe("TransactionDetailPage pickup judgement (FUP-287)", () => {
+  beforeEach(() => {
+    mocks.locale = "en";
+  });
+
+  function detail(evidence: Record<string, unknown> | undefined, status = "accepted") {
+    return {
+      order: { orderId: "ord-9", status, version: 7, buyerId: "buyer-9", farmerId: "farmer-9", truckerId: "trucker-9" },
+      escrow: null,
+      delivery: null,
+      timeline: [],
+      ...(evidence ? { pickupEvidence: evidence } : {}),
+    };
+  }
+
+  const judged = {
+    judgement: "unchecked_check_in",
+    judgedAt: "2026-11-22T06:01:00Z",
+    deadlineAt: "2026-11-22T06:00:00Z",
+    selfPickup: false,
+    pointLatitude: 8.7523,
+    pointLongitude: 38.9785,
+    checkIns: {
+      arrived_pickup: {
+        receivedAt: "2026-11-21T07:00:00Z",
+        capturedAt: "2026-11-21T06:59:00Z",
+        by: "trucker-9",
+        latitude: 8.7601,
+        longitude: 38.9785,
+        accuracyM: 35,
+        distanceKm: 0.87,
+        distanceChecked: true,
+        late: false,
+        outOfRange: false,
+      },
+      crops_ready: {
+        receivedAt: "2026-11-22T07:00:00Z",
+        by: "farmer-9",
+        latitude: 9.1,
+        longitude: 38.7,
+        distanceKm: 41.2,
+        distanceChecked: false,
+        late: true,
+        outOfRange: true,
+      },
+    },
+    reopenExits: ["pending", "handoff_confirmed"],
+  };
+
+  it("shows each check-in's times, fix, distance, measurement and lateness, and the re-open action", () => {
+    mocks.detail.data = detail(judged);
+
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "Pickup judgement" })).toBeTruthy();
+    expect(screen.getByText("The arrival could not be measured")).toBeTruthy();
+    expect(screen.getByText("Farm point").nextElementSibling?.textContent).toBe("8.75230, 38.97850");
+    const arrival = screen.getByRole("region", { name: "Arrival at the farm (trucker)" });
+    expect(arrival.textContent).toContain("8.76010, 38.97850 ±35 m");
+    expect(arrival.textContent).toContain("0.87 km");
+    expect(arrival.textContent).toContain("Measured within 5 km");
+    expect(arrival.textContent).toContain("trucker-9");
+    const ready = screen.getByRole("region", { name: "Crops are ready (farmer)" });
+    expect(ready.textContent).toContain("41.20 km");
+    expect(ready.textContent).toContain("Not measured");
+    expect(ready.textContent).toContain("Late: received after the deadline, kept as evidence, not counted");
+    expect(ready.textContent).toContain("More than 5 km away");
+    expect(screen.getByRole("button", { name: "Re-open the pickup" })).toBeTruthy();
+  });
+
+  it("says when nobody checked in, names the buyer's arrival on a self-pickup, and explains a no-show", () => {
+    mocks.detail.data = detail(
+      { judgement: "buyer_no_show", selfPickup: true, deadlineAt: "2026-11-22T06:00:00Z", reopenExits: [] },
+      "cancelled",
+    );
+
+    renderPage();
+
+    expect(screen.getByRole("region", { name: "Arrival at the farm (buyer)" }).textContent).toContain("No check-in");
+    expect(screen.getByText("The buyer did not come to collect")).toBeTruthy();
+    expect(screen.getByText(/cannot be re-opened here/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Re-open the pickup" })).toBeNull();
+  });
+
+  it("names the last re-open", () => {
+    mocks.detail.data = detail({
+      judgement: "pending",
+      deadlineAt: "2026-11-24T08:00:00Z",
+      selfPickup: false,
+      reopenExits: [],
+      lastReopen: { at: "2026-11-23T08:00:00Z", exit: "pending", fromJudgement: "both_present_no_scan" },
+    });
+
+    renderPage();
+
+    expect(screen.getByText("Re-opened").nextElementSibling?.textContent).toContain("Back to pending with a new deadline");
+    expect(screen.getByText("Waiting for the pickup deadline")).toBeTruthy();
+  });
+
+  it("shows no pickup card for an order never judged by check-ins", () => {
+    mocks.detail.data = detail(undefined);
+
+    renderPage();
+
+    expect(screen.queryByRole("heading", { name: "Pickup judgement" })).toBeNull();
+  });
+
+  it.each([
+    ["am", "የመረከብ ውሳኔ", "መድረሱ ሊለካ አልቻለም", "እርሻው ላይ መድረስ (አሽከርካሪ)", "መረከቡን እንደገና ክፈት"],
+    ["om", "Murtii fudhannaa", "Dhufiinsi safaramuu hin dandeenye", "Qonna irra ga'uu (konkolaachisaa)", "Fudhannaa irra deebi'ii bani"],
+  ] as const)("renders in %s", (locale, heading, judgement, arrival, action) => {
+    mocks.locale = locale;
+    mocks.detail.data = detail(judged);
+
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
+    expect(screen.getByText(judgement)).toBeTruthy();
+    expect(screen.getByRole("region", { name: arrival })).toBeTruthy();
+    expect(screen.getByRole("button", { name: action })).toBeTruthy();
   });
 });

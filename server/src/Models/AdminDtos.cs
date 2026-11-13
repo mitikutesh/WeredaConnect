@@ -507,6 +507,9 @@ public sealed record AdminTransactionDetailResponse
     public EscrowDto? Escrow { get; init; }
     public DeliveryDto? Delivery { get; init; }
     public required List<AdminTransactionTimelineEvent> Timeline { get; init; }
+
+    /// <summary>FUP-287: the pickup judgement with its check-ins as evidence; absent for an order never stamped judgeable.</summary>
+    public AdminPickupEvidenceDto? PickupEvidence { get; init; }
 }
 
 // ──────────────────────────────────────────────

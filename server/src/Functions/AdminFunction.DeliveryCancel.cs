@@ -6,7 +6,7 @@ using WeredaConnect.Server.Models;
 namespace WeredaConnect.Server.Functions;
 
 /// <summary>
-/// FUP-19 (spec E9, delivery-verification-api.md 2.10.0 "Admin cancel after pickup"): an admin cancels a delivery that
+/// FUP-19 (spec E9, delivery-verification-api.md 2.9.0 "Admin cancel after pickup"): an admin cancels a delivery that
 /// was picked up and never delivered, after the money behind it was decided. The rules are
 /// <see cref="AdminDeliveryCancel"/>; this file reads the delivery, its order and every escrow of the two, and writes
 /// one transaction (<see cref="AdminDeliveryCancelRepository"/>). Admin group only, a reason of 10 to 500 characters,

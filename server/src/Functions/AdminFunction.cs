@@ -45,6 +45,7 @@ namespace WeredaConnect.Server.Functions;
 /// - POST /admin/deliveries/{id}/cancel → cancel a delivery after pickup once its money is decided (admin group only, FUP-19)
 /// - GET  /admin/escrows/{id}/ledger   → the escrow's ledger rows, read only (ESC-24)
 /// - GET  /admin/orders/queue          → stuck orders: the admin queue or a passed deadline (ESC-24)
+/// - POST /admin/orders/{orderId}/reopen-pickup → re-open a judged pickup (admin group only, FUP-287)
 /// - GET  /admin/users/{id}/reputation → a user's reputation, restrictions and events (admin group only, ESC-32)
 /// - POST /admin/users/{id}/reputation → tag, untag, restrict or lift (admin group only, ESC-32)
 /// - POST /admin/users/{id}/reputation/events/{eventId}/decision → excuse or uphold one event (admin group only, ESC-32)
@@ -202,6 +203,7 @@ public partial class AdminFunction
                 ("GET", ["admin", "escrows", _, "audit"]) => await HandleEscrowAuditAsync(segments[2], context),
                 ("GET", ["admin", "escrows", _, "ledger"]) => await HandleEscrowLedgerAsync(segments[2], request),
                 ("GET", ["admin", "orders", "queue"]) => await HandleListStuckOrdersAsync(request),
+                ("POST", ["admin", "orders", _, _]) => await HandleOrderActionAsync(segments[2], segments[3], request, context),
                 // FRD-07: before the {id} route, which would read "held" as an escrow id.
                 ("GET", ["admin", "escrows", "held"]) => await HandleListHeldEscrowsAsync(request, context),
                 ("GET", ["admin", "escrows", _]) => await HandleGetEscrowAsync(segments[2], context),
@@ -2738,7 +2740,8 @@ public partial class AdminFunction
             return LambdaResponse.Error(404, "ADMIN_012", "Transaction not found.");
         }
 
-        var order = OrderFunction.MapToOrderDto(DynamoDbHelper.FromItem(orderItem));
+        var orderRow = DynamoDbHelper.FromItem(orderItem);
+        var order = OrderFunction.MapToOrderDto(orderRow);
 
         // Escrow is the hub: it links the order to its delivery and holds the
         // payment/settlement state. Looked up by orderId via the OrderIndex GSI.
@@ -2774,12 +2777,13 @@ public partial class AdminFunction
         }
 
         DeliveryDto? delivery = null;
+        Dictionary<string, object>? deliveryRow = null;
         if (!string.IsNullOrEmpty(deliveryId) && !string.IsNullOrEmpty(_deliveriesTable))
         {
             var deliveryItem = await QuerySingleItemAsync(_deliveriesTable, "deliveryId", deliveryId);
             if (deliveryItem != null)
             {
-                var deliveryRow = DynamoDbHelper.FromItem(deliveryItem);
+                deliveryRow = DynamoDbHelper.FromItem(deliveryItem);
                 delivery = WithDeliveryPhotoUrls(DeliveryFunction.MapToDeliveryDto(
                     deliveryRow, includePhone: true, includeQrToken: true), deliveryRow, context);
             }
@@ -2808,10 +2812,33 @@ public partial class AdminFunction
             Order = order,
             Escrow = escrow,
             Delivery = delivery,
-            Timeline = BuildTimeline(order, delivery, escrow, auditEntries, unifiedEvents)
+            Timeline = BuildTimeline(order, delivery, escrow, auditEntries, unifiedEvents),
+            PickupEvidence = await PickupEvidenceAsync(orderRow, deliveryRow)
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminTransactionDetailResponse);
+    }
+
+    /// <summary>
+    /// FUP-287: the pickup judgement with its check-ins as evidence (<see cref="PickupReopen.EvidenceOf"/>), null for
+    /// an order never stamped judgeable. Whether the handoff can be confirmed depends on the order's active delivery:
+    /// the one the view joined when it is that one, else read here, only for an order whose judgement can be re-opened.
+    /// </summary>
+    private async Task<AdminPickupEvidenceDto?> PickupEvidenceAsync(Dictionary<string, object> orderRow, Dictionary<string, object>? joined)
+    {
+        if (!PickupJudgement.IsStamped(orderRow) && !orderRow.ContainsKey(PickupReopen.Field))
+        {
+            return null;
+        }
+
+        var activeId = GetString(orderRow, "activeDeliveryId");
+        var active = joined != null && activeId.Length > 0 && GetString(joined, "deliveryId") == activeId ? joined : null;
+        if (active == null && activeId.Length > 0 && PickupReopen.RefusalOf(orderRow) == null && !string.IsNullOrEmpty(_deliveriesTable))
+        {
+            active = await new DeliveryRepository(_dynamoDb, _deliveriesTable).GetByIdAsync(activeId);
+        }
+
+        return PickupReopen.EvidenceOf(orderRow, active);
     }
 
     /// <summary>Build the transaction-audit repository, or null when unconfigured.</summary>

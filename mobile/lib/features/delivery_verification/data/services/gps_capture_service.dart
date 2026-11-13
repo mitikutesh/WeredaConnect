@@ -41,7 +41,7 @@ class GpsCaptureService {
     }
     if (permission == LocationPermission.deniedForever) {
       return const GpsCaptureResult.unavailable(
-        'Location permission permanently denied',
+        GpsCaptureResult.permanentlyDeniedReason,
       );
     }
 
@@ -65,6 +65,17 @@ class GpsCaptureService {
       return const GpsCaptureResult.unavailable('GPS signal not available');
     } on Exception {
       return const GpsCaptureResult.unavailable('GPS signal not available');
+    }
+  }
+
+  /// Open this app's page in the phone's settings, where a location
+  /// permission denied for good can be allowed again (FUP-285). False when
+  /// it did not open (web has none: the browser's site settings hold it).
+  Future<bool> openAppSettings() async {
+    try {
+      return await Geolocator.openAppSettings();
+    } on Object {
+      return false;
     }
   }
 
@@ -143,6 +154,16 @@ class GpsCaptureResult {
         latitude = null,
         longitude = null,
         accuracy = null;
+
+  /// The [unavailableReason] when the location permission was denied for
+  /// good: only the app settings (the browser's site settings on web) can
+  /// allow it again.
+  static const permanentlyDeniedReason =
+      'Location permission permanently denied';
+
+  /// Whether the permission was denied for good ([permanentlyDeniedReason]).
+  bool get permissionDeniedForever =>
+      unavailableReason == permanentlyDeniedReason;
 }
 
 /// Proximity check result.

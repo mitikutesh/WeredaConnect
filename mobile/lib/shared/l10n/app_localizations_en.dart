@@ -5750,4 +5750,146 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get profileEditRefused =>
       'These details were not accepted. Check each field and try again.';
+
+  @override
+  String get checkInTitle => 'Arrival check-ins';
+
+  @override
+  String get checkInPartyTrucker => 'Trucker at the farm';
+
+  @override
+  String get checkInPartyBuyer => 'Buyer at the farm';
+
+  @override
+  String get checkInPartyFarmer => 'Crops ready';
+
+  @override
+  String checkInReceived(String time) {
+    return 'Received $time';
+  }
+
+  @override
+  String checkInReceivedLate(String time) {
+    return 'Late, received $time';
+  }
+
+  @override
+  String checkInSavedOnPhone(String time) {
+    return 'Saved on this phone $time, not sent yet';
+  }
+
+  @override
+  String checkInSentFromPhone(String time) {
+    return 'Sent $time';
+  }
+
+  @override
+  String get checkInNotYet => 'Not yet';
+
+  @override
+  String checkInOpensAt(String time) {
+    return 'You can check in from $time.';
+  }
+
+  @override
+  String get checkInPendingNote =>
+      'If the QR code is not scanned by the pickup deadline, these check-ins decide what happens. What counts is when the server receives each one.';
+
+  @override
+  String get checkInDeadlinePassedNote =>
+      'The pickup deadline has passed. The outcome follows soon.';
+
+  @override
+  String get checkInArrivedButton => 'I have arrived';
+
+  @override
+  String get checkInCropsReadyButton => 'Crops are ready';
+
+  @override
+  String get checkInLocating => 'Finding your location';
+
+  @override
+  String get checkInNeedsLocation =>
+      'We could not read your location. Turn on location and try again at the farm.';
+
+  @override
+  String get checkInSent => 'Check-in sent.';
+
+  @override
+  String get pickupJudgementScanned => 'The crops were picked up.';
+
+  @override
+  String get pickupJudgementTruckerNoShow =>
+      'Nobody checked in at the farm by the deadline. The buyer now chooses what happens to the order.';
+
+  @override
+  String get pickupJudgementFarmerNoShow =>
+      'The farmer did not say the crops were ready by the deadline. The order was cancelled and the buyer gets a full refund.';
+
+  @override
+  String get pickupJudgementBuyerNoShow =>
+      'The buyer did not come to collect the crops by the deadline. The order was cancelled and the money goes back to the buyer.';
+
+  @override
+  String get pickupJudgementBothPresent =>
+      'Both checked in, but the QR code was not scanned. Support is looking into it and the money stays held.';
+
+  @override
+  String get pickupJudgementUnchecked =>
+      'The arrival could not be checked against the farm\'s location. Support is looking into it and the money stays held.';
+
+  @override
+  String get pickupJudgementOther => 'The pickup was judged.';
+
+  @override
+  String get commitmentTruckerNoShow => 'Did not come';
+
+  @override
+  String get commitmentFarmerNoShow => 'Crops not ready';
+
+  @override
+  String get transportFailureTruckerNoShow =>
+      'The trucker did not come to the farm';
+
+  @override
+  String get errorCheckInNotOpen =>
+      'Check-ins are not open for this order, so your check-in was not saved.';
+
+  @override
+  String get errorCheckInNotParty =>
+      'Only the order\'s farmer says the crops are ready, and only its trucker (or the buyer collecting it) says they have arrived. Your check-in was not saved.';
+
+  @override
+  String get errorCheckInTooEarly =>
+      'Too early: check-ins open 24 hours before the pickup day. Your check-in was not saved, so check in again then.';
+
+  @override
+  String get errorCheckInTooFar =>
+      'You are more than 5 km from the farm. Your check-in was not saved, so check in again when you get there.';
+
+  @override
+  String get errorCheckInTooLate =>
+      'Your check-in reached the server after the pickup deadline, so it does not count. It was kept for review.';
+
+  @override
+  String get errorCheckInValidation =>
+      'Your check-in was not saved. Try again, and update the app if it keeps happening.';
+
+  @override
+  String get errorCheckInClosed =>
+      'The pickup deadline has passed, so check-ins are closed. Your check-in was not saved.';
+
+  @override
+  String get checkInLocationBlocked =>
+      'Location is blocked for this app. Allow it in the app settings, then try again at the farm.';
+
+  @override
+  String get checkInLocationBlockedWeb =>
+      'Location is blocked for this site. Allow it in the browser\'s site settings, then try again at the farm.';
+
+  @override
+  String get checkInOpenSettings => 'Open settings';
+
+  @override
+  String get checkInAlreadyGiven => 'You have already checked in.';
 }

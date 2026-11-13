@@ -2,7 +2,7 @@ namespace WeredaConnect.Server.Models;
 
 /// <summary>
 /// FUP-19: POST /admin/deliveries/{id}/cancel body. Cancels a delivery that was picked up and never delivered, once
-/// the money behind it is decided (delivery-verification-api.md 2.10.0).
+/// the money behind it is decided (delivery-verification-api.md 2.9.0).
 /// </summary>
 public sealed record AdminDeliveryCancelRequest
 {

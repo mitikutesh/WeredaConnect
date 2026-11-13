@@ -372,6 +372,8 @@ public partial class SyncFunction
         // pickup point stamped when the order became judgeable.
         PickupJudgement.Field, PickupJudgement.JudgedAtField, PickupJudgement.CheckInsField,
         PickupJudgement.PickupLatitudeField, PickupJudgement.PickupLongitudeField,
+        // FUP-287: the stamp of an admin's re-open of the judgement (written only by the admin Lambda).
+        PickupReopen.Field,
         // ESC-16: the order's next deadline (DeadlineIndex); every order write derives it itself.
         OrderDeadlines.AtField, OrderDeadlines.KindField, OrderDeadlines.ShardField
     };

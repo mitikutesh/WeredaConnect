@@ -237,6 +237,13 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(AdminTransactionTimelineEvent))]
 [JsonSerializable(typeof(List<AdminTransactionTimelineEvent>))]
 [JsonSerializable(typeof(AdminTransactionDetailResponse))]
+// FUP-287: the pickup judgement's evidence and its re-open
+[JsonSerializable(typeof(AdminPickupEvidenceDto))]
+[JsonSerializable(typeof(AdminCheckInEvidenceDto))]
+[JsonSerializable(typeof(Dictionary<string, AdminCheckInEvidenceDto>))]
+[JsonSerializable(typeof(AdminPickupReopenDto))]
+[JsonSerializable(typeof(PickupReopenRequest))]
+[JsonSerializable(typeof(PickupReopenResponse))]
 [JsonSerializable(typeof(AdminAuditEntryDto))]
 [JsonSerializable(typeof(List<AdminAuditEntryDto>))]
 [JsonSerializable(typeof(AdminAuditListResponse))]

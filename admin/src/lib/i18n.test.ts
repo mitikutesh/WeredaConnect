@@ -370,3 +370,37 @@ describe("ADMIN_014 names the three verdicts", () => {
     });
   }
 });
+
+/* FUP-287: the pickup judgement's evidence and its re-open, every key in every locale. */
+describe("pickup judgement strings exist in every locale", () => {
+  const flatten = (prefix: string, value: unknown): string[] =>
+    typeof value === "string"
+      ? [prefix]
+      : Object.entries(value as Record<string, unknown>).flatMap(([k, v]) => flatten(`${prefix}.${k}`, v));
+  const keys = [
+    ...flatten("pickup", en.pickup),
+    ...["PICKUP_REOPEN_INVALID", "PICKUP_REOPEN_NOT_ALLOWED", "PICKUP_REOPEN_CHANGED", "PICKUP_REOPEN_MONEY_NOT_HELD"].map(
+      (code) => `errors.${code}`,
+    ),
+  ];
+  for (const locale of locales) {
+    it(`${locale} has every pickup key and the codes`, () => {
+      const missing = keys.filter((key) => t(key, locale) === key);
+      expect(missing).toEqual([]);
+    });
+  }
+
+  it("labels every judgement and exit the server sends, and keeps the placeholders", () => {
+    const sent = [
+      ...["pending", "scanned", "trucker_no_show", "farmer_no_show", "buyer_no_show", "both_present_no_scan", "unchecked_check_in"].map(
+        (j) => `pickup.judgement_${j}`,
+      ),
+      ...["pending", "handoff_confirmed"].map((e) => `pickup.exit_${e}`),
+    ];
+    for (const locale of locales) {
+      expect(sent.filter((key) => t(key, locale) === key)).toEqual([]);
+      expect(t("pickup.reopen.hoursOption", locale)).toContain("{hours}");
+      expect(t("pickup.reopen.confirmPending", locale)).toContain("{hours}");
+    }
+  });
+});

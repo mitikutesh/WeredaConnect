@@ -1,7 +1,7 @@
 namespace WeredaConnect.Server.Helpers;
 
 /// <summary>
-/// FUP-19 (spec E9, delivery-verification-api.md 2.10.0 "Admin cancel after pickup"): an admin closes a delivery
+/// FUP-19 (spec E9, delivery-verification-api.md 2.9.0 "Admin cancel after pickup"): an admin closes a delivery
 /// that was picked up and never reached the buyer, once the money behind it is decided. The rules are pure functions
 /// of the rows read; <c>AdminFunction</c> does the reads and the one transaction.
 /// <para>

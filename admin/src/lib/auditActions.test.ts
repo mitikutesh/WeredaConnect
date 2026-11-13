@@ -130,6 +130,8 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "late_pickup_evidence",
   // FUP-19: an admin's cancel of a delivery after pickup
   "admin_delivery_cancelled",
+  // FUP-287: an admin re-opened a judged pickup (entity order; a confirmed handoff also writes picked_up)
+  "admin_pickup_reopened",
 ];
 
 /** Written by an open PR that has no admin change of its own; labelled here ahead of the merge. */

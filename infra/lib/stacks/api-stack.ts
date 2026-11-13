@@ -3351,6 +3351,10 @@ export class ApiStack extends cdk.Stack {
       // on transaction-audit, and ConditionChecks on orders and escrows (ConditionCheckItem is in their read
       // grants).
       "/admin/deliveries/{id}/{action}",
+      // FUP-287: an action on an order; {action} = reopen-pickup re-opens a judged pickup (admin group checked
+      // in the Lambda, 404 ADMIN_002 for any other action). One transaction on the existing grants: UpdateItem on
+      // the order and its delivery, the escrow's ConditionCheckItem (read grant), the transaction-audit write.
+      "/admin/orders/{orderId}/{action}",
     ];
 
     for (const path of adminPostPaths) {

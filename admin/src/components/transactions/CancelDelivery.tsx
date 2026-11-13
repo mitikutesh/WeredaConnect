@@ -5,7 +5,7 @@ import { canAdminCancelDelivery, deliveryMoneyDecided, isValidDeliveryCancelReas
 import { escrowStatusLabel } from "@/lib/transaction";
 import { fill } from "@/lib/trail";
 
-/* FUP-19 (spec E9, delivery-verification-api.md 2.10.0): cancel a delivery that was picked up and will not reach the
+/* FUP-19 (spec E9, delivery-verification-api.md 2.9.0): cancel a delivery that was picked up and will not reach the
  * buyer, once the money behind it is decided. Three steps: the action, a form with the reason, then a confirm before
  * anything is sent. Only the delivery is cancelled: no money moves and the order keeps its status. While the payment
  * is still held the page says to decide it first and offers no action (the server refuses it too). */

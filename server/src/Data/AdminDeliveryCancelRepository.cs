@@ -4,7 +4,7 @@ using Amazon.DynamoDBv2.Model;
 namespace WeredaConnect.Server.Data;
 
 /// <summary>
-/// FUP-19 (delivery-verification-api.md 2.10.0): the one transaction of an admin's delivery cancel after pickup. It
+/// FUP-19 (delivery-verification-api.md 2.9.0): the one transaction of an admin's delivery cancel after pickup. It
 /// writes the delivery (<c>cancelled</c>, <c>cancelReason</c>, <c>cancelledAt</c>, the next version) and its
 /// transaction-audit row, and checks that the order and every escrow are still as they were read. All of it lands or
 /// none of it, so the audit row (with the admin and the reason) never goes missing and a write that lands in between

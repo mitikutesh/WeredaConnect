@@ -1,5 +1,5 @@
 /**
- * FUP-19 (spec E9, delivery-verification-api.md 2.10.0): when the transaction page offers an admin the cancel of a
+ * FUP-19 (spec E9, delivery-verification-api.md 2.9.0): when the transaction page offers an admin the cancel of a
  * delivery after pickup. The server checks every rule again (the order's status and every escrow behind the
  * delivery); the page only avoids offering what it would refuse.
  */
