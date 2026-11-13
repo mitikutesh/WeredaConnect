@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -16,6 +18,25 @@ import 'package:wereda_connect/features/delivery_verification/data/delivery_cons
 /// would clash with the presigned signature, and its certificate pins are
 /// for the API host only.
 class DeliveryPhotoUploader {
+  /// FUP-140: whether a failed `PUT` is S3 giving up on a body that stalled:
+  /// `400` with the error code `RequestTimeout` ("Your socket connection to
+  /// the server was not read from or written to within the timeout
+  /// period"), or a `408`. A slow rural uplink, not a refusal of the photo:
+  /// the next run sends it again, and it never counts toward the refusals
+  /// that give a photo up.
+  static bool isStalledUpload(DioException e) {
+    final response = e.response;
+    if (response == null) return false;
+    if (response.statusCode == 408) return true;
+    if (response.statusCode != 400) return false;
+    final body = switch (response.data) {
+      final String text => text,
+      final List<int> bytes => utf8.decode(bytes, allowMalformed: true),
+      _ => '',
+    };
+    return body.contains('<Code>RequestTimeout</Code>');
+  }
+
   final ApiClient _api;
   final Dio _storage;
 

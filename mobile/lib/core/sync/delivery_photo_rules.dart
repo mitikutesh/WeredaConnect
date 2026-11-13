@@ -78,3 +78,38 @@ List<String> handoffPhotoTypesOf(String action, Object? status) {
   if (status == 'delivered') return const ['dropoff'];
   return const [];
 }
+
+/// FUP-140: the handoff photos a `delivery` update answered `conflict`
+/// leaves waiting for nothing. Server wins: the pickup (`pickedUp`) or the
+/// delivery confirm (`delivered`) this phone sent was not taken, so its
+/// photo goes too, unless [serverData] (the server's row) shows that
+/// handoff anyway (another phone of the same party made it): then the photo
+/// may still attach. The server holds a photo back until its handoff is on
+/// the row (`delivery-verification-api.md` 2.14.0), so without this the
+/// photo would wait forever. A create's photos wait for handoffs queued
+/// behind it, so a conflicted create gives none up.
+List<String> handoffPhotoTypesUndoneByConflict(
+  String action,
+  Object? status,
+  Map<String, dynamic> serverData,
+) {
+  if (action != 'update') return const [];
+  final serverStatus = serverData['status'];
+  bool has(String field) {
+    final value = serverData[field];
+    return value is String && value.isNotEmpty;
+  }
+
+  if (status == 'pickedUp') {
+    final taken = has('pickedUpAt') ||
+        serverStatus == 'pickedUp' ||
+        serverStatus == 'inTransit' ||
+        serverStatus == 'delivered';
+    return taken ? const [] : const ['pickup'];
+  }
+  if (status == 'delivered') {
+    final taken = has('confirmedAt') || serverStatus == 'delivered';
+    return taken ? const [] : const ['dropoff'];
+  }
+  return const [];
+}
