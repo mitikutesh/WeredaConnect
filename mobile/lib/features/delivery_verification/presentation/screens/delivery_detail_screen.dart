@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
@@ -48,9 +49,15 @@ class DeliveryDetailScreen extends StatelessWidget {
   final Delivery delivery;
   final String currentUserId;
 
+  /// Whether this build pays through live Telebirr. Defaults to
+  /// [Environment.telebirrLive]; tests set it. A live build never offers the
+  /// delivery payment (FUP-69).
+  final bool? telebirrLive;
+
   const DeliveryDetailScreen({
     required this.delivery,
     required this.currentUserId,
+    this.telebirrLive,
     super.key,
   });
 
@@ -226,8 +233,8 @@ class DeliveryDetailScreen extends StatelessWidget {
 
   /// The role's next step on this delivery, pinned at the foot of the page
   /// (Show QR, Confirm Pickup, Mark In Transit, Show drop-off QR, Confirm
-  /// Delivery, Pay, Raise Dispute), with Cancel Delivery under it while that
-  /// is allowed.
+  /// Delivery, Pay on a demo build, Raise Dispute), with Cancel Delivery
+  /// under it while that is allowed.
   /// Null when the viewer has nothing to do here.
   Widget? _buildBottomActions(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -379,10 +386,16 @@ class DeliveryDetailScreen extends StatelessWidget {
       _addDisputeButton(context, actions);
     }
 
-    // Buyer + pending → Initiate escrow payment
-    if (isBuyer && delivery.status == DeliveryStatus.pending) {
+    // Buyer + pending → Initiate escrow payment, on a demo build only. A live
+    // Telebirr build never offers it (FUP-69): the server refuses
+    // `/escrow/initiate` there (ESCROW_039), and the buyer pays the order
+    // from its own page (Pay Now, ESC-44).
+    if (isBuyer &&
+        delivery.status == DeliveryStatus.pending &&
+        !(telebirrLive ?? Environment.telebirrLive)) {
       actions.add(
         _EscrowPayButton(
+          key: const Key('delivery_escrow_pay'),
           delivery: delivery,
           currentUserId: currentUserId,
         ),
@@ -951,7 +964,8 @@ class _DisputeCard extends StatelessWidget {
 ///
 /// The server binds the escrow to the order (escrow-protocol.md v1.2.0): the
 /// amount must equal the order's `orderTotal`, so that is what is offered.
-/// Shows nothing if no order can be resolved locally.
+/// Shows nothing if no order can be resolved locally. Never built on a live
+/// Telebirr build (FUP-69).
 class _EscrowPayButton extends StatefulWidget {
   final Delivery delivery;
   final String currentUserId;
@@ -959,6 +973,7 @@ class _EscrowPayButton extends StatefulWidget {
   const _EscrowPayButton({
     required this.delivery,
     required this.currentUserId,
+    super.key,
   });
 
   @override
