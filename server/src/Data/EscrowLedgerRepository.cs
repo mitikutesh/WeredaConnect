@@ -226,6 +226,37 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
     }
 
     /// <inheritdoc />
+    public async Task<bool> TryMarkManualOverdueLoggedAsync(string escrowId, string reference, string dueAt)
+    {
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _ledgerTable,
+                Key = RowKey(escrowId, reference),
+                UpdateExpression = "SET #logged = :due",
+                ConditionExpression = "#status = :manual AND #due = :due AND (attribute_not_exists(#logged) OR #logged <> :due)",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    ["#status"] = LedgerFields.Status,
+                    ["#due"] = LedgerFields.DueAt,
+                    ["#logged"] = LedgerFields.ManualOverdueLoggedFor
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    [":manual"] = S(LedgerFields.StatusManual),
+                    [":due"] = S(dueAt)
+                }
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? Next)> QueryOwedTransportLegsAsync(
         string status, Dictionary<string, AttributeValue>? startKey)
     {
@@ -633,7 +664,8 @@ internal sealed class EscrowLedgerRepository : IEscrowLedgerRepository
             Version = (int)Num(LedgerFields.Version),
             ClaimedBy = Str(ManualPayoutClaimFields.LedgerClaimedBy),
             ClaimedAt = Str(ManualPayoutClaimFields.LedgerClaimedAt),
-            ClaimExpiresAt = Str(ManualPayoutClaimFields.LedgerClaimExpiresAt)
+            ClaimExpiresAt = Str(ManualPayoutClaimFields.LedgerClaimExpiresAt),
+            ManualOverdueLoggedFor = Str(LedgerFields.ManualOverdueLoggedFor)
         };
     }
 
