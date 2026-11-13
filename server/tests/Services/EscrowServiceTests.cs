@@ -843,8 +843,17 @@ public class EscrowServiceTests
         return (service, alarms, orderRepo);
     }
 
-    private static Dictionary<string, object> OrderAt(string status)
-        => new() { { "orderId", "order-1" }, { "status", status }, { "version", 4 } };
+    private static Dictionary<string, object> OrderAt(string status, bool flagged = false)
+    {
+        var order = new Dictionary<string, object> { { "orderId", "order-1" }, { "status", status }, { "version", 4 } };
+        if (flagged)
+        {
+            // FUP-64: the admin's settle_as_is flagged the order its refund leaves at disbursing or settled.
+            order["disputeOverrideAt"] = "2026-02-20T10:00:00.0000000Z";
+        }
+
+        return order;
+    }
 
     [Theory]
     [InlineData("farmer_wins", "cancelled", true)]
@@ -854,9 +863,10 @@ public class EscrowServiceTests
         string resolution, string? orderStatus, bool deliveryConfirmed)
     {
         // FUP-64: no goods disposition fits (an order closed or paid out meanwhile, or a missing order row); the
-        // admin recorded settle_as_is, so the money moves as the verdict says and the order is left as it is.
+        // admin recorded settle_as_is, so the money moves as the verdict says and the order is left as it is (a
+        // settled order already flagged by the admin's action).
         var (service, alarms, orders) = SettleAsIsService(
-            resolution, orderStatus == null ? null : OrderAt(orderStatus), deliveryConfirmed);
+            resolution, orderStatus == null ? null : OrderAt(orderStatus, flagged: orderStatus == "settled"), deliveryConfirmed);
 
         var result = resolution == "farmer_wins"
             ? (await service.ReleaseAsync(DisputeReleaseRequest(), "system")).Error
@@ -880,6 +890,8 @@ public class EscrowServiceTests
     [InlineData("farmer_wins", "settled", true, "settle_as_is")]
     // The legs moved to a case a goods disposition fits: the admin chooses that one instead.
     [InlineData("buyer_wins", "in_transit", false, "settle_as_is")]
+    // FUP-64 review: a settled order the admin's action did not flag yet; its contact would stay open after the refund.
+    [InlineData("buyer_wins", "settled", false, "settle_as_is")]
     public async Task ResolvedDispute_SettleAsIs_ThatNoLongerFits_IsRefusedAndAlarmed(
         string resolution, string orderStatus, bool deliveryConfirmed, string disposition)
     {
@@ -894,6 +906,40 @@ public class EscrowServiceTests
         await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         Assert.Contains(alarms, l => l.StartsWith("DISPUTE_VERDICT_ORDER_MISMATCH escrowId=escrow-001"));
+    }
+
+    [Fact]
+    public async Task ResolvedDispute_SettleAsIs_OtherEscrowsUnreadable_FailsClosed_NoLockNoGateway()
+    {
+        // FUP-64 review: the check that no other escrow of the order paid it out could not be read.
+        var (service, alarms, _) = SettleAsIsService("farmer_wins", OrderAt("cancelled"), deliveryConfirmed: true);
+        _mockEscrowRepo.QueryByOrderIdAsync("order-1", Arg.Any<int>())
+            .ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
+
+        var error = (await service.ReleaseAsync(DisputeReleaseRequest(), "system")).Error;
+
+        Assert.Equal(503, error!.HttpStatus);
+        Assert.Equal("ESCROW_012", error.Code);
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        Assert.StartsWith("DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=escrow-001 op=release legs=escrows:read:", Assert.Single(alarms));
+    }
+
+    [Fact]
+    public async Task ResolvedDispute_SettleAsIs_FarmerWins_AnotherEscrowOfTheOrderPaidOut_IsRefused()
+    {
+        // FUP-64 review: the order shows no payout, but its own escrow was released (a double payment for one trade).
+        var (service, alarms, _) = SettleAsIsService("farmer_wins", OrderAt("cancelled"), deliveryConfirmed: true);
+        var paid = MakeEscrowItem(escrowId: "escrow-order-order-1", status: "completed");
+        _mockEscrowRepo.GetByIdAsync("escrow-order-order-1", true).Returns(paid);
+
+        var error = (await service.ReleaseAsync(DisputeReleaseRequest(), "system")).Error;
+
+        Assert.Equal(422, error!.HttpStatus);
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        Assert.Contains(alarms, l => l.StartsWith("DISPUTE_VERDICT_ORDER_MISMATCH escrowId=escrow-001 op=release"));
     }
 
     [Theory]

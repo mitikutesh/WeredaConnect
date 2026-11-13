@@ -220,7 +220,7 @@ public sealed partial class EscrowService
         _deliveryRepo = deliveryRepo;
         _orderCheckoutRepo = orderCheckoutRepo;
         _transactionAuditRepo = transactionAuditRepo;
-        _verdictMirror = new DisputeVerdictMirror(orderRepo, deliveryRepo, transactionAuditRepo, cropRepo, tripRepo);
+        _verdictMirror = new DisputeVerdictMirror(orderRepo, deliveryRepo, transactionAuditRepo, cropRepo, tripRepo, escrowRepo);
         _orderMoneyMirror = new OrderMoneyMirror(orderRepo, deliveryRepo, transactionAuditRepo, _verdictMirror);
     }
 
@@ -3409,7 +3409,7 @@ public sealed partial class EscrowService
     /// three of four hourly periods) and audited once as <c>dispute_settlement_blocked</c>;</item>
     /// <item>a leg cannot follow the verdict (<c>422 ESCROW_INVALID_TRANSITION</c>, alarm line
     /// <c>DISPUTE_VERDICT_ORDER_MISMATCH</c>), unless the verdict carries the admin's <c>settle_as_is</c>
-    /// and it still fits (FUP-64, <see cref="SettlesAsIsAsync"/>). A recorded <c>wait_for_delivery</c> is
+    /// and it still fits (FUP-64, <see cref="SettleAsIsPlanAsync"/>). A recorded <c>wait_for_delivery</c> is
     /// refused without that alarm until it is older than <see cref="WaitForDeliveryAlarmAfter"/>, then
     /// with <c>DISPUTE_VERDICT_WAIT_OVERDUE</c> (FUP-64).</item>
     /// </list>
@@ -3450,13 +3450,22 @@ public sealed partial class EscrowService
             return null;
         }
 
-        if (result.IsMismatch && await SettlesAsIsAsync(escrow))
+        if (result.IsMismatch && await SettleAsIsPlanAsync(escrow) is { } asIs)
         {
-            // FUP-64: the admin's audited exit for a verdict no goods disposition fits. The money moves as the
-            // verdict says; the order was closed by the admin's action and the delivery stays as it is.
-            Console.WriteLine(
-                $"DISPUTE_VERDICT_SETTLING_AS_IS escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
-            return null;
+            if (asIs.Case == DispositionCase.Unknown)
+            {
+                // The check of the order's other escrows could not be read: nothing is known, so fail closed.
+                return await SettlementBlockedAsync(escrowId, resolvedAt, actor, op, asIs.Legs);
+            }
+
+            if (asIs.SettlesAsIs)
+            {
+                // FUP-64: the admin's audited exit for a verdict no goods disposition fits. The money moves as the
+                // verdict says; the order was closed or flagged by the admin's action and the delivery stays as it is.
+                Console.WriteLine(
+                    $"DISPUTE_VERDICT_SETTLING_AS_IS escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+                return null;
+            }
         }
 
         if (result.IsMismatch && await IsRecordedWaitAsync(escrow, resolution))
@@ -3527,22 +3536,22 @@ public sealed partial class EscrowService
     }
 
     /// <summary>
-    /// FUP-64: the verdict carries the admin's <c>settle_as_is</c> and, read again now, it still fits and its order is
-    /// no longer live (<see cref="DispositionPlan.SettlesAsIs"/>). Only on a <c>farmer_wins</c> or <c>buyer_wins</c>
-    /// verdict (never a split). Anything else (the legs moved to a case another disposition fits, a farmer no longer
-    /// safe to pay, an order the admin's action did not close yet, a read that fails) keeps the refusal and its alarm.
+    /// FUP-64: when the verdict carries the admin's <c>settle_as_is</c> (only on a <c>farmer_wins</c> or <c>buyer_wins</c>
+    /// verdict, never a split), the plan read again now; null otherwise. The settlement goes ahead only when it still
+    /// fits and its order needs no write any more (<see cref="DispositionPlan.SettlesAsIs"/>). Anything else (the legs
+    /// moved to a case another disposition fits, a farmer no longer safe to pay, an order the admin's action did not
+    /// close or flag yet) keeps the refusal and its alarm; an unreadable plan fails closed.
     /// </summary>
-    private async Task<bool> SettlesAsIsAsync(Dictionary<string, object> escrow)
+    private async Task<DispositionPlan?> SettleAsIsPlanAsync(Dictionary<string, object> escrow)
     {
         var resolution = GetStringOrNull(escrow, "disputeResolution");
         if (resolution is not ("farmer_wins" or "buyer_wins")
             || GetStringOrNull(escrow, DisputeDispositionFields.Disposition) != DisputeDisposition.SettleAsIs)
         {
-            return false;
+            return null;
         }
 
-        var plan = await _verdictMirror.PlanDispositionAsync(escrow, resolution);
-        return plan.SettlesAsIs;
+        return await _verdictMirror.PlanDispositionAsync(escrow, resolution);
     }
 
     /// <summary>

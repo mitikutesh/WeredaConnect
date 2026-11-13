@@ -671,6 +671,61 @@ public sealed class DisputeSettlementDynamoDbTests
     }
 
     [LocalDynamoDbFact]
+    public async Task SettleAsIs_FarmerWins_TheOrdersOwnEscrowAlreadyPaidOut_IsRefused_NothingWritten()
+    {
+        // FUP-64 review: a legacy delivery escrow with a farmer_wins verdict, while the order's own escrow (a second
+        // payment for the same trade) was already released; the order itself was cancelled and shows no payout.
+        var deliveryId = await SeedDeliveryAsync("delivered");
+        var orderId = await SeedOrderAsync("cancelled", 6, deliveryId);
+        await Ddb.PutItemAsync(new PutItemRequest
+        {
+            TableName = _db.Escrows,
+            Item = new Dictionary<string, AttributeValue>
+            {
+                ["escrowId"] = S($"escrow-order-{orderId}"), ["createdAt"] = S(CreatedAt), ["status"] = S("completed"),
+                ["orderId"] = S(orderId), ["buyerId"] = S(BuyerId), ["farmerId"] = S(FarmerId), ["amount"] = N("8000"),
+                ["version"] = N("5")
+            }
+        });
+        var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, deliveryId, resolution: "farmer_wins", swept: true);
+
+        var choice = await Admin().FunctionHandler(
+            Verdict(escrowId, "farmer_wins", "settle_as_is", withReason: true), new TestLambdaContext());
+
+        choice.StatusCode.Should().Be(422, choice.Body);
+        choice.Body.Should().Contain("ADMIN_016").And.Contain("the order already shows a payout");
+        Str(await EscrowAsync(escrowId), "disputeDisposition").Should().BeNull();
+        await SweepAsync();
+        Str(await EscrowAsync(escrowId), "status").Should().Be("dispute_resolved");
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == $"release:{escrowId}"));
+    }
+
+    [LocalDynamoDbFact]
+    public async Task SettleAsIs_BuyerWins_OnASettledOrder_FlagsTheOrder_ThenTheSweepRefunds()
+    {
+        // FUP-64 review: the refund leaves the order at settled; the flag closes its contact, as the old override's did.
+        var orderId = await SeedOrderAsync("settled", 7);
+        var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, resolution: "buyer_wins", swept: true);
+
+        var choice = await Admin().FunctionHandler(
+            Verdict(escrowId, "buyer_wins", "settle_as_is", withReason: true), new TestLambdaContext());
+
+        choice.StatusCode.Should().Be(200, choice.Body);
+        var order = await OrderAsync(orderId);
+        Str(order, "status").Should().Be("settled");
+        Str(order, "disputeOverrideBy").Should().Be("admin-it");
+        Str(order, "disputeOverrideReason").Should().Be(DispositionReason);
+        Str(order, "disputeOverrideEscrowId").Should().Be(escrowId);
+        Str(order, "disputeOverrideAt").Should().NotBeNull();
+        WeredaConnect.Server.Helpers.ContactReveal.IsOpen(order).Should().BeFalse();
+
+        await SweepAsync();
+
+        Str(await EscrowAsync(escrowId), "status").Should().Be("refunded");
+        await _gateway.Received(1).RefundFundsAsync(Arg.Is<RefundFundsRequest>(r => r.TransactionRef == $"refund:{escrowId}"));
+    }
+
+    [LocalDynamoDbFact]
     public async Task WaitForDelivery_AWeekOld_AlarmsOnItsOwnToken_AFreshOneStaysQuiet()
     {
         var oldDelivery = await SeedDeliveryAsync("inTransit");

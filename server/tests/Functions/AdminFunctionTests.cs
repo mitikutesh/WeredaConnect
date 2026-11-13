@@ -1839,7 +1839,10 @@ public class AdminFunctionTests
         TableReads(EscrowsTable, RecordedVerdict("buyer_wins",
             ("disputeDisposition", "settle_as_is"), ("disputeDispositionReason", Reason),
             ("disputeDispositionAt", "2026-09-21T08:00:00.0000000Z")));
-        TableReads(OrdersTable, OrderItem("settled"));
+        // The first run flagged the settled order already.
+        var flagged = OrderItem("settled");
+        flagged["disputeOverrideAt"] = S("2026-09-21T08:00:01.0000000Z");
+        TableReads(OrdersTable, flagged);
         TheVerdictWriteFindsItDecided();
         // The choice's escrow-audit row is already there.
         _dynamoDb.PutItemAsync(
@@ -1857,6 +1860,96 @@ public class AdminFunctionTests
         Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync)).Should().NotContain(u => u.TableName == OrdersTable);
         Calls<PutItemRequest>(nameof(IAmazonDynamoDB.PutItemAsync))
             .Should().NotContain(p => p.TableName == TxAuditTable && p.Item["action"].S == "dispute_resolved_settled_as_is");
+    }
+
+    [Fact]
+    public async Task ResolveDispute_SettleAsIs_BuyerWinsOnASettledOrder_FlagsItSoItsContactCloses()
+    {
+        // FUP-64 review: the refund leaves the order at settled, whose contact is open; the removed override flagged it.
+        TableReads(EscrowsTable, DisputedEscrow());
+        TableReads(OrdersTable, OrderItem("settled"));
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(DispositionBody("buyer_wins", "settle_as_is")), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var flag = Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync)).Single(u => u.TableName == OrdersTable);
+        flag.ExpressionAttributeValues.Values.Select(v => v.S).Should().Contain(new[] { "admin-1", Reason, "escrow-9" });
+        flag.ExpressionAttributeNames.Values.Should().Contain("disputeOverrideAt").And.NotContain("status");
+    }
+
+    /// <summary>A disputed ledger escrow (every leg held), so a split can be recorded on it.</summary>
+    private static Dictionary<string, AttributeValue> LedgerDisputedEscrow(params (string Key, string Value)[] extra)
+    {
+        var item = DisputedEscrow(extra);
+        item["buyerId"] = S("buyer-9");
+        item["farmerId"] = S("farmer-9");
+        item["truckerId"] = S("trucker-9");
+        item["amount"] = Num("17250");
+        item["farmerPayout"] = Num("15000");
+        item["truckerPayout"] = Num("1500");
+        item["commission"] = Num("750");
+        item["version"] = Num("4");
+        item["settlementModel"] = S("ledger");
+        item["legStatus"] = new AttributeValue
+        {
+            M = new Dictionary<string, AttributeValue> { ["crop"] = S("held"), ["transport"] = S("held"), ["commission"] = S("held") }
+        };
+        item["refundedTotal"] = Num("0");
+        item["releasedTotal"] = Num("0");
+        return item;
+    }
+
+    private static object SplitBody(string? notes) => new
+    {
+        resolution = "partial_refund", action = "split", farmerAmount = 9000.00m, truckerAmount = 1500.00m, buyerRefund = 6000.00m,
+        notes
+    };
+
+    [Fact]
+    public async Task ResolveDispute_ANewSplitNoDispositionFits_Returns422Admin016_NeverOffersSettleAsIs()
+    {
+        // FUP-64 review: a split mirrors as farmer_wins, and this farmer_wins would take settle_as_is (the delivery was
+        // confirmed, the order cancelled since). A split never does (400 ADMIN_014), so it must not be offered.
+        TableReads(EscrowsTable, LedgerDisputedEscrow(("deliveryConfirmedAt", "2026-09-19T12:00:00Z")));
+        TableReads(OrdersTable, OrderItem("cancelled"));
+
+        var response = await WithMirrorTables().FunctionHandler(ResolveRequest(SplitBody(Reason)), _context);
+
+        response.StatusCode.Should().Be(422);
+        response.Body.Should().Contain("ADMIN_016").And.Contain("a split is never settled as it is")
+            .And.Contain("choose the other verdict").And.NotContain("ADMIN_015");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+
+        // The same order as farmer_wins is offered the exit, so the split's answer is the split's own.
+        var single = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(new { resolution = "farmer_wins", action = "release" }), _context);
+        single.Body.Should().Contain("ADMIN_015").And.Contain("settle_as_is");
+    }
+
+    [Fact]
+    public async Task ResolveDispute_ARecordedSplitReplayedOverANoFitOrder_Returns422Admin016_ItCannotChange()
+    {
+        // FUP-174's replay of the recorded split, after the order was cancelled: no loop through ADMIN_015.
+        var recorded = LedgerDisputedEscrow(("deliveryConfirmedAt", "2026-09-19T12:00:00Z"));
+        recorded["status"] = S("dispute_resolved");
+        recorded["disputeResolution"] = S("partial_refund");
+        recorded["disputeResolvedAt"] = S("2026-09-21T08:00:00.0000000Z");
+        recorded["verdictAmounts"] = new AttributeValue
+        {
+            M = new Dictionary<string, AttributeValue> { ["farmerAmount"] = Num("9000"), ["truckerAmount"] = Num("1500"), ["buyerRefund"] = Num("6000") }
+        };
+        TableReads(EscrowsTable, recorded);
+        TableReads(OrdersTable, OrderItem("cancelled"));
+        TheVerdictWriteFindsItDecided();
+
+        var response = await WithMirrorTables().FunctionHandler(ResolveRequest(SplitBody(null)), _context);
+
+        response.StatusCode.Should().Be(422);
+        response.Body.Should().Contain("ADMIN_016").And.Contain("a split is never settled as it is").And.Contain("cannot change");
+        Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync))
+            .Should().NotContain(u => u.TableName == EscrowsTable && u.ConditionExpression.StartsWith("#status = :resolved"));
+        Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync)).Should().NotContain(u => u.TableName == OrdersTable);
     }
 
     [Fact]
