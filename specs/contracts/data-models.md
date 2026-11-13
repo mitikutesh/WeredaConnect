@@ -1,6 +1,6 @@
 # Data Models Contract
 
-**Version**: 1.18.0
+**Version**: 1.19.0
 **Last Updated**: 2026-11-13
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
@@ -166,6 +166,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `confirmedAt` | DateTime? | No | Delivery confirmation time (UTC) | Null until buyer confirms receipt |
 | `arrivalPhotoRef` | String? | No | The trucker's arrival photo at the drop-off, `uploads/photos/{deliveryId}/arrival-{ms}.{webp\|jpg}` (1.17.0, ESC-36, behind `dropoffClassification`; `arrivalPhotoUrl` on the detail read) | The evidence of the trucker's drop-off check-in |
 | `autoConfirmedAt` | DateTime? | No | When the order cron confirmed the delivery for a silent buyer (1.17.0, ESC-36 T9) | Absent when the buyer confirmed |
+| `arrivalPhotoLateAt` | DateTime? | No | Server-only: when the arrival photo was attached as late evidence on the order cron's T8 dispute (1.19.0, FUP-373, behind `dropoffClassification`) | Absent on one taken on the road; read by the admin evidence, not stored by the apps |
 | `version` | int | Yes | Optimistic concurrency control | Incremented on each update |
 
 **Indexes**:
@@ -511,6 +512,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.16.0 | 2026-11-13 | Order gains the stored-only `pickupReopen` map (FUP-287, order-lifecycle 2.16.0): an admin's re-open of a judged pickup (`at`, `exit`, `fromJudgement`, `fromVersion`, `deadlineAt`), never returned to a client (the sync result's `serverData` leaves it out). No client change. 1.15.0 is another change's number | @Server |
 | 1.17.0 | 2026-11-13 | ESC-36 (order-lifecycle 2.18.0, behind `dropoffClassification`): Order gains `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt`, `disputeReason` and the `checkIns` kind `arrived_dropoff`, and the stored-only `dropoffCheckIn`, `dropoffAttempt`, drop-off points and `dropoffTripRead`; Delivery gains `arrivalPhotoRef` (`arrivalPhotoUrl` on the detail) and `autoConfirmedAt`. Server DTO only: the Isar schemas and the web mirrors get them with the client follow-up (FUP-336). 1.15.0 and 1.16.0 are FUP-285 and FUP-287 | @Server |
 | 1.18.0 | 2026-11-13 | ESC-36 on the client (FUP-336): the Order Isar schema and web mirror gain `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt` and `disputeReason` (read by the shared order parse, so the pulls, the web repository and the conflict echo fill them; a row without them clears the copy), and `checkIns` keeps the `arrived_dropoff` kind; `queuedCheckIns` holds the trucker's drop-off check-in waiting on the phone. The Delivery Isar schema and web mirror gain `arrivalPhotoRef` (the server's key, or this phone's file while its upload waits, kept by the pulls and the conflict echo like the handoff photos) and `autoConfirmedAt`. `arrivalPhotoUrl` is not stored: like the other photo URLs it is read from `GET /deliveries/{id}` when the tile shows (15 minute URL). Isar builds the new fields on the next open | @Mobile |
+| 1.19.0 | 2026-11-13 | Delivery gains the server-only `arrivalPhotoLateAt` (FUP-373, `delivery-verification-api.md` 2.13.0): written with an arrival photo attached as late evidence on the order cron's T8 dispute, returned on the delivery reads for the admin's evidence. The apps neither store nor send it (the sync field whitelist keeps it out). |
 
 ---
 

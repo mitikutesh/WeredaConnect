@@ -255,6 +255,12 @@ public sealed record DeliveryDto
     /// <summary>ESC-36: presigned GET of the arrival photo, as <see cref="PickupPhotoUrl"/>.</summary>
     public string? ArrivalPhotoUrl { get; init; }
 
+    /// <summary>
+    /// FUP-373: when the arrival photo was attached as late evidence on the order cron's T8 dispute (the
+    /// server's time); absent on one attached while the goods were on the road.
+    /// </summary>
+    public string? ArrivalPhotoLateAt { get; init; }
+
     /// <summary>ESC-36: when the order cron confirmed the delivery for a silent buyer (absent when the buyer confirmed).</summary>
     public string? AutoConfirmedAt { get; init; }
 

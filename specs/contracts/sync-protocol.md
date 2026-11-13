@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.59.1
+1.60.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -1559,6 +1559,14 @@ is unsupported as before.
   it as a refusal and may check in again closer), the new `CHECKIN_PHOTO_REQUIRED` (no arrival photo on
   the delivery yet: attach it, then check in again) and `CHECKIN_TOO_LATE` (after T8 or the overdue
   judgement: kept as late evidence).
+- Late evidence (1.60.0, FUP-373; `delivery-verification-api.md` 2.13.0): a check-in queued offline before
+  T8 and synced after the order cron's T8 run is kept late and answered `CHECKIN_TOO_LATE` whether or not
+  its arrival photo is attached (`CHECKIN_PHOTO_REQUIRED` only before T8; a late one more than 5 km away is
+  kept as a late attempt, also `CHECKIN_TOO_LATE`, or `CHECKIN_TOO_FAR` when an attempt is stored already;
+  `CHECKIN_NOT_OPEN` once an admin decided the delivery's dispute), and the `delivery_photo`
+  `{deliveryId}#arrival` queued ahead of it is taken on the system's T8 dispute (`delivery_overdue` or
+  `dropoff_out_of_range`, no `disputeResolution`) as evidence only, marked `arrivalPhotoLateAt` (`success`,
+  no version move); any other dispute, or a verdict landing first, still answers `DELIVERY_PHOTO_REFUSED`.
 - The order rows (`GET /orders`, `GET /orders/{id}`, the order rows of `/sync` results) carry it as
   `checkIns.arrived_dropoff`, and the new fields `dropoffJudgement`, `dropoffJudgedAt`,
   `dropoffDeadlineAt` and `disputeReason` (`order-lifecycle.md` 2.18.0); never the stamped points or the
@@ -1598,6 +1606,17 @@ delivery's parties. The pulls, the web repositories and the conflict echo read t
 fields. The flag stays off until this build is the minimum (`MIN_ORDER_APP_BUILD`) and the buyer's pushes of
 FUP-338 (the trucker arrived, the coming auto-confirm) are live.
 
+Clients (1.60.0, FUP-373, no wire change): the `CHECKIN_VALIDATION` a server with `dropoffClassification` off
+gives an `arrived_dropoff` ("arrived_dropoff is not taken yet", the drop-off flag rolled back while
+`pickupClassification` stays on) reads as the drop-off's not-open text, not the update-the-app text. Mobile
+hands a `delivery_photo` `{deliveryId}#arrival` refused for good to the rejection handler (still never
+announced), which forgets the photo path the phone kept on the delivery when it is that operation's file, as
+`CHECKIN_PHOTO_REQUIRED` does; a pickup or drop-off photo refused for good is left alone as before. Delivery
+rows may carry the server-only `arrivalPhotoLateAt`; the apps ignore it. A new arrival photo taken while one
+already waits in the queue is deleted from the phone (it would never be sent). The too-far texts and the
+`dropoff_out_of_range` label say the check-in was more than 5 km from the order's drop-off point, not that
+the trucker was (the buyer's pin may be wrong, FUP-204).
+
 ---
 
 ## The trucker's drop-off code (1.58.0, ESC-35)
@@ -1633,6 +1652,7 @@ The buyer's confirm:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.60.0 | 2026-11-13 | Late drop-off evidence (FUP-373, `delivery-verification-api.md` 2.13.0), behind `dropoffClassification`: a `handoff_check_in` `arrived_dropoff` received after T8 or after the T8 judgement is kept late and answered `CHECKIN_TOO_LATE` without the arrival photo check (before, a check-in queued offline before T8 whose photo the T8 dispute refused got `CHECKIN_PHOTO_REQUIRED` and kept nothing); a late one more than 5 km away is kept as a late attempt; a decided dispute closes it (`CHECKIN_NOT_OPEN`); `delivery_photo` `{deliveryId}#arrival` is taken on the system's undecided T8 dispute (`delivery_overdue`, `dropoff_out_of_range`) as evidence only, marked late (`arrivalPhotoLateAt` on the delivery rows). Clients, no wire change: the drop-off kind not taken (`CHECKIN_VALIDATION`, the drop-off flag rolled back) reads as not open; mobile forgets the kept arrival photo path when its `delivery_photo` is refused for good and deletes a new arrival photo taken while one already waits; the too-far and out-of-range texts name the check-in and the order's drop-off point, not the trucker. See "The drop-off check-in". |
 | 1.59.1 | 2026-11-13 | The drop-off check-in, the clients (FUP-336, no wire change): the trucker's "Arrived at drop-off" on the order detail takes the arrival photo, then a GPS fix; mobile queues `delivery_photo` `{deliveryId}#arrival` ahead of `handoff_check_in` `arrived_dropoff` and the sync preflight holds the check-in while the photo waits (the check-in carries the never-sent `_deliveryId`), web attaches the uploaded key then sends the check-in; every `CHECKIN_*` refusal takes the mark back with its drop-off text (`CHECKIN_PHOTO_REQUIRED` also forgets the phone's given-up photo path; a `CHECKIN_TOO_FAR` attempt kept for review says so); the parties read the check-in, T8, the buyer's T9 (receipt plus 48 hours) and every outcome's label on the order and delivery detail; the pulls, the web repositories and the conflict echo read the new fields. See "The drop-off check-in", Clients. |
 | 1.59.0 | 2026-11-13 | The drop-off check-in (ESC-36, `delivery-verification-api.md` 2.10.0 P.4), server only, behind the new flag `dropoffClassification` (off everywhere): `handoff_check_in` takes `arrived_dropoff` from the order's trucker (GPS within 5 km of the drop-off points stamped at pickup, after the arrival photo `delivery_photo` `{deliveryId}#arrival`), up to T8; new permanent refusal `CHECKIN_PHOTO_REQUIRED`; a `CHECKIN_TOO_FAR` attempt with its photo is kept on the server as evidence (message suffix); each kind exists only with its own flag. Order rows gain `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt`, `disputeReason` and `checkIns.arrived_dropoff`; deliveries gain `arrivalPhotoRef`, `arrivalPhotoUrl` (detail only) and `autoConfirmedAt`. Clients: FUP-336. 1.58.1 is FUP-285. |
 | 1.58.1 | 2026-11-13 | Arrival check-ins, the clients (FUP-285, no wire change): mobile and web send `handoff_check_in` from the order detail with exactly the server's fields; every `CHECKIN_*` refusal and the unsupported-entity answer to `handoff_check_in` (flag off) is a permanent refusal that takes the local mark back, reads the order again and is explained per code; the buyer's deadline cancel is hidden on a stamped order. See "Arrival check-ins", Clients. |
@@ -1697,4 +1717,4 @@ The buyer's confirm:
 ---
 
 **Last Updated**: 2026-11-13
-**Version**: 1.59.1
+**Version**: 1.60.0

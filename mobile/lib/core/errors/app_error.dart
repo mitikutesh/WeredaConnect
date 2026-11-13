@@ -220,7 +220,8 @@ enum AppErrorCode {
   checkInPhotoRequired,
 
   /// `CHECKIN_NOT_OPEN` of a drop-off check-in (not stamped, judged, or the
-  /// delivery no longer on the road), or the local guard.
+  /// delivery no longer on the road), the `CHECKIN_VALIDATION` of a server
+  /// that takes no drop-off check-ins now (FUP-373), or the local guard.
   dropoffCheckInNotOpen,
 
   /// `CHECKIN_NOT_PARTY` of a drop-off check-in: only the order's trucker.
@@ -674,9 +675,11 @@ AppErrorCode checkInErrorCode(String message, {String? kind}) {
 
 /// [checkInErrorCode] of a drop-off check-in. `CHECKIN_TOO_FAR` says whether
 /// the server kept the attempt for review; either way the trucker may check
-/// in again closer.
+/// in again closer. A server whose drop-off flag was rolled back (the kind not
+/// taken, FUP-373) reads as not open, not as a fault of this build.
 AppErrorCode _dropoffCheckInErrorCode(String message) {
   if (isCheckInUnsupportedMessage(message) ||
+      isDropoffKindNotTakenMessage(message) ||
       message.startsWith(CheckInRefusal.notOpen)) {
     return AppErrorCode.dropoffCheckInNotOpen;
   }

@@ -5968,7 +5968,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get dropoffJudgementOutOfRange =>
-      'The trucker tried to check in but was more than 5 km from the drop-off. Support is looking into it and the money stays held.';
+      'The trucker\'s check-in was more than 5 km from the order\'s drop-off point. Support is looking into it and the money stays held.';
 
   @override
   String get dropoffJudgementQueued =>
@@ -5991,11 +5991,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get errorDropoffCheckInTooFar =>
-      'You are more than 5 km from the drop-off. Your check-in was not saved, so check in again when you are closer.';
+      'Your check-in was more than 5 km from the order\'s drop-off point, so it was not saved. Check in again nearer that point.';
 
   @override
   String get errorDropoffCheckInTooFarKept =>
-      'You are more than 5 km from the drop-off. Your check-in was not saved, but this attempt was kept for review. Check in again when you are closer.';
+      'Your check-in was more than 5 km from the order\'s drop-off point, so it was not saved, but this attempt was kept for review. Check in again nearer that point.';
 
   @override
   String get errorDropoffCheckInTooLate =>
