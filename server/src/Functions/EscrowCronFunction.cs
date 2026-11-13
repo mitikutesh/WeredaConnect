@@ -252,8 +252,9 @@ public class EscrowCronFunction
 
     /// <summary>
     /// FUP-137: the escrows whose credit this cron still owes (<see cref="CleanDeliveryCreditJournal"/>). The
-    /// auto-release notes an escrow before its release and clears it once the credit is settled; the next run
-    /// reads what a dead run left behind (<see cref="RecoverCleanDeliveryCreditsAsync"/>). The Lambda wires it
+    /// auto-release notes an escrow before its release and clears it once the credit is settled, or at once when
+    /// the payout gate blocked the release or (a 1.x escrow) it waits in the manual payout queue (FUP-155); the next
+    /// run reads what a dead run left behind (<see cref="RecoverCleanDeliveryCreditsAsync"/>). The Lambda wires it
     /// with the credits; without one the credit is written as before and a crash loses it.
     /// </summary>
     internal CleanDeliveryCreditJournal? CleanDeliveryJournal { get; init; }
@@ -882,8 +883,8 @@ public class EscrowCronFunction
                 {
                     releaseCount++;
                     // FRD-10: a duplicate answer means another run released it, and that run credits. FUP-137:
-                    // the journal entry is cleared only by a settled credit. After a duplicate, a failed
-                    // credit write or any other answer it stays, and the next run decides from the escrow row.
+                    // after a release the journal entry is cleared only by a settled credit. After a duplicate,
+                    // a failed credit write or an answer below that keeps it, the next run decides from the row.
                     if (!result.IsDuplicate && await TryCreditCleanDeliveryAsync(escrow, result.Value!, context))
                     {
                         await ClearCleanDeliveryPendingAsync(escrowId, context);
@@ -892,10 +893,21 @@ public class EscrowCronFunction
                 else if (IsManualPayoutWaiting(result.Error))
                 {
                     NoteManualPayoutWaiting(context, escrowId, "auto-release");
+                    // FUP-155: a 1.x escrow in the manual payout queue is credited by the admin's close, never
+                    // by this cron, so its entry goes now. A ledger escrow keeps it: a row the ledger sweep
+                    // finishes is credited only by the next run's recovery (and the release sweep skips it).
+                    if (!EscrowService.IsLedgerEscrow(escrow))
+                    {
+                        await ClearCleanDeliveryPendingAsync(escrowId, context);
+                    }
                 }
                 else if (IsPayoutBlocked(result.Error))
                 {
                     NoteReleaseBlocked(context, escrowId, "auto-release");
+                    // FUP-155: the payout gate held the farmer's payout back, so the escrow was not released and no
+                    // credit is owed (a ledger escrow may have paid its transport leg, F1, which earns none). The
+                    // entry goes now: this sweep adds it again every hour the gate still blocks.
+                    await ClearCleanDeliveryPendingAsync(escrowId, context);
                 }
                 else
                 {

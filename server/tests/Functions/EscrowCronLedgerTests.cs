@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
@@ -304,5 +305,93 @@ public class EscrowCronLedgerTests
 
         response.StatusCode.Should().Be(400);
         response.Body.Should().Contain("ledger_sweep");
+    }
+
+    // FUP-155: the clean-delivery credit journal (FUP-137) and a ledger escrow. A 1.x escrow queued for a manual
+    // payout leaves the journal at once (the admin's close credits it). A ledger escrow answered the same way
+    // keeps its entry: a row the ledger sweep finishes is credited only by the recovery of the next hourly run.
+
+    [Fact]
+    public async Task AnAutoReleaseTheGatewayDidNotConfirm_KeepsItsJournalEntry_AndTheNextRunCreditsWhatTheLedgerSweepPaid()
+    {
+        Seed("escrowed", e =>
+        {
+            e["deliveryId"] = "del-5";
+            e["deliveryConfirmedAt"] = DateTime.UtcNow.AddHours(-49).ToString("o");
+            e["disputeWindowEndsAt"] = DateTime.UtcNow.AddHours(-1).ToString("o");
+        });
+        _ledger.EscrowRepo.StubReleaseSweep(_ledger.Copy(EscrowId)!);
+        var deliveries = Substitute.For<IDeliveryRepository>();
+        deliveries.GetByIdAsync("del-5", true)
+            .Returns(new Dictionary<string, object> { ["deliveryId"] = "del-5", ["status"] = "delivered" });
+
+        // One table double for both: the journal item (escrow idempotency table) and the credit rows (fraud signals).
+        var db = Substitute.For<IAmazonDynamoDB>();
+        var journal = new SortedSet<string>(StringComparer.Ordinal);
+        var credits = new List<PutItemRequest>();
+        db.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>()).Returns(ci =>
+        {
+            var request = ci.Arg<UpdateItemRequest>();
+            var id = request.ExpressionAttributeValues[":ids"].SS.Single();
+            _ = request.UpdateExpression.StartsWith("ADD ", StringComparison.Ordinal) ? journal.Add(id) : journal.Remove(id);
+            return Task.FromResult(new UpdateItemResponse());
+        });
+        db.GetItemAsync(Arg.Any<GetItemRequest>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            var item = new Dictionary<string, AttributeValue>();
+            if (journal.Count > 0)
+            {
+                item[CleanDeliveryCreditJournal.PendingAttribute] = new AttributeValue { SS = journal.ToList() };
+            }
+
+            return Task.FromResult(new GetItemResponse { Item = item });
+        });
+        db.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new(), LastEvaluatedKey = new() });
+        db.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>()).Returns(ci =>
+        {
+            credits.Add(ci.Arg<PutItemRequest>());
+            return Task.FromResult(new PutItemResponse());
+        });
+        var cron = new EscrowCronFunction(_service, _ledger.EscrowRepo, _auditRepo, _gateway, deliveries)
+        {
+            CleanDeliveryCredits = new CleanDeliveryCreditService(db, "test-fraud-signals"),
+            CleanDeliveryJournal = new CleanDeliveryCreditJournal(db, "test-escrow-idempotency")
+        };
+
+        // Neither payout is answered: both rows are sent, so the money may have moved (202 ESCROW_034).
+        _gateway.Script.Enqueue((false, TelebirrGatewayErrors.Timeout, null));
+        _gateway.Script.Enqueue((false, TelebirrGatewayErrors.Timeout, null));
+        var first = new TestLambdaContext { RemainingTime = TimeSpan.FromMinutes(4), Logger = new TestLambdaLogger() };
+        var (summary, _) = Ran(await cron.FunctionHandler(Cron("auto_release_and_refund"), first), first);
+
+        summary["manualPayoutsWaiting"].Should().Be("1");
+        Status.Should().Be("escrowed");
+        journal.Should().Equal(EscrowId);
+        credits.Should().BeEmpty();
+
+        // The ledger sweep asks the gateway after the recheck time: both payouts were made.
+        _now += TimeSpan.FromMinutes(16);
+        _gateway.StatusAnswer = r => new TransactionStatusResponse
+        {
+            TransactionRef = r,
+            Status = "completed",
+            TelebirrRef = $"TB-LATE-{_gateway.StatusChecks.Count}",
+            Amount = 0m,
+            UpdatedAt = ""
+        };
+        await _function.FunctionHandler(Cron("ledger_sweep"), _context);
+        Status.Should().Be("completed");
+
+        // The next hourly run: the escrow has left the release sweep, and its recovery credits each party once.
+        _ledger.EscrowRepo.StubReleaseSweep();
+        var second = new TestLambdaContext { RemainingTime = TimeSpan.FromMinutes(4), Logger = new TestLambdaLogger() };
+        var (_, logs) = Ran(await cron.FunctionHandler(Cron("auto_release_and_refund"), second), second);
+
+        var releasedAt = (string)_ledger.Escrow(EscrowId)["releasedAt"];
+        credits.Select(p => p.Item["userId"].S).Should().BeEquivalentTo("buyer-5", "farmer-5", "trucker-5");
+        credits.Should().OnlyContain(p => p.Item["signalKey"].S == $"{releasedAt}#CLEAN_DELIVERY#{EscrowId}");
+        logs.Should().Contain("CLEAN_DELIVERY_CREDIT_RECOVERY pending=1 read=1 creditsWritten=3 cleared=1 kept=0");
+        journal.Should().BeEmpty();
     }
 }

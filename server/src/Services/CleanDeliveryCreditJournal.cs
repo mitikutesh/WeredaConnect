@@ -8,8 +8,10 @@ namespace WeredaConnect.Server.Services;
 /// FUP-137: the escrows whose clean-delivery credit escrow-cron still owes, so a run that dies between an
 /// auto-release and its credit (FRD-10) does not lose the credit. One item in the escrow idempotency table
 /// (key <see cref="Key"/>, like the cron's other markers there) holding a string set of escrow ids: the id
-/// is added before the release is called and removed once the credit is settled. The next hourly run reads
-/// the item (one <c>GetItem</c>, no Query or Scan) and decides each id left behind from its escrow row.
+/// is added before the release is called and removed once the credit is settled, or once the release's answer
+/// shows the cron owes none (FUP-155: blocked by the payout gate, or a 1.x escrow queued for a manual payout,
+/// whose close credits). The next hourly run reads the item (one <c>GetItem</c>, no Query or Scan) and
+/// decides each id left behind from its escrow row.
 /// The journal only says which rows to read again: the credit key (<c>releasedAt</c> and the escrow id)
 /// keeps every replay to one row per party, and the escrow row decides whether a credit is due at all.
 /// </summary>
