@@ -323,6 +323,21 @@
     "changed": "This leg changed since the page was loaded. Reload and check its ID before you try again.",
     "notCorrectable": "This leg cannot be corrected here: it is not recorded yet, or the gateway paid it."
   },
+  "cancelDelivery": {
+    "action": "Cancel delivery",
+    "title": "Cancel this delivery after pickup",
+    "hint": "Use this when the goods were picked up and will not reach the buyer. Only the delivery is cancelled: no money moves and the order keeps its status. The order cannot get a new delivery afterwards.",
+    "moneyFirst": "The payment is still held ({status}). Decide the money first: a dispute verdict (which cancels the delivery itself) or the refund. Then this delivery can be cancelled here.",
+    "reason": "Why the delivery is cancelled",
+    "reasonHint": "10 to 500 characters. It is kept in the audit trail.",
+    "review": "Review",
+    "confirmQuestion": "Cancel this delivery? This cannot be undone.",
+    "confirm": "Yes, cancel the delivery",
+    "back": "Back",
+    "cancel": "Keep it",
+    "done": "Delivery cancelled.",
+    "already": "This delivery was already cancelled."
+  },
   "listingReports": {
     "title": "Listing Reports",
     "subtitle": "Buyers report crop listings and trips that hide a phone number (a voice note or a photo cannot be checked), mislead or look like a scam. Decide the reports of each listing together. To act on the owner, open their page and suspend them, then mark the reports actioned. The owner never sees who reported.",
@@ -750,7 +765,8 @@
     "action_reputation_restricted": "Account restricted (admin)",
     "action_reputation_lifted": "Restriction lifted (admin)",
     "action_manual_payout_ref_corrected": "Payout reference corrected (admin)",
-    "action_admin_manual_payout_ref_corrected": "Payout reference corrected (admin)"
+    "action_admin_manual_payout_ref_corrected": "Payout reference corrected (admin)",
+    "action_admin_delivery_cancelled": "Delivery cancelled (admin)"
   },
   "analytics": {
     "title": "Transaction Volume",
@@ -881,7 +897,11 @@
     "REPUTATION_UNAVAILABLE": "Reputation penalties are switched off in this environment, so nothing can be changed.",
     "REPUTATION_SERVER_ERROR": "The server could not finish this. Try again in a moment.",
     "REPUTATION_APPEAL_CHANGED": "The appeal changed after this page was loaded. It has been reloaded: read the appeal, then decide again.",
-    "ESCROW_048": "Give a reason of 10 to 500 characters for the correction."
+    "ESCROW_048": "Give a reason of 10 to 500 characters for the correction.",
+    "DELIVERY_ADMIN_CANCEL_INVALID": "Give a reason of 10 to 500 characters for the cancel.",
+    "DELIVERY_ADMIN_CANCEL_NOT_ALLOWED": "This delivery cannot be cancelled here: it is not on the road, or its order says the goods arrived. Reload the page.",
+    "DELIVERY_ADMIN_CANCEL_MONEY_HELD": "The payment is still held. Decide the money first (a dispute verdict or the refund), then cancel.",
+    "DELIVERY_ADMIN_CANCEL_CHANGED": "The delivery, its order or the payment changed since the page was loaded. Reload and check before you try again."
   },
   "language": {
     "english": "English",

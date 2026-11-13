@@ -377,6 +377,32 @@ export function useCorrectPayoutReference() {
   });
 }
 
+// FUP-19: cancel a delivery that was picked up and never delivered, once the money behind it is decided. Only the
+// delivery changes (no money, no order status); the transaction page and the audit log reload either way, so a
+// refusal (the delivery, the order or the payment changed) shows them as they are now.
+export function useCancelDelivery() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      deliveryId,
+      reason,
+      expectedVersion,
+    }: {
+      deliveryId: string;
+      reason: string;
+      expectedVersion: number;
+    }) =>
+      api.post<{ alreadyCancelled?: boolean }>(`/admin/deliveries/${encodeURIComponent(deliveryId)}/cancel`, {
+        reason,
+        expectedVersion,
+      }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+  });
+}
+
 // Unapplied payments (FUP-02): captured Telebirr payments the webhook did not apply.
 // The server pages through the escrow audit, so a page can be empty while more remain.
 export function useUnappliedPayments() {

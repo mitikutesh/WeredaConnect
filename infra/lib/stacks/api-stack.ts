@@ -3346,6 +3346,11 @@ export class ApiStack extends cdk.Stack {
       // lift (admin group checked in the Lambda; 503 while reputationPenalties is off).
       "/admin/users/{id}/reputation/events/{eventId}/decision",
       "/admin/users/{id}/reputation",
+      // FUP-19: cancel a delivery after pickup ({action} = cancel; any other action is 404 ADMIN_002, admin
+      // group checked in the Lambda). One transaction on the existing grants: UpdateItem on deliveries, PutItem
+      // on transaction-audit, and ConditionChecks on orders and escrows (ConditionCheckItem is in their read
+      // grants).
+      "/admin/deliveries/{id}/{action}",
     ];
 
     for (const path of adminPostPaths) {

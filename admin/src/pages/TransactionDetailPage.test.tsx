@@ -29,6 +29,7 @@ vi.mock("@/hooks/useQuery", () => ({
     mocks.ledgerCalls.push({ escrowId, enabled });
     return mocks.ledger;
   },
+  useCancelDelivery: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/hooks/useLocale", async () => {
@@ -249,6 +250,47 @@ describe("TransactionDetailPage handoff photos (FRD-12)", () => {
     renderPage();
 
     expect(screen.getByRole("img", { name: "Suuraa geejjibaa" })).toBeTruthy();
+  });
+});
+
+/* FUP-19: the delivery card offers the cancel of a delivery picked up and never delivered once its money is decided. */
+describe("TransactionDetailPage delivery cancel (FUP-19)", () => {
+  beforeEach(() => {
+    mocks.locale = "en";
+  });
+
+  function detail(deliveryStatus: string, escrowStatus: string | null) {
+    return {
+      order: { orderId: "ord-1", status: "in_transit", buyerId: "buyer-1", farmerId: "farmer-1" },
+      escrow: escrowStatus ? { escrowId: "escrow-order-ord-1", status: escrowStatus, amount: 1000 } : null,
+      delivery: { deliveryId: "del-1", status: deliveryStatus, version: 3 },
+      timeline: [],
+    };
+  }
+
+  it("offers the cancel on a delivery on the road whose payment was refunded", () => {
+    mocks.detail.data = detail("inTransit", "refunded");
+
+    renderPage();
+
+    expect(screen.getByRole("button", { name: "Cancel delivery" })).toBeTruthy();
+  });
+
+  it("says to decide the money first while the payment is held", () => {
+    mocks.detail.data = detail("pickedUp", "escrowed");
+
+    renderPage();
+
+    expect(screen.queryByRole("button", { name: "Cancel delivery" })).toBeNull();
+    expect(screen.getByText(/The payment is still held/)).toBeTruthy();
+  });
+
+  it("offers nothing once the delivery is cancelled", () => {
+    mocks.detail.data = detail("cancelled", "refunded");
+
+    renderPage();
+
+    expect(screen.queryByRole("button", { name: "Cancel delivery" })).toBeNull();
   });
 });
 

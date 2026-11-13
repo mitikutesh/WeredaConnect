@@ -114,6 +114,9 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(CorrectPayoutReferenceResponse))]
 [JsonSerializable(typeof(AdminManualLegDto))]
 [JsonSerializable(typeof(List<AdminManualLegDto>))]
+// Admin delivery cancel after pickup (FUP-19)
+[JsonSerializable(typeof(AdminDeliveryCancelRequest))]
+[JsonSerializable(typeof(AdminDeliveryCancelResponse))]
 // Manual refund of an unapplied payment (FUP-02, admin)
 [JsonSerializable(typeof(UnappliedPaymentDto))]
 [JsonSerializable(typeof(List<UnappliedPaymentDto>))]
