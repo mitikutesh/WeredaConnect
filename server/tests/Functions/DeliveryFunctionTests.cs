@@ -1329,6 +1329,37 @@ public class DeliveryFunctionTests
         }
     }
 
+    // --- ESC-36: the trucker's arrival photo, only with dropoffClassification on ---
+
+    [Theory]
+    [InlineData("trucker-789", "inTransit", true, 200)]
+    [InlineData("trucker-789", "pickedUp", true, 200)]
+    [InlineData("buyer-456", "inTransit", true, 403)]
+    [InlineData("farmer-123", "inTransit", true, 403)]
+    [InlineData("trucker-789", "pending", true, 409)]
+    [InlineData("trucker-789", "delivered", true, 409)]
+    [InlineData("trucker-789", "inTransit", false, 400)]
+    public async Task HandleUploadPhoto_TheArrivalPhoto_IsTheTruckersOnTheRoad_BehindTheFlag(
+        string userId, string status, bool flag, int expected)
+    {
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(CreateDeliveryItem("del-001", status));
+        SetupPresign();
+        var function = new DeliveryFunction(_mockDeliveryRepo, _mockS3, TestBucket) { DropoffClassificationEnabled = flag };
+
+        var response = await function.FunctionHandler(
+            MakePhotoUploadRequest(userId, "del-001", "{\"type\":\"arrival\",\"sizeBytes\":1000}"), _context);
+
+        Assert.Equal(expected, response.StatusCode);
+        if (expected == 200)
+        {
+            Assert.Matches(@"uploads/photos/del-001/arrival-\d+\.webp", response.Body);
+        }
+        else
+        {
+            _mockS3.DidNotReceive().GetPreSignedURL(Arg.Any<GetPreSignedUrlRequest>());
+        }
+    }
+
     [Fact]
     public async Task HandleUploadPhoto_SelfPickup_HasNoPickupPhoto()
     {

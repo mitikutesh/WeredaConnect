@@ -170,17 +170,24 @@ public partial class OrderCronFunction
         var escrowsTable = Environment.GetEnvironmentVariable("ESCROWS_TABLE");
         var escrowAuditTable = Environment.GetEnvironmentVariable("ESCROW_AUDIT_TABLE");
         var usersTable = Environment.GetEnvironmentVariable("USERS_TABLE");
-        _escrowService = !string.IsNullOrEmpty(escrowsTable) && !string.IsNullOrEmpty(escrowAuditTable)
+        var escrowRepo = !string.IsNullOrEmpty(escrowsTable) ? new EscrowRepository(dynamoDb, escrowsTable) : null;
+        var userRepo = !string.IsNullOrEmpty(usersTable) ? new UserRepository(dynamoDb, usersTable) : null;
+        _escrowService = escrowRepo != null && !string.IsNullOrEmpty(escrowAuditTable)
             ? new EscrowService(
-                new EscrowRepository(dynamoDb, escrowsTable),
+                escrowRepo,
                 new EscrowAuditRepository(dynamoDb, escrowAuditTable),
                 idempotencyRepo: null,
                 telebirrGateway: null,
-                userRepo: !string.IsNullOrEmpty(usersTable) ? new UserRepository(dynamoDb, usersTable) : null,
+                userRepo: userRepo,
                 orderRepo: _orderRepo,
                 deliveryRepo: _deliveryRepo,
                 transactionAuditRepo: _transactionAuditRepo)
             : null;
+
+        // ESC-36: T9 reads the trucker's reputation and stamps the escrow of a silent buyer's delivery as a
+        // buyer's confirm does, with FRD-13's payout delay (the risk score from the fraud signals table).
+        EscrowRepo = escrowRepo;
+        UserRepo = userRepo;
 
         // FRD-15: the relationship scan reads users rows and writes signals; the fraud service needs no
         // crops or rate-limit table here (the cron runs no listing or velocity check).
@@ -192,6 +199,14 @@ public partial class OrderCronFunction
                 new UserRepository(dynamoDb, usersTable),
                 new FraudDetectionService(dynamoDb, cropsTable ?? "", fraudSignalsTable, new RateLimitRepository(dynamoDb, "")));
         }
+
+        // ESC-36: the payout delay of T9's escrow stamp, as the sync and escrow-cron Lambdas build it. Without
+        // the fraud signals table every payee is unscored (the longest wait), never trusted.
+        PayoutDelay = new PayoutDelayPolicy(
+            string.IsNullOrEmpty(fraudSignalsTable)
+                ? null
+                : new FraudDetectionService(dynamoDb, cropsTable ?? "", fraudSignalsTable, new RateLimitRepository(dynamoDb, "")),
+            userRepo, escrowRepo);
 
         // ESC-16: commitment_deadlines repairs the order deadlines itself once a day per container.
         AutoRepair = DeadlineRepairMarker.Process;
@@ -631,6 +646,9 @@ public partial class OrderCronFunction
         /// <summary>ESC-34: pickups judged by their check-ins (any outcome).</summary>
         public int PickupJudged;
 
+        /// <summary>ESC-36: drop-offs judged at T8 or T9 (any outcome).</summary>
+        public int DropoffJudged;
+
         public int Conflicts;
         public int TripReads;
         public int DepartedTripsClosed;
@@ -668,6 +686,7 @@ public partial class OrderCronFunction
             { "buyerReminders", BuyerReminders.ToString() },
             { "pickupOverdue", PickupOverdue.ToString() },
             { "pickupJudged", PickupJudged.ToString() },
+            { "dropoffJudged", DropoffJudged.ToString() },
             { "conflicts", Conflicts.ToString() },
             { "tripReads", TripReads.ToString() },
             { "departedTripsClosed", DepartedTripsClosed.ToString() },

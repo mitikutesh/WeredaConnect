@@ -276,6 +276,36 @@ public class AdminPickupReopenRouteTests
         TxAudits[1].Item["metadata"].S.Should().Be("handoff=admin");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ESC36_HandoffConfirmed_StampsTheDropoffJudgement_OnlyWithTheFlagOn(bool flag)
+    {
+        var function = new AdminFunction(_db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable)
+        {
+            Clock = () => Now,
+            DropoffJudgementOn = flag
+        };
+
+        var response = await function.FunctionHandler(Post(Handoff()), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var order = _transactions.Should().ContainSingle().Subject.TransactItems[0].Update;
+        var values = order.ExpressionAttributeValues;
+        if (!flag)
+        {
+            order.ExpressionAttributeNames.Values.Should().NotContain(DropoffJudgement.Field);
+            values.Should().NotContainKey(":ndAt");
+            return;
+        }
+
+        values[":" + Name(order, DropoffJudgement.Field)[1..]].S.Should().Be(DropoffJudgement.Outcome.Pending);
+        values[":" + Name(order, DropoffJudgement.DeadlineField)[1..]].S.Should().Be(OrderCommitment.Iso(Now.AddHours(72)));
+        // T8 is the sweep's deadline now, instead of no deadline at pickup_confirmed.
+        values[":ndKind"].S.Should().Be(OrderDeadlines.Kind.DeliveryOverdue);
+        values[":ndShard"].S.Should().Be(OrderDeadlines.Shard);
+    }
+
     [Fact]
     public async Task TheSameRequestAgain_AnswersAlreadyApplied_AndWritesNothing()
     {

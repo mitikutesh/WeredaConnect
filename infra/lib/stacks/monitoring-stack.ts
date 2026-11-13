@@ -1369,6 +1369,48 @@ export class MonitoringStack extends cdk.Stack {
     orderDeadlineRefundStalledAlarm.addAlarmAction(snsAction);
     orderDeadlineRefundStalledAlarm.addOkAction(snsAction);
 
+    // ESC-36 (spec 4.5 T8: "alarm"): a delivery still on the road 72 hours after its pickup with no drop-off
+    // check-in from the trucker. order-cron logs ORDER_DELIVERY_OVERDUE orderId=.. deliveryId=..
+    // outcome=disputed|queued reason=.. once per order it judges: disputed (the escrow frozen, the order and delivery
+    // disputed as delivery_overdue, the trucker restricted pending review when reputationPenalties is on; or as
+    // dropoff_out_of_range when the trucker came but was out of range of every drop-off point, no restriction) or
+    // queued (the money could not be frozen, so the order waits in the admin queue). DROPOFF_QUEUE_NOT_WRITTEN orderId=.. reason=.. queued=..: a drop-off judgement
+    // that goes to the admin found the order already queued for another reason (the hold cap), so its own reason
+    // is not on the entry. Each line is an order an admin must look at, so any line alarms. Behind
+    // dropoffClassification (off everywhere): no line today. No default: billed only in the hours a line appears.
+    new logs.MetricFilter(this, 'OrderCronDeliveryOverdueFilter', {
+      logGroup: orderCronLogGroup,
+      filterPattern: logs.FilterPattern.anyTerm('ORDER_DELIVERY_OVERDUE', 'DROPOFF_QUEUE_NOT_WRITTEN'),
+      metricNamespace,
+      metricName: 'DeliveryOverdue',
+      metricValue: '1',
+    });
+    const deliveryOverdueAlarm = new cloudwatch.Alarm(this, 'DeliveryOverdue', {
+      alarmName: `${prefix}-delivery-overdue`,
+      alarmDescription:
+        'A delivery was not made by its deadline (ESC-36, T8; runbook: .ai/deployment.md). ORDER_DELIVERY_OVERDUE ' +
+        'orderId=.. deliveryId=.. outcome=disputed: the trucker sent no drop-off check-in within 72 hours of the ' +
+        'pickup; the escrow is frozen and the order is disputed as delivery_overdue. Decide the dispute in Disputes ' +
+        'and the trucker\'s DELIVERY_OVERDUE review in Appeals; reason=dropoff_out_of_range: the trucker came but more ' +
+        'than 5 km from every drop-off point (see the timeline and the arrival photo), no review. outcome=queued: the ' +
+        'money could not be frozen (no escrow, a refund armed, Manual Payouts or a settlement in flight), so nothing ' +
+        'moved and the order waits in Stuck Orders. DROPOFF_QUEUE_NOT_WRITTEN: such an ' +
+        'order was already queued for another reason; decide its drop-off too. Never edit the rows by hand.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'DeliveryOverdue',
+        statistic: 'Sum',
+        period: cdk.Duration.hours(1),
+        label: 'Delivery Overdue',
+      }),
+      threshold: 0,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    deliveryOverdueAlarm.addAlarmAction(snsAction);
+    deliveryOverdueAlarm.addOkAction(snsAction);
+
     const adminQueueOverdueAlarm = moneyLogAlarm(
       'AdminQueueOverdue',
       'admin-queue-overdue',
@@ -2544,6 +2586,8 @@ export class MonitoringStack extends cdk.Stack {
           riskSettlementSkippedAlarm,
           // FUP-231 order cancels and refunds the crons keep retrying
           orderDeadlineRefundStalledAlarm,
+          // ESC-36 a delivery not made by its deadline (T8)
+          deliveryOverdueAlarm,
           accountDeletionStuckAlarm,
           // ESC-21 order notification stream
           notifyDlqAlarm,

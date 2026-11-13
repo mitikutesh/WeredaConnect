@@ -1,7 +1,7 @@
 # Reputation API Contract
 
 ## Version
-1.8.0
+1.8.1
 
 ## Status
 PARTLY BUILT (1.8.0). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
@@ -987,8 +987,8 @@ proposed change). All three default to off.
 | `reputationPublicTags` / `REPUTATION_PUBLIC_TAGS_ENABLED` | buyers get tier, effective rating and reliability (sections 3, 7; `rating-api.md` 1.2.0) | those fields are left out of buyer-facing answers |
 
 `reputationPenalties` is turned on only where `commitmentsEnabled` is on: the events read the
-commitment fields. The P3 codes (`NO_SHOW`, `DELIVERY_OVERDUE`) also need `pickupClassification`
-(ESC-34 to ESC-36).
+commitment fields. The P3 codes also need their producer's flag: `NO_SHOW` needs `pickupClassification`
+(ESC-34) and `DELIVERY_OVERDUE` needs `dropoffClassification` (ESC-36, `delivery-verification-api.md` 2.10.0).
 
 Policy numbers (points, caps, thresholds, windows) live in one SSM String parameter
 `/{prefix}/reputation/policy` (JSON), read once per Lambda container; a missing or out-of-range
@@ -1107,6 +1107,7 @@ platform pair).
 
 | Version | Date | Change |
 |---|---|---|
+| 1.8.1 | 2026-11-13 | Doc fix (ESC-36): `DELIVERY_OVERDUE` comes from T8 behind `dropoffClassification`, not `pickupClassification` (section 11). No wire change |
 | 1.8.0 | 2026-11-12 | FUP-162 (server, no wire change): the rows without `ratingsAggregatedAt` that section 2 "As built" describes get stamped: the order-cron `reputation_backfill_ratings` also Scans the users table once for the farmers and truckers without a `woreda` (resumable with `scanFrom`), and a rating for an unstamped ratee stamps their aggregate after the create (`rating-api.md` 1.5.0). The reads of sections 2 and 3 stay read-only. |
 | 1.7.0 | 2026-11-12 | FUP-160 BUILT (server, no endpoint or field change): the one-off stamp of the owner fields of section 7 on rows created before `reputationPenalties` went on, the order-cron action `reputation_stamp_owner_copies` (owners from the active partitions of the crop and trip status indexes, so owners without a `woreda` too; the reputation as read; behind `reputationPenalties`; a `startAt` cursor; a rerun writes nothing). Run it before `reputationPublicTags` goes on (architecture doc 12.1 step 6, 12.3). |
 | 1.6.0 | 2026-11-12 | ESC-31 BUILT (apps, no endpoint or field change): the owner fields on the cached crop and trip rows and on the cards (label for the public tier `low`, effective rating with its count, no per-card `GET /ratings` when the copy is present), the confirm before ordering from a party with the label, `until=` in the restricted error, My reputation (own standing, rating breakdown, events in pages of 20, appeal with optional photo and a kept draft), the Profile rating, the inbox texts and tap for `penalty_recorded` and `tier_changed`. "As built" notes under sections 7, 8.1, 10 and 13 (the read happens on Profile or My reputation, not at start-up; a draft is not sent by itself; a tapped push still opens the app). |

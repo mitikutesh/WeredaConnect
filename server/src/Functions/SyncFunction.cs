@@ -374,6 +374,14 @@ public partial class SyncFunction
         PickupJudgement.PickupLatitudeField, PickupJudgement.PickupLongitudeField,
         // FUP-287: the stamp of an admin's re-open of the judgement (written only by the admin Lambda).
         PickupReopen.Field,
+        // ESC-36: the drop-off judgement, its deadline, the drop-off check-in (written only by
+        // handoff_check_in) and the drop-off points stamped at pickup. The order's disputeReason (written
+        // only by the order cron's T8 and T9; rule R12 reads it) is not in AllowedOrderFields, so a client
+        // that sends it is refused as before.
+        DropoffJudgement.Field, DropoffJudgement.JudgedAtField, DropoffJudgement.DeadlineField, DropoffJudgement.CheckInField,
+        DropoffJudgement.OrderLatitudeField, DropoffJudgement.OrderLongitudeField,
+        DropoffJudgement.TripLatitudeField, DropoffJudgement.TripLongitudeField,
+        DropoffJudgement.AttemptField, DropoffJudgement.TripReadField,
         // ESC-16: the order's next deadline (DeadlineIndex); every order write derives it itself.
         OrderDeadlines.AtField, OrderDeadlines.KindField, OrderDeadlines.ShardField
     };
@@ -576,6 +584,7 @@ public partial class SyncFunction
         // FRD-12: the S3 version ids the photo reads sign are server-only (delivery-verification-api 1.25.0).
         item.Remove("pickupPhotoVersionId");
         item.Remove("dropoffPhotoVersionId");
+        item.Remove("arrivalPhotoVersionId");
         return item;
     }
 
@@ -1100,8 +1109,9 @@ public partial class SyncFunction
                 LocationPingRules.EntityType => await ProcessLocationPingAsync(operation, authenticatedUserId, context),
                 DeliveryPhotoKeys.EntityType => await ProcessDeliveryPhotoAsync(operation, authenticatedUserId, context),
                 ListingReportRules.EntityType => await ProcessListingReportAsync(operation, authenticatedUserId, authenticatedRole, context),
-                // ESC-34: with the flag off the entity does not exist (the unsupported answer below).
-                PickupJudgement.EntityType when PickupJudgementOn => await ProcessHandoffCheckInAsync(operation, authenticatedUserId, context),
+                // ESC-34, ESC-36: with both flags off the entity does not exist (the unsupported answer below).
+                PickupJudgement.EntityType when PickupJudgementOn || DropoffJudgementOn
+                    => await ProcessHandoffCheckInAsync(operation, authenticatedUserId, context),
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
@@ -7712,7 +7722,9 @@ public partial class SyncFunction
     /// a self-pickup handoff or a pickedUp -> delivered confirmation jumps straight to
     /// delivered. Best-effort: a failure is logged and never fails the delivery update.
     /// Audited as a system actor so the monitor shows who really moved the order. A disputed
-    /// delivery's order follows the escrow's dispute mirror instead (ESC-07).
+    /// delivery's order follows the escrow's dispute mirror instead (ESC-07). ESC-36: with
+    /// <c>dropoffClassification</c> on, a trucked order's first move out of <c>accepted</c> also stamps
+    /// the drop-off judgement (<see cref="DropoffStampAsync"/>) in the same write.
     /// </summary>
     private async Task TryAdvanceOrderForDeliveryAsync(
         string orderId, string deliveryStatus, ILambdaContext context)
@@ -7753,8 +7765,16 @@ public partial class SyncFunction
                 int.TryParse(v?.ToString(), out version);
             }
 
-            var result = await _orderRepo.UpdateAsync(
-                orderId, new Dictionary<string, object> { { "status", target } }, version);
+            var fields = new Dictionary<string, object> { { "status", target } };
+            if (DropoffJudgementOn && DropoffJudgement.TakesPickupStamp(order, current, target))
+            {
+                foreach (var (key, value) in await DropoffStampAsync(order, context))
+                {
+                    fields[key] = value;
+                }
+            }
+
+            var result = await _orderRepo.UpdateAsync(orderId, fields, version);
             if (!result.IsSuccess)
             {
                 context.Logger.LogWarning(
