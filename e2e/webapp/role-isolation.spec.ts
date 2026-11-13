@@ -36,13 +36,19 @@ import { uploadCropPhotos } from "../helpers/crop-photos";
  *   fails the run when it cannot.
  * - A login that the API refuses fails the run. Only an API that cannot be
  *   reached at all (DNS, connection refused, timeout) skips these tests, and the
- *   skip names the URL. A crop create that the fraud rules throttle, or a 429,
- *   skips only the checks that need the new rows.
+ *   skip names the URL. A crop create refused by the fraud velocity rule, or a
+ *   429, skips only the checks that need the new rows. A duplicate-listing
+ *   refusal fails: the run picks a crop type with no recent listing, so that
+ *   refusal would be a server bug.
  *
  * Writes per run: one crop listing with 2 photos and one trip, both removed by
  * the cleanup. The listing takes a crop type the farmer has not listed in the
- * last hour and the market's median price for it, so the shared test farmer is
- * not refused or scored by the fraud duplicate and price rules.
+ * last hour and the market's median price for it, so the fraud duplicate and
+ * price rules do not refuse or score the shared test farmer. The velocity rule
+ * counts every create in the UTC hour, deleted ones included, and that count
+ * cannot be read from the API: the guard below sees live listings only, so a
+ * 6th create in one hour (this spec or listing-flow) is still refused and
+ * scored once.
  *
  * UI tests require a running web app built for a non-prod environment.
  */
@@ -124,16 +130,15 @@ const CROP_TYPES = [
 ];
 
 /**
- * FraudDetectionService refuses a farmer's 6th create in a UTC hour, and a
- * create with a live listing of the same type at a price within 5% from the
- * last hour (5 minutes of slack for clock skew). Both refusals score the user.
+ * FraudDetectionService refuses a farmer's 6th create in a UTC hour (deleted
+ * listings count too), and a create with a live listing of the same type at a
+ * price within 5% from the last hour (5 minutes of slack for clock skew). Both
+ * refusals score the user. Only the velocity refusal skips: the crop type is
+ * picked so the duplicate rule cannot match.
  */
 const MAX_LISTINGS_PER_HOUR = 5;
 const DUPLICATE_WINDOW_MS = 65 * 60 * 1000;
-const FRAUD_THROTTLE_CODES = [
-  "FRAUD_VELOCITY_EXCEEDED",
-  "FRAUD_DUPLICATE_LISTING",
-];
+const FRAUD_THROTTLE_CODES = ["FRAUD_VELOCITY_EXCEEDED"];
 
 /**
  * The network error behind a fetch that got no answer (DNS, refused, reset,
@@ -474,7 +479,7 @@ test.describe("Role Isolation - API Level", () => {
     const thisHour = own.filter((c) => Date.parse(c.createdAt ?? "") >= hourStart).length;
     test.skip(
       thisHour >= MAX_LISTINGS_PER_HOUR,
-      `The farmer made ${thisHour} listings this hour: FRAUD_VELOCITY_EXCEEDED would refuse the create and score the shared test user`,
+      `The farmer has ${thisHour} live listings from this hour: FRAUD_VELOCITY_EXCEEDED would refuse the create and score the shared test user`,
     );
     const recent = own.filter(
       (c) => Date.parse(c.createdAt ?? "") >= now - DUPLICATE_WINDOW_MS,
@@ -662,13 +667,13 @@ test.describe("Role Isolation - API Level", () => {
       await statusOf(farmer, `/crops?farmerId=${encodeURIComponent(otherFarmerId)}`),
       `the farmer listing farmer ${otherFarmerId}'s crops`,
     ).toBe(403);
-    if (!other) {
-      test.info().annotations.push({
-        type: "note",
-        description: `No other farmer's listing on ${API_URL}: a leak of other farmers' listings into the farmer's lists, and the by-id read, could not be checked`,
-      });
-      return;
-    }
+    // A skip, not a passing note: the reporter shows it, so the by-id check
+    // cannot quietly stop running as old data expires.
+    test.skip(
+      !other,
+      `No other farmer's listing on ${API_URL}: the by-id read of another farmer's listing could not be checked`,
+    );
+    if (!other) return;
     expect(
       await statusOf(farmer, `/crops/${encodeURIComponent(other.cropId)}`),
       `the farmer reading listing ${other.cropId} of farmer ${other.farmerId}`,
@@ -747,13 +752,12 @@ test.describe("Role Isolation - API Level", () => {
       await statusOf(trucker, `/trips?truckerId=${encodeURIComponent(otherTruckerId)}`),
       `the trucker listing trucker ${otherTruckerId}'s trips`,
     ).toBe(403);
-    if (!other) {
-      test.info().annotations.push({
-        type: "note",
-        description: `No other trucker's trip on ${API_URL}: a leak of other truckers' trips into the trucker's lists, and the by-id read, could not be checked`,
-      });
-      return;
-    }
+    // A skip, not a passing note (see the farmer's test above).
+    test.skip(
+      !other,
+      `No other trucker's trip on ${API_URL}: the by-id read of another trucker's trip could not be checked`,
+    );
+    if (!other) return;
     expect(
       await statusOf(trucker, `/trips/${encodeURIComponent(other.tripId)}`),
       `the trucker reading trip ${other.tripId} of trucker ${other.truckerId}`,
