@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.22.0
+2.24.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -2065,7 +2065,8 @@ An open row with no pending leg left (it cannot close from the admin page) logs
 before the settlement sweeps and on its own, so a failing sweep cannot skip it; a failed
 index query logs `ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed
 code=manual_payout_query:<exception type>`. The run summary carries `manualPayoutsOverdue`
-(lines logged).
+(lines logged). Since 2.24.0 (FUP-06) the first run that reports an entry also logs
+`MANUAL_PAYOUT_NEWLY_OVERDUE` once for each of those legs (§Additions in 2.24.0).
 
 ### Reserved: manual refund of an unapplied payment
 `account-deletion.md` keeps a buyer's `payment_review` blocker until a manual refund is
@@ -2134,6 +2135,7 @@ or `LogText`).
 ```
 ESCROW_SETTLEMENT_FAILED escrowId=<id> action=<action> outcome=<failed|unknown> code=<code>
 MANUAL_PAYOUT_OVERDUE escrowId=<id> ref=<ref> ageHours=<n>
+MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=<id> ref=<ref> ageHours=<n>   (2.24.0, once per leg)
 TRUCKER_PAYOUT_OVERDUE escrowId=<id> reason=<reason> ageHours=<n>   (1.11.0)
 ADMIN_QUEUE_OVERDUE orderId=<id> reason=<code> ageHours=<n>
 DISPUTE_PROPAGATION_FAILED escrowId=<id> orderId=<id> deliveryId=<id> legs=<legs>   (1.26.0)
@@ -2188,7 +2190,9 @@ group; a producer in another Lambda (order-cron, for example) adds its own filte
 Lambda's log group publishing the same metric.
 
 The overdue line is a `LogWarning`: a log level above Warning on escrow-cron silences the
-manual payout alarm.
+manual payout alarm. Since 2.24.0 (FUP-06) the first report of each leg also logs
+`MANUAL_PAYOUT_NEWLY_OVERDUE` (a `LogWarning` too), so a leg that becomes overdue while
+`manual-payouts-overdue` is already in ALARM is still announced (§Additions in 2.24.0).
 
 ### Dispute tokens (1.26.0, FUP-27)
 
@@ -2225,7 +2229,8 @@ every id on both lines goes through `LogId`.
 | `${prefix}-escrow-cron-errors` | AWS/Lambda `Errors` of `${prefix}-escrow-cron` | one error in a 5 minute period, evaluated over 4 periods (a crash and its two async retries stay one episode; clears 20 to 25 minutes after the last error): escrow-cron was killed (5 minute timeout, out of memory) or crashed. A run killed mid-settlement logs no token, so this alarm is the only signal; treat the escrows it was processing as unknown outcomes. The 1.10.0 recovery step parks an escrow whose lock is older than 15 minutes |
 | `${prefix}-escrow-settlement-unknown-outcomes` (1.10.0) | `ESCROW_SETTLEMENT_FAILED` lines with `outcome=unknown` in the escrow and escrow-cron log groups | same as settlement failures; the escrow is or will be in Manual Payouts as `GATEWAY_OUTCOME_UNKNOWN`: never release or refund it by hand |
 | `${prefix}-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `ORDER_ESCROW_LINK_FAILED`, `ORDER_ESCROW_REFUND_SCHEDULE_FAILED`, `DISPUTE_NO_ESCROW`, `ORDER_TRANSPORT_CANCEL_LATE_DELIVERY`, `ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED` and `QR_GATE_UNDECIDED` in the sync log group (replaces `${prefix}-order-escrow-create-failed`) | any line in 15 minutes |
-| `${prefix}-manual-payouts-overdue` | `MANUAL_PAYOUT_OVERDUE` in the escrow-cron log group | any line in 15 minutes, same hold and clear as settlement failures; a leg that stays blocked keeps it in ALARM (1.8.0 known limits). The admin acts on the Manual Payouts page (`/payouts`) |
+| `${prefix}-manual-payouts-overdue` | `MANUAL_PAYOUT_OVERDUE` in the escrow-cron log group | any line in 15 minutes, same hold and clear as settlement failures; a leg that stays blocked keeps it in ALARM (1.8.0 known limits), and a leg that becomes overdue meanwhile notifies through the next row (2.24.0). The admin acts on the Manual Payouts page (`/payouts`) |
+| `${prefix}-manual-payouts-newly-overdue` (2.24.0) | `MANUAL_PAYOUT_NEWLY_OVERDUE` in the escrow-cron log group (once per leg: the hourly 1.x report, the ledger sweep) | any line in 5 minutes, evaluated over 2 periods: fires within minutes and clears by itself 5 to 15 minutes later, so each run with a newly overdue leg notifies, also while the row above is in ALARM. Its OK says nothing about the payout |
 | `${prefix}-trucker-payouts-overdue` (1.11.0) | `TRUCKER_PAYOUT_OVERDUE` in the escrow-cron log group | same as manual payouts overdue: a trucker leg still owed (not queued) more than 24 hours after it went pending; see Additions in 1.11.0 |
 | `${prefix}-admin-queue-overdue` | `ADMIN_QUEUE_OVERDUE` in the escrow-cron log group | same; an entry that stays undecided keeps it in ALARM (1.13.0, runbook in `.ai/deployment.md`) |
 | `${prefix}-dispute-propagation-failed` (1.26.0) | `DISPUTE_PROPAGATION_FAILED` in the escrow, sync and escrow-cron log groups | any line in 15 minutes, same hold and clear as settlement failures; runbook in `.ai/deployment.md` |
@@ -5906,6 +5911,175 @@ Retiring then also takes the entry out of demo builds and moves the test drivers
 delivery escrows that still exist, the sweeps' double escrow checks and FUP-41's double escrow refund (2.19.0)
 while any such escrow is open, and the apps' `ESCROW_039` text.
 
+## Additions in 2.23.0 (queryOrder reconciliation, FUP-37)
+
+Server and infrastructure only, live deployments only (`enableTelebirrLive`). Before 2.23.0 a live order payment
+whose notification never reached the webhook (Telebirr never sent it, every retry failed, or it failed the
+signature check) left the order `payment_submitted` until the order cron's T2 (`payment-verification-hours`,
+24 hours) marked it `payment_failed`, silently, with the buyer's money taken (decision record
+`telebirr-webhook-delivery-and-recovery.md`, D7 and D8). A checkout whose preOrder answer was lost (`unknown`)
+blocked the buyer until its window ended.
+
+### queryOrder
+
+`ITelebirrGateway.QueryOrderAsync(merchOrderId)`: Ethio Telecom's "Step 5: queryOrder" (ESC-45 F5),
+`POST /payment/v1/merchant/queryOrder`, `method: payment.queryorder`, `biz_content {appid, merch_code,
+merch_order_id}`, signed and bounded by the invocation's deadline like the preOrder. The answer is read with
+`order_status` first, then `trade_status`:
+
+| Status | State | What the reconciliation does |
+|---|---|---|
+| `PAY_SUCCESS` (normalized to the notify's `Completed`) | paid | hands the payment to the webhook inbox |
+| `PAY_FAILED`, `ORDER_CLOSED` | not paid | nothing was taken |
+| `WAIT_PAY`, `PAYING`, `ACCEPTED` | pending | decides nothing |
+| `REFUNDING`, `REFUND_SUCCESS`, `REFUND_FAILED` | refunded | decides nothing |
+| anything else; a gateway error, no token, no time, a timeout, a non-2xx, `result` other than `SUCCESS`, an answer about another `merch_order_id`, an unreadable body | unknown | decides nothing |
+
+A refusal is never read as "not paid": Telebirr's code for an order it never created is undocumented (sandbox
+item 3). The answer's own `sign` is not checked yet (its rule is undocumented); it is trusted as the preOrder
+answer is, from the TLS connection the server opened. The mock gateway answers deterministically: `ORDER_CLOSED`,
+or by marker in the id (`TIMEOUT`, `FAIL`: unknown; `WAIT`: `WAIT_PAY`).
+
+### The reconciliation (escrow-cron `order_payment_reconcile`, every 15 minutes)
+
+escrow-cron runs it because it already holds the merchant key and the allow-listed egress. Per run it walks the
+`payment_submitted` orders (`StatusCreatedAtIndex`, oldest first) and asks only about two kinds:
+
+1. **About to fail**: the payment clock is past T2 minus 1 hour, the checkout slot's last window has closed, and
+   the slot carries no settling verdict for this payment attempt. Every checkout of the order's current payment
+   attempt that reached Telebirr is queried: walking back from the slot's attempt, a missing mapping (the
+   attempt stopped before Telebirr) and a mapping with status `failed` (Telebirr refused the preOrder) are
+   skipped, and the first mapping of another payment attempt (`paymentSubmittedAt`) ends the walk. At most 10
+   checkouts (more is unresolved, `reason=too_many_attempts`).
+2. **A stuck checkout**: the slot is `unknown`, or still `opening` with its mapping written, its window is open,
+   the slot is at least 3 minutes old, and it was not asked in the last 30 minutes. One query.
+
+At most 40 queries per run; an order cut off by the bound or the run's time gets no verdict and is taken again
+next run.
+
+**A paid checkout** is recorded exactly as a verified `Completed` notification is (1.16.0, D8 then D4): the
+order's `paymentHoldUntil` (now plus the replay horizon, this payment attempt only, extend-only), then a pending
+inbox row under the notification's own key, `webhook-inbox:{merch_order_id}:{payment_order_id}:Completed`, with
+the answer's `payment_order_id`, `trans_id`, `total_amount` and `trans_currency` and `trade_status: Completed`.
+The inbox sweep applies it through the webhook's funding path: the currency, amount, buyer and payment attempt
+checks, the funding write conditional on `payment_submitted`, the stock, escrow and trip side effects, the
+`payment_verified` transaction-audit row, the slot closed `paid`. A row already there (the notification came, or
+an earlier run) is left as it is. A late notification of the same payment finds the row; a fresh one is a
+redelivery (`applied_again`, nothing funded twice), and an order is never funded twice in any order of events
+because the funding write is conditional and another `payment_order_id` on a funded order is a duplicate
+(`ORDER_PAYMENT_DUPLICATE`, alarmed, refunded as before). Escrow-audit
+`order_payment_reconciled` (actor `system`, `telebirrRef` the payment id) and the info line
+`ORDER_PAYMENT_RECONCILED`. A paid answer without its `payment_order_id`, or whose inbox write fails, is
+unresolved. When the hold write throws, the inbox row is still written but the run writes no verdict for the
+order (a warning, not paged): the order cron may have read its pending inbox set before the row existed, so only
+the hold keeps the order out of `payment_failed`. The next run writes the hold again, finds the row, and writes
+`paid`.
+
+**The verdict** is written on the order's checkout slot (`order-checkout:{orderId}` in escrow-idempotency:
+`paymentQueryVerdict`, `paymentQueryCycle` (the order's `paymentSubmittedAt`), `paymentQueriedAt`), conditional
+on the slot still being that attempt; a new checkout replaces the slot and the verdict with it. For an order
+about to fail: `paid` (a paid checkout is in the inbox), `not_paid` (every checkout closed or failed),
+`unresolved` (any answer that decided nothing; logged `ORDER_PAYMENT_QUERY_UNRESOLVED orderId=.. merchOrderId=..
+state=.. status=.. error=.. reason=..`, paged, and asked again every run), or `gave_up` (still unresolved more than
+24 hours past the payment deadline: `ORDER_PAYMENT_QUERY_UNRESOLVED ... reason=gave_up`, escrow-audit
+`order_payment_query_gave_up`). For a stuck checkout: closed or failed at Telebirr sets the slot `failed`, so the
+buyer may open a new checkout at once (escrow-audit `order_checkout_reconciled`); paid goes to the inbox as
+above; anything else keeps the slot blocked until its window ends, as before (a warning, not paged: the check
+before T2 pages if it is still unsettled). A stuck checkout's query stamps `unresolved` only to pace the next one.
+
+One `ORDER_PAYMENT_RECONCILE_RUN seen=.. queries=.. paid=.. notPaid=.. unresolved=.. gaveUp=.. slotsClosed=..
+errors=.. truncated=..` line per run. The action answers 200 with those counts, 500 when the orders could not be
+read, 503 (`ORDER_PAYMENT_RECONCILE_UNCONFIGURED`) without an orders table, and 200 `skipped:
+no_hosted_checkout` on the mock gateway.
+
+### The order cron waits for the verdict (T2)
+
+With `TELEBIRR_QUERY_ORDER_ENABLED=true` (set on order-cron with the live gateway, with GetItem on the
+escrow-idempotency base table), the payment-failed step reads the order's checkout slot after its inbox and hold
+checks. An order with a slot fails only when the slot's verdict for this payment attempt is `not_paid`, `paid` (a
+pending inbox row and the hold protect the order while the payment applies; a payment the inbox refused was
+alarmed there) or `gave_up`. Otherwise it waits: an `unresolved` verdict written within the hour is paged by
+escrow-cron; no verdict, or an older one, more than 2 hours past the deadline logs `ORDER_PAYMENT_QUERY_OVERDUE
+orderId=.. hoursPastDeadline=.. verdict=..` every hourly run (the reconciliation is not reaching the order). A
+slot that cannot be read waits a run, and more than 2 hours past the deadline it logs the same line with
+`verdict=unreadable [<exception type>]`, so a read that keeps failing pages. An order with no slot (no checkout ever opened) fails as before. Off (the
+mock), nothing changes.
+
+### Alarms and infrastructure
+
+- Rule `${prefix}-escrow-cron-payment-reconcile` (rate 15 minutes, body `order_payment_reconcile`), live only.
+- `ORDER_PAYMENT_QUERY_UNRESOLVED` (escrow-cron) and `ORDER_PAYMENT_QUERY_OVERDUE` (order-cron) feed the
+  `OrderPaymentProblems` metric, so `${prefix}-order-payment-problems` pages for both (live only). Runbook:
+  `.ai/deployment.md`, Live Telebirr webhook.
+- No new table, index or route. escrow-cron's existing grants cover the orders index, the slot, mapping and inbox
+  rows and the escrow audit.
+
+No client, DTO, status, string or notification changes: the buyer sees the order funded (or `payment_failed`) as
+before, only no longer failed while a payment may exist. Farmer, trucker and buyer visibility is unchanged.
+
+### Not in 2.23.0
+
+- A live sandbox run of queryOrder (sandbox checklist item 3: a paid, an unpaid, an expired and a never-created
+  order; record the `order_status` values, the answer's signature and the refusal code for an unknown
+  `merch_order_id`, then verify the answer's `sign` and read that code as "not paid").
+- `queryOrder` in the local simulator (`tools/telebirr-sandbox`): there it answers 404, an unresolved query.
+- A paid checkout on an order that already failed before 2.23.0, or whose payment attempt ended (a payment on an
+  earlier attempt is classified `stale_checkout` by the inbox, alarmed, as before).
+
+## Additions in 2.24.0 (the newly overdue manual payout line, FUP-06)
+
+Closes the last money alarm gap of ESC-13 (the unknown-outcome alarm and the killed-Lambda token came with
+1.10.0, ESC-05). `MANUAL_PAYOUT_OVERDUE` is logged on every run for every overdue leg, so
+`manual-payouts-overdue` stays in ALARM while any leg is overdue (one notification per episode, by design). A leg
+that became overdue while that alarm was already in ALARM changed nothing, so nobody was told about it. No party
+sees anything new: no endpoint, DTO, status, amount, timing or notification of a party changes.
+
+### MANUAL_PAYOUT_NEWLY_OVERDUE (escrow-cron, alarm `manual-payouts-newly-overdue`)
+
+```
+MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=<id> ref=<ref> ageHours=<n>
+```
+
+The fields of `MANUAL_PAYOUT_OVERDUE` (ids through `LogId`, `ref` through `Safe`), logged right after it, once per
+manual payout leg: by the first run that reports the leg overdue.
+
+| Queue | Logged by | Once per | Marker (a conditional write, before the line) |
+|---|---|---|---|
+| 1.x (1.8.0, on the escrow row) | the hourly report, for each leg it reports (`ref=<op>:<leg>`, or `<op>:no_pending_leg`) | queue entry | `manualPayoutOverdueLoggedFor = manualPayoutQueuedAt`, only while `manualPayout = open` with that queue time and the marker does not hold it yet |
+| ledger (2.2.0, a row in `manual`) | the 15 minute ledger sweep's overdue report (`ref` is the ledger ref with `#` as `.`) | stay of the row in `manual` | `manualOverdueLoggedFor = dueAt` (the time the row entered `manual`), only while the row is `manual` with that `dueAt` and the marker does not hold it yet |
+
+- Each report reads the marker from the index it already reads (`ManualPayoutIndex`, `LedgerOpenIndex`, both
+  projection ALL) and skips a marked entry without a write, so the write happens once per leg.
+- A refused condition (another run marked it, or the entry closed or was queued again since the read) logs
+  nothing. Any other failure of the write (throttling, IAM, a transaction in flight on the row) logs the line
+  anyway, with a warning that names the escrow and the exception type, so the next run may announce the same leg
+  again: a repeat is better than silence.
+- The markers are server bookkeeping like the 2.12.0 claims: no `version` or `updatedAt` moves, no read returns
+  them, and the close leaves them in place. A later entry on the same escrow (a new queue time) or a row that
+  enters `manual` again (a new `dueAt`) is announced again.
+- A leg already overdue when 2.24.0 is deployed has no marker, so the first run after the deploy announces it once.
+- One gap is left: a Lambda killed (timeout, out of memory) after the marker write and before the line leaves that
+  leg marked and unannounced. `escrow-cron-errors` fires for the kill, and `MANUAL_PAYOUT_OVERDUE` keeps listing the
+  leg every run, so it is late news, not lost money.
+- Run summaries: `manualPayoutsNewlyOverdue` (hourly) and `manualNewlyOverdue` (ledger sweep), the lines logged.
+
+**Alarm** `<prefix>-manual-payouts-newly-overdue` (metric `ManualPayoutsNewlyOverdue`; one filter, on the escrow-cron
+log group, with no default value): Sum over 5 minute periods, 2 evaluation periods, 1 datapoint, missing data not
+breaching, ALARM and OK on the alarm topic. Edge-triggered: it fires within minutes of the run that logged a line and
+clears by itself 5 to 15 minutes later, so the next run with a newly overdue leg notifies again, also while
+`manual-payouts-overdue` is in ALARM. Its OK says nothing about the payout; the leg keeps its
+`MANUAL_PAYOUT_OVERDUE` line every run until it is paid. Several legs in one run are one notification: read the
+lines. Each token is a whole term, so neither filter counts the other's line.
+
+### Alarm topic subscribers (Infrastructure)
+
+The `<prefix>-alarms` topic had no subscriber in code. `alarmEmails` in `infra/lib/config/environments.ts`
+(default empty, so nothing changes without it) subscribes each address by email (`AWS::SNS::Subscription`; AWS
+sends a confirmation mail and delivers nothing until it is confirmed). A subscriber added by hand is left alone.
+Use a shared operations address, never a personal one, and set it in the environment config, not with `-c`: the CI
+deploy passes only `environment`, so a context value would be dropped by the next deploy. Whether staging and prod
+have a confirmed subscriber today cannot be read from the code; `.ai/deployment.md` (Monitoring) has the check.
+
 ---
 
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
@@ -6252,6 +6426,8 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.24.0 | 2026-11-13 | The newly overdue manual payout line (FUP-06, closes the last ESC-13 money alarm gap; §Additions in 2.24.0). escrow-cron logs `MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=.. ref=.. ageHours=..` (the fields of `MANUAL_PAYOUT_OVERDUE`) once per manual payout leg, on the first run that reports it overdue: the hourly report for a 1.x queue entry (marker `manualPayoutOverdueLoggedFor = manualPayoutQueuedAt` on the escrow row) and the ledger sweep for a ledger row in `manual` (marker `manualOverdueLoggedFor = dueAt` on the row), each marker a conditional write before the line, with no version or `updatedAt` change; a write that fails for a reason other than its condition logs the line anyway. New filter and edge-triggered alarm `manual-payouts-newly-overdue` (5 minute periods, 2 evaluation periods, 1 datapoint), which notifies even while `manual-payouts-overdue` is in ALARM. Run summaries `manualPayoutsNewlyOverdue` and `manualNewlyOverdue`. The alarm topic takes optional email subscribers from `alarmEmails` in the environment config (default none). No endpoint, DTO, status, amount or client change. 2.23.0 is another change's number |
+| 2.23.0 | 2026-11-13 | queryOrder reconciliation (FUP-37, ESC-45 D7 follow-up; §Additions in 2.23.0). Live deployments only. `ITelebirrGateway.QueryOrderAsync` calls `POST /payment/v1/merchant/queryOrder` (`order_status` read before `trade_status`; `PAY_SUCCESS` normalized to `Completed`; any error or unknown status decides nothing; the mock answers deterministically). New escrow-cron action `order_payment_reconcile` (rule every 15 minutes): for a `payment_submitted` order within an hour of T2 with its checkout windows closed it queries every checkout of the current payment attempt (at most 10; 40 queries per run); a paid one is recorded in the webhook inbox exactly as a verified `Completed` notification (D8 hold, then the pending row under the notification's key), so the inbox sweep funds the order through the webhook's funding path, once; the verdict (`paid`, `not_paid`, `unresolved`, `gave_up` a day past the deadline) is written on the checkout slot (`paymentQueryVerdict`, `paymentQueryCycle`, `paymentQueriedAt`). A stuck `unknown` (or `opening` with its mapping) checkout is queried too: closed or failed at Telebirr frees the buyer (slot `failed`), paid goes to the inbox. The order cron (`TELEBIRR_QUERY_ORDER_ENABLED`, GetItem on escrow-idempotency) fails an order with a checkout only on a `not_paid`, `paid` or `gave_up` verdict for its payment attempt. New tokens `ORDER_PAYMENT_QUERY_UNRESOLVED` (escrow-cron) and `ORDER_PAYMENT_QUERY_OVERDUE` (order-cron, no verdict 2 hours past the deadline) feed `order-payment-problems`; escrow-audit `order_payment_reconciled`, `order_checkout_reconciled`, `order_payment_query_gave_up`. No client, route, DTO or table change |
 | 2.22.0 | 2026-11-13 | The delivery payment hidden on live builds (FUP-69, §Additions in 2.22.0). Client only (mobile and web, the same delivery screen): a build that pays through live Telebirr (`TELEBIRR_LIVE=true`, or any production build) no longer shows the buyer's "Pay for Delivery" on a pending delivery, the only entry to the screen that calls `POST /escrow/initiate`, which the server refuses there with `422 ESCROW_039` since 1.18.0 (FUP-36). Demo builds keep it; the farmer and the trucker never had it. No server, endpoint, DTO, string or notification change; an older app on a live deployment still gets the `ESCROW_039` text. Retiring the path waits until those apps have aged out: the first build carrying 2.22.0 released, and `minOrderAppBuild` at least that build wherever the server runs live Telebirr ("Not in 2.22.0") |
 | 2.21.0 | 2026-11-13 | The verdict's admin exit, the overdue wait, the override removed (FUP-64, closes three 1.21.0 known limits; §Additions in 2.21.0). New disposition `settle_as_is` on `POST /admin/disputes/{id}/resolve` (admin group, with `farmer_wins` or `buyer_wins`, a reason of 10 to 500 characters; `partial_refund` `400 ADMIN_014`) for a verdict no goods disposition fits: recorded and audited as every disposition (`dispute_resolved_settled_as_is`), it closes a live order at `dispute_resolved` (straight from before delivery, through the verdict hops from `delivered` or `disputed`) and writes no delivery; the hourly sweep then releases or refunds through the usual path, re-checking that it still fits. A `buyer_wins` always fits (on a `disbursing` or `settled` order it flags the order, `disputeOverride*`, so its contact closes); a `farmer_wins` only for goods that left the farm, did not come back, on an order that shows no payout in its status or its other escrows (one paid, a release in flight, queued or decided by a verdict) and never on a second escrow while the order's own escrow holds the money (FUP-41's double escrow) (else `422 ADMIN_016` with the reason); a split never (`ADMIN_016`). A no-fit verdict without a disposition answers `422 ADMIN_015` when `settle_as_is` would settle it. A recorded `wait_for_delivery` seven days old logs `DISPUTE_VERDICT_WAIT_OVERDUE` on every sweep (new alarm `${prefix}-dispute-verdict-wait-overdue`, escrow-cron). `overrideOrderMismatch` no longer settles a `dispute_resolved` escrow (still checked; kept for ESC-09 Part B). The order-money sweep counts an order settled as it is as consistent. Admin: the choice, its label, en/am/om. No app change (`order-lifecycle.md` 2.19.0) |
 | 2.20.0 | 2026-11-13 | The hold-cap stamp waits on a standing queue entry (FUP-334, §Additions in 2.20.0). The escrow cron's `holdCapReachedAt` stamp (1.13.0 step 4) is one transaction with a `ConditionCheck` that the order's admin queue entry is still the one it wrote or read (`adminQueue = open`, the same `adminQueuedAt` and `adminQueueEscrowId`), so an entry removed between the read and the stamp (the admin's pickup re-open, FUP-287; a report clear) never leaves a capped escrow with no entry. A refused check, or an escrow no longer `escrowed`, writes nothing and logs the info line `ORDER_ESCROW_HOLD_CAP_STAMP_SKIPPED ... reason=queue_entry_changed|escrow_changed`, with no settlement-failure line or alarm; the escrow stays in the sweep windows and the next run decides again (a no longer queued order gets its own `hold_cap` entry, and the stamp waits on that one). No endpoint, DTO, status, amount or client change; escrow-cron's existing `ConditionCheckItem` on orders covers it. 2.19.0 and 2.20.0 are other changes' numbers |

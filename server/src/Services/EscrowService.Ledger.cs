@@ -687,6 +687,9 @@ public sealed partial class EscrowService
         public int Skipped { get; set; }
         public int Overdue { get; set; }
         public int ManualOverdue { get; set; }
+
+        /// <summary>FUP-06: manual rows announced overdue for the first time on this run.</summary>
+        public int ManualNewlyOverdue { get; set; }
         public int Invariant { get; set; }
         public bool Truncated { get; set; }
         public bool QueryFailed { get; set; }
@@ -834,7 +837,8 @@ public sealed partial class EscrowService
 
     /// <summary>
     /// <c>LEDGER_ROW_OVERDUE</c> for every open row older than 24 hours, and the 1.8.0
-    /// <c>MANUAL_PAYOUT_OVERDUE</c> line (with the ledger ref) for every manual row waiting that long.
+    /// <c>MANUAL_PAYOUT_OVERDUE</c> line (with the ledger ref) for every manual row waiting that long. FUP-06: the
+    /// first sweep that sees a manual row overdue also logs <c>MANUAL_PAYOUT_NEWLY_OVERDUE</c> for it.
     /// </summary>
     private async Task ReportLedgerOverdueAsync(DateTime now, LedgerSweepCounts counts, ILambdaContext? context)
     {
@@ -871,7 +875,13 @@ public sealed partial class EscrowService
                     if (openStatus == LedgerFields.StatusManual)
                     {
                         counts.ManualOverdue++;
-                        AlarmLog(MoneyAlarmLog.ManualPayoutOverdue(row.EscrowId, row.Ref.Replace('#', '.'), ageHours));
+                        var reference = row.Ref.Replace('#', '.');
+                        AlarmLog(MoneyAlarmLog.ManualPayoutOverdue(row.EscrowId, reference, ageHours));
+                        if (await IsLedgerRowNewlyOverdueAsync(row, context))
+                        {
+                            counts.ManualNewlyOverdue++;
+                            AlarmLog(MoneyAlarmLog.ManualPayoutNewlyOverdue(row.EscrowId, reference, ageHours));
+                        }
                     }
                     else
                     {
@@ -880,6 +890,31 @@ public sealed partial class EscrowService
                     }
                 }
             } while (startKey != null && ++pages < 20);
+        }
+    }
+
+    /// <summary>
+    /// FUP-06: true once per stay of a row in <c>manual</c>: when its marker is not set for its <c>dueAt</c> and the
+    /// conditional write that sets it lands. A write that fails for another reason announces anyway (the next sweep
+    /// may announce it again), so a failed marker never hides a new overdue leg.
+    /// </summary>
+    private async Task<bool> IsLedgerRowNewlyOverdueAsync(LedgerRow row, ILambdaContext? context)
+    {
+        if (row.DueAt == null || row.ManualOverdueLoggedFor == row.DueAt)
+        {
+            return false;
+        }
+
+        try
+        {
+            return await LedgerRepo!.TryMarkManualOverdueLoggedAsync(row.EscrowId, row.Ref, row.DueAt);
+        }
+        catch (Exception ex)
+        {
+            context?.Logger.LogWarning(
+                $"Ledger overdue report: the newly overdue marker of {MoneyAlarmLog.LogId(row.EscrowId)} {MoneyAlarmLog.LogRef(row.Ref)} "
+                + $"was not written: [{ex.GetType().Name}]. Announced anyway; the next sweep may announce it again.");
+            return true;
         }
     }
 }

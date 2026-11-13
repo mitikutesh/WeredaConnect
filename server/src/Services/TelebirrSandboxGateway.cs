@@ -30,6 +30,10 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
     private const string TokenPath = "/payment/v1/token";
     private const string PreOrderPath = "/payment/v1/merchant/preOrder";
 
+    // FUP-37: "Step 5: queryOrder" (ESC-45 F5).
+    private const string QueryOrderPath = "/payment/v1/merchant/queryOrder";
+    private const string QueryOrderMethod = "payment.queryorder";
+
     /// <summary>
     /// ESC-45 (D6): no request starts with less than this before the invocation's deadline; the
     /// call then fails with the definite <see cref="TelebirrGatewayErrors.NoTime"/> (nothing sent).
@@ -221,9 +225,9 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
         "Telebirr payouts are not integrated yet. An admin pays this in the merchant portal.";
 
     /// <summary>
-    /// Not wired yet. Telebirr documents <c>/payment/v1/merchant/queryOrder</c> ("Step 5: queryOrder")
-    /// for a payment whose notification did not arrive; using it for reconciliation is an ESC-45
-    /// follow-up. Until then reconciliation relies on webhooks and the inbox replay.
+    /// The escrow ledger's settlement status check (payouts and refunds), which Telebirr has no API
+    /// for yet: always <c>unknown</c>. An order checkout is asked with <see cref="QueryOrderAsync"/>
+    /// (FUP-37).
     /// </summary>
     public Task<TransactionStatusResponse> GetTransactionStatusAsync(string transactionRef)
         => Task.FromResult(new TransactionStatusResponse
@@ -233,6 +237,94 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
             Amount = 0,
             UpdatedAt = DateTime.UtcNow.ToString("o"),
         });
+
+    /// <summary>
+    /// FUP-37: Ethio Telecom's "Step 5: queryOrder" (<c>method: payment.queryorder</c>, biz_content
+    /// <c>appid, merch_code, merch_order_id</c>), signed like the preOrder and sent through the same
+    /// bounded path. The answer is read by <see cref="TelebirrQueryOrder.ReadAnswer"/>; every failure
+    /// (no token, no time, a timeout, a non-2xx, a refusal, an unreadable or foreign answer) is
+    /// <see cref="TelebirrPaymentState.Unknown"/> with its code, never "not paid". The answer's own
+    /// <c>sign</c> is not checked yet (its rule is undocumented; sandbox checklist item 3): the answer is
+    /// trusted as the preOrder answer is, from the TLS connection we opened.
+    /// </summary>
+    public async Task<TelebirrQueryOrderResult> QueryOrderAsync(string merchOrderId)
+    {
+        string token;
+        try
+        {
+            token = await AcquireTokenAsync();
+        }
+        catch (NoTimeLeftException)
+        {
+            return TelebirrQueryOrderResult.Failed(TelebirrGatewayErrors.NoTime);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            return TelebirrQueryOrderResult.Failed(TelebirrGatewayErrors.TokenFailed);
+        }
+
+        try
+        {
+            var nonce = GenerateNonce();
+            var timestamp = UnixSecondsNow();
+            var sign = _signer.SignObject(new Dictionary<string, object?>
+            {
+                ["nonce_str"] = nonce,
+                ["method"] = QueryOrderMethod,
+                ["timestamp"] = timestamp,
+                ["version"] = "1.0",
+                ["biz_content"] = new Dictionary<string, object?>
+                {
+                    ["appid"] = _config.MerchantAppId,
+                    ["merch_code"] = _config.MerchantCode,
+                    ["merch_order_id"] = merchOrderId,
+                },
+            });
+
+            var query = new TelebirrQueryOrderRequest
+            {
+                NonceStr = nonce,
+                Method = QueryOrderMethod,
+                Timestamp = timestamp,
+                Version = "1.0",
+                BizContent = new TelebirrQueryOrderBiz
+                {
+                    AppId = _config.MerchantAppId,
+                    MerchCode = _config.MerchantCode,
+                    MerchOrderId = merchOrderId,
+                },
+                SignType = "SHA256WithRSA",
+                Sign = sign,
+            };
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, AbsoluteUrl(QueryOrderPath))
+            {
+                Content = JsonContent.Create(query, AppJsonContext.Default.TelebirrQueryOrderRequest),
+            };
+            req.Headers.TryAddWithoutValidation("Authorization", token);
+            req.Headers.TryAddWithoutValidation("X-APP-Key", _config.FabricAppId);
+
+            var (status, body) = await SendBoundedAsync(req);
+            if ((int)status is < 200 or > 299)
+            {
+                return TelebirrQueryOrderResult.Failed($"TELEBIRR_QUERY_HTTP_{(int)status}");
+            }
+
+            return TelebirrQueryOrder.ReadAnswer(body, merchOrderId);
+        }
+        catch (NoTimeLeftException)
+        {
+            return TelebirrQueryOrderResult.Failed(TelebirrGatewayErrors.NoTime);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            return TelebirrQueryOrderResult.Failed(TelebirrGatewayErrors.Network);
+        }
+        catch (OperationCanceledException)
+        {
+            return TelebirrQueryOrderResult.Failed(TelebirrGatewayErrors.Timeout);
+        }
+    }
 
     /// <summary>H5 C2B is a hosted checkout: the webhook confirms the payment later.</summary>
     public bool SupportsHostedCheckout => true;

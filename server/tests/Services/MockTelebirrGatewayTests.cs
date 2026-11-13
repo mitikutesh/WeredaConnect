@@ -219,4 +219,24 @@ public class MockTelebirrGatewayTests
         Assert.Equal("completed", response.Status);
         Assert.Equal("MOCK-STATUS-ref-abc", response.TelebirrRef);
     }
+
+    // ──────────────────────────────────────────────
+    // FUP-37: queryOrder answers deterministically
+    // ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("WCO1", TelebirrPaymentState.NotPaid, "ORDER_CLOSED", null)]
+    [InlineData("WCO-WAIT-1", TelebirrPaymentState.Pending, "WAIT_PAY", null)]
+    [InlineData("WCO-FAIL-1", TelebirrPaymentState.Unknown, null, "TELEBIRR_MOCK_QUERY_FAILED")]
+    [InlineData("WCO-TIMEOUT-1", TelebirrPaymentState.Unknown, null, TelebirrGatewayErrors.Timeout)]
+    public async Task QueryOrderAsync_AnswersByMarker(string merchOrderId, TelebirrPaymentState state, string? status, string? error)
+    {
+        var first = await _gateway.QueryOrderAsync(merchOrderId);
+        var second = await _gateway.QueryOrderAsync(merchOrderId);
+
+        Assert.Equal(state, first.State);
+        Assert.Equal(status, first.Status);
+        Assert.Equal(error, first.ErrorCode);
+        Assert.Equal(first, second);
+    }
 }

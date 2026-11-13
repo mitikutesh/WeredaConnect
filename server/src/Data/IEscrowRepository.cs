@@ -191,6 +191,14 @@ public interface IEscrowRepository
         int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
 
     /// <summary>
+    /// FUP-06: record that the overdue report announced the queue entry queued at <paramref name="queuedAt"/>
+    /// (<c>manualPayoutOverdueLoggedFor = queuedAt</c>), only while that entry is still open with that queue time
+    /// and not announced yet. No version or <c>updatedAt</c> moves. False when the condition failed (announced
+    /// already, closed, or queued again since); any other failure throws.
+    /// </summary>
+    Task<bool> TryMarkManualPayoutOverdueLoggedAsync(string escrowId, string createdAt, string queuedAt);
+
+    /// <summary>
     /// ESC-04: <c>released</c> escrows whose trucker leg is still owed and not queued, from
     /// <c>StatusExpiresIndex</c> (oldest <c>expiresAt</c> first), paging through filtered-empty
     /// pages up to <paramref name="limit"/>.

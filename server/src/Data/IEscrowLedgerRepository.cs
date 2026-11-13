@@ -60,6 +60,13 @@ internal interface IEscrowLedgerRepository
         string openStatus, string dueBefore, int limit, Dictionary<string, AttributeValue>? startKey);
 
     /// <summary>
+    /// FUP-06: record that the ledger sweep announced this manual row's overdue (<c>manualOverdueLoggedFor =
+    /// dueAt</c>), only while the row is still <c>manual</c> with <paramref name="dueAt"/> and not announced yet.
+    /// No version moves. False when the condition failed; any other failure throws.
+    /// </summary>
+    Task<bool> TryMarkManualOverdueLoggedAsync(string escrowId, string reference, string dueAt);
+
+    /// <summary>
     /// F2: one page of ledger escrows in <paramref name="status"/> (<c>StatusExpiresIndex</c>, oldest first) whose
     /// crop leg is decided and whose transport leg is still held: the trucker failed the identity gate at the
     /// release. The hourly retry pays them once the gate passes.

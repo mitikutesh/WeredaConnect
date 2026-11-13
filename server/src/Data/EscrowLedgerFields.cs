@@ -41,6 +41,9 @@ internal static class LedgerFields
     public const string OpenStatus = "openStatus";
     public const string DueAt = "dueAt";
 
+    /// <summary>FUP-06: the <c>dueAt</c> of the manual row whose overdue the ledger sweep announced (no version moves).</summary>
+    public const string ManualOverdueLoggedFor = "manualOverdueLoggedFor";
+
     /// <summary>The row's own compare-and-set counter: every row write adds 1 and is conditioned on the value read.</summary>
     public const string Version = "version";
 

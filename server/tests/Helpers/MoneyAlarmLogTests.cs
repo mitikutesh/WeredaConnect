@@ -32,7 +32,9 @@ public class MoneyAlarmLogTests
         // FUP-41: a release the payout identity gate has blocked for a day.
         "RELEASE_BLOCKED_OVERDUE",
         // FUP-64: a recorded wait_for_delivery a week old.
-        "DISPUTE_VERDICT_WAIT_OVERDUE"
+        "DISPUTE_VERDICT_WAIT_OVERDUE",
+        // FUP-06: a manual payout leg overdue for the first time.
+        "MANUAL_PAYOUT_NEWLY_OVERDUE"
     };
 
     /// <summary>A client value that spells every alarm token.</summary>
@@ -193,6 +195,21 @@ public class MoneyAlarmLogTests
             .Should().Be("ADMIN_QUEUE_OVERDUE orderId=order-001 reason=undelivered ageHours=30");
         MoneyAlarmLog.AdminQueueOverdue(null, null, -5)
             .Should().Be("ADMIN_QUEUE_OVERDUE orderId=- reason=- ageHours=0");
+    }
+
+    [Fact]
+    public void ManualPayoutNewlyOverdue_HasTheOverdueLinesFields_AndOnlyItsOwnToken()
+    {
+        // FUP-06: the edge-triggered line next to the level-triggered one, same fields.
+        MoneyAlarmLog.ManualPayoutNewlyOverdue("escrow-order-ord-1", "release:farmer", 26)
+            .Should().Be("MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=escrow-order-ord-1 ref=release:farmer ageHours=26");
+        MoneyAlarmLog.ManualPayoutNewlyOverdue("escrow-order-o1", "release.trucker.trucker-1", -1)
+            .Should().Be("MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=escrow-order-o1 ref=release.trucker.trucker-1 ageHours=0");
+        // Neither line contains the other's token, so each filter counts only its own line.
+        MoneyAlarmLog.ManualPayoutNewlyOverdue("e", "r", 1).Should().NotContain(MoneyAlarmLog.ManualPayoutOverdueToken);
+        MoneyAlarmLog.ManualPayoutOverdue("e", "r", 1).Should().NotContain(MoneyAlarmLog.ManualPayoutNewlyOverdueToken);
+        TokensIn(MoneyAlarmLog.ManualPayoutNewlyOverdue($"escrow-order-{Hostile}", "refund:buyer", 25))
+            .Should().Equal("MANUAL_PAYOUT_NEWLY_OVERDUE");
     }
 
     [Fact]

@@ -39,6 +39,12 @@ internal sealed record LedgerRow
     public string? ClaimedAt { get; init; }
     public string? ClaimExpiresAt { get; init; }
 
+    /// <summary>
+    /// FUP-06: the <see cref="DueAt"/> (when the row entered <c>manual</c>) whose overdue line the ledger sweep has
+    /// announced (<c>MANUAL_PAYOUT_NEWLY_OVERDUE</c>). Bookkeeping, no version; never written by a row write.
+    /// </summary>
+    public string? ManualOverdueLoggedFor { get; init; }
+
     public bool IsOfAmount => LedgerRefs.IsRowOfAmount(Ref);
 
     /// <summary>A row the gateway pays out of the platform account to the buyer.</summary>
