@@ -1390,22 +1390,18 @@ class SyncExecutor {
       parseDeliveryPhotoEntityId(operation.entityId)?.type == arrivalPhotoType;
 
   /// The UI event for a refused (or, for `APP_UPDATE_REQUIRED`, held)
-  /// operation. The idempotency key starts with its user's id, the same
-  /// prefix the queue uses to keep users apart (getPendingOperationsForUser).
+  /// operation, for its user ([_userOf]).
   static SyncOperationRejected _rejectionEvent(
     SyncOperation operation,
     String message,
-  ) {
-    final key = operation.idempotencyKey;
-    final separator = key.indexOf(':');
-    return SyncOperationRejected(
-      entityType: operation.entityType,
-      entityId: operation.entityId,
-      action: operation.action,
-      message: message,
-      userId: separator > 0 ? key.substring(0, separator) : null,
-    );
-  }
+  ) =>
+      SyncOperationRejected(
+        entityType: operation.entityType,
+        entityId: operation.entityId,
+        action: operation.action,
+        message: message,
+        userId: _userOf(operation),
+      );
 
   /// Tell the user, once per entity, that operations were held for an app
   /// update (this also raises [SecurityEvents.appUpdateRequired]).
@@ -1435,7 +1431,8 @@ class SyncExecutor {
   ///   entity, which could only loop on a transient "not found";
   /// - a refused handoff rejects its photo waiting behind it (FRD-12), and a
   ///   pickup refused by a code that undoes it the trucker's drop-off code
-  ///   registration (FUP-439);
+  ///   registration (FUP-439) and the same user's status changes queued
+  ///   after it (FUP-456);
   /// - a refused order change (or any `ORDER_*` refusal), a delivery cancel
   ///   refused after pickup, a refused delivery dispute or handoff, a message
   ///   refused because its thread's contact is not open, and a crop listing
@@ -1484,12 +1481,17 @@ class SyncExecutor {
         // phone's pickup in place (another upload for the delivery was on
         // its way). The revert then flags it with the pickup, so it leaves
         // the "Sync failed" count; a refusal that undoes nothing leaves it.
+        // FUP-456: the same for the trucker's own status changes queued
+        // behind the pickup ("Mark in transit"), which the server answers
+        // with a retried `DELIVERY_INVALID_TRANSITION` while it holds the
+        // delivery `pending`.
         if (_isPickup(operation) && _revertsLocalChange(operation, message)) {
           for (final waiting in await _syncQueue.waitingOperationsFor(
             'delivery',
             operation.entityId,
           )) {
-            if (_registersDropoffCode(waiting)) {
+            if (_registersDropoffCode(waiting) ||
+                _changesStatusAfter(waiting, operation)) {
               await _syncQueue.markAsRejected(waiting.operationId);
             }
           }
@@ -1647,6 +1649,34 @@ class SyncExecutor {
     } on FormatException {
       return false;
     }
+  }
+
+  /// FUP-456: whether a waiting delivery operation changes the status on top
+  /// of a refused [pickup]: a `status` in its payload, queued after the
+  /// pickup by the same user. On the trucker's phone that is "Mark in
+  /// transit" (a cancel needs a pending delivery, a dispute a delivered
+  /// one). It was sent at the pickup's version plus one, so while the server
+  /// holds the delivery `pending` it can only be refused. Another user's
+  /// operation (the farmer's `qrNonce` on a shared phone) and one queued
+  /// before the pickup (the delivery's create) are never matched.
+  static bool _changesStatusAfter(
+    SyncOperation waiting,
+    SyncOperation pickup,
+  ) {
+    final user = _userOf(pickup);
+    return user != null &&
+        _userOf(waiting) == user &&
+        waiting.createdAt.isAfter(pickup.createdAt) &&
+        _statusOf(waiting) is String;
+  }
+
+  /// The user an operation belongs to: its idempotency key starts with the
+  /// user's id, the prefix the queue keeps users apart by
+  /// ([SyncQueue.getPendingOperationsForUser]).
+  static String? _userOf(SyncOperation operation) {
+    final key = operation.idempotencyKey;
+    final separator = key.indexOf(':');
+    return separator > 0 ? key.substring(0, separator) : null;
   }
 
   /// Mark all operations in a batch as failed (increments retry count).
