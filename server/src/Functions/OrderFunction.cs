@@ -24,6 +24,9 @@ namespace WeredaConnect.Server.Functions;
 /// ESC-48: every order carries <c>contactOpen</c>, and a party of an order whose contact is open
 /// also gets the parties' phone numbers, read from the users table at request time (orders store
 /// none). A failed phone read leaves the numbers out; it never fails the order read.
+///
+/// FUP-370: a party of an order whose drop-off waits for T9 also gets <c>dropoffConfirmAt</c>, computed
+/// with this container's order timings (<see cref="DropoffJudgement.ConfirmAtFor"/>).
 /// </summary>
 public class OrderFunction
 {
@@ -31,6 +34,18 @@ public class OrderFunction
     private readonly IUserRepository? _userRepo;
 
     private static readonly IReadOnlyDictionary<string, string> NoPhones = new Dictionary<string, string>();
+
+    /// <summary>
+    /// FUP-370: the drop-off judgement runs (<c>dropoffClassification</c> with <c>COMMITMENTS_ENABLED</c>, as in
+    /// the sync and the order cron). Off, no order carries <c>dropoffConfirmAt</c>.
+    /// </summary>
+    internal bool DropoffJudgementOn { get; init; } = OrderCommitment.IsEnabled && DropoffJudgement.IsEnabled;
+
+    /// <summary>FUP-370: the order timings T9 is computed with; this container's SSM values (tests set others).</summary>
+    internal Func<OrderTimings> OrderTimingsSource { get; init; } = static () => OrderTimings.Current;
+
+    /// <summary>The timings for <c>dropoffConfirmAt</c>, or null while the judgement is off.</summary>
+    private Func<OrderTimings>? DropoffTimings => DropoffJudgementOn ? OrderTimingsSource : null;
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -165,7 +180,7 @@ public class OrderFunction
             var phones = await ReadPartyPhonesAsync(queryResult.Items, authenticatedUserId, context);
             var orders = queryResult.Items
                 .Select(i => IsParty(i, authenticatedUserId)
-                    ? MapToOrderDto(i, phones, authenticatedUserId)
+                    ? MapToOrderDto(i, phones, authenticatedUserId, DropoffTimings)
                     : MapToOrderDto(i, null))
                 .ToList();
 
@@ -231,7 +246,7 @@ public class OrderFunction
             }
 
             var phones = await ReadPartyPhonesAsync(new[] { order }, authenticatedUserId, context);
-            var orderDto = MapToOrderDto(order, phones, authenticatedUserId);
+            var orderDto = MapToOrderDto(order, phones, authenticatedUserId, DropoffTimings);
             var response = new GetOrderResponse { Order = orderDto };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetOrderResponse);
@@ -307,10 +322,13 @@ public class OrderFunction
     /// once the trucker committed, and a trucker caller's <c>contactOpen</c> is their own
     /// (<see cref="ContactReveal.IsTruckerOpen"/>); without a caller it is the buyer-farmer contact.
     /// LT-12: the drop-off note only for a caller who may read it (<see cref="OrderDropoffNote.VisibleTo"/>),
-    /// never without one; LT-14: the order's own drop-off point by the same rule.
+    /// never without one; LT-14: the order's own drop-off point by the same rule. FUP-370: T9
+    /// (<c>dropoffConfirmAt</c>) only for a party, computed with <paramref name="dropoffTimings"/> (null: the
+    /// judgement is off, or the admin view).
     /// </summary>
     internal static OrderDto MapToOrderDto(
-        Dictionary<string, object> item, IReadOnlyDictionary<string, string>? phones, string? callerId = null)
+        Dictionary<string, object> item, IReadOnlyDictionary<string, string>? phones, string? callerId = null,
+        Func<OrderTimings>? dropoffTimings = null)
     {
         var contactOpen = callerId == null ? ContactReveal.IsOpen(item) : ContactReveal.IsOpenFor(item, callerId);
         var truckerOpen = ContactReveal.IsTruckerOpen(item);
@@ -380,6 +398,7 @@ public class OrderFunction
             DropoffJudgement = GetStringOrNull(item, DropoffJudgement.Field),
             DropoffJudgedAt = GetStringOrNull(item, DropoffJudgement.JudgedAtField),
             DropoffDeadlineAt = GetStringOrNull(item, DropoffJudgement.DeadlineField),
+            DropoffConfirmAt = DropoffJudgement.ConfirmAtFor(item, callerId, dropoffTimings),
             DisputeReason = GetStringOrNull(item, DropoffJudgement.DisputeReasonField),
             ContactOpen = contactOpen,
             BuyerPhone = PhoneOf("buyerId"),

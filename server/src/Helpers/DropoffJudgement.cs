@@ -56,6 +56,12 @@ public static class DropoffJudgement
     /// <summary>Server-only order field: T8, the pickup plus <see cref="OrderTimings.DeliveryOverdue"/> (ISO 8601 UTC).</summary>
     public const string DeadlineField = "dropoffDeadlineAt";
 
+    /// <summary>
+    /// FUP-370: T9 as the parties read it (ISO 8601 UTC, <see cref="ConfirmAtFor"/>). Computed on every read and
+    /// never stored, so a changed <c>silent-buyer-hours</c> shows as the order cron judges by it.
+    /// </summary>
+    public const string ConfirmAtField = "dropoffConfirmAt";
+
     /// <summary>Server-only order map: the trucker's drop-off check-in (the <see cref="PickupJudgement"/> entry fields).</summary>
     public const string CheckInField = "dropoffCheckIn";
 
@@ -224,10 +230,19 @@ public static class DropoffJudgement
             return null;
         }
 
-        return CountedCheckIn(order) is { } entry && ReceivedAt(entry) is { } received
-            ? new OrderDeadline(received + timings.SilentBuyerWindow + PickupJudgement.SettleMargin, OrderDeadlines.Kind.SilentBuyer)
+        return SilentBuyerDeadline(order, timings) is { } t9
+            ? new OrderDeadline(t9 + PickupJudgement.SettleMargin, OrderDeadlines.Kind.SilentBuyer)
             : new OrderDeadline(deadline + PickupJudgement.SettleMargin, OrderDeadlines.Kind.DeliveryOverdue);
     }
+
+    /// <summary>
+    /// T9 without the settle margin: the counted check-in's receipt plus <see cref="OrderTimings.SilentBuyerWindow"/>,
+    /// or null when there is no counted check-in. <see cref="Due"/> adds the margin to it.
+    /// </summary>
+    public static DateTime? SilentBuyerDeadline(IReadOnlyDictionary<string, object> order, OrderTimings timings)
+        => CountedCheckIn(order) is { } entry && ReceivedAt(entry) is { } received
+            ? received + timings.SilentBuyerWindow
+            : null;
 
     /// <summary>Whether the check-in should read the order's own point live: none was stamped at pickup.</summary>
     public static bool ReadsLiveOrderPoint(IReadOnlyDictionary<string, object> order)
@@ -429,6 +444,38 @@ public static class DropoffJudgement
                 Late = Bool(entry, PickupJudgement.EntryLate)
             }
             : null;
+
+    /// <summary>
+    /// FUP-370: <see cref="ConfirmAtField"/> as <paramref name="callerId"/> reads it: T9
+    /// (<see cref="SilentBuyerDeadline"/>, ISO 8601 UTC) to the order's buyer, farmer or trucker while the order is
+    /// on the road, waits for its judgement and has a counted check-in. Null to anyone else, on any other order,
+    /// and with the judgement off (<paramref name="timings"/> null). The timings are the ones the order cron judges
+    /// by (<see cref="Due"/>), read only when there is a T9 to show.
+    /// </summary>
+    public static string? ConfirmAtFor(IReadOnlyDictionary<string, object> order, string? callerId, Func<OrderTimings>? timings)
+        => timings != null
+           && IsParty(order, callerId)
+           && IsPending(order)
+           && OnTheRoadOrderStatuses.Contains(Str(order, "status"))
+           && CountedCheckIn(order) != null
+           && SilentBuyerDeadline(order, timings()) is { } t9
+            ? OrderCommitment.Iso(t9)
+            : null;
+
+    /// <summary>
+    /// FUP-370: a sync result whose order row goes back to <paramref name="callerId"/>, with
+    /// <see cref="ConfirmAtField"/> added when that caller reads one (<see cref="ConfirmAtFor"/>). It reads the
+    /// stored check-in, so it runs before <see cref="PickupJudgement.ForClient"/> takes the raw one out. Any other
+    /// result is returned unchanged.
+    /// </summary>
+    public static SyncOperationResult WithConfirmAt(SyncOperationResult result, string? callerId, Func<OrderTimings>? timings)
+        => result.ServerData is { } row && ConfirmAtFor(row, callerId, timings) is { } t9
+            ? result with { ServerData = new Dictionary<string, object>(row) { [ConfirmAtField] = t9 } }
+            : result;
+
+    private static bool IsParty(IReadOnlyDictionary<string, object> order, string? callerId)
+        => !string.IsNullOrEmpty(callerId)
+           && (callerId == Str(order, "buyerId") || callerId == Str(order, "farmerId") || callerId == Str(order, "truckerId"));
 
     /// <summary>The server-only fields a client never reads back raw (the view replaces the check-in).</summary>
     public static readonly string[] HiddenFields =

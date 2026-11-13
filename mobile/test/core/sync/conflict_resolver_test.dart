@@ -195,6 +195,57 @@ void main() {
         expect(order.checkIns.single.kind, 'arrived_dropoff');
       });
 
+      // FUP-370: the server's T9 of an order waiting for it is kept on the
+      // device, so the card shows it offline.
+      test('keeps the server\'s T9 of a pending drop-off', () async {
+        final operation = SyncOperation()
+          ..operationId = 'op-order-4'
+          ..idempotencyKey = 'key-order-4'
+          ..entityType = 'order'
+          ..entityId = 'order-001'
+          ..action = 'update'
+          ..data = '{}'
+          ..status = SyncStatus.syncing
+          ..retryCount = 0
+          ..createdAt = DateTime.now().toUtc();
+
+        await resolver.resolve(
+          operation: operation,
+          serverData: {
+            'orderId': 'order-001',
+            'listingId': 'listing-001',
+            'buyerId': 'buyer-001',
+            'farmerId': 'farmer-001',
+            'buyerName': 'Buyer',
+            'farmerName': 'Farmer',
+            'cropType': 'teff',
+            'quantity': 500,
+            'pricePerUnit': 45.5,
+            'totalPrice': 22750,
+            'status': 'in_transit',
+            'createdAt': '2026-10-01T08:00:00Z',
+            'dropoffJudgement': 'pending',
+            'dropoffDeadlineAt': '2026-10-15T08:00:00Z',
+            'dropoffConfirmAt': '2026-10-15T19:00:00.0000000Z',
+            'checkIns': {
+              'arrived_dropoff': {
+                'receivedAt': '2026-10-14T07:00:00Z',
+                'distanceChecked': true,
+                'late': false,
+              },
+            },
+          },
+          serverVersion: 9,
+        );
+
+        final order =
+            await isar.orders.filter().orderIdEqualTo('order-001').findFirst();
+        expect(
+          order!.dropoffConfirmAt!.toUtc(),
+          DateTime.utc(2026, 10, 15, 19),
+        );
+      });
+
       // ESC-48: /sync rows carry no contact flag; a closed status, or an
       // admin override refund on an open status, drops the phones the last
       // pull left on the device.
