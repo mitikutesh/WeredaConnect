@@ -286,6 +286,10 @@ public class DropoffJudgementTests
         };
         DropoffJudgement.SystemDisputeReasonOf(delivery).Should().Be(DropoffJudgement.OverdueReason);
 
+        delivery["disputeReason"] = DropoffJudgement.OutOfRangeReason;
+        DropoffJudgement.SystemDisputeReasonOf(delivery).Should().Be(DropoffJudgement.OutOfRangeReason);
+        delivery["disputeReason"] = DropoffJudgement.OverdueReason;
+
         delivery["disputedBy"] = "buyer-1";
         DropoffJudgement.SystemDisputeReasonOf(delivery).Should().BeNull();
 

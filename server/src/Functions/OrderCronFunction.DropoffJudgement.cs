@@ -24,11 +24,12 @@ namespace WeredaConnect.Server.Functions;
 /// other, with its fraud hold;</item>
 /// <item>T9, anything missing: the escrow frozen, then <c>disputed</c> with the reason
 /// <c>silent_buyer</c>. No reputation event;</item>
-/// <item>T8 with the trucker's out-of-range attempt (FUP-204): nothing moves, the admin queue
-/// (<c>dropoff_out_of_range</c>), no dispute and no R12;</item>
+/// <item>T8 with the trucker's out-of-range attempt (FUP-204): the same freeze and dispute with the reason
+/// <c>dropoff_out_of_range</c>, which R12 does not read: no reputation event, no signal; an admin decides
+/// through the verdict;</item>
 /// <item>money that can be neither frozen nor confirmed (no escrow, a refund armed, the manual payout
 /// queue, a settlement in flight): nothing moves, the order enters the admin queue (reason
-/// <c>delivery_overdue</c> or <c>silent_buyer</c>), then is stamped <c>queued</c>.</item>
+/// <c>delivery_overdue</c>, <c>dropoff_out_of_range</c> or <c>silent_buyer</c>), then is stamped <c>queued</c>.</item>
 /// </list>
 /// A delivery a party confirmed or disputed first is only followed (<c>closed</c>). Every write is
 /// conditioned on the row as read (the delivery's status and version, the order's version, the stamp); a
@@ -150,10 +151,11 @@ public partial class OrderCronFunction
         return decision switch
         {
             DropoffJudgement.Decision.AutoConfirm => await AutoConfirmAsync(order, orderId, delivery, deliveryStatus, run),
-            // FUP-204: the trucker came but was out of range of every point (maybe only the buyer's own pin):
-            // an admin decides; no freeze, no dispute, no R12.
+            // FUP-204: the trucker came but was out of range of every point (maybe only the buyer's own pin): the
+            // system's dispute with its own reason, so an admin decides through the verdict; R12 reads only
+            // delivery_overdue, so no reputation event and no signal follow.
             DropoffJudgement.Decision.OutOfRangeReview
-                => await QueueDropoffAsync(order, orderId, GetString(delivery, "deliveryId"), DropoffJudgement.OutOfRangeReason, "held", run),
+                => await OpenDropoffDisputeAsync(order, orderId, delivery, deliveryStatus, DropoffJudgement.OutOfRangeReason, run, escrow),
             DropoffJudgement.Decision.DeliveryOverdue
                 => await OpenDropoffDisputeAsync(order, orderId, delivery, deliveryStatus, DropoffJudgement.OverdueReason, run, escrow),
             _ => await OpenDropoffDisputeAsync(order, orderId, delivery, deliveryStatus, DropoffJudgement.SilentBuyerReason, run, escrow)
@@ -391,9 +393,9 @@ public partial class OrderCronFunction
         }
 
         NoteDropoffJudged(orderId, reason, run);
-        if (reason == DropoffJudgement.OverdueReason)
+        if (reason is DropoffJudgement.OverdueReason or DropoffJudgement.OutOfRangeReason)
         {
-            LogOverdue(orderId, deliveryId, "disputed", "frozen", run);
+            LogOverdue(orderId, deliveryId, "disputed", "frozen", reason, run);
         }
 
         return DeadlineOutcome.Applied;
@@ -441,10 +443,14 @@ public partial class OrderCronFunction
                 return DeadlineOutcome.Conflict;
             }
 
-            run.Context.Logger.LogError(
+            // The order's own entry already stands (an earlier run wrote it, then its stamp failed): nothing to alarm.
+            if (GetString(fresh, AdminQueueFields.Reason) != reason)
+            {
+                run.Context.Logger.LogError(
                 $"{DropoffQueueNotWrittenToken} orderId={MoneyAlarmLog.LogId(orderId)} reason={reason} "
-                + $"queued={MoneyAlarmLog.LogId(GetString(fresh, AdminQueueFields.Reason))}: the order waits in the admin queue for "
-                + "another reason; decide its drop-off too.");
+                    + $"queued={MoneyAlarmLog.LogId(GetString(fresh, AdminQueueFields.Reason))}: the order waits in the admin queue for "
+                    + "another reason; decide its drop-off too.");
+            }
         }
 
         var stamped = await StampDropoffAsync(order, orderId, DropoffJudgement.Outcome.Queued, run);
@@ -456,20 +462,26 @@ public partial class OrderCronFunction
         NoteDropoffJudged(orderId, DropoffJudgement.Outcome.Queued, run);
         if (reason is DropoffJudgement.OverdueReason or DropoffJudgement.OutOfRangeReason)
         {
-            LogOverdue(orderId, deliveryId, DropoffJudgement.Outcome.Queued, escrowState, run);
+            LogOverdue(orderId, deliveryId, DropoffJudgement.Outcome.Queued, escrowState, reason, run);
         }
 
         return DeadlineOutcome.Applied;
     }
 
-    private static string DisputeDescription(string reason) => reason == DropoffJudgement.OverdueReason
-        ? "delivery_overdue: the delivery was not made by its deadline (T8); opened by the system."
-        : "silent_buyer: the buyer neither confirmed nor disputed after the trucker's drop-off check-in (T9); opened by the system.";
+    private static string DisputeDescription(string reason) => reason switch
+    {
+        DropoffJudgement.OverdueReason => "delivery_overdue: the delivery was not made by its deadline (T8); opened by the system.",
+        DropoffJudgement.OutOfRangeReason => "dropoff_out_of_range: the trucker checked in at the drop-off with the arrival photo but more "
+                                             + "than 5 km from every drop-off point, and nobody confirmed by the deadline (T8); opened by "
+                                             + "the system. The attempt's distance and time are on the transaction timeline (handoff_check_in).",
+        _ => "silent_buyer: the buyer neither confirmed nor disputed after the trucker's drop-off check-in (T9); opened by the system."
+    };
 
-    private static void LogOverdue(string orderId, string deliveryId, string outcome, string escrow, CommitmentRun run)
+    private static void LogOverdue(string orderId, string deliveryId, string outcome, string escrow, string reason, CommitmentRun run)
         => run.Context.Logger.LogError(
             $"{DeliveryOverdueToken} orderId={MoneyAlarmLog.LogId(orderId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)} "
-            + $"outcome={outcome} escrow={MoneyAlarmLog.LogId(escrow)}: no delivery by its deadline; an admin reviews the dispute and the trucker.");
+            + $"outcome={outcome} escrow={MoneyAlarmLog.LogId(escrow)} reason={reason}: no delivery by its deadline; an admin reviews "
+            + "the dispute and the trucker.");
 
     private static void NoteDropoffJudged(string orderId, string outcome, CommitmentRun run)
     {

@@ -206,7 +206,14 @@ public sealed class SyncFunctionDropoffCheckInTests
 
     private static string MessageOf(JsonElement result) => result.GetProperty("message").GetString() ?? "";
 
-    private Task NoWriteAsync()
+    /// <summary>Neither a check-in nor an out-of-range attempt was stored.</summary>
+    private async Task NoWriteAsync()
+    {
+        await NoCheckInWriteAsync();
+        await _orders.DidNotReceive().TryRecordDropoffAttemptAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    private Task NoCheckInWriteAsync()
         => _orders.DidNotReceive().TryRecordDropoffCheckInAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<bool>());
 
     // ===== on time =====
@@ -246,7 +253,7 @@ public sealed class SyncFunctionDropoffCheckInTests
         var result = await CheckInAsync(TruckerId, Arrived(FarLat));
 
         MessageOf(result).Should().StartWith($"{PickupJudgement.TooFarCode}: ").And.EndWith("The attempt was kept for review.");
-        await NoWriteAsync();
+        await NoCheckInWriteAsync();
         await _orders.Received(1).TryRecordDropoffAttemptAsync(OrderId, Arg.Is<Dictionary<string, object>>(e =>
             (bool)e[PickupJudgement.EntryOutOfRange] && !(bool)e[PickupJudgement.EntryDistanceChecked] && (string)e[PickupJudgement.EntryBy] == TruckerId));
     }
@@ -265,7 +272,7 @@ public sealed class SyncFunctionDropoffCheckInTests
         var result = await CheckInAsync(TruckerId, Arrived(FarLat));
 
         MessageOf(result).Should().StartWith($"{PickupJudgement.TooFarCode}: ");
-        await NoWriteAsync();
+        await NoCheckInWriteAsync();
         await _orders.Received(1).TryRecordDropoffAttemptAsync(OrderId, Arg.Any<Dictionary<string, object>>());
     }
 
@@ -282,6 +289,29 @@ public sealed class SyncFunctionDropoffCheckInTests
 
         result.GetProperty("status").GetString().Should().Be("success", result.ToString());
         ((bool)_recorded.Single().Entry[PickupJudgement.EntryDistanceChecked]).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AFarCheckInWithoutThePhoto_KeepsNoAttempt()
+    {
+        _arrivalPhoto = false;
+
+        var result = await CheckInAsync(TruckerId, Arrived(FarLat));
+
+        MessageOf(result).Should().StartWith($"{DropoffJudgement.PhotoRequiredCode}: ");
+        await NoWriteAsync();
+    }
+
+    [Theory]
+    [InlineData(BuyerId)]
+    [InlineData(FarmerId)]
+    [InlineData("stranger-9")]
+    public async Task AFarCheckInFromAnyoneButTheTrucker_KeepsNoAttempt(string caller)
+    {
+        var result = await CheckInAsync(caller, Arrived(FarLat));
+
+        MessageOf(result).Should().StartWith($"{PickupJudgement.NotPartyCode}: ");
+        await NoWriteAsync();
     }
 
     [Fact]

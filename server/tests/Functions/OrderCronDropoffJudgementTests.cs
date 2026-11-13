@@ -284,26 +284,84 @@ public class OrderCronDropoffJudgementTests
     // ===== FUP-204: the buyer's pin the only point, the trucker came out of range =====
 
     [Fact]
-    public async Task FUP204_AnOutOfRangeAttemptByT8_GoesToTheAdmin_NoFreezeNoDisputeNoR12()
+    public async Task FUP204_AnOutOfRangeAttemptByT8_IsTheSystemsDispute_WithItsOwnReason_NeverDeliveryOverdue()
+    {
+        Serve(OutOfRangeOrder());
+
+        var actual = await RunAsync();
+
+        Assert.Contains("\"dropoffJudged\":\"1\"", actual.Body);
+        // Frozen and disputed as the overdue path, but with the reason R12 does not read: an admin decides the verdict.
+        await AssertDisputed(DropoffJudgement.OutOfRangeReason);
+        await _orders.DidNotReceive().UpdateAsync(OrderId, Arg.Is<Dictionary<string, object>>(f =>
+            f.ContainsKey(DropoffJudgement.DisputeReasonField) && (string)f[DropoffJudgement.DisputeReasonField] == DropoffJudgement.OverdueReason),
+            Arg.Any<int>());
+        await _orders.DidNotReceive().TryEnterAdminQueueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string>());
+        Assert.Contains("outcome=disputed", Logs);
+        Assert.Contains($"reason={DropoffJudgement.OutOfRangeReason}", Logs);
+    }
+
+    [Fact]
+    public async Task FUP204_AnOutOfRangeAttempt_WithMoneyThatCannotBeFrozen_GoesToTheAdminQueue()
+    {
+        Serve(OutOfRangeOrder());
+        _escrow["refundReason"] = "order_cancelled";
+
+        await RunAsync();
+
+        await AssertNotFrozen();
+        await AssertNoOrderWrite();
+        await _orders.Received(1).TryEnterAdminQueueAsync(OrderId, DropoffJudgement.OutOfRangeReason, EscrowId, Arg.Any<string>(), "in_transit");
+        await _orders.Received(1).TryStampAsync(OrderId,
+            Arg.Is<Dictionary<string, object>>(f => (string)f[DropoffJudgement.Field] == DropoffJudgement.Outcome.Queued),
+            Arg.Any<IReadOnlyDictionary<string, string>>());
+    }
+
+    [Fact]
+    public async Task ASystemOutOfRangeDisputeWhoseOrderWriteWasLost_IsFinished()
+    {
+        Serve(OutOfRangeOrder());
+        var disputed = Delivery("disputed");
+        disputed["disputedBy"] = DropoffJudgement.SystemActor;
+        disputed["disputeReason"] = DropoffJudgement.OutOfRangeReason;
+        _deliveries.GetByIdAsync(DeliveryId, true).Returns(disputed);
+
+        await RunAsync();
+
+        await AssertNotFrozen();
+        await _orders.Received(1).UpdateAsync(OrderId, Arg.Is<Dictionary<string, object>>(f =>
+            (string)f["status"] == "disputed" && (string)f[DropoffJudgement.DisputeReasonField] == DropoffJudgement.OutOfRangeReason), 9);
+    }
+
+    [Fact]
+    public async Task TheOrdersOwnQueueEntryAlreadyStanding_IsNoAlarm()
+    {
+        // An earlier run wrote the entry, then its stamp failed: the entry is the order's own.
+        var order = Order(TimeSpan.FromMinutes(-30));
+        Serve(order);
+        _escrow["refundReason"] = "order_cancelled";
+        _orders.TryEnterAdminQueueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(false);
+        order[AdminQueueFields.Marker] = AdminQueueFields.MarkerOpen;
+        order[AdminQueueFields.Reason] = DropoffJudgement.OverdueReason;
+
+        await RunAsync();
+
+        Assert.DoesNotContain(OrderCronFunction.DropoffQueueNotWrittenToken, Logs);
+        await _orders.Received(1).TryStampAsync(OrderId,
+            Arg.Is<Dictionary<string, object>>(f => (string)f[DropoffJudgement.Field] == DropoffJudgement.Outcome.Queued),
+            Arg.Any<IReadOnlyDictionary<string, string>>());
+    }
+
+    /// <summary>T8 passed; the trucker came 5 hours before it, out of range of every point (FUP-204).</summary>
+    private Dictionary<string, object> OutOfRangeOrder()
     {
         var order = Order(TimeSpan.FromMinutes(-30));
         var attempt = CheckIn(hoursAgo: 5, measured: false);
         attempt[PickupJudgement.EntryOutOfRange] = true;
         order[DropoffJudgement.AttemptField] = attempt;
-        Serve(order);
-
-        var actual = await RunAsync();
-
-        Assert.Contains("\"dropoffJudged\":\"1\"", actual.Body);
-        await AssertNotFrozen();
-        await AssertNoOrderWrite();
-        await _deliveries.DidNotReceive().TryMarkDropoffDisputedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<string>(), Arg.Any<string>());
-        await _orders.Received(1).TryEnterAdminQueueAsync(OrderId, DropoffJudgement.OutOfRangeReason, EscrowId, Arg.Any<string>(), "in_transit");
-        await _orders.Received(1).TryStampAsync(OrderId,
-            Arg.Is<Dictionary<string, object>>(f => (string)f[DropoffJudgement.Field] == DropoffJudgement.Outcome.Queued),
-            Arg.Any<IReadOnlyDictionary<string, string>>());
-        Assert.Contains("outcome=queued", Logs);
+        return order;
     }
 
     [Fact]

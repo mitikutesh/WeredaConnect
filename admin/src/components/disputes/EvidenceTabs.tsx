@@ -127,13 +127,17 @@ export function TimelineTab({ evidence }: { evidence: DisputeEvidence }) {
 export function PhotosTab({ evidence }: { evidence: DisputeEvidence }) {
   const { t } = useLocale();
   const delivery = evidence.delivery ?? {};
-  const handoffAt = (leg: "pickup" | "dropoff") =>
-    evidence.handoffs.find((h) => (leg === "pickup" ? h.leg === "pickup" : h.leg !== "pickup"));
+  const handoffAt = (leg: "pickup" | "dropoff" | "arrival") =>
+    leg === "arrival" ? undefined : evidence.handoffs.find((h) => (leg === "pickup" ? h.leg === "pickup" : h.leg !== "pickup"));
+  // ESC-36: the trucker's arrival photo at the drop-off, shown only when the delivery has one.
+  const legs = (["pickup", "dropoff", "arrival"] as const).filter(
+    (leg) => leg !== "arrival" || (typeof delivery.arrivalPhotoUrl === "string" && delivery.arrivalPhotoUrl !== ""),
+  );
 
   return (
     <Card>
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-        {(["pickup", "dropoff"] as const).map((leg) => {
+        {legs.map((leg) => {
           const url = typeof delivery[`${leg}PhotoUrl`] === "string" ? String(delivery[`${leg}PhotoUrl`]) : "";
           const name = t(`transactions.${leg}Photo`);
           const handoff = handoffAt(leg);

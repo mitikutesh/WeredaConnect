@@ -381,6 +381,7 @@ public partial class SyncFunction
         DropoffJudgement.Field, DropoffJudgement.JudgedAtField, DropoffJudgement.DeadlineField, DropoffJudgement.CheckInField,
         DropoffJudgement.OrderLatitudeField, DropoffJudgement.OrderLongitudeField,
         DropoffJudgement.TripLatitudeField, DropoffJudgement.TripLongitudeField,
+        DropoffJudgement.AttemptField, DropoffJudgement.TripReadField,
         // ESC-16: the order's next deadline (DeadlineIndex); every order write derives it itself.
         OrderDeadlines.AtField, OrderDeadlines.KindField, OrderDeadlines.ShardField
     };

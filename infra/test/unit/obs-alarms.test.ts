@@ -183,6 +183,7 @@ describe('ESC-36: an overdue delivery (T8)', () => {
     'ORDER_DELIVERY_OVERDUE orderId=ord-1 deliveryId=del-1 outcome=disputed escrow=frozen: no delivery by its deadline; an admin reviews the dispute and the trucker.',
     'ORDER_DELIVERY_OVERDUE orderId=ord-1 deliveryId=del-1 outcome=queued escrow=RefusedRefundScheduled: no delivery by its deadline; an admin reviews the dispute and the trucker.',
     'DROPOFF_QUEUE_NOT_WRITTEN orderId=ord-1 reason=silent_buyer queued=hold-cap: the order waits in the admin queue for another reason; decide its drop-off too.',
+    'ORDER_DELIVERY_OVERDUE orderId=ord-1 deliveryId=del-1 outcome=disputed escrow=frozen reason=dropoff_out_of_range: no delivery by its deadline; an admin reviews the dispute and the trucker.',
   ];
   const NEIGHBOURS = [
     'DROPOFF_JUDGED orderId=ord-1 outcome=delivery_overdue',

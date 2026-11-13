@@ -280,7 +280,7 @@ public sealed class DropoffJudgementDynamoDbTests
     }
 
     [LocalDynamoDbFact]
-    public async Task FUP204_TheBuyersPinTheOnlyPoint_ATruckerWhoCameOutOfRange_GoesToAnAdmin_NotToTheOverdueDispute()
+    public async Task FUP204_TheBuyersPinTheOnlyPoint_ATruckerWhoCameOutOfRange_GetsTheOutOfRangeDispute_NotTheOverdueOne()
     {
         // The trip has no destination, so the buyer's own pin is the only point; the trucker's photo-backed
         // check-in more than 5 km from it is kept as an attempt, never as a check-in.
@@ -300,15 +300,18 @@ public sealed class DropoffJudgementDynamoDbTests
         var response = await RunAsync(Cron());
 
         response.Body.Should().Contain("\"dropoffJudged\":\"1\"");
+        // The system's dispute with the reason R12 does not read: the money frozen, an admin decides the verdict.
         var order = await ReadOrderAsync();
-        order["status"].Should().Be("in_transit");
-        order[DropoffJudgement.Field].Should().Be(DropoffJudgement.Outcome.Queued);
-        order[AdminQueueFields.Reason].Should().Be(DropoffJudgement.OutOfRangeReason);
-        order.Should().NotContainKey(DropoffJudgement.DisputeReasonField, "no R12");
+        order["status"].Should().Be("disputed");
+        order[DropoffJudgement.Field].Should().Be(DropoffJudgement.Outcome.DropoffOutOfRange);
+        order[DropoffJudgement.DisputeReasonField].Should().Be(DropoffJudgement.OutOfRangeReason, "not delivery_overdue: no R12");
+        order.Should().NotContainKey(AdminQueueFields.Reason);
         OrderDeadlines.Stored(order).Should().BeNull();
         (await new EscrowRepository(Ddb, _db.Escrows).GetByIdAsync($"escrow-order-{OrderId}", consistentRead: true))!["status"]
-            .Should().Be("escrowed", "nothing is frozen");
-        (await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!["status"].Should().Be("inTransit");
+            .Should().Be("disputed");
+        var delivery = (await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!;
+        delivery["status"].Should().Be("disputed");
+        delivery["disputeReason"].Should().Be(DropoffJudgement.OutOfRangeReason);
     }
 
     [LocalDynamoDbFact]

@@ -624,6 +624,7 @@
     "dropoffLocation": "የመድረሻ ቦታ",
     "pickupPhoto": "የመነሻ ፎቶ",
     "dropoffPhoto": "የመድረሻ ፎቶ",
+    "arrivalPhoto": "የመድረሻ ፎቶ (አጓጓዡ፣ በማውረጃው)",
     "openPhoto": "{label}ን በሙሉ መጠን ይክፈቱ",
     "detail": "የግብይት ዝርዝር",
     "parties": "ተሳታፊዎች",

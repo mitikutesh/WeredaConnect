@@ -28,7 +28,7 @@ namespace WeredaConnect.Server.Helpers;
 /// R12 turns into <c>DELIVERY_OVERDUE</c> on the trucker. It rests on the trucker's own missing check-in
 /// alone (FUP-204): once the trucker checked in, the buyer's silence leads to T9, never to T8; and a trucker
 /// who tried by T8 but was out of range of every point (<see cref="AttemptField"/>: the only point may be the
-/// buyer's own pin) goes to the admin queue instead, with no dispute and no R12.</item>
+/// buyer's own pin) gets the dispute <c>dropoff_out_of_range</c> instead, which R12 does not read.</item>
 /// <item>T9: a drop-off check-in, and the buyer neither confirmed nor disputed within
 /// <see cref="OrderTimings.SilentBuyerWindow"/> (48 hours) of its receipt: the order cron confirms the
 /// delivery as the system when the evidence is complete (the check-in measured within 5 km, the arrival
@@ -62,9 +62,10 @@ public static class DropoffJudgement
     /// <summary>
     /// Server-only order map: the trucker's first drop-off check-in that was more than 5 km from every drop-off
     /// point, with its photo attached (the entry fields, <c>outOfRange: true</c>). It never counts as a
-    /// check-in, but at T8 it sends the order to the admin queue instead of the overdue dispute: the buyer's
-    /// own pin can be the only point, and a buyer who pinned far away must not be able to put
-    /// <c>DELIVERY_OVERDUE</c> on a trucker who came (FUP-204).
+    /// check-in, but at T8 the dispute takes the reason <c>dropoff_out_of_range</c> instead of
+    /// <c>delivery_overdue</c>, which reputation rule R12 does not read: the buyer's own pin can be the only
+    /// point, and a buyer who pinned far away must not be able to put <c>DELIVERY_OVERDUE</c> on a trucker who
+    /// came (FUP-204). An admin decides the dispute through the normal verdict.
     /// </summary>
     public const string AttemptField = "dropoffAttempt";
 
@@ -120,6 +121,12 @@ public static class DropoffJudgement
         /// <summary>T8: no drop-off check-in by the deadline; the system opened a dispute.</summary>
         public const string DeliveryOverdue = "delivery_overdue";
 
+        /// <summary>
+        /// T8 with the trucker's out-of-range attempt (FUP-204): the system opened a dispute with this reason, which
+        /// reputation rule R12 does not read; an admin decides through the verdict.
+        /// </summary>
+        public const string DropoffOutOfRange = "dropoff_out_of_range";
+
         /// <summary>The money could be neither confirmed nor frozen: the admin queue, nothing moved.</summary>
         public const string Queued = "queued";
     }
@@ -129,8 +136,8 @@ public static class DropoffJudgement
 
     public const string SilentBuyerReason = Outcome.SilentBuyer;
 
-    /// <summary>The admin queue reason of a T8 whose trucker checked in out of range (<see cref="AttemptField"/>): no dispute, no R12.</summary>
-    public const string OutOfRangeReason = "dropoff_out_of_range";
+    /// <summary>The dispute reason of a T8 whose trucker checked in out of range (<see cref="AttemptField"/>): no R12.</summary>
+    public const string OutOfRangeReason = Outcome.DropoffOutOfRange;
 
     /// <summary>The refusal of a drop-off check-in sent without its attached arrival photo (permanent).</summary>
     public const string PhotoRequiredCode = "CHECKIN_PHOTO_REQUIRED";
@@ -305,7 +312,7 @@ public static class DropoffJudgement
         /// <summary>T8: no counted drop-off check-in and no out-of-range attempt.</summary>
         DeliveryOverdue,
 
-        /// <summary>T8 with an out-of-range attempt by the trucker (<see cref="AttemptField"/>): the admin queue.</summary>
+        /// <summary>T8 with an out-of-range attempt by the trucker (<see cref="AttemptField"/>): the dispute <c>dropoff_out_of_range</c>.</summary>
         OutOfRangeReview,
 
         /// <summary>T9: everything is in place to confirm for the silent buyer.</summary>
@@ -319,8 +326,8 @@ public static class DropoffJudgement
     /// The decision on a pending order whose delivery is still on the road, at the due time
     /// <see cref="Due"/> gave. FUP-204: with a counted check-in it is never T8, whatever the buyer did (a
     /// buyer who withholds the scan makes a T9). Without one, T8; but when the trucker tried to check in by
-    /// T8 and was out of range (the only point may be the buyer's own pin), an admin decides instead of the
-    /// overdue dispute, so the buyer's pin cannot put <c>DELIVERY_OVERDUE</c> on a trucker who came.
+    /// T8 and was out of range (the only point may be the buyer's own pin), the dispute has its own reason,
+    /// which R12 does not read, so the buyer's pin cannot put <c>DELIVERY_OVERDUE</c> on a trucker who came.
     /// </summary>
     public static Decision Decide(
         IReadOnlyDictionary<string, object> order, bool arrivalPhoto, bool truckerHeld, bool escrowPlain)
@@ -360,13 +367,13 @@ public static class DropoffJudgement
            && (Str(escrow, "deliveryId").Length == 0 || Str(escrow, "deliveryId") == deliveryId);
 
     /// <summary>
-    /// The system's dispute reason a delivery carries (<see cref="OverdueReason"/> or
+    /// The system's dispute reason a delivery carries (<see cref="OverdueReason"/>, <see cref="OutOfRangeReason"/> or
     /// <see cref="SilentBuyerReason"/>), when the order cron opened it; else null.
     /// </summary>
     public static string? SystemDisputeReasonOf(IReadOnlyDictionary<string, object> delivery)
         => Str(delivery, "status") == "disputed"
            && Str(delivery, "disputedBy") == SystemActor
-           && Str(delivery, "disputeReason") is OverdueReason or SilentBuyerReason
+           && Str(delivery, "disputeReason") is OverdueReason or SilentBuyerReason or OutOfRangeReason
             ? Str(delivery, "disputeReason")
             : null;
 

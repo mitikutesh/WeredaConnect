@@ -300,6 +300,14 @@ public class ReputationDerivationTests
             .Should().BeEmpty();
 
     [Fact]
+    public void FUP204_AnOutOfRangeDispute_IsNoEvent_SoTheBuyersFarPinCostsTheTruckerNothing()
+        => Derive(
+                Order(("status", "in_transit"), ("truckerResponse", "accepted"), ("dropoffJudgement", "pending")),
+                Order(("status", "disputed"), ("truckerResponse", "accepted"), ("disputeReason", "dropoff_out_of_range"),
+                    ("dropoffJudgement", "dropoff_out_of_range")))
+            .Should().BeEmpty();
+
+    [Fact]
     public void ESC36_AnAutoConfirm_IsNoEvent()
         => Derive(
                 Order(("status", "in_transit"), ("truckerResponse", "accepted"), ("dropoffJudgement", "pending")),

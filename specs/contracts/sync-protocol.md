@@ -1563,7 +1563,8 @@ is unsupported as before.
   `checkIns.arrived_dropoff`, and the new fields `dropoffJudgement`, `dropoffJudgedAt`,
   `dropoffDeadlineAt` and `disputeReason` (`order-lifecycle.md` 2.18.0); never the stamped points or the
   raw check-in. A delivery the order cron confirmed for a silent buyer carries `autoConfirmedAt`; one it
-  disputed carries `disputedBy: system` and `disputeReason` `delivery_overdue` or `silent_buyer`. A client
+  disputed carries `disputedBy: system` and `disputeReason` `delivery_overdue`, `dropoff_out_of_range` or
+  `silent_buyer`. A client
   treats them as any server change of the row (server wins).
 
 Clients: FUP-336 (the trucker's "Arrived at drop-off" with GPS and the arrival photo, queued offline, the

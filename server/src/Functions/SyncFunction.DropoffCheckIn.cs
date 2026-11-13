@@ -259,7 +259,8 @@ public partial class SyncFunction
             return nowUtc <= deadline ? CheckInWindow.Open : CheckInWindow.Late;
         }
 
-        return ItemString(order, DropoffJudgement.Field) is DropoffJudgement.Outcome.DeliveryOverdue or DropoffJudgement.Outcome.Queued
+        return ItemString(order, DropoffJudgement.Field)
+                is DropoffJudgement.Outcome.DeliveryOverdue or DropoffJudgement.Outcome.DropoffOutOfRange or DropoffJudgement.Outcome.Queued
             ? CheckInWindow.Late
             : CheckInWindow.Closed;
     }

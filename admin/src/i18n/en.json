@@ -624,6 +624,7 @@
     "dropoffLocation": "Dropoff location",
     "pickupPhoto": "Pickup photo",
     "dropoffPhoto": "Drop-off photo",
+    "arrivalPhoto": "Arrival photo (the trucker, at the drop-off)",
     "openPhoto": "Open the {label} full size",
     "detail": "Transaction Detail",
     "parties": "Parties",

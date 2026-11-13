@@ -242,7 +242,6 @@ public partial class AdminFunction
             exit == PickupReopen.Exit.Pending ? "The pickup is open again until the new deadline." : "The handoff is recorded as picked up.");
     }
 
-    /// <summary>400 <c>PICKUP_REOPEN_INVALID</c> naming the first field that is missing or out of range, or null.</summary>
     /// <summary>
     /// ESC-36: the drop-off stamp of a confirmed handoff: the pickup is now (the delivery's <c>pickedUpAt</c> this
     /// transaction writes), the order's own point and the trip's destination as they are. A trip that cannot be read
@@ -272,6 +271,7 @@ public partial class AdminFunction
         return DropoffJudgement.PickupStamp(now, OrderDeliveryLocation.Of(order), tripPoint, tripRead, OrderTimings.Current, now);
     }
 
+    /// <summary>400 <c>PICKUP_REOPEN_INVALID</c> naming the first field that is missing or out of range, or null.</summary>
     private static APIGatewayProxyResponse? ReopenRequestProblem(PickupReopenRequest body)
     {
         if (body.Exit is not (PickupReopen.Exit.Pending or PickupReopen.Exit.HandoffConfirmed))
