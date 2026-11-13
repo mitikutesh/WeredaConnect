@@ -1089,9 +1089,12 @@ only with `COMMITMENTS_ENABLED`; before it goes on, the client FUP-336 and the b
   trucker, only while the order is `pickup_confirmed` or `in_transit` with `dropoffJudgement: pending` and a
   counted check-in, and only with the judgement on (`dropoffClassification` with `COMMITMENTS_ENABLED`); left
   out otherwise (nulls are omitted), never in the admin view. Computed on every read with the reading
-  Lambda's order timings, never stored, so a changed `silent-buyer-hours` shows as soon as the cron judges by
-  it (each container reads the parameters once, so a change reaches the readers as their containers recycle,
-  like the cron). The clients show it instead of their own receipt plus 48 hours estimate, which stays the
+  Lambda's order timings, never stored. Each container reads the parameters once, so a change reaches the
+  readers and the cron as their containers recycle, not at the same moment: after raising
+  `silent-buyer-hours`, update the order-cron Lambda's configuration (any change forces a cold start) so it
+  does not judge at the old, shorter window while the parties already see the later time; after lowering it,
+  the cron still judges an order at its stored `nextDeadlineAt` (the old, later T9) until the daily
+  `deadline_repair`, so the shown time can be up to a day earlier than the judgement (FUP-394). The clients show it instead of their own receipt plus 48 hours estimate, which stays the
   fallback for a row without it.
 - **Deadline index and repair.** Both kinds are in the sweep's partition (`0`). A judged order has no
   drop-off deadline. With the flag on, the daily `deadline_repair` also walks `pickup_confirmed` and `in_transit`. With the
