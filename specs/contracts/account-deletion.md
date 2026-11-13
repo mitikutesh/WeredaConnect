@@ -1,7 +1,7 @@
 # Account Deletion Contract
 
 ## Version
-1.7.1
+1.7.2
 
 ## Parties
 - **Mobile / Web** (client, ACC-03): Profile > "Delete account" flow, step-up re-auth, local wipe. Mobile and web are a platform pair and ship together.
@@ -307,7 +307,7 @@ Client-side drafts (unsynced Isar rows, the sync queue, unsent message text) exi
 |-------|--------|
 | Cognito user pool | `AdminUserGlobalSignOut` (step 6), then `AdminDeleteUser` (step 12). The username is the `userId` |
 | SNS platform endpoints | Deleted with the device-tokens rows |
-| S3 uploads bucket | Delete the object at `profilePhotoRef` if set (there is no upload pipeline for it today, so this is usually a no-op). Delivery photos under `photos/` are evidence and are kept under the existing lifecycle rule (Glacier after 1 year) |
+| S3 uploads bucket | Delete the object at `profilePhotoRef` if set (there is no upload pipeline for it today, so this is usually a no-op). Delivery photos are evidence and are kept: since `delivery-verification-api.md` 2.14.0 (FUP-140) each attached photo's copy under `evidence/photos/`, which no lifecycle rule touches (no Glacier); the uploads under `uploads/photos/` expire 30 days after the upload once the environment's expiry rule is on |
 | CloudWatch logs | Not rewritten. Lambda logs expire after 3 months by default; the escrow, escrow cron, Telebirr webhook and API access logs keep 1 year |
 | Point-in-time recovery | Every table built with the shared `WeredaDynamoTable` construct has PITR (35 days); the dev-only `fayda-mock-codes` table has none. Restores can bring deleted data back. Before a restored table is put in service, ops runs the sweep's `reapply` action for every `userId` found in either replay source: transaction-audit `account_deleted` rows (checked writes, so none is missing) and the live users tombstones. `reapply` is idempotent like every step |
 | Fayda, Telebirr | No call is made. The platform stores no Fayda tokens. Telebirr keeps its own transaction records under its own policy |
@@ -446,6 +446,7 @@ Not built yet (follow-ups):
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.7.2 | 2026-11-13 | The S3 uploads bucket row: delivery photos are kept as their copies under `evidence/photos/` (FUP-140, `delivery-verification-api.md` 2.14.0); the old line named a `photos/` Glacier rule that matched no key and is removed. No behaviour change |
 | 1.7.1 | 2026-11-12 | The escrow-idempotency retention row lists the FUP-05 manual payout reference rows (`payout-ref#`, 400 days, no party data; escrow-protocol 2.12.0). No behaviour change |
 | 1.7.0 | 2026-11-11 | Appeal photos (ESC-29, `reputation-api.md` 1.2.0 section 5): before the user's `reputation-events` partition is deleted, every object version and delete marker under `uploads/appeals/{userId}/` in the private uploads bucket is deleted (the bucket is versioned), counted as `appealPhotos` in the `account_deleted` audit metadata. The step runs only while `reputationPenalties` is on: with the flag off no appeal photo can exist, the deletion makes no S3 call and cannot stick on this step (`appealPhotos=0`). A failed delete fails the step and the deletion job runs it again. Photos uploaded while the flag was on need the step, so the flag must not be turned off again without it having run for them (TASK FUP-166). Both deletion Lambdas may list versions and delete objects under `uploads/appeals/` only. No wire change |
 | 1.6.0 | 2026-11-07 | Per-table policy: `reputation-events` (ESC-28) is Delete: step 10 deletes the user's partition (penalties, appeals, restrictions, overrides, tier and heal rows) after the inbox; Lookups row; both deletion Lambdas get Query and DeleteItem on the table; the `account_deleted` metadata counts `reputationEvents`. The reputation writers already refuse a deleting account. No wire change |
@@ -461,5 +462,5 @@ Not built yet (follow-ups):
 
 ---
 
-**Last Updated**: 2026-11-11
-**Version**: 1.7.0
+**Last Updated**: 2026-11-13
+**Version**: 1.7.2

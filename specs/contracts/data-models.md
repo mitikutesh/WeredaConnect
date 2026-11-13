@@ -1,6 +1,6 @@
 # Data Models Contract
 
-**Version**: 1.21.0
+**Version**: 1.22.0
 **Last Updated**: 2026-11-13
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
@@ -167,6 +167,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `arrivalPhotoRef` | String? | No | The trucker's arrival photo at the drop-off, `uploads/photos/{deliveryId}/arrival-{ms}.{webp\|jpg}` (1.17.0, ESC-36, behind `dropoffClassification`; `arrivalPhotoUrl` on the detail read) | The evidence of the trucker's drop-off check-in |
 | `autoConfirmedAt` | DateTime? | No | When the order cron confirmed the delivery for a silent buyer (1.17.0, ESC-36 T9) | Absent when the buyer confirmed |
 | `arrivalPhotoLateAt` | DateTime? | No | Server-only: when the arrival photo was attached as late evidence on the order cron's T8 dispute (1.19.0, FUP-373, behind `dropoffClassification`) | Absent on one taken on the road; read by the admin evidence, not stored by the apps |
+| `dropoffPhotoLateAt` | DateTime? | No | Server-only: when the buyer's drop-off photo was attached as late evidence on a dispute the order cron opened, without the buyer's confirm (1.21.0, FUP-140) | Absent on the photo of a confirmed delivery; read by the admin evidence, not stored by the apps |
 | `version` | int | Yes | Optimistic concurrency control | Incremented on each update |
 
 **Indexes**:
@@ -516,6 +517,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.19.0 | 2026-11-13 | Delivery gains the server-only `arrivalPhotoLateAt` (FUP-373, `delivery-verification-api.md` 2.13.0): written with an arrival photo attached as late evidence on the order cron's T8 dispute, returned on the delivery reads for the admin's evidence. The apps neither store nor send it (the sync field whitelist keeps it out). |
 | 1.20.0 | 2026-11-13 | Order gains `dropoffConfirmAt` (FUP-370, order-lifecycle 2.22.0): T9 as the server computes it with SSM `silent-buyer-hours`, in `GET /orders`, `GET /orders/{id}` and the `/sync` order rows for the order's parties while the drop-off waits for T9; computed on every read, never stored on the server. The Order Isar schema and web mirror store it (read by the shared order parse, so the pulls, the web repository and the conflict echo fill it; a row without it clears the copy), and the drop-off card's T9 prefers it over the receipt plus 48 hours estimate. Isar builds the new field on the next open | @Server @Mobile |
 | 1.21.0 | 2026-11-13 | The order row gains the server-only reminder markers `pickupReminderAt` and `dropoffReminderAt` (order-lifecycle 2.23.0, notifications-api 1.6.0; FUP-286 and FUP-338): written once by the order cron before a pending pickup judgement and before T9, dropped from client payloads, never returned in the `OrderDto`; no client schema change. 1.19.0 is FUP-373 and 1.20.0 FUP-370 | @Server |
+| 1.22.0 | 2026-11-13 | Delivery gains the server-only `dropoffPhotoLateAt` (FUP-140, `delivery-verification-api.md` 2.14.0): written with the buyer's drop-off photo attached as late evidence on a dispute the order cron opened (T8 or T9) that no admin decided, returned on the delivery reads for the admin's evidence. The apps neither store nor send it. The server-only kept-copy fields of 2.14.0 (`{type}PhotoKeptRef`, `{type}PhotoKeptVersionId`) never leave the server. |
 
 ---
 

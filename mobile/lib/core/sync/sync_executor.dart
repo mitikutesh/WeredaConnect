@@ -922,6 +922,7 @@ class SyncExecutor {
     final rejected = <(SyncOperation, String?)>[];
     final heldForUpdate = <(SyncOperation, String)>[];
     final stepUpHeld = <String>{};
+    final conflictedDeliveries = <(SyncOperation, Map<String, dynamic>)>[];
 
     // Build lookup map for O(1) access by operationId
     final opMap = {for (final op in operations) op.operationId: op};
@@ -986,6 +987,9 @@ class SyncExecutor {
             // Fall back to legacy conflict handler if provided
             else if (_onConflict != null) {
               await _onConflict(operation, serverData, serverVersion ?? 0);
+            }
+            if (operation.entityType == 'delivery') {
+              conflictedDeliveries.add((operation, serverData));
             }
           }
           await _syncQueue.markAsSynced(operationId);
@@ -1083,6 +1087,7 @@ class SyncExecutor {
     }
 
     await _settleRejections(rejected);
+    await _settleConflictedHandoffs(conflictedDeliveries);
     _announceHeldForUpdate(heldForUpdate);
 
     // An operation held for a step-up that got any other answer now (sent,
@@ -1522,6 +1527,30 @@ class SyncExecutor {
     announcements.forEach(_securityEvents.emit);
 
     await _settleLiveTrip(rejected);
+  }
+
+  /// FUP-140: a `delivery` update answered `conflict` was not taken (server
+  /// wins). The handoff photo queued behind a pickup or delivery confirm
+  /// that the server's row does not show is rejected, silently, as behind a
+  /// refused handoff ([handoffPhotoTypesUndoneByConflict]): the server holds
+  /// a photo back until its handoff is on the row, so it could only wait.
+  /// Run after the batch, so a photo of the same batch that the server
+  /// answered `deferred` (and that went back to pending) goes too.
+  Future<void> _settleConflictedHandoffs(
+    List<(SyncOperation, Map<String, dynamic>)> conflicted,
+  ) async {
+    for (final (operation, serverData) in conflicted) {
+      for (final type in handoffPhotoTypesUndoneByConflict(
+        operation.action,
+        _statusOf(operation),
+        serverData,
+      )) {
+        await _syncQueue.rejectOpenOperationsFor(
+          deliveryPhotoEntityType,
+          deliveryPhotoEntityId(operation.entityId, type),
+        );
+      }
+    }
   }
 
   /// Tell the check-in engine (LT-08) what a batch's refusals mean for it:

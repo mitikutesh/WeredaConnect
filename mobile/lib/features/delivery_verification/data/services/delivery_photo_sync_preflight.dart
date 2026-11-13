@@ -51,7 +51,8 @@ typedef DeliveryPhotoAttached = Future<void> Function({
 /// handoff has its photo, the delivery was cancelled), a file that is gone, a
 /// delivery the server does not know once none of its own operations waits
 /// on the phone ([notFoundGrace] after the photo was queued), and the
-/// [maxPutRefusals]th refused PUT all answer true without a key: the server
+/// [maxPutRefusals]th refused PUT (an upload S3 timed out is not a refusal,
+/// FUP-140) all answer true without a key: the server
 /// then refuses the operation for good (`DELIVERY_PHOTO_INVALID`) and the
 /// queue settles it, instead of the photo waiting forever.
 class DeliveryPhotoSyncPreflight {
@@ -180,6 +181,8 @@ class DeliveryPhotoSyncPreflight {
 
   /// A PUT that did not reach S3, or got a 5xx, waits for the next run. A
   /// refusal (4xx) is counted, and the [maxPutRefusals]th gives the photo up.
+  /// FUP-140: S3's `RequestTimeout` on a stalled upload is a 400 but no
+  /// refusal ([DeliveryPhotoUploader.isStalledUpload]): it waits, uncounted.
   Future<bool> _putFailed(
     SyncOperation operation,
     Map<String, dynamic> data,
@@ -187,7 +190,10 @@ class DeliveryPhotoSyncPreflight {
     DioException e,
   ) async {
     final status = e.response?.statusCode;
-    if (status == null || status < 400 || status >= 500) {
+    if (status == null ||
+        status < 400 ||
+        status >= 500 ||
+        DeliveryPhotoUploader.isStalledUpload(e)) {
       debugPrint('[DeliveryPhotoSyncPreflight] photo PUT failed, will retry: '
           '${e.type}');
       return false;

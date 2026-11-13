@@ -883,15 +883,25 @@ export class DatabaseStack extends cdk.Stack {
           expiration: cdk.Duration.days(7),
           prefix: "temp/",
         },
+        // FUP-140 (delivery-verification-api.md 2.14.0): the presigned PUT writes every handoff photo
+        // under uploads/photos/, attached or not (web retakes, uploads never attached). The attach
+        // copies the photo it pins to evidence/photos/, which no rule here touches, and the reads
+        // sign that copy, so uploads/photos/ only holds uploads: current versions expire 30 days
+        // after the upload (S3 then removes the expired delete markers), noncurrent ones (a second
+        // PUT within the presign window, an expired upload) a day later. Disabled until the photo
+        // copy backfill has run in the environment (`deliveryPhotoUploadExpiry`, deployment.md 3e):
+        // photos attached before 2.14.0 are read from this prefix until then.
+        //
+        // No Glacier transition for any photo (the old `photos/` rule matched no key and is gone):
+        // an archived object answers a presigned GET with 403 InvalidObjectState until someone
+        // restores it, so the delivery detail and the admin's dispute evidence would break, and
+        // photos of at most 200 KiB save next to nothing in an archive class.
         {
-          // Move delivery photos to Glacier after 1 year (per escrow-protocol.md)
-          transitions: [
-            {
-              storageClass: s3.StorageClass.GLACIER,
-              transitionAfter: cdk.Duration.days(365),
-            },
-          ],
-          prefix: "photos/",
+          id: "DeliveryPhotoUploadsExpiry",
+          enabled: envConfig.deliveryPhotoUploadExpiry === true,
+          prefix: "uploads/photos/",
+          expiration: cdk.Duration.days(30),
+          noncurrentVersionExpiration: cdk.Duration.days(1),
         },
       ],
     });

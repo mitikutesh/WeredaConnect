@@ -11,10 +11,12 @@ import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
 /// How long the farmer's optional fix may take before "Crops are ready" goes
 /// without it: GPS never holds the farmer's check-in back for long.
@@ -76,8 +78,6 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
   /// open, instead of a tap past the deadline getting refused.
   Timer? _edge;
 
-  static const Duration _maxEdgeWait = Duration(hours: 12);
-
   Order get _order => widget.order;
 
   DateTime _now() => (widget.clock?.call() ?? DateTime.now()).toUtc();
@@ -105,20 +105,8 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
   /// order takes no check-ins.
   void _scheduleEdge() {
     _edge?.cancel();
-    _edge = null;
-    if (!isPickupJudgementPending(_order)) return;
     final now = _now();
-    final deadline = _order.pickupDeadlineAt;
-    final edges = [
-      checkInOpensAt(_order),
-      if (deadline != null) deadline.add(const Duration(seconds: 1)),
-    ].whereType<DateTime>().where((at) => at.isAfter(now)).toList()
-      ..sort();
-    if (edges.isEmpty) return;
-    // At most [_maxEdgeWait] at a time: a browser fires a longer timeout at
-    // once (24.8 days overflows it), and a rebuild on the way is harmless.
-    final wait = edges.first.difference(now);
-    _edge = Timer(wait > _maxEdgeWait ? _maxEdgeWait : wait, () {
+    _edge = checkInEdgeTimer(nextPickupCheckInEdge(_order, now), now, () {
       if (!mounted) return;
       setState(() {});
       _scheduleEdge();
@@ -361,6 +349,20 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
     } on Object {
       return (fix: null, deniedForever: false);
     }
+  }
+}
+
+/// What a check-in ([CheckInSaved]) tells its giver, wherever it was given
+/// (the order detail, the delivery detail): sent, or saved on the phone to
+/// send later (E-5). A repeat sent nothing: it says it was already given.
+void showCheckInSaved(BuildContext context, CheckInSaved state) {
+  final l10n = AppLocalizations.of(context)!;
+  if (state.alreadyGiven) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(l10n.checkInAlreadyGiven)),
+    );
+  } else {
+    showSavedOrSent(context, sent: l10n.checkInSent).ignore();
   }
 }
 

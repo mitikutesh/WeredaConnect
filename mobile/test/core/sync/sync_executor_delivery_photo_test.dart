@@ -344,6 +344,230 @@ void main() {
     expect(await queue.getFailedCount(), 0);
   });
 
+  group('FUP-140: a handoff reverted by a conflict', () {
+    Map<String, Object> conflictWith(Map<String, Object?> server) => {
+          'status': 'conflict',
+          'serverVersion': 2,
+          'serverData': {
+            'deliveryId': _deliveryId,
+            'createdAt': '2026-11-12T08:00:00Z',
+            'updatedAt': '2026-11-12T09:00:00Z',
+            ...server,
+          },
+        };
+
+    const handoffWaits = {
+      'status': 'deferred',
+      'message': 'DELIVERY_PHOTO_PENDING: The handoff has not reached the '
+          'server yet. Will retry automatically.',
+    };
+
+    test(
+        'a pickup the server reverted rejects its photo, which the server '
+        'held back in the same batch', () async {
+      await enqueuePickupWithPhoto();
+      // The farmer's QR store moved the version while this phone was offline:
+      // the server keeps its row, still pending.
+      answers['op-pickup'] = conflictWith({'status': 'pending'});
+      answers['op-photo'] = handoffWaits;
+
+      await executor.executeBatch();
+
+      final photo = await queue.getOperation('op-photo');
+      expect(SyncQueue.isRejected(photo!), isTrue);
+      expect(await queue.getPendingCount(), 0);
+      // Silent, as behind a refused handoff: nothing announced, nothing failed.
+      expect(emitted.whereType<SyncOperationRejected>(), isEmpty);
+      expect(await queue.getFailedCount(), 0);
+      expect(cleanedUp, isEmpty);
+    });
+
+    test('a photo still waiting for its upload is rejected too', () async {
+      uploader.answer = () async => throw const NetworkException();
+      await enqueuePickupWithPhoto();
+      // Cancelled while this phone was offline (delivery-verification-api 2.2.0).
+      answers['op-pickup'] = conflictWith({'status': 'cancelled'});
+
+      await executor.executeBatch();
+
+      expect(
+        sentOps().map((op) => op['operationId']),
+        ['op-pickup'],
+      );
+      expect(
+        SyncQueue.isRejected((await queue.getOperation('op-photo'))!),
+        isTrue,
+      );
+    });
+
+    test(
+        'a pickup the server holds anyway (another phone made it) keeps its '
+        'photo, which may still attach', () async {
+      await enqueuePickupWithPhoto();
+      answers['op-pickup'] = conflictWith({
+        'status': 'inTransit',
+        'pickedUpAt': '2026-11-12T08:30:00Z',
+      });
+      answers['op-photo'] = {
+        'status': 'deferred',
+        'message': 'DELIVERY_PHOTO_PENDING: Photo storage is not reachable.',
+      };
+
+      await executor.executeBatch();
+
+      final photo = await queue.getOperation('op-photo');
+      expect(photo!.status, SyncStatus.pending);
+      expect(SyncQueue.isRejected(photo), isFalse);
+    });
+
+    Future<void> enqueueConfirmWithPhotos() async {
+      await queue.enqueue(
+        userId: _userId,
+        entityType: 'delivery',
+        entityId: _deliveryId,
+        action: 'update',
+        data: jsonEncode({'status': 'delivered', 'version': 1}),
+        operationId: 'op-confirm',
+      );
+      for (final type in ['pickup', 'dropoff']) {
+        await queue.enqueue(
+          userId: _userId,
+          entityType: deliveryPhotoEntityType,
+          entityId: deliveryPhotoEntityId(_deliveryId, type),
+          action: 'create',
+          data: jsonEncode({deliveryPhotoLocalPathKey: _path}),
+          operationId: 'op-$type-photo',
+          keyTimestamp: DateTime.utc(2026, 11, 7, 9),
+        );
+      }
+      uploader.answer = () async => throw const NetworkException();
+    }
+
+    test(
+        'a delivery confirm the server reverted rejects the drop-off photo, '
+        "not the pickup's", () async {
+      await enqueueConfirmWithPhotos();
+      // A check-in moved the delivery in transit (a new version) while the
+      // buyer's confirm waited offline.
+      answers['op-confirm'] = conflictWith({
+        'status': 'inTransit',
+        'pickedUpAt': '2026-11-12T08:30:00Z',
+      });
+
+      await executor.executeBatch();
+
+      expect(
+        SyncQueue.isRejected((await queue.getOperation('op-dropoff-photo'))!),
+        isTrue,
+      );
+      expect(
+        (await queue.getOperation('op-pickup-photo'))!.status,
+        SyncStatus.pending,
+      );
+    });
+
+    test(
+        "a delivery confirm that met the system's T8 dispute keeps its "
+        'drop-off photo: the server takes it as late evidence', () async {
+      await enqueueConfirmWithPhotos();
+      answers['op-confirm'] = conflictWith({
+        'status': 'disputed',
+        'pickedUpAt': '2026-11-12T08:30:00Z',
+        'disputedBy': 'system',
+        'disputeReason': 'delivery_overdue',
+      });
+
+      await executor.executeBatch();
+
+      final photo = await queue.getOperation('op-dropoff-photo');
+      expect(photo!.status, SyncStatus.pending);
+      expect(SyncQueue.isRejected(photo), isFalse);
+    });
+
+    test('a dispute an admin decided gives the drop-off photo up', () async {
+      await enqueueConfirmWithPhotos();
+      answers['op-confirm'] = conflictWith({
+        'status': 'disputed',
+        'pickedUpAt': '2026-11-12T08:30:00Z',
+        'disputedBy': 'system',
+        'disputeReason': 'delivery_overdue',
+        'disputeResolution': 'buyer_wins',
+      });
+
+      await executor.executeBatch();
+
+      expect(
+        SyncQueue.isRejected((await queue.getOperation('op-dropoff-photo'))!),
+        isTrue,
+      );
+    });
+  });
+
+  test('FUP-140: which photos a conflicted delivery operation gives up', () {
+    // A create's photos wait for the handoffs queued behind it.
+    expect(
+      handoffPhotoTypesUndoneByConflict('create', 'pending', {'status': 'x'}),
+      isEmpty,
+    );
+    expect(
+      handoffPhotoTypesUndoneByConflict('update', 'pickedUp', {
+        'status': 'pending',
+      }),
+      ['pickup'],
+    );
+    for (final server in <Map<String, dynamic>>[
+      {'status': 'pickedUp'},
+      {'status': 'inTransit'},
+      {'status': 'delivered'},
+      {'status': 'disputed', 'pickedUpAt': '2026-11-12T08:00:00Z'},
+    ]) {
+      expect(
+        handoffPhotoTypesUndoneByConflict('update', 'pickedUp', server),
+        isEmpty,
+        reason: '$server',
+      );
+    }
+    expect(
+      handoffPhotoTypesUndoneByConflict('update', 'delivered', {
+        'status': 'inTransit',
+        'pickedUpAt': '2026-11-12T08:00:00Z',
+      }),
+      ['dropoff'],
+    );
+    expect(
+      handoffPhotoTypesUndoneByConflict('update', 'delivered', {
+        'status': 'disputed',
+        'confirmedAt': '2026-11-12T14:00:00Z',
+      }),
+      isEmpty,
+    );
+    // An undecided dispute keeps the drop-off photo (late evidence on the
+    // system's T8 or T9 dispute, refused by the server on any other); a
+    // decided one gives it up.
+    expect(
+      handoffPhotoTypesUndoneByConflict('update', 'delivered', {
+        'status': 'disputed',
+        'disputedBy': 'system',
+        'disputeReason': 'silent_buyer',
+      }),
+      isEmpty,
+    );
+    expect(
+      handoffPhotoTypesUndoneByConflict('update', 'delivered', {
+        'status': 'disputed',
+        'disputeResolution': 'buyer_wins',
+      }),
+      ['dropoff'],
+    );
+    // Neither a pickup nor a confirm (in transit, a dispute): no photo.
+    expect(
+      handoffPhotoTypesUndoneByConflict('update', 'inTransit', {
+        'status': 'pending',
+      }),
+      isEmpty,
+    );
+  });
+
   test(
       'FUP-373: a refused arrival photo is silent too, but goes to the '
       'rejection handler once, which forgets its kept file', () async {
