@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.12.0
+2.14.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -548,7 +548,8 @@ photo will live at; the client uploads the photo straight to S3 and then attache
 | `dropoff` | the delivery's buyer (the buyer's delivery confirm, or the self-pickup confirm at the farm) | `403 DELIVERY_UNAUTHORIZED` |
 | `arrival` (2.10.0) | the delivery's trucker, at the drop-off, only while the delivery is `pickedUp` or `inTransit` (else `409 DELIVERY_PHOTO_REFUSED`) | `403 DELIVERY_UNAUTHORIZED` |
 
-The delivery may still be `pending` (a phone uploads before its pickup syncs). A cancelled
+The delivery may still be `pending` (a phone uploads before its pickup syncs; since 2.14.0 its
+attach then waits for the pickup, section 4b). A cancelled
 delivery (by `status` or a legacy `deletedAt`) gets `409 DELIVERY_PHOTO_REFUSED`, after the
 participant check: a `409` is final for the phone, which keeps waiting on a `404` (the delivery's
 own create may still be on its way). A handoff that already has its photo gets
@@ -627,25 +628,42 @@ The server, in this order:
    An outsider also writes a `ROLE_FORBIDDEN` fraud signal (`sync-protocol.md` 1.27.0); a party
    of the delivery sending the other type does not.
 4. A cancelled delivery refuses (`DELIVERY_PHOTO_REFUSED`). The same key already attached is a
-   `success` with nothing written; another key is `DELIVERY_PHOTO_EXISTS`.
+   `success` with nothing written; another key is `DELIVERY_PHOTO_EXISTS`. Since 2.14.0 (FUP-140) a
+   `pickup` or `dropoff` photo whose handoff is not on the row yet answers `deferred` with
+   `DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet.`: the pickup needs
+   `pickedUpAt` or a status of `pickedUp`, `inTransit` or `delivered`; the drop-off needs
+   `confirmedAt` or `delivered`. The handoff may still be on its way (itself `deferred`), and one the
+   server never took (refused, or reverted by a `conflict`) must not get a photo; before 2.14.0 such a
+   photo attached to a delivery that was never picked up, and the redone handoff's photo then met
+   `DELIVERY_PHOTO_EXISTS`. The `arrival` photo keeps its own rule (on the road, 2.10.0).
 5. `HEAD` on the object in the uploads bucket: missing is `DELIVERY_PHOTO_MISSING`; over 200 KiB
    (or empty) is `DELIVERY_PHOTO_TOO_LARGE`; a stored type that is not the key's is
    `DELIVERY_PHOTO_INVALID`; any other storage failure, or no bucket configured, is `deferred`.
-6. Writes `pickupPhotoRef` or `dropoffPhotoRef` only, with the S3 version id the `HEAD` saw in the
+6. Since 2.14.0 (FUP-140), copies that version, server side, to the photo's kept key
+   `evidence/photos/{deliveryId}/{type}-{ms}.{webp|jpg}` (the upload key with `evidence/` for
+   `uploads/`); a copy that fails answers `deferred` and writes nothing, so a row never names a photo
+   without its copy. A version never changes, so a retried copy writes the same bytes (at worst
+   another version of them at the kept key); a copy whose write then loses the race stays unread.
+7. Writes `pickupPhotoRef` or `dropoffPhotoRef` only, with the S3 version id the `HEAD` saw in the
    server-only `pickupPhotoVersionId` / `dropoffPhotoVersionId` (the uploads bucket is
-   versioned), conditioned on the field being absent, the delivery not cancelled and not
-   soft-deleted. `version` and `updatedAt` do not move, so a handoff queued on another phone
+   versioned) and, since 2.14.0, the copy in the server-only `{type}PhotoKeptRef` and
+   `{type}PhotoKeptVersionId` (`pickup`, `dropoff`, `arrival`), conditioned on the field being
+   absent, the delivery not cancelled and not soft-deleted. `version` and `updatedAt` do not move, so a handoff queued on another phone
    never conflicts with a photo, and the next pull of the same version brings the key. A
    condition that fails is judged again on a strongly consistent read (step 4).
 
-Every read signs the recorded version (`GET /deliveries/{id}`, the admin transaction view), so a
-second `PUT` to the key within its 15-minute presign window adds a version and never replaces the
-attached evidence. A row without a version id signs the key's latest version.
+Every read signs the recorded version (`GET /deliveries/{id}`, the admin transaction view and
+dispute evidence), so a second `PUT` to the key within its 15-minute presign window adds a version
+and never replaces the attached evidence. A row without a version id signs the key's latest version.
+Since 2.14.0 a read signs the kept copy at its recorded version when the row records the copy of
+its key (`{type}PhotoKeptRef` equal to the key's kept key), else the upload key as before (a photo
+attached before 2.14.0 that the backfill below has not reached). The key on the wire
+(`pickupPhotoRef`, ...) stays the upload key; the kept fields are server-only and never sent.
 
 | Answer | Mobile client (sync queue) | Web |
 |--------|----------------------------|-----|
 | `success` (`serverVersion` is the delivery's, no `serverData`) | Synced | Done |
-| `deferred` with `DELIVERY_PHOTO_PENDING:` | Re-queued without a retry | Logged |
+| `deferred` with `DELIVERY_PHOTO_PENDING:` (storage, or since 2.14.0 the handoff not on the row) | Re-queued without a retry; given up when its handoff is refused or reverted by a `conflict` (2.14.0) | Logged (the web attaches only after its handoff succeeded) |
 | `DELIVERY_PHOTO_*` error | Rejected for good, not reverted, not announced and not counted in "Sync failed": the handoff stands without its photo | Logged; the confirmed handoff stands |
 | unprefixed error | Retried | Logged |
 
@@ -995,7 +1013,7 @@ Mobile, when the sync queue reaches the `delivery_photo` operation (a preflight 
 1. `POST /deliveries/{id}/photos` with `{type, sizeBytes, contentType}` (section 4) returns `uploadUrl` + `photoRef`
 2. `PUT` the file to `uploadUrl` with the signed `Content-Type` and `Content-Length` within 15 minutes
 3. The operation's payload becomes `{"photoRef": key}` (plus the never-sent `_localPath`), in the batch and in the queue, so a later run never uploads twice; the batch then attaches it (section 4b)
-4. Offline, a `PUT` that did not reach S3 or got a `5xx`, a presign `5xx` or `401` keep the operation queued without using a retry; the handoff in front of it is sent anyway. A presign `404` waits while the delivery's own create waits on the phone and 10 minutes after the photo was queued, then gives up. A presign `400`, `403` or `409` (including `DELIVERY_PHOTO_REFUSED`, a cancelled delivery), a file that is gone, or the third `PUT` refused with a `4xx` give up: the operation goes without a key so the server refuses it for good. A refused delivery create, pickup or delivery confirm rejects the photo waiting behind it
+4. Offline, a `PUT` that did not reach S3 or got a `5xx`, a presign `5xx` or `401` keep the operation queued without using a retry; the handoff in front of it is sent anyway. A presign `404` waits while the delivery's own create waits on the phone and 10 minutes after the photo was queued, then gives up. A presign `400`, `403` or `409` (including `DELIVERY_PHOTO_REFUSED`, a cancelled delivery), a file that is gone, or the third `PUT` refused with a `4xx` give up: the operation goes without a key so the server refuses it for good. Since 2.14.0 (FUP-140) S3's `400 RequestTimeout` (a stalled rural upload) and a `408` are not refusals: they wait, uncounted. A refused delivery create, pickup or delivery confirm rejects the photo waiting behind it, and since 2.14.0 so does a pickup or delivery confirm answered `conflict` whose `serverData` does not show that handoff (no `pickedUpAt` and a status before `pickedUp`; no `confirmedAt` and not `delivered`)
 5. After the attach, the phone's files of that handoff are deleted; until then the local file shows the photo on this phone offline
 
 Web: the browser uploads right after the photo is taken (steps 1 and 2), shows it from memory,
@@ -1009,10 +1027,11 @@ phone under its key; offline and never cached, the tile says it shows when onlin
 ### S3 Storage
 
 - **Bucket**: Same uploads bucket used for other media (audio notes, etc.); private, SSE-S3, versioned
-- **Key pattern**: `uploads/photos/{deliveryId}/{type}-{timestamp}.{webp|jpg}`
+- **Key pattern**: `uploads/photos/{deliveryId}/{type}-{timestamp}.{webp|jpg}` (the upload); since 2.14.0 the attached photo's kept copy at `evidence/photos/{deliveryId}/{type}-{timestamp}.{webp|jpg}`
 - **CORS (1.25.0)**: `PUT`, `GET`, `HEAD` with `Content-Type` from the web app and admin origins only (the browser `PUT`s and CanvasKit fetches images with XHR); the CloudFront CSP already allows the regional S3 hosts
-- **Lifecycle**: the bucket's `photos/` rule (Glacier after a year) does not match the `uploads/photos/` keys; no lifecycle applies to them yet (follow-up)
-- **Access**: Pre-signed URLs for viewing (15-minute expiry), signed by the delivery Lambda after its participant check and by the admin Lambda; the sync Lambda reads `uploads/photos/*` for the attach's `HEAD` only
+- **Lifecycle (2.14.0, FUP-140)**: rule `DeliveryPhotoUploadsExpiry` on `uploads/photos/`: current versions expire 30 days after the upload (S3 then removes the expired delete markers), noncurrent versions a day after they stop being current, so uploads never attached (web retakes, a photo given up) go. Deployed disabled; the infra config `deliveryPhotoUploadExpiry` turns it on per environment only after the backfill below answered `outcome: ok` there (`.ai/deployment.md` 3e). No rule touches `evidence/photos/`. An upload not attached within 30 days (a phone offline that long) is gone and its attach answers `DELIVERY_PHOTO_MISSING`. No Glacier: the old `photos/` transition matched no key and is removed, because an archived object answers a presigned `GET` with `403 InvalidObjectState` until restored, which would break the detail and the admin's dispute evidence, for objects of at most 200 KiB
+- **Backfill (2.14.0)**: the order-cron action `backfill_delivery_photo_copies` (by hand, once per environment, after the deploy that ships 2.14.0) copies each photo attached before 2.14.0 at its recorded version (the latest without one) and records the copy with a conditional update (photo and version unchanged, no copy yet; `version` and `updatedAt` do not move). A key without this delivery's shape is skipped (no read signs it), an object that is gone counted as missing. Resumable with `scanFrom`; a rerun copies nothing twice
+- **Access**: Pre-signed URLs for viewing (15-minute expiry), signed by the delivery Lambda after its participant check and by the admin Lambda (read on `uploads/photos/*` and, since 2.14.0, `evidence/photos/*`); the sync Lambda reads `uploads/photos/*` for the attach's `HEAD` and, since 2.14.0, puts the copy under `evidence/photos/*` (no read or delete there); the order cron reads `uploads/photos/*` and puts under `evidence/photos/*` for the backfill
 
 ---
 
@@ -2019,9 +2038,10 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 2.10.0 | 2026-11-13 | Silent buyer and overdue delivery BUILT (ESC-36, P.4 "As built"), server only, behind the new flag `dropoffClassification` (sync, deliveries and order-cron; off everywhere; only with `COMMITMENTS_ENABLED`). The order's first move out of `accepted` after a trucker's pickup stamps `dropoffJudgement: pending`, T8 (`dropoffDeadlineAt`, pickup plus 72 hours) and the drop-off points. New photo type `arrival` (the trucker's, on the road; `arrivalPhotoRef`, `arrivalPhotoUrl`) and the check-in kind `arrived_dropoff` (GPS within 5 km of a stamped point, the arrival photo first: new `CHECKIN_PHOTO_REQUIRED`; late kept as evidence). T8 without a counted check-in: the escrow frozen, then the delivery and the order `disputed` with `disputeReason: delivery_overdue` (R12), the alarmed `ORDER_DELIVERY_OVERDUE`. T9 48 hours after the check-in: the system confirm (`autoConfirmedAt`, the escrow stamped as a buyer's confirm, the normal dispute window and payout delay) when the evidence is complete, the trucker neither low nor restricted and the money plainly held; else `disputed` with `silent_buyer`. Money that can be neither frozen nor confirmed: `queued`, the admin queue. T8 and T9 timings in SSM, never below 24 hours; a stamp that lands late leaves a day. FUP-204: T8 rests on the trucker alone; a trucker who came but was out of range of every point (the buyer's pin may be the only one) is kept as `dropoffAttempt` and makes T8 the system dispute `dropoff_out_of_range` (no R12; the admin decides the verdict), never `delivery_overdue`; the admin views show the arrival photo; T9 is no event. The check-in reads a point missing from the stamp live, point by point (a trip destination added after the handoff never counts); an admin's `handoff_confirmed` re-open (FUP-287) stamps the order too. Before the flag: FUP-336 and FUP-338 |
 | 2.11.0 | 2026-11-13 | Re-open of a trucker no-show (FUP-330, P.2 "Re-open of a trucker no-show"): new `POST /admin/orders/{orderId}/reopen-no-show` (the route, admin group and body of `reopen-pickup`) takes a `trucker_no_show` order still `awaiting_transport` from the judgement (the buyer has not chosen) whose escrow still simply holds the money back in one transaction: `pending` to `accepted` (`pickupJudgement: pending`, a new `pickupDeadlineAt`, empty `checkIns` so the new window counts fresh ones, judged again; the trucker creates the new pending delivery) or `handoff_confirmed` to `pickup_confirmed` (`scanned`) with the delivery the judgement cancelled `cancelled → pickedUp` and the slot claimed for it (with `dropoffClassification` on, the drop-off judgement stamped in the same write); both restore `truckerResponse: accepted`, remove `transportFailure`, `faultParty`, `buyerChoiceDeadlineAt` and `buyerChoiceReminderAt`, take the trip booking back (conditioned on the room left and the trip `open` or `matched`), answer the admin queue entry as `reopen-pickup` does and stamp `pickupReopen`; refused when the trip is gone, cancelled, departed or full (new `409 PICKUP_REOPEN_TRIP_UNAVAILABLE`), when the buyer chose or the money moved, and on a changed version; a replay answers `alreadyApplied`. Then the trucker's `NO_SHOW` is excused through ESC-32's decision path (`noShowEvent` in the answer, audited `reputation_excused`). `pickupEvidence` gains `noShowReopenExits`; `reopen-pickup`'s refusal of a trucker no-show names the new action. New admin-only transition `cancelled → pickedUp`. No money moves; no app change. Admin: Re-open the no-show on the transaction page, en, am, om. `order-lifecycle.md` 2.20.0 |
 | 2.12.0 | 2026-11-13 | Gaps of the trucker no-show re-open (FUP-363, P.2): (a) the order cron closes a trip that carried only the no-show order within 15 minutes of the judgement (`cancelReason: expired`), so the re-open refused most single-order trips with `PICKUP_REOPEN_TRIP_UNAVAILABLE`; it now opens such a trip again in the re-open's transaction (`cancelled → open`, or `matched` when the order fills it, conditioned on the version read, `expired`, no booking and the room; audit `trip=revived`; `trip-listing-api.md` 2.7.0), while a trip its trucker cancelled stays refused. Decision: the cron's close is unchanged. (b) The judgement's own cancel of the pending delivery stamps the new server-only `cancelledByJudgementAt` in the same write, and a confirmed handoff brings back only a delivery that carries it (at or after the order's `pickupDeadlineAt`), instead of one cancelled at or after `pickupJudgedAt`: a judgement the cron retried after a failed order write now gets its delivery back, while a party's, an admin's (FUP-19) or an earlier window's cancel stays refused. The revive removes the stamp; the delivery update is also conditioned on it. Deliveries cancelled by a judgement before 2.12.0 carry no stamp: their orders take the `pending` exit only. Server only, no app or admin change. `order-lifecycle.md` 2.21.0 |
+| 2.14.0 | 2026-11-13 | Photo uploads lifecycle (FUP-140; 2.13.0 is FUP-373). Server: the `delivery_photo` attach copies the version it pins to the kept key `evidence/photos/{deliveryId}/{type}-{ms}.{ext}` before its write and records the copy in it (server-only `{type}PhotoKeptRef`, `{type}PhotoKeptVersionId`; a failed copy is `deferred`); every read signs the kept copy when the row records it; a `pickup` or `dropoff` photo whose handoff is not on the row yet is `deferred` (`DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet.`) instead of attaching to a delivery not picked up or not confirmed; new by-hand order-cron action `backfill_delivery_photo_copies` for the photos attached before. Infra: lifecycle rule `DeliveryPhotoUploadsExpiry` on `uploads/photos/` (30 days, noncurrent 1 day), deployed disabled behind `deliveryPhotoUploadExpiry` until the backfill ran; the Glacier rule on `photos/` (which matched no key) removed; grants for the copy (sync, order cron) and the signed reads (admin). Mobile: a pickup or delivery confirm answered `conflict` rejects its waiting photo unless the server's row shows that handoff; S3's `400 RequestTimeout` and `408` on a photo `PUT` no longer count toward the 3 refusals. See 4b and S3 Storage |
 
 ---
 
 **Last Updated**: 2026-11-13
-**Version**: 2.12.0
+**Version**: 2.14.0
 **Status**: Draft (Phase R4.2)
