@@ -39,7 +39,8 @@ import 'package:wereda_connect/shared/widgets/clock_text.dart';
 /// the recent routes; the gold Post Trip button floats below).
 ///
 /// Reads the trucker's own trip through the trip repository (Isar on mobile,
-/// after a pull of the trucker's own trips, FUP-374; the API on web) and,
+/// painted first and read again when a pull of the trucker's own trips
+/// changed them, FUP-374 and FUP-385; the API on web) and,
 /// for the next stop, the trucker's deliveries through
 /// the delivery repository (the same read the Action needed card makes, so
 /// the web folds them), only once the trip is on the road, shared, or its
@@ -121,11 +122,18 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
         SharingMode.off || SharingMode.ended => false,
       };
 
+  /// FUP-385: the stored trips paint at once; the own-trip pull runs after
+  /// them (on flaky 3G it can wait for a timeout) and the card reads them
+  /// again only when the pull brought a change.
   Future<void> _loadData() async {
+    await _readData();
+    if (!mounted) return;
+    if (await _pullOwnTrips() && mounted) await _readData();
+  }
+
+  Future<void> _readData() async {
     try {
       final repo = context.read<TripListingBloc>().repository;
-      await _pullOwnTrips();
-      if (!mounted) return;
       // The trip the phone shares comes first: the most relevant trip may be
       // a newer open one while another is still on the road.
       Trip? trip;
@@ -203,15 +211,18 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
 
   /// FUP-374: mobile only (web has no MarketplaceSync and reads the server
   /// anyway). The status the server set on the trucker's trips (matched, or
-  /// open or matched again after a no-show re-open) reaches the phone before
-  /// the card reads it; offline the stored trips show.
-  Future<void> _pullOwnTrips() async {
+  /// open or matched again after a no-show re-open) reaches the phone; true
+  /// when it changed a stored trip, so the card reads them again. Offline
+  /// the stored trips stay.
+  Future<bool> _pullOwnTrips() async {
     try {
-      await context
-          .read<MarketplaceSync?>()
-          ?.pullOwnTrips(truckerId: widget.userId);
+      return await context
+              .read<MarketplaceSync?>()
+              ?.pullOwnTrips(truckerId: widget.userId) ??
+          false;
     } on Object {
       // Offline, or no sync above this widget: the stored trips show.
+      return false;
     }
   }
 

@@ -41,8 +41,10 @@ class _SpyMarketplaceSync implements MarketplaceSync {
   final List<String> ownTrips = [];
 
   @override
-  Future<void> pullOwnTrips({required String truckerId}) async =>
-      ownTrips.add(truckerId);
+  Future<bool> pullOwnTrips({required String truckerId}) async {
+    ownTrips.add(truckerId);
+    return false;
+  }
 
   @override
   Future<void> pullDeliveries() async => deliveries++;
