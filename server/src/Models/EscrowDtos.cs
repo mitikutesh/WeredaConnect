@@ -230,8 +230,8 @@ public sealed record RefundEscrowRequest
     public string Trigger { get; init; } = "";
 
     /// <summary>
-    /// Explanation for audit trail (0-500 chars; 10-500 with <see cref="OverrideOrderMismatch"/> and,
-    /// FRD-03, for a <c>held</c> escrow).
+    /// Explanation for audit trail (0-500 chars; 10-500 with <see cref="OverrideOrderMismatch"/>, with
+    /// <see cref="DoubleEscrow"/> and, FRD-03, for a <c>held</c> escrow).
     /// </summary>
     public string? Reason { get; init; }
 
@@ -245,6 +245,14 @@ public sealed record RefundEscrowRequest
     /// and delivery instead. Still the tool for an ESC-09 Part B refund of a plain escrowed escrow.
     /// </summary>
     public bool OverrideOrderMismatch { get; init; }
+
+    /// <summary>
+    /// FUP-41 (escrow-protocol 2.19.0), admin group only, trigger <c>admin_override</c>, a <see cref="Reason"/>
+    /// of 10 to 500 characters: refund an <c>/escrow/initiate</c> escrow that is a second payment for an order
+    /// whose own escrow (<c>escrow-order-{orderId}</c>) holds or paid the trade's money. The order and its
+    /// delivery belong to that escrow and are not touched. Not with <see cref="OverrideOrderMismatch"/>.
+    /// </summary>
+    public bool DoubleEscrow { get; init; }
 }
 
 /// <summary>
@@ -633,6 +641,29 @@ public sealed record EscrowDto
 
     /// <summary>FRD-03, admin only: <c>release</c> or <c>refund</c>, what the sweep was about to do.</summary>
     public string? HeldFor { get; init; }
+
+    /// <summary>
+    /// FUP-41, admin responses only: why the hourly sweeps do not settle this escrow (ESC-10,
+    /// <c>&lt;op&gt;:&lt;gate&gt;:&lt;reason&gt;</c>, for example <c>release:payout:phone_unverified</c> or
+    /// <c>release:trade:double_escrow</c>), and since when. Party reads never fill them.
+    /// </summary>
+    public string? SettlementBlockReason { get; init; }
+
+    /// <summary>FUP-41, admin only: when the sweep first stored <see cref="SettlementBlockReason"/> (ISO 8601).</summary>
+    public string? SettlementBlockReasonAt { get; init; }
+
+    /// <summary>
+    /// FUP-41, admin escrow detail only: on an escrow that is not order-funded and names an order, the status of
+    /// that order's own escrow (<c>escrow-order-{orderId}</c>) when there is one. Null otherwise.
+    /// </summary>
+    public string? OrderEscrowStatus { get; init; }
+
+    /// <summary>
+    /// FUP-41, admin escrow detail only: true when <see cref="OrderEscrowStatus"/> holds or paid the trade's money, so
+    /// this escrow is a second payment that an admin refunds with <c>POST /escrow/refund</c> and <c>doubleEscrow</c>.
+    /// Null when not computed.
+    /// </summary>
+    public bool? DoubleEscrow { get; init; }
 
     public required int Version { get; init; }
 

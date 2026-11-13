@@ -333,6 +333,14 @@ public interface IEscrowRepository
         string escrowId, string createdAt, string expectedStatus, string reason, string reasonAt);
 
     /// <summary>
+    /// FUP-41: record an admin's decision to refund this escrow as a second payment of its order
+    /// (<see cref="DoubleEscrowFields"/>), only while it is <c>escrowed</c>, names <paramref name="orderId"/>,
+    /// carries no such decision, no settlement lock and no manual payout. Returns false when the condition fails.
+    /// </summary>
+    Task<bool> TryRecordDoubleEscrowRefundAsync(
+        string escrowId, string createdAt, string orderId, string by, string reason, string at, string orderEscrowStatus);
+
+    /// <summary>
     /// ESC-10: remove the stored block reason once its gate passes, only when it is still
     /// <paramref name="storedReason"/>. Returns false when the condition fails.
     /// </summary>

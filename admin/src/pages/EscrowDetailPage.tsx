@@ -1,6 +1,7 @@
 import { useParams } from "react-router";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { DoubleEscrowRefund } from "@/components/escrows/DoubleEscrowRefund";
 import { LedgerCard, ManualLegsCard, RecordedSplitRow, TruckerLegRows } from "@/components/escrows/MoneyLegs";
 import { useLocale } from "@/hooks/useLocale";
 import { useEscrowDetail, useEscrowAudit } from "@/hooks/useQuery";
@@ -72,8 +73,28 @@ export function EscrowDetailPage() {
               <dt className="text-text-muted">{t("escrows.createdAt")}</dt>
               <dd>{detail.createdAt ? formatDateTime(String(detail.createdAt)) : ""}</dd>
             </div>
+            {/* FUP-41: why the hourly sweeps leave this escrow alone (ESC-10), the code the alarm runbooks name. */}
+            {detail.settlementBlockReason ? (
+              <div className="flex justify-between gap-3">
+                <dt className="text-text-muted">{t("escrows.sweepBlock")}</dt>
+                <dd className="text-right">
+                  <span className="font-mono text-sm">{String(detail.settlementBlockReason)}</span>
+                  {detail.settlementBlockReasonAt ? (
+                    <span className="block text-xs text-text-muted">
+                      {t("escrows.sweepBlockSince").replace(
+                        "{time}",
+                        formatDateTime(String(detail.settlementBlockReasonAt)),
+                      )}
+                    </span>
+                  ) : null}
+                </dd>
+              </div>
+            ) : null}
           </dl>
         </Card>
+
+        {/* FUP-41: a second payment for the order, refunded to the buyer by an admin. */}
+        <DoubleEscrowRefund escrow={detail} />
 
         <Card>
           <h3 className="mb-4 font-semibold">{t("escrows.auditTrail")}</h3>
