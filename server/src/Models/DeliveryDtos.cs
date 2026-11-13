@@ -261,6 +261,12 @@ public sealed record DeliveryDto
     /// </summary>
     public string? ArrivalPhotoLateAt { get; init; }
 
+    /// <summary>
+    /// FUP-140: when the buyer's drop-off photo was attached as late evidence on a system dispute without a
+    /// confirm (the server's time); absent on the photo of a confirmed delivery.
+    /// </summary>
+    public string? DropoffPhotoLateAt { get; init; }
+
     /// <summary>ESC-36: when the order cron confirmed the delivery for a silent buyer (absent when the buyer confirmed).</summary>
     public string? AutoConfirmedAt { get; init; }
 

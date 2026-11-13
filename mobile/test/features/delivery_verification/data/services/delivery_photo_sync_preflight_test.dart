@@ -186,6 +186,44 @@ void main() {
     expect(jsonDecode(op.data), {deliveryPhotoLocalPathKey: _path});
   });
 
+  test(
+      'FUP-140: S3 timing out a stalled rural upload (400 RequestTimeout) '
+      'waits without counting: the photo is never given up for it', () async {
+    final stalled = DioException(
+      requestOptions: RequestOptions(path: '/put'),
+      type: DioExceptionType.badResponse,
+      response: Response<String>(
+        requestOptions: RequestOptions(path: '/put'),
+        statusCode: 400,
+        data: '<Error><Code>RequestTimeout</Code><Message>Your socket '
+            'connection to the server was not read from or written to within '
+            'the timeout period.</Message></Error>',
+      ),
+    );
+    uploader.answer = () async => throw stalled;
+    final op = _photoOp();
+
+    for (var run = 0;
+        run < DeliveryPhotoSyncPreflight.maxPutRefusals + 1;
+        run++) {
+      expect(await preflight(op), isFalse);
+    }
+    expect(saved, isEmpty);
+    expect(jsonDecode(op.data), {deliveryPhotoLocalPathKey: _path});
+
+    // A refusal after the timeouts still counts from one.
+    uploader.answer = () async => throw putAnswered(403);
+    expect(await preflight(op), isFalse);
+    expect(jsonDecode(op.data)[DeliveryPhotoSyncPreflight.putRefusalsKey], 1);
+  });
+
+  test('FUP-140: a 408 from S3 waits without counting too', () async {
+    uploader.answer = () async => throw putAnswered(408);
+
+    expect(await preflight(_photoOp()), isFalse);
+    expect(saved, isEmpty);
+  });
+
   group('a delivery the server does not know', () {
     setUp(() => uploader.answer = () async => throw const NotFoundException());
 

@@ -731,6 +731,7 @@ public class DeliveryFunction
             DropoffPhotoRef = GetStringOrNull(item, "dropoffPhotoRef"),
             ArrivalPhotoRef = GetStringOrNull(item, "arrivalPhotoRef"),
             ArrivalPhotoLateAt = GetStringOrNull(item, DropoffJudgement.ArrivalPhotoLateAtField),
+            DropoffPhotoLateAt = GetStringOrNull(item, DropoffJudgement.DropoffPhotoLateAtField),
             AutoConfirmedAt = GetStringOrNull(item, DropoffJudgement.AutoConfirmedAtField),
             PickedUpAt = GetStringOrNull(item, "pickedUpAt"),
             ConfirmedAt = GetStringOrNull(item, "confirmedAt"),

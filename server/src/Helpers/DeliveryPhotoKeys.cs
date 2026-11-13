@@ -16,9 +16,19 @@ namespace WeredaConnect.Server.Helpers;
 /// of the delivery, and an admin, may see both. ESC-36: the arrival photo is the trucker's, taken at the
 /// drop-off for the drop-off check-in, taken only with <c>dropoffClassification</c> on (callers pass
 /// <c>allowArrival</c>; with the flag off the type does not exist).
+///
+/// FUP-140 (delivery-verification-api.md 2.14.0): the attach copies the photo's pinned version to its kept
+/// key, <c>evidence/photos/{deliveryId}/{type}-{ms}.{webp|jpg}</c>, before it writes the photo, and the reads
+/// sign that copy. <c>uploads/photos/</c> holds only uploads and may expire; <c>evidence/photos/</c> never does.
 /// </summary>
 public static partial class DeliveryPhotoKeys
 {
+    /// <summary>Where the presigned PUT writes a photo (the upload key).</summary>
+    public const string UploadPrefix = "uploads/photos/";
+
+    /// <summary>FUP-140: where the attach keeps the photo's copy, outside every expiring prefix.</summary>
+    public const string KeptPrefix = "evidence/photos/";
+
     /// <summary>The photo taken when the goods leave the farm.</summary>
     public const string Pickup = "pickup";
 
@@ -72,6 +82,50 @@ public static partial class DeliveryPhotoKeys
         Pickup => "pickupPhotoVersionId",
         Arrival => "arrivalPhotoVersionId",
         _ => "dropoffPhotoVersionId"
+    };
+
+    /// <summary>FUP-140: the server-only delivery attribute that holds the kept copy's key of a photo type.</summary>
+    public static string KeptFieldOf(string type) => type switch
+    {
+        Pickup => "pickupPhotoKeptRef",
+        Arrival => "arrivalPhotoKeptRef",
+        _ => "dropoffPhotoKeptRef"
+    };
+
+    /// <summary>FUP-140: the server-only delivery attribute that holds the kept copy's S3 version id.</summary>
+    public static string KeptVersionFieldOf(string type) => type switch
+    {
+        Pickup => "pickupPhotoKeptVersionId",
+        Arrival => "arrivalPhotoKeptVersionId",
+        _ => "dropoffPhotoKeptVersionId"
+    };
+
+    /// <summary>Every server-only photo attribute of a delivery row (the S3 version ids and the kept copies).</summary>
+    public static readonly IReadOnlyList<string> ServerOnlyFields = new[]
+    {
+        "pickupPhotoVersionId", "dropoffPhotoVersionId", "arrivalPhotoVersionId",
+        "pickupPhotoKeptRef", "dropoffPhotoKeptRef", "arrivalPhotoKeptRef",
+        "pickupPhotoKeptVersionId", "dropoffPhotoKeptVersionId", "arrivalPhotoKeptVersionId",
+    };
+
+    /// <summary>
+    /// FUP-140: the kept key of an upload key, <c>evidence/photos/...</c> in place of <c>uploads/photos/...</c>.
+    /// Only for a key that <see cref="IsKeyOf"/> accepted.
+    /// </summary>
+    public static string KeptKeyOf(string uploadKey) => KeptPrefix + uploadKey[UploadPrefix.Length..];
+
+    /// <summary>
+    /// FUP-140: whether the row shows the handoff a <paramref name="type"/> photo belongs to, so the photo may
+    /// be attached. The pickup: <c>pickedUpAt</c>, or a status at or past the pickup. The drop-off:
+    /// <c>confirmedAt</c>, or <c>delivered</c>. The arrival has its own rule (on the road), so it is always true
+    /// here. A phone uploads before its handoff syncs; its attach waits (deferred) until the handoff is on the
+    /// row, so a handoff the server never took (refused, or reverted by a conflict) never gets a photo.
+    /// </summary>
+    public static bool HandoffOnRow(string type, string? status, string? pickedUpAt, string? confirmedAt) => type switch
+    {
+        Pickup => !string.IsNullOrEmpty(pickedUpAt) || status is "pickedUp" or "inTransit" or "delivered",
+        Dropoff => !string.IsNullOrEmpty(confirmedAt) || status == "delivered",
+        _ => true
     };
 
     /// <summary>True for <c>pickup</c> or <c>dropoff</c>; ESC-36: also <c>arrival</c> with <paramref name="allowArrival"/>.</summary>

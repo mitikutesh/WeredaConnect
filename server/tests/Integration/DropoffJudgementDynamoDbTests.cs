@@ -364,7 +364,8 @@ public sealed class DropoffJudgementDynamoDbTests
 
     /// <summary>
     /// The sync Lambda on the real orders, deliveries and trips tables with <c>dropoffClassification</c> on; the
-    /// uploads bucket's HEAD answers for the arrival photo (S3 is not what this test is about).
+    /// uploads bucket's HEAD answers for the arrival photo, and (FUP-140) its copy to the kept key (S3 is not what
+    /// this test is about; DeliveryPhotoEvidenceLocalStackTests runs the copy on real S3).
     /// </summary>
     private SyncFunction Sync()
     {
@@ -374,6 +375,8 @@ public sealed class DropoffJudgementDynamoDbTests
         var head = new GetObjectMetadataResponse { ContentLength = 120 * 1024, VersionId = "v-late" };
         head.Headers.ContentType = DeliveryPhotoKeys.ContentTypeOf(ArrivalKey);
         s3.GetObjectMetadataAsync(Bucket, ArrivalKey, Arg.Any<CancellationToken>()).Returns(head);
+        s3.CopyObjectAsync(Arg.Any<CopyObjectRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new CopyObjectResponse { VersionId = "v-late-kept" });
         return new SyncFunction(syncMeta, new CropRepository(Ddb, _db.Crops), Ddb, _db.Trips, _db.Deliveries,
             fraudService: Substitute.For<IFraudDetectionService>(), orderRepo: Repo)
         {
@@ -461,6 +464,9 @@ public sealed class DropoffJudgementDynamoDbTests
         var delivery = (await Deliveries.GetByIdAsync(DeliveryId, consistentRead: true))!;
         delivery["arrivalPhotoRef"].Should().Be(ArrivalKey);
         delivery["arrivalPhotoVersionId"].Should().Be("v-late");
+        // FUP-140: the late photo records its kept copy in the same conditional write.
+        delivery["arrivalPhotoKeptRef"].Should().Be(DeliveryPhotoKeys.KeptKeyOf(ArrivalKey));
+        delivery["arrivalPhotoKeptVersionId"].Should().Be("v-late-kept");
         OrderCommitment.TryParseUtc((string)delivery[DropoffJudgement.ArrivalPhotoLateAtField], out var lateAt).Should().BeTrue();
         lateAt.Should().BeAfter(t8);
         DeliveryFunction.MapToDeliveryDto(delivery).ArrivalPhotoLateAt.Should().Be((string)delivery[DropoffJudgement.ArrivalPhotoLateAtField]);

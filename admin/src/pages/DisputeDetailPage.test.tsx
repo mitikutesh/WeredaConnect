@@ -602,6 +602,26 @@ describe("DisputeDetailPage evidence (FRD-14)", () => {
     expect(screen.queryByText("Attached late, after the delivery deadline, once this dispute was open.")).toBeNull();
   });
 
+  it("FUP-140: the buyer's drop-off photo attached on a system dispute without a confirm is marked late", async () => {
+    mocks.evidence.data = {
+      ...evidence(),
+      delivery: {
+        ...evidence().delivery,
+        dropoffPhotoUrl: "https://signed.example/dropoff.jpg",
+        dropoffPhotoLateAt: "2026-10-30T09:40:00Z",
+      },
+    };
+    await openTab(/^Photos/);
+
+    const panel = screen.getByRole("tabpanel");
+    expect(within(panel).getByRole("img", { name: "Drop-off photo" })).toBeTruthy();
+    expect(within(panel).getByText(`· ${formatDateTime("2026-10-30T09:40:00Z")}`, { exact: false })).toBeTruthy();
+    expect(
+      within(panel).getByText("Attached late, without the buyer's confirm, once the system had opened this dispute."),
+    ).toBeTruthy();
+    expect(within(panel).queryByText("Attached late, after the delivery deadline, once this dispute was open.")).toBeNull();
+  });
+
   it("says the evidence is loading, and shows its error in the words of the code with a retry", async () => {
     mocks.evidence.isLoading = true;
     mocks.evidence.data = undefined;

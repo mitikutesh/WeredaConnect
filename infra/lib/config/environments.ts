@@ -160,6 +160,16 @@ export interface EnvironmentConfig {
    */
   readonly dropoffClassification?: boolean;
   /**
+   * FUP-140 (delivery-verification-api.md 2.14.0): turns on the uploads bucket's lifecycle rule for
+   * `uploads/photos/` (the presigned PUT's keys: current versions expire 30 days after the upload, noncurrent
+   * ones a day after they stop being current). Since 2.14.0 the attach copies each photo to `evidence/photos/`,
+   * which no rule touches, and the reads sign that copy; photos attached before have no copy until the
+   * order-cron backfill (`backfill_delivery_photo_copies`, `.ai/deployment.md` 3e) has made one. Default false
+   * everywhere: turn it on in an environment only after that backfill answered `outcome: ok` there, or the rule
+   * deletes evidence the reads still sign. Off, the rule is deployed disabled.
+   */
+  readonly deliveryPhotoUploadExpiry?: boolean;
+  /**
    * ESC-20: ESCROW_LEDGER_ENABLED on the sync and telebirr-webhook Lambdas (escrow-protocol.md 2.2.0, P.12).
    * On, a new order escrow is born on the escrow ledger (settlementModel ledger: per-leg write-ahead rows
    * instead of the whole-escrow settlement lock) and a duplicate payment gets its ledger refund row. Off, new
@@ -225,6 +235,8 @@ export const environments: Record<string, EnvironmentConfig> = {
     // ESC-34: the pickup judgement by arrival check-ins stays off until its app build is the minimum.
     pickupClassification: false,
     dropoffClassification: false,
+    // FUP-140: the uploads/photos/ expiry stays off until the photo copy backfill ran here (deployment.md 3e).
+    deliveryPhotoUploadExpiry: false,
     // ESC-20: new order escrows settle through the escrow ledger; staging and prod stay off.
     escrowLedgerEnabled: true,
     // FRD-19: the AI advisory reviewer is on in dev only (owner's decision, 2026-11-11), on Haiku 5.5; the EU
@@ -260,6 +272,8 @@ export const environments: Record<string, EnvironmentConfig> = {
     // ESC-34: the pickup judgement by arrival check-ins stays off until its app build is the minimum.
     pickupClassification: false,
     dropoffClassification: false,
+    // FUP-140: the uploads/photos/ expiry stays off until the photo copy backfill ran here (deployment.md 3e).
+    deliveryPhotoUploadExpiry: false,
     // FRD-19: off. me-south-1 has no EU or ME geo profile for current Claude models; if turned on, the reviewer
     // calls the EU profile from eu-central-1 (decision record, option 3).
     aiReviewEnabled: false,
@@ -291,6 +305,8 @@ export const environments: Record<string, EnvironmentConfig> = {
     // ESC-34: the pickup judgement by arrival check-ins stays off until its app build is the minimum.
     pickupClassification: false,
     dropoffClassification: false,
+    // FUP-140: the uploads/photos/ expiry stays off until the photo copy backfill ran here (deployment.md 3e).
+    deliveryPhotoUploadExpiry: false,
     // FRD-19: off. me-south-1 has no EU or ME geo profile for current Claude models; if turned on, the reviewer
     // calls the EU profile from eu-central-1 (decision record, option 3).
     aiReviewEnabled: false,
