@@ -1493,6 +1493,10 @@ public sealed class OrderRepository : IOrderRepository
     public Task<bool> TryRecordDropoffAttemptAsync(string orderId, Dictionary<string, object> entry)
         => RecordDropoffEntryAsync(orderId, DropoffJudgement.AttemptField, entry, whileOpen: true);
 
+    /// <inheritdoc />
+    public Task<bool> TryRecordLateDropoffAttemptAsync(string orderId, Dictionary<string, object> entry)
+        => RecordDropoffEntryAsync(orderId, DropoffJudgement.AttemptField, entry, whileOpen: false);
+
     /// <summary>ESC-36: the first entry of <paramref name="field"/>, with the deadline it gives, no version bump.</summary>
     private async Task<bool> RecordDropoffEntryAsync(string orderId, string field, Dictionary<string, object> entry, bool whileOpen)
     {

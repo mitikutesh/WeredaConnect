@@ -346,8 +346,12 @@ void main() {
           AppErrorCode.dropoffCheckInNotOpen,
       'CHECKIN_NOT_PARTY: Only the order\'s trucker checks in at the '
           'drop-off.': AppErrorCode.dropoffCheckInNotParty,
+      // FUP-373: the drop-off flag rolled back while the pickup flag stays
+      // on: not open, not the update-the-app text.
       'CHECKIN_VALIDATION: arrived_dropoff is not taken yet (it comes with '
-          'the drop-off check-in).': AppErrorCode.checkInNotSaved,
+          'the drop-off check-in).': AppErrorCode.dropoffCheckInNotOpen,
+      'CHECKIN_VALIDATION: latitude and longitude are required for '
+          'arrived_dropoff.': AppErrorCode.checkInNotSaved,
       "Unsupported entity type: 'handoff_check_in'.":
           AppErrorCode.dropoffCheckInNotOpen,
     };
@@ -417,8 +421,19 @@ void main() {
       );
       expect(
         localizeErrorCode(AppErrorCode.dropoffCheckInTooFar, en),
-        contains('closer'),
+        contains('Check in again'),
       );
+      // FUP-373: about the check-in and the order's drop-off point, never
+      // that the trucker was far away (the buyer's pin may be wrong, FUP-204).
+      for (final text in [
+        localizeErrorCode(AppErrorCode.dropoffCheckInTooFar, en),
+        localizeErrorCode(AppErrorCode.dropoffCheckInTooFarKept, en),
+        en.dropoffJudgementOutOfRange,
+      ]) {
+        expect(text, contains("check-in was more than 5 km from the order's"));
+        expect(text, isNot(contains('You are')));
+        expect(text, isNot(contains('tried to check in but')));
+      }
       expect(
         localizeErrorCode(AppErrorCode.dropoffCheckInTooLate, en),
         contains('kept for review'),

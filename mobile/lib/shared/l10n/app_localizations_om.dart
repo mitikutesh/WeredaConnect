@@ -6023,7 +6023,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get dropoffJudgementOutOfRange =>
-      'Konkolaachisaan mirkaneessuuf yaaleera, garuu bakka buusuu irraa km 5 ol fagaatee ture. Deeggarsi ni qorata; maallaqni qabamee tura.';
+      'Mirkaneessi konkolaachisaa bakka buusuu ajajichaa irraa km 5 ol fagaatee ture. Deeggarsi ni qorata; maallaqni qabamee tura.';
 
   @override
   String get dropoffJudgementQueued =>
@@ -6046,11 +6046,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get errorDropoffCheckInTooFar =>
-      'Bakka buusuu irraa km 5 ol fagaattee jirta. Mirkaneessi kee hin olkaa\'amne; yeroo dhiyaattu irra deebi\'ii mirkaneessi.';
+      'Mirkaneessi kee bakka buusuu ajajichaa irraa km 5 ol fagaatee waan tureef hin olkaa\'amne. Bakka sanatti yeroo dhiyaattu irra deebi\'ii mirkaneessi.';
 
   @override
   String get errorDropoffCheckInTooFarKept =>
-      'Bakka buusuu irraa km 5 ol fagaattee jirta. Mirkaneessi kee hin olkaa\'amne, garuu yaaliin kun gamaaggamaaf olkaa\'ameera. Yeroo dhiyaattu irra deebi\'ii mirkaneessi.';
+      'Mirkaneessi kee bakka buusuu ajajichaa irraa km 5 ol fagaatee waan tureef hin olkaa\'amne, garuu yaaliin kun gamaaggamaaf olkaa\'ameera. Bakka sanatti yeroo dhiyaattu irra deebi\'ii mirkaneessi.';
 
   @override
   String get errorDropoffCheckInTooLate =>

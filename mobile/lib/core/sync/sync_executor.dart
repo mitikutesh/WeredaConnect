@@ -1366,12 +1366,20 @@ class SyncExecutor {
   /// check-ins): a refusal is not announced. A refused check-in has no local
   /// row to put back and only leaves a gap in the trail (sync-protocol.md
   /// Location pings). A refused handoff photo (FRD-12) is optional evidence
-  /// the handoff did not need: nothing to undo, nothing to retry.
+  /// the handoff did not need: nothing to retry, and only the arrival photo
+  /// has a kept file path to forget ([_isArrivalPhoto]).
   static const _unannouncedEntityTypes = {
     'match_event',
     locationPingEntityType,
     deliveryPhotoEntityType,
   };
+
+  /// The trucker's `{deliveryId}#arrival` photo (ESC-36): refused for good,
+  /// it still goes through [PermanentRejectionHandler] (unannounced), which
+  /// forgets the file path the phone kept on the delivery (FUP-373).
+  static bool _isArrivalPhoto(SyncOperation operation) =>
+      operation.entityType == deliveryPhotoEntityType &&
+      parseDeliveryPhotoEntityId(operation.entityId)?.type == arrivalPhotoType;
 
   /// The UI event for a refused (or, for `APP_UPDATE_REQUIRED`, held)
   /// operation. The idempotency key starts with its user's id, the same
@@ -1426,6 +1434,9 @@ class SyncExecutor {
   /// - a reverted crop listing, trip, delivery or message leaves the "Sync
   ///   failed" count ([SyncQueue.markRevertedFor]) once the handler returned
   ///   ([_leavesFailedCount]);
+  /// - a refused arrival photo goes to [PermanentRejectionHandler] too, once
+  ///   per entity and never announced, so its kept file path is forgotten
+  ///   (FUP-373);
   /// - every refusal is announced as a [SyncOperationRejected] event, once
   ///   per entity. The batch's events go out together after every undo has
   ///   finished: a screen that reloads reads the reverted rows, and the UI
@@ -1461,7 +1472,20 @@ class SyncExecutor {
     final settled = <String>{};
     final announcements = <SyncOperationRejected>[];
     for (final (operation, message) in rejected) {
-      if (_unannouncedEntityTypes.contains(operation.entityType)) continue;
+      if (_unannouncedEntityTypes.contains(operation.entityType)) {
+        // FUP-373: a refused arrival photo is not announced either, but the
+        // handler forgets the file the phone kept on the delivery, so the
+        // next "Arrived at drop-off" takes a new photo.
+        if (_isArrivalPhoto(operation) &&
+            settled.add('${operation.entityType}:${operation.entityId}')) {
+          try {
+            await _onPermanentRejection?.call(operation, message ?? '');
+          } on Object catch (e) {
+            debugPrint('[SYNC] permanent rejection handler failed: $e');
+          }
+        }
+        continue;
+      }
       if (!settled.add('${operation.entityType}:${operation.entityId}')) {
         continue;
       }

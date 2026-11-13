@@ -694,6 +694,7 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         public Task<bool> TryRecordCheckInAsync(string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen) => inner.TryRecordCheckInAsync(orderId, createdAt, kind, entry, whileOpen);
         public Task<bool> TryRecordDropoffCheckInAsync(string orderId, Dictionary<string, object> entry, bool whileOpen) => inner.TryRecordDropoffCheckInAsync(orderId, entry, whileOpen);
         public Task<bool> TryRecordDropoffAttemptAsync(string orderId, Dictionary<string, object> entry) => inner.TryRecordDropoffAttemptAsync(orderId, entry);
+        public Task<bool> TryRecordLateDropoffAttemptAsync(string orderId, Dictionary<string, object> entry) => inner.TryRecordLateDropoffAttemptAsync(orderId, entry);
 
         public Task<AuthResult<Dictionary<string, object>>> CreateAsync(string orderId, Dictionary<string, object> data) => inner.CreateAsync(orderId, data);
         public Task<AuthResult<Dictionary<string, object>>> UpdateAsync(string orderId, Dictionary<string, object> data, int expectedVersion) => inner.UpdateAsync(orderId, data, expectedVersion);
