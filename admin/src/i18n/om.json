@@ -389,6 +389,7 @@
     "exit_pending": "Yeroo xumuraa haaraan gara eeggannaatti deebi'e",
     "exit_handoff_confirmed": "Harka walirraa fudhachuun mirkanaa'e",
     "noShowHint": "Murtiin dhabamuu ajaja kana fuula duratti socheesseera (geejjibni hin milkoofne, ykn ajajni haqamee maallaqni akka deebi'u qophaa'eera), kanaaf asitti irra deebiin banamuu hin danda'u. Murtiin dhabamuu dogoggoraa fuula maqaa hirmaataa irratti dhiifama argata.",
+    "truckerNoShowHint": "Konkolaachisaan akka hin dhufne murteeffameera: geejjibni haqameera, bakki imalaa gadhiifameera, bitataanis geejjiba irra deebi'ee filata. Iskaaniin sarvara irra turee ga'e midhaan qonnaa keessaa ba'uu isaa yoo agarsiise, bitataan osoo hin filatin dhabamuu gadii irra deebi'ii bani; dhabamuun konkolaachisaa isaa waliin dhiifama argata.",
     "reopen": {
       "action": "Fudhannaa irra deebi'ii bani",
       "title": "Fudhannaa murteeffame kana irra deebi'ii bani",
@@ -409,7 +410,25 @@
       "reasonHint": "Qubee 10 hanga 500. Galmee odiitii keessatti kuufama.",
       "back": "Deebi'i",
       "cancel": "Haqi"
-    }
+    },
+    "noShowReopen": {
+      "action": "Dhabamuu irra deebi'ii bani",
+      "title": "Dhabamuu konkolaachisaa kana irra deebi'ii bani",
+      "hint": "Konkolaachisaan dhufuu isaa hirmaattota waliin erga mirkaneessitee booda qofa itti fayyadami, fakkeenyaaf iskaanii dhugaa sarvara irra turee ga'e. Bakki imalaa ni deebi'a, dhabamuun konkolaachisaas dhiifama argata. Maallaqni tokkollee hin sochoowu.",
+      "exitPendingHelp": "Konkolaachisaan yeroo haaraa argata: ajajni irra deebi'ee walii galama, konkolaachisaan geejjiba haaraa uumee QR qonnaan bulaa iskaana, ajajnis yeroo xumuraa haaraatti irra deebiin murteeffama. Mirkaneessonni argamuu yeroo murteeffame sanaa ni haqamu (galmeen odiitii ni qabata), kanaaf lamaan isaanii irra deebi'anii mirkaneessu.",
+      "exitHandoffHelp": "Midhaan harka jijjiireera: geejjibni haqame akka fudhatametti galmeeffama, ajajnis akkuma iskaanii booda itti fufa. Bitataan akkuma baramaa koodii buusuu konkolaachisaatiin buusuu mirkaneessa; konkolaachisaan bilbilli isaa koodii hin agarsiifne Koodii buusuu haaraa uuma.",
+      "confirmPending": "Dhabamuu yeroo xumuraa haaraa amma irraa sa'aatii {hours} waliin irra deebi'ii banuu, bakka imalaa deebisuu fi dhabamuu konkolaachisaa dhiisuu?",
+      "confirmHandoff": "Harka walirraa fudhachuun akka fudhatametti haa galmeeffamu, bakki imalaa haa deebi'u, dhabamuun konkolaachisaas dhiifama haa argatu?",
+      "donePending": "Dhabamuun irra deebiin banameera: konkolaachisaan hanga yeroo xumuraa haaraatti yeroo haaraa qaba.",
+      "doneHandoff": "Harka walirraa fudhachuun akka fudhatametti galmeeffameera, bakki imalaas deebi'eera."
+    },
+    "noShowEvent_excused": "Dhabamuun konkolaachisaa dhiifama argateera.",
+    "noShowEvent_already_excused": "Dhabamuun konkolaachisaa duraan dhiifama argateera.",
+    "noShowEvent_not_recorded": "Ajaja kanaaf maqaa konkolaachisaa irratti dhabamuun galmaa'e hin jiru. Booda yoo mul'ate, fuula maqaa konkolaachisaa irratti dhiifama kenni.",
+    "noShowEvent_not_counted": "Dhabamuun konkolaachisaa kana booda hin lakkaa'amu, kanaaf wanti dhiifama argatu hin turre.",
+    "noShowEvent_upheld": "Dhabamuun konkolaachisaa duraan cimeera, akkuma jiruttis tura. Fuula maqaa konkolaachisaa irratti ilaali.",
+    "noShowEvent_off": "Adabbiin maqaa asitti cufameera, kanaaf dhabamuun tokkollee hin galmoofne.",
+    "noShowEvent_failed": "Dhabamuun konkolaachisaa dhiifama argachuu hin dandeenye. Fuula maqaa konkolaachisaa irratti dhiifama kenni."
   },
   "listingReports": {
     "title": "Gabaasa Tarreewwanii",
@@ -989,7 +1008,8 @@
     "PICKUP_REOPEN_INVALID": "Unka mirkaneessi: sababni qubee 10 hanga 500 ta'uu qaba.",
     "PICKUP_REOPEN_NOT_ALLOWED": "Murtiin kun kana booda irra deebiin banamuu hin danda'u. Ajaja akka amma jirutti ilaaluuf fuula irra deebi'ii fe'i.",
     "PICKUP_REOPEN_CHANGED": "Erga fuulli fe'amee booda ajajni, geejjibni ykn kaffaltiin jijjiirameera. Osoo irra deebitee hin yaaliin dura fuula irra deebi'ii fe'ii mirkaneessi.",
-    "PICKUP_REOPEN_MONEY_NOT_HELD": "Kaffaltiin kana booda salphaatti qabamee hin jiru (deebi'aa, kaffalamaa, sakatta'iinsaaf dhaabbatee ykn mirkanaa'ee jira). Dura waa'ee maallaqaa murteessi."
+    "PICKUP_REOPEN_MONEY_NOT_HELD": "Kaffaltiin kana booda salphaatti qabamee hin jiru (deebi'aa, kaffalamaa, sakatta'iinsaaf dhaabbatee ykn mirkanaa'ee jira). Dura waa'ee maallaqaa murteessi.",
+    "PICKUP_REOPEN_TRIP_UNAVAILABLE": "Imalli ajaja kana deebisee fudhachuu hin danda'u (guutameera, ka'eera, haqameera ykn hin jiru). Akka amma jirutti ilaaluuf irra deebi'ii fe'i."
   },
   "language": {
     "english": "English",

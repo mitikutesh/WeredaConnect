@@ -23,7 +23,8 @@ public partial class AdminFunction
 
     /// <summary>
     /// POST /admin/orders/{orderId}/{action}: <c>reopen-pickup</c> with
-    /// <c>{exit, reason, expectedVersion, deadlineHours?}</c>. Any other action is <c>404 ADMIN_002</c>.
+    /// <c>{exit, reason, expectedVersion, deadlineHours?}</c>, or <c>reopen-no-show</c> (FUP-330, its own file). Any
+    /// other action is <c>404 ADMIN_002</c>.
     /// <list type="bullet">
     /// <item><c>pending</c>: <c>pickupJudgement</c> back to <c>pending</c>, <c>pickupDeadlineAt</c> now plus
     /// <c>deadlineHours</c>, <c>pickupJudgedAt</c> and the overdue notice removed, the check-ins kept (a late
@@ -41,6 +42,12 @@ public partial class AdminFunction
     private async Task<APIGatewayProxyResponse> HandleOrderActionAsync(
         string orderId, string action, APIGatewayProxyRequest request, ILambdaContext context)
     {
+        // FUP-330: a judged trucker no-show has its own action (AdminFunction.NoShowReopen.cs).
+        if (action == NoShowReopen.Action)
+        {
+            return await HandleNoShowReopenAsync(orderId, request, context);
+        }
+
         if (action != PickupReopen.Action)
         {
             return LambdaResponse.Error(404, "ADMIN_002", "Admin endpoint not found.");
@@ -343,8 +350,9 @@ public partial class AdminFunction
         _ => "none"
     };
 
+    /// <summary>The answer of a re-open; <paramref name="noShowEvent"/> only for a trucker no-show's (FUP-330).</summary>
     private static APIGatewayProxyResponse ReopenOk(
-        string orderId, string exit, Dictionary<string, object> order, bool alreadyApplied, string message)
+        string orderId, string exit, Dictionary<string, object> order, bool alreadyApplied, string message, string? noShowEvent = null)
     {
         var stamp = PickupReopen.LastReopenOf(order);
         var response = new PickupReopenResponse
@@ -358,6 +366,7 @@ public partial class AdminFunction
             DeliveryId = exit == PickupReopen.Exit.HandoffConfirmed ? GetStringOrNull(order, "activeDeliveryId") : null,
             Version = GetInt(order, "version"),
             AlreadyApplied = alreadyApplied,
+            NoShowEvent = noShowEvent,
             Message = message
         };
         return LambdaResponse.Ok(response, AppJsonContext.Default.PickupReopenResponse);

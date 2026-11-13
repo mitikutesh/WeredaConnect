@@ -473,4 +473,46 @@ describe("TransactionDetailPage pickup judgement (FUP-287)", () => {
     expect(screen.getByRole("region", { name: arrival })).toBeTruthy();
     expect(screen.getByRole("button", { name: action })).toBeTruthy();
   });
+
+  /* FUP-330: a judged trucker no-show offers its own re-open next to the judgement's, while the server names exits. */
+  const truckerNoShow = {
+    judgement: "trucker_no_show",
+    judgedAt: "2026-11-22T06:01:00Z",
+    deadlineAt: "2026-11-22T06:00:00Z",
+    selfPickup: false,
+    reopenExits: [],
+    noShowReopenExits: ["pending", "handoff_confirmed"],
+  };
+
+  it("offers the no-show re-open for a trucker no-show the buyer has not chosen on", () => {
+    mocks.detail.data = detail(truckerNoShow, "awaiting_transport");
+
+    renderPage();
+
+    expect(screen.getByText("The trucker did not show up")).toBeTruthy();
+    expect(screen.getByText(/re-open the no-show below while the buyer has not chosen/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Re-open the no-show" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Re-open the pickup" })).toBeNull();
+  });
+
+  it("offers nothing and explains, once the buyer chose", () => {
+    mocks.detail.data = detail({ ...truckerNoShow, noShowReopenExits: [] }, "cancelled");
+
+    renderPage();
+
+    expect(screen.getByText(/cannot be re-opened here/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Re-open the no-show" })).toBeNull();
+  });
+
+  it.each([
+    ["am", "ያለመገኘቱን እንደገና ክፈት"],
+    ["om", "Dhabamuu irra deebi'ii bani"],
+  ] as const)("names the no-show re-open in %s", (locale, action) => {
+    mocks.locale = locale;
+    mocks.detail.data = detail(truckerNoShow, "awaiting_transport");
+
+    renderPage();
+
+    expect(screen.getByRole("button", { name: action })).toBeTruthy();
+  });
 });

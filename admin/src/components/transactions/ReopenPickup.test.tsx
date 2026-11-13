@@ -10,7 +10,7 @@ import { ReopenPickup } from "./ReopenPickup";
  * also prove the pickup.reopen.* keys the form reads exist. */
 
 type MutateOptions = {
-  onSuccess?: (result: { alreadyApplied?: boolean }) => void;
+  onSuccess?: (result: { alreadyApplied?: boolean; noShowEvent?: string }) => void;
   onError?: (err: unknown) => void;
 };
 
@@ -143,5 +143,86 @@ describe("ReopenPickup (FUP-287)", () => {
 
     expect(screen.getByRole("alert").textContent).toContain(text);
     expect(screen.getByLabelText("How you reconciled it")).toBeTruthy();
+  });
+});
+
+/* FUP-330: the same form re-opens a judged trucker no-show through reopen-no-show, says the trip booking is taken
+ * back and the no-show excused, and tells what happened to the trucker's NO_SHOW. */
+describe("ReopenPickup for a trucker no-show (FUP-330)", () => {
+  beforeEach(() => {
+    mocks.mutate.mockReset();
+  });
+
+  function renderNoShow(exits: ReopenExit[] = ["pending", "handoff_confirmed"]) {
+    render(<ReopenPickup orderId="ord-9" version={8} exits={exits} kind="noShow" />);
+  }
+
+  it("re-opens the no-show with a new window through its own action, and says the no-show is excused", async () => {
+    mocks.mutate.mockImplementation((_vars, opts) => opts?.onSuccess?.({ alreadyApplied: false, noShowEvent: "excused" }));
+    const user = userEvent.setup();
+    renderNoShow();
+
+    expect(screen.queryByRole("button", { name: "Re-open the pickup" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Re-open the no-show" }));
+    expect(screen.getByText("Re-open this trucker no-show")).toBeTruthy();
+    expect(screen.getByText(/the trucker creates a new delivery and scans the farmer's QR/)).toBeTruthy();
+    expect(screen.getByText(/check-ins are cleared \(the audit trail keeps them\)/)).toBeTruthy();
+    await user.selectOptions(screen.getByLabelText("New deadline"), "72");
+    await user.type(screen.getByLabelText("How you reconciled it"), REASON);
+    await user.click(screen.getByRole("button", { name: "Review" }));
+
+    expect(
+      screen.getByText(
+        "Re-open the no-show with a new deadline 72 hours from now, take the trip booking back and excuse the trucker's no-show?",
+      ),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Yes, re-open" }));
+
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      { orderId: "ord-9", action: "reopen-no-show", exit: "pending", reason: REASON, expectedVersion: 8, deadlineHours: 72 },
+      expect.anything(),
+    );
+    expect(screen.getByRole("status").textContent).toBe(
+      "The no-show is re-opened: the trucker has a new window until the new deadline. The trucker's no-show is excused.",
+    );
+  });
+
+  it("confirms the handoff, and says when no no-show was recorded", async () => {
+    mocks.mutate.mockImplementation((_vars, opts) => opts?.onSuccess?.({ noShowEvent: "not_recorded" }));
+    const user = userEvent.setup();
+    renderNoShow();
+
+    await user.click(screen.getByRole("button", { name: "Re-open the no-show" }));
+    await user.click(screen.getByRole("radio", { name: /Handoff confirmed/ }));
+    expect(screen.getByText(/the cancelled delivery is marked picked up/)).toBeTruthy();
+    await user.type(screen.getByLabelText("How you reconciled it"), REASON);
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    expect(screen.getByText("Record the handoff as picked up, take the trip booking back and excuse the trucker's no-show?")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Yes, re-open" }));
+
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      { orderId: "ord-9", action: "reopen-no-show", exit: "handoff_confirmed", reason: REASON, expectedVersion: 8 },
+      expect.anything(),
+    );
+    expect(screen.getByRole("status").textContent).toContain("The handoff is recorded as picked up and the trip booking is back.");
+    expect(screen.getByRole("status").textContent).toContain("No no-show is recorded for this order");
+  });
+
+  it("shows a trip that cannot take the order back in words", async () => {
+    mocks.mutate.mockImplementation((_vars, opts) => opts?.onError?.({ code: "PICKUP_REOPEN_TRIP_UNAVAILABLE" }));
+    const user = userEvent.setup();
+    renderNoShow(["pending"]);
+
+    await user.click(screen.getByRole("button", { name: "Re-open the no-show" }));
+    await user.type(screen.getByLabelText("How you reconciled it"), REASON);
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    await user.click(screen.getByRole("button", { name: "Yes, re-open" }));
+
+    expect(screen.getByRole("alert").textContent).toContain("The trip cannot take the order back");
+  });
+
+  it("offers nothing once the buyer chose (no exits)", () => {
+    renderNoShow([]);
+    expect(screen.queryByRole("button", { name: "Re-open the no-show" })).toBeNull();
   });
 });

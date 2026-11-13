@@ -2895,7 +2895,7 @@ public partial class AdminFunction
             Escrow = escrow,
             Delivery = delivery,
             Timeline = BuildTimeline(order, delivery, escrow, auditEntries, unifiedEvents),
-            PickupEvidence = await PickupEvidenceAsync(orderRow, deliveryRow)
+            PickupEvidence = await PickupEvidenceAsync(orderRow, deliveryRow, escrowItem)
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminTransactionDetailResponse);
@@ -2905,22 +2905,38 @@ public partial class AdminFunction
     /// FUP-287: the pickup judgement with its check-ins as evidence (<see cref="PickupReopen.EvidenceOf"/>), null for
     /// an order never stamped judgeable. Whether the handoff can be confirmed depends on the order's active delivery:
     /// the one the view joined when it is that one, else read here, only for an order whose judgement can be re-opened.
+    /// FUP-330: for a trucker no-show that can be re-opened, the delivery its re-open would bring back
+    /// (<see cref="NoShowReopen.DeliveryIdOf"/>: the escrow's, else the slot's) decides the same for that action.
     /// </summary>
-    private async Task<AdminPickupEvidenceDto?> PickupEvidenceAsync(Dictionary<string, object> orderRow, Dictionary<string, object>? joined)
+    private async Task<AdminPickupEvidenceDto?> PickupEvidenceAsync(
+        Dictionary<string, object> orderRow, Dictionary<string, object>? joined, Dictionary<string, object>? escrowRow)
     {
         if (!PickupJudgement.IsStamped(orderRow) && !orderRow.ContainsKey(PickupReopen.Field))
         {
             return null;
         }
 
+        async Task<Dictionary<string, object>?> DeliveryAsync(string deliveryId)
+            => joined != null && GetString(joined, "deliveryId") == deliveryId
+                ? joined
+                : string.IsNullOrEmpty(_deliveriesTable)
+                    ? null
+                    : await new DeliveryRepository(_dynamoDb, _deliveriesTable).GetByIdAsync(deliveryId);
+
         var activeId = GetString(orderRow, "activeDeliveryId");
         var active = joined != null && activeId.Length > 0 && GetString(joined, "deliveryId") == activeId ? joined : null;
-        if (active == null && activeId.Length > 0 && PickupReopen.RefusalOf(orderRow) == null && !string.IsNullOrEmpty(_deliveriesTable))
+        if (active == null && activeId.Length > 0 && PickupReopen.RefusalOf(orderRow) == null)
         {
-            active = await new DeliveryRepository(_dynamoDb, _deliveriesTable).GetByIdAsync(activeId);
+            active = await DeliveryAsync(activeId);
         }
 
-        return PickupReopen.EvidenceOf(orderRow, active);
+        Dictionary<string, object>? noShow = null;
+        if (NoShowReopen.RefusalOf(orderRow) == null && NoShowReopen.DeliveryIdOf(orderRow, escrowRow) is { Length: > 0 } noShowId)
+        {
+            noShow = await DeliveryAsync(noShowId);
+        }
+
+        return PickupReopen.EvidenceOf(orderRow, active, noShow);
     }
 
     /// <summary>Build the transaction-audit repository, or null when unconfigured.</summary>
