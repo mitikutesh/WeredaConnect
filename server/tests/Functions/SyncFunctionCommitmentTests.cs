@@ -439,6 +439,26 @@ public class SyncFunctionCommitmentTests
     }
 
     [Fact]
+    public async Task AClientSentPickupReopen_IsDropped_AndTheStoredStampNeverGoesBack()
+    {
+        // FUP-287: only the admin Lambda writes pickupReopen, and the party's echo leaves it out.
+        _order = Order("funded", version: 2, selfPickup: true);
+        _order[PickupReopen.Field] = PickupReopen.Stamp(PickupReopen.Exit.Pending, PickupJudgement.Outcome.BothPresentNoScan,
+            1, "2026-11-23T08:00:00.0000000Z", "2026-11-24T08:00:00.0000000Z");
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object>
+        {
+            { "status", "accepted" },
+            { "version", 2 },
+            { PickupReopen.Field, new Dictionary<string, object> { { PickupReopen.StampExit, PickupReopen.Exit.HandoffConfirmed } } }
+        }, enabled: false);
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        _written.Should().NotContainKey(PickupReopen.Field);
+        result.GetProperty("serverData").TryGetProperty(PickupReopen.Field, out _).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task FarmerAccept_TripOrder_StaysFunded_AndIsNotStampedYet()
     {
         _pickupClassification = true;

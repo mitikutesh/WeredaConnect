@@ -377,6 +377,34 @@ export function useCorrectPayoutReference() {
   });
 }
 
+// FUP-287: re-open a judged pickup after reconciling a real handoff (delivery-verification-api 2.8.0 P.2). The
+// transaction page, the stuck orders and the audit log reload either way, so a refusal (the order, its delivery or
+// its money changed) shows the order as it is now.
+export function useReopenPickup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      orderId,
+      ...body
+    }: {
+      orderId: string;
+      exit: "pending" | "handoff_confirmed";
+      reason: string;
+      expectedVersion: number;
+      deadlineHours?: number;
+    }) =>
+      api.post<{ alreadyApplied?: boolean; pickupDeadlineAt?: string; status?: string }>(
+        `/admin/orders/${encodeURIComponent(orderId)}/reopen-pickup`,
+        body,
+      ),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "orders"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+  });
+}
+
 // Unapplied payments (FUP-02): captured Telebirr payments the webhook did not apply.
 // The server pages through the escrow audit, so a page can be empty while more remain.
 export function useUnappliedPayments() {
