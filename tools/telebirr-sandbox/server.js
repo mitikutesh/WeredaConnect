@@ -14,12 +14,17 @@
  *   POST /payment/v1/token               -> { token, effectiveDate, expirationDate }
  *                                           (/apply/fabric-token kept as an alias)
  *   POST /payment/v1/merchant/preOrder   -> verifies our sig, returns { prepay_id }
+ *   POST /payment/v1/merchant/queryOrder -> verifies our sig, answers the order's state from this
+ *                                           store (FUP-430): WAIT_PAY, PAY_SUCCESS, PAY_FAILED or
+ *                                           ORDER_CLOSED; a refusal for an order it never created
  *   GET  /payment/web/paygate?...        -> HTML "pay page" with Pay / Fail buttons
  *   POST /simulate/complete              -> fires an RSA-signed webhook to notify_url, in the
  *                                           documented flat shape (ESC-45): notify_time in ms,
  *                                           the transaction id signed as trans_id but sent as
  *                                           transId (as live Telebirr has been seen to do; set
- *                                           TELEBIRR_SIM_TRANS_ID_FIELD=trans_id for the doc sample)
+ *                                           TELEBIRR_SIM_TRANS_ID_FIELD=trans_id for the doc sample).
+ *                                           &notify=0 records the payment without a webhook.
+ *   POST /simulate/expire                -> closes a pending checkout's window now (FUP-430)
  *   GET  /health, GET /                  -> status / help
  *
  * On first run it generates two RSA keypairs (merchant + "Telebirr") into
@@ -96,9 +101,48 @@ const KEYS = loadOrCreateKeys();
 
 // ── In-memory order store ──────────────────────────────────────────────────
 
-/** prepay_id -> { merchOrderId, amount, currency, notifyUrl, redirectUrl, title, appId, callbackInfo, status } */
+/**
+ * prepay_id -> { merchOrderId, amount, currency, notifyUrl, redirectUrl, title, appId, callbackInfo,
+ *   status ("pending" | "completed" | "failed"), closesAt (epoch ms, end of the checkout window),
+ *   paymentOrderId, transId, transEndTime (set once the payment is simulated) }
+ */
 const orders = new Map();
 const fabricTokens = new Set();
+
+// FUP-430: queryOrder's order_status for each state of a stored order.
+const QUERY_STATUS = {
+  pending: "WAIT_PAY",
+  completed: "PAY_SUCCESS",
+  failed: "PAY_FAILED",
+  closed: "ORDER_CLOSED",
+};
+
+// FUP-430: the refusal for a merch_order_id this simulator never created. Telebirr's real code is
+// undocumented (FUP-429 records it), so this is a placeholder the server reads as unknown, never
+// as "not paid".
+const UNKNOWN_ORDER_CODE = "SIM_ORDER_NOT_FOUND";
+
+/** The checkout window of a preOrder's timeout_express ("120m"; 1 to 120 minutes, 120 by default). */
+function checkoutWindowMs(timeoutExpress) {
+  const m = /^(\d+)m$/.exec(String(timeoutExpress || ""));
+  const minutes = m ? Math.min(Math.max(parseInt(m[1], 10), 1), 120) : 120;
+  return minutes * 60 * 1000;
+}
+
+/** "completed", "failed", "closed" (still unpaid when its window ended) or "pending". */
+function orderState(order) {
+  if (order.status === "pending" && Date.now() >= order.closesAt) return "closed";
+  return order.status;
+}
+
+/** The latest preOrder stored under this merch_order_id, or null. */
+function findByMerchOrderId(merchOrderId) {
+  let found = null;
+  for (const order of orders.values()) {
+    if (order.merchOrderId === merchOrderId) found = order;
+  }
+  return found;
+}
 
 // ── HTTP helpers ───────────────────────────────────────────────────────────
 
@@ -139,12 +183,13 @@ async function fireWebhook(order, success) {
     notify_time: nowMs(),
     merch_code: MERCHANT.merchantCode,
     merch_order_id: order.merchOrderId,
-    payment_order_id: `TB${crypto.randomBytes(6).toString("hex").toUpperCase()}`,
+    // The ids queryOrder answers for the same payment (FUP-430).
+    payment_order_id: order.paymentOrderId,
     total_amount: order.amount,
-    trans_id: `TXN${crypto.randomBytes(6).toString("hex").toUpperCase()}`,
+    trans_id: order.transId,
     trans_currency: order.currency,
     trade_status: success ? "Completed" : "Failure",
-    trans_end_time: nowMs(),
+    trans_end_time: order.transEndTime,
   };
   if (order.callbackInfo) signed.callback_info = order.callbackInfo;
   const sign = C.signObject(signed, KEYS.telebirrPrivate);
@@ -258,6 +303,7 @@ async function handle(req, res) {
       appId: biz.appid,
       callbackInfo: biz.callback_info,
       status: "pending",
+      closesAt: Date.now() + checkoutWindowMs(biz.timeout_express),
     });
 
     const response = {
@@ -267,6 +313,63 @@ async function handle(req, res) {
       nonce_str: nonce(),
       sign_type: "SHA256WithRSA",
       biz_content: { prepay_id: prepayId, merch_order_id: biz.merch_order_id },
+    };
+    response.sign = C.signObject(response, KEYS.telebirrPrivate);
+    return json(res, 200, response);
+  }
+
+  // POST /payment/v1/merchant/queryOrder (FUP-430; Ethio Telecom's "Step 5: queryOrder", ESC-45 F5)
+  if (route === "POST /payment/v1/merchant/queryOrder") {
+    const auth = req.headers["authorization"];
+    if (!auth || !fabricTokens.has(auth)) {
+      return json(res, 401, { result: "FAIL", code: "40002", msg: "missing/invalid fabric token" });
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      body = null;
+    }
+    if (!body || typeof body !== "object") {
+      return json(res, 400, { result: "FAIL", code: "40003", msg: "bad json" });
+    }
+
+    // Verify OUR request signature (method payment.queryorder; biz_content appid, merch_code,
+    // merch_order_id) with the merchant public key.
+    if (!C.verifyObject(body, body.sign, KEYS.merchantPublic)) {
+      return json(res, 200, {
+        result: "FAIL",
+        code: "60200099",
+        msg: "Verify the sign field failed",
+      });
+    }
+
+    const merchOrderId = (body.biz_content || {}).merch_order_id;
+    const order = merchOrderId ? findByMerchOrderId(merchOrderId) : null;
+    if (!order) {
+      return json(res, 200, { result: "FAIL", code: UNKNOWN_ORDER_CODE, msg: "order does not exist" });
+    }
+
+    // The documented answer (order_status, as the sample and a live sandbox run show it). The
+    // payment fields come with a simulated payment, the same ids its notify carried.
+    const biz = {
+      merch_order_id: order.merchOrderId,
+      order_status: QUERY_STATUS[orderState(order)],
+      total_amount: order.amount,
+      trans_currency: order.currency,
+    };
+    if (order.paymentOrderId) {
+      biz.payment_order_id = order.paymentOrderId;
+      biz.trans_id = order.transId;
+      biz.trans_time = order.transEndTime;
+    }
+    const response = {
+      result: "SUCCESS",
+      code: "0",
+      msg: "success",
+      nonce_str: nonce(),
+      sign_type: "SHA256WithRSA",
+      biz_content: biz,
     };
     response.sign = C.signObject(response, KEYS.telebirrPrivate);
     return json(res, 200, response);
@@ -292,23 +395,44 @@ async function handle(req, res) {
     return html(res, 200, payPage(prepayId, order, okSig));
   }
 
-  // POST /simulate/complete?prepay_id=..&result=success|fail
+  // POST /simulate/complete?prepay_id=..&result=success|fail[&notify=0]
   if (req.method === "POST" && url.pathname === "/simulate/complete") {
     const q = Object.fromEntries(url.searchParams.entries());
     const order = q.prepay_id && orders.get(q.prepay_id);
     if (!order) return json(res, 404, { ok: false, msg: "unknown prepay_id" });
-    if (order.status !== "pending") {
-      return json(res, 409, { ok: false, msg: `already ${order.status}` });
+    const state = orderState(order);
+    if (state !== "pending") {
+      return json(res, 409, { ok: false, result: state, msg: `already ${state}` });
     }
     const success = q.result !== "fail";
     order.status = success ? "completed" : "failed";
-    const delivery = await fireWebhook(order, success);
+    order.paymentOrderId = `TB${crypto.randomBytes(6).toString("hex").toUpperCase()}`;
+    order.transId = `TXN${crypto.randomBytes(6).toString("hex").toUpperCase()}`;
+    order.transEndTime = nowMs();
+    // notify=0 (FUP-430): a payment whose notify never arrives, so only queryOrder can tell.
+    const notify = q.notify !== "0";
+    const delivery = notify ? await fireWebhook(order, success) : null;
     return json(res, 200, {
       ok: true,
       result: order.status,
-      webhookStatus: delivery.status,
+      webhookStatus: delivery ? delivery.status : null,
       redirectUrl: order.redirectUrl,
     });
+  }
+
+  // POST /simulate/expire?prepay_id=.. (FUP-430): end a pending checkout's window now, as if its
+  // timeout_express had passed; queryOrder then answers ORDER_CLOSED and the checkout cannot be paid.
+  // No notify is sent (whether Telebirr sends Expired is undocumented).
+  if (req.method === "POST" && url.pathname === "/simulate/expire") {
+    const q = Object.fromEntries(url.searchParams.entries());
+    const order = q.prepay_id && orders.get(q.prepay_id);
+    if (!order) return json(res, 404, { ok: false, msg: "unknown prepay_id" });
+    const state = orderState(order);
+    if (state !== "pending") {
+      return json(res, 409, { ok: false, result: state, msg: `already ${state}` });
+    }
+    order.closesAt = Date.now();
+    return json(res, 200, { ok: true, result: "closed" });
   }
 
   if (route === "GET /health") {
@@ -351,6 +475,7 @@ async function done(result){
   out.textContent='Processing...';
   const r=await fetch('/simulate/complete?prepay_id=${encodeURIComponent(prepayId)}&result='+result,{method:'POST'});
   const j=await r.json();
+  if(!j.ok){out.textContent='Not paid: '+j.msg;return;}
   out.textContent='Result: '+j.result+'\\nWebhook delivered (HTTP '+j.webhookStatus+') to your server.'+
     (j.redirectUrl?('\\nApp redirect: '+j.redirectUrl):'');
 }
@@ -365,8 +490,10 @@ function helpPage() {
 <ul>
 <li><code>POST /payment/v1/token</code> (alias <code>/apply/fabric-token</code>)</li>
 <li><code>POST /payment/v1/merchant/preOrder</code></li>
+<li><code>POST /payment/v1/merchant/queryOrder</code>: the order's state (WAIT_PAY, PAY_SUCCESS, PAY_FAILED, ORDER_CLOSED)</li>
 <li><code>GET  /payment/web/paygate</code> — the buyer pay page</li>
-<li><code>POST /simulate/complete</code> — fires the signed webhook</li>
+<li><code>POST /simulate/complete</code>: fires the signed webhook (<code>&amp;notify=0</code>: no webhook)</li>
+<li><code>POST /simulate/expire</code>: closes a pending checkout's window now</li>
 </ul>
 <p>Credentials for the .NET gateway were written to <code>credentials.local.json</code>.</p>
 </body></html>`;
