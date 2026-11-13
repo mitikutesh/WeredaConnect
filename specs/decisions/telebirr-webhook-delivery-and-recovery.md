@@ -173,6 +173,15 @@ queryOrder is not wired (the sweep replays our own verified notifications); reco
 and payments that never reached the inbox through it is a follow-up. The `WCO` id is kept. No repeated
 preOrder is ever sent. The re-signed URL is kept until the sandbox says otherwise.
 
+Amended by FUP-37 (2026-11-13, `escrow-protocol.md` 2.23.0): queryOrder is wired. Every 15 minutes escrow-cron
+asks it about every checkout of a `payment_submitted` order within an hour of T2 (windows closed) and about
+stuck `unknown` checkouts, as F5 says: `order_status` before `trade_status`, `PAY_SUCCESS` as `Completed`. A paid
+checkout is recorded in the inbox exactly as a verified `Completed` notification (the D8 hold, then the pending
+row under the notification's key), so the sweep funds it through the one path; the order cron fails an order with
+a checkout only on the reconciliation's settling verdict; an answer that decides nothing is alarmed and the order
+waits, at most a day past T2. Sandbox item 3 is still owed (the answer's signature and the refusal code for an
+order never created are not read yet).
+
 ### D8. The 24 h race (lead requirement)
 A payment can arrive about 22 h 10 min into the order's payment clock (checkouts open until 20 h, each
 payable 130 min), and a late one later still, so a pending replay could otherwise meet the order cron's

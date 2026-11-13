@@ -352,5 +352,7 @@ internal sealed class ScriptedGateway : ITelebirrGateway
 
     public Task<HoldFundsResponse> HoldFundsAsync(HoldFundsRequest request) => throw new NotSupportedException();
 
+    public Task<TelebirrQueryOrderResult> QueryOrderAsync(string merchOrderId) => throw new NotSupportedException();
+
     public string? BuildCheckoutUrl(string prepayId) => null;
 }

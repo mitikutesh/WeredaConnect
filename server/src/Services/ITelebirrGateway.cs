@@ -34,6 +34,15 @@ public interface ITelebirrGateway
     Task<TransactionStatusResponse> GetTransactionStatusAsync(string transactionRef);
 
     /// <summary>
+    /// FUP-37: ask Telebirr's queryOrder where the order checkout <paramref name="merchOrderId"/> stands
+    /// (paid, not paid, still payable, refunded). A failed or unreadable call is
+    /// <see cref="TelebirrPaymentState.Unknown"/> with its error code, which decides nothing (a caller
+    /// treats an exception the same way). Bounded by
+    /// the invocation's <see cref="WeredaConnect.Server.Helpers.GatewayDeadline"/> like every call.
+    /// </summary>
+    Task<TelebirrQueryOrderResult> QueryOrderAsync(string merchOrderId);
+
+    /// <summary>
     /// ESC-01: true when <see cref="HoldFundsAsync"/> opens a hosted checkout that the buyer
     /// completes in Telebirr (the webhook confirms the payment later); false for the
     /// synchronous mock gateway.
