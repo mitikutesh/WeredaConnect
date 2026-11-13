@@ -38,7 +38,7 @@ public enum TruckerGpsOutcome
     CouldReachDropoff,
 
     /// <summary>
-    /// FUP-245: the trucker's own drop-off check-in (ESC-36) was within 5 km of a drop-off point fixed at pickup:
+    /// FUP-245: the trucker's own drop-off check-in (ESC-36) was within 5 km of a drop-off point (fixed at pickup, or read live when none was):
     /// the truck reached the drop-off.
     /// </summary>
     CheckedInAtDropoff,
@@ -255,7 +255,7 @@ public static class TruckerGpsEvidence
 
     /// <summary>
     /// FUP-245: the verdict from the trucker's drop-off evidence, in place of the road check-ins. It never writes
-    /// the row. ESC-36 keeps a check-in only within 5 km of a drop-off point fixed at pickup (the truck reached the
+    /// the row. ESC-36 keeps a check-in only within 5 km of a drop-off point (fixed at pickup, or read live when none was) (the truck reached the
     /// drop-off: <see cref="TruckerGpsOutcome.CheckedInAtDropoff"/>) or, with no point fixed, unmeasured (no
     /// destination point: <see cref="TruckerGpsOutcome.NoDropoffPoint"/>, as on the road check-ins). An
     /// out-of-range attempt is not evidence of a fake by itself: the point it missed may be the buyer's own pin
