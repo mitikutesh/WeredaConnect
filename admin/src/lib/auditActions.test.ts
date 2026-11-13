@@ -66,6 +66,8 @@ const ESCROW_AUDIT_ACTIONS = [
   "manual_payout_claim_released",
   // FUP-218: a recorded reference corrected by an admin
   "manual_payout_ref_corrected",
+  // FUP-41: an admin decided to refund a second payment for an order (then the usual refund row)
+  "double_escrow_refund",
   // Disputes (ESC-03, ESC-07)
   "dispute",
   "dispute_propagation_failed",
@@ -135,6 +137,8 @@ const TRANSACTION_AUDIT_ACTIONS = [
   // ESC-36: the drop-off judgement stamp, and the system's confirm of a silent buyer's delivery
   "dropoff_judged",
   "delivery_auto_confirmed",
+  // FUP-41: the double escrow refund decision, on the order's trail (entity escrow)
+  "double_escrow_refund",
 ];
 
 /** Written by an open PR that has no admin change of its own; labelled here ahead of the merge. */

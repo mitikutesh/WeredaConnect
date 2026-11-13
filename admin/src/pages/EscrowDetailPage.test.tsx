@@ -29,6 +29,7 @@ vi.mock("@/hooks/useQuery", () => ({
     return mocks.ledger;
   },
   useCorrectPayoutReference: () => ({ mutate: mocks.correct, isPending: false }),
+  useRefundDoubleEscrow: () => ({ mutate: mocks.correct, isPending: false }),
 }));
 
 vi.mock("@/hooks/useLocale", async () => {
@@ -279,5 +280,63 @@ describe("EscrowDetailPage reference correction (FUP-218)", () => {
     const rows = within(screen.getByRole("table", { name: "Ledger" })).getAllByRole("row");
     expect(within(rows[1]).getByRole("button", { name: "Correct reference" })).toBeTruthy();
     expect(within(rows[2]).queryByRole("button")).toBeNull();
+  });
+});
+
+/* FUP-41: the sweep's block reason, and the refund of a second payment for the order. */
+describe("EscrowDetailPage sweep block and double escrow (FUP-41)", () => {
+  function renderPage() {
+    return render(
+      <MemoryRouter>
+        <EscrowDetailPage />
+      </MemoryRouter>,
+    );
+  }
+
+  beforeEach(() => {
+    mocks.audit.data = { auditEntries: [] };
+    mocks.ledger.data = undefined;
+  });
+
+  it("shows why the sweep leaves the escrow alone, and since when", () => {
+    mocks.escrow.data = {
+      escrow: {
+        escrowId: "escrow-order-ord-7",
+        status: "escrowed",
+        amount: 20000,
+        settlementBlockReason: "release:payout:phone_unverified",
+        settlementBlockReasonAt: "2026-11-12T08:00:00Z",
+      },
+    };
+
+    renderPage();
+
+    expect(screen.getByText("Sweep block")).toBeTruthy();
+    expect(screen.getByText("release:payout:phone_unverified")).toBeTruthy();
+    expect(screen.getByText(/^since /)).toBeTruthy();
+    expect(screen.queryByText("Second payment for this order")).toBeNull();
+  });
+
+  it("offers the double escrow refund only on an escrowed escrow the server marked as a second payment", () => {
+    mocks.escrow.data = {
+      escrow: {
+        escrowId: "escrow-del-41",
+        orderId: "ord-41",
+        status: "escrowed",
+        amount: 1500,
+        doubleEscrow: true,
+        orderEscrowStatus: "completed",
+        settlementBlockReason: "release:trade:order_settled",
+      },
+    };
+    const { unmount } = renderPage();
+    expect(screen.getByText("Second payment for this order")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Refund this payment to the buyer" })).toBeTruthy();
+    unmount();
+
+    mocks.escrow.data = { escrow: { escrowId: "escrow-del-42", orderId: "ord-42", status: "escrowed", amount: 1500, doubleEscrow: false } };
+    renderPage();
+    expect(screen.queryByText("Second payment for this order")).toBeNull();
+    expect(screen.queryByText("Sweep block")).toBeNull();
   });
 });

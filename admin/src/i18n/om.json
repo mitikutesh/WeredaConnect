@@ -97,7 +97,9 @@
     "disputed": "Waldhabdeen Ka'era",
     "dispute_resolved": "Furamee",
     "refunded": "Deebifamera",
-    "expired": "Yeroon Darbera"
+    "expired": "Yeroon Darbera",
+    "sweepBlock": "Dhorkaa adeemsa sa'aatii",
+    "sweepBlockSince": "{time} irraa kaasee"
   },
   "disputes": {
     "title": "Waldhabdee",
@@ -322,6 +324,21 @@
     "sameRef": "Eenyummaa kan galmaa'e irraa adda ta'e galchi.",
     "changed": "Erga fuulli fe'amee kutaan kun jijjiirameera. Irra deebitee yaaluu kee dura fuula irra deebi'ii fe'ii eenyummaa isaa mirkaneessi.",
     "notCorrectable": "Kutaan kun asitti sirreeffamuu hin danda'u: ammallee hin galmoofne, ykn gateway'n kaffalameera."
+  },
+  "doubleEscrow": {
+    "title": "Kaffaltii lammaffaa ajaja kanaaf",
+    "explain": "Eskiroon ajajichaa mataan isaa ({orderEscrowStatus}) maallaqa daldala kanaa duraanuu qabateera ykn kaffaleera, kanaaf eskiroon kun kaffaltii lammaffaa dha. Adeemsi sa'aatii gonkumaa hin xumuru.",
+    "action": "Kaffaltii kana bitataaf deebisi",
+    "hint": "Bitataan hanga eskiroo kanaa Telebirr dhaan deebifamaaf. Ajajni, geejjibni isaa fi eskiroon ajajichaa mataan isaa hin jijjiiraman. Maqaan kee fi sababni kee galmee odiitii keessatti kuufamu.",
+    "reason": "Kun maaliif kaffaltii lammaffaa akka ta'e",
+    "reasonHint": "Qubee 10 hanga 500. Galmee odiitii keessatti kuufama.",
+    "review": "Ilaali",
+    "confirmQuestion": "{amount} bitataaf haa deebi'u?",
+    "confirm": "Eeyyee, deebisi",
+    "back": "Deebi'i",
+    "cancel": "Haqi",
+    "done": "Bitataaf deebi'eera.",
+    "queued": "Deebiin kun Kaffaltii Harkaa keessatti eegaa jira. Achitti kaffaliitii eenyummaa daldala Telebirr galmeessi."
   },
   "cancelDelivery": {
     "action": "Geejjiba haqi",
@@ -825,6 +842,7 @@
     "action_reputation_lifted": "Daangaan ka'e (bulchaa)",
     "action_manual_payout_ref_corrected": "Wabiin kaffaltii sirreeffame (bulchaa)",
     "action_admin_manual_payout_ref_corrected": "Wabiin kaffaltii sirreeffame (bulchaa)",
+    "action_double_escrow_refund": "Deebiin kaffaltii lammaffaa murteeffame (bulchaa)",
     "action_admin_delivery_cancelled": "Geejjibni haqame (bulchaa)",
     "action_admin_pickup_reopened": "Fudhannaan bulchaan irra deebiin banameera"
   },
@@ -958,6 +976,8 @@
     "REPUTATION_SERVER_ERROR": "Sarvariin kana xumuruu hin dandeenye. Yeroo muraasa booda irra deebi'ii yaali.",
     "REPUTATION_APPEAL_CHANGED": "Erga fuulli kun fe'amee booda ol'iyyannoon jijjiirameera. Fuulli irra deebi'ee fe'ameera: ol'iyyannoo dubbisi, sana booda irra deebi'ii murteessi.",
     "ESCROW_048": "Sirreeffama kanaaf sababa qubee 10 hanga 500 qabu kenni.",
+    "ESCROW_021": "Kana kan gochuu danda'u bulchaa garee bulchaa keessa jiru qofa.",
+    "ESCROW_049": "Eskiroon kun kaffaltii lammaffaa miti, ykn erga fuulli fe'amee jijjiirameera. Fuula irra deebi'ii fe'ii eskiroo ajajichaa mataa isaa mirkaneessi.",
     "DELIVERY_ADMIN_CANCEL_INVALID": "Haquu kanaaf sababa qubee 10 hanga 500 qabu kenni.",
     "DELIVERY_ADMIN_CANCEL_NOT_ALLOWED": "Geejjibni kun asitti haqamuu hin danda'u: karaa irra hin jiru, ykn ajajni isaa oomishni akka ga'e agarsiisa. Fuula irra deebi'ii fe'i.",
     "DELIVERY_ADMIN_CANCEL_MONEY_HELD": "Kaffaltiin ammallee qabameera. Jalqaba waa'ee maallaqaa murteessi (murtii falmii ykn maallaqa deebisuu), sana booda haqi.",

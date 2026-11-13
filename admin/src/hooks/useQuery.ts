@@ -234,6 +234,32 @@ export function useSettleHeldEscrow() {
   });
 }
 
+/**
+ * FUP-41 (escrow-protocol.md 2.19.0): refund an /escrow/initiate escrow that is a second payment for its order
+ * (`doubleEscrow: true`), admin group only, with a reason of 10 to 500 characters. The caller passes one
+ * idempotency key per opened form, so a double click is answered with the refund already made.
+ */
+export function useRefundDoubleEscrow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ escrowId, reason, idempotencyKey }: { escrowId: string; reason: string; idempotencyKey: string }) =>
+      // The refunded escrow, or the 202 envelope of a refund queued for an admin (ESCROW_034).
+      api.post<HeldExitResult>("/escrow/refund", {
+        escrowId,
+        trigger: "admin_override",
+        idempotencyKey,
+        reason,
+        doubleEscrow: true,
+      }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+  });
+}
+
 export function useFraudAction() {
   const queryClient = useQueryClient();
   return useMutation({

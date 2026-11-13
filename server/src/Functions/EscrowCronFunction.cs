@@ -3110,11 +3110,14 @@ public class EscrowCronFunction
            || (trade.DeliveryStatus == "disputed" && trade.Delivery != null
                && !string.IsNullOrEmpty(GetStringOrNull(trade.Delivery, "disputeResolution")));
 
-    /// <summary>Escrow statuses that hold a trade's money or paid it out, for the double-escrow check (FRD-03: held too).</summary>
-    private static readonly HashSet<string> MoneyHoldingEscrowStatuses = new(StringComparer.Ordinal)
-    {
-        "initiated", "escrowed", "released", "disputed", "dispute_resolved", "held"
-    };
+    /// <summary>
+    /// Escrow statuses that hold a trade's money or paid it out, for the double-escrow check (FRD-03: held too).
+    /// FUP-41: built from the admin refund's rule (<see cref="EscrowService.OrderEscrowPaidStatuses"/>, which has
+    /// <c>completed</c>: an order escrow that paid out in full) plus <c>initiated</c> (a payment that may still
+    /// come), so the sweeps never pay a second escrow the admin exit would call a double payment.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> MoneyHoldingEscrowStatuses =
+        new HashSet<string>(EscrowService.OrderEscrowPaidStatuses.Append("initiated"), StringComparer.Ordinal);
 
     /// <summary>
     /// ESC-10: the escrow names an order whose own escrow (<c>escrow-order-{orderId}</c>) also holds the
