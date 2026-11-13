@@ -105,6 +105,15 @@ public interface IDeliveryRepository
     Task<bool> TryCancelPendingAsync(string deliveryId);
 
     /// <summary>
+    /// FUP-363: the pickup judgement's own cancel of the pending delivery (ESC-34): the write of
+    /// <see cref="TryCancelPendingAsync"/>, which also stamps the server-only
+    /// <c>cancelledByJudgementAt</c> (the write's time, the same as <c>updatedAt</c>) in the same write, so a
+    /// no-show re-open can tell the judgement's cancel from a party's, whenever the judgement's order write lands.
+    /// Conditional on <c>status = pending</c>. Returns false when the delivery is missing or no longer pending.
+    /// </summary>
+    Task<bool> TryCancelPendingForJudgementAsync(string deliveryId);
+
+    /// <summary>
     /// FUP-16: close a delivery that never reached <c>delivered</c> by an admin's dispute disposition,
     /// as a system actor: from <paramref name="fromStatus"/> (<c>pending</c>, <c>pickedUp</c> or
     /// <c>inTransit</c>) to <c>cancelled</c> (with <c>cancelReason</c> and <c>cancelledAt</c>) or to

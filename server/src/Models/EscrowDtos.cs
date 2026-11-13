@@ -238,11 +238,11 @@ public sealed record RefundEscrowRequest
     public string IdempotencyKey { get; init; } = "";
 
     /// <summary>
-    /// ESC-03, admin group only: refund a <c>buyer_wins</c> verdict although its order cannot
-    /// follow it (the goods are already moving). Needs a <see cref="Reason"/>; audited with the
-    /// admin and the reason, and the order is flagged. The sweep never sets it. Deprecated for
-    /// verdicts since escrow-protocol 1.21.0 (FUP-16): a disposition on the verdict moves the order
-    /// and delivery instead. Still the tool for an ESC-09 Part B refund of a plain escrowed escrow.
+    /// ESC-09 Part B, admin group only: refund a plain escrowed escrow although its order cannot follow
+    /// it (the goods are moving). Needs a <see cref="Reason"/>; audited with the admin and the reason,
+    /// and the order is flagged. The sweep never sets it. Until escrow-protocol 2.21.0 it also refunded a
+    /// <c>buyer_wins</c> verdict over a mismatch (ESC-03, deprecated in 1.21.0); since FUP-64 it has no
+    /// effect on a <c>dispute_resolved</c> escrow, whose disposition (<c>settle_as_is</c>) settles it.
     /// </summary>
     public bool OverrideOrderMismatch { get; init; }
 

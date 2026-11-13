@@ -4,6 +4,7 @@ using FluentAssertions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
+using WeredaConnect.Server.Helpers;
 using Xunit;
 
 namespace WeredaConnect.Server.Tests.Data;
@@ -98,6 +99,26 @@ public class DeliveryRepositoryDisputeTests
         _update.ExpressionAttributeValues[":cancelled"].S.Should().Be("cancelled");
         _update.ExpressionAttributeNames.Values.Should().NotContain("deletedAt");
         _update.UpdateExpression.Should().EndWith("ADD #v :one");
+        // FUP-363: only the pickup judgement's own cancel carries its stamp.
+        _update.ExpressionAttributeNames.Values.Should().NotContain(PickupJudgement.DeliveryCancelledAtField);
+    }
+
+    [Fact]
+    public async Task FUP363_TheJudgementsCancel_StampsItselfInTheSameWrite_AtTheWritesTime()
+    {
+        var ok = await _repo.TryCancelPendingForJudgementAsync("delivery-1");
+
+        ok.Should().BeTrue();
+        _update!.Key["tripId"].S.Should().Be("trip-1");
+        _update.ConditionExpression.Should().Be("#status = :pending");
+        _update.ExpressionAttributeValues[":cancelled"].S.Should().Be("cancelled");
+        _update.ExpressionAttributeNames["#judged"].Should().Be(PickupJudgement.DeliveryCancelledAtField);
+        _update.UpdateExpression.Should().Be("SET #status = :cancelled, #updated = :now, #judged = :now ADD #v :one");
+        _update.ExpressionAttributeNames.Values.Should().NotContain(new[] { "deletedAt", "cancelReason" });
+
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("picked up"));
+        (await _repo.TryCancelPendingForJudgementAsync("delivery-1")).Should().BeFalse();
     }
 
     [Fact]

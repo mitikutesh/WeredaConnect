@@ -64,6 +64,10 @@ function DispositionForm({
       <p className="mt-2 text-sm">
         {t(choice.verdict === "buyer_wins" ? "disputes.caseGoodsMoving" : "disputes.caseBeforeDelivery")}
       </p>
+      {/* FUP-64: the exit when the order or delivery is missing, carries another verdict or was closed. */}
+      {dispositionsFor[choice.verdict].includes("settle_as_is") && (
+        <p className="mt-1 text-sm text-text-muted">{t("disputes.caseNoFit")}</p>
+      )}
       <fieldset className="mt-4">
         <legend className="text-sm font-medium">{t("disputes.dispositionLegend")}</legend>
         <div className="mt-2 flex flex-col gap-2">

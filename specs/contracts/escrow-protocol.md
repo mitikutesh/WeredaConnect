@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.20.0
+2.21.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -578,7 +578,7 @@ Refunds escrowed funds to the buyer. Triggered by admin (a `buyer_wins` dispute 
 | `trigger` | string | Yes | Enum: `dispute_resolved`, `delivery_timeout`, `admin_override` | What triggered the refund |
 | `reason` | string | No | 0-500 chars; 10-500 with `overrideOrderMismatch` and, required, for a `held` escrow (1.22.0) | Explanation for audit trail |
 | `idempotencyKey` | string | Yes | Format: `{actor}:{escrowId}:{action}:{timestamp}` | Prevents duplicate refunds |
-| `overrideOrderMismatch` | boolean | No | Admin group only (1.9.0) | Refund a `buyer_wins` verdict although its order cannot follow it (goods already moving); audited with the admin and the reason, the order is flagged. Deprecated for verdicts from 1.21.0 (record `return_to_farmer` on the verdict instead); still the tool for an ESC-09 Part B refund of a plain `escrowed` escrow |
+| `overrideOrderMismatch` | boolean | No | Admin group only (1.9.0) | The tool for an ESC-09 Part B refund of a plain `escrowed` escrow whose goods are moving; audited with the admin and the reason, the order is flagged. Before 2.21.0 it also refunded a `buyer_wins` verdict its order could not follow (deprecated in 1.21.0); since 2.21.0 (FUP-64) it has no effect on a `dispute_resolved` escrow: the flag is still checked (admin group, reason), and the verdict settles only through its disposition (`settle_as_is` when no goods choice fits) |
 
 #### Success Response
 
@@ -607,7 +607,7 @@ Refunds escrowed funds to the buyer. Triggered by admin (a `buyer_wins` dispute 
 | `403` | `ESCROW_021` | Unauthorized to refund (not admin/system), or `overrideOrderMismatch` from outside the admin group (1.9.0), or a `held` escrow from outside the admin group (1.22.0) |
 | `404` | `ESCROW_016` | Escrow not found |
 | `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0) |
-| `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, its verdict is `farmer_wins`, or its order cannot follow the verdict and no override was given (1.9.0; before 1.9.0 `disputed` was accepted too); from 1.22.0 an admin in the admin group may also settle `held`, except when its order cannot follow the refund (`RISK_HOLD_ORDER_MISMATCH`, §Additions in 1.22.0), and the system caller never (FRD-03); from 1.17.0 an admin refund of a plain `escrowed` order escrow whose goods are moving or delivered (no `overrideOrderMismatch`), or whose order is anything but `funded`, `accepted`, `cancelled`, `rejected`, `pickup_confirmed`, `in_transit` or `delivered` (no override) |
+| `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, its verdict is `farmer_wins`, or its order cannot follow the verdict and no disposition settles it (1.9.0; before 1.9.0 `disputed` was accepted too; until 2.21.0 `overrideOrderMismatch` refunded a `buyer_wins` anyway, since then only a recorded `settle_as_is` that still fits does); from 1.22.0 an admin in the admin group may also settle `held`, except when its order cannot follow the refund (`RISK_HOLD_ORDER_MISMATCH`, §Additions in 1.22.0), and the system caller never (FRD-03); from 1.17.0 an admin refund of a plain `escrowed` order escrow whose goods are moving or delivered (no `overrideOrderMismatch`), or whose order is anything but `funded`, `accepted`, `cancelled`, `rejected`, `pickup_confirmed`, `in_transit` or `delivered` (no override) |
 | `503` | `ESCROW_012` | From 1.17.0 also: before an admin refund of a plain `escrowed` order escrow, its order could not be read, or a pre-pickup order could not be cancelled or its stock given back; nothing moved, retry |
 | `202` | `ESCROW_034` | The refund is waiting in the manual payout queue and this call made no payout (1.8.0); with reason `GATEWAY_OUTCOME_UNKNOWN` an earlier gateway call may have paid (1.10.0) |
 | `502` | `ESCROW_013` | Telebirr gateway error (a definite refusal, retried by the next sweep); from 1.10.0 also an unknown outcome whose queue write failed: not retried, the lock stays |
@@ -2329,7 +2329,7 @@ escrow, else the order's `activeDeliveryId`.
   | either | `delivered`, `disputed`, `dispute_resolved`, or left at `accepted`/`pickup_confirmed`/`in_transit` behind a `delivered` or `disputed` delivery | the order moves to `dispute_resolved`, then the money moves |
   | `buyer_wins` | `cancelled` or `rejected` | nothing to move: the settlement makes sure the listing stock is back (idempotent per order; a restore that does not land refuses the refund for that run), then refunds |
   | `buyer_wins` | before pickup: `funded`, or `accepted` with no delivery or a `pending` one | the refund settlement (sweep or admin) first cancels the pending delivery, then the order (`cancelReason: escrow_refunded`, version-checked), restores its listing stock (idempotent per order), then refunds, as the auto-refund sweep's cancel-then-refund does; a cancel or stock restore that does not land (an error, three version conflicts, an exception) refuses the refund for that run with `503 ESCROW_012`, and the next run, finding the order closed, retries the restore before refunding; the admin verdict itself leaves all of this to the settlement |
-  | `buyer_wins` | goods moving: `pickup_confirmed`/`in_transit`, or a delivery picked up but not delivered | refused (`422`), unless an admin in the admin group refunds with `overrideOrderMismatch: true` and a `reason` of 10 to 500 characters; the sweep never overrides |
+  | `buyer_wins` | goods moving: `pickup_confirmed`/`in_transit`, or a delivery picked up but not delivered | refused (`422`), unless an admin in the admin group refunds with `overrideOrderMismatch: true` and a `reason` of 10 to 500 characters; the sweep never overrides. Since 1.21.0 a disposition settles it; since 2.21.0 the override no longer does |
   | `farmer_wins` | before delivery (`funded`, `accepted`, `pickup_confirmed`, `in_transit` behind an undelivered delivery) or closed | refused (`422`), no override; it settles by itself once the order reaches `delivered` |
   | either | anything else, a missing order or delivery, or a delivery with another verdict | refused (`422`) |
 
@@ -3638,7 +3638,7 @@ A replay of a settled verdict, or of one whose legs follow, is answered as in 1.
 ### `overrideOrderMismatch` deprecated for verdicts
 `POST /escrow/refund` still accepts `overrideOrderMismatch` on a `dispute_resolved` escrow exactly as
 in 1.9.0 (the order keeps its status and is flagged) for one more version; record `return_to_farmer` on
-the verdict instead. It is not deprecated for ESC-09 Part B (an admin refund of a plain `escrowed`
+the verdict instead. (Removed for `dispute_resolved` escrows in 2.21.0, FUP-64.) It is not deprecated for ESC-09 Part B (an admin refund of a plain `escrowed`
 order escrow whose goods are moving), which has no verdict to carry a disposition.
 
 ### Dispute before pickup (`ESCROW_041`)
@@ -3698,11 +3698,13 @@ known before, and the apps ignore the new keys. No role-visibility change.
   row, another verdict on the delivery, an order closed or paid out meanwhile) has no exit in the admin
   page. For `buyer_wins` only the deprecated `overrideOrderMismatch` refund settles it; for `farmer_wins`
   there is none: the order must be repaired by hand. A new verdict in that state is simply not recorded.
+  (Resolved in 2.21.0 by `settle_as_is`, except a `farmer_wins` whose goods never left the farm, came back,
+  or whose order shows a payout.)
 - A `farmer_wins` recorded before pickup (a dispute raised before 1.21.0) can only `wait_for_delivery`.
   If its delivery never comes it waits; if the order is then cancelled, it becomes a no-fit case as
   above.
 - A recorded `wait_for_delivery` is never alarmed while its order waits for the delivery; there is no
-  deadline after which it alarms again.
+  deadline after which it alarms again. (Resolved in 2.21.0: `DISPUTE_VERDICT_WAIT_OVERDUE` after seven days.)
 - No payment for a trucker whose trip was wasted (`return_to_farmer`, `delivered_anyway`), and no
   withholding of the trucker leg on `settle_now` (ESC-40, D5).
 - Per-leg verdicts and `partial_refund` (ESC-20); reputation effects (ESC-28).
@@ -5692,6 +5694,170 @@ writes gets its own row (keyed on its `adminQueuedAt`).
 
 No endpoint, DTO, status, amount, timing or client change. Backend only.
 
+## Additions in 2.21.0 (the verdict's admin exit, the overdue wait, the override removed; FUP-64)
+
+2.20.0 is another change's number (FUP-334).
+
+Before 2.21.0 a recorded verdict that no disposition fits (1.21.0, "Known limits") had no admin exit: a
+`buyer_wins` settled only through the deprecated `overrideOrderMismatch` refund (an API flag no admin page
+sent), a `farmer_wins` not at all. A recorded `wait_for_delivery` was never alarmed again, however long the
+delivery took.
+
+### `settle_as_is`: the exit of a verdict no goods disposition fits
+
+A new disposition on `POST /admin/disputes/{id}/resolve` (admin group only, as every disposition), for both
+single verdicts:
+
+| Field | Rule |
+|-------|------|
+| `disposition` | `settle_as_is` with `farmer_wins` or `buyer_wins`. With `partial_refund`: `400 ADMIN_014`, field `disposition` (a split settles through the ledger, 2.2.0) |
+| `reason` | Required, 10 to 500 characters after trimming, as for every disposition (`400 ADMIN_014`, field `reason`) |
+
+It fits only the case 1.21.0 called "anything else" (the server's `NoFit`): a missing order or delivery row, a
+delivery carrying another verdict, a `farmer_wins` on a cancelled or rejected order, an order at `disbursing` or
+`settled`. Where a goods disposition fits (goods moving, before delivery) it answers `422 ADMIN_016`, field
+`disposition`, naming the dispositions that fit; where the legs follow the verdict it is not recorded (as any
+disposition, 1.21.0).
+
+What each case gets:
+
+| Case | `buyer_wins` | `farmer_wins` |
+|------|--------------|---------------|
+| order row missing | refunded | released when the goods left the farm (the escrow's `deliveryConfirmedAt`, or the delivery `pickedUp`, `inTransit`, `delivered` or `disputed`, or one cancelled with a `pickedUpAt`, except an admin's cancel `admin_cancelled`, which covers goods taken back too, FUP-19); else refused |
+| delivery row missing | refunded | released when the goods left the farm (`deliveryConfirmedAt`, or the order at `pickup_confirmed`, `in_transit`, `delivered` or `disputed`); else refused. An order at `dispute_resolved` shows a pickup only once this escrow carries its own `settle_as_is` (another escrow's verdict may have closed the order before any pickup) |
+| the delivery carries the other verdict | refunded | released when the goods left the farm and did not come back; refused when the delivery was cancelled under `buyer_wins` (`return_to_farmer`) |
+| order `cancelled` or `rejected` meanwhile | follows already (1.9.0) | released when the goods left the farm (for example a delivery `delivered` before the order was cancelled); else refused |
+| order `disbursing` or `settled` | refunded (the money goes back to the buyer who paid it); the order is flagged so its contact closes (below) | refused: the order shows a payout, so the farmer may already have been paid for it |
+| this escrow is a second payment while the order's own escrow (`escrow-order-{orderId}`) holds or paid the trade's money (`escrowed`, `disputed`, `dispute_resolved`, `held`, `released`, `completed`: FUP-41's double escrow) | refunded | refused: a double escrow is refunded, never released (2.19.0) |
+| another escrow of the order (its own, one its order index names, the delivery's) paid the farmer or is about to: `released`, `completed`, a release in flight (`settlementLock = release`) or queued (manual payout open, op `release`), a ledger crop leg `released`, or a recorded `farmer_wins` or split verdict not settled yet, whatever the order shows | refunded | refused, as above |
+
+A split (`partial_refund`) never takes `settle_as_is`: a split verdict no goods disposition fits answers
+`422 ADMIN_016` (no exit; on a new verdict "choose the other verdict", on a recorded one "cannot change"), never
+`ADMIN_015`, whether recorded now or replayed (FUP-174). The order's other escrows are read strongly consistent
+for a single `farmer_wins` only (never for a split); a read that fails answers `503 ESCROW_012` and records
+nothing (and fails the settlement closed, below).
+
+A refund is always safe: it returns the money to the buyer who paid it. A release is never made for goods that
+did not leave the farm, came back to the farmer, or that the order shows paid. A refused `settle_as_is` answers
+`422 ADMIN_016` with the reason (`nothing shows the goods left the farm`, `the goods went back to the farmer`,
+`the order already shows a payout`, `this escrow is a second payment ... never released`) and writes nothing; such a recorded verdict has no admin exit (see "Known
+limits"). Without any disposition, a no-fit verdict that `settle_as_is` would settle now answers `422 ADMIN_015`,
+field `disposition` (it answered `ADMIN_016` before), so the admin page opens the choice; one it would not settle
+still answers `ADMIN_016`.
+
+Recording and applying follow 1.21.0 exactly: with a new verdict in the same conditional write; on a recorded
+one conditional on `status = dispute_resolved`, the same verdict, no manual payout, no settlement lock and the
+disposition this request read (none, or a `wait_for_delivery` the order can no longer end, say), else
+`409 ADMIN_010`. The escrow-audit row `dispute_resolved_settled_as_is` (actor the admin, metadata
+`disposition=settle_as_is;reason=<r>;legs=<legs>`, at `disputeDispositionAt` plus four ticks, conditional put)
+comes first; when it is new, a transaction-audit row with the same action (entity `escrow`, the admin as actor)
+and the log line `DISPUTE_DISPOSITION_RECORDED`. The same request again writes nothing new (`200`).
+
+Then the order, as a system actor: a live order is closed at `dispute_resolved` so the parties see the dispute
+decided and their contact closes (order-lifecycle.md 2.19.0): `funded`, `awaiting_transport`, `accepted`,
+`pickup_confirmed` or `in_transit` straight there (status-conditioned, as a disposition's order, one
+transaction-audit row `dispute_resolved`, metadata `resolution=<r>;disposition=settle_as_is`), `delivered` or
+`disputed` through the verdict's own hops (1.9.0). A `buyer_wins` on an order left at `disbursing` or
+`settled` flags it instead, as the removed override did (`disputeOverrideAt`, `disputeOverrideBy` the admin,
+`disputeOverrideReason`, `disputeOverrideEscrowId`; version-checked, status unchanged), so its contact closes
+with the refund (`order-lifecycle.md` 1.18.0) and the order-money sweep reads it as consistent. Every other order
+is left as it is: missing, `cancelled`, `rejected`, `dispute_resolved`, already flagged, or one before payment
+(`created`, `pending_payment`, `payment_submitted`, `payment_failed`, whose contact is closed). The delivery is
+never written:
+missing, carrying another verdict, closed, or (a rare row whose order is missing or closed) still on the road;
+once the money is settled an admin cancels such a delivery with FUP-19's cancel (`delivery-verification-api.md`
+2.9.0) where its order exists (see "Known limits"). Listing stock is never restored, and no
+trip booking is released. An order write that does not land answers `503 ESCROW_012`; the same request again
+finishes it (`DISPUTE_DISPOSITION_INCOMPLETE`).
+
+### The settlement
+
+No new money path: the hourly dispute sweep (and an admin's `POST /escrow/release` or `/escrow/refund`) settles
+the verdict through the usual release or refund. Before any lock, idempotency record or gateway call, where the
+legs cannot follow the verdict and the escrow carries `settle_as_is`, the decision is read again (strongly
+consistent): the settlement goes ahead when `settle_as_is` still fits and the order needs no write any more
+(closed or flagged by the admin's action, or nothing to write), and logs
+`DISPUTE_VERDICT_SETTLING_AS_IS escrowId=.. op=.. legs=..` (not an alarm; no `dispute_verdict_mismatch` row). In
+every other case (the legs moved into a case a goods disposition fits, the farmer is no longer safe to pay, the
+order is still live or unflagged because the admin's run stopped half way) the verdict is refused exactly as in
+1.9.0, alarmed (`DISPUTE_VERDICT_ORDER_MISMATCH`) and audited once; the refusal message now names
+`settle_as_is`. A read of the order's other escrows that fails blocks the settlement for the run
+(`503 ESCROW_012`, `DISPUTE_VERDICT_SETTLEMENT_BLOCKED legs=escrows:read:[Error]`, 1.9.0). A `farmer_wins` release pays the trucker leg when the escrow carries one (1.11.0), as every
+`farmer_wins`.
+
+The hourly order-money sweep (1.17.0) counts the order of an escrow settled as it is (`refunded` for
+`buyer_wins`, `released` or `completed` for `farmer_wins`) as consistent with its money, so no
+`ORDER_MONEY_MISMATCH` follows.
+
+### The overdue wait
+
+A recorded `wait_for_delivery` whose order still waits for its delivery (the case 1.21.0 left unalarmed) alarms
+again once it is seven days old, measured from `disputeDispositionAt` (else `disputeResolvedAt`; a time that
+cannot be read counts as overdue). Seven days: an order escrow is itself stale seven days after funding
+(`expiresAt`, 1.34.0), a delivery normally lands within days of pickup, and two more weeks remain before the 21
+day cap of a progressing order's hold. Each refused settlement of such a verdict logs, instead of
+`DISPUTE_VERDICT_WAITING_FOR_DELIVERY`:
+
+`DISPUTE_VERDICT_WAIT_OVERDUE escrowId=<id> op=<release|refund> ageDays=<whole days|unknown> legs=<legs>`
+
+(ids and legs through `MoneyAlarmLog.LogId`, `,` as `.`). The `dispute_verdict_mismatch` row is written once, as
+before. A wait whose order moved where it cannot follow (cancelled, say) is not a wait any more and alarms on the
+mismatch token, as in 1.21.0.
+
+### `overrideOrderMismatch` removed for verdicts
+
+On a `dispute_resolved` escrow `POST /escrow/refund` ignores `overrideOrderMismatch`: a verdict its legs cannot
+follow is refused (`422 ESCROW_INVALID_TRANSITION`) like any other, and the admin records a disposition instead
+(`return_to_farmer` or `delivered_anyway` for goods on the move, `settle_as_is` when none fits). The flag is still
+checked before the escrow is read (admin group `403 ESCROW_021`, a `reason` of 10 to 500 characters
+`400 ESCROW_VALIDATION`), because ESC-09 Part B (1.17.0) keeps it for a plain `escrowed` escrow whose goods are
+moving. No new `dispute_order_mismatch_overridden` or `dispute_mismatch_override` row and no `disputeOverride*`
+flag is written; existing rows and flags keep their meaning (the order-money sweep and the contact rules still
+read the flags). No admin page or app ever sent the flag (1.21.0); an API caller that did now gets the `422`.
+
+### Alarm (`infra/lib/stacks/monitoring-stack.ts`)
+
+`${prefix}-dispute-verdict-wait-overdue`: metric `DisputeVerdictWaitOverdue` from one filter on the escrow-cron
+log group (the sweep reports the age; an admin's own call logs the line uncounted), the money alarm shape (15
+minute periods, any line, 5 periods, missing data not breaching), on the alarm topic and the dashboard's alarm
+status widget. One line per waiting escrow per hourly sweep, so the alarm stays in ALARM while any wait is
+overdue (as `manual-payouts-overdue`). The mismatch alarm's runbook now names `settle_as_is`.
+
+### Admin
+
+The choice on the Disputes page (both tabs, and the dispute page) offers "Settle as it is" with `farmer_wins` and
+`buyer_wins` (not with a split), with a line saying when it is the one to choose; the Awaiting tab shows it as
+the recorded choice; the timeline labels `dispute_resolved_settled_as_is`; the `ADMIN_016` text says to choose it
+when nothing else fits; the wait's hint names the seven day alarm. en, am and om. An admin page from before 2.21.0
+(a tab left open) offers only the goods dispositions: on a no-fit verdict it now opens the choice on `ADMIN_015`,
+and the choices it offers answer `ADMIN_016`, as before; reloading the page gets the exit. It never sent the
+override, so its removal changes nothing there.
+
+### Roles and clients
+
+Admin only. Farmer, trucker and buyer see the order at `dispute_resolved` (where it was live) and the escrow
+`refunded` or `released`/`completed` through their usual pulls; both were known before. No role-visibility, app
+or sync change.
+
+### Not in 2.21.0 (known limits)
+
+- A `farmer_wins` whose goods never left the farm (a dispute raised before 1.21.0's pickup rule), came back to the
+  farmer, or whose order shows a payout has no admin exit: `settle_as_is` is refused. Refunding the buyer would
+  settle against the recorded verdict, which cannot change (1.9.0). The owner decides whether an audited
+  "refund against the verdict" may exist (FUP-351).
+- A `farmer_wins` on a second escrow while the order's own escrow holds the money (a double escrow) is refused
+  `settle_as_is`, and 2.19.0's double escrow refund refuses a `dispute_resolved` escrow (`409 ESCROW_049`): it has
+  no exit until FUP-347 decides how a double escrow under a verdict settles.
+- `settle_as_is` restores no listing stock and releases no trip booking, even for a `buyer_wins` whose live
+  order never got going (its delivery row missing): the farmer relists by hand, as after a disposition.
+- A delivery whose order row is missing stays as it is after `settle_as_is`: `pending` (a `buyer_wins` refunded
+  with the goods still at the farm), `pickedUp` or `inTransit`. FUP-19's admin cancel refuses a delivery whose
+  order is missing, so it needs a hand repair (FUP-352).
+- A `farmer_wins` on an order cancelled after delivery pays the farmer, and the trucker leg when the escrow
+  carries one, as `settle_now` does; no leg is withheld (ESC-40, D5).
+- The wait's alarm reads the age only where the sweep refuses the verdict; a wait the sweep never reads (a risk
+  hold, FRD-03) is reported by that hold's own alarm.
+
 ---
 
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
@@ -6038,6 +6204,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.21.0 | 2026-11-13 | The verdict's admin exit, the overdue wait, the override removed (FUP-64, closes three 1.21.0 known limits; §Additions in 2.21.0). New disposition `settle_as_is` on `POST /admin/disputes/{id}/resolve` (admin group, with `farmer_wins` or `buyer_wins`, a reason of 10 to 500 characters; `partial_refund` `400 ADMIN_014`) for a verdict no goods disposition fits: recorded and audited as every disposition (`dispute_resolved_settled_as_is`), it closes a live order at `dispute_resolved` (straight from before delivery, through the verdict hops from `delivered` or `disputed`) and writes no delivery; the hourly sweep then releases or refunds through the usual path, re-checking that it still fits. A `buyer_wins` always fits (on a `disbursing` or `settled` order it flags the order, `disputeOverride*`, so its contact closes); a `farmer_wins` only for goods that left the farm, did not come back, on an order that shows no payout in its status or its other escrows (one paid, a release in flight, queued or decided by a verdict) and never on a second escrow while the order's own escrow holds the money (FUP-41's double escrow) (else `422 ADMIN_016` with the reason); a split never (`ADMIN_016`). A no-fit verdict without a disposition answers `422 ADMIN_015` when `settle_as_is` would settle it. A recorded `wait_for_delivery` seven days old logs `DISPUTE_VERDICT_WAIT_OVERDUE` on every sweep (new alarm `${prefix}-dispute-verdict-wait-overdue`, escrow-cron). `overrideOrderMismatch` no longer settles a `dispute_resolved` escrow (still checked; kept for ESC-09 Part B). The order-money sweep counts an order settled as it is as consistent. Admin: the choice, its label, en/am/om. No app change (`order-lifecycle.md` 2.19.0) |
 | 2.20.0 | 2026-11-13 | The hold-cap stamp waits on a standing queue entry (FUP-334, §Additions in 2.20.0). The escrow cron's `holdCapReachedAt` stamp (1.13.0 step 4) is one transaction with a `ConditionCheck` that the order's admin queue entry is still the one it wrote or read (`adminQueue = open`, the same `adminQueuedAt` and `adminQueueEscrowId`), so an entry removed between the read and the stamp (the admin's pickup re-open, FUP-287; a report clear) never leaves a capped escrow with no entry. A refused check, or an escrow no longer `escrowed`, writes nothing and logs the info line `ORDER_ESCROW_HOLD_CAP_STAMP_SKIPPED ... reason=queue_entry_changed|escrow_changed`, with no settlement-failure line or alarm; the escrow stays in the sweep windows and the next run decides again (a no longer queued order gets its own `hold_cap` entry, and the stamp waits on that one). No endpoint, DTO, status, amount or client change; escrow-cron's existing `ConditionCheckItem` on orders covers it. 2.19.0 and 2.20.0 are other changes' numbers |
 | 2.19.0 | 2026-11-13 | The payout gate's overdue alarm and the double escrow refund (FUP-41, closes two 1.15.0 known limits; §Additions in 2.19.0). The hourly sweep's release blocked by the payout identity gate with the reason already stored for 24 hours or more logs `RELEASE_BLOCKED_OVERDUE escrowId=.. leg=<farmer|trucker> reason=.. ageHours=..` on every run (escrow-cron; the 1.x and ledger release and the split verdict; not an admin's release, not a risk block); new metric filter and alarm `releases-blocked-overdue`, level-triggered like the other overdue alarms. `POST /escrow/refund` with `doubleEscrow: true` (admin group, `trigger: admin_override`, a reason of 10 to 500 characters) refunds an `/escrow/initiate` escrow whose order's own escrow holds or paid the money (`escrowed`, `released`, `completed`, `disputed`, `dispute_resolved`, `held`, read strongly consistent on every call), else `409 ESCROW_049`; the decision is recorded by a conditional write on what was read (`doubleEscrowRefund*`, server-only) and audited (`double_escrow_refund`, escrow-audit and transaction-audit) before the existing 1.x refund runs without the order hop; a replay answers the refund made. The sweeps' double escrow check now counts an order escrow that is `completed` (one rule with the refund, plus `initiated`), closing a path that released a second escrow while its order still showed `disbursing`, a second payout to the farmer. Admin escrow DTO: `settlementBlockReason`, `settlementBlockReasonAt`, and on the detail route `orderEscrowStatus` and `doubleEscrow`. Admin: Sweep block row and the Second payment card on the escrow page (en, am, om). No client, route, table or grant change |
 | 2.18.0 | 2026-11-12 | Correcting a recorded payout reference (FUP-218, closes the 2.12.0 known limit; §Additions in 2.18.0). `POST /admin/payouts/{escrowId}/{ref}/correct` (admin group, the existing `{action}` route) with `oldExternalRef`, `externalRef` and a `reason` of 10 to 500 characters (`400 ESCROW_048`): for a 1.x leg or ledger row an admin recorded, one transaction writes the new reference (`manual{Leg}Ref` and the escrow's settlement reference field when it holds the old one, or the ledger row's `telebirrRef` and its escrow's field), deletes the old `payout-ref#` item only while it names this leg, puts the new one only if no leg holds it (`409 ESCROW_047` naming where) and writes the escrow-audit row `manual_payout_ref_corrected`; every item conditioned on what was read (3 attempts, then `409 ESCROW_036`); a replay answers `alreadyCorrected` and writes nothing; transaction-audit `admin_manual_payout_ref_corrected`. No amount, status, paid time or recorder changes. The 1.x close now conditions each settlement reference it copies from another paid leg on that leg still carrying it. Admin escrow DTO: `manualLegs` on a 1.x escrow. Admin: Correct reference on the escrow page (1.x legs and ledger rows an admin recorded), the `ESCROW_047` refusal in Manual Payouts links to the holding escrow. The admin Lambda gains DeleteItem on escrow-idempotency. 2.16.0 and 2.17.0 are other changes' numbers |

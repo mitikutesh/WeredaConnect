@@ -3,13 +3,19 @@ import { useResolveDispute } from "@/hooks/useQuery";
 
 /* ESC-24: partial_refund is the per-leg verdict of ESC-20 (action split), on a ledger escrow only. */
 export type Verdict = "farmer_wins" | "buyer_wins" | "partial_refund";
-export type Disposition = "return_to_farmer" | "delivered_anyway" | "settle_now" | "wait_for_delivery";
+export type Disposition =
+  | "return_to_farmer"
+  | "delivered_anyway"
+  | "settle_now"
+  | "wait_for_delivery"
+  | "settle_as_is";
 
 /* FUP-16: when the order or delivery cannot follow a verdict as it is, the admin chooses what
- * happens. Each disposition belongs to one verdict (escrow-protocol.md 1.21.0). */
+ * happens. Each disposition belongs to one verdict (escrow-protocol.md 1.21.0). FUP-64: settle_as_is
+ * goes with both single verdicts, for the case none of the others fits (escrow-protocol.md 2.21.0). */
 export const dispositionsFor: Record<Verdict, Disposition[]> = {
-  buyer_wins: ["return_to_farmer", "delivered_anyway"],
-  farmer_wins: ["settle_now", "wait_for_delivery"],
+  buyer_wins: ["return_to_farmer", "delivered_anyway", "settle_as_is"],
+  farmer_wins: ["settle_now", "wait_for_delivery", "settle_as_is"],
   // The order and delivery follow a split as they follow farmer_wins (the goods were delivered).
   partial_refund: ["settle_now", "wait_for_delivery"],
 };

@@ -53,7 +53,7 @@ public class OrderCronPickupJudgementTests
         _trips.GetByIdAsync(TripId).Returns(new Dictionary<string, object> { { "tripId", TripId }, { "status", "matched" } });
         _trips.TryReleaseCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>()).Returns(true);
         _crops.TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>()).Returns(true);
-        _deliveries.TryCancelPendingAsync(Arg.Any<string>()).Returns(true);
+        _deliveries.TryCancelPendingForJudgementAsync(Arg.Any<string>()).Returns(true);
         _deliveries.GetByIdAsync(DeliveryId, true).Returns(Delivery("pending"));
         _escrows.QueryByOrderIdAsync(Arg.Any<string>(), Arg.Any<int>())
             .Returns(ci => new List<Dictionary<string, object>> { EscrowedRow(ci.Arg<string>()) });
@@ -180,7 +180,7 @@ public class OrderCronPickupJudgementTests
                 e["status"] == "accepted" && e[PickupJudgement.Field] == PickupJudgement.Outcome.Pending));
         await AssertNoTransition();
         await AssertNotQueued();
-        await _deliveries.DidNotReceive().TryCancelPendingAsync(Arg.Any<string>());
+        await _deliveries.DidNotReceive().TryCancelPendingForJudgementAsync(Arg.Any<string>());
     }
 
     // ===== row 2: no trucker check-in =====
@@ -193,7 +193,9 @@ public class OrderCronPickupJudgementTests
         var actual = await RunAsync();
 
         Assert.Contains("\"pickupJudged\":\"1\"", actual.Body);
-        await _deliveries.Received(1).TryCancelPendingAsync(DeliveryId);
+        await _deliveries.Received(1).TryCancelPendingForJudgementAsync(DeliveryId);
+        // FUP-363: the judgement's own cancel carries its stamp; the plain cancel of a party or a verdict is never used.
+        await _deliveries.DidNotReceive().TryCancelPendingAsync(Arg.Any<string>());
         await _orders.Received(1).UpdateAsync(OrderId, Arg.Is<Dictionary<string, object>>(f =>
             (string)f["status"] == OrderCommitment.AwaitingTransportStatus
             && (string)f[OrderCommitment.TransportFailureField] == PickupJudgement.TruckerNoShowFailure
@@ -219,7 +221,7 @@ public class OrderCronPickupJudgementTests
         var actual = await RunAsync();
 
         Assert.Contains("\"pickupJudged\":\"1\"", actual.Body);
-        await _deliveries.Received(1).TryCancelPendingAsync(DeliveryId);
+        await _deliveries.Received(1).TryCancelPendingForJudgementAsync(DeliveryId);
         await _orders.Received(1).TryUpdateWithAsync(OrderId, Arg.Is<Dictionary<string, object>>(f =>
             (string)f["status"] == "cancelled"
             && (string)f["cancelReason"] == PickupJudgement.FarmerNoShowReason
@@ -262,7 +264,7 @@ public class OrderCronPickupJudgementTests
             Arg.Any<IReadOnlyDictionary<string, string>>());
         await AssertQueued(PickupJudgement.ReasonBothPresent, "accepted");
         await AssertNoTransition();
-        await _deliveries.DidNotReceive().TryCancelPendingAsync(Arg.Any<string>());
+        await _deliveries.DidNotReceive().TryCancelPendingForJudgementAsync(Arg.Any<string>());
         _escrows.DidNotReceiveWithAnyArgs().BuildRefundArm(default!, default!, default!, default!, default);
     }
 
@@ -385,7 +387,7 @@ public class OrderCronPickupJudgementTests
     public async Task APickupThatWinsTheDeliveryCancel_IsJudgedAgainLater()
     {
         Serve(Order(30));
-        _deliveries.TryCancelPendingAsync(DeliveryId).Returns(false);
+        _deliveries.TryCancelPendingForJudgementAsync(DeliveryId).Returns(false);
         _deliveries.GetByIdAsync(DeliveryId, true).Returns(Delivery("pending"), Delivery("pickedUp"));
 
         var actual = await RunAsync();

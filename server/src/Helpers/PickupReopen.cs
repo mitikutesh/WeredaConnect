@@ -13,11 +13,10 @@ namespace WeredaConnect.Server.Helpers;
 /// Only a judgement that left the order <c>accepted</c> with its money held is re-opened:
 /// <c>both_present_no_scan</c> and <c>unchecked_check_in</c>, the two outcomes that send the order to the
 /// admin queue and move nothing. The no-show outcomes are refused. A trucker no-show cancelled the
-/// delivery and released the trip (the order waits in <c>awaiting_transport</c> for the buyer's choice), and
-/// a farmer or self-pickup buyer no-show cancelled the order with its refund armed in the same transaction,
-/// which the hourly sweep sends. Undoing them would bring a cancelled delivery, a released booking or an
-/// armed refund back, which this action never does. Their wrong <c>NO_SHOW</c> event is excused on the
-/// party's reputation (ESC-32).
+/// delivery and released the trip (the order waits in <c>awaiting_transport</c> for the buyer's choice): its own
+/// action brings them back (<see cref="NoShowReopen"/>, FUP-330). A farmer or self-pickup buyer no-show cancelled
+/// the order with its refund armed in the same transaction, which the hourly sweep sends; nothing brings an armed
+/// refund back, and their wrong <c>NO_SHOW</c> event is excused on the party's reputation (ESC-32).
 /// </para>
 /// </summary>
 public static class PickupReopen
@@ -148,8 +147,8 @@ public static class PickupReopen
             case PickupJudgement.Outcome.Scanned:
                 return "The pickup was judged picked up, so there is nothing to re-open.";
             case PickupJudgement.Outcome.TruckerNoShow:
-                return "A trucker no-show cancelled the delivery and released the trip, and the buyer chooses the transport again: "
-                       + "it cannot be re-opened. A wrong no-show is excused on the trucker's reputation.";
+                return "A trucker no-show cancelled the delivery and released the trip: use Re-open the no-show instead, "
+                       + "while the buyer has not chosen yet.";
             case PickupJudgement.Outcome.FarmerNoShow or PickupJudgement.Outcome.BuyerNoShow:
                 return "A no-show cancelled this order and armed its refund: it cannot be re-opened. "
                        + "A wrong no-show is excused on the party's reputation.";
@@ -268,9 +267,12 @@ public static class PickupReopen
     /// The pickup judgement as the admin reads it: with the stamped farm point, and per check-in the fix, its
     /// accuracy, the distance to the point, out of range and the sender, which the parties' view leaves out.
     /// <paramref name="delivery"/> is the order's active delivery as read (it decides whether the handoff can be
-    /// confirmed). Null for an order never stamped judgeable. Admin routes only.
+    /// confirmed). <paramref name="noShowDelivery"/> is the delivery a trucker no-show re-open would bring back
+    /// (<see cref="NoShowReopen.DeliveryIdOf"/>), as read. Null for an order never stamped judgeable. Admin routes only.
     /// </summary>
-    public static AdminPickupEvidenceDto? EvidenceOf(IReadOnlyDictionary<string, object> order, IReadOnlyDictionary<string, object>? delivery)
+    public static AdminPickupEvidenceDto? EvidenceOf(
+        IReadOnlyDictionary<string, object> order, IReadOnlyDictionary<string, object>? delivery,
+        IReadOnlyDictionary<string, object>? noShowDelivery = null)
     {
         if (!PickupJudgement.IsStamped(order) && StampOf(order) == null)
         {
@@ -311,6 +313,7 @@ public static class PickupReopen
             PointLongitude = Number(order, PickupJudgement.PickupLongitudeField),
             CheckIns = checkIns,
             ReopenExits = ExitsOf(order, delivery),
+            NoShowReopenExits = NoShowReopen.ExitsOf(order, noShowDelivery),
             LastReopen = LastReopenOf(order)
         };
     }

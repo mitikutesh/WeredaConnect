@@ -122,6 +122,7 @@
     "dispositionTitle": "The order cannot follow this verdict as it is",
     "caseGoodsMoving": "The goods are already on the way. The buyer is refunded in full either way; choose what happens to the goods.",
     "caseBeforeDelivery": "The order is not delivered yet. Choose when the farmer is paid. Paying now is possible only once the goods were picked up.",
+    "caseNoFit": "If the order or delivery is missing, carries another verdict, or was closed meanwhile, none of the other choices fits: settle as it is.",
     "dispositionLegend": "What happens",
     "disposition_return_to_farmer": "Return the goods to the farmer",
     "dispositionHint_return_to_farmer": "The delivery is cancelled and the order closed. The listing stock is not restored; the farmer relists what is still sellable. The trucker is not paid for the trip.",
@@ -130,7 +131,9 @@
     "disposition_settle_now": "Pay the farmer now",
     "dispositionHint_settle_now": "The delivery is cancelled and the order closed. The release pays the farmer and, if there is one, the trucker leg. The stock is not restored.",
     "disposition_wait_for_delivery": "Wait for the delivery",
-    "dispositionHint_wait_for_delivery": "Nothing changes now. The farmer is paid once the order is delivered; until then the mismatch alarm keeps firing.",
+    "dispositionHint_wait_for_delivery": "Nothing changes now. The farmer is paid once the order is delivered; after seven days of waiting an alarm fires again.",
+    "disposition_settle_as_is": "Settle as it is",
+    "dispositionHint_settle_as_is": "Only when no other choice fits. The money moves as the verdict says; a live order is closed and the delivery is left as it is. A farmer is paid only for goods that left the farm. The stock is not restored.",
     "dispositionReason": "Reason (kept in the audit trail)",
     "dispositionReasonHint": "10 to 500 characters.",
     "confirmDisposition": "Record the verdict",
@@ -386,6 +389,7 @@
     "exit_pending": "Back to pending with a new deadline",
     "exit_handoff_confirmed": "Handoff confirmed",
     "noShowHint": "A no-show judgement moved this order on (the transport failed, or the order was cancelled with its refund armed), so it cannot be re-opened here. A wrong no-show is excused on the party's reputation page.",
+    "truckerNoShowHint": "The trucker was judged absent: the delivery was cancelled, the trip booking released, and the buyer chooses the transport again. If a scan that reached the server late shows the crops left the farm, re-open the no-show below while the buyer has not chosen; the trucker's no-show is excused with it.",
     "reopen": {
       "action": "Re-open the pickup",
       "title": "Re-open this judged pickup",
@@ -406,7 +410,25 @@
       "reasonHint": "10 to 500 characters. It is kept in the audit trail.",
       "back": "Back",
       "cancel": "Cancel"
-    }
+    },
+    "noShowReopen": {
+      "action": "Re-open the no-show",
+      "title": "Re-open this trucker no-show",
+      "hint": "Use this only after you have checked with the parties that the trucker came, for example a real scan that reached the server late. The trip booking is taken back and the trucker's no-show is excused. No money moves.",
+      "exitPendingHelp": "The trucker gets a new window: the order is agreed again, the trucker creates a new delivery and scans the farmer's QR, and the order is judged again at the new deadline. The judged window's check-ins are cleared (the audit trail keeps them), so both check in again.",
+      "exitHandoffHelp": "The crops changed hands: the cancelled delivery is marked picked up and the order goes on as after a scan. The buyer confirms the drop-off with the trucker's drop-off code as usual; a trucker whose phone shows none makes a New drop-off code.",
+      "confirmPending": "Re-open the no-show with a new deadline {hours} hours from now, take the trip booking back and excuse the trucker's no-show?",
+      "confirmHandoff": "Record the handoff as picked up, take the trip booking back and excuse the trucker's no-show?",
+      "donePending": "The no-show is re-opened: the trucker has a new window until the new deadline.",
+      "doneHandoff": "The handoff is recorded as picked up and the trip booking is back."
+    },
+    "noShowEvent_excused": "The trucker's no-show is excused.",
+    "noShowEvent_already_excused": "The trucker's no-show was already excused.",
+    "noShowEvent_not_recorded": "No no-show is recorded for this order on the trucker's reputation. If one appears later, excuse it on the trucker's reputation page.",
+    "noShowEvent_not_counted": "The trucker's no-show no longer counts, so there was nothing to excuse.",
+    "noShowEvent_upheld": "The trucker's no-show was upheld earlier and stays. Check it on the trucker's reputation page.",
+    "noShowEvent_off": "Reputation penalties are off here, so no no-show was recorded.",
+    "noShowEvent_failed": "The trucker's no-show could not be excused. Excuse it on the trucker's reputation page."
   },
   "listingReports": {
     "title": "Listing Reports",
@@ -828,6 +850,7 @@
     "action_dispute_resolved_delivered_anyway": "Dispute: buyer keeps the goods (admin)",
     "action_dispute_resolved_settled_early": "Dispute: farmer paid before delivery (admin)",
     "action_dispute_resolved_waiting_for_delivery": "Dispute: waiting for delivery (admin)",
+    "action_dispute_resolved_settled_as_is": "Dispute: settled as it is (admin)",
     "action_fraud_hold": "Held for review",
     "action_fraud_hold_release": "Released after review (admin)",
     "action_fraud_hold_refund": "Refunded after review (admin)",
@@ -956,7 +979,7 @@
     "ADMIN_010": "This dispute can no longer be resolved: it is not open, or a settlement is in progress. Reload the page.",
     "ADMIN_014": "Choose Farmer Wins, Buyer Wins or Decide per leg. A per-leg verdict or a disposition needs a reason of 10 to 500 characters.",
     "ADMIN_015": "The order cannot follow this verdict as it is. Choose what happens to it.",
-    "ADMIN_016": "That choice does not fit the order's current state. Reload the page and check the order.",
+    "ADMIN_016": "That choice does not fit the order's current state. Reload the page and check the order. If no other choice fits, choose Settle as it is; if that is refused too, escalate.",
     "ADMIN_009": "Unknown action.",
     "ADMIN_017": "This suspend reason is reserved for the Fraud Review reject action.",
     "ADMIN_018": "Delivery not found.",
@@ -985,7 +1008,8 @@
     "PICKUP_REOPEN_INVALID": "Check the form: the reason must be 10 to 500 characters.",
     "PICKUP_REOPEN_NOT_ALLOWED": "This judgement cannot be re-opened any more. Reload to see the order as it is now.",
     "PICKUP_REOPEN_CHANGED": "The order, its delivery or its payment changed since the page was loaded. Reload and check before you try again.",
-    "PICKUP_REOPEN_MONEY_NOT_HELD": "The payment is no longer simply held (refunding, settling, frozen for review or confirmed). Decide the money first."
+    "PICKUP_REOPEN_MONEY_NOT_HELD": "The payment is no longer simply held (refunding, settling, frozen for review or confirmed). Decide the money first.",
+    "PICKUP_REOPEN_TRIP_UNAVAILABLE": "The trip cannot take the order back (full, departed, cancelled or gone). Reload to see it as it is now."
   },
   "language": {
     "english": "English",

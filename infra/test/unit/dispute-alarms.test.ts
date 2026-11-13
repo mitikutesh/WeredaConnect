@@ -331,3 +331,88 @@ describe('FUP-27: the filters and the server agree on the tokens', () => {
     expect(read('Functions/SyncFunction.cs')).toContain('MoneyAlarmLog.DeliveryDisputeFrozen(');
   });
 });
+
+// FUP-64: a recorded wait_for_delivery a week old alarms again, on its own token, so the mismatch alarm
+// stays clear for verdicts that are really stuck.
+describe('FUP-64: dispute verdict wait overdue alarm', () => {
+  const WAIT_OVERDUE_LINE =
+    'DISPUTE_VERDICT_WAIT_OVERDUE escrowId=escrow-order-ord-1 op=release ageDays=8 legs=order:mismatch:in-transit.delivery:mismatch:inTransit';
+  const WAIT_UNKNOWN_LINE = 'DISPUTE_VERDICT_WAIT_OVERDUE escrowId=e-1 op=release ageDays=unknown legs=-';
+  const WAITING_LINE =
+    'DISPUTE_VERDICT_WAITING_FOR_DELIVERY escrowId=escrow-order-ord-1 op=release legs=order:mismatch:in-transit';
+  const SETTLING_LINE = 'DISPUTE_VERDICT_SETTLING_AS_IS escrowId=escrow-order-ord-1 op=refund legs=delivery:missing';
+
+  test('counted on escrow-cron only, where the hourly sweep reports the age', () => {
+    for (const live of [false, true]) {
+      const template = monitoringTemplate(live);
+      const filters = filtersPublishing(template, 'DisputeVerdictWaitOverdue');
+      expect(filters.map((f) => f.Properties.LogGroupName)).toEqual([ESCROW_CRON_LG]);
+      const filter = filters[0];
+      expect(filter.Properties.MetricTransformations[0]).toEqual(expect.objectContaining({ MetricValue: '1', DefaultValue: 0 }));
+      for (const line of [WAIT_OVERDUE_LINE, WAIT_UNKNOWN_LINE]) {
+        for (const event of [line, prefixed('info', line)]) {
+          expect([event, cloudWatchTermsMatch(filter.Properties.FilterPattern, event)]).toEqual([event, true]);
+        }
+      }
+      // A wait inside its week, a settle_as_is settlement and every other dispute or money line are not this alarm.
+      for (const line of [WAITING_LINE, SETTLING_LINE, ...OTHER_DISPUTE_LINES, ...OTHER_MONEY_LINES, PROPAGATION_LINE]) {
+        expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+      }
+      // Every term carries an underscore (the server turns _ into - in client values).
+      expect(filterTerms(filter.Properties.FilterPattern).every((t) => t.includes('_'))).toBe(true);
+    }
+  });
+
+  test('no other money filter counts the wait line, nor the settle_as_is line', () => {
+    const template = monitoringTemplate(true);
+    for (const metric of [
+      'EscrowSettlementFailures', 'EscrowSettlementUnknownOutcomes', 'OrderEscrowProblems', 'ManualPayoutsOverdue',
+      'AdminQueueOverdue', 'TruckerPayoutsOverdue', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
+      'OrderMoneyMismatch', 'OrderPaymentProblems', 'DisputePropagationFailed', 'EscrowDispute',
+    ]) {
+      for (const filter of filtersPublishing(template, metric)) {
+        for (const line of [WAIT_OVERDUE_LINE, SETTLING_LINE]) {
+          expect([metric, line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([metric, line, false]);
+        }
+      }
+    }
+  });
+
+  test('alarm: any line in 15 minutes, held for 5 periods, notifies the alarm topic, on the dashboard', () => {
+    for (const live of [false, true]) {
+      const template = monitoringTemplate(live);
+      template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+        AlarmName: 'wereda-connect-dev-dispute-verdict-wait-overdue',
+        Metrics: [customMetric('DisputeVerdictWaitOverdue', 900)],
+        Threshold: 0,
+        ComparisonOperator: 'GreaterThanThreshold',
+        EvaluationPeriods: 5,
+        DatapointsToAlarm: 1,
+        TreatMissingData: 'notBreaching',
+        AlarmActions: notifiesTopic,
+        OKActions: notifiesTopic,
+        AlarmDescription: Match.stringLikeRegexp('DISPUTE_VERDICT_WAIT_OVERDUE.*seven days|seven days.*DISPUTE_VERDICT_WAIT_OVERDUE'),
+      });
+      const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm')) as Array<{
+        Properties: { AlarmName: string; AlarmDescription?: string };
+      }>;
+      for (const name of ['wereda-connect-dev-dispute-verdict-wait-overdue', 'wereda-connect-dev-dispute-verdict-order-mismatch']) {
+        const alarm = alarms.find((a) => a.Properties.AlarmName === name);
+        expect([name, (alarm?.Properties.AlarmDescription ?? '').length <= 1024]).toEqual([name, true]);
+      }
+      // The mismatch runbook names the new exit instead of a hand repair.
+      template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+        AlarmName: 'wereda-connect-dev-dispute-verdict-order-mismatch',
+        AlarmDescription: Match.stringLikeRegexp('settle_as_is'),
+      });
+      const dashboard = JSON.stringify(template.findResources('AWS::CloudWatch::Dashboard'));
+      expect(dashboard).toMatch(/"Fn::GetAtt":\["DisputeVerdictWaitOverdue[0-9A-F]+","Arn"\]/);
+    }
+  });
+
+  test('the token is a MoneyAlarmLog constant and EscrowService writes it through the money alarm sink', () => {
+    const read = (rel: string) => fs.readFileSync(path.join(__dirname, '../../../server/src', rel), 'utf8');
+    expect(read('Helpers/MoneyAlarmLog.cs')).toContain('DisputeVerdictWaitOverdueToken = "DISPUTE_VERDICT_WAIT_OVERDUE"');
+    expect(read('Services/EscrowService.cs')).toContain('AlarmLog(MoneyAlarmLog.DisputeVerdictWaitOverdue(');
+  });
+});

@@ -263,10 +263,25 @@ public sealed class OrderMoneyMirror
             _ => OrderMoneyOutcome.Failed
         };
 
+        // FUP-64: the admin settled this verdict as it is because its order cannot follow it (missing, closed, or
+        // behind a delivery that cannot): the order agrees with money that moved the verdict's way.
+        if (outcome == OrderMoneyOutcome.Mismatch && SettledAsIs(escrow, resolution))
+        {
+            return new(OrderMoneyOutcome.Consistent, OrderMoneyTarget.Verdict, result.OrderId, orderStatus);
+        }
+
         // The delivery leg alone may still be missing the verdict; that is the verdict's repair, not a mismatch here.
         return new(outcome, OrderMoneyTarget.Verdict, result.OrderId, orderStatus,
             outcome is OrderMoneyOutcome.Mismatch or OrderMoneyOutcome.Failed ? $"verdict:{result.FailedLegs ?? result.Order.ToString()}" : null);
     }
+
+    /// <summary>
+    /// FUP-64: the escrow carries the admin's <c>settle_as_is</c> and its money moved the verdict's way
+    /// (<c>buyer_wins</c> refunded, <c>farmer_wins</c> released or completed).
+    /// </summary>
+    private static bool SettledAsIs(Dictionary<string, object> escrow, string resolution)
+        => Str(escrow, DisputeDispositionFields.Disposition) == DisputeDisposition.SettleAsIs
+           && (resolution, Str(escrow, "status")) is ("buyer_wins", "refunded") or ("farmer_wins", "released" or "completed");
 
     private static OrderMoneyResult Ahead(Dictionary<string, object> order, string orderId, OrderMoneyTarget target)
     {

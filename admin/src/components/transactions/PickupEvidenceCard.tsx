@@ -10,7 +10,8 @@ import { ReopenPickup } from "./ReopenPickup";
 /* FUP-287 (delivery-verification-api.md 2.8.0 P.2): the pickup judgement of an order as evidence, with what the
  * parties' view leaves out: the farm point stamped at acceptance and, per check-in, the server's receipt time, the
  * phone's capture time, the fix and its accuracy, the distance to the farm point, whether it was measured, whether
- * it came late, and who sent it. The re-open action sits under it when the server offers an exit. */
+ * it came late, and who sent it. The re-open action sits under it when the server offers an exit, and next to it
+ * (FUP-330) the re-open of a judged trucker no-show. */
 
 type Translate = (key: string) => string;
 
@@ -42,6 +43,7 @@ export function PickupEvidenceCard({
   const judgement = evidence.judgement ?? "";
   const point = formatGps({ latitude: evidence.pointLatitude, longitude: evidence.pointLongitude });
   const last = evidence.lastReopen;
+  const noShowExits = evidence.noShowReopenExits ?? [];
 
   return (
     <Card>
@@ -97,8 +99,14 @@ export function PickupEvidenceCard({
         })}
       </div>
 
-      {NO_SHOW_JUDGEMENTS.includes(judgement) && <p className="mt-4 text-xs text-text-muted">{t("pickup.noShowHint")}</p>}
+      {NO_SHOW_JUDGEMENTS.includes(judgement) && (
+        <p className="mt-4 text-xs text-text-muted">
+          {t(judgement === "trucker_no_show" && noShowExits.length > 0 ? "pickup.truckerNoShowHint" : "pickup.noShowHint")}
+        </p>
+      )}
       <ReopenPickup orderId={orderId} version={version} exits={evidence.reopenExits ?? []} />
+      {/* FUP-330: a judged trucker no-show, while the buyer has not chosen and the money is held. */}
+      <ReopenPickup orderId={orderId} version={version} exits={noShowExits} kind="noShow" />
     </Card>
   );
 }

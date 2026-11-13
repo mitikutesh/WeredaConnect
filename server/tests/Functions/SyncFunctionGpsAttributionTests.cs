@@ -542,6 +542,175 @@ public partial class SyncFunctionTests
         await _patternFraud.Received(1).RecordFraudSignalAsync("buyer-001", "GPS_ANOMALY", "del-001", "delivery", GpsWhy);
     }
 
+    // ── FUP-245: the trucker's drop-off check-in (ESC-36) first ──────
+
+    private const string DropoffOrderId = "order-fup245";
+
+    /// <summary>The rig above with <c>dropoffClassification</c> (and the commitments it needs) set as given.</summary>
+    private SyncFunction DropoffGpsAnomalyFunction(bool dropoffOn = true)
+    {
+        GpsAnomalyFunction();
+        return new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            fraudService: _patternFraud, userRepo: _mockUserRepo, orderRepo: _mockOrderRepo, tripLocationRepo: _truckerCheckIns)
+        {
+            PatternRules = new TransactionPatternService(_mockOrderRepo, null, TransactionPatternSettings.Default),
+            GpsAnomalyOnTrucker = true,
+            CommitmentsEnabled = dropoffOn,
+            DropoffClassificationEnabled = dropoffOn
+        };
+    }
+
+    /// <summary>
+    /// The delivery's order, stamped at pickup (ESC-36), with the trucker's drop-off check-in received
+    /// <paramref name="checkInAgo"/> before now (<paramref name="distanceKm"/>: measured, null: no point to measure
+    /// against) and an out-of-range attempt (<paramref name="attemptAgo"/>), as the check-in handler keeps them.
+    /// </summary>
+    private void GivenDropoffOrder(
+        TimeSpan? checkInAgo = null, double? distanceKm = 0.8, TimeSpan? attemptAgo = null, string by = "trucker-001")
+    {
+        Dictionary<string, object> Entry(TimeSpan ago, double? km) => PickupJudgement.Entry(
+            new ParsedCheckIn(DropoffOrderId, PickupJudgement.Kind.ArrivedDropoff, null, GpsJimma.Latitude, GpsJimma.Longitude, 20),
+            by, DateTime.UtcNow - ago, km, late: false);
+        var order = new Dictionary<string, object>
+        {
+            { "orderId", DropoffOrderId }, { "buyerId", "buyer-001" }, { "truckerId", "trucker-001" }, { "tripId", "trip-001" },
+            { "status", "in_transit" }, { "activeDeliveryId", "del-001" },
+            { DropoffJudgement.Field, DropoffJudgement.Outcome.Pending }
+        };
+        if (checkInAgo is { } checkIn)
+        {
+            order[DropoffJudgement.CheckInField] = Entry(checkIn, distanceKm);
+        }
+
+        if (attemptAgo is { } attempt)
+        {
+            order[DropoffJudgement.AttemptField] = Entry(attempt, 14.2);
+        }
+
+        _mockOrderRepo.GetByIdAsync(DropoffOrderId, consistentRead: true).Returns(order);
+    }
+
+    /// <summary>
+    /// The FUP-203 anomaly on the road check-ins: every one at the farm, the last ten minutes before the
+    /// confirmation, the trip's destination 259 km away. Without drop-off evidence this writes the trucker's row.
+    /// </summary>
+    private void GivenEveryRoadCheckInAtTheFarm()
+    {
+        GivenGpsTrip(GpsAddis);
+        GivenPickedUpDelivery(GpsJimma, orderId: DropoffOrderId);
+        GivenTruckerCheckIns(
+            CheckInRow(TimeSpan.FromMinutes(70), new TrackPoint(7.6702, 36.8301)),
+            CheckInRow(TimeSpan.FromMinutes(10), new TrackPoint(7.6705, 36.8302)));
+    }
+
+    [Fact]
+    public async Task GpsAnomaly_FUP245_TheTruckersDropoffCheckIn_IsReadFirst_AndClears_WhateverTheRoadCheckInsSay()
+    {
+        var function = DropoffGpsAnomalyFunction();
+        GivenEveryRoadCheckInAtTheFarm();
+        GivenDropoffOrder(checkInAgo: TimeSpan.FromMinutes(30));
+
+        Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: GpsAddis));
+
+        await NoTruckerRowAsync();
+        // The drop-off check-in decides: the road check-ins are not read.
+        await _truckerCheckIns.DidNotReceiveWithAnyArgs().ListBetweenAsync(default!, default!, default!, default);
+        await _mockOrderRepo.Received(1).GetByIdAsync(DropoffOrderId, consistentRead: true);
+    }
+
+    [Fact]
+    public async Task GpsAnomaly_FUP245_ATruckerWhoDeclinedSharing_IsJudgedFromTheDropoffCheckIn()
+    {
+        // D2: no road check-in at all, only the pickup scan fix. The drop-off check-in is the evidence.
+        var function = DropoffGpsAnomalyFunction();
+        GivenGpsTrip(GpsAddis);
+        GivenPickedUpDelivery(GpsJimma, orderId: DropoffOrderId);
+        GivenTruckerCheckIns(CheckInRow(TimeSpan.FromHours(4), GpsJimma, "scan"));
+        GivenDropoffOrder(checkInAgo: TimeSpan.FromMinutes(20), distanceKm: null);
+
+        Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: null));
+
+        await NoTruckerRowAsync();
+        await _truckerCheckIns.DidNotReceiveWithAnyArgs().ListBetweenAsync(default!, default!, default!, default);
+    }
+
+    [Fact]
+    public async Task GpsAnomaly_FUP245_AnOutOfRangeAttemptAlone_WritesNoRow_EvenWithEveryRoadCheckInAtTheFarm()
+    {
+        // FUP-204: the point the attempt missed may be the buyer's own pin; the buyer's choice never decides the row.
+        var function = DropoffGpsAnomalyFunction();
+        GivenEveryRoadCheckInAtTheFarm();
+        GivenDropoffOrder(attemptAgo: TimeSpan.FromMinutes(15));
+
+        Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: GpsAddis));
+
+        await NoTruckerRowAsync();
+        await _truckerCheckIns.DidNotReceiveWithAnyArgs().ListBetweenAsync(default!, default!, default!, default);
+    }
+
+    [Fact]
+    public async Task GpsAnomaly_FUP245_NoDropoffCheckIn_FallsBackToTheRoadCheckIns_WithOneOrderRead()
+    {
+        var function = DropoffGpsAnomalyFunction();
+        GivenEveryRoadCheckInAtTheFarm();
+        GivenDropoffOrder();
+
+        Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: GpsAddis));
+
+        await _patternFraud.Received(1).RecordAttributedSignalAsync(
+            "trucker-001", "buyer-001", "GPS_ANOMALY", "del-001", "delivery",
+            Arg.Is<string?>(d => d!.StartsWith("Trucker check-in 10 min before the confirmation: 0.06 km from the pickup point")));
+        await _truckerCheckIns.ReceivedWithAnyArgs(1).ListBetweenAsync(default!, default!, default!, default);
+        // The read for the drop-off check-in also serves the order's own point.
+        await _mockOrderRepo.Received(1).GetByIdAsync(DropoffOrderId, consistentRead: true);
+    }
+
+    [Fact]
+    public async Task GpsAnomaly_FUP245_ADropoffCheckInOfAnotherTrucker_IsNotTheTruckersEvidence()
+    {
+        var function = DropoffGpsAnomalyFunction();
+        GivenEveryRoadCheckInAtTheFarm();
+        GivenDropoffOrder(checkInAgo: TimeSpan.FromMinutes(30), by: "victim-trucker");
+
+        Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: GpsAddis));
+
+        // The road check-ins of the delivery's own trucker decide.
+        await _patternFraud.Received(1).RecordAttributedSignalAsync(
+            "trucker-001", "buyer-001", "GPS_ANOMALY", "del-001", "delivery", Arg.Any<string?>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public async Task GpsAnomaly_FUP245_DropoffClassificationOff_TheDropoffCheckInIsNotRead_AsBefore(bool? dropoffOn)
+    {
+        // null: the flags as the Lambda reads them from its environment (unset in tests, as in every environment).
+        var function = dropoffOn is { } on ? DropoffGpsAnomalyFunction(on) : GpsAnomalyFunction();
+        GivenEveryRoadCheckInAtTheFarm();
+        GivenDropoffOrder(checkInAgo: TimeSpan.FromMinutes(30));
+
+        Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: GpsAddis));
+
+        // FUP-203 exactly: the road check-ins write the row; the order is read only for its own point.
+        await _patternFraud.Received(1).RecordAttributedSignalAsync(
+            "trucker-001", "buyer-001", "GPS_ANOMALY", "del-001", "delivery", Arg.Any<string?>());
+        await _truckerCheckIns.ReceivedWithAnyArgs(1).ListBetweenAsync(default!, default!, default!, default);
+        await _mockOrderRepo.Received(1).GetByIdAsync(DropoffOrderId, consistentRead: true);
+    }
+
+    [Fact]
+    public async Task GpsAnomaly_FUP245_AnOrderReadThatThrows_NeverFailsTheConfirm()
+    {
+        var function = DropoffGpsAnomalyFunction();
+        GivenEveryRoadCheckInAtTheFarm();
+        _mockOrderRepo.GetByIdAsync(DropoffOrderId, consistentRead: true)
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: GpsAddis));
+
+        await NoTruckerRowAsync();
+    }
+
     [Fact]
     public async Task NoGpsAnomaly_WritesNothingOnAnyone()
     {

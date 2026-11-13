@@ -431,28 +431,35 @@ export function useCancelDelivery() {
 
 // FUP-287: re-open a judged pickup after reconciling a real handoff (delivery-verification-api 2.8.0 P.2). The
 // transaction page, the stuck orders and the audit log reload either way, so a refusal (the order, its delivery or
-// its money changed) shows the order as it is now.
+// its money changed) shows the order as it is now. FUP-330: the same form re-opens a judged trucker no-show through
+// `reopen-no-show`, whose answer also says what happened to the trucker's NO_SHOW (`noShowEvent`).
 export function useReopenPickup() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
       orderId,
+      action = "reopen-pickup",
       ...body
     }: {
       orderId: string;
+      action?: "reopen-pickup" | "reopen-no-show";
       exit: "pending" | "handoff_confirmed";
       reason: string;
       expectedVersion: number;
       deadlineHours?: number;
     }) =>
-      api.post<{ alreadyApplied?: boolean; pickupDeadlineAt?: string; status?: string }>(
-        `/admin/orders/${encodeURIComponent(orderId)}/reopen-pickup`,
+      api.post<{ alreadyApplied?: boolean; pickupDeadlineAt?: string; status?: string; noShowEvent?: string }>(
+        `/admin/orders/${encodeURIComponent(orderId)}/${action}`,
         body,
       ),
-    onSettled: () => {
+    onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "orders"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
+      if (variables.action === "reopen-no-show") {
+        // The trucker's NO_SHOW may have been excused.
+        queryClient.invalidateQueries({ queryKey: ["admin", "reputation"] });
+      }
     },
   });
 }

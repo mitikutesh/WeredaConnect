@@ -16,7 +16,8 @@ namespace WeredaConnect.Server.Data;
 ///   GSI TruckerIdCreatedAtIndex: truckerId (PK) + createdAt (SK)
 ///   Booking attributes (ESC-15, absent on rows written before it): bookedQuintals (N),
 ///   remainingQuintals (N), bookedOrderIds (SS), acceptedOrderIds (SS).
-///   ESC-17: cancelReason (S, <c>expired</c>) and cancelledAt (S) on a trip the order cron closed.
+///   ESC-17: cancelReason (S, <c>expired</c>) and cancelledAt (S) on a trip the order cron closed; FUP-363 removes
+///   both when an admin's trucker no-show re-open opens the trip again (<see cref="BuildReviveBookingItem"/>).
 /// </summary>
 public sealed class TripRepository : ITripRepository
 {
@@ -440,6 +441,122 @@ public sealed class TripRepository : ITripRepository
                 }
             }
         };
+
+    /// <summary>
+    /// FUP-330: the booking a trucker no-show judgement released, taken back for an admin's re-open, as an item of the
+    /// order's transaction. The order's quintals leave <c>remainingQuintals</c> (the capacity on a row without
+    /// bookings) and join <c>bookedQuintals</c>, and the order is added to <c>bookedOrderIds</c> and
+    /// <c>acceptedOrderIds</c> (the trucker had accepted it), conditioned as a funding's reservation: room for the
+    /// quintals, the order not booked, the trip <c>open</c> or <c>matched</c> and not deleted. A trip still holding the
+    /// booking (the release never landed) takes <see cref="BuildConfirmBookingItem"/> instead. The <c>open → matched</c>
+    /// move of a trip this fills is the caller's, after the commit, as after a reservation.
+    /// </summary>
+    public TransactWriteItem BuildReclaimBookingItem(string tripId, string tripCreatedAt, string orderId, double quintals, string nowIso)
+    {
+        if (quintals <= 0 || double.IsNaN(quintals) || double.IsInfinity(quintals))
+        {
+            throw new ArgumentOutOfRangeException(nameof(quintals), quintals, "A booking must take a positive number of quintals.");
+        }
+
+        return new TransactWriteItem
+        {
+            Update = new Update
+            {
+                TableName = _tableName,
+                Key = TripKey(tripId, tripCreatedAt),
+                UpdateExpression =
+                    "SET #remaining = if_not_exists(#remaining, #capacity) - :q, #booked = if_not_exists(#booked, :zero) + :q, #updated = :now"
+                    + " ADD #bookedIds :ids, #acceptedIds :ids",
+                ConditionExpression =
+                    "((attribute_not_exists(#remaining) AND #capacity >= :q) OR #remaining >= :q)"
+                    + " AND (attribute_not_exists(#bookedIds) OR NOT contains(#bookedIds, :orderId))"
+                    + " AND #status IN (:open, :matched) AND attribute_not_exists(#deletedAt)",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#remaining", RemainingField },
+                    { "#capacity", "capacity" },
+                    { "#booked", BookedField },
+                    { "#updated", "updatedAt" },
+                    { "#bookedIds", BookedIdsField },
+                    { "#acceptedIds", AcceptedIdsField },
+                    { "#status", "status" },
+                    { "#deletedAt", "deletedAt" }
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":q", Number(quintals) },
+                    { ":zero", new AttributeValue { N = "0" } },
+                    { ":now", new AttributeValue { S = nowIso } },
+                    { ":ids", new AttributeValue { SS = new List<string> { orderId } } },
+                    { ":orderId", new AttributeValue { S = orderId } },
+                    { ":open", new AttributeValue { S = OpenStatus } },
+                    { ":matched", new AttributeValue { S = MatchedStatus } }
+                }
+            }
+        };
+    }
+
+    /// <summary>
+    /// FUP-363: the trip the order cron closed after a trucker no-show judgement released its only booking
+    /// (<see cref="TryExpireUnbookedAsync"/>: <c>cancelled</c>, <c>cancelReason: expired</c>), opened again with that
+    /// order's booking for an admin's re-open, as an item of the order's transaction. The trip goes back to
+    /// <c>open</c>, or straight to <c>matched</c> when <paramref name="fills"/> (the order takes its last room), loses
+    /// <c>cancelReason</c> and <c>cancelledAt</c>, moves its version by one and takes the booking as
+    /// <see cref="BuildReclaimBookingItem"/> takes it; conditioned on the version read, still <c>cancelled</c> as
+    /// <c>expired</c>, not deleted, holding no booking (no <c>bookedOrderIds</c> or <c>acceptedOrderIds</c>,
+    /// <c>bookedQuintals</c> absent or 0) and room for the quintals. A trip its trucker cancelled never matches.
+    /// </summary>
+    public TransactWriteItem BuildReviveBookingItem(
+        string tripId, string tripCreatedAt, string orderId, double quintals, int expectedVersion, bool fills, string nowIso)
+    {
+        if (quintals <= 0 || double.IsNaN(quintals) || double.IsInfinity(quintals))
+        {
+            throw new ArgumentOutOfRangeException(nameof(quintals), quintals, "A booking must take a positive number of quintals.");
+        }
+
+        return new TransactWriteItem
+        {
+            Update = new Update
+            {
+                TableName = _tableName,
+                Key = TripKey(tripId, tripCreatedAt),
+                UpdateExpression =
+                    "SET #status = :to, #remaining = if_not_exists(#remaining, #capacity) - :q, #booked = if_not_exists(#booked, :zero) + :q,"
+                    + " #updated = :now, #v = :next REMOVE #cancelReason, #cancelledAt ADD #bookedIds :ids, #acceptedIds :ids",
+                ConditionExpression =
+                    "#v = :expected AND #status = :cancelled AND #cancelReason = :expired AND attribute_not_exists(#deletedAt)"
+                    + " AND attribute_not_exists(#bookedIds) AND attribute_not_exists(#acceptedIds)"
+                    + " AND (attribute_not_exists(#booked) OR #booked <= :zero)"
+                    + " AND ((attribute_not_exists(#remaining) AND #capacity >= :q) OR #remaining >= :q)",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#status", "status" },
+                    { "#remaining", RemainingField },
+                    { "#capacity", "capacity" },
+                    { "#booked", BookedField },
+                    { "#updated", "updatedAt" },
+                    { "#v", "version" },
+                    { "#cancelReason", "cancelReason" },
+                    { "#cancelledAt", "cancelledAt" },
+                    { "#bookedIds", BookedIdsField },
+                    { "#acceptedIds", AcceptedIdsField },
+                    { "#deletedAt", "deletedAt" }
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":to", new AttributeValue { S = fills ? MatchedStatus : OpenStatus } },
+                    { ":q", Number(quintals) },
+                    { ":zero", new AttributeValue { N = "0" } },
+                    { ":now", new AttributeValue { S = nowIso } },
+                    { ":next", new AttributeValue { N = (expectedVersion + 1).ToString(CultureInfo.InvariantCulture) } },
+                    { ":expected", new AttributeValue { N = expectedVersion.ToString(CultureInfo.InvariantCulture) } },
+                    { ":ids", new AttributeValue { SS = new List<string> { orderId } } },
+                    { ":cancelled", new AttributeValue { S = CancelledStatus } },
+                    { ":expired", new AttributeValue { S = TripLifecycle.ExpiredCancelReason } }
+                }
+            }
+        };
+    }
 
     /// <inheritdoc />
     public async Task<(List<Dictionary<string, AttributeValue>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDepartedOpenAsync(

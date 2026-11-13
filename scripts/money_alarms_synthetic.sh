@@ -117,6 +117,7 @@ L_RELEASE_BLOCKED="RELEASE_BLOCKED_OVERDUE escrowId=${SID} leg=farmer reason=pho
 L_QUEUE="ADMIN_QUEUE_OVERDUE orderId=${SID} reason=synthetic ageHours=25"
 L_MISMATCH="DISPUTE_VERDICT_ORDER_MISMATCH escrowId=${SID} op=refund legs=order:mismatch:accepted"
 L_BLOCKED="DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=${SID} op=refund legs=order:cancel:conflict"
+L_WAIT="DISPUTE_VERDICT_WAIT_OVERDUE escrowId=${SID} op=release ageDays=8 legs=order:mismatch:in-transit"
 # FUP-27: a dispute mirror leg that failed, and a sync delivery dispute that froze its escrow.
 L_PROPAGATION="DISPUTE_PROPAGATION_FAILED escrowId=${SID} orderId=${SID} deliveryId=${SID} legs=order:conflict"
 L_FROZEN="DELIVERY_DISPUTE_FROZEN escrowId=${SID} orderId=${SID} deliveryId=${SID}"
@@ -160,6 +161,7 @@ CHECKS=(
   "${LG_ESCROW}|DisputeVerdictOrderMismatch|${L_MISMATCH}"
   "${LG_CRON}|DisputeVerdictOrderMismatch|${L_MISMATCH}"
   "${LG_CRON}|DisputeVerdictSettlementBlocked|${L_BLOCKED}"
+  "${LG_CRON}|DisputeVerdictWaitOverdue|${L_WAIT}"
   "${LG_ESCROW}|DisputePropagationFailed|${L_PROPAGATION}"
   "${LG_SYNC}|DisputePropagationFailed|${L_PROPAGATION}"
   "${LG_CRON}|DisputePropagationFailed|${L_PROPAGATION}"

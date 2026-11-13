@@ -89,7 +89,8 @@ public sealed record ResolveDisputeRequest
     /// <summary>
     /// FUP-16: what happens when the order or delivery cannot follow the verdict as it is:
     /// <c>return_to_farmer</c> or <c>delivered_anyway</c> for <c>buyer_wins</c>, <c>settle_now</c> or
-    /// <c>wait_for_delivery</c> for <c>farmer_wins</c>. Needs <see cref="Reason"/>.
+    /// <c>wait_for_delivery</c> for <c>farmer_wins</c>. FUP-64: <c>settle_as_is</c> for either single verdict (never a
+    /// split) when none of those fits. Needs <see cref="Reason"/>.
     /// </summary>
     public string? Disposition { get; init; }
 

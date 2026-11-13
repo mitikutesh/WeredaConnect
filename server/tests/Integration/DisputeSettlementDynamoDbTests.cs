@@ -525,10 +525,10 @@ public sealed class DisputeSettlementDynamoDbTests
     }
 
     [LocalDynamoDbFact]
-    public async Task GoodsMoving_BuyerWins_RefusedAndAlarmedOnce_UntilAnAdminOverrides()
+    public async Task GoodsMoving_BuyerWins_RefusedAndAlarmedOnce_TheOldOverrideNoLongerSettlesIt()
     {
-        // A verdict recorded before 1.21.0 (a fresh one is refused without a disposition now); the
-        // deprecated override still refunds it.
+        // A verdict recorded before 1.21.0 (a fresh one is refused without a disposition now). FUP-64
+        // (2.21.0): the override no longer refunds it; a disposition on the verdict does.
         var deliveryId = await SeedDeliveryAsync("inTransit");
         var orderId = await SeedOrderAsync("in_transit", 4, deliveryId);
         var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, deliveryId, resolution: "buyer_wins", swept: true);
@@ -560,18 +560,210 @@ public sealed class DisputeSettlementDynamoDbTests
         var overridden = await service.RefundAsync(Refund(true, "Truck lost the goods on the road.", 4), "admin-it", "admin",
             adminGroupVerified: true);
 
-        overridden.IsSuccess.Should().BeTrue(overridden.Error?.Message);
-        Str(await EscrowAsync(escrowId), "status").Should().Be("refunded");
-        await _gateway.Received(1).RefundFundsAsync(Arg.Is<RefundFundsRequest>(r => r.TransactionRef == $"refund:{escrowId}"));
-        (await AuditRepo.GetAuditTrailAsync(escrowId)).Should().Contain(a =>
-            a["action"].ToString() == "dispute_order_mismatch_overridden" && a["actor"].ToString() == "admin-it"
-            && a["metadata"].ToString()!.EndsWith(";reason=Truck lost the goods on the road."));
-        (await TxRepo.GetByTransactionAsync(orderId)).Should().Contain(r =>
-            r["action"].ToString() == "dispute_mismatch_override" && r["actor"].ToString() == "admin-it");
+        overridden.Error!.HttpStatus.Should().Be(422);
+        Str(await EscrowAsync(escrowId), "status").Should().Be("dispute_resolved");
+        Str(await EscrowAsync(escrowId), "settlementLock").Should().BeNull();
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Is<RefundFundsRequest>(r => r.TransactionRef == $"refund:{escrowId}"));
+        (await AuditActionsAsync(escrowId)).Should().NotContain("dispute_order_mismatch_overridden");
+        (await TxRepo.GetByTransactionAsync(orderId)).Should().NotContain(r => r["action"].ToString() == "dispute_mismatch_override");
         var order = await OrderAsync(orderId);
         Str(order, "status").Should().Be("in_transit");
+        Str(order, "disputeOverrideBy").Should().BeNull();
+
+        // The exit is a disposition on the verdict: here a goods choice fits, so settle_as_is does not.
+        var asIs = await Admin().FunctionHandler(
+            Verdict(escrowId, "buyer_wins", "settle_as_is", withReason: true), new TestLambdaContext());
+        asIs.StatusCode.Should().Be(422, asIs.Body);
+        asIs.Body.Should().Contain("ADMIN_016");
+        Str(await EscrowAsync(escrowId), "disputeDisposition").Should().BeNull();
+    }
+
+    // ──────────────────────────────────────────────
+    // FUP-64: settle_as_is, the admin exit of a verdict no goods disposition fits
+    // ──────────────────────────────────────────────
+
+    [LocalDynamoDbFact]
+    public async Task SettleAsIs_BuyerWins_DeliveryRowMissing_ClosesTheOrder_ThenTheSweepRefunds()
+    {
+        // A verdict recorded before 1.21.0 whose delivery row is gone: no goods choice fits.
+        var orderId = await SeedOrderAsync("in_transit", 4, activeDeliveryId: NewId("delivery-gone"));
+        var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, resolution: "buyer_wins", swept: true);
+
+        await SweepAsync();
+        Str(await EscrowAsync(escrowId), "status").Should().Be("dispute_resolved");
+        _alarms.Should().ContainSingle(l => l.StartsWith($"DISPUTE_VERDICT_ORDER_MISMATCH escrowId={escrowId}"));
+
+        var choice = await Admin().FunctionHandler(
+            Verdict(escrowId, "buyer_wins", "settle_as_is", withReason: true), new TestLambdaContext());
+
+        choice.StatusCode.Should().Be(200, choice.Body);
+        var escrow = await EscrowAsync(escrowId);
+        Str(escrow, "disputeDisposition").Should().Be("settle_as_is");
+        Str(escrow, "disputeDispositionBy").Should().Be("admin-it");
+        Str(escrow, "disputeDispositionReason").Should().Be(DispositionReason);
+        Str(await OrderAsync(orderId), "status").Should().Be("dispute_resolved");
+        var row = (await AuditRepo.GetAuditTrailAsync(escrowId)).Single(a => a["action"].ToString() == "dispute_resolved_settled_as_is");
+        row["actor"].ToString().Should().Be("admin-it");
+        row["metadata"].ToString().Should().Be(
+            $"disposition=settle_as_is;reason={DispositionReason};legs=order:mismatch:in_transit,delivery:missing");
+        (await TxRepo.GetByTransactionAsync(orderId)).Select(r => $"{r["entityType"]}:{r["action"]}")
+            .Should().Contain(new[] { "escrow:dispute_resolved_settled_as_is", "order:dispute_resolved" });
+
+        // The same choice again records nothing new.
+        var replay = await Admin().FunctionHandler(
+            Verdict(escrowId, "buyer_wins", "settle_as_is", withReason: true), new TestLambdaContext());
+        replay.StatusCode.Should().Be(200, replay.Body);
+        (await AuditActionsAsync(escrowId)).Count(a => a == "dispute_resolved_settled_as_is").Should().Be(1);
+
+        await SweepAsync(runs: 2);
+
+        Str(await EscrowAsync(escrowId), "status").Should().Be("refunded");
+        await _gateway.Received(1).RefundFundsAsync(Arg.Is<RefundFundsRequest>(r => r.TransactionRef == $"refund:{escrowId}"));
+        // Only the sweep before the choice alarmed.
+        _alarms.Count(l => l.Contains(escrowId)).Should().Be(1);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task SettleAsIs_FarmerWins_AWaitWhoseOrderWasCancelledAfterDelivery_Releases()
+    {
+        // The admin chose to wait; the order was then cancelled although its goods were delivered.
+        var deliveryId = await SeedDeliveryAsync("delivered");
+        var orderId = await SeedOrderAsync("cancelled", 6, deliveryId);
+        var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, deliveryId, resolution: "farmer_wins", swept: true,
+            extra: [("disputeDisposition", "wait_for_delivery"), ("disputeDispositionAt", "2026-10-05T10:00:00.0000000Z")]);
+
+        await SweepAsync();
+        // No longer a wait the order can end: the mismatch alarm, not the wait's.
+        _alarms.Should().ContainSingle(l => l.StartsWith($"DISPUTE_VERDICT_ORDER_MISMATCH escrowId={escrowId} op=release"));
+
+        var choice = await Admin().FunctionHandler(
+            Verdict(escrowId, "farmer_wins", "settle_as_is", withReason: true), new TestLambdaContext());
+
+        choice.StatusCode.Should().Be(200, choice.Body);
+        Str(await EscrowAsync(escrowId), "disputeDisposition").Should().Be("settle_as_is");
+        var order = await OrderAsync(orderId);
+        Str(order, "status").Should().Be("cancelled");
+        Str(order, "version").Should().Be("6");
+
+        await SweepAsync();
+
+        Str(await EscrowAsync(escrowId), "status").Should().Be("completed");
+        await _gateway.Received(1).ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == $"release:{escrowId}"));
+        Str(await DeliveryAsync(deliveryId), "status").Should().Be("delivered");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task SettleAsIs_FarmerWins_GoodsNeverHandedOver_IsRefused_NothingWritten()
+    {
+        var orderId = await SeedOrderAsync("cancelled", 3);
+        var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, resolution: "farmer_wins", swept: true);
+
+        var choice = await Admin().FunctionHandler(
+            Verdict(escrowId, "farmer_wins", "settle_as_is", withReason: true), new TestLambdaContext());
+
+        choice.StatusCode.Should().Be(422, choice.Body);
+        choice.Body.Should().Contain("ADMIN_016").And.Contain("nothing shows the goods left the farm");
+        Str(await EscrowAsync(escrowId), "disputeDisposition").Should().BeNull();
+        (await AuditActionsAsync(escrowId)).Should().NotContain("dispute_resolved_settled_as_is");
+        await SweepAsync();
+        Str(await EscrowAsync(escrowId), "status").Should().Be("dispute_resolved");
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == $"release:{escrowId}"));
+    }
+
+    [LocalDynamoDbFact]
+    public async Task SettleAsIs_FarmerWins_TheOrdersOwnEscrowAlreadyPaidOut_IsRefused_NothingWritten()
+    {
+        // FUP-64 review: a legacy delivery escrow with a farmer_wins verdict, while the order's own escrow (a second
+        // payment for the same trade) was already released; the order itself was cancelled and shows no payout.
+        var deliveryId = await SeedDeliveryAsync("delivered");
+        var orderId = await SeedOrderAsync("cancelled", 6, deliveryId);
+        await Ddb.PutItemAsync(new PutItemRequest
+        {
+            TableName = _db.Escrows,
+            Item = new Dictionary<string, AttributeValue>
+            {
+                ["escrowId"] = S($"escrow-order-{orderId}"), ["createdAt"] = S(CreatedAt), ["status"] = S("completed"),
+                ["orderId"] = S(orderId), ["buyerId"] = S(BuyerId), ["farmerId"] = S(FarmerId), ["amount"] = N("8000"),
+                ["version"] = N("5")
+            }
+        });
+        var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, deliveryId, resolution: "farmer_wins", swept: true);
+
+        var choice = await Admin().FunctionHandler(
+            Verdict(escrowId, "farmer_wins", "settle_as_is", withReason: true), new TestLambdaContext());
+
+        choice.StatusCode.Should().Be(422, choice.Body);
+        choice.Body.Should().Contain("ADMIN_016").And.Contain("second payment").And.Contain("never released");
+        Str(await EscrowAsync(escrowId), "disputeDisposition").Should().BeNull();
+        await SweepAsync();
+        Str(await EscrowAsync(escrowId), "status").Should().Be("dispute_resolved");
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == $"release:{escrowId}"));
+    }
+
+    [LocalDynamoDbFact]
+    public async Task SettleAsIs_FarmerWins_AnotherEscrowsReleaseIsQueued_IsRefused_NothingWritten()
+    {
+        // FUP-64 delta review: two escrows on one trade, both farmer_wins; the other's release waits in the manual
+        // payout queue (gateway down). Releasing this one too would pay the farmer twice when the queue closes.
+        var deliveryId = await SeedDeliveryAsync("delivered");
+        var orderId = await SeedOrderAsync("cancelled", 6, deliveryId);
+        await SeedEscrowAsync("dispute_resolved", orderId, resolution: "farmer_wins",
+            extra: [("manualPayout", "open"), ("manualPayoutOp", "release")]);
+        var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, deliveryId, resolution: "farmer_wins", swept: true);
+
+        var choice = await Admin().FunctionHandler(
+            Verdict(escrowId, "farmer_wins", "settle_as_is", withReason: true), new TestLambdaContext());
+
+        choice.StatusCode.Should().Be(422, choice.Body);
+        choice.Body.Should().Contain("ADMIN_016").And.Contain("the order already shows a payout");
+        Str(await EscrowAsync(escrowId), "disputeDisposition").Should().BeNull();
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == $"release:{escrowId}"));
+    }
+
+    [LocalDynamoDbFact]
+    public async Task SettleAsIs_BuyerWins_OnASettledOrder_FlagsTheOrder_ThenTheSweepRefunds()
+    {
+        // FUP-64 review: the refund leaves the order at settled; the flag closes its contact, as the old override's did.
+        var orderId = await SeedOrderAsync("settled", 7);
+        var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, resolution: "buyer_wins", swept: true);
+
+        var choice = await Admin().FunctionHandler(
+            Verdict(escrowId, "buyer_wins", "settle_as_is", withReason: true), new TestLambdaContext());
+
+        choice.StatusCode.Should().Be(200, choice.Body);
+        var order = await OrderAsync(orderId);
+        Str(order, "status").Should().Be("settled");
         Str(order, "disputeOverrideBy").Should().Be("admin-it");
+        Str(order, "disputeOverrideReason").Should().Be(DispositionReason);
         Str(order, "disputeOverrideEscrowId").Should().Be(escrowId);
+        Str(order, "disputeOverrideAt").Should().NotBeNull();
+        WeredaConnect.Server.Helpers.ContactReveal.IsOpen(order).Should().BeFalse();
+
+        await SweepAsync();
+
+        Str(await EscrowAsync(escrowId), "status").Should().Be("refunded");
+        await _gateway.Received(1).RefundFundsAsync(Arg.Is<RefundFundsRequest>(r => r.TransactionRef == $"refund:{escrowId}"));
+    }
+
+    [LocalDynamoDbFact]
+    public async Task WaitForDelivery_AWeekOld_AlarmsOnItsOwnToken_AFreshOneStaysQuiet()
+    {
+        var oldDelivery = await SeedDeliveryAsync("inTransit");
+        var oldOrder = await SeedOrderAsync("in_transit", 4, oldDelivery);
+        var stale = await SeedEscrowAsync("dispute_resolved", oldOrder, oldDelivery, resolution: "farmer_wins", swept: true,
+            extra: [("disputeDisposition", "wait_for_delivery"), ("disputeDispositionAt", DateTime.UtcNow.AddDays(-8).ToString("o"))]);
+        var newDelivery = await SeedDeliveryAsync("inTransit");
+        var newOrder = await SeedOrderAsync("in_transit", 4, newDelivery);
+        var fresh = await SeedEscrowAsync("dispute_resolved", newOrder, newDelivery, resolution: "farmer_wins", swept: true,
+            extra: [("disputeDisposition", "wait_for_delivery"), ("disputeDispositionAt", DateTime.UtcNow.AddDays(-2).ToString("o"))]);
+
+        await SweepAsync(runs: 2);
+
+        _alarms.Where(l => l.StartsWith($"DISPUTE_VERDICT_WAIT_OVERDUE escrowId={stale} op=release ageDays=8 ")).Should().HaveCount(2);
+        _alarms.Should().NotContain(l => l.Contains(fresh));
+        _alarms.Should().NotContain(l => l.StartsWith("DISPUTE_VERDICT_ORDER_MISMATCH") && l.Contains(stale));
+        Str(await EscrowAsync(stale), "status").Should().Be("dispute_resolved");
+        Str(await EscrowAsync(fresh), "status").Should().Be("dispute_resolved");
     }
 
     [LocalDynamoDbFact]
