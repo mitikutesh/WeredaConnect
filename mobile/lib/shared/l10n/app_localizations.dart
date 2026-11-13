@@ -10091,7 +10091,7 @@ abstract class AppLocalizations {
   /// **'Finding your location'**
   String get checkInLocating;
 
-  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar: the arrival needs a GPS fix and none could be read
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar: the arrival needs a GPS fix and none could be read. Also shown on the QR scan self-pickup panel (FUP-138)
   ///
   /// In en, this message translates to:
   /// **'We could not read your location. Turn on location and try again at the farm.'**
@@ -10205,19 +10205,19 @@ abstract class AppLocalizations {
   /// **'The pickup deadline has passed, so check-ins are closed. Your check-in was not saved.'**
   String get errorCheckInClosed;
 
-  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar on the phone: the arrival needs a GPS fix and the location permission was denied for good
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar on the phone: the arrival needs a GPS fix and the location permission was denied for good. Also shown on the QR scan self-pickup panel (FUP-138)
   ///
   /// In en, this message translates to:
   /// **'Location is blocked for this app. Allow it in the app settings, then try again at the farm.'**
   String get checkInLocationBlocked;
 
-  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar on web: the arrival needs a GPS fix and the browser blocks location for the site
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar on web: the arrival needs a GPS fix and the browser blocks location for the site. Also shown on the QR scan self-pickup panel (FUP-138)
   ///
   /// In en, this message translates to:
   /// **'Location is blocked for this site. Allow it in the browser\'s site settings, then try again at the farm.'**
   String get checkInLocationBlockedWeb;
 
-  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar action: opens the app's page in the phone settings to allow location
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar action: opens the app's page in the phone settings to allow location. Also shown on the QR scan self-pickup panel (FUP-138)
   ///
   /// In en, this message translates to:
   /// **'Open settings'**
