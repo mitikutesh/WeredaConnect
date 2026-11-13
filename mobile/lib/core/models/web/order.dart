@@ -82,6 +82,10 @@ class Order {
   DateTime? dropoffDeadlineAt;
   String? disputeReason;
 
+  /// FUP-370: T9 as the server computes it (order-lifecycle 2.22.0; see the
+  /// Isar schema).
+  DateTime? dropoffConfirmAt;
+
   /// FUP-285: check-ins made on the phone and not refused. Always empty on
   /// web, which sends a check-in at once (see the Isar schema).
   Map<String, QueuedCheckIn> queuedCheckIns = const {};

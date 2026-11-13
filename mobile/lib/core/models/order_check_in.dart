@@ -247,10 +247,10 @@ Map<String, Object> handoffCheckInData({
     };
 
 /// Reads the pickup judgement, the drop-off judgement (ESC-36,
-/// order-lifecycle 2.18.0, FUP-336) and the check-ins of a server order map
-/// (`GET /orders`, `GET /orders/{id}`, `/sync` rows) into [order]. An order
-/// accepted or picked up without the flags carries none, which clears the
-/// device's copy.
+/// order-lifecycle 2.18.0, FUP-336; its T9 since 2.22.0, FUP-370) and the
+/// check-ins of a server order map (`GET /orders`, `GET /orders/{id}`,
+/// `/sync` rows) into [order]. An order accepted or picked up without the
+/// flags carries none, which clears the device's copy.
 void applyOrderCheckInFields(Order order, Map<String, dynamic> m) {
   order
     ..pickupJudgement = _text(m['pickupJudgement'])
@@ -259,6 +259,7 @@ void applyOrderCheckInFields(Order order, Map<String, dynamic> m) {
     ..dropoffJudgement = _text(m['dropoffJudgement'])
     ..dropoffJudgedAt = _utc(m['dropoffJudgedAt'])
     ..dropoffDeadlineAt = _utc(m['dropoffDeadlineAt'])
+    ..dropoffConfirmAt = _utc(m['dropoffConfirmAt'])
     ..disputeReason = _text(m['disputeReason']);
 }
 

@@ -146,7 +146,7 @@ export interface EnvironmentConfig {
    */
   readonly pickupClassification?: boolean;
   /**
-   * DROPOFF_CLASSIFICATION_ENABLED on the sync, delivery, order-cron and admin Lambdas (ESC-36,
+   * DROPOFF_CLASSIFICATION_ENABLED on the sync, delivery, order-cron, admin and orders Lambdas (ESC-36,
    * delivery-verification-api.md P.4). On (and only with `commitmentsEnabled`), an order picked up under it
    * is judged at T8 (no drop-off check-in 72 hours after pickup: the escrow frozen and the order disputed as
    * `delivery_overdue`, which restricts the trucker with `reputationPenalties`) or T9 (48 hours after the

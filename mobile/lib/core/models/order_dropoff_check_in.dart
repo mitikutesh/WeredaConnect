@@ -42,7 +42,9 @@ abstract final class DropoffJudgementOutcome {
 
 /// T9 comes this long after the server received the trucker's drop-off
 /// check-in (the SSM default `silent-buyer-hours`; the server never goes
-/// below 24 hours). The client only shows the time; the server decides.
+/// below 24 hours). Only the fallback of [silentBuyerConfirmsAt] when the
+/// order carries no server T9 (FUP-370). The client only shows the time; the
+/// server decides.
 const Duration silentBuyerWindow = Duration(hours: 48);
 
 /// The order statuses of goods on the road (the server's
@@ -85,17 +87,20 @@ OrderCheckIn? countedDropoffCheckIn(Order order) {
   return checkIn;
 }
 
-/// When the delivery may be confirmed for a buyer who says nothing (T9): the
-/// counted check-in's receipt plus [silentBuyerWindow], while the order is
-/// still on the road and waits for its judgement. Null otherwise: a delivery
-/// a party confirmed or disputed keeps `pending` until the cron follows it
-/// at its deadline, and nothing is confirmed for anyone then.
+/// When the delivery may be confirmed for a buyer who says nothing (T9),
+/// while the order is still on the road and waits for its judgement: the
+/// server's own T9 ([Order.dropoffConfirmAt], FUP-370, which follows a
+/// changed `silent-buyer-hours`), else the counted check-in's receipt plus
+/// [silentBuyerWindow] (a server before it). Null otherwise: a delivery a
+/// party confirmed or disputed keeps `pending` until the cron follows it at
+/// its deadline, and nothing is confirmed for anyone then.
 DateTime? silentBuyerConfirmsAt(Order order) {
   if (!isDropoffJudgementPending(order) ||
       !dropoffCheckInOrderStatuses.contains(order.status)) {
     return null;
   }
-  return countedDropoffCheckIn(order)?.receivedAt?.add(silentBuyerWindow);
+  return order.dropoffConfirmAt ??
+      countedDropoffCheckIn(order)?.receivedAt?.add(silentBuyerWindow);
 }
 
 /// [CheckInChance] of [userId]'s drop-off check-in on [order] at [nowUtc]

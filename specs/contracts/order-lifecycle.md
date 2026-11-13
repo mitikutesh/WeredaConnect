@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.21.0
+2.22.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -1050,7 +1050,8 @@ off while orders wait, the cron stamps the P1 marker and clears `pickupJudgement
 ## Drop-off judgement (2.18.0, ESC-36)
 
 Spec 4.5 (T8, T9), 4.8 "Silent buyer", E3 and E4, built behind `dropoffClassification` (env
-`DROPOFF_CLASSIFICATION_ENABLED` on the sync, deliveries, order-cron and admin Lambdas, off in every environment,
+`DROPOFF_CLASSIFICATION_ENABLED` on the sync, deliveries, order-cron and admin Lambdas, since 2.22.0 also the orders
+Lambda for `dropoffConfirmAt`, off in every environment,
 only with `COMMITMENTS_ENABLED`; before it goes on, the client FUP-336 and the buyer's pushes FUP-338). The full rules, the drop-off check-in and the arrival photo are in
 `delivery-verification-api.md` 2.10.0 P.4 ("As built"); this section names what changes on the order.
 
@@ -1082,6 +1083,16 @@ only with `COMMITMENTS_ENABLED`; before it goes on, the client FUP-336 and the b
 - **Order fields read by the clients** (`GET /orders`, `GET /orders/{id}`, the order rows of `/sync`
   results): `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt`, `disputeReason`; the stamped points
   and the raw check-in never.
+- **T9 on the order (2.22.0, FUP-370).** The same reads (and the same `/sync` rows) carry `dropoffConfirmAt`
+  (ISO 8601 UTC): the counted drop-off check-in's `receivedAt` plus SSM `silent-buyer-hours` (48 by default,
+  never below 24), the order cron's T9 without its one minute margin. Only to the order's buyer, farmer and
+  trucker, only while the order is `pickup_confirmed` or `in_transit` with `dropoffJudgement: pending` and a
+  counted check-in, and only with the judgement on (`dropoffClassification` with `COMMITMENTS_ENABLED`); left
+  out otherwise (nulls are omitted), never in the admin view. Computed on every read with the reading
+  Lambda's order timings, never stored, so a changed `silent-buyer-hours` shows as soon as the cron judges by
+  it (each container reads the parameters once, so a change reaches the readers as their containers recycle,
+  like the cron). The clients show it instead of their own receipt plus 48 hours estimate, which stays the
+  fallback for a row without it.
 - **Deadline index and repair.** Both kinds are in the sweep's partition (`0`). A judged order has no
   drop-off deadline. With the flag on, the daily `deadline_repair` also walks `pickup_confirmed` and `in_transit`. With the
   flag turned off while orders wait, a pending order's stamp is cleared when it falls due (stored as a null
@@ -1089,6 +1100,7 @@ only with `COMMITMENTS_ENABLED`; before it goes on, the client FUP-336 and the b
 
 ## Changelog
 
+- **2.22.0 (2026-11-13)**: T9 on the order (FUP-370, behind `dropoffClassification`): `GET /orders`, `GET /orders/{id}` and the order rows of `/sync` results gain `dropoffConfirmAt`, the silent-buyer deadline (the counted drop-off check-in's receipt plus SSM `silent-buyer-hours`, the cron's T9 without its margin), computed on every read for the order's three parties while the drop-off waits for T9; omitted otherwise. The orders Lambda gains `DROPOFF_CLASSIFICATION_ENABLED` and `COMMITMENTS_ENABLED`. The clients (Isar schema and web mirror) store it and show it on the drop-off card instead of the 48 hour estimate. No money moves; no rule changes.
 - **2.21.0 (2026-11-13)**: Gaps of the trucker no-show re-open (FUP-363, `delivery-verification-api.md` 2.12.0, `trip-listing-api.md` 2.7.0): the re-open opens again, in the re-open's transaction, a trip the order cron closed as `expired` once the judgement's release left it empty (usual for a single-order trip, closed within 15 minutes), instead of refusing it with `PICKUP_REOPEN_TRIP_UNAVAILABLE`; the cron's close is unchanged. A confirmed handoff brings back only the delivery the judgement's own cancel stamped (`cancelledByJudgementAt`), so a judgement the cron retried after a failed order write still gets its delivery back. No money moves; no client change.
 - **2.20.0 (2026-11-13)**: Admin re-open of a judged trucker no-show (FUP-330, `delivery-verification-api.md` 2.11.0): `POST /admin/orders/{orderId}/reopen-no-show` takes a `trucker_no_show` order still `awaiting_transport` from the judgement (the buyer has not chosen) whose escrow still simply holds the money back to `accepted` (`pickupJudgement: pending`, a new `pickupDeadlineAt`, empty `checkIns`, judged again; the trucker creates the new pending delivery) or to `pickup_confirmed` (`scanned`, the delivery the judgement cancelled `cancelled → pickedUp` with the slot claimed for it, and the drop-off judgement stamped with `dropoffClassification` on), restoring `truckerResponse: accepted`, removing `transportFailure`, `faultParty`, `buyerChoiceDeadlineAt` and `buyerChoiceReminderAt` and taking the trip booking back, in one transaction conditioned on what was read; refused when the trip is gone, cancelled, departed or full (`PICKUP_REOPEN_TRIP_UNAVAILABLE`). The trucker's `NO_SHOW` is excused in the same request (ESC-32's decision path). New transitions `awaiting_transport → accepted | pickup_confirmed` (admin only). No money moves; no client change.
 - **2.19.0 (2026-11-13)**: The verdict's admin exit (FUP-64, `escrow-protocol.md` 2.21.0): the admin disposition `settle_as_is`, for a verdict no goods disposition fits, closes a live order at `dispute_resolved` (system, straight from `funded`, `awaiting_transport`, `accepted`, `pickup_confirmed` or `in_transit`, one `dispute_resolved` transaction-audit row with the disposition; through the verdict's hops from `delivered` or `disputed`) flags a `disbursing` or `settled` order under `buyer_wins` (`disputeOverride*`, contact closed), and leaves any other order and every delivery as they are; the escrow then settles as the verdict says. The `overrideOrderMismatch` refund no longer settles a verdict. No client change.
