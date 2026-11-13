@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'package:wereda_connect/features/live_trip/data/geolocator_location_source.dart';
+import 'package:wereda_connect/features/live_trip/domain/location_source.dart';
 
 class _FakeGeolocator extends GeolocatorPlatform
     with MockPlatformInterfaceMixin {
@@ -15,12 +16,45 @@ class _FakeGeolocator extends GeolocatorPlatform
   LocationSettings? settings;
   bool cancelled = false;
 
+  /// The permission as checked (on web: the site's state).
+  LocationPermission state = LocationPermission.whileInUse;
+
+  /// What a request answers; null never comes, like the web plugin's prompt
+  /// nobody answers (FUP-441). `geolocator_web` answers deniedForever for
+  /// any error of its request.
+  LocationPermission? answer = LocationPermission.whileInUse;
+
+  /// The state once a request ran; unchanged when null.
+  LocationPermission? stateAfterRequest;
+
+  /// The fix; null never comes, like the web plugin's under its microsecond
+  /// time limit.
+  Position? fix = _position();
+  LocationSettings? fixSettings;
+  int requests = 0;
+
   @override
   Future<bool> isLocationServiceEnabled() async => true;
 
   @override
-  Future<LocationPermission> checkPermission() async =>
-      LocationPermission.whileInUse;
+  Future<LocationPermission> checkPermission() async => state;
+
+  @override
+  Future<LocationPermission> requestPermission() {
+    requests++;
+    state = stateAfterRequest ?? state;
+    final answer = this.answer;
+    return answer == null
+        ? Completer<LocationPermission>().future
+        : Future.value(answer);
+  }
+
+  @override
+  Future<Position> getCurrentPosition({LocationSettings? locationSettings}) {
+    fixSettings = locationSettings;
+    final fix = this.fix;
+    return fix == null ? Completer<Position>().future : Future.value(fix);
+  }
 
   @override
   Stream<Position> getPositionStream({LocationSettings? locationSettings}) {
@@ -104,5 +138,72 @@ void main() {
     await source.stopBackground();
     expect(source.isBackgroundRunning, isFalse);
     expect(platform.cancelled, isTrue);
+  });
+
+  /// FUP-441: on web the plugin's own limits do not hold, and the web
+  /// check-in engine runs its actions one at a time.
+  group('currentFix', () {
+    const limit = Duration(milliseconds: 50);
+
+    GeolocatorLocationSource web() => GeolocatorLocationSource(
+          supportsBackground: false,
+          isWeb: true,
+          fixTimeout: limit,
+        );
+
+    // A fix that does not end fails the test here, not after hours.
+    Future<CheckInFix?> fixOf(
+      GeolocatorLocationSource source, {
+      bool askPermission = false,
+    }) =>
+        source
+            .currentFix(askPermission: askPermission)
+            .timeout(const Duration(seconds: 5));
+
+    test('takes a medium accuracy fix with its time limit', () async {
+      final fix = await fixOf(web());
+
+      expect(fix?.latitude, 8.75);
+      expect(fix?.accuracyM, 30);
+      expect(platform.fixSettings?.accuracy, LocationAccuracy.medium);
+      expect(platform.fixSettings?.timeLimit, limit);
+    });
+
+    test('a fix that never comes ends within the limit as none', () async {
+      platform.fix = null;
+
+      expect(await fixOf(web()), isNull);
+    });
+
+    test('a prompt nobody answers ends within the limit, asked again',
+        () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = null;
+      final source = web();
+
+      expect(await fixOf(source, askPermission: true), isNull);
+      expect(await fixOf(source, askPermission: true), isNull);
+      expect(platform.requests, 2);
+    });
+
+    test('a granted site whose first position failed takes the fix', () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever
+        ..stateAfterRequest = LocationPermission.whileInUse;
+
+      expect(await fixOf(web(), askPermission: true), isNotNull);
+    });
+
+    test('a blocked site gives none', () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever
+        ..stateAfterRequest = LocationPermission.deniedForever;
+
+      expect(await fixOf(web(), askPermission: true), isNull);
+      expect(platform.fixSettings, isNull);
+    });
   });
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'package:wereda_connect/core/location/location_permission.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_rules.dart';
 import 'package:wereda_connect/features/live_trip/domain/location_source.dart';
 
@@ -30,16 +31,30 @@ import 'package:wereda_connect/features/live_trip/domain/location_source.dart';
 /// listening again, which stops and restarts the service. Android refuses
 /// that restart from the background (a pause that runs out), so the text
 /// stays the same through a pause.
+///
+/// The fix, and on web the permission prompt, end within [fixTimeout] here
+/// in Dart (FUP-441): `geolocator_web` hands the browser the limit in
+/// microseconds where it reads milliseconds (60 seconds become about 16.7
+/// hours), and the web check-in engine runs its actions one at a time.
 class GeolocatorLocationSource implements LocationSource {
-  GeolocatorLocationSource({bool? supportsBackground})
-      : supportsBackground = supportsBackground ??
-            (!kIsWeb && defaultTargetPlatform == TargetPlatform.android);
+  /// [isWeb] and [fixTimeout] are for tests.
+  GeolocatorLocationSource({
+    bool? supportsBackground,
+    bool isWeb = kIsWeb,
+    Duration fixTimeout = CheckInCadence.fixTimeout,
+  })  : supportsBackground = supportsBackground ??
+            (!kIsWeb && defaultTargetPlatform == TargetPlatform.android),
+        _isWeb = isWeb,
+        _fixTimeout = fixTimeout;
 
   /// How often the foreground service asks for a wake-up position.
   static const backgroundInterval = Duration(minutes: 5);
 
   @override
   final bool supportsBackground;
+
+  final bool _isWeb;
+  final Duration _fixTimeout;
 
   StreamSubscription<Position>? _subscription;
 
@@ -51,11 +66,11 @@ class GeolocatorLocationSource implements LocationSource {
     if (!await _canLocate(askPermission: askPermission)) return null;
     try {
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
+        locationSettings: LocationSettings(
           accuracy: LocationAccuracy.medium,
-          timeLimit: CheckInCadence.fixTimeout,
+          timeLimit: _fixTimeout,
         ),
-      );
+      ).timeout(_fixTimeout);
       return _toFix(position);
     } on Object catch (e) {
       // Timeout, services switched off, no signal: the caller skips the slot.
@@ -105,7 +120,10 @@ class GeolocatorLocationSource implements LocationSource {
       if (!await Geolocator.isLocationServiceEnabled()) return false;
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied && askPermission) {
-        permission = await Geolocator.requestPermission();
+        permission = await requestLocationPermission(
+          isWeb: _isWeb,
+          limit: _fixTimeout,
+        );
       }
       return permission == LocationPermission.whileInUse ||
           permission == LocationPermission.always;
