@@ -27,8 +27,11 @@ class _FakeGeolocator extends GeolocatorPlatform
   int requests = 0;
   LocationSettings? settings;
 
+  /// Location switched on on the phone (a browser always says so).
+  bool servicesOn = true;
+
   @override
-  Future<bool> isLocationServiceEnabled() async => true;
+  Future<bool> isLocationServiceEnabled() async => servicesOn;
 
   @override
   Future<LocationPermission> checkPermission() async {
@@ -215,6 +218,69 @@ void main() {
 
       expect(result.isAvailable, isFalse);
       expect(result.unavailableReason, 'GPS signal not available');
+    });
+  });
+
+  // FUP-138: the self-pickup scan says why there is no fix.
+  group('unavailableCause (FUP-138)', () {
+    const limit = Duration(milliseconds: 50);
+    late _FakeGeolocator platform;
+
+    setUp(() {
+      platform = _FakeGeolocator();
+      GeolocatorPlatform.instance = platform;
+    });
+
+    Future<GpsCaptureResult> capture() =>
+        GpsCaptureService(isWeb: false, timeLimit: limit)
+            .captureCurrentPosition()
+            .timeout(const Duration(seconds: 5));
+
+    test('a fix has no cause', () async {
+      expect((await capture()).unavailableCause, isNull);
+    });
+
+    test('location switched off', () async {
+      platform.servicesOn = false;
+
+      final result = await capture();
+
+      expect(result.unavailableCause, GpsUnavailableCause.locationOff);
+      expect(platform.checks, 0, reason: 'no permission asked');
+    });
+
+    test('a permission refused this time', () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.denied;
+
+      final result = await capture();
+
+      expect(result.unavailableCause, GpsUnavailableCause.permissionDenied);
+    });
+
+    test('a permission denied for good', () async {
+      platform.state = LocationPermission.deniedForever;
+
+      final result = await capture();
+
+      expect(result.unavailableCause, GpsUnavailableCause.deniedForever);
+      expect(result.permissionDeniedForever, isTrue);
+    });
+
+    test('no fix in time', () async {
+      platform.fix = null;
+
+      final result = await capture();
+
+      expect(result.unavailableCause, GpsUnavailableCause.noSignal);
+    });
+
+    test('a reason it does not know reads as no signal', () {
+      expect(
+        const GpsCaptureResult.unavailable('timeout').unavailableCause,
+        GpsUnavailableCause.noSignal,
+      );
     });
   });
 

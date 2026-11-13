@@ -46,7 +46,9 @@ class GpsCaptureService {
       return await _capture();
     } on Object catch (e) {
       debugPrint('[GpsCapture] location failed: $e');
-      return const GpsCaptureResult.unavailable('GPS signal not available');
+      return const GpsCaptureResult.unavailable(
+        GpsCaptureResult.noSignalReason,
+      );
     }
   }
 
@@ -54,7 +56,7 @@ class GpsCaptureService {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       return const GpsCaptureResult.unavailable(
-        'Location services disabled',
+        GpsCaptureResult.locationOffReason,
       );
     }
 
@@ -66,7 +68,7 @@ class GpsCaptureService {
       );
       if (permission == LocationPermission.denied) {
         return const GpsCaptureResult.unavailable(
-          'Location permission denied',
+          GpsCaptureResult.permissionDeniedReason,
         );
       }
     }
@@ -90,12 +92,16 @@ class GpsCaptureService {
       );
     } on LocationServiceDisabledException {
       return const GpsCaptureResult.unavailable(
-        'Location services disabled',
+        GpsCaptureResult.locationOffReason,
       );
     } on TimeoutException {
-      return const GpsCaptureResult.unavailable('GPS signal not available');
+      return const GpsCaptureResult.unavailable(
+        GpsCaptureResult.noSignalReason,
+      );
     } on Exception {
-      return const GpsCaptureResult.unavailable('GPS signal not available');
+      return const GpsCaptureResult.unavailable(
+        GpsCaptureResult.noSignalReason,
+      );
     }
   }
 
@@ -195,6 +201,46 @@ class GpsCaptureResult {
   /// Whether the permission was denied for good ([permanentlyDeniedReason]).
   bool get permissionDeniedForever =>
       unavailableReason == permanentlyDeniedReason;
+
+  /// The [unavailableReason] when location is switched off on the phone.
+  static const locationOffReason = 'Location services disabled';
+
+  /// The [unavailableReason] when the permission was refused this time.
+  static const permissionDeniedReason = 'Location permission denied';
+
+  /// The [unavailableReason] when no fix came in time or the platform
+  /// failed.
+  static const noSignalReason = 'GPS signal not available';
+
+  /// Why there is no fix (FUP-138), or null with one. Any reason not named
+  /// here reads as [GpsUnavailableCause.noSignal].
+  GpsUnavailableCause? get unavailableCause {
+    if (isAvailable) return null;
+    return switch (unavailableReason) {
+      locationOffReason => GpsUnavailableCause.locationOff,
+      permissionDeniedReason => GpsUnavailableCause.permissionDenied,
+      permanentlyDeniedReason => GpsUnavailableCause.deniedForever,
+      _ => GpsUnavailableCause.noSignal,
+    };
+  }
+}
+
+/// Why a capture has no fix, for a screen that needs one to say what to do
+/// (FUP-138).
+enum GpsUnavailableCause {
+  /// Location is switched off on the phone. A browser never says so: there
+  /// it reads as [noSignal].
+  locationOff,
+
+  /// The permission was refused this time; the next capture asks again.
+  permissionDenied,
+
+  /// The permission was denied for good: only the app settings (the
+  /// browser's site settings on web) allow it again.
+  deniedForever,
+
+  /// No fix came within the limit, or the platform failed.
+  noSignal,
 }
 
 /// Proximity check result.

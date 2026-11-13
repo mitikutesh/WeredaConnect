@@ -9,6 +9,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/security/local_auth_gate.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
@@ -139,9 +140,10 @@ void main() {
     VerificationType type, {
     bool pushed = false,
     PhotoManager? photoManager,
+    Delivery? subject,
   }) async {
     final screen = QrScanScreen(
-      delivery: delivery,
+      delivery: subject ?? delivery,
       verificationType: type,
       qrService: qr,
       gpsService: gps,
@@ -182,8 +184,14 @@ void main() {
     WidgetTester tester,
     VerificationType type, {
     PhotoManager? photoManager,
+    Delivery? subject,
   }) async {
-    await pumpScreen(tester, type, photoManager: photoManager);
+    await pumpScreen(
+      tester,
+      type,
+      photoManager: photoManager,
+      subject: subject,
+    );
     tester.widget<MobileScanner>(find.byType(MobileScanner)).onDetect!(
       const BarcodeCapture(barcodes: [Barcode(rawValue: 'qr-token')]),
     );
@@ -734,6 +742,270 @@ void main() {
 
       expect(confirmEnabled(tester), isTrue);
       expect(find.text(l10n.deliveryGpsUnavailable), findsOneWidget);
+    });
+  });
+
+  // The server refuses a self-pickup confirm without a fix, so the screen
+  // waits for one, says why there is none and offers a retry.
+  group('a self-pickup waits for a fix (FUP-138)', () {
+    const panel = Key('qr_location_needed');
+    const retryKey = Key('qr_retry_gps');
+    const settingsKey = Key('qr_location_settings');
+
+    Delivery selfPickup() => _delivery()
+      ..deliveryType = DeliveryConstants.selfPickupDeliveryType
+      ..truckerId = ''
+      ..truckerName = ''
+      ..status = DeliveryStatus.pending;
+
+    void noFix(String reason) => when(() => gps.captureCurrentPosition())
+        .thenAnswer((_) async => GpsCaptureResult.unavailable(reason));
+
+    void fixComes() => when(() => gps.captureCurrentPosition()).thenAnswer(
+          (_) async => const GpsCaptureResult.success(
+            latitude: 9.0,
+            longitude: 38.7,
+            accuracy: 12,
+          ),
+        );
+
+    Future<void> scanSelfPickup(WidgetTester tester) => scanValidCode(
+          tester,
+          VerificationType.delivery,
+          subject: selfPickup(),
+        );
+
+    bool confirmEnabled(WidgetTester tester) =>
+        tester
+            .widget<FilledButton>(find.byKey(const Key('qr_confirm')))
+            .onPressed !=
+        null;
+
+    String? reasonText(WidgetTester tester) =>
+        tester.widget<Text>(find.byKey(const Key('qr_location_reason'))).data;
+
+    Future<void> tapRetry(WidgetTester tester) async {
+      await tester.ensureVisible(find.byKey(retryKey));
+      await tester.tap(find.byKey(retryKey));
+      await tester.pumpAndSettle();
+    }
+
+    final reasons = {
+      GpsCaptureResult.locationOffReason: l10n.checkInNeedsLocation,
+      GpsCaptureResult.permissionDeniedReason: l10n.deliveryGpsPermissionDenied,
+      GpsCaptureResult.permanentlyDeniedReason: l10n.checkInLocationBlocked,
+      GpsCaptureResult.noSignalReason: l10n.qrLocationNoSignal,
+    };
+
+    for (final MapEntry(key: reason, value: text) in reasons.entries) {
+      testWidgets('no fix ($reason): Confirm stays off and says why',
+          (tester) async {
+        noFix(reason);
+        await scanSelfPickup(tester);
+
+        expect(find.text(l10n.qrSelfPickupNeedsGps), findsOneWidget);
+        expect(reasonText(tester), text);
+        expect(find.byKey(retryKey), findsOneWidget);
+        expect(
+          find.byKey(settingsKey),
+          reason == GpsCaptureResult.permanentlyDeniedReason
+              ? findsOneWidget
+              : findsNothing,
+          reason: 'only a permission denied for good needs the settings',
+        );
+        expect(find.text(l10n.deliveryGpsUnavailable), findsNothing);
+        expect(confirmEnabled(tester), isFalse);
+
+        await tester.tap(find.byKey(const Key('qr_confirm')));
+        await tester.pump();
+        expect(gate.prompts, 0);
+        verifyNever(() => bloc.add(any()));
+      });
+    }
+
+    testWidgets('denied for good: Open settings opens the app settings',
+        (tester) async {
+      noFix(GpsCaptureResult.permanentlyDeniedReason);
+      when(() => gps.openAppSettings()).thenAnswer((_) async => true);
+      await scanSelfPickup(tester);
+
+      await tester.ensureVisible(find.byKey(settingsKey));
+      await tester.tap(find.byKey(settingsKey));
+      await tester.pump();
+
+      verify(() => gps.openAppSettings()).called(1);
+      verifyNever(() => bloc.add(any()));
+    });
+
+    testWidgets('Try location again, then Confirm sends the fix',
+        (tester) async {
+      noFix(GpsCaptureResult.locationOffReason);
+      await scanSelfPickup(tester);
+      expect(confirmEnabled(tester), isFalse);
+
+      fixComes();
+      await tapRetry(tester);
+
+      expect(find.byKey(panel), findsNothing);
+      expect(confirmEnabled(tester), isTrue);
+      await tapConfirm(tester, l10n.deliveryConfirmDelivery);
+
+      expect(gate.prompts, 1, reason: 'the device lock still comes first');
+      final sent = verify(() => bloc.add(captureAny())).captured.single
+          as ConfirmDelivery;
+      expect(sent.gpsDropoff?.latitude, 9.0);
+      expect(sent.gpsDropoff?.longitude, 38.7);
+      expect(sent.scannedQrNonce, 'nonce-1');
+      verify(() => gps.captureCurrentPosition()).called(2);
+    });
+
+    testWidgets('a retry still without a fix says the new reason',
+        (tester) async {
+      noFix(GpsCaptureResult.permissionDeniedReason);
+      await scanSelfPickup(tester);
+      expect(reasonText(tester), l10n.deliveryGpsPermissionDenied);
+
+      noFix(GpsCaptureResult.noSignalReason);
+      await tapRetry(tester);
+
+      expect(reasonText(tester), l10n.qrLocationNoSignal);
+      expect(confirmEnabled(tester), isFalse);
+    });
+
+    testWidgets('a capture that never ends: at the cap Confirm stays off',
+        (tester) async {
+      final never = Completer<GpsCaptureResult>();
+      when(() => gps.captureCurrentPosition()).thenAnswer((_) => never.future);
+      await pumpScreen(
+        tester,
+        VerificationType.delivery,
+        subject: selfPickup(),
+      );
+      tester.widget<MobileScanner>(find.byType(MobileScanner)).onDetect!(
+        const BarcodeCapture(barcodes: [Barcode(rawValue: 'qr-token')]),
+      );
+      // Not pumpAndSettle: the location spinner keeps animating.
+      await tester.pump();
+      await tester.pump();
+      expect(confirmEnabled(tester), isFalse);
+
+      await tester.pump(QrScanScreen.gpsWaitCap);
+      await tester.pumpAndSettle();
+
+      expect(confirmEnabled(tester), isFalse);
+      expect(reasonText(tester), l10n.qrLocationNoSignal);
+    });
+
+    testWidgets('a typed self-pickup code says why too', (tester) async {
+      noFix(GpsCaptureResult.permissionDeniedReason);
+      await pumpScreen(
+        tester,
+        VerificationType.delivery,
+        subject: selfPickup(),
+      );
+      await tester.tap(find.byKey(const Key('qr_type_code')));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.qrTypeCodeSelfPickupHint), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('qr_code_field')), typedCode);
+      await tester.tap(find.byKey(const Key('qr_code_check')));
+      await tester.pumpAndSettle();
+
+      expect(reasonText(tester), l10n.deliveryGpsPermissionDenied);
+      expect(find.text(l10n.qrTypedCodeNeedsGps), findsNothing);
+      expect(confirmEnabled(tester), isFalse);
+    });
+
+    group('on web', () {
+      Future<void> pumpWebView(
+        WidgetTester tester,
+        GpsUnavailableCause cause, {
+        List<String>? taps,
+      }) =>
+          tester.pumpWidget(
+            MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('en'),
+              home: Scaffold(
+                body: QrLocationNeededView(
+                  cause: cause,
+                  onRetry: () => taps?.add('retry'),
+                ),
+              ),
+            ),
+          );
+
+      testWidgets('denied for good names the site settings, no button',
+          (tester) async {
+        final taps = <String>[];
+        await pumpWebView(
+          tester,
+          GpsUnavailableCause.deniedForever,
+          taps: taps,
+        );
+
+        expect(find.text(l10n.qrSelfPickupNeedsGps), findsOneWidget);
+        expect(find.text(l10n.checkInLocationBlockedWeb), findsOneWidget);
+        expect(find.text(l10n.checkInLocationBlocked), findsNothing);
+        expect(find.byKey(settingsKey), findsNothing);
+        await tester.tap(find.byKey(retryKey));
+        expect(taps, ['retry']);
+      });
+
+      for (final (cause, text) in [
+        (
+          GpsUnavailableCause.permissionDenied,
+          l10n.deliveryGpsPermissionDenied
+        ),
+        (GpsUnavailableCause.noSignal, l10n.qrLocationNoSignal),
+      ]) {
+        testWidgets('$cause reads as on the phone', (tester) async {
+          await pumpWebView(tester, cause);
+
+          expect(find.text(text), findsOneWidget);
+          expect(find.byKey(settingsKey), findsNothing);
+          expect(find.byKey(retryKey), findsOneWidget);
+        });
+      }
+    });
+  });
+
+  // Only the self-pickup changed: a scanned trucker pickup or drop-off still
+  // confirms without a fix (GPS is optional evidence there).
+  group('the other legs keep GPS optional (FUP-138)', () {
+    testWidgets('a buyer at a trucker\'s drop-off confirms without a fix',
+        (tester) async {
+      when(() => gps.captureCurrentPosition()).thenAnswer(
+        (_) async => const GpsCaptureResult.unavailable(
+          GpsCaptureResult.permanentlyDeniedReason,
+        ),
+      );
+      await scanValidCode(tester, VerificationType.delivery);
+
+      expect(find.byKey(const Key('qr_location_needed')), findsNothing);
+      expect(find.text(l10n.deliveryGpsUnavailable), findsOneWidget);
+      await tapConfirm(tester, l10n.deliveryConfirmDelivery);
+
+      final sent = verify(() => bloc.add(captureAny())).captured.single
+          as ConfirmDelivery;
+      expect(sent.gpsDropoff, isNull);
+      expect(sent.scannedQrNonce, 'nonce-1');
+    });
+
+    testWidgets('a trucker\'s pickup confirms without a fix', (tester) async {
+      when(() => gps.captureCurrentPosition()).thenAnswer(
+        (_) async => const GpsCaptureResult.unavailable(
+          GpsCaptureResult.locationOffReason,
+        ),
+      );
+      await scanValidCode(tester, VerificationType.pickup);
+
+      expect(find.byKey(const Key('qr_location_needed')), findsNothing);
+      await tapConfirm(tester, l10n.deliveryConfirmPickup);
+
+      final sent =
+          verify(() => bloc.add(captureAny())).captured.single as ConfirmPickup;
+      expect(sent.gpsPickup, isNull);
     });
   });
 }

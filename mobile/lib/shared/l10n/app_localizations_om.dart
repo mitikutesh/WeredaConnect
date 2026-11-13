@@ -842,7 +842,8 @@ class AppLocalizationsOm extends AppLocalizations {
   String get deliveryGpsNotCaptured => 'Hin qabamne';
 
   @override
-  String get deliveryGpsPermissionDenied => 'Hayyama Iddoo Didame';
+  String get deliveryGpsPermissionDenied =>
+      'Hayyamni bakkaa hin kennamne. \"Bakka irra deebi\'ii yaali\" tuqiitii hayyami.';
 
   @override
   String get deliveryQrShowInstructionBuyer =>
@@ -5232,6 +5233,14 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get qrRetryLocation => 'Bakka irra deebi\'ii yaali';
+
+  @override
+  String get qrSelfPickupNeedsGps =>
+      'Fudhachuu maasii irratti mirkaneessuuf bakki kee barbaachisa.';
+
+  @override
+  String get qrLocationNoSignal =>
+      'Ammaaf mallattoon bakkaa hin argamne. Tajaajilli bakkaa banaa ta\'uu mirkaneessi, bakka banaa alaatti bahi, achiis \"Bakka irra deebi\'ii yaali\" tuqi.';
 
   @override
   String get qrPickupSavedCheckOnline =>
