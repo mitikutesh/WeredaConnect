@@ -867,9 +867,27 @@ public partial class SyncFunction
             return LambdaResponse.Error(400, "SYNC_VALIDATION", "Invalid JSON in request body.");
         }
 
-        if (syncRequest == null || syncRequest.Operations == null || syncRequest.Operations.Count == 0)
+        if (syncRequest == null)
         {
             return LambdaResponse.Error(400, "SYNC_VALIDATION", "Request must contain at least one operation.");
+        }
+
+        // FUP-148 (sync-protocol.md 1.64.0): a missing, null or blank batch member is answered with its
+        // own field, right after the body is read. Before, an absent one failed deserialization ("Invalid
+        // JSON in request body.") and a null syncBatchId or clientId was accepted.
+        if (string.IsNullOrWhiteSpace(syncRequest.SyncBatchId))
+        {
+            return LambdaResponse.Error(400, "SYNC_VALIDATION", "syncBatchId is required.", "syncBatchId");
+        }
+
+        if (string.IsNullOrWhiteSpace(syncRequest.ClientId))
+        {
+            return LambdaResponse.Error(400, "SYNC_VALIDATION", "clientId is required.", "clientId");
+        }
+
+        if (syncRequest.Operations == null || syncRequest.Operations.Count == 0)
+        {
+            return LambdaResponse.Error(400, "SYNC_VALIDATION", "Request must contain at least one operation.", "operations");
         }
 
         // Validate batch size limit (prevent abuse)
@@ -990,6 +1008,35 @@ public partial class SyncFunction
         "SYNC_VALIDATION: idempotency key already used for a different operation payload; send this change with a new idempotency key.";
 
     /// <summary>
+    /// FUP-148: the wire name of the first identifying member an operation lacks (absent, null or
+    /// empty), in the order of the contract, or null when all five are there.
+    /// </summary>
+    private static string? MissingOperationMember(SyncOperationRequest operation)
+    {
+        if (string.IsNullOrEmpty(operation.OperationId))
+        {
+            return "operationId";
+        }
+
+        if (string.IsNullOrEmpty(operation.IdempotencyKey))
+        {
+            return "idempotencyKey";
+        }
+
+        if (string.IsNullOrEmpty(operation.EntityType))
+        {
+            return "entityType";
+        }
+
+        if (string.IsNullOrEmpty(operation.EntityId))
+        {
+            return "entityId";
+        }
+
+        return string.IsNullOrEmpty(operation.Action) ? "action" : null;
+    }
+
+    /// <summary>
     /// Process a single sync operation with idempotency checking and entity routing.
     /// </summary>
     private async Task<SyncOperationResult> ProcessOperationAsync(
@@ -998,18 +1045,17 @@ public partial class SyncFunction
         string? authenticatedRole,
         ILambdaContext context)
     {
-        // Validate required fields
-        if (string.IsNullOrEmpty(operation.OperationId) ||
-            string.IsNullOrEmpty(operation.IdempotencyKey) ||
-            string.IsNullOrEmpty(operation.EntityType) ||
-            string.IsNullOrEmpty(operation.EntityId) ||
-            string.IsNullOrEmpty(operation.Action))
+        // FUP-148 (sync-protocol.md 1.64.0): the first missing, null or empty identifying member is
+        // named under SYNC_VALIDATION, which every client treats as permanent. Before, an absent one
+        // refused the whole batch ("Invalid JSON in request body.") and a null one was answered
+        // "Missing required fields: ..." with no code, which the mobile app retried.
+        if (MissingOperationMember(operation) is { } missingMember)
         {
             return new SyncOperationResult
             {
-                OperationId = operation.OperationId ?? "unknown",
+                OperationId = string.IsNullOrEmpty(operation.OperationId) ? "unknown" : operation.OperationId,
                 Status = "error",
-                Message = "Missing required fields: operationId, idempotencyKey, entityType, entityId, action."
+                Message = $"SYNC_VALIDATION: {missingMember} is required."
             };
         }
 

@@ -5,6 +5,7 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/crop_status_wire.dart';
 import 'package:wereda_connect/core/models/message.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
@@ -100,11 +101,15 @@ class IsarMarketplaceSync implements MarketplaceSync {
   @override
   Future<void> pullCrops() async {
     if (_isFresh(_lastCropPull)) return;
-    final crops = await _fetchCrops();
+    final (crops, deletedIds) = await _fetchCrops();
     final userId = await _currentUserId();
 
     await _isar.writeTxn(() async {
       await _deleteStaleCrops(userId);
+      // FUP-149: a deleted listing the server still sends is removed, the
+      // farmer's own copy included (the stale delete above keeps those),
+      // never stored as `active`.
+      await _isar.cropListings.deleteAllByListingId(deletedIds);
       await _keepLocalPhotos(crops);
       await _isar.cropListings.putAllByListingId(crops);
     });
@@ -496,8 +501,9 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// farmer, active orders, app too old). Server wins, with the order rules:
   /// a refused `create` was never stored, so the local listing is removed; a
   /// refused delete is replaced by `GET /crops/{id}` unless another operation
-  /// for it is still on its way; a 404 or 403 removes the listing; any other
-  /// failed read puts the version back for the next [pullCrops].
+  /// for it is still on its way; a 404 or 403, or a deleted row (FUP-149),
+  /// removes the listing; any other failed read puts the version back for
+  /// the next [pullCrops].
   Future<void> _revertRejectedListing(SyncOperation operation) async {
     final listingId = operation.entityId;
     _lastCropPull = null;
@@ -509,7 +515,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
     if (await _hasOpenUploads(operation.entityType, listingId)) return;
 
     final (:row, :gone) = await _readOwnRow('/crops/$listingId', 'crop');
-    if (gone) {
+    if (gone || (row != null && isDeletedCropRow(row))) {
       await _isar
           .writeTxn(() => _isar.cropListings.deleteByListingId(listingId));
       return;
@@ -814,8 +820,12 @@ class IsarMarketplaceSync implements MarketplaceSync {
     }
   }
 
-  Future<List<CropListing>> _fetchCrops() async {
+  /// Every listing on the market, and the ids of the deleted rows among them
+  /// (FUP-149: the server leaves them out of its lists since crop-listing-api
+  /// 1.10.0, so this only guards against a server that still sends one).
+  Future<(List<CropListing>, List<String>)> _fetchCrops() async {
     final results = <CropListing>[];
+    final deletedIds = <String>[];
     String? nextToken;
     do {
       final params = <String, dynamic>{'status': 'available', 'limit': '50'};
@@ -828,11 +838,17 @@ class IsarMarketplaceSync implements MarketplaceSync {
           data['items'] as List<dynamic>? ??
           const <dynamic>[];
       for (final item in items) {
-        results.add(_parseCrop(item as Map<String, dynamic>));
+        final row = item as Map<String, dynamic>;
+        final crop = _parseCrop(row);
+        if (!isDeletedCropRow(row)) {
+          results.add(crop);
+        } else if (crop.listingId.isNotEmpty) {
+          deletedIds.add(crop.listingId);
+        }
       }
       nextToken = data['nextToken'] as String?;
     } while (nextToken != null);
-    return results;
+    return (results, deletedIds);
   }
 
   /// Every open trip, and the order lead the server reported (FUP-122, the

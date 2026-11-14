@@ -56,13 +56,13 @@ Each contract file follows this structure:
 
 | Contract | File | Version | Parties |
 |----------|------|---------|---------|
-| Sync Protocol | `sync-protocol.md` | 1.62.0 | Mobile, Backend |
+| Sync Protocol | `sync-protocol.md` | 1.65.0 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 2.16.0 | Mobile, Backend, Infrastructure |
 | User Entity (profile read and edit: `GET /user/profile`, the `/sync` `user` entity) | `user-entity.md` | 2.3.0 | Mobile, Web, Backend, Admin, Infrastructure |
 | Rating API | `rating-api.md` | 1.5.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Reputation API (penalty events, tiers, appeals, gates; events, aggregate, reads, appeal, gates and admin endpoints BUILT on the server; app BUILT behind the flags, ESC-31) | `reputation-api.md` | 1.8.1 | Mobile, Web, Backend, Admin, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.23.0 | Mobile, Backend, Admin |
-| Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.25.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
+| Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.26.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 2.15.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Account Deletion | `account-deletion.md` | 1.7.3 | Mobile, Backend, Infrastructure, Admin |
 | Crop Listing API | `crop-listing-api.md` | 1.13.0 | Mobile, Web, Backend, Infrastructure |

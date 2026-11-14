@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.25.0
+2.26.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -1571,7 +1571,7 @@ Success (`200`):
 | `401` | `ESCROW_005` | Not authenticated |
 | `403` | `ESCROW_025` | Caller's role claim is not `buyer` |
 | `403` | `ESCROW_026` | Caller is not the order's buyer |
-| `400` | `ESCROW_033` | `orderId` missing, or the body is not valid JSON |
+| `400` | `ESCROW_033` | `orderId` absent (since 2.26.0; before, `"Invalid JSON in request body."` without a `field`), `null` or blank (`"orderId is required."`, `field: orderId`), or the body is not valid JSON (`"Invalid JSON in request body."`, no `field`) |
 | `404` | `ESCROW_033` | Order not found |
 | `409` | `ESCROW_024` | The order is already funded |
 | `409` | `ESCROW_030` | The order is not waiting for payment (status other than `payment_submitted`), or its payment time ran out (20 hours after `paymentSubmittedAt`) |
@@ -2296,8 +2296,8 @@ When the condition fails the handler re-reads the escrow (strongly consistent):
 | Another verdict recorded | `409 ADMIN_010` "A different verdict is already recorded for this escrow." |
 | Anything else | `409 ADMIN_010` "Escrow is not in a disputed state." |
 
-Errors: `400 ADMIN_005` (body is not JSON or misses `resolution` or `action`), `400 ADMIN_014`
-(`resolution` or `action` invalid, field named), `403 ESCROW_015` (not in the admin group),
+Errors: `400 ADMIN_005` (body is not JSON), `400 ADMIN_014` (`resolution` or `action` invalid, or
+since 2.26.0 missing, field named; before, a missing one was `400 ADMIN_005`), `403 ESCROW_015` (not in the admin group),
 `404 ADMIN_003`, the `409` rows above. The response body is unchanged.
 
 From 1.21.0 (FUP-16) the endpoint decides the order and the delivery before it writes, and a verdict
@@ -6500,6 +6500,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.26.0 | 2026-11-13 | Missing members on the admin and checkout bodies (FUP-148, as 2.3.0 did for initiate and dispute; 2.25.0 belongs to a change in flight). `POST /escrow/order-checkout`: an absent `orderId` answers `400 ESCROW_033` `"orderId is required."` with `field: orderId`, as a `null` or blank one already did. `POST /admin/disputes/{id}/resolve`: an absent `resolution` or `action` answers `400 ADMIN_014` with its `field`, as a `null` or wrong one already did. `POST /admin/fraud-signals/{id}/action` and `POST /admin/users/{id}/action`: an absent, `null` or blank `action` answers `400 ADMIN_009` `"action is required."` with `field: action` (`fraud-detection-architecture.md` 3.40.0, section 19); a `null` one was `ADMIN_009` without a `field`. Each is checked right after the body is read, before any read or write. Before, an absent member failed deserialization and answered `400 ESCROW_033` or `400 ADMIN_005` `"Invalid JSON in request body."` without a `field`. A body that is not JSON keeps that answer. The apps and the admin always send these members; every code is one they already map; no app change |
 | 2.25.0 | 2026-11-13 | Newly overdue lines for the trucker leg, the blocked release and the ledger row (FUP-436, from FUP-06; §Additions in 2.25.0). escrow-cron logs `TRUCKER_PAYOUT_NEWLY_OVERDUE`, `RELEASE_BLOCKED_NEWLY_OVERDUE` and `LEDGER_ROW_NEWLY_OVERDUE` (the fields of their level lines) once per item, on the first run that reports it overdue, each after a conditional marker write keyed on the item's since-time: on the escrow row `truckerPayoutOverdueLoggedFor` (`truckerPayoutPendingSince` for a 1.x leg, `releasedAt` for a ledger transport leg) and `settlementBlockOverdueLoggedFor` (`settlementBlockReasonAt`), on an open ledger row `overdueLoggedFor` (`createdAt`); no version or `updatedAt` change; a write that fails for a reason other than its condition logs the line anyway. New filters and edge-triggered alarms `trucker-payouts-newly-overdue`, `releases-blocked-newly-overdue` and `ledger-rows-newly-overdue` (5 minute periods, 2 evaluation periods, 1 datapoint), which notify even while their level alarms are in ALARM. Run summaries `truckerLegsNewlyOverdue`, `ledgerTransportLegsNewlyOverdue` and `newlyOverdue`. `admin-queue-overdue` and `dispute-verdict-wait-overdue` keep no twin (Not in 2.25.0). No endpoint, DTO, status, amount or client change |
 | 2.24.0 | 2026-11-13 | The newly overdue manual payout line (FUP-06, closes the last ESC-13 money alarm gap; §Additions in 2.24.0). escrow-cron logs `MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=.. ref=.. ageHours=..` (the fields of `MANUAL_PAYOUT_OVERDUE`) once per manual payout leg, on the first run that reports it overdue: the hourly report for a 1.x queue entry (marker `manualPayoutOverdueLoggedFor = manualPayoutQueuedAt` on the escrow row) and the ledger sweep for a ledger row in `manual` (marker `manualOverdueLoggedFor = dueAt` on the row), each marker a conditional write before the line, with no version or `updatedAt` change; a write that fails for a reason other than its condition logs the line anyway. New filter and edge-triggered alarm `manual-payouts-newly-overdue` (5 minute periods, 2 evaluation periods, 1 datapoint), which notifies even while `manual-payouts-overdue` is in ALARM. Run summaries `manualPayoutsNewlyOverdue` and `manualNewlyOverdue`. The alarm topic takes optional email subscribers from `alarmEmails` in the environment config (default none). No endpoint, DTO, status, amount or client change. 2.23.0 is another change's number |
 | 2.23.0 | 2026-11-13 | queryOrder reconciliation (FUP-37, ESC-45 D7 follow-up; §Additions in 2.23.0). Live deployments only. `ITelebirrGateway.QueryOrderAsync` calls `POST /payment/v1/merchant/queryOrder` (`order_status` read before `trade_status`; `PAY_SUCCESS` normalized to `Completed`; any error or unknown status decides nothing; the mock answers deterministically). New escrow-cron action `order_payment_reconcile` (rule every 15 minutes): for a `payment_submitted` order within an hour of T2 with its checkout windows closed it queries every checkout of the current payment attempt (at most 10; 40 queries per run); a paid one is recorded in the webhook inbox exactly as a verified `Completed` notification (D8 hold, then the pending row under the notification's key), so the inbox sweep funds the order through the webhook's funding path, once; the verdict (`paid`, `not_paid`, `unresolved`, `gave_up` a day past the deadline) is written on the checkout slot (`paymentQueryVerdict`, `paymentQueryCycle`, `paymentQueriedAt`). A stuck `unknown` (or `opening` with its mapping) checkout is queried too: closed or failed at Telebirr frees the buyer (slot `failed`), paid goes to the inbox. The order cron (`TELEBIRR_QUERY_ORDER_ENABLED`, GetItem on escrow-idempotency) fails an order with a checkout only on a `not_paid`, `paid` or `gave_up` verdict for its payment attempt. New tokens `ORDER_PAYMENT_QUERY_UNRESOLVED` (escrow-cron) and `ORDER_PAYMENT_QUERY_OVERDUE` (order-cron, no verdict 2 hours past the deadline) feed `order-payment-problems`; escrow-audit `order_payment_reconciled`, `order_checkout_reconciled`, `order_payment_query_gave_up`. No client, route, DTO or table change |
@@ -6579,6 +6580,6 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 ---
 
-**Last Updated**: 2026-11-12
+**Last Updated**: 2026-11-13
 **Version**: 2.0.0
 **Status**: Draft (Phase R4)

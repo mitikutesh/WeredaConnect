@@ -522,6 +522,96 @@ void main() {
       expect(ids, containsAll(<String>['mine', 'someone-else']));
     });
 
+    // FUP-149: the crop parse read a status the app has no name for as
+    // `active`. The server leaves deleted rows out of its lists
+    // (crop-listing-api 1.10.0); a pull that still carries one removes the
+    // listing instead of showing it as on the market.
+    group('FUP-149: a deleted row in the crop pull', () {
+      CropListing cached(String listingId, String farmerId) => CropListing()
+        ..listingId = listingId
+        ..farmerId = farmerId
+        ..cropType = 'teff'
+        ..quantity = 5
+        ..pricePerKg = 40
+        ..location = (LatLng()
+          ..latitude = 0
+          ..longitude = 0)
+        ..locationName = 'Adama'
+        ..description = ''
+        ..status = ListingStatus.active
+        ..createdAt = DateTime.now()
+        ..updatedAt = DateTime.now()
+        ..version = 1;
+
+      for (final (name, deletion) in [
+        (
+          'stamp and status',
+          {'status': 'deleted', 'deletedAt': '2026-11-12T08:00:00.000Z'},
+        ),
+        ('status only', <String, dynamic>{'status': 'deleted'}),
+        ('stamp only', {'deletedAt': '2026-11-12T08:00:00.000Z'}),
+      ]) {
+        test("the buyer's browse drops it ($name)", () async {
+          await isar.writeTxn(
+            () => isar.cropListings.put(cached('gone', 'farmer-1')),
+          );
+          stubApi(
+            crops: [
+              {..._cropJson(cropId: 'gone'), ...deletion},
+              _cropJson(cropId: 'live'),
+            ],
+          );
+
+          await buildSync(currentUserId: () async => 'buyer').pullCrops();
+
+          final stored = await isar.cropListings.where().findAll();
+          expect(stored.map((c) => c.listingId), ['live']);
+          expect(stored.single.status, ListingStatus.active);
+        });
+      }
+
+      test("the farmer's own copy goes too (the stale delete keeps it)",
+          () async {
+        await isar.writeTxn(() async {
+          await isar.cropListings.put(cached('mine-gone', 'me'));
+          await isar.cropListings.put(cached('mine-kept', 'me'));
+        });
+        stubApi(
+          crops: [
+            {
+              ..._cropJson(cropId: 'mine-gone', farmerId: 'me'),
+              'status': 'deleted',
+            },
+          ],
+        );
+
+        await buildSync(currentUserId: () async => 'me').pullCrops();
+
+        final ids =
+            (await isar.cropListings.where().findAll()).map((c) => c.listingId);
+        expect(ids, ['mine-kept']);
+      });
+
+      test('the user unknown: still dropped, nothing else is touched',
+          () async {
+        await isar.writeTxn(() async {
+          await isar.cropListings.put(cached('gone', 'farmer-1'));
+          await isar.cropListings.put(cached('kept', 'farmer-2'));
+        });
+        stubApi(
+          crops: [
+            {..._cropJson(cropId: 'gone'), 'status': 'deleted'},
+          ],
+        );
+
+        await buildSync().pullCrops();
+
+        final ids =
+            (await isar.cropListings.where().findAll()).map((c) => c.listingId);
+        expect(ids, ['kept']);
+      });
+    });
+
     test('pullAll fetches both crops and trips', () async {
       stubApi(crops: [_cropJson()], trips: [_tripJson()]);
 

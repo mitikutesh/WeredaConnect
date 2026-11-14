@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.62.0
+1.65.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -51,6 +51,29 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
 - `clientVersion`: the version the client had when making the change. The server accepts it here (op level, preferred) or as `data.version` (what the shipped mobile and web clients send); when both are present the op-level value wins. `order` updates REQUIRE one of them: a versionless order update is rejected with `ORDER_VALIDATION: version is required for order updates ...` and nothing is written. For other entity types a missing version is treated as 0, which yields a `conflict` against any stored entity (1.3.0, SIM-08).
 - `timestamp` — ISO 8601, UTC; used for display ordering, NOT for conflict resolution
 - `data` — entity-specific payload; schema defined per `entityType`
+
+**Missing members (1.64.0, FUP-148).** No member of the body is marked required for the reader; the
+server checks them itself, right after the body is read (before the caller, the rate limit or any
+operation):
+
+- A missing, `null` or blank `syncBatchId` answers `400 SYNC_VALIDATION` `"syncBatchId is required."`
+  with `field: syncBatchId`; a `clientId` the same with `"clientId is required."` and
+  `field: clientId`; a missing, `null` or empty `operations` answers `"Request must contain at least
+  one operation."` (text unchanged) with `field: operations`. In that order; nothing in the batch is
+  applied. A body that is not JSON keeps `"Invalid JSON in request body."` and a JSON `null` body keeps
+  `"Request must contain at least one operation."`, both without a `field`.
+- An operation with a missing, `null` or empty `operationId`, `idempotencyKey`, `entityType`,
+  `entityId` or `action` is refused on its own: an `error` result with
+  `SYNC_VALIDATION: <member> is required.`, naming the first one missing in that order
+  (`operationId` is `unknown` in the result when it is the one missing). Nothing is read or stored for
+  it, and the other operations of the batch are processed. Every client treats `SYNC_VALIDATION` as
+  permanent (Retry Logic).
+- Before 1.64.0 an absent member at either level failed deserialization and the whole batch answered
+  `400 SYNC_VALIDATION` `"Invalid JSON in request body."` without a `field`; a `null` `syncBatchId` or
+  `clientId` was accepted; a `null` or empty operation member answered
+  `Missing required fields: operationId, idempotencyKey, entityType, entityId, action.` with no code,
+  which the mobile app retried. Every client sends all of them (mobile `clientId` `mobile-<ms>`, web
+  `web`), so no app change.
 
 **Idempotency Key Format**:
 ```
@@ -134,6 +157,18 @@ When the client receives `status: "conflict"`:
 3. **Update version**: Set local version to `serverVersion` to prevent future conflicts
 4. **Mark as synced**: Operation is marked as `synced`, not `failed` (conflict is resolved, not an error)
 5. **No user intervention**: For MVP, conflicts resolve automatically without UI notification
+
+**A deleted crop listing (1.65.0, FUP-149).** A `crop_listing` conflict whose `serverData` is a
+deleted listing (`deletedAt` set, or `status: deleted`, the rule of `crop-listing-api.md` 1.10.0:
+the farmer's other device deleted it, or a delete won a race with this one) removes the local
+listing; none is created when the phone has none. The app has no status for a deleted listing, and
+before 1.65.0 it kept the row as a local `draft`. The same rule holds in the crop reads
+listed here: the mobile crop pull (`GET /crops`) and the read behind a reverted listing
+(`GET /crops/{id}`) remove a deleted row's listing, the farmer's own included, and the web
+repository and matcher leave such a row out of their lists and read it by id as not found. The
+server already leaves deleted listings out of its lists and answers 404 for one by id, so these
+reads only guard against a row that still comes. Every other crop status maps as before. No wire
+change.
 
 **Rationale**:
 - Solo farmers rarely have conflicts (one user per device)
@@ -1669,7 +1704,7 @@ text. Nothing is written to the delivery, and the same payload always gets the s
 
 | Reason | Operation | Mobile client (sync queue) | Web client |
 |---|---|---|---|
-| `pickup_far` | The trucker's `pickedUp`, `gpsPickup` more than 5 km from the listing's point | Permanent and reverted like a refused typed code (1.33.0): rejected, never resent, the delivery goes back to `GET /deliveries/{id}` (server wins; else the lowest sent version), the photo waiting behind the handoff is rejected, and so is the trucker's drop-off code registration waiting behind the pickup (below), a refused pickup drops its trip's waiting check-ins, the operation leaves the "Sync failed" count. Explained once with its own text (en, am, om): `deliveryErrorGpsPickupFar` | The same text on the scan screen |
+| `pickup_far` | The trucker's `pickedUp`, `gpsPickup` more than 5 km from the listing's point | Permanent and reverted like a refused typed code (1.33.0): rejected, never resent, the delivery goes back to `GET /deliveries/{id}` (server wins; else the lowest sent version), the photo waiting behind the handoff is rejected, and so are the trucker's drop-off code registration and, since 1.63.0, "Mark in transit" waiting behind the pickup (below), a refused pickup drops its trip's waiting check-ins, the operation leaves the "Sync failed" count. Explained once with its own text (en, am, om): `deliveryErrorGpsPickupFar` | The same text on the scan screen |
 | `self_pickup_no_fix` | The self-pickup buyer's `delivered` without `gpsDropoff` | Same; `deliveryErrorGpsSelfPickupNoFix` (the farmer is not paid yet) | Same text |
 | `self_pickup_no_farm_point` | The self-pickup buyer's `delivered` on a listing without coordinates | Same; `deliveryErrorGpsSelfPickupNoFarmPoint` (contact support) | Same text |
 | `self_pickup_far` | The self-pickup buyer's `delivered`, `gpsDropoff` more than 5 km from the listing's point | Same; `deliveryErrorGpsSelfPickupFar` | Same text |
@@ -1694,6 +1729,30 @@ refusal of the pickup that puts nothing back (`FRAUD_*`, `SYNC_VALIDATION`, an `
 does not touch the registration, and a transient failure keeps both. The phone
 registers a drop-off code again after the next pickup, and whenever the drop-off QR opens (1.58.0).
 
+A refused pickup and the trucker's status changes behind it (1.63.0, FUP-456): the trucker's "Mark in
+transit" queued offline behind the pickup held the revert back the same way. It is sent at the pickup's
+version plus one, so while the server holds the delivery `pending` it is answered
+`DELIVERY_INVALID_TRANSITION: Cannot transition from 'pending' to 'inTransit'.`, which the queue retried
+(three times, then again on every reconnect). The phone stayed `inTransit`, and with
+`pickupClassification` on, T7 judged a trucker no-show while the trucker held the goods. Since 1.63.0,
+when the queue rejects a pickup by a code that puts the delivery back, it also rejects, before the
+revert, every operation of that delivery still waiting (pending, or failed and not yet rejected) that sets
+a `status`, was queued after the pickup and belongs to the same user (the `{userId}:` prefix of the
+idempotency key), and the revert flags it with the pickup: the phone shows the server's `pending`, the
+mark is never sent again, nothing counts as "Sync failed", and the pickup's refusal is the one
+announcement. On the trucker's phone that is the in-transit mark (a cancel needs a `pending` delivery
+and a dispute a `delivered` one), including one already out of retries. Left alone, as for the
+registration: a refusal of the pickup that puts nothing back and a transient failure; and also another
+user's operations (the farmer's `qrNonce`, a buyer's confirm on a shared phone), anything queued
+before the pickup (the create), another delivery's operations, and anything behind a refused delivery
+confirm. The other operations that can wait behind a refused pickup settle on their own answers and
+never held the revert back (none is a `delivery` operation): the pickup photo (rejected with the
+pickup, 1.39.0), the trip's check-ins (dropped when a pickup is refused, 1.32.0), the arrival photo
+`delivery_photo` `{deliveryId}#arrival` (`DELIVERY_PHOTO_REFUSED` while the goods are not on the road,
+permanent and not announced, 1.60.0) and the drop-off check-in (`CHECKIN_NOT_OPEN`, permanent, its mark
+taken back, 1.59.1). No wire change; web has no queue (it sends the pickup at once, and reads the
+delivery's version from the server before marking it in transit).
+
 All three roles: the trucker (pickup), the buyer (self-pickup and drop-off confirm). The farmer
 never sends these operations; the farmer's app shows the server's `pending` from the delivery pull,
 and the farmer's QR stays usable (a refused handoff consumes no nonce). Either side may ship first:
@@ -1706,6 +1765,9 @@ without a reason as permanent with the generic text.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.65.0 | 2026-11-13 | A deleted crop listing on the clients (FUP-149): a mobile `crop_listing` conflict whose `serverData` is a deleted listing (`deletedAt` set or `status: deleted`) removes the local listing instead of keeping it as a `draft`, and creates none; the mobile crop pull and the read behind a reverted listing remove a deleted row's listing (the farmer's own included) instead of storing it as `active`; the web repository and matcher leave a deleted row out and read it by id as not found. Other statuses map as before. No wire change. See "Client-Side Conflict Resolution (Mobile)" |
+| 1.64.0 | 2026-11-13 | Missing members (FUP-148, Request Format "Missing members"), as `escrow-protocol.md` 2.3.0 did for initiate and dispute. A missing, `null` or blank `syncBatchId` or `clientId` answers `400 SYNC_VALIDATION` with the member's text and `field`; a missing, `null` or empty `operations` keeps `"Request must contain at least one operation."` and gains `field: operations`. An operation missing an `operationId`, `idempotencyKey`, `entityType`, `entityId` or `action` (absent, `null` or empty) is its own `error` result `SYNC_VALIDATION: <member> is required.` and the rest of the batch goes on. Before, an absent member refused the whole batch as `"Invalid JSON in request body."` with no `field`, a `null` `syncBatchId` or `clientId` was accepted, and a `null` operation member answered `Missing required fields: ...` with no code (retried by mobile). No client sends such a body; no app change |
+| 1.63.0 | 2026-11-13 | A refused pickup and the trucker's status changes behind it (FUP-456, mobile only, no wire change): when the queue rejects a pickup by a code that puts the delivery back, it also rejects that delivery's waiting operations that set a `status`, were queued after the pickup and belong to the same user (on the trucker's phone the "Mark in transit", answered `DELIVERY_INVALID_TRANSITION` and retried while the server holds the delivery `pending`), before the revert, which flags them with the pickup: the phone goes back to `pending`, the mark is not resent and nothing counts as "Sync failed". Another user's operations, anything queued before the pickup and anything behind a refused delivery confirm are left alone. See "GPS refusals of a handoff" |
 | 1.62.0 | 2026-11-13 | GPS refusals of a handoff (FUP-439, `delivery-verification-api.md` 2.15.0): `DELIVERY_GPS_PROXIMITY` names its reason right after the code (`pickup_far`, `self_pickup_no_fix`, `self_pickup_no_farm_point`, `self_pickup_far`, `dropoff_far`); every one is now permanent on mobile and reverted like a refused typed code (the delivery goes back from `GET /deliveries/{id}`, the waiting photo is rejected, a refused pickup drops its trip's check-ins, the operation leaves the "Sync failed" count) with one text per reason in en, am and om, and web shows the same texts. A refusal without a known reason is permanent with the generic text. Any pickup refused by a code that puts the delivery back now also rejects the trucker's drop-off code registration waiting behind it, which held the revert back, and the revert flags it with the pickup. See "GPS refusals of a handoff" |
 | 1.61.0 | 2026-11-13 | Handoff photos (FUP-140, `delivery-verification-api.md` 2.14.0; 1.60.0 is FUP-373): the server holds a `pickup` or `dropoff` `delivery_photo` back (`deferred`, `DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet.`) until its handoff is on the delivery, and keeps a copy of each attached photo for the reads (server only); the buyer's drop-off photo on a dispute the order cron opened that no admin decided is kept as late evidence, and a disputed delivery without the handoff refuses the photo for good; mobile rejects the photo waiting behind a pickup or delivery confirm answered `conflict` whose `serverData` does not show that handoff (the drop-off photo stays when the row is an undecided dispute), and no longer counts S3's `400 RequestTimeout` or a `408` on the photo `PUT` toward the 3 refusals. Web unchanged (no queue; it attaches after a successful handoff). See "Handoff photos" |
 | 1.60.0 | 2026-11-13 | Late drop-off evidence (FUP-373, `delivery-verification-api.md` 2.13.0), behind `dropoffClassification`: a `handoff_check_in` `arrived_dropoff` received after T8 or after the T8 judgement is kept late and answered `CHECKIN_TOO_LATE` without the arrival photo check (before, a check-in queued offline before T8 whose photo the T8 dispute refused got `CHECKIN_PHOTO_REQUIRED` and kept nothing); a late one more than 5 km away is kept as a late attempt; a decided dispute closes it (`CHECKIN_NOT_OPEN`); `delivery_photo` `{deliveryId}#arrival` is taken on the system's undecided T8 dispute (`delivery_overdue`, `dropoff_out_of_range`) as evidence only, marked late (`arrivalPhotoLateAt` on the delivery rows). Clients, no wire change: the drop-off kind not taken (`CHECKIN_VALIDATION`, the drop-off flag rolled back) reads as not open; mobile forgets the kept arrival photo path when its `delivery_photo` is refused for good and deletes a new arrival photo taken while one already waits; the too-far and out-of-range texts name the check-in and the order's drop-off point, not the trucker. See "The drop-off check-in". |
@@ -1773,4 +1835,4 @@ without a reason as permanent with the generic text.
 ---
 
 **Last Updated**: 2026-11-13
-**Version**: 1.62.0
+**Version**: 1.65.0

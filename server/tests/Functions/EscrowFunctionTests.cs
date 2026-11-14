@@ -1482,6 +1482,34 @@ public class EscrowFunctionTests
         Assert.Contains("ESCROW_033", response.Body);
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"orderId":null}""")]
+    [InlineData("""{"orderId":" "}""")]
+    public async Task OrderCheckout_MissingOrderId_NamesTheField(string body)
+    {
+        // FUP-148 (escrow-protocol 2.26.0): an absent orderId was "Invalid JSON in request body." with no
+        // field; now it is answered as a null or blank one.
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/order-checkout", body, BuyerId), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"ESCROW_033\"", response.Body);
+        Assert.Contains("\"message\":\"orderId is required.\"", response.Body);
+        Assert.Contains("\"field\":\"orderId\"", response.Body);
+    }
+
+    [Fact]
+    public async Task OrderCheckout_BodyNotJson_KeepsInvalidJsonWithoutAField()
+    {
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/order-checkout", "{{bad json", BuyerId), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"message\":\"Invalid JSON in request body.\"", response.Body);
+        Assert.DoesNotContain("\"field\"", response.Body);
+    }
+
     [Fact]
     public async Task OrderCheckout_Unauthenticated_Returns401()
     {

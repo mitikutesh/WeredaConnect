@@ -1736,6 +1736,12 @@ public partial class AdminFunction
             return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
         }
 
+        // FUP-148: a missing action has the action's own code and field (it was ADMIN_005 "Invalid JSON").
+        if (string.IsNullOrWhiteSpace(body.Action))
+        {
+            return LambdaResponse.Error(400, "ADMIN_009", "action is required.", "action");
+        }
+
         if (!FraudActions.Contains(body.Action, StringComparer.Ordinal))
         {
             return LambdaResponse.Error(400, "ADMIN_009", "Unknown action. Use approve, reject or whitelist.");
@@ -2326,6 +2332,12 @@ public partial class AdminFunction
         if (body == null)
         {
             return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
+        }
+
+        // FUP-148: a missing action has the action's own code and field (it was ADMIN_005 "Invalid JSON").
+        if (string.IsNullOrWhiteSpace(body.Action))
+        {
+            return LambdaResponse.Error(400, "ADMIN_009", "action is required.", "action");
         }
 
         // FRD-05: typed here, the reject action's reason would make a plain suspension read as confirmed

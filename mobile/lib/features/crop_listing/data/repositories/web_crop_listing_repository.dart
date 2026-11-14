@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/crop_status_wire.dart';
 import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
@@ -318,9 +319,9 @@ class WebCropListingRepository extends BaseCropListingRepository {
       // Accept the `item` envelope and a bare object too, so a response-shape
       // change never silently degrades into a spurious "not found".
       final envelope = data['crop'] ?? data['item'];
-      if (envelope is Map<String, dynamic>) return _parseListingMap(envelope);
+      if (envelope is Map<String, dynamic>) return _liveListing(envelope);
       if (data.containsKey('cropId') || data.containsKey('listingId')) {
-        return _parseListingMap(data);
+        return _liveListing(data);
       }
       return null;
     } on Exception {
@@ -328,13 +329,21 @@ class WebCropListingRepository extends BaseCropListingRepository {
     }
   }
 
+  /// FUP-149: a deleted listing reads as not found, as the server's 404 for
+  /// one (crop-listing-api.md 1.10.0), never as an `active` listing.
+  CropListing? _liveListing(Map<String, dynamic> m) =>
+      isDeletedCropRow(m) ? null : _parseListingMap(m);
+
   List<CropListing> _parseListings(Map<String, dynamic> data) {
     // API returns listings under "crops" key (not "items")
     final items = data['crops'] as List<dynamic>? ??
         data['items'] as List<dynamic>? ??
         [];
+    // FUP-149: a deleted row is left out, as the server's lists leave it out.
     return items
-        .map((item) => _parseListingMap(item as Map<String, dynamic>))
+        .cast<Map<String, dynamic>>()
+        .where((m) => !isDeletedCropRow(m))
+        .map(_parseListingMap)
         .toList();
   }
 

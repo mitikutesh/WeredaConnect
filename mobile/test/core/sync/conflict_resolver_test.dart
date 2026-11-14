@@ -1711,6 +1711,135 @@ void main() {
       }
     });
 
+    // FUP-149: the app has no status for a deleted listing, and the crop
+    // parse made one a local draft. The rows: a `delete`, `deletedAt` and
+    // `status: deleted`; an update to `deleted` before crop-listing-api
+    // 1.10.0, the status only; a deleted account's tombstone, the stamp only.
+    group('a deleted crop row removes the local listing (FUP-149)', () {
+      SyncOperation op(String entityId, {String action = 'update'}) =>
+          SyncOperation()
+            ..operationId = 'op-$entityId-$action'
+            ..idempotencyKey = 'farmer-1:crop_listing:$entityId:$action:1'
+            ..entityType = 'crop_listing'
+            ..entityId = entityId
+            ..action = action
+            ..data = '{}'
+            ..status = SyncStatus.syncing
+            ..retryCount = 0
+            ..createdAt = DateTime.now().toUtc();
+
+      CropListing local(String listingId) => CropListing()
+        ..listingId = listingId
+        ..farmerId = 'farmer-1'
+        ..cropType = 'teff'
+        ..quantity = 10
+        ..pricePerKg = 25
+        ..location = (LatLng()
+          ..latitude = 9.1
+          ..longitude = 38.2)
+        ..description = 'Local words'
+        ..locationName = 'Bishoftu'
+        ..status = ListingStatus.active
+        ..createdAt = DateTime.parse('2026-11-01T08:00:00Z')
+        ..updatedAt = DateTime.parse('2026-11-01T08:00:00Z')
+        ..version = 2;
+
+      Map<String, dynamic> deletedRow(
+        String listingId,
+        Map<String, dynamic> deletion,
+      ) =>
+          {
+            'cropId': listingId,
+            'listingId': listingId,
+            'farmerId': 'farmer-1',
+            'cropType': 'teff',
+            'quantity': 12,
+            'pricePerKg': 30,
+            'woreda': 'Bishoftu',
+            'status': 'available',
+            'createdAt': '2026-11-01T08:00:00Z',
+            'updatedAt': '2026-11-12T08:00:00Z',
+            'version': 4,
+            ...deletion,
+          };
+
+      Future<CropListing?> load(String listingId) =>
+          isar.cropListings.filter().listingIdEqualTo(listingId).findFirst();
+
+      for (final (name, deletion) in [
+        (
+          'stamp and status',
+          {'status': 'deleted', 'deletedAt': '2026-11-12T08:00:00Z'},
+        ),
+        ('status only', {'status': 'deleted'}),
+        ('stamp only', {'deletedAt': '2026-11-12T08:00:00Z'}),
+      ]) {
+        test('an edit answered with a deleted row ($name)', () async {
+          await isar.writeTxn(() async {
+            await isar.cropListings.put(local('crop-gone'));
+            await isar.cropListings.put(local('crop-kept'));
+          });
+
+          final result = await resolver.resolve(
+            operation: op('crop-gone'),
+            serverData: deletedRow('crop-gone', deletion),
+            serverVersion: 4,
+          );
+
+          expect(await load('crop-gone'), isNull, reason: 'never a draft');
+          expect(result['entityId'], 'crop-gone');
+          expect(result['removed'], isTrue);
+          // Only that listing goes.
+          expect((await load('crop-kept'))!.status, ListingStatus.active);
+        });
+      }
+
+      test("this phone's own delete that lost to another device's", () async {
+        // The farmer's offline delete leaves the row `expired` locally.
+        await isar.writeTxn(
+          () => isar.cropListings.put(
+            local('crop-gone')..status = ListingStatus.expired,
+          ),
+        );
+
+        await resolver.resolve(
+          operation: op('crop-gone', action: 'delete'),
+          serverData: deletedRow(
+            'crop-gone',
+            {'status': 'deleted', 'deletedAt': '2026-11-12T08:00:00Z'},
+          ),
+          serverVersion: 5,
+        );
+
+        expect(await load('crop-gone'), isNull);
+      });
+
+      test('a deleted row for a listing not on the phone creates none',
+          () async {
+        await resolver.resolve(
+          operation: op('crop-gone', action: 'create'),
+          serverData: deletedRow('crop-gone', {'status': 'deleted'}),
+          serverVersion: 4,
+        );
+
+        expect(await isar.cropListings.count(), 0);
+      });
+
+      test('a live row is still taken as before (sold stays sold)', () async {
+        await isar.writeTxn(() => isar.cropListings.put(local('crop-sold')));
+
+        await resolver.resolve(
+          operation: op('crop-sold'),
+          serverData: deletedRow('crop-sold', {'status': 'sold'}),
+          serverVersion: 4,
+        );
+
+        final stored = (await load('crop-sold'))!;
+        expect(stored.status, ListingStatus.sold);
+        expect(stored.version, 4);
+      });
+    });
+
     group('Unsupported entity types', () {
       test('throws exception for payment entity', () async {
         final operation = SyncOperation()
