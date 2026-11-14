@@ -173,6 +173,20 @@ function fraudServiceLambdaLogGroups(): { always: string[]; liveOnly: string[] }
   return { always: always.sort(), liveOnly };
 }
 
+// FUP-155: the Lambdas whose handler writes clean-delivery credits (builds a CleanDeliveryCreditService, which
+// logs CLEAN_DELIVERY_CREDIT_FAILED), mapped to their log groups the same way.
+function creditWriterLogGroups(): string[] {
+  const functionsDir = path.join(__dirname, '../../../server/src/Functions');
+  const handlers = fs
+    .readdirSync(functionsDir)
+    .filter((f) => f.endsWith('.cs'))
+    .filter((f) => /new CleanDeliveryCreditService\(/.test(fs.readFileSync(path.join(functionsDir, f), 'utf8')))
+    .map((f) => f.split('.')[0]);
+  const apiStack = fs.readFileSync(path.join(__dirname, '../../lib/stacks/api-stack.ts'), 'utf8');
+  const pairs = [...apiStack.matchAll(/functionName:\s*`\$\{prefix\}-([a-z0-9-]+)`[^}]*?handlerName:\s*"(\w+)"/g)];
+  return [...new Set(handlers)].flatMap((h) => pairs.filter((p) => p[2] === h).map((p) => lg(p[1]))).sort();
+}
+
 describe('FRD-16: fraud signal metrics', () => {
   test('every Lambda that builds a FraudDetectionService has both signal filters, the webhook only when live', () => {
     const { always, liveOnly } = fraudServiceLambdaLogGroups();
@@ -409,16 +423,28 @@ describe('FRD-16: risk alarms (FUP-62)', () => {
     }
   });
 
-  test('a credit that could not be written is a metric on escrow-cron, not an alarm (FRD-10)', () => {
-    const template = monitoringTemplate(false);
+  test.each([false, true])('a credit that could not be written is a metric on every Lambda that writes credits, not an alarm (FRD-10, FUP-155; live %s)', (live) => {
+    const template = monitoringTemplate(live);
     const filters = filtersPublishing(template, 'CleanDeliveryCreditFailed');
-    expect(logGroupsOf(filters)).toEqual([lg('escrow-cron')]);
-    const pattern = filters[0].Properties.FilterPattern;
-    for (const line of CREDIT_FAILED_LINES) {
-      expect(cloudWatchTermsMatch(pattern, prefixed('error', line))).toBe(true);
-    }
-    for (const line of NEIGHBOUR_LINES) {
-      expect([line, cloudWatchTermsMatch(pattern, line)]).toEqual([line, false]);
+    // FUP-155: escrow-cron (the auto-release and its recovery) and admin (the manual payout close) write
+    // credits and log the token; a new writer fails here until its log group gets the filter.
+    expect(creditWriterLogGroups()).toEqual([lg('admin'), lg('escrow-cron')]);
+    expect(logGroupsOf(filters)).toEqual(creditWriterLogGroups());
+    for (const filter of filters) {
+      const pattern = filter.Properties.FilterPattern;
+      expect(pattern).toBe('"CLEAN_DELIVERY_CREDIT_FAILED"');
+      expect(filter.Properties.MetricTransformations[0]).toEqual(
+        expect.not.objectContaining({ DefaultValue: expect.anything() }),
+      );
+      for (const line of CREDIT_FAILED_LINES) {
+        for (const event of [line, prefixed('info', line), prefixed('error', line)]) {
+          expect([filter.Properties.LogGroupName, event, cloudWatchTermsMatch(pattern, event)])
+            .toEqual([filter.Properties.LogGroupName, event, true]);
+        }
+      }
+      for (const line of NEIGHBOUR_LINES) {
+        expect([line, cloudWatchTermsMatch(pattern, line)]).toEqual([line, false]);
+      }
     }
     const alarms = JSON.stringify(template.findResources('AWS::CloudWatch::Alarm'));
     expect(alarms).not.toContain('CleanDeliveryCreditFailed');
@@ -492,5 +518,9 @@ describe('FRD-16: risk alarms (FUP-62)', () => {
       'CreditFailedToken = "CLEAN_DELIVERY_CREDIT_FAILED"'
     );
     expect(cron).toContain('CleanDeliveryCreditFailedToken = CleanDeliveryCreditService.CreditFailedToken');
+    // FUP-155: the admin Lambda writes it too, after a manual payout close.
+    expect(serverSource('Functions/AdminFunction.cs')).toContain(
+      '$"{CleanDeliveryCreditService.CreditFailedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} error={MoneyAlarmLog.LogId(ex.GetType().Name)}"',
+    );
   });
 });

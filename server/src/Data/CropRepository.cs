@@ -85,6 +85,12 @@ public sealed class CropRepository : ICropRepository
     private const string DeletedStatus = "deleted";
 
     /// <summary>
+    /// FUP-152: the error code of an <see cref="UpdateAsync"/> refused because the listing is
+    /// deleted. Nothing was written and the version did not move.
+    /// </summary>
+    public const string AlreadyDeletedCode = "CROP_ALREADY_DELETED";
+
+    /// <summary>
     /// FUP-132: a listing is deleted when it carries <c>deletedAt</c> or its status is
     /// <c>deleted</c>. Rows deleted by an update before the stamp was written have only the status.
     /// </summary>
@@ -116,13 +122,16 @@ public sealed class CropRepository : ICropRepository
         var attrNames = new Dictionary<string, string>
         {
             { "#updated", "updatedAt" },
-            { "#v", "version" }
+            { "#v", "version" },
+            { "#deleted", "deletedAt" },
+            { "#st", "status" }
         };
         var attrValues = new Dictionary<string, AttributeValue>
         {
             { ":updated", new AttributeValue { S = now } },
             { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
-            { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString() } }
+            { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString() } },
+            { ":deletedStatus", new AttributeValue { S = DeletedStatus } }
         };
 
         var i = 0;
@@ -146,7 +155,6 @@ public sealed class CropRepository : ICropRepository
         if (data.TryGetValue("status", out var newStatus)
             && string.Equals(newStatus?.ToString(), DeletedStatus, StringComparison.Ordinal))
         {
-            attrNames["#deleted"] = "deletedAt";
             updateParts.Add("#deleted = if_not_exists(#deleted, :updated)");
         }
 
@@ -159,10 +167,16 @@ public sealed class CropRepository : ICropRepository
                 { "createdAt", new AttributeValue { S = createdAt } }
             },
             UpdateExpression = "SET " + string.Join(", ", updateParts),
-            ConditionExpression = "#v = :expectedVersion",
+            // FUP-152: never onto a deleted listing (IsDeleted: the stamp or the status), checked in
+            // the write itself, so a delete that lands after the caller's read still wins. The status
+            // test is exact while IsDeleted ignores case: every writer stores "deleted" in lower case,
+            // and the stamp, which every delete writes, is checked first.
+            ConditionExpression = "#v = :expectedVersion AND attribute_not_exists(#deleted)"
+                + " AND (attribute_not_exists(#st) OR #st <> :deletedStatus)",
             ExpressionAttributeNames = attrNames,
             ExpressionAttributeValues = attrValues,
-            ReturnValues = ReturnValue.ALL_NEW
+            ReturnValues = ReturnValue.ALL_NEW,
+            ReturnValuesOnConditionCheckFailure = ReturnValuesOnConditionCheckFailure.ALL_OLD
         };
 
         try
@@ -171,10 +185,16 @@ public sealed class CropRepository : ICropRepository
             var result = FromItem(response.Attributes);
             return AuthResult<Dictionary<string, object>>.Success(result);
         }
-        catch (ConditionalCheckFailedException)
+        catch (ConditionalCheckFailedException ex)
         {
-            // Version mismatch — return server's current data
-            var serverData = FromItem(existing);
+            // The row the condition saw; the read above when DynamoDB does not return it.
+            var stored = ex.Item is { Count: > 0 } ? ex.Item : existing;
+            if (IsDeleted(FromItem(stored)))
+            {
+                return AuthResult<Dictionary<string, object>>.Failure(
+                    409, AlreadyDeletedCode, "The listing is already deleted.", "status");
+            }
+
             return AuthResult<Dictionary<string, object>>.Failure(
                 new AuthResultError
                 {
@@ -247,6 +267,13 @@ public sealed class CropRepository : ICropRepository
     public async Task<Dictionary<string, object>?> GetByIdAsync(string cropId)
     {
         var item = await GetItemAsync(cropId);
+        return item != null ? FromItem(item) : null;
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<string, object>?> GetByIdConsistentAsync(string cropId)
+    {
+        var item = await GetItemAsync(cropId, consistentRead: true);
         return item != null ? FromItem(item) : null;
     }
 

@@ -17,7 +17,9 @@ public interface ICropRepository
         Dictionary<string, object> data);
 
     /// <summary>
-    /// Update an existing crop listing with optimistic concurrency.
+    /// Update an existing crop listing with optimistic concurrency. FUP-152: a deleted listing
+    /// (<see cref="CropRepository.IsDeleted"/>) is never written; that failure carries
+    /// <see cref="CropRepository.AlreadyDeletedCode"/>, a version mismatch <c>SYNC_CONFLICT</c>.
     /// </summary>
     Task<AuthResult<Dictionary<string, object>>> UpdateAsync(
         string cropId,
@@ -35,6 +37,12 @@ public interface ICropRepository
     /// Get a crop listing by ID. Returns null if not found.
     /// </summary>
     Task<Dictionary<string, object>?> GetByIdAsync(string cropId);
+
+    /// <summary>
+    /// FUP-152: <see cref="GetByIdAsync"/> with a strongly consistent read, for the answer to a write
+    /// the table just refused (a delete that landed after the caller's read must be what comes back).
+    /// </summary>
+    Task<Dictionary<string, object>?> GetByIdConsistentAsync(string cropId) => GetByIdAsync(cropId);
 
     /// <summary>
     /// SIM-13: give the listing back the stock a funded order took, when that order is

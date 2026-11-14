@@ -73,4 +73,27 @@ public partial class SyncFunction
                 _batchAppBuild, CropHasActiveOrdersCode, operation.EntityType)
         };
     }
+
+    /// <summary>
+    /// FUP-152: the message of a <c>conflict</c> that answers an <c>update</c> reaching a deleted
+    /// listing.
+    /// </summary>
+    internal const string CropAlreadyDeletedMessage =
+        CropRepository.AlreadyDeletedCode + ": The listing is already deleted.";
+
+    /// <summary>
+    /// FUP-152: an <c>update</c> that reaches a deleted listing (<see cref="CropRepository.IsDeleted"/>)
+    /// writes nothing and is answered <c>conflict</c> with the stored row and its version, whatever
+    /// the client sent, so the farmer's app takes the server's row (server wins) instead of retrying.
+    /// Only the listing's farmer gets the row: ownership is checked first.
+    /// </summary>
+    private static SyncOperationResult DeletedListingConflict(
+        SyncOperationRequest operation, Dictionary<string, object> stored) => new()
+        {
+            OperationId = operation.OperationId,
+            Status = "conflict",
+            ServerVersion = OrderVersionOf(stored),
+            ServerData = stored,
+            Message = CropAlreadyDeletedMessage
+        };
 }

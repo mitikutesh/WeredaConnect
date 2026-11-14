@@ -1466,6 +1466,9 @@ public partial class AdminFunction
     /// stored <c>releasedAt</c> and the escrow id with a conditional put, so a double click, a second admin
     /// and a retry write each party's row once between them. Runs after the money is on record and catches
     /// everything: it never fails or changes the payout answer.
+    /// FUP-155: there is no journal here. A credit that fails (<c>CLEAN_DELIVERY_CREDIT_FAILED</c>, a dashboard
+    /// metric) or a Lambda that dies between the close and this call loses the credit, which only leaves a score
+    /// higher; recording the same leg again with the same reference is the replay that runs it again.
     /// </summary>
     private async Task TryCreditCleanDeliveryAsync(string escrowId, EscrowService service, ILambdaContext context)
     {
