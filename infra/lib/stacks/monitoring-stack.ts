@@ -2451,8 +2451,11 @@ export class MonitoringStack extends cdk.Stack {
     // escrow-cron logs it once per hourly settlement run while its gate reads no risk tier.
     riskLogFilter('RiskTableUnconfiguredFilter', escrowCronLogGroup, 'RISK_TABLE_UNCONFIGURED', 'RiskTableUnconfigured');
     // FRD-10: a clean-delivery credit that could not be written. Not alarmed by design (a lost
-    // credit only leaves a score higher); a metric for the dashboard.
+    // credit only leaves a score higher); a metric for the dashboard. FUP-155: the admin Lambda writes
+    // the credit of a manual payout close (FUP-137) and logs the same token, into the same metric.
+    // escrow-cron's next run tries its own failures again (the journal); the admin's are not retried.
     riskLogFilter('CleanDeliveryCreditFailedFilter', escrowCronLogGroup, 'CLEAN_DELIVERY_CREDIT_FAILED', 'CleanDeliveryCreditFailed');
+    riskLogFilter('CleanDeliveryCreditFailedAdminFilter', adminLogGroup, 'CLEAN_DELIVERY_CREDIT_FAILED', 'CleanDeliveryCreditFailed');
 
     const riskScoreUnavailableAlarm = moneyLogAlarm(
       'RiskScoreUnavailable',

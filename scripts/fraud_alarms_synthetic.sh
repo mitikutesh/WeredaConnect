@@ -282,11 +282,13 @@ for lg in "${FRAUD_LGS[@]}"; do
 done
 echo
 
-echo "Single-source risk filters:"
+echo "Single-source risk filters (and the credit failure, on both Lambdas that write credits):"
 check_filter "$LG_ESCROW" RiskHoldOrderMismatch
 check_filter "$LG_CRON" RiskTableUnconfigured
 check_filter "$LG_CRON" RiskSettlementSkipped
 check_filter "$LG_CRON" CleanDeliveryCreditFailed
+# FUP-155: the admin Lambda logs the token after a manual payout close.
+check_filter "/aws/lambda/${PREFIX}-admin" CleanDeliveryCreditFailed
 echo
 
 echo "Spike alarm wiring:"

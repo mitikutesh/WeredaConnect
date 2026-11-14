@@ -647,7 +647,85 @@ public class EscrowCronCleanDeliveryCreditTests
         await _escrows.Received(1).TryQueueManualPayoutAsync("esc-live", Arg.Any<string>(), "release",
             "PAYOUT_NOT_SUPPORTED", "escrowed", Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), "auto_release");
         _ddb.ReceivedCalls().Should().BeEmpty();
-        // The entry stays for one run; the next finds the row in the queue and clears it (the close credits).
-        _journal.Should().Equal("esc-live");
+        // FUP-155: the admin's close credits a queued 1.x escrow, so its entry goes at once (FUP-137 left it
+        // for the next run to read the row and clear it).
+        _events.Should().Equal("add:esc-live", "gateway", "remove:esc-live");
+        _journal.Should().BeEmpty();
+    }
+
+    // ── FUP-155: a release that owes no credit here leaves no entry ──
+
+    /// <summary>The farmer's phone is not verified, so the payout gate refuses every release before the lock.</summary>
+    private void FarmerPhoneUnverified()
+        => _users.GetUserByIdAsync(FarmerId).Returns(new UserDto
+        {
+            UserId = FarmerId,
+            PhoneNumber = "+251900000001",
+            Role = "farmer",
+            Woreda = "w",
+            IsPhoneVerified = false,
+            CreatedAt = "2025-01-01T00:00:00Z",
+            UpdatedAt = "2025-01-01T00:00:00Z",
+            Version = 1
+        });
+
+    [Fact]
+    public async Task Journal_AReleaseThePayoutGateBlocks_LeavesNoEntry()
+    {
+        FarmerPhoneUnverified();
+        _escrows.StubReleaseSweep(Confirmed("esc-kyc"));
+
+        var summary = await RunAsync(Cron(withJournal: true));
+
+        summary["released"].Should().Be("0");
+        summary["releaseBlocked"].Should().Be("1");
+        // Noted before the release (the answer is not known yet) and cleared at once: no money moved.
+        _events.Should().Equal("add:esc-kyc", "remove:esc-kyc");
+        _journal.Should().BeEmpty();
+        _ddb.ReceivedCalls().Should().BeEmpty();
+        Logs.Should().Contain("ESCROW_RELEASE_BLOCKED escrowId=esc-kyc code=ESCROW_029 sweep=auto-release");
+    }
+
+    [Fact]
+    public async Task Journal_AFailedClearOfABlockedRelease_IsLeftForTheNextRun()
+    {
+        FarmerPhoneUnverified();
+        _escrows.StubReleaseSweep(Confirmed("esc-kyc-stuck"));
+        _journalRemoveFailure = new ProvisionedThroughputExceededException("throttled");
+
+        var summary = await RunAsync(Cron(withJournal: true));
+
+        // Only logged: the next run's recovery reads the row (still escrowed, unlocked) and clears it.
+        summary["releaseBlocked"].Should().Be("1");
+        _journal.Should().Equal("esc-kyc-stuck");
+        Logs.Should().Contain("CLEAN_DELIVERY_JOURNAL_FAILED op=remove escrowId=esc-kyc-stuck");
+        Logs.Should().NotContain("SETTLEMENT_FAILED");
+    }
+
+    [Fact]
+    public async Task Journal_BlockedReleasesNeverHoldACrashedCreditOutOfTheRecoveryWindow()
+    {
+        // More blocked escrows than the recovery reads in one run, each sorting before the crashed entry below.
+        FarmerPhoneUnverified();
+        var blocked = Enumerable.Range(0, EscrowCronFunction.CleanDeliveryRecoveryMaxRows + 10)
+            .Select(i => Confirmed($"esc-kyc-{i:D3}"))
+            .ToArray();
+        _escrows.StubReleaseSweep(blocked);
+
+        var first = await RunAsync(Cron(withJournal: true));
+
+        first["releaseBlocked"].Should().Be(blocked.Length.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        _journal.Should().BeEmpty();
+
+        // A run then dies between a release and its credit. The blocked escrows are swept and blocked again.
+        _journal.Add("esc-zz-dead");
+        Released("esc-zz-dead");
+
+        await RunAsync(Cron(withJournal: true));
+
+        _puts.Should().HaveCount(3)
+            .And.OnlyContain(p => p.Item["signalKey"].S == $"{ReleasedAtStored}#CLEAN_DELIVERY#esc-zz-dead");
+        Logs.Should().Contain("CLEAN_DELIVERY_CREDIT_RECOVERY pending=1 read=1 creditsWritten=3 cleared=1 kept=0");
+        _journal.Should().BeEmpty();
     }
 }

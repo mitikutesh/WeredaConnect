@@ -1137,8 +1137,14 @@ dimension `SignalType`) and the risk lines:
 | `<prefix>-label-snapshot-failed` | (FUP-158) a Fraud Review label was written without its FRD-20 feature snapshot (`LABEL_SNAPSHOT_FAILED` in the admin log group): `userId=.. error=..`, a snapshot read failed (the user's fraud-signals rows, the users row or the role's escrow index); `caseId=.. stage=write error=..`, the label row was refused with the snapshot and written again without it. The decision and its label stand | check throttling and the admin Lambda's `dynamodb:Query` on fraud-signals and the escrows party indexes and `GetItem` on users; for `stage=write`, the row's size. Nothing backfills a snapshot (it is the state at decision time), so note the time; a steady rate thins the FRD-20 dataset |
 | `<prefix>-reputation-fraud-hook-failed` | (FUP-201, ESC-33; only with `reputationPenalties` on) a fraud signal a recorded reputation event should have written was lost (`REPUTATION_FRAUD_HOOK_FAILED hook=reliability\|buyer_decline code=.. [..]` in the reputation-stream or order-cron log group). The event and its points stand; the hook never runs again for it | fix the cause: throttling or IAM on the fraud-signals table (`PutItem`, `Query`) or the orders `BuyerIdCreatedAtIndex`, or `FRAUD_SIGNALS_TABLE` or `ORDERS_TABLE` missing from the Lambda. The line has no ids: if the party matters, find the event by its code and time in the admin reputation history and review the party in Fraud Review by hand |
 
-`CLEAN_DELIVERY_CREDIT_FAILED` (FRD-10) is a dashboard metric only, by design. So is the attribution guard's
-`FRAUD_ATTRIBUTED_SIGNAL_SKIPPED signalType=.. reason=..` (FUP-201, sync): the graph "Attributed Signals Skipped by
+`CLEAN_DELIVERY_CREDIT_FAILED` (FRD-10) is a dashboard metric only, by design (a lost credit only leaves a party's
+risk score higher), counted in the escrow-cron and (FUP-155) admin log groups. escrow-cron's next hourly run tries its
+own failures again from the journal. The admin's (the credit after a manual payout close, `escrowId=..` in the line)
+is not retried, and neither is a credit an admin Lambda timeout cut off after the close: to heal one, record the same
+leg again with the same reference (`POST /admin/payouts/<escrowId>/<leg>/complete` with `{"externalRef": "<ref>"}`
+as an admin-group user; it answers `Already recorded`, moves no money and writes only the missing credit rows). The
+admin page lists only open legs, so this is an API call. The attribution guard's
+`FRAUD_ATTRIBUTED_SIGNAL_SKIPPED signalType=.. reason=..` (FUP-201, sync) is a dashboard metric only too: the graph "Attributed Signals Skipped by
 Reason (hourly)" counts each reason; a rising `SourceCapped` or `TargetCapped` is one buyer, or a ring, hammering one
 trucker (open Fraud Review on that trucker's `GPS_ANOMALY` rows). The risk alarms use the
 money alarm shape (clear 75 to 90 minutes after the last line); the spike clears 15 to 30 minutes after
