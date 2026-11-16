@@ -1103,7 +1103,7 @@ class SyncExecutor {
     }
 
     await _settleRejections(rejected);
-    await _settleBehindRefusedPickup(behindRefusedPickup, rejected);
+    await _settleBehindRefusedPickup(behindRefusedPickup);
     await _settleConflictedHandoffs(conflictedDeliveries);
     _announceHeldForUpdate(heldForUpdate);
 
@@ -1732,16 +1732,9 @@ class SyncExecutor {
   /// delivery is put back to the server's view through
   /// [PermanentRejectionHandler], and its rejected operations leave the
   /// "Sync failed" count. Nothing is announced: the pickup's refusal is what
-  /// the user is told. A delivery whose refused pickup is in this batch's
-  /// [rejected] list was already settled by [_settleRejections].
-  Future<void> _settleBehindRefusedPickup(
-    List<SyncOperation> marks,
-    List<(SyncOperation, String?)> rejected,
-  ) async {
-    final settled = {
-      for (final (op, _) in rejected)
-        if (op.entityType == 'delivery' && _isPickup(op)) op.entityId,
-    };
+  /// the user is told.
+  Future<void> _settleBehindRefusedPickup(List<SyncOperation> marks) async {
+    final settled = <String>{};
     for (final mark in marks) {
       if (!settled.add(mark.entityId)) continue;
       final queued = await _syncQueue.operationsFor('delivery', mark.entityId);
