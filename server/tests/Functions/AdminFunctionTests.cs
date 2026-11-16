@@ -7,9 +7,9 @@ using FluentAssertions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Functions;
-using Xunit;
-using WeredaConnect.Server.Services;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.Services;
+using Xunit;
 
 namespace WeredaConnect.Server.Tests.Functions;
 
@@ -1284,16 +1284,26 @@ public class AdminFunctionTests
         var db = Substitute.For<IAmazonDynamoDB>();
         var orderItem = new Dictionary<string, AttributeValue>
         {
-            ["orderId"] = S("order-1"), ["buyerId"] = S("buyer-1"), ["farmerId"] = S("farmer-1"),
-            ["cropType"] = S("teff"), ["quantity"] = Num("100"), ["orderTotal"] = Num("5000"),
-            ["status"] = S("dispute_resolved"), ["createdAt"] = S("2026-07-01T08:00:00Z"),
+            ["orderId"] = S("order-1"),
+            ["buyerId"] = S("buyer-1"),
+            ["farmerId"] = S("farmer-1"),
+            ["cropType"] = S("teff"),
+            ["quantity"] = Num("100"),
+            ["orderTotal"] = Num("5000"),
+            ["status"] = S("dispute_resolved"),
+            ["createdAt"] = S("2026-07-01T08:00:00Z"),
             ["updatedAt"] = S("2026-07-03T15:30:00Z"),
         };
         var orderEvent = new Dictionary<string, AttributeValue>
         {
-            ["auditId"] = S("txaudit-1"), ["transactionId"] = S("order-1"), ["entityType"] = S("order"),
-            ["entityId"] = S("order-1"), ["action"] = S("order_created"), ["actor"] = S("buyer-1"),
-            ["timestamp"] = S("2026-07-01T08:00:00Z"), ["labelledAt"] = S("2026-07-09T00:00:00Z"),
+            ["auditId"] = S("txaudit-1"),
+            ["transactionId"] = S("order-1"),
+            ["entityType"] = S("order"),
+            ["entityId"] = S("order-1"),
+            ["action"] = S("order_created"),
+            ["actor"] = S("buyer-1"),
+            ["timestamp"] = S("2026-07-01T08:00:00Z"),
+            ["labelledAt"] = S("2026-07-09T00:00:00Z"),
         };
         db.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
@@ -1925,7 +1935,11 @@ public class AdminFunctionTests
 
     private static object SplitBody(string? notes) => new
     {
-        resolution = "partial_refund", action = "split", farmerAmount = 9000.00m, truckerAmount = 1500.00m, buyerRefund = 6000.00m,
+        resolution = "partial_refund",
+        action = "split",
+        farmerAmount = 9000.00m,
+        truckerAmount = 1500.00m,
+        buyerRefund = 6000.00m,
         notes
     };
 
@@ -2027,8 +2041,13 @@ public class AdminFunctionTests
     {
         var response = await WithMirrorTables().FunctionHandler(ResolveRequest(new
         {
-            resolution = "partial_refund", action = "split", disposition = "settle_as_is", reason = Reason,
-            farmerAmount = 10m, truckerAmount = 0m, buyerRefund = 0m
+            resolution = "partial_refund",
+            action = "split",
+            disposition = "settle_as_is",
+            reason = Reason,
+            farmerAmount = 10m,
+            truckerAmount = 0m,
+            buyerRefund = 0m
         }), _context);
 
         response.StatusCode.Should().Be(400);
