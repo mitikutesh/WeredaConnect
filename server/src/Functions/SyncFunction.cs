@@ -1407,6 +1407,26 @@ public partial class SyncFunction
     private const double EthiopiaMaxLongitude = 48.0;
 
     /// <summary>
+    /// FUP-444: a <c>gpsPickup</c> or <c>gpsDropoff</c> outside the Ethiopia box (the listing and ping
+    /// bounds) is refused with <c>DELIVERY_VALIDATION</c> by a delivery update (a create drops both fields,
+    /// FUP-246). Before, a handoff point was
+    /// bounded only by the 5 km checks, which run only when a reference point exists, so a crafted client
+    /// could store (0, 0) or a point abroad on a delivery whose listing or drop-off had none.
+    /// </summary>
+    private static SyncOperationResult? HandoffPointOutsideEthiopia(
+        SyncOperationRequest operation, string field, double latitude, double longitude)
+        => latitude < EthiopiaMinLatitude || latitude > EthiopiaMaxLatitude
+           || longitude < EthiopiaMinLongitude || longitude > EthiopiaMaxLongitude
+            ? new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"DELIVERY_VALIDATION: {field} must be inside Ethiopia "
+                    + "(latitude 3 to 15, longitude 33 to 48)."
+            }
+            : null;
+
+    /// <summary>
     /// How far ahead of server time a client createdAt may sit before it is a
     /// future date. Covers local-time strings sent without an offset (UTC+3)
     /// plus device clock drift, without accepting a listing dated next year.
@@ -5989,6 +6009,14 @@ public partial class SyncFunction
                                         Status = "error",
                                         Message = $"DELIVERY_VALIDATION: Invalid GPS coordinates for {kvp.Key}. Latitude must be -90 to 90, longitude -180 to 180."
                                     };
+                                }
+
+                                // FUP-444: a handoff point is a fix in Ethiopia, as a listing's point and a
+                                // live ping are. Checked after the 5 km rules, so where a reference point
+                                // exists their refusal still answers first.
+                                if (HandoffPointOutsideEthiopia(operation, kvp.Key, lat, lng) is { } outside)
+                                {
+                                    return outside;
                                 }
 
                                 var nameAlias = $"#f{i}";
