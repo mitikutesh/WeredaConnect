@@ -20,6 +20,8 @@ public interface ICropRepository
     /// Update an existing crop listing with optimistic concurrency. FUP-152: a deleted listing
     /// (<see cref="CropRepository.IsDeleted"/>) is never written; that failure carries
     /// <see cref="CropRepository.AlreadyDeletedCode"/>, a version mismatch <c>SYNC_CONFLICT</c>.
+    /// FUP-495: nor is a sold listing (<see cref="CropRepository.IsSold"/>); that failure carries
+    /// <see cref="CropRepository.SoldCode"/>.
     /// </summary>
     Task<AuthResult<Dictionary<string, object>>> UpdateAsync(
         string cropId,
@@ -27,7 +29,9 @@ public interface ICropRepository
         int expectedVersion);
 
     /// <summary>
-    /// Soft-delete a crop listing (set deletedAt timestamp).
+    /// Soft-delete a crop listing (set deletedAt timestamp). FUP-494: a listing already deleted
+    /// (<see cref="CropRepository.IsDeleted"/>) is not written again; that failure carries
+    /// <see cref="CropRepository.AlreadyDeletedCode"/>, a version mismatch <c>SYNC_CONFLICT</c>.
     /// </summary>
     Task<AuthResult<Dictionary<string, object>>> DeleteAsync(
         string cropId,

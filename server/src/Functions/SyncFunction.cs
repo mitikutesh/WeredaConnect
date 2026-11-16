@@ -2998,6 +2998,12 @@ public partial class SyncFunction
                         return DeletedListingConflict(operation, existingForUpdate);
                     }
 
+                    // FUP-495: nor does a sold listing (terminal), with or without a status.
+                    if (CropRepository.IsSold(existingForUpdate))
+                    {
+                        return SoldListingConflict(operation, existingForUpdate);
+                    }
+
                     // Field whitelist — reject unknown fields
                     var unknownUpdateFields = operation.Data.Keys
                         .Where(k => !AllowedCropFields.Contains(k) && k != "version")
@@ -3129,7 +3135,10 @@ public partial class SyncFunction
                     // Conflict — return server's current data
                     // FUP-152: a delete that beat this write is read back consistently, so the phone
                     // gets the deleted row, not the live one an eventually consistent read may return.
-                    var serverData = updateResult.Error?.Code == CropRepository.AlreadyDeletedCode
+                    // FUP-495: the same for a "mark sold" that beat it.
+                    var refusedByState = updateResult.Error?.Code
+                        is CropRepository.AlreadyDeletedCode or CropRepository.SoldCode;
+                    var serverData = refusedByState
                         ? await _cropRepo.GetByIdConsistentAsync(operation.EntityId)
                         : await _cropRepo.GetByIdAsync(operation.EntityId);
                     var serverVer = serverData != null && serverData.TryGetValue("version", out var sv2)
@@ -3142,10 +3151,13 @@ public partial class SyncFunction
                         Status = "conflict",
                         ServerVersion = serverVer,
                         ServerData = serverData,
-                        // FUP-152: deleted between the read above and the write.
-                        Message = updateResult.Error?.Code == CropRepository.AlreadyDeletedCode
-                            ? CropAlreadyDeletedMessage
-                            : updateResult.Error?.Message ?? "Version conflict."
+                        // FUP-152, FUP-495: deleted or sold between the read above and the write.
+                        Message = updateResult.Error?.Code switch
+                        {
+                            CropRepository.AlreadyDeletedCode => CropAlreadyDeletedMessage,
+                            CropRepository.SoldCode => CropSoldMessage,
+                            _ => updateResult.Error?.Message ?? "Version conflict."
+                        }
                     };
                 }
 
@@ -3175,6 +3187,13 @@ public partial class SyncFunction
                             Status = "error",
                             Message = "CROP_UNAUTHORIZED: You can only delete your own crop listings."
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "crop", authenticatedUserId, context);
+                    }
+
+                    // FUP-494: already deleted, so there is nothing to write. The write's own
+                    // condition covers a delete that lands after this read.
+                    if (CropRepository.IsDeleted(existingForDelete))
+                    {
+                        return AlreadyDeletedSuccess(operation, existingForDelete);
                     }
 
                     // ESC-18: not while orders still depend on the listing.
@@ -3209,6 +3228,13 @@ public partial class SyncFunction
                             Status = "error",
                             Message = "Crop listing not found."
                         };
+                    }
+
+                    // FUP-494: another delete landed between the read above and the write.
+                    if (deleteResult.Error?.Code == CropRepository.AlreadyDeletedCode)
+                    {
+                        return AlreadyDeletedSuccess(
+                            operation, await _cropRepo.GetByIdConsistentAsync(operation.EntityId));
                     }
 
                     // Conflict
