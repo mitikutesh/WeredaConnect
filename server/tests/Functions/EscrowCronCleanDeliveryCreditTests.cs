@@ -150,13 +150,14 @@ public class EscrowCronCleanDeliveryCreditTests
         });
     }
 
-    private EscrowCronFunction Cron(bool withCredits = true, bool withJournal = false)
+    private EscrowCronFunction Cron(bool withCredits = true, bool withJournal = false, DateTime? recoveryNow = null)
     {
         var service = new EscrowService(_escrows, _audit, _idempotency, _gateway, userRepo: _users, deliveryRepo: _deliveries);
         return new EscrowCronFunction(service, _escrows, _audit, _gateway, _deliveries)
         {
             CleanDeliveryCredits = withCredits ? new CleanDeliveryCreditService(_ddb, SignalsTable) : null,
-            CleanDeliveryJournal = withJournal ? new CleanDeliveryCreditJournal(_journalDb, IdempotencyTable) : null
+            CleanDeliveryJournal = withJournal ? new CleanDeliveryCreditJournal(_journalDb, IdempotencyTable) : null,
+            CleanDeliveryRecoveryClock = recoveryNow is { } now ? () => now : () => DateTime.UtcNow
         };
     }
 
@@ -727,5 +728,73 @@ public class EscrowCronCleanDeliveryCreditTests
             .And.OnlyContain(p => p.Item["signalKey"].S == $"{ReleasedAtStored}#CLEAN_DELIVERY#esc-zz-dead");
         Logs.Should().Contain("CLEAN_DELIVERY_CREDIT_RECOVERY pending=1 read=1 creditsWritten=3 cleared=1 kept=0");
         _journal.Should().BeEmpty();
+    }
+
+    // FUP-499: an hour at which the window over 56 entries starts at the first one (hour * 50 is a multiple of 56).
+    private static readonly DateTime WindowAtTheStart = DateTime.UnixEpoch.AddHours(28 * 20_000);
+
+    [Fact]
+    public async Task Recovery_MoreEntriesThanTheCapThatStayEveryRun_CannotHideACrashedEntryPastTheNextRun()
+    {
+        // 55 entries the recovery keeps every run (their release is in flight), which is what escrows the gateway
+        // refuses every hour amount to, and a crashed credit that sorts after all of them. A window fixed on the
+        // first 50 in id order never reached it.
+        for (var i = 0; i < EscrowCronFunction.CleanDeliveryRecoveryMaxRows + 5; i++)
+        {
+            var id = $"esc-lock-{i:D3}";
+            _journal.Add(id);
+            Released(id, status: "escrowed", releasedAt: null)["settlementLock"] = "release";
+        }
+
+        _journal.Add("esc-zz-dead");
+        Released("esc-zz-dead");
+
+        await RunAsync(Cron(withJournal: true, recoveryNow: WindowAtTheStart));
+
+        _puts.Should().BeEmpty();
+        _journal.Should().Contain("esc-zz-dead").And.HaveCount(56);
+        Logs.Should().Contain("CLEAN_DELIVERY_CREDIT_RECOVERY pending=56 read=50 creditsWritten=0 cleared=0 kept=50");
+
+        // The next hourly run reads the window that follows: the last six entries, then the first 44.
+        await RunAsync(Cron(withJournal: true, recoveryNow: WindowAtTheStart.AddHours(1)));
+
+        _puts.Should().HaveCount(3)
+            .And.OnlyContain(p => p.Item["signalKey"].S == $"{ReleasedAtStored}#CLEAN_DELIVERY#esc-zz-dead");
+        _journal.Should().NotContain("esc-zz-dead").And.HaveCount(55);
+        Logs.Should().Contain("CLEAN_DELIVERY_CREDIT_RECOVERY pending=56 read=50 creditsWritten=3 cleared=1 kept=49");
+    }
+
+    [Fact]
+    public void RecoveryWindow_TurnsEachHour_AndCoversEveryEntryWithinCeilCountOverCapRuns()
+    {
+        var pending = Enumerable.Range(0, 123).Select(i => $"esc-{i:D3}").ToList();
+        var cap = EscrowCronFunction.CleanDeliveryRecoveryMaxRows;
+        var runs = (pending.Count + cap - 1) / cap;
+
+        // From any starting hour, ceil(123 / 50) = 3 consecutive hourly runs read every entry.
+        foreach (var startHour in new[] { 0, 1, 7, 449_999, 500_123 })
+        {
+            var read = new HashSet<string>();
+            for (var run = 0; run < runs; run++)
+            {
+                var window = EscrowCronFunction
+                    .CleanDeliveryRecoveryWindow(pending, DateTime.UnixEpoch.AddHours(startHour + run).AddMinutes(17))
+                    .ToList();
+                window.Should().HaveCount(cap).And.OnlyHaveUniqueItems();
+                read.UnionWith(window);
+            }
+
+            read.Should().HaveCount(pending.Count, $"start hour {startHour}");
+        }
+    }
+
+    [Fact]
+    public void RecoveryWindow_WithTheCapOrFewer_IsEveryEntryInIdOrder()
+    {
+        var pending = Enumerable.Range(0, EscrowCronFunction.CleanDeliveryRecoveryMaxRows)
+            .Select(i => $"esc-{i:D3}").ToList();
+
+        EscrowCronFunction.CleanDeliveryRecoveryWindow(pending, DateTime.UnixEpoch.AddHours(12_345))
+            .Should().Equal(pending);
     }
 }

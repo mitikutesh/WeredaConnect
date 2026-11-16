@@ -262,6 +262,32 @@ public class EscrowCronFunction
     /// <summary>FUP-137: journaled escrows read again per run; the rest wait for the next run.</summary>
     internal const int CleanDeliveryRecoveryMaxRows = 50;
 
+    /// <summary>
+    /// FUP-499: the clock the recovery window turns with (<see cref="CleanDeliveryRecoveryWindow"/>). Tests set it.
+    /// </summary>
+    internal Func<DateTime> CleanDeliveryRecoveryClock { get; init; } = () => DateTime.UtcNow;
+
+    /// <summary>
+    /// FUP-499: the journaled escrows one run reads again. With more than <see cref="CleanDeliveryRecoveryMaxRows"/>
+    /// the window starts at (hour since the epoch times the cap) modulo the count and wraps, so the windows of
+    /// consecutive hourly runs follow each other round the list and every entry is read within
+    /// ceil(count / cap) runs. Before, the window was always the first entries in id order: escrows the gateway
+    /// refused every hour (their entry comes back each run) could keep a crashed credit that sorts after them
+    /// out of it for a whole outage. With the cap or fewer, every entry is read in id order, as before.
+    /// </summary>
+    internal static IEnumerable<string> CleanDeliveryRecoveryWindow(IReadOnlyList<string> pending, DateTime now)
+    {
+        var count = pending.Count;
+        if (count <= CleanDeliveryRecoveryMaxRows)
+        {
+            return pending;
+        }
+
+        var hour = (long)Math.Floor((now - DateTime.UnixEpoch).TotalHours);
+        var start = (int)(hour * CleanDeliveryRecoveryMaxRows % count);
+        return Enumerable.Range(0, CleanDeliveryRecoveryMaxRows).Select(i => pending[(start + i) % count]);
+    }
+
     /// <summary>FUP-137: log lines of the journal (not alarmed, like the credit's own).</summary>
     internal const string CleanDeliveryRecoveredToken = "CLEAN_DELIVERY_CREDIT_RECOVERY";
     internal const string CleanDeliveryJournalFailedToken = "CLEAN_DELIVERY_JOURNAL_FAILED";
@@ -1026,7 +1052,7 @@ public class EscrowCronFunction
     /// <summary>
     /// FUP-137: the crash recovery of the clean-delivery credit. Reads the journal (one GetItem) and, for each
     /// escrow an earlier run left there, its row (one consistent GetItem each, at most
-    /// <see cref="CleanDeliveryRecoveryMaxRows"/> per run):
+    /// <see cref="CleanDeliveryRecoveryMaxRows"/> per run, a window that turns each hour, FUP-499):
     /// <list type="bullet">
     /// <item>released or completed: the credit is written through
     /// <see cref="CleanDeliveryCreditService.CreditReleasedAsync"/> (only a row the auto-release marked, with
@@ -1064,7 +1090,7 @@ public class EscrowCronFunction
         }
 
         int credited = 0, cleared = 0, kept = 0;
-        foreach (var escrowId in pending.Take(CleanDeliveryRecoveryMaxRows))
+        foreach (var escrowId in CleanDeliveryRecoveryWindow(pending, CleanDeliveryRecoveryClock()))
         {
             try
             {
