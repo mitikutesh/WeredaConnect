@@ -96,4 +96,42 @@ public partial class SyncFunction
             ServerData = stored,
             Message = CropAlreadyDeletedMessage
         };
+
+    /// <summary>
+    /// FUP-495: the message of a <c>conflict</c> that answers an <c>update</c> reaching a sold listing.
+    /// </summary>
+    internal const string CropSoldMessage = CropRepository.SoldCode + ": The listing is sold.";
+
+    /// <summary>
+    /// FUP-495: an <c>update</c> that reaches a sold listing (<see cref="CropRepository.IsSold"/>)
+    /// writes nothing and is answered <c>conflict</c> with the stored row and its version, whatever
+    /// the client sent, as <see cref="DeletedListingConflict"/> answers a deleted one: sold is
+    /// terminal, and a conflict is the one answer no shipped app resends. Only the listing's farmer
+    /// gets the row: ownership is checked first. The <c>delete</c> action and the stock writes of
+    /// the order flow are not touched.
+    /// </summary>
+    private static SyncOperationResult SoldListingConflict(
+        SyncOperationRequest operation, Dictionary<string, object> stored) => new()
+        {
+            OperationId = operation.OperationId,
+            Status = "conflict",
+            ServerVersion = OrderVersionOf(stored),
+            ServerData = stored,
+            Message = CropSoldMessage
+        };
+
+    /// <summary>
+    /// FUP-494: a <c>delete</c> that reaches a listing already deleted writes nothing and is
+    /// answered <c>success</c> with the stored version, whatever version the client sent: what the
+    /// farmer asked for already holds. Success is the one answer every shipped app takes without a
+    /// resend and without touching its local copy (an app older than FUP-149 turned a conflict's
+    /// deleted row into a local draft).
+    /// </summary>
+    private static SyncOperationResult AlreadyDeletedSuccess(
+        SyncOperationRequest operation, Dictionary<string, object>? stored) => new()
+        {
+            OperationId = operation.OperationId,
+            Status = "success",
+            ServerVersion = stored != null ? OrderVersionOf(stored) : 0
+        };
 }

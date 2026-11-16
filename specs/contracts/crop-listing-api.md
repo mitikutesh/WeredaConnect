@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.14.0
+1.15.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -109,6 +109,7 @@ The Crop Listing API enables farmers to post crop availability (type, quantity, 
 - `422 Unprocessable Entity` — Validation error (e.g., quantity > 10,000 quintals)
 - `CROP_HAS_ACTIVE_ORDERS` (1.7.0, per-operation `error` result of `POST /sync`): a `delete`, or an `update` to `status: deleted`, of a listing that orders still depend on (Validation rule 10)
 - `CROP_ALREADY_DELETED` (1.14.0, the message of a per-operation `conflict` result, not an `error`): an `update` of a listing that is already deleted, answered to its farmer with the stored row; nothing written (Validation rule 11)
+- `CROP_SOLD` (1.15.0, the message of a per-operation `conflict` result, not an `error`): an `update` of a `sold` listing, answered to its farmer with the stored row; nothing written (Validation rule 12)
 - `429 Too Many Requests`: `SYNC_RATE_LIMITED` when the user sent more than 60 sync requests in 60 seconds (`Retry-After: 60`), or API Gateway's own throttle (25 req/s per route, burst 50, no `error.code`). See Rate Limiting
 - `500 Internal Server Error` — Server-side failure
 
@@ -453,7 +454,14 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
    - The check comes right after ownership, before the field rules, the status transitions and rule 10, so a `status` sent to a deleted listing gets this conflict instead of `CROP_INVALID_TRANSITION`.
    - The write carries the same check in its condition (the version read, no `deletedAt`, a status other than `deleted`), so a delete that lands between the server's read and its write is answered the same way, and the version never moves.
    - Before 1.14.0 an update without a `status` went through the version check alone: sent at the version the delete left, it wrote price, quantity or text onto the hidden row and moved its version. Trips differ: a change to a cancelled trip is refused with `TRIP_ALREADY_CANCELLED` or `TRIP_TERMINAL_STATE`, and answered as a conflict only when it asks for what already holds or its version is behind (`trip-listing-api.md` 2.4.0).
-   - No client change: the mobile queue resolves the conflict server-wins (`sync-protocol.md` 1.66.0, rule 8), and web treats it as a failed save. The `delete` action is unchanged.
+   - No client change: the mobile queue resolves the conflict server-wins (`sync-protocol.md` 1.66.0, rule 8), and web treats it as a failed save.
+   - A `delete` of a listing that is already deleted (1.15.0, FUP-494) writes nothing and is answered `success` with the stored version, whatever version it carries: what the farmer asked for already holds. Ownership is checked first (anyone else keeps `CROP_UNAUTHORIZED`), and the check comes before rule 10. The write carries it in its condition too (no `deletedAt`, a status other than `deleted`), so a second delete that lands between the server's read and its write gets the same `success`, and the first delete's `deletedAt` and version stay. Before 1.15.0 a delete sent at the stored version was written again: `deletedAt` moved forward and the version moved. Success, not a conflict, because it is the one answer every shipped app takes without a resend and without touching its local copy (an app older than the FUP-149 client turns a conflict's deleted row into a local `draft`).
+
+12. **A sold listing is not edited** (1.15.0, FUP-495):
+   - `sold` is terminal in the transition table (nothing leaves it, and the stock restore of a cancelled or refunded order leaves its status alone). An `update` of a `sold` listing writes nothing, with or without a `status` and whatever version it carries. Its farmer gets `conflict` with `serverVersion` and the stored row in `serverData`, message `CROP_SOLD: The listing is sold.` Ownership is checked first: anyone else keeps `CROP_UNAUTHORIZED` and gets no row. The check comes right after rule 11's, before the field rules and the status transitions.
+   - The write carries it in its condition (a status other than `sold`), so a `sold` that lands between the server's read and its write is answered the same way.
+   - Only the `/sync` `update` is guarded. A `delete` of a sold listing stays allowed (rule 10 still applies), and the order flow's stock writes (the decrement on order create, the restore on cancel or refund) have their own conditions and are not touched.
+   - Before 1.15.0 an update without a `status` wrote price, quantity or text onto a sold listing; trips refuse any change to a finished trip (`TRIP_TERMINAL_STATE`). The apps offer the edit only on an `active` listing, so only an old queued edit or a hand-made request reaches this. No client change: the mobile queue resolves the conflict server-wins (it stores the sold row), and web treats it as a failed save.
 
 ### Client-Side Validation
 
@@ -625,10 +633,11 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.12.0 | 2026-11-12 | `farmerReliability` retired (ESC-30, `match-api.md` 1.4.0): the server no longer computes it at create (one query on the farmer's listings less) and drops a client value; matching reads `ownerReliabilityPct`. Listings that still store it keep returning it. |
 | 1.12.1 | 2026-11-12 | `CROP_HAS_ACTIVE_ORDERS` only to an app that sends `X-App-Build` (FUP-241, rule 10, `sync-protocol.md` 1.52.0): an app without the header gets the same sentence as `SYNC_VALIDATION:`, which it treats as permanent. Apps that send the header get the code as before. Server only |
 | 1.13.0 | 2026-11-12 | Listing removal guarded everywhere, and the farmer's edit and delete in the apps (SIM-56). Server: the rule 10 check (`CROP_HAS_ACTIVE_ORDERS` on a `delete` or an update to `status: deleted` while an order is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`) runs whatever `COMMITMENTS_ENABLED` says, so staging and prod too; an app without `X-App-Build` still gets the `SYNC_VALIDATION` sentence (FUP-241). Apps ("The farmer's edit and delete" under Validation Rules): the owner of an `active` listing edits `quantity`, `pricePerKg` and `description` with a `crop_listing` `update` of the changed fields at the version the form showed (a conflict, not an overwrite, when an order took stock meanwhile), and deletes it after a device-side check of the rule 10 order statuses that fails closed when the orders cannot be read. No wire change |
+| 1.15.0 | 2026-11-16 | Deleted and sold listings are not written again (rule 11 extended, new rule 12, `sync-protocol.md` 1.67.0). A `delete` of a listing already deleted writes nothing and its farmer gets `success` with the stored version (FUP-494); the write's condition carries the check, so a second delete between the read and the write gets the same answer. Before, a delete at the stored version was written again (`deletedAt` and the version moved). An `update` of a `sold` listing writes nothing and its farmer gets `conflict` with the stored row, message `CROP_SOLD: The listing is sold.` (FUP-495), also in the write's condition. Before, an update without a `status` wrote onto a sold listing. Anyone else keeps `CROP_UNAUTHORIZED`. Server only, no client change |
 | 1.14.0 | 2026-11-13 | A deleted listing never changes again (FUP-152, rule 11, `sync-protocol.md` 1.66.0): a `crop_listing` `update` of a deleted listing (`deletedAt` or `status: deleted`) writes nothing, with or without a `status` and at any version, and its farmer gets `conflict` with the stored row, message `CROP_ALREADY_DELETED: The listing is already deleted.`; the write's condition carries the check too, so a delete between the read and the write gets the same answer. Before, an update without a `status` at the version the delete left was written onto the hidden row and moved its version, and one with a `status` got `CROP_INVALID_TRANSITION`. Anyone else keeps `CROP_UNAUTHORIZED`. Server only, no client change |
 
 ---
 
-**Last Updated**: 2026-11-13
-**Version**: 1.14.0
+**Last Updated**: 2026-11-16
+**Version**: 1.15.0
 **Status**: Implemented (Phase R3)
