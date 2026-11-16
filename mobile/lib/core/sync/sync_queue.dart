@@ -586,6 +586,21 @@ class SyncQueue {
     return found;
   }
 
+  /// Every operation of one entity still in the queue, whatever its state
+  /// (waiting, on its way, sent, failed or refused for good), oldest first.
+  /// Used to find the refused pickup a delivery status change was sent on
+  /// top of (FUP-493).
+  Future<List<SyncOperation>> operationsFor(
+    String entityType,
+    String entityId,
+  ) =>
+      _isar.syncOperations
+          .filter()
+          .entityTypeEqualTo(entityType)
+          .entityIdEqualTo(entityId)
+          .sortByCreatedAt()
+          .findAll();
+
   /// Delete operations that are no longer wanted while they still wait
   /// (a drop-off code replaced by a new one, ESC-35). One on its way, sent
   /// or refused is left alone. Returns how many were deleted.
