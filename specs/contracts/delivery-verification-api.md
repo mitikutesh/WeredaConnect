@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.16.0
+2.16.1
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -2005,11 +2005,14 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
   dispute on a delivered order (the buyer's escrow stamp then finds no `escrowed` row and stamps nothing); an
   admin decides it in Disputes (FUP-340).
 - **Not done by the cron**, unlike a buyer's confirm in sync: the buyer-side patterns of a confirm (FRD-09:
-  there is no buyer action to judge), the trucker's `GPS_ANOMALY` row (FUP-245), the trip's completion when
+  there is no buyer action to judge), the trip's completion when
   its last delivery is done (ESC-17, FUP-337). The pushes are the order notifier's, from the cron's writes
   (2.13.1, FUP-338, `notifications-api.md` 1.6.0): `delivery_arrived` when the check-in counts, the silent
   buyer's reminder (`dropoffReminderAt`, `reminder-lead-hours` before T9), and the judged outcomes in their
   own words (`auto_confirmed` to the buyer and the farmer, the system's disputes to all three parties).
+  The trucker's `GPS_ANOMALY` row needs no judgement here either (2.16.1, FUP-366): T9's system confirm
+  needs a counted, measured drop-off check-in, and FUP-245's rule reads that check-in first and only clears
+  on it (fraud spec 3.38.0, Rule 4, "The drop-off check-in first"), so the cron would never write the row.
 - **Who can drive them (FUP-204).** T8 rests on the trucker's own missing check-in: the buyer can neither
   move the drop-off after pickup (the stamped points) nor take the delivery off the road, a buyer who
   withholds the scan after the trucker's check-in makes a T9, never a T8, and a buyer whose pin (set before
@@ -2109,11 +2112,12 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 | 2.13.0 | 2026-11-13 | Late drop-off evidence (FUP-373, P.4), behind `dropoffClassification` (flag off: nothing changes): a check-in the trucker made offline at the drop-off before T8 and synced after the order cron's T8 run kept no late entry, because the T8 dispute refused the arrival photo (`DELIVERY_PHOTO_REFUSED`) and the check-in then failed the photo check (`CHECKIN_PHOTO_REQUIRED`). Now (a) `POST /deliveries/{id}/photos` and `delivery_photo` `{deliveryId}#arrival` also take the arrival photo on the system's T8 dispute (`disputedBy: system`, `delivery_overdue` or `dropoff_out_of_range`) that no admin has decided (no `disputeResolution`), writing the photo, its version id and the new server-only `arrivalPhotoLateAt` (returned on the delivery reads) in one update conditioned on `disputed` and no `disputeResolution`, with no status, version or `updatedAt` move, and the audit row `delivery_photo` (`type=arrival;late=true`); T9's `silent_buyer`, a party's and a decided dispute still refuse it; (b) a late `arrived_dropoff` (after T8, or after the overdue or out-of-range judgement, or `queued`) skips the photo check and is kept with `late: true` and answered `CHECKIN_TOO_LATE`; a late one more than 5 km away is kept as the late `dropoffAttempt` (never counted at T8) when none is stored, also `CHECKIN_TOO_LATE`; (c) once an admin decided the delivery's dispute (`disputeResolution`), a late check-in is `CHECKIN_NOT_OPEN`. The admin's dispute Photos tab marks a late arrival photo with its attach time (en, am, om), the timeline shows the late entries. Clients (`sync-protocol.md` 1.60.0): the drop-off texts say the check-in was more than 5 km from the order's drop-off point, not that the trucker was (the buyer's pin may be wrong, FUP-204) |
 | 2.13.1 | 2026-11-13 | Doc only: the pushes of spec 4.12 are built (FUP-286 and FUP-338, `notifications-api.md` 1.6.0, `order-lifecycle.md` 2.23.0), behind the same flags: P.4's precondition for `dropoffClassification` (the buyer told when the trucker checks in, with T9, and again before T9) is met. No endpoint, field or code change here |
 | 2.14.0 | 2026-11-13 | Photo uploads lifecycle (FUP-140; 2.13.0 is FUP-373). Server: the `delivery_photo` attach copies the version it pins to the kept key `evidence/photos/{deliveryId}/{type}-{ms}.{ext}` before its write and records the copy in it (server-only `{type}PhotoKeptRef`, `{type}PhotoKeptVersionId`; a failed copy is `deferred`); every read signs the kept copy when the row records it; a `pickup` or `dropoff` photo whose handoff is not on the row yet is `deferred` (`DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet.`, judged on a strongly consistent read) instead of attaching to a delivery not picked up or not confirmed, except the buyer's drop-off photo on a dispute the order cron opened (T8 or T9) that no admin decided, kept as late evidence with the server-only `dropoffPhotoLateAt` and an audit row like FUP-373's arrival photo, and any other disputed delivery without the handoff refuses it for good (`DELIVERY_PHOTO_REFUSED`); new by-hand order-cron action `backfill_delivery_photo_copies` for the photos attached before. Infra: lifecycle rule `DeliveryPhotoUploadsExpiry` on `uploads/photos/` (30 days, noncurrent 1 day), deployed disabled behind `deliveryPhotoUploadExpiry` until the backfill ran; the Glacier rule on `photos/` (which matched no key) removed; grants for the copy (sync, order cron) and the signed reads (admin). Mobile: a pickup or delivery confirm answered `conflict` rejects its waiting photo unless the server's row shows that handoff (or, for the drop-off photo, an undecided dispute); Admin: the Photos tab marks a late drop-off photo (en, am, om); S3's `400 RequestTimeout` and `408` on a photo `PUT` no longer count toward the 3 refusals. See 4b and S3 Storage |
+| 2.16.1 | 2026-11-17 | P.4 "Not done by the cron" reworded (FUP-366, docs only): the trucker's `GPS_ANOMALY` row is not pending there. T9's system confirm needs a counted, measured drop-off check-in, which FUP-245's rule reads first and only clears on, so the cron needs no judgement (fraud spec 3.38.0 Rule 4) |
 | 2.16.0 | 2026-11-17 | Handoff points inside Ethiopia (FUP-444, SPK-01 1.4; Validation Rules 6): a delivery update whose `gpsPickup` or `gpsDropoff` is outside 3-15 N, 33-48 E, (0, 0) included, writes nothing and is answered `DELIVERY_VALIDATION: <field> must be inside Ethiopia (latitude 3 to 15, longitude 33 to 48).`, after the 5 km checks (which keep answering first where a reference point exists). The rule was written as a sanity check and never built. Server only, no client change |
 | 2.15.0 | 2026-11-13 | GPS refusal reasons (FUP-439, SPK-01 1.3; `sync-protocol.md` 1.62.0): the five handoff GPS refusals keep the `DELIVERY_GPS_PROXIMITY` code and name their reason right after it (`pickup_far`, `self_pickup_no_fix`, `self_pickup_no_farm_point`, `self_pickup_far`, `dropoff_far`); the distance in the pickup and self-pickup texts is now always written with a dot. The rules are unchanged. Mobile: every one is a permanent refusal that puts the delivery back from the server (it was resent three times and again on every reconnect, and the local `pickedUp` or `delivered` stayed), rejects the photo waiting behind it (and, for any pickup refused by a code that puts the delivery back, the trucker's drop-off code registration, which held the revert back) and is explained per reason (en, am, om); web shows the same text per reason instead of "Delivery operation failed". See GPS Validation, Refusal reasons |
 
 ---
 
 **Last Updated**: 2026-11-17
-**Version**: 2.16.0
+**Version**: 2.16.1
 **Status**: Draft (Phase R4.2)
