@@ -589,15 +589,171 @@ describe('FUP-231: order cancels and refunds the crons keep retrying', () => {
     const deadlines = serverSource('Functions/OrderCronFunction.Deadlines.cs');
     expect(deadlines).toContain('DeadlineRowFailedToken = "ORDER_DEADLINE_ROW_FAILED"');
     expect(deadlines).toContain('$"{DeadlineRowFailedToken} orderId={MoneyAlarmLog.LogId(orderId)} reason=[{ex.GetType().Name}]; the rest of the run goes on."');
-    // FUP-210 (PR #359) adds ORDER_DEADLINE_REFUND_WAITING to order-cron. Once it is in the source, it must be
-    // spelled as the filter reads it.
-    const orderCron = serverFilesMatching(/DeadlineRefundWaitingToken/).map(serverSource).join('\n');
-    if (orderCron.length > 0) {
-      expect(orderCron).toContain('DeadlineRefundWaitingToken = "ORDER_DEADLINE_REFUND_WAITING"');
-    }
+    // FUP-210 (PR #359): order-cron logs ORDER_DEADLINE_REFUND_WAITING, spelled as the filter reads it, at Warning
+    // (FUP-257: strict, so the test fails when order-cron stops writing it).
+    expect(serverFilesMatching(/DeadlineRefundWaitingToken/)).toEqual(['Functions/OrderCronFunction.cs']);
+    const orderCron = serverSource('Functions/OrderCronFunction.cs');
+    expect(orderCron).toContain('internal const string DeadlineRefundWaitingToken = "ORDER_DEADLINE_REFUND_WAITING";');
+    expect(orderCron).toContain(
+      'run.Context.Logger.LogWarning(\n'
+        + '            $"{DeadlineRefundWaitingToken} orderId={MoneyAlarmLog.LogId(orderId)} cancelReason={reason} reason={why}: "',
+    );
     // ORDER_STOCK_RESTORE_FAILED: escrow-cron's two restores and the dispute verdict's, which escrow-cron runs.
     const restoreWriters = serverFilesMatching(/ORDER_STOCK_RESTORE_FAILED orderId=/);
     expect(restoreWriters).toEqual(['Functions/EscrowCronFunction.cs', 'Services/DisputeVerdictMirror.cs']);
     expect(logGroupsOfHandlerFiles(['Functions/EscrowCronFunction.cs'])).toEqual([lg('escrow-cron')]);
+  });
+});
+
+describe('FUP-255, FUP-405, FUP-267: order deadlines, kept photos and dropped delivery fields', () => {
+  const STAMP_LINE = 'ORDER_DEADLINE_STAMP_FAILED orderId=ord-1 reason=[ProvisionedThroughputExceededException]';
+  const REPAIR_LINE = 'ORDER_DEADLINE_REPAIR_FAILED reason=[TimeoutException]; the next run tries again.';
+  const STUCK_LINE =
+    'ORDER_DEADLINE_STUCK orderId=ord-1 kind=farmer_response at=2026-11-12T09:00:00Z: due but nothing applied; looked at again in 1h.';
+  const PHOTO_LINE = 'DELIVERY_PHOTO keep failed for dlv-1: [AmazonS3Exception]';
+  const DROPPED_LINE = 'DELIVERY_FIELD_DROPPED field=gpsPickup status=delivered deliveryId=dlv-1';
+  const NEIGHBOURS = [
+    'ORDER_DEADLINE_ROW_FAILED orderId=ord-1 reason=[ProvisionedThroughputExceededException]; the rest of the run goes on.',
+    'ORDER_DEADLINE_REFUND_WAITING orderId=ord-1 cancelReason=farmer_response_expired reason=escrow_busy: '
+      + 'the refund could not be armed with the cancel, nothing written; looked at again in 1h.',
+    'ORDER_STOCK_RESTORE_FAILED orderId=ord-1 listingId=listing-1: [TimeoutException]',
+    'DELIVERY_PHOTO attached for dlv-1 type=pickup',
+    'Commitment deadlines complete: 1 farmer windows expired, 0 trucker windows expired, 0 conflicts, 1 trip reads.',
+  ];
+  // Every Lambda whose handler builds an OrderRepository (checked against server source below).
+  const STAMP_GROUPS = ['admin', 'deliveries', 'escrow', 'escrow-cron', 'messages', 'orders', 'reputation-stream', 'sync'];
+
+  test.each([false, true])('the deadline filters, bare and prefixed (live %s)', (live) => {
+    const template = monitoringTemplate(live);
+    const groups = [...STAMP_GROUPS, ...(live ? ['telebirr-webhook'] : [])];
+    const unstamped = filtersPublishing(template, 'OrderDeadlineUnstamped');
+    expect(unstamped.map((f) => f.Properties.LogGroupName).sort()).toEqual([...groups, 'order-cron'].map(lg).sort());
+    const patternOf = (filters: MetricFilterResource[], group: string) =>
+      filters.find((f) => f.Properties.LogGroupName === group)!.Properties.FilterPattern;
+    expect(patternOf(unstamped, lg('order-cron'))).toBe('?"ORDER_DEADLINE_STAMP_FAILED" ?"ORDER_DEADLINE_REPAIR_FAILED"');
+    for (const group of groups) {
+      expect([group, patternOf(unstamped, lg(group))]).toEqual([group, '"ORDER_DEADLINE_STAMP_FAILED"']);
+    }
+    expectMatches(patternOf(unstamped, lg('order-cron')), [STAMP_LINE, REPAIR_LINE], [STUCK_LINE, ...NEIGHBOURS]);
+    expectMatches(patternOf(unstamped, lg('sync')), [STAMP_LINE], [REPAIR_LINE, STUCK_LINE, ...NEIGHBOURS]);
+
+    const stuck = expectRareTokenFilters(template, 'OrderDeadlineStuck', '"ORDER_DEADLINE_STUCK"', [lg('order-cron')]);
+    expectMatches(stuck[0].Properties.FilterPattern, [STUCK_LINE], [STAMP_LINE, REPAIR_LINE, ...NEIGHBOURS]);
+
+    for (const filter of [...unstamped, ...stuck]) {
+      expect(filter.Properties.MetricTransformations[0].DefaultValue).toBeUndefined();
+    }
+    expectDefangedTextMatchesNothing([...unstamped, ...stuck].map((f) => f.Properties.FilterPattern));
+  });
+
+  test.each([false, true])('the photo and dropped-field filters on sync, bare and prefixed (live %s)', (live) => {
+    const template = monitoringTemplate(live);
+    const photo = expectRareTokenFilters(template, 'DeliveryPhotoKeepFailed', '"DELIVERY_PHOTO keep failed"', [lg('sync')]);
+    expectMatches(photo[0].Properties.FilterPattern, [PHOTO_LINE], [DROPPED_LINE, STAMP_LINE, ...NEIGHBOURS]);
+    const dropped = expectRareTokenFilters(template, 'DeliveryFieldDropped', '"DELIVERY_FIELD_DROPPED"', [lg('sync')]);
+    expectMatches(dropped[0].Properties.FilterPattern, [DROPPED_LINE], [PHOTO_LINE, STAMP_LINE, ...NEIGHBOURS]);
+    expectDefangedTextMatchesNothing([photo[0], dropped[0]].map((f) => f.Properties.FilterPattern));
+    // No other filter of the stack counts these lines.
+    const mine = ['OrderDeadlineUnstamped', 'OrderDeadlineStuck', 'DeliveryPhotoKeepFailed', 'DeliveryFieldDropped'];
+    for (const other of allFilters(template).filter((f) => !mine.includes(f.Properties.MetricTransformations[0].MetricName))) {
+      const metric = other.Properties.MetricTransformations[0].MetricName;
+      const counted = [STAMP_LINE, REPAIR_LINE, STUCK_LINE, PHOTO_LINE, DROPPED_LINE]
+        .some((line) => cloudWatchTermsMatch(other.Properties.FilterPattern, line));
+      expect([metric, counted]).toEqual([metric, false]);
+    }
+  });
+
+  test.each([false, true])('alarms: to the alarm topic and on the dashboard; no alarm on dropped fields (live %s)', (live) => {
+    const template = monitoringTemplate(live);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-order-deadline-unstamped',
+      Metrics: [customMetric('OrderDeadlineUnstamped', 3600)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 1,
+      TreatMissingData: 'notBreaching',
+      AlarmActions: notifiesTopic,
+      OKActions: notifiesTopic,
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-order-deadline-stuck',
+      Metrics: [customMetric('OrderDeadlineStuck', 3600)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 4,
+      DatapointsToAlarm: 3,
+      TreatMissingData: 'notBreaching',
+      AlarmActions: notifiesTopic,
+      OKActions: notifiesTopic,
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-delivery-photo-keep-failed',
+      Metrics: [customMetric('DeliveryPhotoKeepFailed', 900)],
+      // Three or more in 15 minutes.
+      Threshold: 2,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 1,
+      TreatMissingData: 'notBreaching',
+      AlarmActions: notifiesTopic,
+      OKActions: notifiesTopic,
+    });
+    const expectations: Array<[string, string, string[]]> = [
+      ['wereda-connect-dev-order-deadline-unstamped', 'OrderDeadlineUnstamped',
+        ['ORDER_DEADLINE_STAMP_FAILED', 'ORDER_DEADLINE_REPAIR_FAILED', 'deadline_repair', '.ai/deployment.md']],
+      ['wereda-connect-dev-order-deadline-stuck', 'OrderDeadlineStuck', ['ORDER_DEADLINE_STUCK', '.ai/deployment.md']],
+      ['wereda-connect-dev-delivery-photo-keep-failed', 'DeliveryPhotoKeepFailed',
+        ['DELIVERY_PHOTO keep failed', 'evidence/photos/', '.ai/deployment.md']],
+    ];
+    for (const [name, logicalId, tokens] of expectations) {
+      const description = alarmNamed(template, name).Properties.AlarmDescription ?? '';
+      for (const token of tokens) {
+        expect([name, token, description.includes(token)]).toEqual([name, token, true]);
+      }
+      expect(description.length).toBeLessThanOrEqual(1024);
+      expect([name, onAlarmStatus(template, logicalId)]).toEqual([name, true]);
+    }
+    const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm')) as AlarmResource[];
+    expect(alarms.filter((a) => JSON.stringify(a.Properties).includes('DeliveryFieldDropped'))).toEqual([]);
+  });
+
+  test('the server writes the tokens the filters read, from the Lambdas they cover', () => {
+    const repo = serverSource('Data/OrderRepository.cs');
+    expect(repo).toContain('internal const string DeadlineStampFailedToken = "ORDER_DEADLINE_STAMP_FAILED";');
+    // Raw stdout, no runtime prefix.
+    expect(repo).toContain(
+      '=> Console.WriteLine(\n'
+        + '            $"{DeadlineStampFailedToken} orderId={MoneyAlarmLog.LogId(Str(row, "orderId"))} reason=[{ex.GetType().Name}]");',
+    );
+    // Every handler that builds an OrderRepository has a filter: the stamp line can come from any of them.
+    const builders = serverFilesMatching(/new OrderRepository\(/).filter((f) => f.startsWith('Functions/'));
+    const handlers = [...new Set(builders.map((f) => path.basename(f).split('.')[0]))].sort();
+    expect(handlers).toEqual([
+      'AdminFunction', 'DeliveryFunction', 'EscrowCronFunction', 'EscrowFunction', 'MessageFunction',
+      'OrderCronFunction', 'OrderFunction', 'ReputationStreamFunction', 'SyncFunction', 'TelebirrWebhookFunction',
+    ]);
+    // logGroupsOfHandlerFiles cannot read the deliveries Lambda (its description has braces); read it directly.
+    const apiStack = fs.readFileSync(path.join(__dirname, '../../lib/stacks/api-stack.ts'), 'utf8');
+    expect(apiStack).toMatch(/functionName: `\$\{prefix\}-deliveries`,[\s\S]{0,300}?handlerName: "DeliveryFunction"/);
+    const others = builders.filter((f) => !f.includes('DeliveryFunction'));
+    expect([...logGroupsOfHandlerFiles(others), lg('deliveries')].sort())
+      .toEqual([...STAMP_GROUPS, 'order-cron', 'telebirr-webhook'].map(lg).sort());
+
+    const deadlines = serverSource('Functions/OrderCronFunction.Deadlines.cs');
+    expect(deadlines).toContain('internal const string DeadlineStuckToken = "ORDER_DEADLINE_STUCK";');
+    expect(deadlines).toContain('$"{DeadlineStuckToken} orderId={MoneyAlarmLog.LogId(orderId)} kind={due.Kind} at={due.AtIso}: "');
+    expect(deadlines).toContain('internal const string AutoRepairFailedToken = "ORDER_DEADLINE_REPAIR_FAILED";');
+    expect(deadlines).toContain('$"{AutoRepairFailedToken} reason=[{ex.GetType().Name}]; the next run tries again.");');
+    expect(serverFilesMatching(/DeadlineStuckToken|AutoRepairFailedToken/).filter((f) => f.startsWith('Functions/')))
+      .toEqual(['Functions/OrderCronFunction.Deadlines.cs']);
+
+    const photoWriters = serverFilesMatching(/DELIVERY_PHOTO keep failed/);
+    expect(photoWriters).toEqual(['Functions/SyncFunction.DeliveryPhoto.cs']);
+    expect(serverSource(photoWriters[0])).toContain(
+      'context.Logger.LogWarning($"DELIVERY_PHOTO keep failed for {MoneyAlarmLog.LogId(deliveryId)}: [{ex.GetType().Name}]");',
+    );
+    const droppedWriters = serverFilesMatching(/DELIVERY_FIELD_DROPPED/);
+    expect(droppedWriters).toEqual(['Functions/SyncFunction.cs']);
+    expect(serverSource(droppedWriters[0])).toContain('$"DELIVERY_FIELD_DROPPED field={field} status={MoneyAlarmLog.LogId(status ?? "none")} "');
+    expect(logGroupsOfHandlerFiles([...photoWriters, ...droppedWriters])).toEqual([lg('sync')]);
   });
 });

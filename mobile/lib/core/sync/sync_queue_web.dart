@@ -71,6 +71,13 @@ class SyncQueue {
   ) async =>
       const [];
 
+  /// No queue on web, so it holds no operation (FUP-493).
+  Future<List<SyncOperation>> operationsFor(
+    String entityType,
+    String entityId,
+  ) async =>
+      const [];
+
   /// No queue on web, so nothing to drop.
   Future<int> dropWaiting(Iterable<String> operationIds) async => 0;
 

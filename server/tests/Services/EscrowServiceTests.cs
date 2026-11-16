@@ -748,7 +748,8 @@ public class EscrowServiceTests
         userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
         var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            userRepo, orderRepo) { AlarmLog = alarms.Add };
+            userRepo, orderRepo)
+        { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute("farmer_wins");
         escrow["orderId"] = "order-1";
         escrow.Remove("deliveryId");
@@ -788,7 +789,8 @@ public class EscrowServiceTests
         });
         var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            _mockUserRepo, orderRepo) { AlarmLog = alarms.Add };
+            _mockUserRepo, orderRepo)
+        { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute("farmer_wins");
         escrow["orderId"] = "order-1";
         escrow.Remove("deliveryId");
@@ -824,7 +826,8 @@ public class EscrowServiceTests
         userRepo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer"));
         var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            userRepo, orderRepo) { AlarmLog = alarms.Add };
+            userRepo, orderRepo)
+        { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute(resolution);
         escrow["orderId"] = "order-1";
         escrow.Remove("deliveryId");

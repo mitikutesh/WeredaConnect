@@ -2923,6 +2923,9 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-trucker-payouts-newly-overdue',
     'wereda-connect-dev-releases-blocked-newly-overdue',
     'wereda-connect-dev-ledger-rows-newly-overdue',
+    // FUP-255: an order deadline no sweep will act on, or one the sweep keeps finding due (obs-alarms.test.ts).
+    'wereda-connect-dev-order-deadline-unstamped',
+    'wereda-connect-dev-order-deadline-stuck',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -3571,6 +3574,8 @@ describe('MonitoringStack', () => {
     'ManualPayoutsNewlyOverdue',
     // FUP-436: the edge twins of the trucker, release-blocked and ledger row overdue lines (edge-overdue-alarms.test.ts).
     'TruckerPayoutsNewlyOverdue', 'ReleasesBlockedNewlyOverdue', 'LedgerRowsNewlyOverdue',
+    // FUP-255: order deadlines that settle paid orders (obs-alarms.test.ts).
+    'OrderDeadlineUnstamped', 'OrderDeadlineStuck',
   ];
   // FUP-81: the other filters of those log groups, each named, so a new filter there must be
   // sorted into one list or the other. The JSON audit filters match a field exactly (client text
@@ -3590,6 +3595,9 @@ describe('MonitoringStack', () => {
     // ESC-36: an overdue delivery (order-cron). A trucker's reliability and an admin's dispute: the money is frozen,
     // and an order whose money could not be frozen waits in the admin queue, which AdminQueueOverdue alarms.
     'DeliveryOverdue',
+    // FUP-405 and FUP-267 (sync): a handoff photo not kept, and a delivery field a crafted client sent. Evidence,
+    // not money (obs-alarms.test.ts).
+    'DeliveryPhotoKeepFailed', 'DeliveryFieldDropped',
   ];
 
   // The money filters, and the sync's FUP-27 dispute filter: a rate, not money, but an alarm that
@@ -3650,8 +3658,10 @@ describe('MonitoringStack', () => {
     // ReleasesBlockedOverdue (1: escrow-cron); FUP-64 added DisputeVerdictWaitOverdue (1: escrow-cron); FUP-06 added
     // ManualPayoutsNewlyOverdue (1: escrow-cron); FUP-37 added two OrderPaymentProblems sources (escrow-cron and
     // order-cron, live only); FUP-436 added TruckerPayoutsNewlyOverdue, ReleasesBlockedNewlyOverdue and
-    // LedgerRowsNewlyOverdue (1 each: escrow-cron).
-    expect(patterns.length).toBe(35);
+    // LedgerRowsNewlyOverdue (1 each: escrow-cron); FUP-255 added OrderDeadlineUnstamped (5 here: escrow,
+    // escrow-cron, sync, order-cron and the live webhook; its other Lambdas are outside these log groups) and
+    // OrderDeadlineStuck (1: order-cron).
+    expect(patterns.length).toBe(41);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the

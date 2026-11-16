@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.67.0
+1.67.1
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -1755,6 +1755,20 @@ permanent and not announced, 1.60.0) and the drop-off check-in (`CHECKIN_NOT_OPE
 taken back, 1.59.1). No wire change; web has no queue (it sends the pickup at once, and reads the
 delivery's version from the server before marking it in transit).
 
+Matched when the mark's answer arrives (1.67.1, FUP-493): 1.63.0 looked for the mark only once, when
+the pickup was refused. A mark tapped while that sync ran (after the queue looked, while the revert read
+the delivery), or left waiting by an app killed between the pickup's rejection and its settling, was
+never matched: the revert was skipped and the phone stayed `inTransit`. Since 1.67.1 a `delivery`
+operation that sets a `status` and is answered
+`DELIVERY_INVALID_TRANSITION: Cannot transition from 'pending' ...` is rejected at once when the queue
+still holds a pickup of that delivery refused for good in an earlier batch, by the same user and queued
+before it. The answer itself says the server holds the delivery `pending`, so the pickup's code is not
+needed (the queue does not keep it). Once per delivery, the drop-off code registration and the other
+status changes still waiting behind that pickup are rejected with it, the delivery is put back from
+`GET /deliveries/{id}`, and its rejected operations leave the "Sync failed" count. Nothing new is
+announced: the pickup's refusal is what the user was told. A pickup refused in the same batch keeps the
+1.63.0 rule above, which knows its code. No wire change.
+
 All three roles: the trucker (pickup), the buyer (self-pickup and drop-off confirm). The farmer
 never sends these operations; the farmer's app shows the server's `pending` from the delivery pull,
 and the farmer's QR stays usable (a refused handoff consumes no nonce). Either side may ship first:
@@ -1767,6 +1781,7 @@ without a reason as permanent with the generic text.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.67.1 | 2026-11-16 | The trucker's status change behind a refused pickup is matched when its own answer arrives (FUP-493, mobile only, no wire change): a `delivery` operation that sets a `status`, answered `DELIVERY_INVALID_TRANSITION` from `pending`, is rejected when the queue holds a pickup of that delivery refused for good in an earlier batch, by the same user and queued before it; the drop-off code registration and status changes still waiting behind that pickup go with it, the delivery is put back from the server and leaves the "Sync failed" count, nothing new is announced. Covers a mark tapped while the pickup's sync ran and one left by an app killed before the refusal was settled. See "GPS refusals of a handoff" |
 | 1.67.0 | 2026-11-16 | Deleted and sold crop listings (FUP-494, FUP-495, `crop-listing-api.md` 1.15.0): a `crop_listing` `delete` of a listing already deleted writes nothing and answers its farmer `success` with the stored version (before, it was written again and its `deletedAt` and version moved); a `crop_listing` `update` of a `sold` listing writes nothing and answers `conflict` with the stored row, message `CROP_SOLD: The listing is sold.` (before, an update without a `status` was written onto it). Both checks are in the write's condition. Anyone else keeps `CROP_UNAUTHORIZED`. No client change. New conflict resolution rule 9 |
 | 1.66.0 | 2026-11-13 | A deleted crop listing never changes again (FUP-152, `crop-listing-api.md` 1.14.0): a `crop_listing` `update` that reaches a deleted listing (`deletedAt` set, or `status: deleted`) writes nothing and answers its farmer `conflict` with the stored row and version, message `CROP_ALREADY_DELETED: The listing is already deleted.`, with or without a `status` and at any version; the write's condition carries the check, so a delete between the read and the write gets the same answer. Before, an update without a `status` at the version the delete left was written onto the hidden row, and one with a `status` got `CROP_INVALID_TRANSITION`. Anyone else keeps `CROP_UNAUTHORIZED`. No client change. New conflict resolution rule 8 |
 | 1.65.0 | 2026-11-13 | A deleted crop listing on the clients (FUP-149): a mobile `crop_listing` conflict whose `serverData` is a deleted listing (`deletedAt` set or `status: deleted`) removes the local listing instead of keeping it as a `draft`, and creates none; the mobile crop pull and the read behind a reverted listing remove a deleted row's listing (the farmer's own included) instead of storing it as `active`; the web repository and matcher leave a deleted row out and read it by id as not found. Other statuses map as before. No wire change. See "Client-Side Conflict Resolution (Mobile)" |
@@ -1839,4 +1854,4 @@ without a reason as permanent with the generic text.
 ---
 
 **Last Updated**: 2026-11-16
-**Version**: 1.67.0
+**Version**: 1.67.1
