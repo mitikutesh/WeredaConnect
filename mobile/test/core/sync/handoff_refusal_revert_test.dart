@@ -314,4 +314,195 @@ void main() {
     await executor.syncNow();
     expect(syncPosts, 1);
   });
+
+  const gpsRefusal = 'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is '
+      '11.1km from listing location (max 5km).';
+  const fromPending = 'DELIVERY_INVALID_TRANSITION: Cannot transition from '
+      "'pending' to 'inTransit'.";
+
+  Future<void> queuePickupAndCode() async {
+    await deliveries.confirmPickup(
+      deliveryId: _deliveryId,
+      truckerId: 'trucker-1',
+      gpsPickup: LatLng()
+        ..latitude = 9.1
+        ..longitude = 38.7,
+      scannedQrNonce: 'n',
+    );
+    // Idempotency keys have millisecond resolution.
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+    await deliveries.persistDropoffQrNonce(
+      deliveryId: _deliveryId,
+      nonce: 'd.abc',
+      truckerId: 'trucker-1',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+  }
+
+  Future<void> markInTransit() => deliveries.markInTransit(
+        deliveryId: _deliveryId,
+        truckerId: 'trucker-1',
+      );
+
+  /// Answers each `/sync` with [answer] applied to the operations sent.
+  void answerSync(
+    List<Map<String, dynamic>> Function(List<dynamic> sent) answer,
+  ) {
+    adapter.onPost(
+      '/sync',
+      (server) => server.replyCallback(200, (options) {
+        final body = options.data as Map<String, dynamic>;
+        return {
+          'syncBatchId': body['syncBatchId'],
+          'results': answer(body['operations'] as List<dynamic>),
+        };
+      }),
+      data: Matchers.any,
+    );
+  }
+
+  Map<String, dynamic> answerFor(dynamic sent) {
+    final op = sent as Map<String, dynamic>;
+    final data = op['data'];
+    final dataText = data is Map ? data.toString() : '$data';
+    if (dataText.contains('pickedUp')) {
+      return {
+        'operationId': op['operationId'],
+        'status': 'error',
+        'message': gpsRefusal,
+      };
+    }
+    if (dataText.contains('dropoffQrNonce')) {
+      return {
+        'operationId': op['operationId'],
+        'status': 'deferred',
+        'message': 'DELIVERY_NONCE_PENDING: Waiting for the pickup to sync. '
+            'Will retry automatically.',
+      };
+    }
+    return {
+      'operationId': op['operationId'],
+      'status': 'error',
+      'message': fromPending,
+    };
+  }
+
+  test(
+      '"Mark in transit" tapped while the refused pickup is being undone is '
+      'refused with it on its next send: pending, not resent, not failed '
+      '(FUP-493)', () async {
+    await queuePickupAndCode();
+    // The trucker taps "Mark in transit" while the revert reads the
+    // delivery, after the queue looked for operations behind the pickup.
+    var tapped = false;
+    when(() => api.get<Map<String, dynamic>>('/deliveries/$_deliveryId'))
+        .thenAnswer((_) async {
+      if (!tapped) {
+        tapped = true;
+        await markInTransit();
+      }
+      return {
+        'delivery': {
+          'deliveryId': _deliveryId,
+          'farmerId': 'farmer-1',
+          'truckerId': 'trucker-1',
+          'buyerId': 'buyer-1',
+          'status': 'pending',
+          'version': 1,
+        },
+      };
+    });
+    answerSync((sent) => [for (final op in sent) answerFor(op)]);
+
+    await executor.executeBatch();
+    await waitFor(() => emitted.whereType<SyncOperationRejected>().isNotEmpty);
+    // The revert met the new mark and left the phone as it was.
+    expect(tapped, isTrue);
+    expect((await loadDelivery()).status, DeliveryStatus.inTransit);
+    final waiting = await queue.waitingOperationsFor('delivery', _deliveryId);
+    expect(waiting, hasLength(1));
+    final mark = waiting.single;
+
+    await executor.executeBatch();
+
+    final delivery = await loadDelivery();
+    expect(delivery.status, DeliveryStatus.pending);
+    expect(delivery.version, 1);
+    expect(
+      SyncQueue.isRejected((await queue.getOperation(mark.operationId))!),
+      isTrue,
+    );
+    expect(await queue.waitingOperationsFor('delivery', _deliveryId), isEmpty);
+    expect(await queue.getFailedCount(), 0);
+    // Told once, with the pickup's own text.
+    expect(
+      emitted.whereType<SyncOperationRejected>().single.message,
+      gpsRefusal,
+    );
+    expect(await queue.retryFailed(), 0);
+    await executor.syncNow();
+    expect(syncPosts, 2);
+  });
+
+  test(
+      '"Mark in transit" left waiting by an app killed after the pickup was '
+      'refused, before it was settled, is refused with it: pending, not '
+      'resent, not failed (FUP-493)', () async {
+    await queuePickupAndCode();
+    await markInTransit();
+    final ops = await queue.waitingOperationsFor('delivery', _deliveryId);
+    expect(ops, hasLength(3));
+    final pickup = ops.firstWhere((op) => op.data.contains('pickedUp'));
+    final registration =
+        ops.firstWhere((op) => op.data.contains('dropoffQrNonce'));
+    final mark = ops.firstWhere((op) => op.data.contains('inTransit'));
+    // The pickup's refusal was written, then the app died: nothing behind
+    // it was rejected and the phone was never put back.
+    await queue.markAsRejected(pickup.operationId);
+    expect((await loadDelivery()).status, DeliveryStatus.inTransit);
+    answerSync((sent) => [for (final op in sent) answerFor(op)]);
+
+    await executor.executeBatch();
+
+    final delivery = await loadDelivery();
+    expect(delivery.status, DeliveryStatus.pending);
+    expect(delivery.version, 1);
+    for (final op in [mark, registration]) {
+      expect(
+        SyncQueue.isRejected((await queue.getOperation(op.operationId))!),
+        isTrue,
+      );
+    }
+    expect(await queue.waitingOperationsFor('delivery', _deliveryId), isEmpty);
+    expect(await queue.getFailedCount(), 0);
+    // The pickup's refusal is what the user is told; nothing new here.
+    expect(emitted.whereType<SyncOperationRejected>(), isEmpty);
+    expect(await queue.retryFailed(), 0);
+    await executor.syncNow();
+    expect(syncPosts, 1);
+  });
+
+  test(
+      'a status change refused from pending with no refused pickup before it '
+      'is retried as before (FUP-493)', () async {
+    await isar.writeTxn(() async {
+      final row = await loadDelivery();
+      await isar.deliverys.put(row..status = DeliveryStatus.pickedUp);
+    });
+    await markInTransit();
+    final mark =
+        (await queue.waitingOperationsFor('delivery', _deliveryId)).single;
+    answerSync((sent) => [for (final op in sent) answerFor(op)]);
+
+    await executor.executeBatch();
+
+    final stored = (await queue.getOperation(mark.operationId))!;
+    // A retried failure, as before: one try used, not rejected.
+    expect(SyncQueue.isRejected(stored), isFalse);
+    expect(stored.retryCount, 1);
+    expect((await loadDelivery()).status, DeliveryStatus.inTransit);
+    verifyNever(
+      () => api.get<Map<String, dynamic>>('/deliveries/$_deliveryId'),
+    );
+  });
 }

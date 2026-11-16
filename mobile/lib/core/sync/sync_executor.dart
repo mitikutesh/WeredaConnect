@@ -924,6 +924,7 @@ class SyncExecutor {
     final heldForUpdate = <(SyncOperation, String)>[];
     final stepUpHeld = <String>{};
     final conflictedDeliveries = <(SyncOperation, Map<String, dynamic>)>[];
+    final behindRefusedPickup = <SyncOperation>[];
 
     // Build lookup map for O(1) access by operationId
     final opMap = {for (final op in operations) op.operationId: op};
@@ -1064,6 +1065,20 @@ class SyncExecutor {
           if (message != null) {
             operationErrors[operationId] = message;
           }
+          // FUP-493: a status change sent on top of a pickup the server
+          // refused for good, answered while the server still holds the
+          // delivery `pending`, goes with that pickup, whenever it was
+          // tapped (also while the pickup's own sync ran) and even if the
+          // app died before the pickup's refusal was settled.
+          if (status == 'error' &&
+              await _isBehindRefusedPickup(operation, message, {
+                for (final (refused, _) in rejected) refused.operationId,
+              })) {
+            await _syncQueue.markAsRejected(operationId);
+            behindRefusedPickup.add(operation);
+            failed++;
+            continue;
+          }
           // Permanent server rejections (fraud, validation, ORDER_*) will
           // never succeed on retry, so mark them rejected (retryFailed()
           // skips them); they are settled after the batch.
@@ -1088,6 +1103,7 @@ class SyncExecutor {
     }
 
     await _settleRejections(rejected);
+    await _settleBehindRefusedPickup(behindRefusedPickup);
     await _settleConflictedHandoffs(conflictedDeliveries);
     _announceHeldForUpdate(heldForUpdate);
 
@@ -1668,6 +1684,89 @@ class SyncExecutor {
         _userOf(waiting) == user &&
         waiting.createdAt.isAfter(pickup.createdAt) &&
         _statusOf(waiting) is String;
+  }
+
+  /// FUP-493: whether a refused delivery [operation] is a status change sent
+  /// on top of a pickup the server refused for good: the server answered
+  /// `DELIVERY_INVALID_TRANSITION` from `pending` (it holds the delivery
+  /// where the refused pickup left it), and the queue still holds that
+  /// pickup, rejected, of the same user and queued before it
+  /// ([_changesStatusAfter]). Matched when the answer arrives, not when the
+  /// pickup was refused, so a "Mark in transit" tapped while the pickup's
+  /// sync ran, or left waiting by an app killed before the pickup's refusal
+  /// was settled, is matched too. A pickup refused in this same batch
+  /// ([refusedNow]) is left to [_settleRejections], which knows its code and
+  /// keeps FUP-456's rule (only a code that undoes the pickup takes the
+  /// operations behind it).
+  Future<bool> _isBehindRefusedPickup(
+    SyncOperation operation,
+    String? message,
+    Set<String> refusedNow,
+  ) async {
+    if (operation.entityType != 'delivery' ||
+        _statusOf(operation) is! String ||
+        message == null ||
+        !message.startsWith(_invalidTransitionFromPending)) {
+      return false;
+    }
+    final queued =
+        await _syncQueue.operationsFor('delivery', operation.entityId);
+    return queued.any(
+      (pickup) =>
+          _isPickup(pickup) &&
+          SyncQueue.isRejected(pickup) &&
+          !refusedNow.contains(pickup.operationId) &&
+          _changesStatusAfter(operation, pickup),
+    );
+  }
+
+  /// The start of the server's refusal of a delivery status change while
+  /// the delivery is `pending` (`SyncFunction`, delivery update).
+  static const _invalidTransitionFromPending =
+      "DELIVERY_INVALID_TRANSITION: Cannot transition from 'pending'";
+
+  /// FUP-493: settle the status changes a batch rejected as sent on top of a
+  /// refused pickup ([_isBehindRefusedPickup]), once per delivery: the
+  /// drop-off code registration and the other status changes still waiting
+  /// behind that pickup are rejected with them (FUP-439, FUP-456), the
+  /// delivery is put back to the server's view through
+  /// [PermanentRejectionHandler], and its rejected operations leave the
+  /// "Sync failed" count. Nothing is announced: the pickup's refusal is what
+  /// the user is told.
+  Future<void> _settleBehindRefusedPickup(List<SyncOperation> marks) async {
+    final settled = <String>{};
+    for (final mark in marks) {
+      if (!settled.add(mark.entityId)) continue;
+      final queued = await _syncQueue.operationsFor('delivery', mark.entityId);
+      final pickups = [
+        for (final op in queued)
+          if (_isPickup(op) &&
+              SyncQueue.isRejected(op) &&
+              _changesStatusAfter(mark, op))
+            op,
+      ];
+      for (final waiting in await _syncQueue.waitingOperationsFor(
+        'delivery',
+        mark.entityId,
+      )) {
+        if (pickups.any(
+          (pickup) =>
+              _registersDropoffCode(waiting) ||
+              _changesStatusAfter(waiting, pickup),
+        )) {
+          await _syncQueue.markAsRejected(waiting.operationId);
+        }
+      }
+      try {
+        final handler = _onPermanentRejection;
+        if (handler != null) {
+          await handler(mark, _invalidTransitionFromPending);
+          await _syncQueue.markRevertedFor('delivery', mark.entityId);
+        }
+      } on Object catch (e) {
+        debugPrint('[SYNC] permanent rejection handler failed: $e');
+      }
+    }
   }
 
   /// The user an operation belongs to: its idempotency key starts with the
