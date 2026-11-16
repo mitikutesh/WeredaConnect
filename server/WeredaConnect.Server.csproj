@@ -41,7 +41,7 @@
 
     <!-- AWS SDK (AOT-Compatible) -->
     <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.513.4" />
-    <PackageReference Include="AWSSDK.S3" Version="3.7.511.8" />
+    <PackageReference Include="AWSSDK.S3" Version="4.1.0" />
     <PackageReference Include="AWSSDK.SecretsManager" Version="3.7.504.43" />
     <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.505.15" />
     <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.502.61" />
