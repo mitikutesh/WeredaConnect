@@ -189,9 +189,11 @@ public partial class SyncFunctionTests
     [Fact]
     public async Task CropRaceLoser_StaleVersion_GetsConflictWithTheRow()
     {
+        // FUP-495: a sold listing is answered before the transition table, so the race here is on a
+        // listing another device reserved first.
         _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
         {
-            { "cropId", "crop-001" }, { "farmerId", "farmer-001" }, { "status", "sold" }, { "version", "3" }
+            { "cropId", "crop-001" }, { "farmerId", "farmer-001" }, { "status", "reserved" }, { "version", "3" }
         });
 
         var response = await _function.FunctionHandler(
@@ -200,7 +202,7 @@ public partial class SyncFunctionTests
         var result = FirstResult(response.Body);
         result.GetProperty("status").GetString().Should().Be("conflict");
         result.GetProperty("serverVersion").GetInt32().Should().Be(3);
-        result.GetProperty("serverData").GetProperty("status").GetString().Should().Be("sold");
+        result.GetProperty("serverData").GetProperty("status").GetString().Should().Be("reserved");
         await _mockCropRepo.DidNotReceive().UpdateAsync(
             Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
     }
@@ -210,7 +212,7 @@ public partial class SyncFunctionTests
     {
         _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
         {
-            { "cropId", "crop-001" }, { "farmerId", "farmer-001" }, { "status", "sold" }, { "version", "3" }
+            { "cropId", "crop-001" }, { "farmerId", "farmer-001" }, { "status", "reserved" }, { "version", "3" }
         });
         var op = CropStatusOp("reserved", 2);
         op.Data!.Remove("version");

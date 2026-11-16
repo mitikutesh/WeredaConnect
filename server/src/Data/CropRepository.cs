@@ -83,12 +83,20 @@ public sealed class CropRepository : ICropRepository
     }
 
     private const string DeletedStatus = "deleted";
+    private const string SoldStatus = "sold";
 
     /// <summary>
     /// FUP-152: the error code of an <see cref="UpdateAsync"/> refused because the listing is
-    /// deleted. Nothing was written and the version did not move.
+    /// deleted, and (FUP-494) of a <see cref="DeleteAsync"/> refused for the same reason. Nothing
+    /// was written and the version did not move.
     /// </summary>
     public const string AlreadyDeletedCode = "CROP_ALREADY_DELETED";
+
+    /// <summary>
+    /// FUP-495: the error code of an <see cref="UpdateAsync"/> refused because the listing is
+    /// sold. Nothing was written and the version did not move.
+    /// </summary>
+    public const string SoldCode = "CROP_SOLD";
 
     /// <summary>
     /// FUP-132: a listing is deleted when it carries <c>deletedAt</c> or its status is
@@ -98,6 +106,14 @@ public sealed class CropRepository : ICropRepository
         => (crop.TryGetValue("deletedAt", out var deletedAt) && !string.IsNullOrEmpty(deletedAt?.ToString()))
            || (crop.TryGetValue("status", out var status)
                && string.Equals(status?.ToString(), DeletedStatus, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// FUP-495: a listing is sold when its status is <c>sold</c>. Sold is terminal: no transition
+    /// leaves it and a stock restore does not reopen it.
+    /// </summary>
+    public static bool IsSold(IReadOnlyDictionary<string, object> crop)
+        => crop.TryGetValue("status", out var status)
+           && string.Equals(status?.ToString(), SoldStatus, StringComparison.OrdinalIgnoreCase);
 
     /// <inheritdoc />
     public async Task<AuthResult<Dictionary<string, object>>> UpdateAsync(
@@ -131,7 +147,8 @@ public sealed class CropRepository : ICropRepository
             { ":updated", new AttributeValue { S = now } },
             { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
             { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString() } },
-            { ":deletedStatus", new AttributeValue { S = DeletedStatus } }
+            { ":deletedStatus", new AttributeValue { S = DeletedStatus } },
+            { ":soldStatus", new AttributeValue { S = SoldStatus } }
         };
 
         var i = 0;
@@ -170,9 +187,12 @@ public sealed class CropRepository : ICropRepository
             // FUP-152: never onto a deleted listing (IsDeleted: the stamp or the status), checked in
             // the write itself, so a delete that lands after the caller's read still wins. The status
             // test is exact while IsDeleted ignores case: every writer stores "deleted" in lower case,
-            // and the stamp, which every delete writes, is checked first.
+            // and the stamp, which every delete writes, is checked first. FUP-495: nor onto a sold
+            // listing, so a "mark sold" that lands after the caller's read wins too. That test is exact
+            // as well: only the /sync transition table writes "sold", in lower case. The stock writes
+            // of the order flow (TryDecrementStockAsync, RestoreStockAsync) have their own conditions.
             ConditionExpression = "#v = :expectedVersion AND attribute_not_exists(#deleted)"
-                + " AND (attribute_not_exists(#st) OR #st <> :deletedStatus)",
+                + " AND (attribute_not_exists(#st) OR (#st <> :deletedStatus AND #st <> :soldStatus))",
             ExpressionAttributeNames = attrNames,
             ExpressionAttributeValues = attrValues,
             ReturnValues = ReturnValue.ALL_NEW,
@@ -189,10 +209,17 @@ public sealed class CropRepository : ICropRepository
         {
             // The row the condition saw; the read above when DynamoDB does not return it.
             var stored = ex.Item is { Count: > 0 } ? ex.Item : existing;
-            if (IsDeleted(FromItem(stored)))
+            var storedRow = FromItem(stored);
+            if (IsDeleted(storedRow))
             {
                 return AuthResult<Dictionary<string, object>>.Failure(
                     409, AlreadyDeletedCode, "The listing is already deleted.", "status");
+            }
+
+            if (IsSold(storedRow))
+            {
+                return AuthResult<Dictionary<string, object>>.Failure(
+                    409, SoldCode, "The listing is sold.", "status");
             }
 
             return AuthResult<Dictionary<string, object>>.Failure(
@@ -231,7 +258,11 @@ public sealed class CropRepository : ICropRepository
                 { "createdAt", new AttributeValue { S = createdAt } }
             },
             UpdateExpression = "SET #deleted = :deleted, #status = :status, #updated = :updated, #v = :newVersion",
-            ConditionExpression = "#v = :expectedVersion",
+            // FUP-494: never onto a listing already deleted (IsDeleted: the stamp or the status),
+            // checked in the write itself as UpdateAsync does, so the first delete's deletedAt and
+            // version stay and a delete that lands after the caller's read still wins.
+            ConditionExpression = "#v = :expectedVersion AND attribute_not_exists(#deleted)"
+                + " AND (attribute_not_exists(#status) OR #status <> :status)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#deleted", "deletedAt" },
@@ -247,7 +278,8 @@ public sealed class CropRepository : ICropRepository
                 { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
                 { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString() } }
             },
-            ReturnValues = ReturnValue.ALL_NEW
+            ReturnValues = ReturnValue.ALL_NEW,
+            ReturnValuesOnConditionCheckFailure = ReturnValuesOnConditionCheckFailure.ALL_OLD
         };
 
         try
@@ -256,8 +288,16 @@ public sealed class CropRepository : ICropRepository
             var result = FromItem(response.Attributes);
             return AuthResult<Dictionary<string, object>>.Success(result);
         }
-        catch (ConditionalCheckFailedException)
+        catch (ConditionalCheckFailedException ex)
         {
+            // The row the condition saw; the read above when DynamoDB does not return it.
+            var stored = ex.Item is { Count: > 0 } ? ex.Item : existing;
+            if (IsDeleted(FromItem(stored)))
+            {
+                return AuthResult<Dictionary<string, object>>.Failure(
+                    409, AlreadyDeletedCode, "The listing is already deleted.", "status");
+            }
+
             return AuthResult<Dictionary<string, object>>.Failure(
                 409, "SYNC_CONFLICT", "Version conflict on delete.", "version");
         }
