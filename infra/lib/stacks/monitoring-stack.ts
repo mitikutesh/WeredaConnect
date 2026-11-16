@@ -1563,6 +1563,152 @@ export class MonitoringStack extends cdk.Stack {
     orderDeadlineRefundStalledAlarm.addAlarmAction(snsAction);
     orderDeadlineRefundStalledAlarm.addOkAction(snsAction);
 
+    // FUP-255: an order deadline nothing will act on. OrderRepository logs ORDER_DEADLINE_STAMP_FAILED (raw stdout)
+    // when a write could not stamp the row's next deadline, so the order is off DeadlineIndex until order-cron's
+    // repair stamps it again (the pass commitment_deadlines runs when its container has not finished one in 24
+    // hours, or the deadline_repair action); that pass logs ORDER_DEADLINE_REPAIR_FAILED when it throws, and the
+    // next 15 minute run tries again. A failed stamp with a failing repair leaves a paid order's deadline
+    // unsettled, so either line alarms (both are exceptions, rare). Every Lambda whose handler builds an OrderRepository can write the stamp line (an infra
+    // test checks this list against server/src/Functions); the webhook's log group exists only with the live
+    // gateway. Filters are free and a log group without the line publishes nothing. No default: billed only in the
+    // hours a line appears.
+    const deadlineStampLogGroupOf = (nameSuffix: string): logs.ILogGroup =>
+      logs.LogGroup.fromLogGroupName(this, `DeadlineStampLogGroup-${nameSuffix}`, `/aws/lambda/${prefix}-${nameSuffix}`);
+    const deadlineStampLogGroups: Array<[string, logs.ILogGroup]> = [
+      ['Admin', adminLogGroup],
+      ['Deliveries', deadlineStampLogGroupOf('deliveries')],
+      ['Escrow', escrowLogGroup],
+      ['EscrowCron', escrowCronLogGroup],
+      ['Messages', deadlineStampLogGroupOf('messages')],
+      ['Orders', deadlineStampLogGroupOf('orders')],
+      ['ReputationStream', deadlineStampLogGroupOf('reputation-stream')],
+      ['Sync', syncLogGroup],
+      ...(telebirrLive
+        ? [['TelebirrWebhook', deadlineStampLogGroupOf('telebirr-webhook')] as [string, logs.ILogGroup]]
+        : []),
+    ];
+    for (const [key, logGroup] of deadlineStampLogGroups) {
+      new logs.MetricFilter(this, `${key}OrderDeadlineUnstampedFilter`, {
+        logGroup,
+        filterPattern: logs.FilterPattern.literal('"ORDER_DEADLINE_STAMP_FAILED"'),
+        metricNamespace,
+        metricName: 'OrderDeadlineUnstamped',
+        metricValue: '1',
+      });
+    }
+    // order-cron writes orders too, and runs the daily repair.
+    new logs.MetricFilter(this, 'OrderCronOrderDeadlineUnstampedFilter', {
+      logGroup: orderCronLogGroup,
+      filterPattern: logs.FilterPattern.anyTerm('ORDER_DEADLINE_STAMP_FAILED', 'ORDER_DEADLINE_REPAIR_FAILED'),
+      metricNamespace,
+      metricName: 'OrderDeadlineUnstamped',
+      metricValue: '1',
+    });
+    const orderDeadlineUnstampedAlarm = new cloudwatch.Alarm(this, 'OrderDeadlineUnstamped', {
+      alarmName: `${prefix}-order-deadline-unstamped`,
+      alarmDescription:
+        'An order deadline may not be acted on (FUP-255; runbook: .ai/deployment.md). ' +
+        'ORDER_DEADLINE_STAMP_FAILED orderId=.. reason=[<exception>] (any Lambda that writes orders): the row\'s ' +
+        'next deadline was not stamped, so the order is off DeadlineIndex and no deadline sweep sees it until ' +
+        'order-cron\'s repair stamps it again (once a day). ORDER_DEADLINE_REPAIR_FAILED reason=[<exception>] ' +
+        '(order-cron): that repair pass threw; every 15 minute run tries again. Together they leave a paid ' +
+        'order\'s farmer, trucker or buyer deadline unsettled. Fix the cause (IAM, throttling, the orders table), ' +
+        'then invoke order-cron with action deadline_repair. Never edit the rows by hand.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'OrderDeadlineUnstamped',
+        statistic: 'Sum',
+        period: cdk.Duration.hours(1),
+        label: 'Order Deadline Unstamped',
+      }),
+      threshold: 0,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    orderDeadlineUnstampedAlarm.addAlarmAction(snsAction);
+    orderDeadlineUnstampedAlarm.addOkAction(snsAction);
+
+    // FUP-255: a due order deadline the commitment sweep could not act on. order-cron logs ORDER_DEADLINE_STUCK
+    // orderId=.. kind=.. at=.. when a due row decides nothing, and looks at it again an hour later. One line is a
+    // retry that usually lands; the line in three of four hourly periods is a deadline that is stuck (the
+    // persistence shape of the FUP-231 alarm above).
+    new logs.MetricFilter(this, 'OrderCronOrderDeadlineStuckFilter', {
+      logGroup: orderCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"ORDER_DEADLINE_STUCK"'),
+      metricNamespace,
+      metricName: 'OrderDeadlineStuck',
+      metricValue: '1',
+    });
+    const orderDeadlineStuckAlarm = new cloudwatch.Alarm(this, 'OrderDeadlineStuck', {
+      alarmName: `${prefix}-order-deadline-stuck`,
+      alarmDescription:
+        'An order deadline was due but nothing was applied in three of the last four hourly periods (FUP-255; ' +
+        'runbook: .ai/deployment.md). ORDER_DEADLINE_STUCK orderId=.. kind=<deadline kind> at=<due time> ' +
+        '(order-cron): the sweep found the row due and decided nothing, then moved it one hour on. The party ' +
+        'the deadline protects is still waiting. Read the order (its status, escrow and the kind), fix what holds ' +
+        'it, and the next run goes on. Never edit the rows by hand.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'OrderDeadlineStuck',
+        statistic: 'Sum',
+        period: cdk.Duration.hours(1),
+        label: 'Order Deadline Stuck',
+      }),
+      threshold: 0,
+      evaluationPeriods: 4,
+      datapointsToAlarm: 3,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    orderDeadlineStuckAlarm.addAlarmAction(snsAction);
+    orderDeadlineStuckAlarm.addOkAction(snsAction);
+
+    // FUP-405: the sync attach of a handoff photo logs DELIVERY_PHOTO keep failed for <deliveryId>: [<exception>]
+    // and answers deferred when its copy to evidence/photos/ fails. Phones retry, so a lost grant or a bucket
+    // policy change holds back every handoff photo with no error anywhere else. A few lines in 15 minutes alarm.
+    new logs.MetricFilter(this, 'SyncDeliveryPhotoKeepFailedFilter', {
+      logGroup: syncLogGroup,
+      filterPattern: logs.FilterPattern.literal('"DELIVERY_PHOTO keep failed"'),
+      metricNamespace,
+      metricName: 'DeliveryPhotoKeepFailed',
+      metricValue: '1',
+    });
+    const deliveryPhotoKeepFailedAlarm = new cloudwatch.Alarm(this, 'DeliveryPhotoKeepFailed', {
+      alarmName: `${prefix}-delivery-photo-keep-failed`,
+      alarmDescription:
+        'Handoff photos are not being kept (FUP-405; runbook: .ai/deployment.md). DELIVERY_PHOTO keep failed for ' +
+        '<deliveryId>: [<exception>] (sync) three or more times in 15 minutes: the copy of an uploaded photo from ' +
+        'uploads/photos/ to evidence/photos/ failed, so the attach answered deferred and phones keep retrying. ' +
+        'Check the sync Lambda\'s S3 grants on the uploads bucket (read on uploads/photos/*, put on ' +
+        'evidence/photos/*) and the bucket policy. Photos attach on their own once the copy works again.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'DeliveryPhotoKeepFailed',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+        label: 'Delivery Photo Keep Failed',
+      }),
+      threshold: 2,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    deliveryPhotoKeepFailedAlarm.addAlarmAction(snsAction);
+    deliveryPhotoKeepFailedAlarm.addOkAction(snsAction);
+
+    // FUP-267: sync drops gpsPickup or gpsDropoff from a delivery update that is not its own handoff and logs
+    // DELIVERY_FIELD_DROPPED field=.. status=.. deliveryId=.. (Information). No shipped client sends such a field, so
+    // each line points to a crafted client. Counted only: a crafted client controls the volume, so no alarm.
+    // No default: billed only in the hours a line appears.
+    new logs.MetricFilter(this, 'SyncDeliveryFieldDroppedFilter', {
+      logGroup: syncLogGroup,
+      filterPattern: logs.FilterPattern.literal('"DELIVERY_FIELD_DROPPED"'),
+      metricNamespace,
+      metricName: 'DeliveryFieldDropped',
+      metricValue: '1',
+    });
+
     // ESC-36 (spec 4.5 T8: "alarm"): a delivery still on the road 72 hours after its pickup with no drop-off
     // check-in from the trucker. order-cron logs ORDER_DELIVERY_OVERDUE orderId=.. deliveryId=..
     // outcome=disputed|queued reason=.. once per order it judges: disputed (the escrow frozen, the order and delivery
@@ -2813,6 +2959,11 @@ export class MonitoringStack extends cdk.Stack {
           riskSettlementSkippedAlarm,
           // FUP-231 order cancels and refunds the crons keep retrying
           orderDeadlineRefundStalledAlarm,
+          // FUP-255 order deadlines no sweep will act on
+          orderDeadlineUnstampedAlarm,
+          orderDeadlineStuckAlarm,
+          // FUP-405 handoff photos not kept
+          deliveryPhotoKeepFailedAlarm,
           // ESC-36 a delivery not made by its deadline (T8)
           deliveryOverdueAlarm,
           accountDeletionStuckAlarm,
