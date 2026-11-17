@@ -9,6 +9,7 @@ Payment _payment(
   bool refundPending = false,
   DateTime? expiresAt,
   DateTime? deliveryConfirmedAt,
+  double? truckerPayout,
 }) {
   final now = DateTime.now().toUtc();
   return Payment()
@@ -16,6 +17,8 @@ Payment _payment(
     ..deliveryId = 'del-1'
     ..farmerId = 'farmer-001'
     ..buyerId = 'buyer-001'
+    ..truckerId = truckerPayout == null ? null : 'trucker-001'
+    ..truckerPayout = truckerPayout
     ..amount = 1500
     ..commission = 37.5
     ..commissionRate = 0.025
@@ -117,4 +120,83 @@ void main() {
       );
     });
   }
+
+  /// FUP-113: the order detail shows the date only to the escrow's own
+  /// payees, whatever the payment carries.
+  group('expectedPayoutFor', () {
+    final trucked = _payment(
+      PaymentStatus.escrowed,
+      releaseNotBefore: at,
+      truckerPayout: 300,
+    );
+
+    DateTime? payoutFor(Payment payment, String role, String userId) =>
+        expectedPayoutFor(payment, role: role, userId: userId, now: before);
+
+    test('the escrow farmer sees the date', () {
+      expect(payoutFor(trucked, 'farmer', 'farmer-001'), at);
+    });
+
+    test('the escrow trucker with a transport leg sees the date', () {
+      expect(payoutFor(trucked, 'trucker', 'trucker-001'), at);
+    });
+
+    test('the buyer never does, even on a copy that carries a date', () {
+      expect(payoutFor(trucked, 'buyer', 'buyer-001'), isNull);
+    });
+
+    test('another farmer or trucker does not', () {
+      expect(payoutFor(trucked, 'farmer', 'farmer-002'), isNull);
+      expect(payoutFor(trucked, 'trucker', 'trucker-002'), isNull);
+    });
+
+    test('a role that does not match the leg does not', () {
+      expect(payoutFor(trucked, 'trucker', 'farmer-001'), isNull);
+      expect(payoutFor(trucked, 'farmer', 'trucker-001'), isNull);
+    });
+
+    test('a trucker without a transport leg does not', () {
+      final selfPickup = _payment(
+        PaymentStatus.escrowed,
+        releaseNotBefore: at,
+      )..truckerId = 'trucker-001';
+      final zeroLeg = _payment(
+        PaymentStatus.escrowed,
+        releaseNotBefore: at,
+        truckerPayout: 0,
+      );
+
+      expect(payoutFor(selfPickup, 'trucker', 'trucker-001'), isNull);
+      expect(payoutFor(zeroLeg, 'trucker', 'trucker-001'), isNull);
+    });
+
+    test('no signed-in user does not', () {
+      final noFarmer = _payment(
+        PaymentStatus.escrowed,
+        releaseNotBefore: at,
+      )..farmerId = '';
+
+      expect(payoutFor(noFarmer, 'farmer', ''), isNull);
+    });
+
+    test('the payee rules of expectedPayoutAt still apply', () {
+      expect(
+        expectedPayoutFor(
+          trucked,
+          role: 'farmer',
+          userId: 'farmer-001',
+          now: at,
+        ),
+        isNull,
+      );
+      expect(
+        payoutFor(
+          _payment(PaymentStatus.held, releaseNotBefore: at),
+          'farmer',
+          'farmer-001',
+        ),
+        isNull,
+      );
+    });
+  });
 }

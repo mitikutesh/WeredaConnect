@@ -33,11 +33,13 @@ import 'package:wereda_connect/features/delivery_verification/presentation/deliv
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_generate_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/payout_expectation.dart';
 import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
 import 'package:wereda_connect/features/live_trip/presentation/open_live_trip.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/widgets/payout_expected_text.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/conversation_screen.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
@@ -102,6 +104,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
   /// FRD-06: the order's escrow is held for review.
   bool _underReview = false;
+
+  /// FUP-113: the order's escrow as the hold check read it, for the payee's
+  /// payout date. Null until it answers, when the read fails, or when the
+  /// order is at a status whose escrow is not read.
+  Payment? _orderEscrow;
 
   /// Whether a hold check has answered (held, not held, or failed). Until
   /// then the farmer's Accept stays disabled, so it never shows enabled on
@@ -234,9 +241,10 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   /// FRD-06: read whether the order's escrow is held; the parties then see
   /// "Under Review" and lose the actions the server refuses while it is. A
   /// failed read, or no escrow side above this screen, counts as not held.
+  /// The same read gives the payee's payout date (FUP-113): no second call.
   Future<void> _checkHold(Order order) async {
     final check = ++_holdCheck;
-    var held = false;
+    Payment? escrow;
     if (orderHoldableStatuses.contains(order.status)) {
       BaseEscrowRepository? repository;
       try {
@@ -245,12 +253,13 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         repository = null;
       }
       if (repository != null) {
-        held = await isOrderEscrowHeld(repository, order.orderId);
+        escrow = await readOrderEscrow(repository, order.orderId);
       }
     }
     if (!mounted || check != _holdCheck) return;
     setState(() {
-      _underReview = held;
+      _underReview = escrow?.status == PaymentStatus.held;
+      _orderEscrow = escrow;
       _holdChecked = true;
     });
   }
@@ -340,6 +349,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             return _OrderDetailBody(
               order: order,
               underReview: _underReview,
+              orderEscrow: _orderEscrow,
               holdChecked: _holdChecked,
               busy: state is OrderLoading,
               onRefresh: _onPullToRefresh,
@@ -403,6 +413,9 @@ class _OrderDetailBody extends StatelessWidget {
   /// The order's escrow is held for review (FRD-06).
   final bool underReview;
 
+  /// The order's escrow as the hold check read it (FUP-113), or null.
+  final Payment? orderEscrow;
+
   /// Whether the hold check has answered; the farmer's Accept waits for it.
   final bool holdChecked;
 
@@ -424,6 +437,7 @@ class _OrderDetailBody extends StatelessWidget {
     required this.order,
     required this.onRefresh,
     this.underReview = false,
+    this.orderEscrow,
     this.holdChecked = true,
     this.busy = false,
     this.gpsService,
@@ -460,6 +474,13 @@ class _OrderDetailBody extends StatelessWidget {
     final isFarmer = userId == order.farmerId;
     final isBuyer = userId == order.buyerId;
     final isTrucker = !isFarmer && !isBuyer && userId == order.truckerId;
+    // FUP-113 (FRD-13): when the payee's own leg is expected to be paid.
+    // The buyer never sees it; a failed or offline read without a cached
+    // copy shows none.
+    final escrow = orderEscrow;
+    final payoutAt = escrow == null || !(isFarmer || isTrucker)
+        ? null
+        : expectedPayoutFor(escrow, role: userRole.name, userId: userId);
     final farmerAnswering =
         userRole == UserRole.farmer && canFarmerRespond(order, userId);
     final answerDeadline = commitmentDeadlineFor(order, userId);
@@ -530,10 +551,10 @@ class _OrderDetailBody extends StatelessWidget {
                       // The farmer's money and the order's facts; the
                       // trucker's pay. The buyer's total closes the page.
                       if (isFarmer) ...[
-                        _FarmerReceiveCard(order: order),
+                        _FarmerReceiveCard(order: order, payoutAt: payoutAt),
                         const SizedBox(height: 12),
                       ] else if (isTrucker) ...[
-                        _TruckerPayCard(order: order),
+                        _TruckerPayCard(order: order, payoutAt: payoutAt),
                         const SizedBox(height: 12),
                       ],
 
@@ -1344,7 +1365,10 @@ class _OrderHeader extends StatelessWidget {
 class _FarmerReceiveCard extends StatelessWidget {
   final Order order;
 
-  const _FarmerReceiveCard({required this.order});
+  /// When the farmer's payout is expected (FUP-113), or null.
+  final DateTime? payoutAt;
+
+  const _FarmerReceiveCard({required this.order, this.payoutAt});
 
   @override
   Widget build(BuildContext context) {
@@ -1430,6 +1454,13 @@ class _FarmerReceiveCard extends StatelessWidget {
                 ),
             ],
           ),
+          if (payoutAt case final at?) ...[
+            const SizedBox(height: 8),
+            PayoutExpectedText(
+              key: const Key('order_payout_expected'),
+              payoutAt: at,
+            ),
+          ],
           const SizedBox(height: 12),
           const Divider(color: AppTheme.segmentTrack),
           const SizedBox(height: 12),
@@ -1482,7 +1513,10 @@ class _FactRow extends StatelessWidget {
 class _TruckerPayCard extends StatelessWidget {
   final Order order;
 
-  const _TruckerPayCard({required this.order});
+  /// When the trucker's payout is expected (FUP-113), or null.
+  final DateTime? payoutAt;
+
+  const _TruckerPayCard({required this.order, this.payoutAt});
 
   @override
   Widget build(BuildContext context) {
@@ -1521,6 +1555,13 @@ class _TruckerPayCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
+                ],
+                if (payoutAt case final at?) ...[
+                  const SizedBox(height: 4),
+                  PayoutExpectedText(
+                    key: const Key('order_payout_expected'),
+                    payoutAt: at,
                   ),
                 ],
               ],
