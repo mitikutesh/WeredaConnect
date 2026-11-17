@@ -140,8 +140,9 @@ export interface EnvironmentConfig {
    * REPUTATION_PUBLIC_TAGS_ENABLED on the Lambdas that return a farmer's or trucker's reputation to
    * other users (ESC-29, reputation-api.md section 11): crops, trips, match, ratings, reputation and
    * sync. On, buyers get the public tier, the effective rating and the reliability; off, those fields
-   * are left out of every answer. Default false. Turned on after `reputationPenalties` and the client
-   * screens of ESC-31 (reputation-architecture.md 12.1).
+   * are left out of every answer. Also on crop-match-stream (FUP-185): on, the new-listing push alert
+   * scores with the stamped reliability, as match does. Default false. Turned on after
+   * `reputationPenalties` and the client screens of ESC-31 (reputation-architecture.md 12.1).
    */
   readonly reputationPublicTags?: boolean;
   /**

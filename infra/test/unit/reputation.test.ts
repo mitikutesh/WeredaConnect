@@ -738,6 +738,9 @@ describe('ESC-28 reputation core outside dev', () => {
       const env = envOf(api, `wereda-connect-${envName}-${fn}`);
       expect([fn, env.REPUTATION_PENALTIES_ENABLED, env.REPUTATION_PUBLIC_TAGS_ENABLED]).toEqual([fn, 'false', 'false']);
     }
+    // FUP-185: the new-listing push alert reads the public tags flag only.
+    const alert = envOf(api, `wereda-connect-${envName}-crop-match-stream`);
+    expect([alert.REPUTATION_PENALTIES_ENABLED, alert.REPUTATION_PUBLIC_TAGS_ENABLED]).toEqual([undefined, 'false']);
     expect(environments[envName].reputationPublicTags).toBe(false);
   });
 
@@ -749,6 +752,8 @@ describe('ESC-28 reputation core outside dev', () => {
       expect([fn, env.REPUTATION_PENALTIES_ENABLED, env.REPUTATION_PUBLIC_TAGS_ENABLED]).toEqual([fn, 'true', 'true']);
     }
     expect(envOf(api, SYNC_FN).REPUTATION_PUBLIC_TAGS_ENABLED).toBe('true');
+    // FUP-185: the new-listing push alert takes the same public tags value as match.
+    expect(envOf(api, 'wereda-connect-dev-crop-match-stream').REPUTATION_PUBLIC_TAGS_ENABLED).toBe('true');
     expect(envOf(api, 'wereda-connect-dev-admin').REPUTATION_PENALTIES_ENABLED).toBe('true');
     for (const fn of DELETION_FNS) {
       expect([fn, envOf(api, fn).REPUTATION_PENALTIES_ENABLED]).toEqual([fn, 'true']);
