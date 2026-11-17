@@ -21,3 +21,24 @@ DateTime? expectedPayoutAt(Payment payment, {DateTime? now}) {
   }
   return at;
 }
+
+/// [expectedPayoutAt] for the viewer [userId] of [role] (`UserRole.name`),
+/// only when [payment] pays them: its farmer, or its trucker with a transport
+/// leg. Null for the buyer and for anyone else, whatever the payment carries
+/// (a copy cached on a shared device). The order detail uses it (FUP-113).
+DateTime? expectedPayoutFor(
+  Payment payment, {
+  required String role,
+  required String userId,
+  DateTime? now,
+}) {
+  final payee = switch (role) {
+    'farmer' => payment.farmerId == userId,
+    'trucker' =>
+      payment.truckerId == userId && (payment.truckerPayout ?? 0) > 0,
+    _ => false,
+  };
+  return payee && userId.isNotEmpty
+      ? expectedPayoutAt(payment, now: now)
+      : null;
+}

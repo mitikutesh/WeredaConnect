@@ -50,20 +50,29 @@ bool escrowAlreadyPaid(PaymentStatus status) => switch (status) {
         false,
     };
 
-/// Whether the escrow of [orderId] is `held`. Reads the server when it can
-/// (mobile falls back to its cached copy offline). A failure reads as not
-/// held: the server still refuses what a held escrow does not allow.
-Future<bool> isOrderEscrowHeld(
+/// The escrow of [orderId], or null when there is none or the read fails.
+/// Reads the server when it can (mobile falls back to its cached copy
+/// offline). The order detail reads it once for the hold and for the payee's
+/// payout date (FUP-113).
+Future<Payment?> readOrderEscrow(
   BaseEscrowRepository repository,
   String orderId,
 ) async {
   try {
-    final escrow = await repository.refreshEscrow(orderEscrowId(orderId));
-    return escrow?.status == PaymentStatus.held;
+    return await repository.refreshEscrow(orderEscrowId(orderId));
   } on Object {
-    return false;
+    return null;
   }
 }
+
+/// Whether the escrow of [orderId] is `held`, read as [readOrderEscrow]
+/// reads it. A failure reads as not held: the server still refuses what a
+/// held escrow does not allow.
+Future<bool> isOrderEscrowHeld(
+  BaseEscrowRepository repository,
+  String orderId,
+) async =>
+    (await readOrderEscrow(repository, orderId))?.status == PaymentStatus.held;
 
 /// The orders whose escrow is `held`, among the newest escrows the server
 /// lists for this party: one `GET /escrow/history?status=held` page of up to

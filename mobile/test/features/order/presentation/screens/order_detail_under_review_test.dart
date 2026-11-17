@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
@@ -67,7 +69,11 @@ Order _order(OrderStatus status, {DateTime? pickupDeadlineAt}) => Order()
   ..version = 1
   ..pickupDeadlineAt = pickupDeadlineAt;
 
-Payment _escrow(PaymentStatus status) {
+Payment _escrow(
+  PaymentStatus status, {
+  DateTime? releaseNotBefore,
+  double? truckerPayout,
+}) {
   final now = DateTime.now().toUtc();
   return Payment()
     ..paymentId = _escrowId
@@ -75,11 +81,14 @@ Payment _escrow(PaymentStatus status) {
     ..orderId = 'order-001'
     ..farmerId = _farmerId
     ..buyerId = _buyerId
+    ..truckerId = truckerPayout == null ? null : _truckerId
+    ..truckerPayout = truckerPayout
     ..amount = 8500
     ..commission = 212.5
     ..commissionRate = 0.025
     ..farmerPayout = 8287.5
     ..status = status
+    ..releaseNotBefore = releaseNotBefore
     ..createdAt = now
     ..updatedAt = now
     ..version = 1;
@@ -88,7 +97,8 @@ Payment _escrow(PaymentStatus status) {
 /// FRD-06: order detail reads the order's escrow; when it is held the buyer,
 /// the farmer and the trucker see "Under Review", and the actions the server
 /// refuses while held (the farmer's Accept, the transport-failure cancel) are
-/// not offered.
+/// not offered. FUP-113: the same read gives the farmer and the trucker their
+/// expected payout day; the buyer never sees it.
 void main() {
   late MockOrderBloc orderBloc;
   late MockAuthBloc authBloc;
@@ -383,5 +393,114 @@ void main() {
     await open(tester, _order(OrderStatus.delivered));
 
     expect(find.text(underReview), findsNothing);
+  });
+
+  group('FUP-113 payout date', () {
+    final payoutLine = find.byKey(const Key('order_payout_expected'));
+    final at = DateTime.now().toUtc().add(const Duration(days: 3));
+    final payoutText = en.escrowPayoutExpectedOn(
+      DateFormat.yMMMd().format(dayInEthiopia(at)),
+    );
+
+    void escrowWithDate({
+      PaymentStatus status = PaymentStatus.escrowed,
+      double? truckerPayout = 600,
+    }) =>
+        when(() => escrowRepo.refreshEscrow(_escrowId)).thenAnswer(
+          (_) async => _escrow(
+            status,
+            releaseNotBefore: at,
+            truckerPayout: truckerPayout,
+          ),
+        );
+
+    for (final (role, userId, payCard) in [
+      (UserRole.farmer, _farmerId, en.orderYouReceive),
+      (UserRole.trucker, _truckerId, en.orderYourTransportPay),
+    ]) {
+      testWidgets('${role.name}: sees the payout day on the pay card',
+          (tester) async {
+        signIn(role, userId);
+        escrowWithDate();
+
+        await open(tester, _order(OrderStatus.delivered));
+
+        expect(find.text(payCard), findsOneWidget);
+        expect(payoutLine, findsOneWidget);
+        expect(find.text(payoutText), findsOneWidget);
+        // The hold check's read gives the date: no second request.
+        verify(() => escrowRepo.refreshEscrow(_escrowId)).called(1);
+      });
+
+      testWidgets(
+          '${role.name}: offline with nothing cached, the order shows '
+          'without a date', (tester) async {
+        signIn(role, userId);
+        escrowIs(null);
+
+        await open(tester, _order(OrderStatus.delivered));
+
+        expect(find.text(payCard), findsOneWidget);
+        expect(payoutLine, findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('buyer: never sees a payout day, even on a copy with one',
+        (tester) async {
+      signIn(UserRole.buyer, _buyerId);
+      escrowWithDate();
+
+      await open(tester, _order(OrderStatus.delivered));
+
+      expect(find.byKey(const Key('order_buyer_total')), findsOneWidget);
+      expect(payoutLine, findsNothing);
+      expect(find.text(payoutText), findsNothing);
+    });
+
+    testWidgets('trucker: an escrow without a transport leg shows no day',
+        (tester) async {
+      signIn(UserRole.trucker, _truckerId);
+      escrowWithDate(truckerPayout: null);
+
+      await open(tester, _order(OrderStatus.delivered));
+
+      expect(find.text(en.orderYourTransportPay), findsOneWidget);
+      expect(payoutLine, findsNothing);
+    });
+
+    testWidgets('farmer: a failed read shows the order without a date',
+        (tester) async {
+      signIn(UserRole.farmer, _farmerId);
+      when(() => escrowRepo.refreshEscrow(_escrowId))
+          .thenThrow(StateError('offline'));
+
+      await open(tester, _order(OrderStatus.delivered));
+
+      expect(find.text(en.orderYouReceive), findsOneWidget);
+      expect(payoutLine, findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('farmer: an escrow under review shows no day', (tester) async {
+      signIn(UserRole.farmer, _farmerId);
+      escrowWithDate(status: PaymentStatus.held);
+
+      await open(tester, _order(OrderStatus.delivered));
+
+      expect(find.text(underReview), findsOneWidget);
+      expect(payoutLine, findsNothing);
+    });
+
+    testWidgets('farmer: a settled order is not looked up and shows no day',
+        (tester) async {
+      signIn(UserRole.farmer, _farmerId);
+      escrowWithDate();
+
+      await open(tester, _order(OrderStatus.settled));
+
+      expect(payoutLine, findsNothing);
+      verifyNever(() => escrowRepo.refreshEscrow(any()));
+    });
   });
 }
