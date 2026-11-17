@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.67.1
+1.67.2
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -171,6 +171,25 @@ repository and matcher leave such a row out of their lists and read it by id as 
 server already leaves deleted listings out of its lists and answers 404 for one by id, so these
 reads only guard against a row that still comes. Every other crop status maps as before. No wire
 change.
+
+**A listing deleted elsewhere leaves the farmer's phone (1.67.2, FUP-498).** Because the server
+leaves a deleted listing out of every list, the reads above never see one deleted on the web or on
+another phone, and the market crop pull keeps the farmer's own rows; before 1.67.2 such a listing
+stayed on the phone as it was (`active`) until an edit of it got the conflict above. Now, when the
+farmer's own list opens (My Crops, `LoadCropListings`), the phone shows what it holds, then reads
+the farmer's own list (`GET /crops?farmerId=`, no `status`: every own listing but the deleted ones,
+`crop-listing-api.md` 1.9.0) to the last page, and paints again only when a listing went. A listing
+of that farmer the phone holds that the list leaves out (or lists as deleted) is read by id
+(`GET /crops/{id}`): a 404, a 403 or a deleted row removes it; a live row (the farmer index can
+lag a create that just synced) or a failed read (offline, 401, 5xx) keeps it. A listing stays,
+with no read, while a `crop_listing` operation of it is pending, on its way, or failed and to be
+sent again, checked before the list is read and again when the removal is written, and when the
+server refused its create for good (it never held the listing). A listing deleted on this phone,
+shown there as `expired`, leaves the same way once its delete reached the server. A page that
+fails removes nothing. The pull stores none of the listed rows, never touches another user's
+listings, sends nothing when the phone holds no listing of the farmer it could remove, and runs at
+most once per 30 seconds per farmer. Buyers and truckers never run it. Web reads the server and
+needs no change. The photo files of a removed listing stay on the phone (FUP-488). No wire change.
 
 **Rationale**:
 - Solo farmers rarely have conflicts (one user per device)
@@ -1781,6 +1800,7 @@ without a reason as permanent with the generic text.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.67.2 | 2026-11-17 | A listing deleted elsewhere leaves the farmer's phone (FUP-498, mobile only, no wire change): when My Crops opens, the phone reads the farmer's own list (`GET /crops?farmerId=`, every page, no `status`) and removes a listing of that farmer it holds that the list leaves out once `GET /crops/{id}` answers 404, 403 or a deleted row; a listing with a `crop_listing` operation still on its way, or whose create the server refused for good, stays, and a failed page removes nothing. A listing deleted on this phone (`expired` there) leaves the same way once its delete reached the server. The listed rows are not stored; buyers and truckers never run it; web needs no change. See "Client-Side Conflict Resolution (Mobile)" |
 | 1.67.1 | 2026-11-16 | The trucker's status change behind a refused pickup is matched when its own answer arrives (FUP-493, mobile only, no wire change): a `delivery` operation that sets a `status`, answered `DELIVERY_INVALID_TRANSITION` from `pending`, is rejected when the queue holds a pickup of that delivery refused for good in an earlier batch, by the same user and queued before it; the drop-off code registration and status changes still waiting behind that pickup go with it, the delivery is put back from the server and leaves the "Sync failed" count, nothing new is announced. Covers a mark tapped while the pickup's sync ran and one left by an app killed before the refusal was settled. See "GPS refusals of a handoff" |
 | 1.67.0 | 2026-11-16 | Deleted and sold crop listings (FUP-494, FUP-495, `crop-listing-api.md` 1.15.0): a `crop_listing` `delete` of a listing already deleted writes nothing and answers its farmer `success` with the stored version (before, it was written again and its `deletedAt` and version moved); a `crop_listing` `update` of a `sold` listing writes nothing and answers `conflict` with the stored row, message `CROP_SOLD: The listing is sold.` (before, an update without a `status` was written onto it). Both checks are in the write's condition. Anyone else keeps `CROP_UNAUTHORIZED`. No client change. New conflict resolution rule 9 |
 | 1.66.0 | 2026-11-13 | A deleted crop listing never changes again (FUP-152, `crop-listing-api.md` 1.14.0): a `crop_listing` `update` that reaches a deleted listing (`deletedAt` set, or `status: deleted`) writes nothing and answers its farmer `conflict` with the stored row and version, message `CROP_ALREADY_DELETED: The listing is already deleted.`, with or without a `status` and at any version; the write's condition carries the check, so a delete between the read and the write gets the same answer. Before, an update without a `status` at the version the delete left was written onto the hidden row, and one with a `status` got `CROP_INVALID_TRANSITION`. Anyone else keeps `CROP_UNAUTHORIZED`. No client change. New conflict resolution rule 8 |
@@ -1853,5 +1873,5 @@ without a reason as permanent with the generic text.
 
 ---
 
-**Last Updated**: 2026-11-16
-**Version**: 1.67.1
+**Last Updated**: 2026-11-17
+**Version**: 1.67.2

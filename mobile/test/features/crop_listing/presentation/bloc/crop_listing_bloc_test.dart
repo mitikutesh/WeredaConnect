@@ -10,6 +10,7 @@ import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
@@ -18,6 +19,25 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 
 import '../../../../helpers/wait_for.dart';
 import '../../../../helpers/crop_photo_fixtures.dart';
+
+/// FUP-498: stands in for the farmer's own-listing pull; [_pull] runs it.
+class _OwnCropSync extends Fake implements MarketplaceSync {
+  _OwnCropSync(this._pull);
+
+  final Future<bool> Function(String farmerId) _pull;
+  final List<String> farmers = [];
+  bool answered = false;
+
+  @override
+  Future<bool> pullOwnCrops({required String farmerId}) async {
+    farmers.add(farmerId);
+    try {
+      return await _pull(farmerId);
+    } finally {
+      answered = true;
+    }
+  }
+}
 
 void main() {
   group('CropListingBloc', () {
@@ -77,6 +97,111 @@ void main() {
       expect(states[0], isA<CropListingLoading>());
       expect(states[1], isA<CropListingsLoaded>());
       expect((states[1] as CropListingsLoaded).listings, isEmpty);
+    });
+
+    // FUP-498: the farmer's list paints what the phone holds, then pulls the
+    // farmer's own list, and paints again only when the pull removed a
+    // listing deleted elsewhere.
+    group('FUP-498: own listing pull', () {
+      /// The farmer's two stored listings' ids, by crop.
+      Future<Map<String, String>> seedTwo() async => {
+            for (final crop in ['teff', 'wheat'])
+              crop: (await repository.createListing(
+                photos: testCropPhotos(),
+                farmerId: 'farmer-001',
+                cropType: crop,
+                quantity: 10,
+                pricePerKg: 40,
+                latitude: 9,
+                longitude: 38,
+                locationName: 'Adama',
+                description: crop,
+              ))
+                  .listingId,
+          };
+
+      /// Removes [listingId] from the phone, as a pull that found it deleted.
+      Future<bool> removes(String listingId) async {
+        await isar.writeTxn(
+          () => isar.cropListings.deleteByListingId(listingId),
+        );
+        return true;
+      }
+
+      test('paints the stored list, then again without the removed listing',
+          () async {
+        final ids = await seedTwo();
+        final sync = _OwnCropSync((_) => removes(ids['wheat']!));
+        final bloc =
+            CropListingBloc(repository: repository, marketplaceSync: sync);
+        addTearDown(bloc.close);
+        final states = <CropListingState>[];
+        final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
+
+        bloc.add(const LoadCropListings(farmerId: 'farmer-001'));
+        await waitForStates(states, 3);
+
+        expect(sync.farmers, ['farmer-001']);
+        expect(states[0], isA<CropListingLoading>());
+        expect((states[1] as CropListingsLoaded).listings, hasLength(2));
+        expect(
+          (states[2] as CropListingsLoaded).listings.map((l) => l.listingId),
+          [ids['teff']],
+        );
+      });
+
+      test('a pull that removed nothing or failed leaves the painted list',
+          () async {
+        await seedTwo();
+        for (final pull in <Future<bool> Function(String)>[
+          (_) async => false,
+          (_) async => throw Exception('offline'),
+        ]) {
+          final sync = _OwnCropSync(pull);
+          final bloc =
+              CropListingBloc(repository: repository, marketplaceSync: sync);
+          final states = <CropListingState>[];
+          final subscription = bloc.stream.listen(states.add);
+
+          bloc.add(const LoadCropListings(farmerId: 'farmer-001'));
+          await waitFor(() => sync.answered);
+          await pumpEventQueue();
+
+          expect(states, hasLength(2));
+          expect((states[1] as CropListingsLoaded).listings, hasLength(2));
+          await subscription.cancel();
+          await bloc.close();
+        }
+      });
+
+      test('a filter painted while the pull was on its way stays', () async {
+        final ids = await seedTwo();
+        final release = Completer<void>();
+        final sync = _OwnCropSync((_) async {
+          await release.future;
+          return removes(ids['wheat']!);
+        });
+        final bloc =
+            CropListingBloc(repository: repository, marketplaceSync: sync);
+        addTearDown(bloc.close);
+        final states = <CropListingState>[];
+        final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
+
+        bloc.add(const LoadCropListings(farmerId: 'farmer-001'));
+        await waitForStates(states, 2);
+        bloc.add(
+          const FilterCropListings(farmerId: 'farmer-001', cropType: 'teff'),
+        );
+        await waitForStates(states, 4);
+        release.complete();
+        await waitFor(() => sync.answered);
+        await pumpEventQueue();
+
+        expect(states, hasLength(4));
+        expect((bloc.state as CropListingsLoaded).activeFilter, 'teff');
+      });
     });
 
     test('emits [Loading, Created] on CreateCropListing', () async {

@@ -21,7 +21,9 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
 
   /// Mobile-only: pulls all active crops into Isar before the Buyer browses
   /// the marketplace ([LoadActiveListings]). Null on web (API-backed reads).
-  /// Owner-scoped events (a Farmer's own listings) never trigger a pull.
+  /// Owner-scoped events (a Farmer's own listings) never pull the market:
+  /// [LoadCropListings] pulls only the farmer's own list, to remove the
+  /// listings deleted elsewhere (FUP-498, [MarketplaceSync.pullOwnCrops]).
   final MarketplaceSync? _marketplaceSync;
 
   CropListingBloc({
@@ -46,9 +48,36 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
 
     try {
       final listings = await _repository.getListingsByFarmer(event.farmerId);
-      emit(CropListingsLoaded(listings: listings));
+      final shown = CropListingsLoaded(listings: listings);
+      emit(shown);
+      // FUP-498: the stored list paints first; it is read again only when
+      // the pull removed a listing, and only while nothing else (a filter,
+      // a delete) painted since.
+      if (!await _refreshOwnListings(event.farmerId)) return;
+      if (!identical(state, shown)) return;
+      emit(
+        CropListingsLoaded(
+          listings: await _repository.getListingsByFarmer(event.farmerId),
+        ),
+      );
     } on Object catch (e) {
       emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  /// FUP-498: take the farmer's listings deleted on the web or another phone
+  /// off this phone. Best effort like [_refreshMarketplace]: offline the
+  /// stored list stands. No-op on web (null sync), whose list reads the
+  /// server. True when a listing was removed.
+  Future<bool> _refreshOwnListings(String farmerId) async {
+    final sync = _marketplaceSync;
+    if (sync == null) return false;
+    try {
+      return await sync.pullOwnCrops(farmerId: farmerId);
+    } on Object catch (e) {
+      debugPrint('[CropListingBloc] own listing pull failed, '
+          'showing the stored listings: $e');
+      return false;
     }
   }
 

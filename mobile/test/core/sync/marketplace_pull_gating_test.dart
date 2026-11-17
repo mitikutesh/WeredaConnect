@@ -46,6 +46,15 @@ class _SpyMarketplaceSync implements MarketplaceSync {
     return false;
   }
 
+  /// FUP-498: the farmer ids the own-listing pull was asked for.
+  final List<String> ownCrops = [];
+
+  @override
+  Future<bool> pullOwnCrops({required String farmerId}) async {
+    ownCrops.add(farmerId);
+    return false;
+  }
+
   @override
   Future<void> pullDeliveries() async => deliveries++;
 
@@ -102,14 +111,22 @@ void main() {
       bloc.add(const LoadActiveListings());
       await waitFor(() => bloc.state is CropListingsLoaded);
       expect(spy.crops, 1);
+      expect(spy.ownCrops, isEmpty);
     });
 
-    test('LoadCropListings (Farmer own listings) does NOT pull', () async {
+    // FUP-498: the farmer's list pulls the farmer's own list (to remove the
+    // listings deleted elsewhere), never the market.
+    test(
+        'LoadCropListings (Farmer own listings) pulls only the farmer\'s own '
+        'list, not the market', () async {
       final bloc = build();
       addTearDown(bloc.close);
       bloc.add(const LoadCropListings(farmerId: 'farmer-1'));
       await waitFor(() => bloc.state is CropListingsLoaded);
+      await waitFor(() => spy.ownCrops.isNotEmpty);
       expect(spy.crops, 0, reason: 'a Farmer must not pull the whole market');
+      expect(spy.all, 0);
+      expect(spy.ownCrops, ['farmer-1']);
     });
   });
 
