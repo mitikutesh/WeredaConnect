@@ -1,7 +1,7 @@
 # Buyer Match API Contract
 
 ## Version
-1.5.0
+1.5.1
 
 ## Parties
 - **Mobile** (client) — buyers matching their purchase intents against crop listings
@@ -172,8 +172,12 @@ field as they stored it (the Isar row on the phone, the `GET /crops` row on web)
   or stores it (a client value is dropped), and neither scorer reads it. The one ranking change
   with the flags off: a listing that still stores `farmerReliability` 1.0 loses the 0.03 it had
   over a listing without the field.
-- **Push alerts** (`CropMatchStreamFunction`) score a new listing with the neutral reliability,
-  whatever the flags.
+- **Push alerts** (`CropMatchStreamFunction`, 1.5.1, FUP-185) score a new listing with the same
+  reliability rule as `GET /match`: with `reputationPublicTags` on, the `ownerReliabilityPct` the
+  sync create stamped on the row (it is in the stream's `NEW_IMAGE`, so no extra read); off, or on
+  a row without the value, the neutral 0.7. The alert threshold therefore applies to the score
+  `GET /match` gives the new listing. Before 1.5.1 the alert used the neutral value whatever the
+  flags.
 - **Role visibility.** Only buyers and admins get scores. A farmer's or trucker's phone holds only
   their own rows, so no other party's reliability reaches them.
 
@@ -349,9 +353,10 @@ distances, scores and order. The two matching services run the same scenario
 
 | 1.4.0 | 2026-11-12 | Reliability from reputation (ESC-30, `reputation-api.md` 1.3.0 section 7): the score's reliability input is the listing's `ownerReliabilityPct / 100` as the caller is given it, the neutral 0.7 when absent (flag off, under 3 orders, no copy), identical in `MatchScoring` and `MatchScorer`; `farmerReliability` is no longer written or scored (deprecated in `MatchDto`); the app-side trip suggestions order equal prices by the trucker's `ownerReliabilityPct`. No new field on the wire. |
 | 1.5.0 | 2026-11-12 | Trip pairing by distance (MATCH-01): a trip is suggested when each end is the same woreda, within 40 km of it by centroid distance (rounded to 0.1 km), or a whole-word name match (the best of the three counts), and it does not run the other way (the route with crop and delivery swapped must not score higher); room left must cover the quantity less 0.01 quintal (now also on web), 1 quintal when no quantity; order is price, route score (exact above a neighbouring woreda), trucker reliability, earlier departure, `tripId`, so ties no longer depend on input order. One pure rule, `MatchScorer.suggestTrips`, on phone and web, mirrored in `MatchScoring.SuggestTrips` with shared golden vectors. `/match` unchanged. No wire change. |
+| 1.5.1 | 2026-11-17 | Push alert reliability (FUP-185): `CropMatchStreamFunction` gets `REPUTATION_PUBLIC_TAGS_ENABLED` from the same config as the match Lambda and scores a new listing's reliability through the rule `GET /match` uses (`OwnerReputationView`): the stamped `ownerReliabilityPct` with the flag on, the neutral 0.7 off or without the value. Flag off (every environment today) the alert score is unchanged. `/match` unchanged. No wire change. |
 
 ---
 
-**Last Updated**: 2026-11-12
-**Version**: 1.5.0
+**Last Updated**: 2026-11-17
+**Version**: 1.5.1
 **Status**: Draft

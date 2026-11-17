@@ -29,6 +29,12 @@ public class CropMatchStreamFunction
     /// <summary>Minimum relevance score for a crop to alert a buyer.</summary>
     private const double AlertThreshold = 0.5;
 
+    /// <summary>
+    /// FUP-185 (match-api.md 1.5.1), <c>reputationPublicTags</c>: the alert scores with the listing's
+    /// stamped <c>ownerReliabilityPct</c>, as GET /match does. Off by default: the neutral reliability.
+    /// </summary>
+    internal bool ReputationPublicTags { get; init; } = ReputationFlags.PublicTagsEnabled;
+
     /// <summary>Default constructor for the Lambda runtime.</summary>
     public CropMatchStreamFunction()
     {
@@ -148,26 +154,10 @@ public class CropMatchStreamFunction
             return;
         }
 
-        var crop = new CropCandidate
-        {
-            CropType = cropType,
-            PricePerKg = AttrN(image, "pricePerKg") ?? 0,
-            Quantity = AttrN(image, "quantity") ?? 0,
-            LocationName = AttrS(image, "locationName") ?? AttrS(image, "woreda"),
-            Latitude = AttrN(image, "latitude"),
-            Longitude = AttrN(image, "longitude"),
-            // ESC-30: the alert scores with the neutral reliability. This Lambda does not
-            // know the reputationPublicTags flag, and an alert must not depend on a value
-            // the buyer may not be shown.
-            // A stream INSERT is a brand-new crop, so freshness is max by
-            // definition; using "now" keeps the alert score from being penalised
-            // for parse/clock skew (it differs from GET /match, which scores the
-            // crop's real createdAt).
-            CreatedAt = DateTime.UtcNow,
-        };
+        var now = DateTime.UtcNow;
+        var crop = ToCandidate(image, ReputationPublicTags, now);
         var cropId = AttrS(image, "cropId") ?? "";
         var woreda = AttrS(image, "woreda") ?? crop.LocationName ?? "";
-        var now = DateTime.UtcNow;
 
         // A new crop of type X can satisfy intents wanting X or wanting a type for
         // which X is an accepted substitute (the substitute map is symmetric).
@@ -217,6 +207,50 @@ public class CropMatchStreamFunction
                     endpointsByBuyer, context);
             }
         }
+    }
+
+    /// <summary>
+    /// The new listing as the alert scores it (internal for the parity tests with GET /match).
+    /// FUP-185: the reliability goes through <see cref="OwnerReputationView"/>, the rule GET /match
+    /// applies to the same row, so with <paramref name="publicTags"/> on both score with the stamped
+    /// <c>ownerReliabilityPct</c> (the sync create stamps it in the same write, so it is in this
+    /// INSERT's NewImage); off, or on a row without the copy, the score keeps the neutral reliability.
+    /// A stream INSERT is a brand-new crop, so freshness is max by definition: using "now" as
+    /// <c>createdAt</c> keeps the alert score from being penalised for parse/clock skew (it differs
+    /// from GET /match, which scores the crop's real createdAt).
+    /// </summary>
+    internal static CropCandidate ToCandidate(JsonElement image, bool publicTags, DateTime nowUtc) => new()
+    {
+        CropType = AttrS(image, "cropType") ?? "",
+        PricePerKg = AttrN(image, "pricePerKg") ?? 0,
+        Quantity = AttrN(image, "quantity") ?? 0,
+        LocationName = AttrS(image, "locationName") ?? AttrS(image, "woreda"),
+        Latitude = AttrN(image, "latitude"),
+        Longitude = AttrN(image, "longitude"),
+        CreatedAt = nowUtc,
+        OwnerReliabilityPct = OwnerReputationView.Of(OwnerRow(image), publicTags).ReliabilityPct,
+    };
+
+    /// <summary>
+    /// The owner fields of the image as a table read holds them (<see cref="DynamoDbHelper.FromItem"/>:
+    /// the string, or the number's text), so <see cref="OwnerReputationView.Of"/> reads them as it
+    /// reads the row GET /match gets.
+    /// </summary>
+    private static Dictionary<string, object> OwnerRow(JsonElement image)
+    {
+        var row = new Dictionary<string, object>();
+        foreach (var name in OwnerReputationFields.Names)
+        {
+            if (image.TryGetProperty(name, out var attr) && attr.ValueKind == JsonValueKind.Object
+                && (attr.TryGetProperty("S", out var value) || attr.TryGetProperty("N", out value))
+                && value.ValueKind == JsonValueKind.String
+                && value.GetString() is { } text)
+            {
+                row[name] = text;
+            }
+        }
+
+        return row;
     }
 
     private async Task NotifyBuyerAsync(

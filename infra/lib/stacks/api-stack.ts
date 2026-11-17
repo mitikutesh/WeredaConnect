@@ -882,6 +882,9 @@ export class ApiStack extends cdk.Stack {
       environment: {
         INTENTS_TABLE: props.intentsTable.tableName,
         DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
+        // FUP-185 (match-api.md 1.5.1): on, the alert scores with the listing's stamped
+        // ownerReliabilityPct, as GET /match does; off, with the neutral reliability.
+        REPUTATION_PUBLIC_TAGS_ENABLED: reputationPublicTags,
       },
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
