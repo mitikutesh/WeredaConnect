@@ -39,6 +39,22 @@ abstract class MarketplaceSync {
   /// answer. Errors (offline) propagate.
   Future<bool> pullOwnTrips({required String truckerId});
 
+  /// FUP-498: remove from local storage the farmer's own listings the server
+  /// no longer has (deleted on the web or on another phone). The server
+  /// leaves a deleted listing out of every list, and [pullCrops] keeps the
+  /// farmer's own rows, so nothing else takes one off the phone. Reads the
+  /// farmer's own list (`GET /crops?farmerId=`, no `status`: every own
+  /// listing but the deleted ones) to the last page; a stored listing it
+  /// leaves out is read by id and removed when the server says it is gone or
+  /// deleted. A listing with a `crop_listing` upload still on its way, or
+  /// whose create the server refused, stays. Stores none of the listed rows,
+  /// never touches another user's listings and sends nothing when the phone
+  /// holds no listing of the farmer it could remove. True when it removed a
+  /// listing; false when nothing went or the pull was throttled. A call
+  /// while one for the same farmer is on its way gets that one's answer.
+  /// Errors (offline, a failed page) propagate, with nothing removed.
+  Future<bool> pullOwnCrops({required String farmerId});
+
   /// Fetch the current user's deliveries from the server into local storage.
   ///
   /// Deliveries are created/updated by whichever party acts (trucker confirms

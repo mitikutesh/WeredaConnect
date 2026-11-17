@@ -12,6 +12,7 @@ import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/isar_marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/order_lead_store.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
@@ -609,6 +610,368 @@ void main() {
         final ids =
             (await isar.cropListings.where().findAll()).map((c) => c.listingId);
         expect(ids, ['kept']);
+      });
+    });
+
+    // FUP-498: the server leaves a deleted listing out of every list, and
+    // the market pull keeps the farmer's own rows, so the farmer's own list
+    // is the read that takes a listing deleted elsewhere off the phone.
+    group('FUP-498: pullOwnCrops', () {
+      CropListing own(
+        String listingId, {
+        String farmerId = 'me',
+        ListingStatus status = ListingStatus.active,
+      }) =>
+          CropListing()
+            ..listingId = listingId
+            ..farmerId = farmerId
+            ..cropType = 'teff'
+            ..quantity = 5
+            ..pricePerKg = 40
+            ..location = (LatLng()
+              ..latitude = 0
+              ..longitude = 0)
+            ..locationName = 'Adama'
+            ..description = ''
+            ..status = status
+            ..createdAt = DateTime.now()
+            ..updatedAt = DateTime.now()
+            ..version = 1;
+
+      Future<void> store(List<CropListing> listings) =>
+          isar.writeTxn(() => isar.cropListings.putAllByListingId(listings));
+
+      Future<List<String>> storedIds() async =>
+          (await isar.cropListings.where().findAll())
+              .map((c) => c.listingId)
+              .toList()
+            ..sort();
+
+      /// One `crop_listing` operation of [listingId] in the queue.
+      Future<void> queue(
+        String listingId, {
+        required String action,
+        required SyncStatus status,
+        int retryCount = 0,
+      }) =>
+          isar.writeTxn(
+            () => isar.syncOperations.put(
+              SyncOperation()
+                ..operationId = 'op-$listingId-$action'
+                ..idempotencyKey = 'me:crop_listing:$listingId:$action:1'
+                ..entityType = 'crop_listing'
+                ..entityId = listingId
+                ..action = action
+                ..data = '{}'
+                ..status = status
+                ..retryCount = retryCount
+                ..createdAt = DateTime.now(),
+            ),
+          );
+
+      /// The paths requested, and the query of each `GET /crops`.
+      final paths = <String>[];
+      final listQueries = <Map<String, dynamic>>[];
+
+      /// `GET /crops` answers [pages] in turn, each with a `nextToken` but
+      /// the last; a page in [failPages] throws instead. `GET /crops/{id}`
+      /// answers from [byId], and 404 for any other id.
+      void answer({
+        List<List<Map<String, dynamic>>> pages = const [[]],
+        Set<int> failPages = const {},
+        Map<String, Future<Map<String, dynamic>> Function()> byId = const {},
+      }) {
+        paths.clear();
+        listQueries.clear();
+        when(
+          () => api.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer((inv) async {
+          final path = inv.positionalArguments.first as String;
+          paths.add(path);
+          if (path == '/crops') {
+            final query = Map<String, dynamic>.from(
+              inv.namedArguments[#queryParameters] as Map,
+            );
+            listQueries.add(query);
+            final token = query['nextToken'] as String?;
+            final index = token == null ? 0 : int.parse(token);
+            if (failPages.contains(index)) throw Exception('offline');
+            return {
+              'crops': pages[index],
+              if (index + 1 < pages.length) 'nextToken': '${index + 1}',
+            };
+          }
+          final reply = byId[path.substring('/crops/'.length)];
+          if (reply == null) {
+            throw const NotFoundException('Crop listing not found.');
+          }
+          return reply();
+        });
+      }
+
+      Map<String, dynamic> listed(String listingId) =>
+          _cropJson(cropId: listingId, farmerId: 'me');
+
+      test(
+          'reads every page of the farmer\'s own list by farmerId with no '
+          'status, and removes a listing it leaves out that is gone by id',
+          () async {
+        await store([own('kept-1'), own('kept-2'), own('deleted-elsewhere')]);
+        answer(
+          pages: [
+            [listed('kept-1')],
+            [listed('kept-2')],
+          ],
+        );
+
+        expect(await buildSync().pullOwnCrops(farmerId: 'me'), isTrue);
+
+        expect(await storedIds(), ['kept-1', 'kept-2']);
+        expect(listQueries.first, {'farmerId': 'me', 'limit': '50'});
+        expect(listQueries.last['nextToken'], '1');
+        expect(listQueries.any((q) => q.containsKey('status')), isFalse);
+        // Only the listing the list left out is read by id.
+        expect(paths.where((p) => p != '/crops'), ['/crops/deleted-elsewhere']);
+      });
+
+      test('a 403 or a deleted row read by id removes it too', () async {
+        for (final reply in <Future<Map<String, dynamic>> Function()>[
+          () async =>
+              throw const AuthException('Forbidden', 403, 'CROP_FORBIDDEN'),
+          () async => {
+                'crop': {...listed('gone'), 'status': 'deleted'},
+              },
+          () async => {
+                'crop': {
+                  ...listed('gone'),
+                  'deletedAt': '2026-11-16T08:00:00.000Z',
+                },
+              },
+        ]) {
+          await isar.writeTxn(() => isar.cropListings.clear());
+          await store([own('gone')]);
+          answer(byId: {'gone': reply});
+
+          expect(await buildSync().pullOwnCrops(farmerId: 'me'), isTrue);
+          expect(await storedIds(), isEmpty);
+        }
+      });
+
+      test('a deleted row in the list counts as left out (FUP-149)', () async {
+        await store([own('gone')]);
+        answer(
+          pages: [
+            [
+              {...listed('gone'), 'status': 'deleted'},
+            ],
+          ],
+        );
+
+        expect(await buildSync().pullOwnCrops(farmerId: 'me'), isTrue);
+        expect(await storedIds(), isEmpty);
+      });
+
+      test(
+          'a listing the list leaves out but its own read still returns stays '
+          '(the farmer index lags a create that just synced)', () async {
+        await store([own('just-synced')]);
+        answer(
+          byId: {
+            'just-synced': () async => {'crop': listed('just-synced')},
+          },
+        );
+
+        expect(await buildSync().pullOwnCrops(farmerId: 'me'), isFalse);
+        expect(await storedIds(), ['just-synced']);
+      });
+
+      test('an own read that fails (offline, 401, 5xx) keeps the listing',
+          () async {
+        for (final error in <Exception>[
+          Exception('offline'),
+          const AuthException('Unauthorized'),
+          const ServerException('boom', 500),
+        ]) {
+          await store([own('unsure')]);
+          answer(byId: {'unsure': () async => throw error});
+
+          expect(
+            await buildSync().pullOwnCrops(farmerId: 'me'),
+            isFalse,
+            reason: '$error',
+          );
+          expect(await storedIds(), ['unsure'], reason: '$error');
+        }
+      });
+
+      test(
+          'a failed page removes nothing and the error propagates, with no '
+          'read by id', () async {
+        await store([own('gone')]);
+        answer(
+          pages: [
+            [listed('other')],
+            [listed('another')],
+          ],
+          failPages: {1},
+        );
+
+        await expectLater(
+          buildSync().pullOwnCrops(farmerId: 'me'),
+          throwsException,
+        );
+        expect(await storedIds(), ['gone']);
+        expect(paths, ['/crops', '/crops']);
+      });
+
+      test(
+          'a listing with an unsynced edit (pending, on its way, or failed '
+          'and to be sent again) stays, with no read by id', () async {
+        for (final (status, retryCount) in [
+          (SyncStatus.pending, 0),
+          (SyncStatus.syncing, 0),
+          (SyncStatus.failed, SyncQueue.maxRetries),
+        ]) {
+          await isar.writeTxn(() async {
+            await isar.cropListings.clear();
+            await isar.syncOperations.clear();
+          });
+          await store([own('edited')]);
+          await queue(
+            'edited',
+            action: 'update',
+            status: status,
+            retryCount: retryCount,
+          );
+          answer();
+
+          expect(
+            await buildSync().pullOwnCrops(farmerId: 'me'),
+            isFalse,
+            reason: '$status',
+          );
+          expect(await storedIds(), ['edited'], reason: '$status');
+          expect(paths, isEmpty, reason: 'nothing it could remove: no read');
+        }
+      });
+
+      test(
+          'a create not yet accepted stays: still queued, or refused for '
+          'good (the server never held it)', () async {
+        await store([own('queued'), own('refused')]);
+        await queue('queued', action: 'create', status: SyncStatus.pending);
+        await queue(
+          'refused',
+          action: 'create',
+          status: SyncStatus.failed,
+          retryCount: SyncQueue.maxRetries + 1,
+        );
+        answer();
+
+        expect(await buildSync().pullOwnCrops(farmerId: 'me'), isFalse);
+        expect(await storedIds(), ['queued', 'refused']);
+      });
+
+      test(
+          'an accepted create and a refused edit do not keep a listing the '
+          'server deleted', () async {
+        await store([own('accepted'), own('edit-refused')]);
+        await queue('accepted', action: 'create', status: SyncStatus.synced);
+        await queue(
+          'edit-refused',
+          action: 'update',
+          status: SyncStatus.failed,
+          retryCount: SyncQueue.maxRetries + 1,
+        );
+        answer();
+
+        expect(await buildSync().pullOwnCrops(farmerId: 'me'), isTrue);
+        expect(await storedIds(), isEmpty);
+      });
+
+      test(
+          'a listing deleted on this phone (held as expired) leaves once its '
+          'delete reached the server', () async {
+        await store([own('deleted-here', status: ListingStatus.expired)]);
+        await queue(
+          'deleted-here',
+          action: 'delete',
+          status: SyncStatus.synced,
+        );
+        answer();
+
+        expect(await buildSync().pullOwnCrops(farmerId: 'me'), isTrue);
+        expect(await storedIds(), isEmpty);
+      });
+
+      test('a change queued while the own read is on its way keeps the listing',
+          () async {
+        await store([own('edited-meanwhile')]);
+        answer(
+          byId: {
+            'edited-meanwhile': () async {
+              await queue(
+                'edited-meanwhile',
+                action: 'update',
+                status: SyncStatus.pending,
+              );
+              throw const NotFoundException();
+            },
+          },
+        );
+
+        expect(await buildSync().pullOwnCrops(farmerId: 'me'), isFalse);
+        expect(await storedIds(), ['edited-meanwhile']);
+      });
+
+      test(
+          'never touches another user\'s listings, and sends nothing when the '
+          'phone holds none of the farmer\'s', () async {
+        await store([own('previous-user', farmerId: 'farmer-2')]);
+        answer();
+
+        expect(await buildSync().pullOwnCrops(farmerId: 'me'), isFalse);
+        expect(await buildSync().pullOwnCrops(farmerId: ''), isFalse);
+        expect(await storedIds(), ['previous-user']);
+        expect(paths, isEmpty);
+      });
+
+      test(
+          'throttled for 30 seconds per farmer; a call while one is on its way '
+          'gets its answer', () async {
+        var now = DateTime.utc(2026, 11, 17, 8);
+        final sync = buildSync(clock: () => now);
+        await store([own('kept'), own('gone')]);
+        final release = Completer<void>();
+        answer(
+          pages: [
+            [listed('kept')],
+          ],
+          byId: {
+            'gone': () async {
+              await release.future;
+              throw const NotFoundException();
+            },
+          },
+        );
+
+        final first = sync.pullOwnCrops(farmerId: 'me');
+        final second = sync.pullOwnCrops(farmerId: 'me');
+        release.complete();
+        expect(await first, isTrue);
+        expect(await second, isTrue);
+        expect(paths.where((p) => p == '/crops'), hasLength(1));
+
+        await store([own('gone-later')]);
+        expect(await sync.pullOwnCrops(farmerId: 'me'), isFalse);
+        expect(await storedIds(), ['gone-later', 'kept']);
+
+        now = now.add(const Duration(seconds: 31));
+        expect(await sync.pullOwnCrops(farmerId: 'me'), isTrue);
+        expect(await storedIds(), ['kept']);
       });
     });
 
