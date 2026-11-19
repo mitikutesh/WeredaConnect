@@ -418,6 +418,84 @@ void main() {
     });
   });
 
+  // BUG-35: a first login on a very slow network waited for the timeout and
+  // then said "log in online first to enable offline mode" to a user who
+  // was online.
+  group('login on a network that does not answer (BUG-35)', () {
+    void loginFailsWith(DioExceptionType type) => adapter.onPost(
+          '/auth/login',
+          (server) => server.throws(
+            0,
+            DioException(
+              requestOptions: RequestOptions(path: '/auth/login'),
+              type: type,
+            ),
+          ),
+          data: Matchers.any,
+        );
+
+    Future<String?> loginCode() async => (await service.login(
+          phoneNumber: _phone,
+          password: 'Secret123',
+        ))
+            .errorCode;
+
+    test(
+        'a timeout with nothing to log in with offline says the network is '
+        'too slow, not "log in online first"', () async {
+      when(() => cache.hasCachedCredentials(_phone))
+          .thenAnswer((_) async => false);
+      for (final type in [
+        DioExceptionType.connectionTimeout,
+        DioExceptionType.receiveTimeout,
+        DioExceptionType.sendTimeout,
+      ]) {
+        loginFailsWith(type);
+
+        final result =
+            await service.login(phoneNumber: _phone, password: 'Secret123');
+
+        expect(result.isSuccess, isFalse, reason: '$type');
+        expect(result.errorCode, AuthErrorCode.networkTooSlow, reason: '$type');
+        expect(result.timedOut, isTrue, reason: '$type');
+      }
+    });
+
+    test('a timeout still falls back to the offline login when one exists',
+        () async {
+      loginFailsWith(DioExceptionType.connectionTimeout);
+      when(() => cache.hasCachedCredentials(_phone))
+          .thenAnswer((_) async => true);
+      when(() => cache.verifyPassword(_phone, 'Secret123'))
+          .thenAnswer((_) async => false);
+
+      // The offline login's own answer (a wrong password here) is returned.
+      expect(await loginCode(), AuthErrorCode.invalidCredentials);
+      verify(() => cache.verifyPassword(_phone, 'Secret123')).called(1);
+    });
+
+    test(
+        'no connection at all (not a timeout) keeps the offline first-login '
+        'answer', () async {
+      loginFailsWith(DioExceptionType.connectionError);
+      when(() => cache.hasCachedCredentials(_phone))
+          .thenAnswer((_) async => false);
+
+      expect(await loginCode(), AuthErrorCode.offlineNotAvailable);
+    });
+
+    test('a phone that is offline keeps the offline first-login answer',
+        () async {
+      when(() => connectivity.checkConnectivity())
+          .thenAnswer((_) async => [ConnectivityResult.none]);
+      when(() => cache.hasCachedCredentials(_phone))
+          .thenAnswer((_) async => false);
+
+      expect(await loginCode(), AuthErrorCode.offlineNotAvailable);
+      expect(requests, isEmpty);
+    });
+  });
+
   group('unregisterDeviceToken', () {
     test('sends DELETE /device-tokens with the token', () async {
       adapter.onDelete(

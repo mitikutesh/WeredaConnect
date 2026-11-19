@@ -4918,6 +4918,36 @@ abstract class AppLocalizations {
   /// **'Saved on your phone. It will be sent when you have network.'**
   String get savedOnPhoneWillSend;
 
+  /// BUG-34 (persona sim 2026-11-19). Sync sheet, under the header, after a sync run that ended without an error but left changes in the queue (a listing whose photo upload failed): replaces 'Sync Complete'. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 change is still waiting. It will be sent again by itself.} other{{count} changes are still waiting. They will be sent again by themselves.}}'**
+  String syncStillWaiting(int count);
+
+  /// BUG-36 (persona sim 2026-11-19). My Crops card status and crop detail pill, with an upload icon, for the farmer's own listing whose create or edit is still in this phone's sync queue: replaces 'Active'. Short. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Not sent yet'**
+  String get listingNotSentYet;
+
+  /// BUG-36 (persona sim 2026-11-19). Crop detail, farmer's own listing, under the 'Not sent yet' pill: the new listing or the edit is on the phone only. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on this phone only. Buyers will see it once it is sent.'**
+  String get listingNotSentYetNote;
+
+  /// BUG-36 (persona sim 2026-11-19). My Crops, note under the list when a listing is marked 'Not sent yet' (the listingNotSentYet text, quoted). am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Listings marked \"Not sent yet\" are saved on this phone only. Buyers see them once they are sent.'**
+  String get myCropsNotSentNote;
+
+  /// BUG-35 (persona sim 2026-11-19). Login error on a phone that is online but the server did not answer in time, and that has never logged in before (no offline login possible). Not the 'log in online first' text. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'The network is too slow to reach the server. Move to a place with better signal and try again.'**
+  String get authNetworkTooSlow;
+
   /// Snackbar (E-5) after the farmer accepted an order with a network
   ///
   /// In en, this message translates to:

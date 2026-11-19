@@ -88,6 +88,11 @@ class AuthErrorCode {
   static const apiNotConfigured = 'API_NOT_CONFIGURED';
   static const networkError = 'NETWORK_ERROR';
 
+  /// BUG-35: a first login on a device that is online, but the server did
+  /// not answer in time (a very slow network). Not "log in online first":
+  /// the user is online and should simply try again.
+  static const networkTooSlow = 'NETWORK_TOO_SLOW';
+
   /// TLS handshake or certificate pin failure while online (SIM-23). Never
   /// triggers the offline-login fallback: the device is connected, the
   /// server just could not be trusted.
@@ -186,6 +191,8 @@ extension AuthErrorCodeExtension on String {
         return 'No internet connection. Please try offline mode';
       case AuthErrorCode.secureConnectionFailed:
         return 'Could not make a secure connection to the server. Update the app or try another network';
+      case AuthErrorCode.networkTooSlow:
+        return 'The network is too slow to reach the server. Please try again';
       case AuthErrorCode.offlineNotAvailable:
         return 'Please log in online first to enable offline mode';
       case AuthErrorCode.secureStorageError:
