@@ -1008,6 +1008,42 @@ public class FraudDetectionServiceTests
         Assert.False(result.IsAllowed);
         Assert.Equal("FRAUD_DUPLICATE_LISTING", result.ErrorCode);
         Assert.Equal("A similar listing already exists. Please update your existing listing instead.", result.Message);
+        // Recorded under a type that never scores, not under the wire code.
+        Assert.Equal(FraudDetectionService.DuplicateLotSignal, result.FlagReason);
+    }
+
+    [Fact]
+    public async Task CheckListingCreation_ThePriceBandRefusal_KeepsItsScoringSignal()
+    {
+        // The rule from before the lot check: same crop type, a price within 5 percent, the last hour.
+        // It names no other signal type, so the create path records FRAUD_DUPLICATE_LISTING (20).
+        SetupFarmerListings(StoredListing("crop-1", 60m, quantity: 30m));
+
+        var result = await _service.CheckListingCreationAsync(FarmerId, "wheat", 61m, WheatLot());
+
+        Assert.Equal("FRAUD_DUPLICATE_LISTING", result.ErrorCode);
+        Assert.Null(result.FlagReason);
+        Assert.Equal(20, FraudDetectionService.SignalWeight("FRAUD_DUPLICATE_LISTING"));
+    }
+
+    [Theory]
+    [InlineData("DUPLICATE_LOT")]
+    [InlineData("DUPLICATE_TRIP")]
+    public void RefusalsHonestUsersAlsoMeet_AreRecordedForReviewAndNeverScore(string type)
+    {
+        // A farmer who lists the same harvest size again in five different hours, or a trucker whose web
+        // Save was sent twice five times: five rows, a score of 0. Under FRAUD_DUPLICATE_LISTING (20,
+        // hard, uncapped) the same five would be CRITICAL.
+        Assert.Equal(0, FraudDetectionService.SignalWeight(type));
+        Assert.True(FraudDetectionService.IsSoftSignal(type));
+        var rows = Enumerable.Range(1, 5).Select(h => (h, type, (string?)$"entity-{h}")).ToArray();
+
+        var result = ScoreOf(rows);
+
+        Assert.Equal(0, result.Score);
+        Assert.Equal(RiskTier.Low, result.Tier);
+        Assert.Equal(RiskTier.Critical,
+            ScoreOf(Enumerable.Range(1, 5).Select(h => (h, "FRAUD_DUPLICATE_LISTING", (string?)$"entity-{h}")).ToArray()).Tier);
     }
 
     [Fact]
@@ -1231,8 +1267,15 @@ public class FraudDetectionServiceTests
         return row;
     }
 
-    /// <summary>The trucker's stored trips behind the mock; the index answers with the status filter DynamoDB would apply.</summary>
-    private void SetupTruckerTrips(params Dictionary<string, AttributeValue>[] trips) =>
+    /// <summary>
+    /// The trucker's stored trips behind the mock: the index answers with the status filter DynamoDB would
+    /// apply, and the table answers a read of one trip id.
+    /// </summary>
+    private void SetupTruckerTrips(params Dictionary<string, AttributeValue>[] trips) => SetupTruckerTrips(trips, trips);
+
+    /// <summary>The same with an index that lags the table: <paramref name="indexed"/> is what the index still says.</summary>
+    private void SetupTruckerTrips(Dictionary<string, AttributeValue>[] indexed, Dictionary<string, AttributeValue>[] table)
+    {
         _mockDynamoDb.QueryAsync(
                 Arg.Is<QueryRequest>(r => r.TableName == TripsTable && r.IndexName == "TruckerIdCreatedAtIndex"),
                 Arg.Any<CancellationToken>())
@@ -1240,8 +1283,16 @@ public class FraudDetectionServiceTests
             {
                 var values = call.Arg<QueryRequest>().ExpressionAttributeValues;
                 var statuses = new[] { values[":open"].S, values[":matched"].S };
-                return new QueryResponse { Items = trips.Where(t => statuses.Contains(t["status"].S)).ToList() };
+                return new QueryResponse { Items = indexed.Where(t => statuses.Contains(t["status"].S)).ToList() };
             });
+        _mockDynamoDb.QueryAsync(
+                Arg.Is<QueryRequest>(r => r.TableName == TripsTable && r.IndexName == null), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var id = call.Arg<QueryRequest>().ExpressionAttributeValues[":id"].S;
+                return new QueryResponse { Items = table.Where(t => t["tripId"].S == id).ToList() };
+            });
+    }
 
     [Theory]
     [InlineData("open")]
@@ -1257,6 +1308,86 @@ public class FraudDetectionServiceTests
         Assert.False(result.IsAllowed);
         Assert.Equal("FRAUD_DUPLICATE_LISTING", result.ErrorCode);
         Assert.Equal("You already have a trip on this route on that day. Please update your existing trip instead.", result.Message);
+        // Recorded under a type that never scores, not under the wire code.
+        Assert.Equal(FraudDetectionService.DuplicateTripSignal, result.FlagReason);
+    }
+
+    [Fact]
+    public async Task CheckTripCreation_ADuplicateIsConfirmedOnTheTripRow_StronglyConsistent()
+    {
+        SetupTruckerTrips(StoredTrip("trip-1"));
+
+        await TripService().CheckTripCreationAsync(Plan());
+
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r => r.TableName == TripsTable && r.IndexName == null && r.ConsistentRead == true
+                && r.KeyConditionExpression == "tripId = :id" && r.ExpressionAttributeValues[":id"].S == "trip-1"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CheckTripCreation_ATripCancelledAMomentAgo_StillOpenOnTheIndex_DoesNotRefuse()
+    {
+        // One offline batch: create A, cancel A, create B on the same route and day. The index still
+        // says A is open when B arrives; the table says cancelled.
+        SetupTruckerTrips(
+            indexed: new[] { StoredTrip("trip-1") },
+            table: new[] { StoredTrip("trip-1", status: "cancelled") });
+
+        var result = await TripService().CheckTripCreationAsync(Plan());
+
+        Assert.True(result.IsAllowed);
+        Assert.False(result.IsFlagged);
+    }
+
+    [Fact]
+    public async Task CheckTripCreation_ATripMovedToAnotherDayAMomentAgo_DoesNotRefuse()
+    {
+        SetupTruckerTrips(
+            indexed: new[] { StoredTrip("trip-1") },
+            table: new[] { StoredTrip("trip-1", departure: "2026-11-27T06:00:00.000Z") });
+
+        var result = await TripService().CheckTripCreationAsync(Plan());
+
+        Assert.True(result.IsAllowed);
+        Assert.False(result.IsFlagged);
+    }
+
+    [Fact]
+    public async Task CheckTripCreation_ATripMovedToAnotherRouteAMomentAgo_IsFlaggedByItsTableRow()
+    {
+        SetupTruckerTrips(
+            indexed: new[] { StoredTrip("trip-1") },
+            table: new[] { StoredTrip("trip-1", from: "Dire Dawa", to: "Mekelle") });
+
+        var result = await TripService().CheckTripCreationAsync(Plan());
+
+        Assert.True(result.IsAllowed);
+        Assert.Equal(FraudDetectionService.TripSameDaySignal, result.FlagReason);
+        Assert.Contains("(Dire Dawa to Mekelle)", result.Message);
+    }
+
+    [Fact]
+    public async Task CheckTripCreation_ATripGoneFromTheTable_DoesNotRefuse()
+    {
+        SetupTruckerTrips(indexed: new[] { StoredTrip("trip-1") }, table: Array.Empty<Dictionary<string, AttributeValue>>());
+
+        var result = await TripService().CheckTripCreationAsync(Plan());
+
+        Assert.True(result.IsAllowed);
+        Assert.False(result.IsFlagged);
+    }
+
+    [Fact]
+    public async Task CheckTripCreation_ADeletedTripRow_DoesNotRefuse()
+    {
+        var deleted = StoredTrip("trip-1");
+        deleted["deletedAt"] = new AttributeValue { S = "2026-11-19T08:00:00Z" };
+        SetupTruckerTrips(indexed: new[] { StoredTrip("trip-1") }, table: new[] { deleted });
+
+        var result = await TripService().CheckTripCreationAsync(Plan());
+
+        Assert.True(result.IsAllowed);
     }
 
     [Theory]

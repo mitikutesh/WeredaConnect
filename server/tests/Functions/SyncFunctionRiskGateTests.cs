@@ -483,17 +483,35 @@ public class SyncFunctionRiskGateTests
     }
 
     [Fact]
-    public async Task Farmer_CropCreate_OfALotAlreadyListed_IsRefusedWithTheSignal_NothingWritten()
+    public async Task Farmer_CropCreate_OfALotAlreadyListed_IsRefused_RecordedUnderTheTypeThatNeverScores()
+    {
+        _fraud.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<ListingLot?>())
+            .Returns(FraudCheckResult.Rejected(
+                "FRAUD_DUPLICATE_LISTING", "A similar listing already exists. Please update your existing listing instead.")
+                with
+            { FlagReason = FraudDetectionService.DuplicateLotSignal });
+
+        var body = await SyncAsync(Function(), Request(FarmerId, "farmer", null, CropCreate()));
+
+        // The wire answer is the code and sentence clients know.
+        Assert.Contains(
+            "FRAUD_DUPLICATE_LISTING: A similar listing already exists. Please update your existing listing instead.", body);
+        Assert.DoesNotContain("DUPLICATE_LOT", body);
+        await _crops.DidNotReceiveWithAnyArgs().CreateAsync(default!, default!);
+        await _fraud.Received(1).RecordFraudSignalAsync(FarmerId, "DUPLICATE_LOT", "crop-001", "crop", Arg.Any<string?>());
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(
+            Arg.Any<string>(), "FRAUD_DUPLICATE_LISTING", Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Farmer_CropCreate_RefusedByThePriceBand_KeepsItsScoringSignal()
     {
         _fraud.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<ListingLot?>())
             .Returns(FraudCheckResult.Rejected(
                 "FRAUD_DUPLICATE_LISTING", "A similar listing already exists. Please update your existing listing instead."));
 
-        var body = await SyncAsync(Function(), Request(FarmerId, "farmer", null, CropCreate()));
+        await SyncAsync(Function(), Request(FarmerId, "farmer", null, CropCreate()));
 
-        Assert.Contains(
-            "FRAUD_DUPLICATE_LISTING: A similar listing already exists. Please update your existing listing instead.", body);
-        await _crops.DidNotReceiveWithAnyArgs().CreateAsync(default!, default!);
         await _fraud.Received(1).RecordFraudSignalAsync(
             FarmerId, "FRAUD_DUPLICATE_LISTING", "crop-001", "crop", Arg.Any<string?>());
     }
@@ -520,18 +538,22 @@ public class SyncFunctionRiskGateTests
     }
 
     [Fact]
-    public async Task Trucker_TripCreate_ADuplicateTrip_IsRefusedWithTheSignal_NothingWritten()
+    public async Task Trucker_TripCreate_ADuplicateTrip_IsRefused_RecordedUnderTheTypeThatNeverScores()
     {
         _fraud.CheckTripCreationAsync(Arg.Any<TripPlan>()).Returns(FraudCheckResult.Rejected(
-            "FRAUD_DUPLICATE_LISTING", "You already have a trip on this route on that day. Please update your existing trip instead."));
+            "FRAUD_DUPLICATE_LISTING", "You already have a trip on this route on that day. Please update your existing trip instead.")
+            with
+        { FlagReason = FraudDetectionService.DuplicateTripSignal });
 
         var body = await SyncAsync(Function(), Request(TruckerId, "trucker", null, TripCreate()));
 
         Assert.Contains("\"status\":\"error\"", body);
         Assert.Contains(DuplicateTrip, body);
+        Assert.DoesNotContain("DUPLICATE_TRIP", body);
         await _ddb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
-        await _fraud.Received(1).RecordFraudSignalAsync(
-            TruckerId, "FRAUD_DUPLICATE_LISTING", "trip-001", "trip", Arg.Any<string?>());
+        await _fraud.Received(1).RecordFraudSignalAsync(TruckerId, "DUPLICATE_TRIP", "trip-001", "trip", Arg.Any<string?>());
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(
+            Arg.Any<string>(), "FRAUD_DUPLICATE_LISTING", Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
     }
 
     [Fact]
@@ -610,24 +632,31 @@ public class SyncFunctionRiskGateTests
         // through the trucker index by the real service. The new trip asks another price.
         var create = TripCreate();
         var sent = (string)create.Data!["departureDate"];
+        var earlier = new QueryResponse
+        {
+            Items = new List<Dictionary<string, AttributeValue>>
+            {
+                new()
+                {
+                    { "tripId", new AttributeValue { S = "trip-earlier" } },
+                    { "fromWoreda", new AttributeValue { S = "Bishoftu" } },
+                    { "toWoreda", new AttributeValue { S = "Addis Ababa" } },
+                    { "departureDate", new AttributeValue { S = sent } },
+                    { "status", new AttributeValue { S = "open" } },
+                    { "pricePerQuintal", new AttributeValue { N = "100" } }
+                }
+            }
+        };
+        // The trucker index, and the strongly consistent read of the trip row that confirms the hit.
         _ddb.QueryAsync(
                 Arg.Is<QueryRequest>(r => r.TableName == "trips" && r.IndexName == "TruckerIdCreatedAtIndex"),
                 Arg.Any<CancellationToken>())
-            .Returns(new QueryResponse
-            {
-                Items = new List<Dictionary<string, AttributeValue>>
-                {
-                    new()
-                    {
-                        { "tripId", new AttributeValue { S = "trip-earlier" } },
-                        { "fromWoreda", new AttributeValue { S = "Bishoftu" } },
-                        { "toWoreda", new AttributeValue { S = "Addis Ababa" } },
-                        { "departureDate", new AttributeValue { S = sent } },
-                        { "status", new AttributeValue { S = "open" } },
-                        { "pricePerQuintal", new AttributeValue { N = "100" } }
-                    }
-                }
-            });
+            .Returns(earlier);
+        _ddb.QueryAsync(
+                Arg.Is<QueryRequest>(r => r.TableName == "trips" && r.IndexName == null && r.ConsistentRead == true
+                    && r.ExpressionAttributeValues[":id"].S == "trip-earlier"),
+                Arg.Any<CancellationToken>())
+            .Returns(earlier);
         var service = new FraudDetectionService(
             _ddb, "crops", "", Substitute.For<WeredaConnect.Server.RateLimiting.IRateLimitRepository>())
         {

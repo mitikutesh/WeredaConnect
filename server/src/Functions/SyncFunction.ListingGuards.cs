@@ -163,8 +163,8 @@ public partial class SyncFunction
     /// <summary>
     /// Rule 6 (fraud-detection-architecture.md, trip-listing-api.md rule 14): check a trip create that
     /// passed the field rules, its <c>departureDate</c> already normalized, against the trucker's other
-    /// open and matched trips. A duplicate (same route, day and vehicle) comes back as the refusal, with
-    /// its <c>FRAUD_DUPLICATE_LISTING</c> signal recorded. Another trip of the same day comes back as the
+    /// open and matched trips. A duplicate (same route, day and vehicle) comes back as the refusal
+    /// (<c>FRAUD_DUPLICATE_LISTING</c> on the wire), with its <c>DUPLICATE_TRIP</c> signal recorded (weight 0). Another trip of the same day comes back as the
     /// flag, for the caller to record once the trip is written. A check that cannot run (no fraud
     /// service, an unreadable date, a failed read) lets the create go on: the rule never blocks a trucker
     /// because a read failed.
@@ -199,7 +199,8 @@ public partial class SyncFunction
         if (check is { IsAllowed: false })
         {
             await TryRecordFraudSignalAsync(
-                truckerId, check.ErrorCode ?? "FRAUD_REJECTED", operation.EntityId, "trip", check.Message, context);
+                truckerId, check.FlagReason ?? check.ErrorCode ?? "FRAUD_REJECTED", operation.EntityId, "trip",
+                check.Message, context);
             return (new SyncOperationResult
             {
                 OperationId = operation.OperationId,

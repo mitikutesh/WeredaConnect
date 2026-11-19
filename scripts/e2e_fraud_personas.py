@@ -110,6 +110,8 @@ WEIGHTS = {
     "DISPUTE_RATE": 10, "IMPOSSIBLE_DELIVERY_TIME": 15,
     # ESC-33 reputation hooks; NO_SHOW's producer is ESC-34's pickup judgement (fraud spec 15.3).
     "NO_SHOW": 15, "DELIVERY_OVERDUE": 25,
+    # Fraud spec 3.43.0, Rules 1 and 6: refusals and a flag honest users also meet, review only.
+    "DUPLICATE_LOT": 0, "DUPLICATE_TRIP": 0, "TRIP_SAME_DAY": 0,
 }
 DEFAULT_WEIGHT = 10
 PATTERN_TYPES = {"AMOUNT_ANOMALY", "NEW_ACCOUNT_LARGE_AMOUNT", "KYC_THRESHOLD_STRUCTURING",
@@ -128,7 +130,10 @@ TIER_MEDIUM, TIER_HIGH, TIER_CRITICAL = 30, 60, 100
 
 # Where each signal type comes from in the server (rule, producer).
 RULES = {
-    "FRAUD_DUPLICATE_LISTING": ("Rule 1", "FraudDetectionService.CheckListingCreationAsync (a price within 5 percent in the last hour, or the same lot: crop type, quantity and place, at any price), recorded by the SyncFunction crop create; Rule 6 for a duplicate trip (CheckTripCreationAsync)"),
+    "FRAUD_DUPLICATE_LISTING": ("Rule 1", "FraudDetectionService.CheckListingCreationAsync (a price within 5 percent in the last hour), recorded by the SyncFunction crop create"),
+    "DUPLICATE_LOT": ("Rule 1", "FraudDetectionService.CheckListingCreationAsync: the same lot (crop type, quantity and place) at any price, refused on the wire as FRAUD_DUPLICATE_LISTING and recorded with weight 0"),
+    "DUPLICATE_TRIP": ("Rule 6", "FraudDetectionService.CheckTripCreationAsync: the same route, Ethiopia day and vehicle, refused on the wire as FRAUD_DUPLICATE_LISTING and recorded with weight 0"),
+    "TRIP_SAME_DAY": ("Rule 6", "FraudDetectionService.CheckTripCreationAsync: another open trip of the trucker on the same day, flag only, weight 0"),
     "FRAUD_VELOCITY_EXCEEDED": ("Rule 3", "FraudDetectionService.CheckListingCreationAsync (5 listings per hour), SyncFunction crop create"),
     "PRICE_ANOMALY": ("Rule 2", "FraudDetectionService.CheckListingCreationAsync (more than 3 robust spreads from the median of the last 50 listings of the type: 1.4826 x MAD, floored at 10% of the median), flag only"),
     "IDOR_CREATE_CONFLICT": ("FRD-08", "SyncFunction create conflict on a crop, trip, order or delivery id the caller does not own"),
@@ -234,7 +239,7 @@ PERSONAS: Dict[str, Persona] = {
               "(the same lot: crop type, quantity and place)",
               "create 2 more listings in the same hour (over the 5 per hour limit)"],
         expect={"spammer": Expect(
-            signals=["FRAUD_DUPLICATE_LISTING", "FRAUD_VELOCITY_EXCEEDED"], optional=["PRICE_ANOMALY"],
+            signals=["FRAUD_DUPLICATE_LISTING", "DUPLICATE_LOT", "FRAUD_VELOCITY_EXCEEDED"], optional=["PRICE_ANOMALY"],
             tier="MEDIUM",
             challenge="none (a farmer makes no payment); both duplicates and both creates after the 5th accepted listing "
                       "are refused; creates stay allowed below CRITICAL (the 9th create attempt meets FRAUD_VELOCITY_EXCEEDED, "
@@ -753,7 +758,8 @@ def persona_spammer(run: Run):
     time.sleep(2)  # the duplicate rule reads the farmer's listings on an index
     listing("teff", 40.8, "FRAUD_DUPLICATE_LISTING")
     # The same lot (crop type, quantity, place) at double the price: outside the 5 percent price band,
-    # refused as the same stock (Rule 1, the duplicate lot).
+    # refused as the same stock (Rule 1, the duplicate lot). Same wire code; its signal is DUPLICATE_LOT
+    # (weight 0), so the tier stays the price band's and the velocity rule's.
     listing("teff", 80.0, "FRAUD_DUPLICATE_LISTING")
     listing("wheat", 22.0, None)
     listing("barley", 26.0, None)

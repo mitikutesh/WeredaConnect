@@ -37,6 +37,20 @@ public sealed class FraudDetectionService : IFraudDetectionService
 
     /// <summary>Rule 6: a trip of the same trucker on the same departure day, on another route or with another vehicle.</summary>
     internal const string TripSameDaySignal = "TRIP_SAME_DAY";
+
+    /// <summary>
+    /// Rule 1, the duplicate lot: a listing create refused because the farmer already lists that lot. The
+    /// refusal keeps the wire code <c>FRAUD_DUPLICATE_LISTING</c>; its signal is this type, which never
+    /// scores, because honest farmers meet the rule too (the same harvest size listed again while an old
+    /// listing is still active). The price band keeps writing <c>FRAUD_DUPLICATE_LISTING</c> (20).
+    /// </summary>
+    internal const string DuplicateLotSignal = "DUPLICATE_LOT";
+
+    /// <summary>
+    /// Rule 6: a trip create refused as a duplicate (same route, day and vehicle). Never scores, for the
+    /// same reason: a second Save after a lost response on web, or a second run of a short route, meets it.
+    /// </summary>
+    internal const string DuplicateTripSignal = "DUPLICATE_TRIP";
     internal const int PriceAnomalyMinSamples = 5;
     internal const int PriceAnomalySampleSize = 50;
 
@@ -177,9 +191,8 @@ public sealed class FraudDetectionService : IFraudDetectionService
         // away, or an hour later. The same quantity of the same crop at the same place is one lot.
         if (lot != null && await HasActiveListingOfLotAsync(farmerId, cropType, lot))
         {
-            return FraudCheckResult.Rejected(
-                "FRAUD_DUPLICATE_LISTING",
-                "A similar listing already exists. Please update your existing listing instead.");
+            return DuplicateRefusal(
+                "A similar listing already exists. Please update your existing listing instead.", DuplicateLotSignal);
         }
 
         // 3. Price anomaly (GSI query + computation — most expensive)
@@ -334,29 +347,30 @@ public sealed class FraudDetectionService : IFraudDetectionService
             return FraudCheckResult.Allowed();
         }
 
-        var day = TripDeparture.StartOfEthiopiaDayUtc(plan.DepartureUtc);
         Dictionary<string, AttributeValue>? otherSameDay = null;
-        foreach (var trip in await QueryTruckerActiveTripsAsync(plan.TruckerId))
+        foreach (var indexed in await QueryTruckerActiveTripsAsync(plan.TruckerId))
         {
-            if ((trip.TryGetValue("tripId", out var id) && id.S == plan.TripId)
-                || !trip.TryGetValue("departureDate", out var departure)
-                || !DateTime.TryParse(departure.S, CultureInfo.InvariantCulture,
-                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var departureUtc)
-                || TripDeparture.StartOfEthiopiaDayUtc(departureUtc) != day)
+            var trip = indexed;
+            var overlap = TripOverlapOf(trip, plan);
+            if (overlap == TripOverlap.Duplicate)
             {
-                continue;
+                // The index is eventually consistent, and a refusal is final for the client: a phone that
+                // syncs "create A, cancel A, create B" in one batch must not lose B to the index's copy
+                // of A. So the trip row itself is read, strongly consistent, and judged again.
+                trip = await ReadTripConsistentAsync(trip);
+                overlap = trip == null ? TripOverlap.None : TripOverlapOf(trip, plan);
+                if (overlap == TripOverlap.Duplicate)
+                {
+                    return DuplicateRefusal(
+                        "You already have a trip on this route on that day. Please update your existing trip instead.",
+                        DuplicateTripSignal);
+                }
             }
 
-            var sameRoute = trip.TryGetValue("fromWoreda", out var from) && SameName(from.S, plan.FromWoreda)
-                && trip.TryGetValue("toWoreda", out var to) && SameName(to.S, plan.ToWoreda);
-            if (sameRoute && SameVehicle(trip.TryGetValue("vehiclePlate", out var plate) ? plate.S : null, plan.VehiclePlate))
+            if (overlap == TripOverlap.SameDay)
             {
-                return FraudCheckResult.Rejected(
-                    "FRAUD_DUPLICATE_LISTING",
-                    "You already have a trip on this route on that day. Please update your existing trip instead.");
+                otherSameDay ??= trip;
             }
-
-            otherSameDay ??= trip;
         }
 
         if (otherSameDay == null)
@@ -369,6 +383,76 @@ public sealed class FraudDetectionService : IFraudDetectionService
         return FraudCheckResult.Flagged(
             TripSameDaySignal,
             $"Trip {plan.FromWoreda} to {plan.ToWoreda} departs the same day as another open trip of this trucker ({otherFrom} to {otherTo}).");
+    }
+
+    /// <summary>
+    /// A refusal of the two rules honest users also meet (the duplicate lot, the duplicate trip): the wire
+    /// code clients know, and in <see cref="FraudCheckResult.FlagReason"/> the signal type to record in
+    /// its place, one that never scores.
+    /// </summary>
+    private static FraudCheckResult DuplicateRefusal(string message, string signalType) =>
+        FraudCheckResult.Rejected("FRAUD_DUPLICATE_LISTING", message) with { FlagReason = signalType };
+
+    /// <summary>How a stored trip of the trucker stands to a trip being created (Rule 6).</summary>
+    internal enum TripOverlap
+    {
+        /// <summary>Not in the way: the trip itself, not open or matched, deleted, or another departure day.</summary>
+        None,
+
+        /// <summary>An open or matched trip of the same Ethiopia day, on another route or with another vehicle.</summary>
+        SameDay,
+
+        /// <summary>An open or matched trip of the same Ethiopia day, route and vehicle.</summary>
+        Duplicate
+    }
+
+    /// <summary>
+    /// Rule 6 for one stored trip. The status and <c>deletedAt</c> are judged here as well as in the index
+    /// filter, so a row read again from the table is judged by the same rule.
+    /// </summary>
+    internal static TripOverlap TripOverlapOf(Dictionary<string, AttributeValue> trip, TripPlan plan)
+    {
+        if ((trip.TryGetValue("tripId", out var id) && id.S == plan.TripId)
+            || (trip.TryGetValue("status", out var status) && status.S is not ("open" or "matched"))
+            || (trip.TryGetValue("deletedAt", out var deleted) && !string.IsNullOrEmpty(deleted.S))
+            || !trip.TryGetValue("departureDate", out var departure)
+            || !DateTime.TryParse(departure.S, CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var departureUtc)
+            || TripDeparture.StartOfEthiopiaDayUtc(departureUtc) != TripDeparture.StartOfEthiopiaDayUtc(plan.DepartureUtc))
+        {
+            return TripOverlap.None;
+        }
+
+        var sameRoute = trip.TryGetValue("fromWoreda", out var from) && SameName(from.S, plan.FromWoreda)
+            && trip.TryGetValue("toWoreda", out var to) && SameName(to.S, plan.ToWoreda);
+        return sameRoute && SameVehicle(trip.TryGetValue("vehiclePlate", out var plate) ? plate.S : null, plan.VehiclePlate)
+            ? TripOverlap.Duplicate
+            : TripOverlap.SameDay;
+    }
+
+    /// <summary>
+    /// The trip row of an index row, read from the table strongly consistent (the table's key is the trip id
+    /// and <c>createdAt</c>, so it is a Query of the id's partition). Null when the row is gone or the index
+    /// row carries no id.
+    /// </summary>
+    private async Task<Dictionary<string, AttributeValue>?> ReadTripConsistentAsync(Dictionary<string, AttributeValue> indexed)
+    {
+        if (!indexed.TryGetValue("tripId", out var id) || string.IsNullOrEmpty(id.S))
+        {
+            return null;
+        }
+
+        var response = await _dynamoDb.QueryAsync(new QueryRequest
+        {
+            TableName = TripsTable,
+            KeyConditionExpression = "tripId = :id",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", new AttributeValue { S = id.S } } },
+            ProjectionExpression = "tripId, fromWoreda, toWoreda, departureDate, vehiclePlate, #s, deletedAt",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#s", "status" } },
+            ConsistentRead = true,
+            Limit = 1
+        });
+        return response.Items is { Count: > 0 } rows ? rows[0] : null;
     }
 
     /// <summary>
@@ -955,6 +1039,8 @@ public sealed class FraudDetectionService : IFraudDetectionService
         DeliveryOverdueSignal => 25,
         BuyerDeclinePatternSignal => 10,
         TripSameDaySignal => 0,
+        DuplicateLotSignal => 0,
+        DuplicateTripSignal => 0,
         _ => 10
     };
 
@@ -975,7 +1061,7 @@ public sealed class FraudDetectionService : IFraudDetectionService
             or DisputeRateSignal or ImpossibleDeliveryTimeSignal
             or SharedDeviceTradeSignal or RepeatedPairSignal
             or BuyerDeclinePatternSignal
-            or TripSameDaySignal;
+            or TripSameDaySignal or DuplicateLotSignal or DuplicateTripSignal;
 
     /// <summary>
     /// FRD-09: the transaction pattern types. Each is written with the order, escrow, delivery or trip
@@ -1375,7 +1461,7 @@ public sealed class FraudDetectionService : IFraudDetectionService
                 { ":open", new AttributeValue { S = "open" } },
                 { ":matched", new AttributeValue { S = "matched" } }
             },
-            ProjectionExpression = "tripId, fromWoreda, toWoreda, departureDate, vehiclePlate",
+            ProjectionExpression = "tripId, fromWoreda, toWoreda, departureDate, vehiclePlate, #s",
             ScanIndexForward = false // newest first
         };
 

@@ -2902,8 +2902,10 @@ public partial class SyncFunction
 
                         if (!fraudCheck.IsAllowed)
                         {
+                            // A refusal honest farmers also meet names its own signal type (the
+                            // duplicate lot, weight 0); the others are recorded under their code.
                             await TryRecordFraudSignalAsync(
-                                authenticatedUserId!, fraudCheck.ErrorCode ?? "FRAUD_REJECTED",
+                                authenticatedUserId!, fraudCheck.FlagReason ?? fraudCheck.ErrorCode ?? "FRAUD_REJECTED",
                                 operation.EntityId, "crop", fraudCheck.Message, context);
 
                             return new SyncOperationResult
