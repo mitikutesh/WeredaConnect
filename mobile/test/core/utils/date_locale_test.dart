@@ -54,6 +54,12 @@ void main() {
     expect(DateFormat('EEE d MMM').format(day), 'Kam 19 Sad');
     expect(DateFormat.yMMMMEEEEd().format(day), 'Kamisa, Sadaasa 19, 2026');
     expect(DateFormat.yMMMM().format(DateTime.utc(2026)), 'Amajjii 2026');
+    // The CLDR `om` spellings.
+    expect(DateFormat.MMMM().format(DateTime.utc(2026, 4)), 'Eebila');
+    expect(DateFormat.MMM().format(DateTime.utc(2026, 4)), 'Elb');
+    expect(DateFormat.MMMM().format(DateTime.utc(2026, 5)), 'Caamsaa');
+    expect(DateFormat.MMM().format(DateTime.utc(2026, 5)), 'Cam');
+    expect(DateFormat.jm().format(DateTime.utc(2026, 1, 1, 15)), '3:00 WB');
     // Every month and weekday has a name of its own.
     final months = {
       for (var m = 1; m <= 12; m++)

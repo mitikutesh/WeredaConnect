@@ -61,11 +61,15 @@ bool _dateLocaleExists(String locale) {
   }
 }
 
+// The names below are the Unicode CLDR `om` locale's (CLDR 46, read from
+// ICU 76): months, weekdays and the AM/PM markers. One deviation: CLDR's
+// short list has the full "Bitootessa" and "Sadaasa" for March and
+// November; "Bit" and "Sad" keep a short date short.
 const _oromoMonths = [
   'Amajjii',
   'Guraandhala',
   'Bitootessa',
-  'Ebla',
+  'Eebila',
   'Caamsaa',
   'Waxabajjii',
   'Adoolessa',
@@ -80,8 +84,8 @@ const _oromoShortMonths = [
   'Ama',
   'Gur',
   'Bit',
-  'Ebl',
-  'Caa',
+  'Elb',
+  'Cam',
   'Wax',
   'Ado',
   'Hag',
