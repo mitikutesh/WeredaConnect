@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -56,6 +57,8 @@ class FakeAuthState extends Fake implements AuthState {}
 class FakeBuyerIntentEvent extends Fake implements BuyerIntentEvent {}
 
 class FakeBuyerIntentState extends Fake implements BuyerIntentState {}
+
+class _MockMarketplaceSync extends Mock implements MarketplaceSync {}
 
 class FakeCropListingEvent extends Fake implements CropListingEvent {}
 
@@ -210,8 +213,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Welcome back, '), findsOneWidget);
-    expect(find.text('Synced'), findsNothing);
-    expect(find.text('Offline'), findsOneWidget);
+    expect(find.text('All sent'), findsNothing);
+    expect(find.text('No network'), findsOneWidget);
     expect(find.byIcon(Icons.notifications_outlined), findsOneWidget);
     expect(find.text('AT A GLANCE'), findsOneWidget);
     expect(find.text('My Crops'), findsOneWidget);
@@ -392,17 +395,17 @@ void main() {
         counts.add((pending: 3, failed: 0));
         await tester.pump();
         await tester.pump();
-        expect(chipLabel(tester), '3 waiting to sync');
+        expect(chipLabel(tester), '3 waiting to be sent');
 
         counts.add((pending: 0, failed: 0));
         await tester.pump();
         await tester.pump();
-        expect(chipLabel(tester), 'Synced');
+        expect(chipLabel(tester), 'All sent');
 
         counts.add((pending: 0, failed: 2));
         await tester.pump();
         await tester.pump();
-        expect(chipLabel(tester), 'Sync Failed');
+        expect(chipLabel(tester), 'Not sent');
       });
     }
 
@@ -413,12 +416,12 @@ void main() {
         buildHomeScreen(UserRole.farmer, syncQueue: queue),
       );
       await tester.pump();
-      expect(chipLabel(tester), 'Offline');
+      expect(chipLabel(tester), 'No network');
 
       counts.add((pending: 2, failed: 0));
       await tester.pump();
       await tester.pump();
-      expect(chipLabel(tester), '2 waiting to sync');
+      expect(chipLabel(tester), '2 waiting to be sent');
     });
 
     // The chip grows with the text and is a 48 by 48 dp button named by
@@ -446,7 +449,7 @@ void main() {
         final label = find.byKey(const Key('home_sync_chip_label'));
         // The text is not clipped by a fixed chip height.
         expect(tester.getSize(label).height, greaterThan(24));
-        expect(find.bySemanticsLabel('3 waiting to sync'), findsOneWidget);
+        expect(find.bySemanticsLabel('3 waiting to be sent'), findsOneWidget);
         semantics.dispose();
       });
     }
@@ -462,6 +465,86 @@ void main() {
       final chip = tester.getRect(find.byKey(const Key('home_sync_chip')));
       final account = tester.getRect(find.byType(AccountButton));
       expect(chip.right, closeTo(account.left - 10, 1));
+    });
+  });
+
+  // BUG-37: the tiles were read once, before the user's orders had been
+  // pulled, and stayed at 0 next to an Orders tab that listed them. (No Isar
+  // in this test, so it covers what the tiles ask the server for; the read
+  // that follows is the same stats read the other tests cover.)
+  group('BUG-37: the tiles pull the user\'s own data, then read again', () {
+    late _MockMarketplaceSync sync;
+
+    setUp(() {
+      sync = _MockMarketplaceSync();
+      when(
+        () => sync.pullOrders(
+          userId: any(named: 'userId'),
+          role: any(named: 'role'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => sync.pullOwnCrops(farmerId: any(named: 'farmerId')))
+          .thenAnswer((_) async => false);
+      when(() => sync.pullOwnTrips(truckerId: any(named: 'truckerId')))
+          .thenAnswer((_) async => false);
+    });
+
+    Widget withSync(UserRole role) => Provider<MarketplaceSync?>.value(
+          value: sync,
+          child: buildHomeScreen(role),
+        );
+
+    for (final role in UserRole.values) {
+      testWidgets('${role.name}: the own orders, scoped by role',
+          (tester) async {
+        useTallSurface(tester);
+        await tester.pumpWidget(withSync(role));
+        await tester.pumpAndSettle();
+
+        verify(
+          () => sync.pullOrders(userId: '${role.name}-001', role: role.name),
+        ).called(greaterThanOrEqualTo(1));
+      });
+    }
+
+    testWidgets('a farmer also gets the own listings, nobody else\'s',
+        (tester) async {
+      useTallSurface(tester);
+      await tester.pumpWidget(withSync(UserRole.farmer));
+      await tester.pumpAndSettle();
+
+      verify(() => sync.pullOwnCrops(farmerId: 'farmer-001')).called(1);
+      verifyNever(() => sync.pullCrops());
+      verifyNever(() => sync.pullTrips());
+    });
+
+    for (final role in [UserRole.buyer, UserRole.trucker]) {
+      testWidgets('${role.name}: no own-listing pull', (tester) async {
+        useTallSurface(tester);
+        await tester.pumpWidget(withSync(role));
+        await tester.pumpAndSettle();
+
+        verifyNever(() => sync.pullOwnCrops(farmerId: any(named: 'farmerId')));
+      });
+    }
+
+    testWidgets('a pull that fails (offline) leaves the tiles as they were',
+        (tester) async {
+      when(
+        () => sync.pullOrders(
+          userId: any(named: 'userId'),
+          role: any(named: 'role'),
+        ),
+      ).thenAnswer((_) async => throw Exception('offline'));
+      when(() => sync.pullOwnCrops(farmerId: any(named: 'farmerId')))
+          .thenAnswer((_) async => throw Exception('offline'));
+      useTallSurface(tester);
+
+      await tester.pumpWidget(withSync(UserRole.farmer));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('My Crops'), findsOneWidget);
     });
   });
 

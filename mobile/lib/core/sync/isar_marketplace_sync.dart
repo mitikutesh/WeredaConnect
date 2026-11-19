@@ -55,6 +55,10 @@ class IsarMarketplaceSync implements MarketplaceSync {
   DateTime? _lastTripPull;
   DateTime? _lastDeliveryPull;
   DateTime? _lastOrderPull;
+
+  /// BUG-37: the order pull on its way, and its `userId|role`.
+  Future<void>? _orderPull;
+  String? _orderPullKey;
   DateTime? _lastOwnTripPull;
 
   /// The trucker [_lastOwnTripPull] was for: another account signed in on
@@ -235,6 +239,10 @@ class IsarMarketplaceSync implements MarketplaceSync {
 
   /// FUP-498: the throttle is stamped when the pull starts, as for the own
   /// trips, so a failed pull (offline) is not repeated within the window.
+  /// BUG-31 (FUP-520): the listed rows are stored too, so the farmer's
+  /// listings reach a phone that holds none (a new install) and a listing
+  /// the server moved (`reserved`, `sold`, an edit made elsewhere) shows its
+  /// state. True when a listing was removed, added or changed.
   @override
   Future<bool> pullOwnCrops({required String farmerId}) {
     if (farmerId.isEmpty) return Future.value(false);
@@ -267,11 +275,10 @@ class IsarMarketplaceSync implements MarketplaceSync {
             !unsettled.contains(listing.listingId))
           listing.listingId,
     };
-    if (candidates.isEmpty) return false;
 
-    final listed = await _fetchOwnCropIds(farmerId);
+    final (listed, listedIds) = await _fetchOwnCrops(farmerId);
     final gone = <String>[];
-    for (final listingId in candidates.difference(listed)) {
+    for (final listingId in candidates.difference(listedIds)) {
       // The farmer index can lag a create that just synced, so the
       // listing's own read decides, as for a reverted listing (FUP-149).
       final (:row, gone: notFound) =
@@ -280,16 +287,63 @@ class IsarMarketplaceSync implements MarketplaceSync {
         gone.add(listingId);
       }
     }
-    if (gone.isEmpty) return false;
-    final removed = await _isar.writeTxn(() async {
-      // A change queued while the reads were on their way keeps its listing.
+    if (gone.isEmpty && listed.isEmpty) return false;
+
+    var changed = false;
+    await _isar.writeTxn(() async {
+      // A change queued while the reads were on their way keeps its listing
+      // and wins over the server copy.
       final unsettledNow = await _unsettledListingIds();
-      return _isar.cropListings.deleteAllByListingId(
+      final removed = await _isar.cropListings.deleteAllByListingId(
         gone.where((id) => !unsettledNow.contains(id)).toList(),
       );
+      if (removed > 0) changed = true;
+
+      // BUG-31 (FUP-520): store the farmer's own rows, server wins, as the
+      // own-trip pull does. A phone that holds none of them (a new install)
+      // gets them here.
+      for (final listing in listed) {
+        if (unsettledNow.contains(listing.listingId)) continue;
+        final existing =
+            await _isar.cropListings.getByListingId(listing.listingId);
+        if (existing != null) {
+          // The same id held under another farmer is not this farmer's row.
+          if (existing.farmerId != farmerId) continue;
+          // The farmer index lags a change just synced.
+          if (listing.version < existing.version) continue;
+          listing
+            ..id = existing.id
+            // Only this phone keeps the place id and the files it took.
+            ..placeId = existing.placeId
+            ..audioNoteRef ??= existing.audioNoteRef;
+          if (existing.photos.isNotEmpty) {
+            listing.photos = mergeLocalPhotos(listing.photos, existing.photos);
+          }
+          // An older server row without them reads as empty.
+          if (listing.farmerName.isEmpty) {
+            listing.farmerName = existing.farmerName;
+          }
+          if (listing.farmerPhone.isEmpty) {
+            listing.farmerPhone = existing.farmerPhone;
+          }
+        }
+        if (existing == null || _ownCropMoved(existing, listing)) {
+          changed = true;
+        }
+        await _isar.cropListings.put(listing);
+      }
     });
-    return removed > 0;
+    return changed;
   }
+
+  /// The server's [listed] copy differs from the [stored] row: another
+  /// version, status or `updatedAt`, or other stock (an order takes stock
+  /// without an upload from this phone).
+  static bool _ownCropMoved(CropListing stored, CropListing listed) =>
+      stored.version != listed.version ||
+      stored.status != listed.status ||
+      stored.quantity != listed.quantity ||
+      !stored.updatedAt.isAtSameMomentAs(listed.updatedAt);
 
   /// FUP-498: the listings whose absence from the farmer's own list says
   /// nothing: a `crop_listing` operation of theirs is still on its way
@@ -343,10 +397,25 @@ class IsarMarketplaceSync implements MarketplaceSync {
     _lastDeliveryPull = _clock();
   }
 
+  /// BUG-37: a call while a pull for the same user and role is on its way
+  /// waits for that one instead of fetching the orders a second time (the
+  /// Home tiles and the Action needed card both ask when Home opens).
   @override
-  Future<void> pullOrders({required String userId, String? role}) async {
-    if (userId.isEmpty) return;
-    if (_isFresh(_lastOrderPull)) return;
+  Future<void> pullOrders({required String userId, String? role}) {
+    if (userId.isEmpty) return Future.value();
+    final key = '$userId|$role';
+    final onItsWay = _orderPull;
+    if (onItsWay != null && _orderPullKey == key) return onItsWay;
+    if (_isFresh(_lastOrderPull)) return Future.value();
+    final pull = _pullOrders(userId, role);
+    _orderPull = pull;
+    _orderPullKey = key;
+    return pull.whenComplete(() {
+      if (identical(_orderPull, pull)) _orderPull = null;
+    });
+  }
+
+  Future<void> _pullOrders(String userId, String? role) async {
     final orders = await _fetchOrders(userId, role);
     // entityIds of local order writes not yet confirmed synced — a buyer who
     // just placed/paid offline must not have it overwritten by an older server
@@ -934,11 +1003,17 @@ class IsarMarketplaceSync implements MarketplaceSync {
     return (results, deletedIds);
   }
 
-  /// FUP-498: the ids of the farmer's own listings the server lists
+  /// FUP-498: the farmer's own listings the server lists
   /// (`GET /crops?farmerId=`, no `status`: every own listing but the deleted
-  /// ones, crop-listing-api 1.9.0), read to the last page. A deleted row a
-  /// server still sends is not counted (FUP-149). Errors propagate.
-  Future<Set<String>> _fetchOwnCropIds(String farmerId) async {
+  /// ones, crop-listing-api 1.9.0, so `reserved` and `sold` come too), read
+  /// to the last page: the rows to store (BUG-31) and the ids listed. A
+  /// deleted row a server still sends is in neither (FUP-149). A row that
+  /// names another farmer counts as listed but is never stored. Errors
+  /// propagate.
+  Future<(List<CropListing>, Set<String>)> _fetchOwnCrops(
+    String farmerId,
+  ) async {
+    final rows = <CropListing>[];
     final ids = <String>{};
     String? nextToken;
     do {
@@ -954,12 +1029,13 @@ class IsarMarketplaceSync implements MarketplaceSync {
       for (final item in items) {
         final row = item as Map<String, dynamic>;
         if (isDeletedCropRow(row)) continue;
-        final id = row['listingId'] as String? ?? row['cropId'] as String?;
-        if (id != null && id.isNotEmpty) ids.add(id);
+        final listing = _parseCrop(row);
+        if (listing.listingId.isEmpty || !ids.add(listing.listingId)) continue;
+        if (listing.farmerId == farmerId) rows.add(listing);
       }
       nextToken = data['nextToken'] as String?;
     } while (nextToken != null && nextToken.isNotEmpty);
-    return ids;
+    return (rows, ids);
   }
 
   /// Every open trip, and the order lead the server reported (FUP-122, the

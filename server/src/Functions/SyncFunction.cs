@@ -699,7 +699,10 @@ public partial class SyncFunction
             _dynamoDb,
             cropsTable,
             fraudSignalsTable,
-            new RateLimitRepository(_dynamoDb, rateLimitTable));
+            new RateLimitRepository(_dynamoDb, rateLimitTable))
+        {
+            TripsTable = _tripsTable
+        };
         // FUP-317: a profile edit writes its transaction-audit row in the same transaction.
         _userRepo = new UserRepository(_dynamoDb, usersTable, Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE"));
 
@@ -2970,12 +2973,14 @@ public partial class SyncFunction
                         }
 
                         var fraudCheck = await _fraudService.CheckListingCreationAsync(
-                            authenticatedUserId!, cropType, pricePerKg);
+                            authenticatedUserId!, cropType, pricePerKg, ListingLotOf(operation));
 
                         if (!fraudCheck.IsAllowed)
                         {
+                            // A refusal honest farmers also meet names its own signal type (the
+                            // duplicate lot, weight 0); the others are recorded under their code.
                             await TryRecordFraudSignalAsync(
-                                authenticatedUserId!, fraudCheck.ErrorCode ?? "FRAUD_REJECTED",
+                                authenticatedUserId!, fraudCheck.FlagReason ?? fraudCheck.ErrorCode ?? "FRAUD_REJECTED",
                                 operation.EntityId, "crop", fraudCheck.Message, context);
 
                             return new SyncOperationResult
@@ -3471,6 +3476,15 @@ public partial class SyncFunction
 
                     NormalizeDepartureDate(operation.Data);
 
+                    // Rule 6 (fraud-detection-architecture.md): a duplicate trip is refused, another
+                    // trip of the same day is flagged once this one is written.
+                    var (duplicateTrip, sameDayTrip) = await CheckTripCreationFraudAsync(
+                        operation, authenticatedUserId!, context);
+                    if (duplicateTrip != null)
+                    {
+                        return duplicateTrip;
+                    }
+
                     var now = DateTime.UtcNow.ToString("o");
 
                     var item = new Dictionary<string, AttributeValue>
@@ -3544,6 +3558,13 @@ public partial class SyncFunction
                         }
 
                         await _dynamoDb.PutItemAsync(request);
+
+                        if (sameDayTrip != null)
+                        {
+                            await TryRecordFraudSignalAsync(
+                                authenticatedUserId!, sameDayTrip.FlagReason ?? FraudDetectionService.TripSameDaySignal,
+                                operation.EntityId, "trip", sameDayTrip.Message, context);
+                        }
 
                         var result = CropRepository.FromItem(item);
                         return new SyncOperationResult

@@ -854,8 +854,220 @@ void main() {
             reason: '$status',
           );
           expect(await storedIds(), ['edited'], reason: '$status');
-          expect(paths, isEmpty, reason: 'nothing it could remove: no read');
+          expect(paths, ['/crops'], reason: 'the list only: no read by id');
         }
+      });
+
+      // BUG-31 (FUP-520): the listed rows are stored, so a phone that holds
+      // none of the farmer's listings gets them.
+      group('BUG-31: stores the farmer\'s own rows', () {
+        Future<CropListing?> storedRow(String listingId) =>
+            isar.cropListings.getByListingId(listingId);
+
+        test(
+            'a phone with no listing of the farmer gets every listed one, '
+            'reserved and sold included', () async {
+          answer(
+            pages: [
+              [
+                listed('teff'),
+                {...listed('maize'), 'status': 'reserved'},
+              ],
+              [
+                {...listed('barley'), 'status': 'sold', 'version': 4},
+              ],
+            ],
+          );
+
+          expect(await buildSync().pullOwnCrops(farmerId: 'me'), isTrue);
+
+          expect(await storedIds(), ['barley', 'maize', 'teff']);
+          expect((await storedRow('teff'))!.status, ListingStatus.active);
+          expect((await storedRow('maize'))!.status, ListingStatus.reserved);
+          final barley = (await storedRow('barley'))!;
+          expect(barley.status, ListingStatus.sold);
+          expect(barley.version, 4);
+          expect(barley.farmerId, 'me');
+          expect(listQueries.any((q) => q.containsKey('status')), isFalse);
+        });
+
+        test('a row of another farmer in the answer is never stored', () async {
+          answer(
+            pages: [
+              [
+                listed('mine'),
+                _cropJson(cropId: 'theirs', farmerId: 'farmer-2'),
+              ],
+            ],
+          );
+
+          expect(await buildSync().pullOwnCrops(farmerId: 'me'), isTrue);
+
+          expect(await storedIds(), ['mine']);
+        });
+
+        test(
+            'another user\'s stored listing with a listed id is not '
+            'overwritten', () async {
+          await store([own('shared-id', farmerId: 'farmer-2')]);
+          answer(
+            pages: [
+              [listed('shared-id')],
+            ],
+          );
+
+          expect(await buildSync().pullOwnCrops(farmerId: 'me'), isFalse);
+
+          expect((await storedRow('shared-id'))!.farmerId, 'farmer-2');
+        });
+
+        test(
+            'server wins on a stored row: status, stock and version move, the '
+            'place id and the photo file of this phone stay', () async {
+          final mine = own('teff')
+            ..placeId = 'place-7'
+            ..photos = [
+              CropPhoto()
+                ..photoId = 'p1'
+                ..localPath = '/data/p1.jpg'
+                ..sizeBytes = 95000,
+            ];
+          await store([mine]);
+          final isarId = (await storedRow('teff'))!.id;
+          answer(
+            pages: [
+              [
+                {
+                  ...listed('teff'),
+                  'status': 'reserved',
+                  'quantityKg': 2,
+                  'version': 3,
+                  'photos': [
+                    {'photoId': 'p1', 'thumbUrl': 'https://cdn/p1-thumb'},
+                  ],
+                },
+              ],
+            ],
+          );
+
+          expect(await buildSync().pullOwnCrops(farmerId: 'me'), isTrue);
+
+          final row = (await storedRow('teff'))!;
+          expect(row.id, isarId);
+          expect(row.status, ListingStatus.reserved);
+          expect(row.quantity, 2);
+          expect(row.version, 3);
+          expect(row.placeId, 'place-7');
+          expect(row.photos.single.localPath, '/data/p1.jpg');
+          expect(row.photos.single.thumbUrl, 'https://cdn/p1-thumb');
+        });
+
+        test(
+            'a listing with an unsettled operation keeps the phone\'s copy '
+            '(pending, on its way, failed and to be sent again)', () async {
+          for (final (action, status, retryCount) in [
+            ('update', SyncStatus.pending, 0),
+            ('update', SyncStatus.syncing, 0),
+            ('update', SyncStatus.failed, SyncQueue.maxRetries),
+            ('delete', SyncStatus.pending, 0),
+          ]) {
+            await isar.writeTxn(() async {
+              await isar.cropListings.clear();
+              await isar.syncOperations.clear();
+            });
+            await store([own('edited')..pricePerKg = 41]);
+            await queue(
+              'edited',
+              action: action,
+              status: status,
+              retryCount: retryCount,
+            );
+            answer(
+              pages: [
+                [
+                  {...listed('edited'), 'pricePerKg': 40, 'version': 9},
+                ],
+              ],
+            );
+
+            expect(
+              await buildSync().pullOwnCrops(farmerId: 'me'),
+              isFalse,
+              reason: '$action $status',
+            );
+            final row = (await storedRow('edited'))!;
+            expect(row.pricePerKg, 41, reason: '$action $status');
+            expect(row.version, 1, reason: '$action $status');
+          }
+        });
+
+        test('a change queued while the list is on its way wins', () async {
+          await store([own('edited')..pricePerKg = 41]);
+          when(
+            () => api.get<Map<String, dynamic>>(
+              '/crops',
+              queryParameters: any(named: 'queryParameters'),
+            ),
+          ).thenAnswer((_) async {
+            await queue('edited', action: 'update', status: SyncStatus.pending);
+            return {
+              'crops': [
+                {...listed('edited'), 'pricePerKg': 40, 'version': 9},
+              ],
+            };
+          });
+
+          expect(await buildSync().pullOwnCrops(farmerId: 'me'), isFalse);
+
+          expect((await storedRow('edited'))!.pricePerKg, 41);
+        });
+
+        test('a server copy older than the stored row is skipped', () async {
+          await store([
+            own('teff')
+              ..version = 5
+              ..pricePerKg = 41,
+          ]);
+          answer(
+            pages: [
+              [
+                {...listed('teff'), 'pricePerKg': 40, 'version': 4},
+              ],
+            ],
+          );
+
+          expect(await buildSync().pullOwnCrops(farmerId: 'me'), isFalse);
+
+          final row = (await storedRow('teff'))!;
+          expect(row.version, 5);
+          expect(row.pricePerKg, 41);
+        });
+
+        test('an unchanged list reports no change', () async {
+          answer(
+            pages: [
+              [listed('teff')],
+            ],
+          );
+          expect(await buildSync().pullOwnCrops(farmerId: 'me'), isTrue);
+          expect(await buildSync().pullOwnCrops(farmerId: 'me'), isFalse);
+        });
+
+        test('a failed page stores nothing and the error propagates', () async {
+          answer(
+            pages: [
+              [listed('teff')],
+              [listed('maize')],
+            ],
+            failPages: {1},
+          );
+
+          await expectLater(
+            buildSync().pullOwnCrops(farmerId: 'me'),
+            throwsException,
+          );
+          expect(await storedIds(), isEmpty);
+        });
       });
 
       test(
@@ -928,14 +1140,18 @@ void main() {
       });
 
       test(
-          'never touches another user\'s listings, and sends nothing when the '
-          'phone holds none of the farmer\'s', () async {
+          'never touches another user\'s listings, and reads only the list '
+          'when the phone holds none of the farmer\'s', () async {
         await store([own('previous-user', farmerId: 'farmer-2')]);
         answer();
 
         expect(await buildSync().pullOwnCrops(farmerId: 'me'), isFalse);
-        expect(await buildSync().pullOwnCrops(farmerId: ''), isFalse);
         expect(await storedIds(), ['previous-user']);
+        expect(paths, ['/crops']);
+
+        // No farmer: nothing is sent.
+        paths.clear();
+        expect(await buildSync().pullOwnCrops(farmerId: ''), isFalse);
         expect(paths, isEmpty);
       });
 

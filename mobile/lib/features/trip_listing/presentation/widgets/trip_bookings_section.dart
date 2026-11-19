@@ -403,6 +403,7 @@ class _BookingCard extends StatelessWidget {
     return StatusChip(
       label: orderStatusLabel(order.status, l10n),
       kind: orderStatusKind(order.status),
+      icon: orderStatusIcon(order.status),
     );
   }
 }

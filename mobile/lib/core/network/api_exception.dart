@@ -510,19 +510,35 @@ bool isRevertableListingRejectionMessage(String? message) =>
     (message != null && message.startsWith(cropContactInTextCode)) ||
     isFraudAccountHeldMessage(message);
 
+/// Sync rejection prefix of a create the server refused as a duplicate. On a
+/// crop listing: a similar listing, or the same lot, is already listed
+/// (crop-listing-api.md rule 13). On a trip: the trucker already has an open
+/// trip on that route, departure day and vehicle (trip-listing-api.md rule
+/// 14). Nothing was written.
+const String fraudDuplicateListingCode = 'FRAUD_DUPLICATE_LISTING';
+
+/// Whether a /sync per-operation error message refuses a create as a
+/// duplicate (`FRAUD_DUPLICATE_LISTING: ...`). The entity type says which
+/// kind: the code is one for crop listings and trips.
+bool isDuplicateListingMessage(String? message) =>
+    message != null && message.startsWith(fraudDuplicateListingCode);
+
 /// Whether a /sync per-operation error message refuses a trip change for
 /// good and the client must put the trip back from the server (or remove a
 /// refused create): the trucker is restricted or the trip has bookings
 /// (sync-protocol.md 1.17.0), its text holds a phone number, the account
-/// is under review (FUP-51), or the trip is already over (FUP-128). Only
-/// these codes, for the same reasons as
-/// [isRevertableListingRejectionMessage].
+/// is under review (FUP-51), the trip is already over (FUP-128), or the
+/// create is a duplicate of a trip the trucker already has (trip-listing-api
+/// 2.10.0: only a create gets it, so the local copy is removed and My Trips
+/// shows the trip that is on the server). Only these codes, for the same
+/// reasons as [isRevertableListingRejectionMessage].
 bool isRevertableTripRejectionMessage(String? message) =>
     isTripOverMessage(message) ||
     isReputationRestrictedMessage(message) ||
     isTripHasBookingsMessage(message) ||
     (message != null && message.startsWith(tripContactInTextCode)) ||
-    isFraudAccountHeldMessage(message);
+    isFraudAccountHeldMessage(message) ||
+    isDuplicateListingMessage(message);
 
 /// Sync rejection prefix when the live gateway refuses a payment whose order
 /// total one Telebirr payment cannot take (FUP-22, sync-protocol.md 1.24.0).

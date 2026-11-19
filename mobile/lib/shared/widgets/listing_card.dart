@@ -50,6 +50,10 @@ class ListingCard extends StatelessWidget {
   /// Under the price, in green (My Crops: "Active").
   final String? status;
 
+  /// BUG-36: [status] says the listing has not reached the server yet ("Not
+  /// sent yet"): it shows in amber with an upload icon instead of green.
+  final bool statusPending;
+
   /// Replaces the "seller, location" line (My Crops: "Meki · listed Mon",
   /// the seller being the farmer looking).
   final String? subtitle;
@@ -81,6 +85,7 @@ class ListingCard extends StatelessWidget {
     this.progress,
     this.priceUnit,
     this.status,
+    this.statusPending = false,
     this.footer,
     this.leading,
   });
@@ -242,13 +247,29 @@ class ListingCard extends StatelessWidget {
                   ),
                   if (status != null) ...[
                     const SizedBox(height: 4),
-                    Text(
-                      status!,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.fieldGreen,
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (statusPending) ...[
+                          const Icon(
+                            Icons.cloud_upload_outlined,
+                            key: Key('listing_card_pending_icon'),
+                            size: 14,
+                            color: AppTheme.statusWarning,
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          status!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: statusPending
+                                ? AppTheme.statusWarning
+                                : AppTheme.fieldGreen,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ],

@@ -33,7 +33,7 @@
   "@offlineMode": {
     "description": "Indicator that the app is currently offline"
   },
-  "syncPending": "Sync Pending",
+  "syncPending": "Waiting to be sent",
   "@syncPending": {
     "description": "Indicator that there are pending sync operations"
   },
@@ -45,15 +45,15 @@
   "@telebirrPayment": {
     "description": "Feature description for Telebirr payment"
   },
-  "syncInProgress": "Syncing...",
+  "syncInProgress": "Sending...",
   "@syncInProgress": {
     "description": "Indicator that sync is currently in progress"
   },
-  "syncComplete": "Sync Complete",
+  "syncComplete": "Everything is sent",
   "@syncComplete": {
     "description": "Indicator that sync has completed successfully"
   },
-  "syncFailed": "Sync Failed",
+  "syncFailed": "Not sent",
   "@syncFailed": {
     "description": "Indicator that sync has failed"
   },
@@ -61,7 +61,7 @@
   "@retry": {
     "description": "Button to retry a failed operation"
   },
-  "syncNow": "Sync Now",
+  "syncNow": "Send now",
   "@syncNow": {
     "description": "Button to trigger an immediate sync"
   },
@@ -141,15 +141,19 @@
   "@errorOrderRefused": { "description": "The server refused an order change for good (ORDER_* sync error) or the app refused it locally; on mobile the change was undone" },
   "errorOrderNotPlaced": "This order could not be placed, so it was removed. Please order again.",
   "@errorOrderNotPlaced": { "description": "The server refused an order placed offline; the app removed the local order" },
-  "errorChangeNotSaved": "This change could not be saved on the server.",
+  "errorChangeNotSaved": "This change was not accepted.",
   "@errorChangeNotSaved": { "description": "The server refused a queued change for good (listing, trip, delivery, rating, message); it stays on this phone but was never saved" },
+  "errorListingDetailsNotAccepted": "Your crop listing details were not accepted. Check them and try again.",
+  "@errorListingDetailsNotAccepted": {"description": "BUG-L9: a queued crop listing change was refused for its contents (CROP_VALIDATION); says what to do, never the word server"},
+  "errorTripDetailsNotAccepted": "Your trip details were not accepted. Check them and try again.",
+  "@errorTripDetailsNotAccepted": {"description": "BUG-L9: a queued trip change was refused for its contents (TRIP_VALIDATION); says what to do, never the word server"},
   "showingCachedResults": "Showing saved results — couldn't refresh.",
   "@showingCachedResults": { "description": "Banner when a marketplace refresh failed and cached data is shown" },
   "dataWillSyncWhenOnline": "Your data will sync when you're back online",
   "@dataWillSyncWhenOnline": {
     "description": "Reassurance message for offline operations"
   },
-  "offlineReady": "Offline Ready",
+  "offlineReady": "Works without network",
   "@offlineReady": {
     "description": "Indicator that the app is ready to work offline"
   },
@@ -258,6 +262,10 @@
   "@password": {
     "description": "Password input label"
   },
+  "showPassword": "Show password",
+  "@showPassword": {"description": "BUG-L16: tooltip and screen reader label of the eye button on a hidden password field"},
+  "hidePassword": "Hide password",
+  "@hidePassword": {"description": "BUG-L16: tooltip and screen reader label of the eye button on a shown password field"},
   "confirmPassword": "Confirm Password",
   "@confirmPassword": {
     "description": "Confirm password input label"
@@ -350,7 +358,7 @@
   "@loginOffline": {
     "description": "Offline login button"
   },
-  "offlineModeIndicator": "You are in offline mode",
+  "offlineModeIndicator": "No network. Your work is saved on your phone.",
   "@offlineModeIndicator": {
     "description": "Offline mode indicator message"
   },
@@ -2072,6 +2080,8 @@
   "@copiedToClipboard": {
     "description": "Snackbar message after copying text to clipboard"
   },
+  "ratingStarsOf": "{count} of {max} stars",
+  "@ratingStarsOf": {"description": "BUG-L16: tooltip and screen reader label of one star of the rating picker", "placeholders": {"count": {"type": "int"}, "max": {"type": "int"}}},
   "forgotPasswordContactSupport": "Please contact support at +251-111-234567 to reset your password.",
   "@forgotPasswordContactSupport": {
     "description": "Message shown in forgot password dialog with support contact info"
@@ -3110,6 +3120,12 @@
   "@orderTimeline": {
     "description": "Section header for order status timeline"
   },
+  "orderTimelineStepDone": "Done",
+  "@orderTimelineStepDone": {"description": "BUG-L5: screen reader state of an order timeline step that is finished (check icon)"},
+  "orderTimelineStepNow": "Now",
+  "@orderTimelineStepNow": {"description": "BUG-L5: screen reader state of the order timeline step the order is at (filled dot icon)"},
+  "orderTimelineStepLater": "Not yet",
+  "@orderTimelineStepLater": {"description": "BUG-L5: screen reader state of an order timeline step still ahead (empty circle icon)"},
   "etbCurrency": "{amount} ETB",
   "@etbCurrency": {
     "description": "Ethiopian Birr currency format",
@@ -3188,7 +3204,7 @@
   "@transportCostLabel": { "description": "Label for transport cost in price breakdown" },
   "commissionLabel": "Commission (5%)",
   "@commissionLabel": { "description": "Label for commission in price breakdown" },
-  "syncedAgo": "Synced {time} ago",
+  "syncedAgo": "Updated {time} ago",
   "@syncedAgo": { "description": "Stale data indicator", "placeholders": { "time": { "type": "String" } } },
   "browseAllListings": "Browse All Listings",
   "@browseAllListings": { "description": "Link to browse all crop listings" },
@@ -3293,16 +3309,16 @@
   "@sellYourHarvest": { "description": "Farmer-specific banner headline prompting crop listing" },
   "tapToListCrops": "List your crops and reach buyers directly",
   "@tapToListCrops": { "description": "Farmer-specific banner subtitle" },
-  "synced": "Synced",
+  "synced": "All sent",
   "@synced": { "description": "Sync status badge when data is up to date" },
-  "offline": "Offline",
+  "offline": "No network",
   "@offline": { "description": "Sync status badge when device is offline" },
-  "syncFailureCount": "{count} operations need attention",
+  "syncFailureCount": "{count} could not be sent",
   "@syncFailureCount": {
     "description": "Subtitle for failed sync notification",
     "placeholders": { "count": { "type": "int" } }
   },
-  "syncPendingCount": "{count} waiting to sync",
+  "syncPendingCount": "{count} waiting to be sent",
   "@syncPendingCount": {
     "description": "Subtitle for pending sync notification",
     "placeholders": { "count": { "type": "int" } }
@@ -3319,6 +3335,16 @@
   "@logoutAnyway": {"description": "Logout dialog (E-1): the button that logs out although changes are not sent yet"},
   "savedOnPhoneWillSend": "Saved on your phone. It will be sent when you have network.",
   "@savedOnPhoneWillSend": {"description": "Snackbar (E-5) after an order, a crop listing or an answer to an order was saved while the phone had no network: it waits in the sync queue"},
+  "syncStillWaiting": "{count, plural, =1{1 change is still waiting. It will be sent again by itself.} other{{count} changes are still waiting. They will be sent again by themselves.}}",
+  "@syncStillWaiting": {"description": "BUG-34 (persona sim 2026-11-19). Sync sheet, under the header, after a sync run that ended without an error but left changes in the queue (a listing whose photo upload failed): replaces 'Sync Complete'. am and om machine drafted, native review owed", "placeholders": {"count": {"type": "int"}}},
+  "listingNotSentYet": "Not sent yet",
+  "@listingNotSentYet": {"description": "BUG-36 (persona sim 2026-11-19). My Crops card status and crop detail pill, with an upload icon, for the farmer's own listing whose create or edit is still in this phone's sync queue: replaces 'Active'. Short. am and om machine drafted, native review owed"},
+  "listingNotSentYetNote": "Saved on this phone only. Buyers will see it once it is sent.",
+  "@listingNotSentYetNote": {"description": "BUG-36 (persona sim 2026-11-19). Crop detail, farmer's own listing, under the 'Not sent yet' pill: the new listing or the edit is on the phone only. am and om machine drafted, native review owed"},
+  "myCropsNotSentNote": "Listings marked \"Not sent yet\" are saved on this phone only. Buyers see them once they are sent.",
+  "@myCropsNotSentNote": {"description": "BUG-36 (persona sim 2026-11-19). My Crops, note under the list when a listing is marked 'Not sent yet' (the listingNotSentYet text, quoted). am and om machine drafted, native review owed"},
+  "authNetworkTooSlow": "The network is too slow right now. Move to a place with better signal and try again.",
+  "@authNetworkTooSlow": {"description": "BUG-35 (persona sim 2026-11-19). Login error on a phone that is online but the server did not answer in time, and that has never logged in before (no offline login possible). Not the 'log in online first' text. am and om machine drafted, native review owed"},
   "orderAcceptedSent": "You accepted the order.",
   "@orderAcceptedSent": {"description": "Snackbar (E-5) after the farmer accepted an order with a network"},
   "orderRejectedSent": "You declined the order. The buyer gets the money back.",
@@ -3884,6 +3910,10 @@
   "errorTripHasBookings": "This trip has booked orders, so this change can't be made.",
   "@errorTripHasBookings": {
     "description": "The server refused a trip change because orders are booked on it (TRIP_HAS_BOOKINGS); on mobile the local trip went back to the server's"
+  },
+  "errorDuplicateTrip": "You already have a trip on this route on that day, so this one was not posted. Edit that trip instead. If this is a second truck, add its plate number.",
+  "@errorDuplicateTrip": {
+    "description": "The server refused a trip create because the trucker already has an open trip on the same route, departure day and vehicle (FRAUD_DUPLICATE_LISTING on a trip); on mobile the local copy of the new trip was removed"
   },
   "errorCropHasActiveOrders": "This listing has open orders. Handle them first.",
   "@errorCropHasActiveOrders": {
