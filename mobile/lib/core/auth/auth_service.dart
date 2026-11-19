@@ -677,10 +677,19 @@ class AuthService {
         // If online login fails due to network, try offline
         if (!result.isSuccess &&
             result.errorCode == AuthErrorCode.networkError) {
-          return await loginOffline(
+          final offline = await loginOffline(
             phoneNumber: phoneNumber,
             password: password,
           );
+          // BUG-35: the device has a network and the request timed out, and
+          // there is nothing to log in with offline. "Log in online first"
+          // would tell a user who is online that they are not: say the
+          // network is too slow instead.
+          if (result.timedOut &&
+              offline.errorCode == AuthErrorCode.offlineNotAvailable) {
+            return AuthResult.networkTooSlow();
+          }
+          return offline;
         }
 
         return result;
@@ -1000,6 +1009,7 @@ class AuthService {
       return AuthResult.failure(
         AuthErrorCode.networkError,
         'Network timeout. Please check your connection.',
+        timedOut: true,
       );
     }
 

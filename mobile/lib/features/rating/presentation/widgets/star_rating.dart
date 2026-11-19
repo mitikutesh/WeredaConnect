@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// A 1–5 star rating widget.
+/// A 1 to 5 star rating widget.
 ///
 /// Interactive when [onRatingChanged] is provided (tap a star to set the
 /// value); otherwise a read-only display that renders half stars for
@@ -41,6 +42,8 @@ class StarRating extends StatelessWidget {
         final star = Icon(icon, size: size, color: starColor);
         if (onRatingChanged == null) return star;
         return IconButton(
+          // BUG-L16: "3 of 5 stars" on long press and to a screen reader.
+          tooltip: AppLocalizations.of(context)?.ratingStarsOf(position, max),
           padding: EdgeInsets.zero,
           visualDensity: VisualDensity.compact,
           constraints: BoxConstraints.tightFor(

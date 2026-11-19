@@ -165,6 +165,8 @@ void main() {
       );
       await tester.tap(find.text('pay'));
       await settle(tester);
+      // BUG-L16: the eye says what a tap does.
+      expect(find.byTooltip('Show password'), findsOneWidget);
       await tester.enterText(
         find.byKey(const Key('step_up_password_field')),
         'wrong',

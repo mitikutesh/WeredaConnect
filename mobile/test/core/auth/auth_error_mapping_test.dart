@@ -28,6 +28,26 @@ void main() {
     });
   });
 
+  group('NETWORK_TOO_SLOW (BUG-35)', () {
+    test('is its own code, recoverable, and never the offline-login copy', () {
+      const code = AuthErrorCode.networkTooSlow;
+      expect(code, isNot(AuthErrorCode.offlineNotAvailable));
+      expect(code.isRecoverable, isTrue);
+      expect(code.userMessage, contains('too slow'));
+      expect(code.userMessage, isNot(contains('offline')));
+    });
+
+    test('localizes to its own message in every language', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final message = localizeAuthError(l10n, AuthErrorCode.networkTooSlow);
+        expect(message, l10n.authNetworkTooSlow, reason: locale);
+        expect(message, isNot(l10n.authOfflineNotAvailable), reason: locale);
+        expect(message, isNot(l10n.genericError), reason: locale);
+      }
+    });
+  });
+
   group('AUTH_027 phone number in profile text (FUP-52)', () {
     test('is the server code and has a fallback text', () {
       expect(AuthErrorCode.profileContactInText, 'AUTH_027');
