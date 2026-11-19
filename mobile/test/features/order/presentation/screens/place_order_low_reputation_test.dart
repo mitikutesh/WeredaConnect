@@ -120,6 +120,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    // BUG-20: the quantity starts empty; these orders take all there is.
+    await tester.ensureVisible(find.byKey(const Key('place_order_all')));
+    await tester.tap(find.byKey(const Key('place_order_all')));
+    await tester.pump();
   }
 
   Future<void> placeOrder(WidgetTester tester) async {

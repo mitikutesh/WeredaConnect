@@ -11,6 +11,7 @@ import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
+import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/payment_cards.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -22,11 +23,12 @@ import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 /// payment board: the amount in the green card, how the payment confirms
 /// it is the buyer, and Pay pinned at the foot).
 ///
-/// Demo builds: buyers choose a payment method, Commercial Bank of Ethiopia
-/// (CBE) or Telebirr, both **mocked**: the buyer may enter a real reference,
-/// but if left blank the mock reference `MOCK-CBE-{orderId}` /
-/// `MOCK-TBR-{orderId}` is sent so the order can progress without a real
-/// transfer. See [_PaymentMethod].
+/// Demo builds: Telebirr is the default method. The Commercial Bank of
+/// Ethiopia (CBE) transfer is offered beside it only when a real account is
+/// configured ([realCbeAccount], BUG-29). Both are **mocked**: the CBE buyer
+/// may enter a real reference, but if left blank the mock reference
+/// `MOCK-CBE-{orderId}` / `MOCK-TBR-{orderId}` is sent so the order can
+/// progress without a real transfer. See [_PaymentMethod].
 ///
 /// Live builds ([Environment.telebirrLive], ESC-44): Telebirr only (bank
 /// transfers are ESC-46), no reference fields, and a total outside what one
@@ -42,16 +44,39 @@ class PaymentInstructionsScreen extends StatefulWidget {
   /// [Environment.telebirrLive]; tests set it.
   final bool? telebirrLive;
 
+  /// The order detail is the page under this one (Pay Now on the order):
+  /// a paid order closes this screen and nothing else. Without it (straight
+  /// from Place order) the paid order's detail takes this screen's place.
+  /// Either way the buyer ends on the order (BUG-17, BUG-21).
+  final bool fromOrderDetail;
+
+  /// The CBE account buyers transfer to. Null reads the configured one
+  /// (the `cbeAccountValue` string); tests set it. See [realCbeAccount].
+  final String? cbeAccount;
+
   const PaymentInstructionsScreen({
     required this.order,
     this.kycVerificationScreen,
     this.telebirrLive,
+    this.fromOrderDetail = false,
+    this.cbeAccount,
     super.key,
   });
 
   @override
   State<PaymentInstructionsScreen> createState() =>
       _PaymentInstructionsScreenState();
+}
+
+/// [configured] when it is an account number a buyer can transfer to (digits
+/// only, spaces and hyphens aside, at least 6 of them), else null. The
+/// shipped value is the placeholder `1000XXXXXXXXXX`: with it, or with
+/// nothing, the bank transfer is not offered at all, so no buyer is shown an
+/// account that does not exist (BUG-29).
+String? realCbeAccount(String? configured) {
+  final account = configured?.trim() ?? '';
+  final digits = account.replaceAll(RegExp(r'[\s-]'), '');
+  return RegExp(r'^\d{6,}$').hasMatch(digits) ? account : null;
 }
 
 /// Supported (mocked) payment rails for an order.
@@ -70,8 +95,9 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
 
   late final bool _live = widget.telebirrLive ?? Environment.telebirrLive;
 
-  late _PaymentMethod _method =
-      _live ? _PaymentMethod.telebirr : _PaymentMethod.cbe;
+  /// Telebirr is the default wherever both are offered (BUG-29); the bank
+  /// transfer is the buyer's own pick, and only with a real account.
+  _PaymentMethod _method = _PaymentMethod.telebirr;
 
   /// What one Telebirr payment can take (UX check; the server enforces it).
   static const double _telebirrMinEtb = 100;
@@ -128,8 +154,21 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
         );
   }
 
+  /// A password prompt is open. Only the server knows that a payment needs
+  /// a fresh password (AUTH_040: the token's age and the risk tier), so the
+  /// first submit is how the client learns it. This keeps the answer to one
+  /// prompt and one resubmission (BUG-23).
+  bool _stepUpOpen = false;
+
   Future<void> _retryAfterStepUp() async {
-    final ok = await showStepUpDialog(context);
+    if (_stepUpOpen) return;
+    _stepUpOpen = true;
+    final bool ok;
+    try {
+      ok = await showStepUpDialog(context);
+    } finally {
+      _stepUpOpen = false;
+    }
     if (ok && mounted) _submitPayment();
   }
 
@@ -168,6 +207,8 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final amount = _amount;
+    final cbeAccount =
+        realCbeAccount(widget.cbeAccount ?? l10n.cbeAccountValue);
 
     return Scaffold(
       body: BlocListener<OrderBloc, OrderState>(
@@ -177,17 +218,25 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
             // server.
             Navigator.of(context).pushReplacement(
               MaterialPageRoute<void>(
-                builder: (_) => OrderCheckoutScreen(order: widget.order),
+                builder: (_) => OrderCheckoutScreen(
+                  order: widget.order,
+                  fromOrderDetail: widget.fromOrderDetail,
+                ),
               ),
             );
           } else if (state is PaymentSubmitted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(l10n.paymentSubmittedSuccess)),
             );
-            // Pop back to the orders list
-            Navigator.of(context)
-              ..pop() // pop payment instructions
-              ..pop(); // pop place order (if still in stack) or crop detail
+            // End on the order: back to its detail when that is the page
+            // underneath, else the detail in this screen's place. Never a
+            // second pop: an order opened by its address has no page under
+            // its detail (BUG-17).
+            if (widget.fromOrderDetail) {
+              Navigator.of(context).pop();
+            } else {
+              replaceWithOrderDetail(context, widget.order.orderId);
+            }
           } else if (state is OrderError &&
               state.code == AppErrorCode.stepUpRequired) {
             // Web submits straight to /sync: confirm the password, then
@@ -201,8 +250,23 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
             // the buyer must verify, and names the farmer otherwise (SIM-49).
             _retryAfterKyc(state.message);
           } else if (state is OrderError) {
+            // BUG-19: a lost connection says so and offers the same payment
+            // again. The order is read first, so a payment that did reach
+            // the server is not sent twice.
+            final offline = state.code == AppErrorCode.network ||
+                state.code == AppErrorCode.timeout;
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
+              SnackBar(
+                content: Text(localizeErrorCode(state.code, l10n)),
+                action: offline
+                    ? SnackBarAction(
+                        label: l10n.retry,
+                        onPressed: () {
+                          if (mounted) _submitPayment();
+                        },
+                      )
+                    : null,
+              ),
             );
           }
         },
@@ -250,15 +314,7 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
                             padding: EdgeInsets.zero,
                             child: Column(
                               children: [
-                                _PaymentMethodTile(
-                                  icon: Icons.account_balance,
-                                  label: l10n.paymentMethodCbe,
-                                  selected: _method == _PaymentMethod.cbe,
-                                  onTap: () => setState(
-                                    () => _method = _PaymentMethod.cbe,
-                                  ),
-                                ),
-                                const Divider(height: 1),
+                                // Telebirr first: it is the default.
                                 _PaymentMethodTile(
                                   icon: Icons.phone_android,
                                   label: l10n.paymentMethodTelebirr,
@@ -267,6 +323,18 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
                                     () => _method = _PaymentMethod.telebirr,
                                   ),
                                 ),
+                                // No real account, no bank transfer.
+                                if (cbeAccount != null) ...[
+                                  const Divider(height: 1),
+                                  _PaymentMethodTile(
+                                    icon: Icons.account_balance,
+                                    label: l10n.paymentMethodCbe,
+                                    selected: _method == _PaymentMethod.cbe,
+                                    onTap: () => setState(
+                                      () => _method = _PaymentMethod.cbe,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -280,7 +348,8 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
                           const SizedBox(height: 14),
 
                           // ── Method-specific content ───────────────────
-                          if (_method == _PaymentMethod.cbe) ...[
+                          if (_method == _PaymentMethod.cbe &&
+                              cbeAccount != null) ...[
                             Text(
                               l10n.cbePaymentInstructions,
                               style: theme.textTheme.bodyMedium,
@@ -299,7 +368,7 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
                                   _DetailRow(
                                     icon: Icons.credit_card,
                                     label: l10n.cbeAccountNumber,
-                                    value: l10n.cbeAccountValue,
+                                    value: cbeAccount,
                                     showCopy: true,
                                   ),
                                   const Divider(height: 24),

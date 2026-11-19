@@ -2592,6 +2592,22 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String orderQuantityAvailable(String available) {
+    return 'kg $available ni jira';
+  }
+
+  @override
+  String get cropFormPriceHighWarning =>
+      'Gatiin kun kan kg 1 ti, baay\'ee ol\'aanaa fakkaata. Gatii kuntaala tokkoo yoo galchite, 100n hiri.';
+
+  @override
+  String get myCropsSegmentEmpty => 'Tarreen as hin jiru';
+
+  @override
+  String get myCropsSegmentEmptyHint =>
+      'Tarreewwan haala kanaan jiran as irratti mul\'atu.';
+
+  @override
   String get neededByDate => 'Guyyaa barbaachisu (filannoo)';
 
   @override

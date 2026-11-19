@@ -118,6 +118,16 @@ class WebOrderRepository extends BaseOrderRepository {
   Future<Order?> getOrderById(String orderId) async {
     try {
       return await fetchOrder(orderId);
+    } on NetworkException {
+      // BUG-19: no connection is not "no such order". The caller shows the
+      // no-connection text and the user can try again.
+      rethrow;
+    } on TimeoutException {
+      rethrow;
+    } on AuthException {
+      // BUG-30: 403 is someone else's order, 401 an ended session. Each has
+      // its own text.
+      rethrow;
     } on Exception {
       return null;
     }
@@ -319,8 +329,13 @@ class WebOrderRepository extends BaseOrderRepository {
       throw NotFoundException('Order $orderId not found.');
     }
     // Already submitted: nothing to send again (mobile does the same). The
-    // checkout screen takes it from here.
-    if (order.status == OrderStatus.paymentSubmitted) return;
+    // checkout screen takes it from here. Already funded: an earlier submit
+    // reached the server although its answer was lost (BUG-19), so a retry
+    // sends no second payment.
+    if (order.status == OrderStatus.paymentSubmitted ||
+        order.status == OrderStatus.funded) {
+      return;
+    }
     final version = order.version;
     final now = DateTime.now().toUtc().toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(

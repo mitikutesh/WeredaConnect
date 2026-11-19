@@ -17,6 +17,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/telebirr_lau
 import 'package:wereda_connect/features/order/data/repositories/web_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_checkout_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
 import 'package:wereda_connect/features/order/presentation/order_checkout_l10n.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/payment_cards.dart';
@@ -53,9 +54,16 @@ class OrderCheckoutScreen extends StatefulWidget {
   final Stream<void>? connectivityRestored;
   final WidgetBuilder? verificationScreen;
 
+  /// The order detail is the page under this one, so closing returns to the
+  /// order. False when the buyer came straight from Place order: Done on a
+  /// paid order then opens the order's detail in this screen's place
+  /// (BUG-21).
+  final bool fromOrderDetail;
+
   const OrderCheckoutScreen({
     required this.order,
     this.autoOpen = true,
+    this.fromOrderDetail = true,
     this.bloc,
     this.launcher,
     this.returnLinks,
@@ -287,7 +295,10 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
   void _payAgain() {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
-        builder: (_) => PaymentInstructionsScreen(order: widget.order),
+        builder: (_) => PaymentInstructionsScreen(
+          order: widget.order,
+          fromOrderDetail: widget.fromOrderDetail,
+        ),
       ),
     );
   }
@@ -352,7 +363,13 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
                 const SizedBox(height: 6),
               ],
               TextButton(
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: () {
+                  if (state is CheckoutPaid && !widget.fromOrderDetail) {
+                    replaceWithOrderDetail(context, widget.order.orderId);
+                  } else {
+                    Navigator.of(context).pop();
+                  }
+                },
                 style: TextButton.styleFrom(
                   minimumSize: const Size.fromHeight(44),
                   foregroundColor: AppTheme.unselectedNav,

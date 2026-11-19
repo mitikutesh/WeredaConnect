@@ -4744,6 +4744,30 @@ abstract class AppLocalizations {
   /// **'Only {available} kg available. Enter a smaller quantity.'**
   String orderQuantityExceedsStock(String available);
 
+  /// BUG-20. am and om machine drafted, native review owed. Place order: helper under the empty quantity field naming how many kg can be ordered (the listing's stock, or the chosen truck's room when smaller); a grouped number
+  ///
+  /// In en, this message translates to:
+  /// **'{available} kg available'**
+  String orderQuantityAvailable(String available);
+
+  /// BUG-26. am and om machine drafted, native review owed. Create and edit crop listing: warning (it does not block Save) under the price when the price per kg is 500 ETB or more, which usually means the farmer typed a price per quintal (100 kg)
+  ///
+  /// In en, this message translates to:
+  /// **'This price is for 1 kg and looks very high. If you typed the price of a quintal, divide it by 100.'**
+  String get cropFormPriceHighWarning;
+
+  /// BUG-39. am and om machine drafted, native review owed. My Crops: title of the empty state of a status tab (active, reserved, sold) that has no listing while other tabs have some; nobody searched
+  ///
+  /// In en, this message translates to:
+  /// **'No listings here'**
+  String get myCropsSegmentEmpty;
+
+  /// BUG-39. am and om machine drafted, native review owed. My Crops: line under myCropsSegmentEmpty
+  ///
+  /// In en, this message translates to:
+  /// **'Listings with this status show here.'**
+  String get myCropsSegmentEmptyHint;
+
   /// Label for the optional delivery-deadline field on the create-intent screen
   ///
   /// In en, this message translates to:

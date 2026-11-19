@@ -643,16 +643,65 @@ void main() {
       expect(sentBody, isNull);
     });
 
-    test('fetchOrder lets errors through; getOrderById swallows them',
+    test('fetchOrder lets errors through; getOrderById only hides a 404',
         () async {
       when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
-          .thenThrow(const NetworkException('offline'));
+          .thenThrow(const NotFoundException());
 
       await expectLater(
         repo.fetchOrder('ord-1'),
-        throwsA(isA<NetworkException>()),
+        throwsA(isA<NotFoundException>()),
       );
       expect(await repo.getOrderById('ord-1'), isNull);
+    });
+
+    // BUG-19: "no connection" used to read as "no such order", which the
+    // screens showed as "An error occurred".
+    test('offline, getOrderById and submitPayment say so and send nothing',
+        () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenThrow(const NetworkException('offline'));
+      stubSync();
+
+      await expectLater(
+        repo.getOrderById('ord-1'),
+        throwsA(isA<NetworkException>()),
+      );
+      await expectLater(
+        repo.submitPayment(
+          'ord-1',
+          'MOCK-TBR-ord-1',
+          paymentMethod: 'telebirr',
+        ),
+        throwsA(isA<NetworkException>()),
+      );
+      expect(sentBody, isNull);
+    });
+
+    // BUG-30: someone else's order.
+    test('a 403 on the order read is not hidden', () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenThrow(const AuthException('Forbidden', 403));
+
+      await expectLater(
+        repo.getOrderById('ord-1'),
+        throwsA(
+          isA<AuthException>().having((e) => e.statusCode, 'status', 403),
+        ),
+      );
+    });
+
+    // BUG-19: the first submit reached the server, its answer was lost, and
+    // the buyer retries: no second payment.
+    test('already funded on the server: a retry sends nothing', () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1')).thenAnswer(
+        (_) async => {'order': orderDto(status: 'funded')},
+      );
+      stubSync();
+
+      await repo.submitPayment('ord-1', null, paymentMethod: 'telebirr');
+
+      expect(sentBody, isNull);
     });
   });
 }

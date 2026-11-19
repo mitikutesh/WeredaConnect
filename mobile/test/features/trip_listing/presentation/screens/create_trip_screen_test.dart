@@ -443,5 +443,20 @@ void main() {
       ]);
       expect(towns.map((p) => p.id), ['koka', 'dukem']);
     });
+
+    // BUG-28: the place list has a locality "Gimbi" (no population) between
+    // Debre Birhan and Addis Ababa. The map named it on the way, and it
+    // read as the town of Gimbi in West Wellega.
+    test('a locality without a known population is not named on the way', () {
+      final debreBirhan = place('debre-birhan', 9.6795, 39.5326);
+      final addis = place('addis', 9.025, 38.7469);
+      final towns = townsOnTheWay(debreBirhan, addis, [
+        place('gimbi-locality', 9.3993, 39.2702),
+        place('sendafa', 9.152, 39.0234, population: 25500),
+        debreBirhan,
+        addis,
+      ]);
+      expect(towns.map((p) => p.id), ['sendafa']);
+    });
   });
 }

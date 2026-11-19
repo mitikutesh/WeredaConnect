@@ -48,6 +48,34 @@ MaterialPageRoute<void> orderDetailRoute(
       ),
     );
 
+/// Leaves the order detail. Pops when there is a page under it; an order
+/// opened by its own address on web (a link, a reload) has none, and a pop
+/// there would leave an empty app (BUG-17), so it goes to the Orders tab.
+void leaveOrderDetail(BuildContext context) {
+  final navigator = Navigator.of(context);
+  if (navigator.canPop()) {
+    navigator.pop();
+    return;
+  }
+  GoRouter.maybeOf(context)?.go('/orders');
+}
+
+/// Closes the current screen (the payment) and shows [orderId]'s detail in
+/// its place, so a buyer who just paid lands on the order (BUG-21). On web
+/// the order opens through its route, as [openOrderDetail] does.
+void replaceWithOrderDetail(BuildContext context, String orderId) {
+  final navigator = Navigator.of(context);
+  final router = kIsWeb ? GoRouter.maybeOf(context) : null;
+  if (router != null) {
+    if (navigator.canPop()) navigator.pop();
+    router.push<void>('/orders/${Uri.encodeComponent(orderId)}').ignore();
+    return;
+  }
+  navigator.pushReplacement(
+    orderDetailRoute(context.read<OrderBloc>().repository, orderId),
+  );
+}
+
 /// Reads [orderId] from the server into the device when [repository] does
 /// not hold it yet. Mobile only ([sync] is null on web, which reads the
 /// server anyway); offline it gives up quietly and the screen says so.

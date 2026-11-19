@@ -2,6 +2,16 @@ import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
+/// BUG-26: a price per kg from here up is questioned on the listing forms
+/// (a warning, never a block). 500 ETB per kg is 50,000 ETB per quintal,
+/// above what any listed crop sells for, while a price typed per quintal
+/// by mistake (2,800 for maize, 12,000 for teff) is far past it.
+const double unlikelyPricePerKgEtb = 500;
+
+/// Whether [pricePerKg] looks like a price typed for another unit.
+bool isUnlikelyPricePerKg(double? pricePerKg) =>
+    pricePerKg != null && pricePerKg >= unlikelyPricePerKgEtb;
+
 /// Ethiopian crop types supported in crop listings.
 ///
 /// Each crop has a localized display name (Amharic, Afan Oromo, English)
