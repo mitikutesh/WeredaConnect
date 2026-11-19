@@ -371,12 +371,9 @@ public class SyncFunctionDeliveryRulesTests
 
     // Behind, but not a change this caller may make: the row is not handed out.
     [Theory]
-    [InlineData(OutsiderId, "status", "pickedUp")]
-    [InlineData(OutsiderId, "status", "disputed")]
     [InlineData(FarmerId, "status", "pickedUp")]
     [InlineData(TruckerId, "status", "delivered")]
     [InlineData(BuyerId, "gpsAnomalyFlag", "true")]
-    [InlineData(OutsiderId, "qrNonce", "nonce-1")]
     public async Task Update_BehindACancelledDelivery_ByAnotherCaller_IsStillRefused(
         string caller, string field, string value)
     {
@@ -390,6 +387,115 @@ public class SyncFunctionDeliveryRulesTests
         result.GetProperty("status").GetString().Should().Be("error");
         result.GetProperty("message").GetString().Should().StartWith("DELIVERY_ALREADY_CANCELLED");
         HasNoRow(result);
+        await NothingChanged();
+    }
+
+    // A caller who is no party learns nothing about the delivery, not even that it is cancelled.
+    [Theory]
+    [InlineData("status", "pickedUp", "DELIVERY_UNAUTHORIZED: Only the trucker can mark as pickedUp.")]
+    [InlineData("status", "disputed", "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery.")]
+    [InlineData("qrNonce", "nonce-1", "DELIVERY_UNAUTHORIZED: You can only update your own deliveries.")]
+    public async Task Update_OfACancelledDelivery_ByAnOutsider_IsUnauthorized(string field, string value, string message)
+    {
+        SetupDelivery(Delivery("cancelled", version: 3));
+
+        var result = await SendAsync(Op("update", new Dictionary<string, object>
+        {
+            { field, value }, { "version", 2 }
+        }), OutsiderId);
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().Be(message);
+        HasNoRow(result);
+        await NothingChanged();
+    }
+
+    // Persona sim 2026-11-19, BUG-12: the transition check ran before the party check, so an
+    // outsider's invalid transition answered "Cannot transition from 'pending' to 'delivered'".
+    [Theory]
+    [InlineData("pending", "delivered", "DELIVERY_UNAUTHORIZED: Only the buyer can confirm delivery.")]
+    [InlineData("pending", "inTransit", "DELIVERY_UNAUTHORIZED: Only the trucker can mark as inTransit.")]
+    [InlineData("delivered", "pickedUp", "DELIVERY_UNAUTHORIZED: Only the trucker can mark as pickedUp.")]
+    [InlineData("pending", "disputed", "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery.")]
+    [InlineData("inTransit", "teleported", "DELIVERY_UNAUTHORIZED: You can only update your own deliveries.")]
+    public async Task Update_WithAnInvalidTransition_ByAnOutsider_IsUnauthorized_AndTellsNoStatus(
+        string stored, string requested, string message)
+    {
+        SetupDelivery(Delivery(stored, version: 3));
+
+        var result = await SendAsync(Op("update", new Dictionary<string, object>
+        {
+            { "status", requested }, { "version", 3 }
+        }), OutsiderId);
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().Be(message);
+        result.GetProperty("message").GetString().Should().NotContain(stored);
+        HasNoRow(result);
+        await NothingChanged();
+    }
+
+    // What a party gets is unchanged: the invalid transition, or the row when behind (rule 6).
+    [Fact]
+    public async Task Update_WithAnInvalidTransition_ByAParty_KeepsItsAnswers()
+    {
+        SetupDelivery(Delivery("pending", version: 3));
+
+        var current = await SendAsync(Op("update", new Dictionary<string, object>
+        {
+            { "status", "delivered" }, { "version", 3 }
+        }), BuyerId);
+        var behind = await SendAsync(Op("update", new Dictionary<string, object>
+        {
+            { "status", "delivered" }, { "version", 2 }
+        }), BuyerId);
+        var otherRole = await SendAsync(Op("update", new Dictionary<string, object>
+        {
+            { "status", "delivered" }, { "version", 2 }
+        }), FarmerId);
+
+        current.GetProperty("message").GetString().Should()
+            .Be("DELIVERY_INVALID_TRANSITION: Cannot transition from 'pending' to 'delivered'.");
+        behind.GetProperty("status").GetString().Should().Be("conflict");
+        behind.GetProperty("serverVersion").GetInt32().Should().Be(3);
+        otherRole.GetProperty("message").GetString().Should()
+            .Be("DELIVERY_INVALID_TRANSITION: Cannot transition from 'pending' to 'delivered'.");
+        HasNoRow(otherRole);
+        await NothingChanged();
+    }
+
+    // Persona sim 2026-11-19, BUG-16: the delivery's own buyer was told it was not their delivery.
+    [Fact]
+    public async Task Update_WithAPickupNonce_ByTheBuyer_SaysOnlyTheFarmerSetsIt()
+    {
+        SetupDelivery(Delivery("pending", version: 3));
+
+        var result = await SendAsync(Op("update", new Dictionary<string, object>
+        {
+            { "qrNonce", "buyer-made-nonce" }, { "version", 3 }
+        }), BuyerId);
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().Be("DELIVERY_UNAUTHORIZED: Only the farmer sets the pickup code.");
+        await NothingChanged();
+    }
+
+    // Persona sim 2026-11-19, BUG-11: the trucker's qrNonce was dropped, yet the empty update was
+    // written and the version moved under the farmer's and the buyer's queued changes.
+    [Fact]
+    public async Task Update_WithOnlyADroppedPickupNonce_ByTheTrucker_WritesNothing_AndKeepsTheVersion()
+    {
+        SetupDelivery(Delivery("pending", version: 3));
+
+        var result = await SendAsync(Op("update", new Dictionary<string, object>
+        {
+            { "qrNonce", "trucker-made-nonce" }, { "version", 3 }
+        }), TruckerId);
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        result.GetProperty("serverVersion").GetInt32().Should().Be(3);
+        result.GetProperty("serverData").GetProperty("status").GetString().Should().Be("pending");
+        NoPhones(result.GetProperty("serverData"));
         await NothingChanged();
     }
 

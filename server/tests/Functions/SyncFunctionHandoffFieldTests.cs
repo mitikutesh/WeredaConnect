@@ -144,10 +144,10 @@ public partial class SyncFunctionTests
                 { "disputeReason", "the buyer is lying" }
             })), "trucker-001", "trucker"), _context);
 
+        // Every field is dropped, so nothing is written at all and the version stays.
         Assert.Contains("\"status\":\"success\"", response.Body);
-        Assert.False(Writes(write()!, "gpsPickup"));
-        Assert.False(Writes(write()!, "gpsDropoff"));
-        Assert.False(Writes(write()!, "disputeReason"));
+        Assert.Contains("\"serverVersion\":3", response.Body);
+        Assert.Null(write());
         Assert.Contains("DELIVERY_FIELD_DROPPED field=disputeReason status=none", Logs);
     }
 

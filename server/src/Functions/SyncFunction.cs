@@ -2938,8 +2938,13 @@ public partial class SyncFunction
                         return AccountHeldResult(operation);
                     }
 
+                    // A create for an id that already exists (an honest re-queued create under a new
+                    // idempotency key) is answered by the create-conflict echo below: the listing rules
+                    // would call it a duplicate of itself and record a fraud signal.
+                    var createIdExists = await _cropRepo.GetByIdAsync(operation.EntityId) != null;
+
                     // ── Fraud detection (F-14) ──
-                    if (_fraudService != null)
+                    if (_fraudService != null && !createIdExists)
                     {
                         var cropType = operation.Data.GetValueOrDefault("cropType")?.ToString() ?? "";
                         var pricePerKg = 0m;
@@ -5218,6 +5223,20 @@ public partial class SyncFunction
                         return await CancelDeliveryAsync(operation, existing, authenticatedUserId, "update", context);
                     }
 
+                    // The party check comes before every rule that reads the row, so a caller who is
+                    // no party to the delivery never learns its status from a refusal (an invalid
+                    // transition, a cancelled delivery, an expired dispute window).
+                    if (!IsParty(existing, authenticatedUserId, "buyerId", "farmerId", "truckerId"))
+                    {
+                        return await RefuseWithSignalAsync(new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = NonPartyDeliveryRefusal(
+                                operation.Data.TryGetValue("status", out var strangerStatusObj) ? strangerStatusObj?.ToString() : null)
+                        }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
+                    }
+
                     // Block updates to cancelled/deleted deliveries. FUP-128: a party who is behind
                     // the stored version (the delivery was cancelled under it) gets the stored row
                     // as a conflict, like the loser of any status race (SIM-28).
@@ -5259,10 +5278,8 @@ public partial class SyncFunction
                     // confirm pickup with a QR code he made himself.
                     var deliveryFarmerId = existing.TryGetValue("farmerId", out var nonceFarmerAttr)
                         ? nonceFarmerAttr.S : null;
-                    if (authenticatedUserId != deliveryFarmerId)
-                    {
-                        operation.Data.Remove("qrNonce");
-                    }
+                    var droppedPickupNonce = authenticatedUserId != deliveryFarmerId
+                        && operation.Data.Remove("qrNonce");
 
                     // ESC-35: the drop-off nonce proves the trucker handed over the goods, so only
                     // the delivery's trucker may author it, on an update without a status. Anyone
@@ -5453,11 +5470,14 @@ public partial class SyncFunction
                             && authenticatedUserId == existingFarmerIdForNonce;
                         if (authenticatedUserId != existingTruckerId && !isFarmerNoncePersist)
                         {
+                            // A party (the buyer) who sent the pickup code is told whose it is.
                             return await RefuseWithSignalAsync(new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
                                 Status = "error",
-                                Message = "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
+                                Message = droppedPickupNonce
+                                    ? "DELIVERY_UNAUTHORIZED: Only the farmer sets the pickup code."
+                                    : "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
                             }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                         }
 
@@ -5991,6 +6011,20 @@ public partial class SyncFunction
                                 $"GPS anomaly on delivery {MoneyAlarmLog.LogId(operation.EntityId)}: {MoneyAlarmLog.LogText(gpsCheck.Message)}");
                             gpsAnomaly = gpsCheck;
                         }
+                    }
+
+                    // An update without a status that holds nothing the write below would store (only
+                    // dropped or echoed fields, such as a trucker's qrNonce) writes nothing and keeps
+                    // the version; the caller passed the role checks above and gets the stored row.
+                    if (resolvedNewStatus == null && !HasStorableDeliveryField(operation.Data))
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = ItemVersion(existing),
+                            ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing))
+                        };
                     }
 
                     // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
@@ -9615,6 +9649,29 @@ public partial class SyncFunction
     /// (the role rules of the delivery update): the trucker picks up and drives, the buyer confirms,
     /// any party disputes.
     /// </summary>
+    /// <summary>
+    /// True when a delivery update's payload holds a field the update write stores: an allowed,
+    /// mutable field that is not an echo (the write loop's own skip rules).
+    /// </summary>
+    private static bool HasStorableDeliveryField(Dictionary<string, object>? data)
+        => data != null && data.Keys.Any(k =>
+            k is not ("deliveryId" or "version" or "createdAt" or "updatedAt" or "qrToken")
+            && AllowedDeliveryFields.Contains(k)
+            && !ImmutableDeliveryFields.Contains(k));
+
+    /// <summary>
+    /// The refusal for a delivery update from a caller who is no party to the delivery: always
+    /// <c>DELIVERY_UNAUTHORIZED</c>, with the role sentence of the requested status and nothing
+    /// about the delivery itself.
+    /// </summary>
+    private static string NonPartyDeliveryRefusal(string? requestedStatus) => requestedStatus switch
+    {
+        "pickedUp" or "inTransit" => $"DELIVERY_UNAUTHORIZED: Only the trucker can mark as {requestedStatus}.",
+        "delivered" => "DELIVERY_UNAUTHORIZED: Only the buyer can confirm delivery.",
+        "disputed" => "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery.",
+        _ => "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
+    };
+
     private static bool MayRequestDeliveryStatus(Dictionary<string, AttributeValue> delivery, string? userId, string? status)
         => status switch
         {

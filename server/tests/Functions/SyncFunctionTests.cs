@@ -5553,10 +5553,10 @@ public partial class SyncFunctionTests
                 { "truckerName", "Tadesse" }, { "truckerPhone", "0922222222" }, { "version", 1 }
             })), "trucker-001"), _context);
 
-        Assert.Contains("success", response.Body);
-        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
-            !r.ExpressionAttributeNames.Values.Contains("truckerName")
-            && !r.ExpressionAttributeNames.Values.Contains("truckerPhone")));
+        // The echoes are stripped; nothing else was sent, so nothing is written and the version stays.
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.Contains("\"serverVersion\":1", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
     }
 
     [Fact]
