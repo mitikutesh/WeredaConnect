@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/models/order_dropoff_check_in.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
@@ -270,7 +270,7 @@ class _DropoffCheckInCardState extends State<DropoffCheckInCard> {
       return _RowState(
         clock.deadline(
           at,
-          date: DateFormat.MMMd(),
+          date: formatMonthDay,
           sentence:
               received.isLate ? l10n.checkInReceivedLate : l10n.checkInReceived,
         ),
@@ -282,7 +282,7 @@ class _DropoffCheckInCardState extends State<DropoffCheckInCard> {
       return _RowState(
         clock.deadline(
           queued.madeAt,
-          date: DateFormat.MMMd(),
+          date: formatMonthDay,
           sentence: queued.sent
               ? l10n.checkInSentFromPhone
               : l10n.checkInSavedOnPhone,
@@ -323,7 +323,7 @@ class _DropoffCheckInCardState extends State<DropoffCheckInCard> {
       return (
         text: clock.deadline(
           confirmsAt,
-          date: DateFormat.MMMd(),
+          date: formatMonthDay,
           sentence: isBuyer
               ? l10n.dropoffCheckInBuyerConfirmBy
               : l10n.dropoffCheckInPartyConfirmBy,
@@ -341,7 +341,7 @@ class _DropoffCheckInCardState extends State<DropoffCheckInCard> {
     return (
       text: clock.deadline(
         deadline,
-        date: DateFormat.MMMd(),
+        date: formatMonthDay,
         sentence: isDropoffCheckInParty(_order, widget.userId)
             ? l10n.dropoffCheckInTruckerNote
             : l10n.dropoffCheckInWaitingNote,

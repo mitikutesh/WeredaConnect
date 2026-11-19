@@ -10,8 +10,11 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 
 /// BUG-L2: an Afaan Oromoo user saw "Nov 19, 2026" on the payout line and on
-/// the order card. The trip departure day is covered in
-/// trucker_hero_card_test.dart, the boards' days in board_day_test.dart.
+/// the order card. FUP-545: Amharic and Afaan Oromoo now show the Ethiopian
+/// date first (November 19, 2026 is Hidar 10, 2019) with the Gregorian month
+/// and day in brackets; English is unchanged. The trip departure day is
+/// covered in trucker_hero_card_test.dart, the boards' days in
+/// board_day_test.dart.
 void main() {
   tearDown(() => Intl.defaultLocale = null);
 
@@ -31,51 +34,64 @@ void main() {
   // Noon in Ethiopia on 19 November 2026.
   final day = DateTime.utc(2026, 11, 19, 9);
 
-  testWidgets('the payout date is written in Afaan Oromoo', (tester) async {
+  // The date each language shows for [day].
+  const dates = {
+    'om': 'Sadaasa 10, 2019 (Sad 19)',
+    'am': 'ኅዳር 10፣ 2019 (ኖቬም 19)',
+    'en': 'Nov 19, 2026',
+  };
+
+  for (final MapEntry(key: language, value: date) in dates.entries) {
+    testWidgets('the payout date in $language', (tester) async {
+      await tester.pumpWidget(
+        host(Locale(language), PayoutExpectedText(payoutAt: day)),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(Locale(language));
+      expect(find.text(l10n.escrowPayoutExpectedOn(date)), findsOneWidget);
+      if (language != 'en') expect(find.textContaining('Nov'), findsNothing);
+    });
+
+    testWidgets('the order card day in $language', (tester) async {
+      final order = Order()
+        ..orderId = 'o1'
+        ..listingId = 'l1'
+        ..buyerId = 'b1'
+        ..farmerId = 'f1'
+        ..buyerName = 'Buyer'
+        ..farmerName = 'Farmer'
+        ..cropType = 'wheat'
+        ..quantity = 100
+        ..pricePerUnit = 50
+        ..totalPrice = 5000
+        ..status = OrderStatus.funded
+        ..createdAt = day
+        ..version = 1;
+
+      await tester.pumpWidget(
+        host(Locale(language), OrderCard(order: order)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining(date), findsOneWidget);
+      if (language != 'en') expect(find.textContaining('Nov'), findsNothing);
+    });
+  }
+
+  testWidgets('a payout due at 23:00 UTC is the next day in Ethiopia',
+      (tester) async {
+    // 02:00 on November 20 in Ethiopia: Hidar 11.
+    final late = DateTime.utc(2026, 11, 19, 23);
     await tester.pumpWidget(
-      host(const Locale('om'), PayoutExpectedText(payoutAt: day)),
+      host(const Locale('am'), PayoutExpectedText(payoutAt: late)),
     );
     await tester.pumpAndSettle();
 
-    final l10n = lookupAppLocalizations(const Locale('om'));
+    final l10n = lookupAppLocalizations(const Locale('am'));
     expect(
-      find.text(l10n.escrowPayoutExpectedOn('Sad 19, 2026')),
+      find.text(l10n.escrowPayoutExpectedOn('ኅዳር 11፣ 2019 (ኖቬም 20)')),
       findsOneWidget,
     );
-    expect(find.textContaining('Nov'), findsNothing);
-  });
-
-  testWidgets('the payout date stays English in English', (tester) async {
-    await tester.pumpWidget(
-      host(const Locale('en'), PayoutExpectedText(payoutAt: day)),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.textContaining('Nov 19, 2026'), findsOneWidget);
-  });
-
-  testWidgets('the order card day is written in Afaan Oromoo', (tester) async {
-    final order = Order()
-      ..orderId = 'o1'
-      ..listingId = 'l1'
-      ..buyerId = 'b1'
-      ..farmerId = 'f1'
-      ..buyerName = 'Buyer'
-      ..farmerName = 'Farmer'
-      ..cropType = 'wheat'
-      ..quantity = 100
-      ..pricePerUnit = 50
-      ..totalPrice = 5000
-      ..status = OrderStatus.funded
-      ..createdAt = day
-      ..version = 1;
-
-    await tester.pumpWidget(
-      host(const Locale('om'), OrderCard(order: order)),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.textContaining('Sad 19, 2026'), findsOneWidget);
-    expect(find.textContaining('Nov'), findsNothing);
   });
 }

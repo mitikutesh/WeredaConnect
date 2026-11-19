@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
@@ -74,7 +74,7 @@ class DataUsageScreen extends StatelessWidget {
               if (tracker.trackingSince != null) ...[
                 Text(
                   '${l10n.dataUsageTrackingSince} '
-                  '${DateFormat.yMMMd().format(tracker.trackingSince!)}',
+                  '${formatDate(tracker.trackingSince!)}',
                   style: FwText.body,
                   textAlign: TextAlign.center,
                 ),

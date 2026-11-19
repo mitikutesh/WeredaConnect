@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/models/conflict_event.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/widgets/conflict_field_diff.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -156,6 +156,6 @@ class ConflictDetailCard extends StatelessWidget {
   }
 
   String _formatTimestamp(DateTime dt) {
-    return DateFormat.yMMMd().format(dt);
+    return formatDate(dt);
   }
 }

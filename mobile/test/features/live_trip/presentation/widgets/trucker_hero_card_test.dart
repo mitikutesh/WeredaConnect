@@ -505,32 +505,43 @@ void main() {
   });
 
   // BUG-L2: the departure day was "Mar 5" for an Afaan Oromoo trucker.
-  testWidgets('the departure day is written in Afaan Oromoo', (tester) async {
-    addTearDown(() => Intl.defaultLocale = null);
-    when(() => repository.getMostRelevantTrip('trucker-001'))
-        .thenAnswer((_) async => trip());
+  // FUP-545: Amharic and Afaan Oromoo show the Ethiopian date first (March
+  // 5, 2027 is Yekatit 26, 2019), with a no-break space inside the brackets
+  // so the slot never wraps there; English is unchanged.
+  for (final (language, shown) in [
+    ('om', 'Guraandhala 26 (Bit\u00A05)'),
+    ('am', 'የካቲት 26 (ማርች\u00A05)'),
+    ('en', 'Mar 5'),
+  ]) {
+    testWidgets('the departure day in $language', (tester) async {
+      addTearDown(() => Intl.defaultLocale = null);
+      when(() => repository.getMostRelevantTrip('trucker-001'))
+          .thenAnswer((_) async => trip());
 
-    await tester.pumpWidget(
-      BlocProvider<TripListingBloc>.value(
-        value: bloc,
-        child: const MaterialApp(
-          localizationsDelegates: [
-            AppLocalizations.delegate,
-            FallbackMaterialLocalizationsDelegate(),
-            GlobalWidgetsLocalizations.delegate,
-            FallbackCupertinoLocalizationsDelegate(),
-          ],
-          supportedLocales: AppLocalizations.supportedLocales,
-          locale: Locale('om'),
-          home: Scaffold(body: TruckerHeroCard(userId: 'trucker-001')),
+      await tester.pumpWidget(
+        BlocProvider<TripListingBloc>.value(
+          value: bloc,
+          child: MaterialApp(
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              FallbackMaterialLocalizationsDelegate(),
+              GlobalWidgetsLocalizations.delegate,
+              FallbackCupertinoLocalizationsDelegate(),
+            ],
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale(language),
+            home: const Scaffold(
+              body: TruckerHeroCard(userId: 'trucker-001'),
+            ),
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Bit 5'), findsOneWidget);
-    expect(find.text('Mar 5'), findsNothing);
-  });
+      expect(find.text(shown), findsOneWidget);
+      if (language != 'en') expect(find.text('Mar 5'), findsNothing);
+    });
+  }
 
   // Afaan Oromo at 200% on a 360 dp phone: "Irra Deebi'ii Yaali" wraps in
   // half the row instead of pushing it off the card.
@@ -574,6 +585,58 @@ void main() {
         tester.getSize(find.byKey(const Key('trucker_hero_load_failed')));
     final retry = tester.getSize(find.byKey(const Key('trucker_hero_retry')));
     expect(retry.width, lessThanOrEqualTo(row.width / 2));
+  });
+
+  // FUP-545: the departure day with its Ethiopian date, in Afaan Oromo at
+  // 200% on a 360 dp phone, wraps in under half the top row instead of
+  // pushing it off the card or squeezing the route out.
+  testWidgets('the departure day fits in Oromo at 200% text', (tester) async {
+    tester.view.physicalSize = const Size(360, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    addTearDown(() => Intl.defaultLocale = null);
+    // No capacity, so no load bar: its own row (the "space on this trip"
+    // label and the loaded count) does not fit at 200% in Afaan Oromo,
+    // which is not about dates.
+    when(() => repository.getMostRelevantTrip('trucker-001'))
+        .thenAnswer((_) async => trip()..capacity = 0);
+
+    await tester.pumpWidget(
+      BlocProvider<TripListingBloc>.value(
+        value: bloc,
+        child: MaterialApp(
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            FallbackMaterialLocalizationsDelegate(),
+            GlobalWidgetsLocalizations.delegate,
+            FallbackCupertinoLocalizationsDelegate(),
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('om'),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: const Scaffold(
+            body: SingleChildScrollView(
+              child: TruckerHeroCard(userId: 'trucker-001'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    final day = find.text('Guraandhala 26 (Bit\u00A05)');
+    final route = find.text('Meki → Addis Ababa');
+    expect(day, findsOneWidget);
+    final row = tester.getSize(
+      find.ancestor(of: route, matching: find.byType(Row)).first,
+    );
+    expect(tester.getSize(day).width, lessThan(row.width / 2));
+    expect(tester.getSize(route).width, greaterThan(row.width / 2));
   });
 
   testWidgets('no trip: a quiet line and the recent routes as chips',

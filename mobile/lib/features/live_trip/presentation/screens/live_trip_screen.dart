@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -1156,7 +1156,7 @@ class _DeliveredSummary extends StatelessWidget {
                   child: ClockText(
                     clock.deadline(
                       windowEnd,
-                      date: DateFormat.MMMd(),
+                      date: formatMonthDay,
                       sentence: l10n.liveTripReportProblemUntil,
                     ),
                     textAlign: TextAlign.center,
@@ -1377,7 +1377,7 @@ class _EscrowCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final clock = clockFormatOf(context);
-    final date = DateFormat.MMMd();
+    const date = formatMonthDay;
     final windowEnd = confirmedAt.add(DeliveryConstants.disputeWindow);
     // The escrow's own split; an older escrow without it, the order's.
     final transport = escrow.truckerPayout ?? order?.transportCost ?? 0;

@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:intl/intl.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
@@ -18,6 +17,7 @@ import 'package:wereda_connect/core/models/order_dropoff_check_in.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -467,7 +467,7 @@ void main() {
 
           // The harness has no SettingsProvider: the card reads Auto.
           final clock = ClockFormat.resolve(en, ClockPreference.auto);
-          String at(DateTime t) => clock.dateTime(t, date: DateFormat.MMMd());
+          String at(DateTime t) => clock.dateTime(t, date: formatMonthDay);
           final note = find.byKey(const Key('dropoff_check_in_note'));
           expect(
             find.descendant(of: note, matching: textWith(sentence)),

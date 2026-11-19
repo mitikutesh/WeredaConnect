@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
@@ -18,6 +17,7 @@ import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart'
     if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -536,7 +536,7 @@ class _OrderDetailBody extends StatelessWidget {
                           child: ClockText(
                             clock.deadline(
                               answerDeadline,
-                              date: DateFormat.MMMd(),
+                              date: formatMonthDay,
                               sentence: l10n.commitmentAnswerBy,
                             ),
                             style: const TextStyle(
@@ -572,7 +572,7 @@ class _OrderDetailBody extends StatelessWidget {
                                 child: ClockText(
                                   clock.deadline(
                                     order.pickupDeadlineAt!,
-                                    date: DateFormat.yMMMd(),
+                                    date: formatDate,
                                   ),
                                   textAlign: TextAlign.end,
                                 ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/app_notification.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
@@ -340,7 +341,7 @@ String _tierChangedBody(AppLocalizations l10n, Map<String, String> p) {
           // No end date: an admin review is open.
           ? l10n.reputationRestrictedReview
           : l10n.reputationRestrictedUntil(
-              DateFormat.yMMMd().format(dayInEthiopia(until.toUtc())),
+              formatDate(dayInEthiopia(until.toUtc())),
             );
     case 'low':
       return l10n.reputationTierLowBody;
@@ -387,7 +388,7 @@ ClockLabel? notificationDetailLine(
       actionRequiredNotificationTypes.contains(notification.type)) {
     final due = clock.deadline(
       deadline,
-      date: DateFormat.MMMd(),
+      date: formatMonthDay,
       sentence: l10n.actionDueBy,
     );
     return facts.isEmpty ? due : due.prefixed('$facts · ');
