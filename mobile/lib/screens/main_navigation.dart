@@ -200,27 +200,35 @@ class _MainNavigationState extends State<MainNavigation> {
               );
             }
           },
-          child: Scaffold(
-            // FUP-75: "update the app" over every tab while the server
-            // refuses this build's orders.
-            body: AppUpdateBanner(child: screens[_currentIndex]),
-            // The role's one create verb, labeled — an icon-only "+"
-            // assumes app-convention literacy; a verb assumes nothing.
-            floatingActionButton: RoleCreateButton(
-              role: role,
-              onPressed: () => _onFabPressed(context, role),
-            ),
-            // Floats above the bar: docked, the label is far wider than a
-            // notch gap and covered the second and third tabs (LT-01).
-            // Scrollable tab bodies end with Breakpoints.fabClearance so it
-            // never hides their last item.
-            floatingActionButtonLocation:
-                FloatingActionButtonLocation.centerFloat,
-            bottomNavigationBar: RoleNavBar(
-              role: role,
-              tabs: tabs,
-              currentIndex: _currentIndex,
-              onSelected: (i) => setState(() => _currentIndex = i),
+          // BUG-27: the create button folds to its plus while the tab
+          // scrolls toward its end. Another tab opens at its top, with the
+          // label.
+          child: CreateButtonScrollScope(
+            resetKey: _currentIndex,
+            child: Scaffold(
+              // FUP-75: "update the app" over every tab while the server
+              // refuses this build's orders.
+              body: AppUpdateBanner(
+                child: CreateButtonScrollBody(child: screens[_currentIndex]),
+              ),
+              // The role's one create verb, labeled: an icon-only "+"
+              // assumes app-convention literacy; a verb assumes nothing.
+              floatingActionButton: RoleCreateButton(
+                role: role,
+                onPressed: () => _onFabPressed(context, role),
+              ),
+              // Floats above the bar: docked, the label is far wider than a
+              // notch gap and covered the second and third tabs (LT-01).
+              // Scrollable tab bodies end with Breakpoints.fabClearance so
+              // it never hides their last item.
+              floatingActionButtonLocation:
+                  FloatingActionButtonLocation.centerFloat,
+              bottomNavigationBar: RoleNavBar(
+                role: role,
+                tabs: tabs,
+                currentIndex: _currentIndex,
+                onSelected: (i) => setState(() => _currentIndex = i),
+              ),
             ),
           ),
         );

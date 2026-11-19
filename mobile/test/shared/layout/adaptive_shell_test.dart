@@ -51,6 +51,8 @@ void main() {
     String? woreda,
     Locale? locale,
     SecurityEvents? updateEvents,
+    // The Orders tab's page; a line of text by default.
+    Widget? ordersPage,
   }) {
     when(() => authBloc.state).thenReturn(
       AuthAuthenticated(
@@ -103,7 +105,7 @@ void main() {
             ),
             GoRoute(
               path: '/orders',
-              builder: (context, state) => const Text('orders'),
+              builder: (context, state) => ordersPage ?? const Text('orders'),
               routes: [
                 GoRoute(
                   path: ':orderId',
@@ -290,6 +292,110 @@ void main() {
       });
     }
   }
+
+  // BUG-27: in a phone or tablet window the floating create button folds
+  // to its plus while the tab page scrolls toward its end, as on the
+  // device. The desktop sidebar's button keeps its label.
+  group('the create button folds while the tab scrolls', () {
+    Widget longList(String key) => ListView.builder(
+          key: ValueKey(key),
+          itemCount: 60,
+          itemBuilder: (_, i) => SizedBox(height: 64, child: Text('$key $i')),
+        );
+
+    Future<void> scroll(WidgetTester tester, Finder target, double dy) async {
+      await tester.drag(target, Offset(0, dy));
+      await tester.pumpAndSettle();
+    }
+
+    // Folded, the plain 56 dp square; unfolded, the labelled pill.
+    void expectFolded(WidgetTester tester, {required bool folded}) {
+      final width = tester.getSize(find.byType(FloatingActionButton)).width;
+      expect(width, folded ? moreOrLessEquals(56) : greaterThan(100));
+    }
+
+    for (final size in const [Size(400, 800), Size(800, 900)]) {
+      final layout = size.width < 600 ? 'phone' : 'tablet';
+      for (final role in const [UserRole.farmer, UserRole.buyer]) {
+        testWidgets(
+            '$layout ${role.name}: follows the tab page, not a screen '
+            'pushed over it', (tester) async {
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          final semantics = tester.ensureSemantics();
+
+          await tester.pumpWidget(
+            buildApp(role, ordersPage: longList('orders')),
+          );
+          await tester.pumpAndSettle();
+          final router = GoRouter.of(tester.element(find.text('open detail')));
+          router.go('/orders');
+          await tester.pumpAndSettle();
+          final list = find.byKey(const ValueKey('orders'));
+          final name = fabLabels[role]!;
+
+          expectFolded(tester, folded: false);
+          await scroll(tester, list, -300);
+          expectFolded(tester, folded: true);
+          // Folded, a screen reader and a long press still get the name.
+          expect(find.bySemanticsLabel(name), findsOneWidget);
+          expect(find.byTooltip(name), findsOneWidget);
+
+          await scroll(tester, list, 100);
+          expectFolded(tester, folded: false);
+          await scroll(tester, list, -200);
+          expectFolded(tester, folded: true);
+
+          // A screen pushed over the tab scrolls without the button: back
+          // on the tab, the button is as the tab's list left it.
+          Navigator.of(tester.element(list)).push(
+            MaterialPageRoute<void>(
+              builder: (_) => Scaffold(body: longList('pushed')),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final pushed = find.byKey(const ValueKey('pushed'));
+          await scroll(tester, pushed, -300);
+          await scroll(tester, pushed, 100);
+          Navigator.of(tester.element(pushed)).pop();
+          await tester.pumpAndSettle();
+          expectFolded(tester, folded: true);
+
+          // Another tab opens at its top, with the label.
+          router.go('/');
+          await tester.pumpAndSettle();
+          expectFolded(tester, folded: false);
+          expect(tester.takeException(), isNull);
+          semantics.dispose();
+        });
+      }
+    }
+
+    testWidgets('desktop: the sidebar button keeps its label', (tester) async {
+      tester.view.physicalSize = const Size(1300, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        buildApp(UserRole.buyer, ordersPage: longList('orders')),
+      );
+      await tester.pumpAndSettle();
+      GoRouter.of(tester.element(find.text('open detail'))).go('/orders');
+      await tester.pumpAndSettle();
+      // `FilledButton.icon` builds a private subclass on older Flutter (CI runs
+      // 3.38), which an exact-type finder misses: match on `is` instead.
+      final button = find.ancestor(
+        of: find.text('New Buying Intent'),
+        matching: find.byWidgetPredicate((w) => w is FilledButton),
+      );
+      final width = tester.getSize(button).width;
+
+      await scroll(tester, find.byKey(const ValueKey('orders')), -300);
+      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(tester.getSize(button).width, width);
+    });
+  });
 
   // Desktop sidebar footer: "Meki · Farmer" under the name, in the user's
   // language (it showed a lone " · " when the user had a wereda).
