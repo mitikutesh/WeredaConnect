@@ -126,6 +126,7 @@ namespace WeredaConnect.Server;
 // Escrow domain DTOs
 [JsonSerializable(typeof(EscrowDto))]
 [JsonSerializable(typeof(DisputeDto))]
+[JsonSerializable(typeof(DisputeHandoffEvidenceDto))]
 [JsonSerializable(typeof(EscrowSummaryDto))]
 [JsonSerializable(typeof(List<EscrowSummaryDto>))]
 [JsonSerializable(typeof(EscrowAuditEntryDto))]

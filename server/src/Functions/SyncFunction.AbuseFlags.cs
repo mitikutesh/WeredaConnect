@@ -10,7 +10,9 @@ namespace WeredaConnect.Server.Functions;
 /// Persona simulation 2026-11-19 (fraud-detection-architecture.md 3.44.0, Rule 7): the review-only flags
 /// of BUG-5, BUG-7 and BUG-14 and the linked-accounts check of BUG-3. Each flag is a weight 0 soft signal
 /// on the caller, written after the business write it observes succeeded. None refuses anything, none
-/// moves a score, and a failed read or write is logged and never changes the answer.
+/// moves a score, and a failed read or write is logged and never changes the answer. Like every signal
+/// they are held to one row per user, type and UTC hour (fraud spec 14.3): a second delivery or order of
+/// the same user in that hour writes no second row. Review flags only, so the miss is accepted.
 /// </summary>
 public partial class SyncFunction
 {
@@ -23,8 +25,8 @@ public partial class SyncFunction
     /// <summary>
     /// BUG-5 (FUP-448): a trucker's <c>pickedUp</c> that carried no <c>gpsPickup</c>. The pickup is
     /// accepted as before (a rural phone may have no fix); the trucker gets <c>PICKUP_NO_FIX</c> with the
-    /// delivery as the entity. A delivery is picked up once, so once per delivery. A self-pickup has no
-    /// trucker pickup.
+    /// delivery as the entity. A delivery is picked up once, so a delivery is flagged at most once (and a
+    /// second one of the trucker in the same UTC hour not at all). A self-pickup has no trucker pickup.
     /// </summary>
     private async Task TryRecordPickupWithoutFixAsync(
         SyncOperationRequest operation, Dictionary<string, AttributeValue> existing, string? handoffMethod,
@@ -48,8 +50,9 @@ public partial class SyncFunction
     /// BUG-7: an order created on a trip that does not start where the listing is. Place names are free
     /// text, so nothing is refused: when the trip's <c>fromWoreda</c> is neither the listing's
     /// <c>woreda</c> nor its <c>locationName</c> (<see cref="SamePlace"/>), the buyer gets
-    /// <c>ORDER_ROUTE_MISMATCH</c> with the order as the entity. An order is created once, so once per
-    /// order. No trip (a self-pickup), or a name missing on either side: nothing.
+    /// <c>ORDER_ROUTE_MISMATCH</c> with the order as the entity. An order is created once, so it is
+    /// flagged at most once (and a second order of the buyer in the same UTC hour not at all). No trip (a
+    /// self-pickup), or a name missing on either side: nothing.
     /// </summary>
     private async Task TryRecordOrderRouteMismatchAsync(
         SyncOperationRequest operation, Dictionary<string, object> listing,
@@ -114,8 +117,9 @@ public partial class SyncFunction
     /// BUG-14: a stored message on an order or delivery thread whose body holds a phone number
     /// (<see cref="Validation.ContactInText"/>) while the order is not yet delivered. Contact is open after
     /// the accept by design, so the message is stored as sent; the sender gets
-    /// <c>CHAT_CONTACT_BEFORE_DELIVERY</c> with the order as the entity, at most once per order and
-    /// sender. The signal never holds the message text. The order is read only for a body with a number.
+    /// <c>CHAT_CONTACT_BEFORE_DELIVERY</c> with the order as the entity, at most one row per order and
+    /// sender over the table's 30 days, and at most one per sender and UTC hour (a number on a second order
+    /// in the same hour writes nothing). The signal never holds the message text. The order is read only for a body with a number.
     /// </summary>
     private async Task TryRecordChatContactAsync(
         string contextType, string contextId, string senderId, string? body, ILambdaContext context)

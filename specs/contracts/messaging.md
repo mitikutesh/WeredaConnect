@@ -108,7 +108,7 @@ Contact is open after the accept, so a message with a phone number is stored as 
 on an `order` or `delivery` thread holds one (`Validation.ContactInText`, the scanner of listing text) and
 the order is not yet `delivered`, `disputed`, `dispute_resolved`, `disbursing` or `settled`, the server
 records the weight 0 review flag `CHAT_CONTACT_BEFORE_DELIVERY` on the sender, with the order as the entity,
-at most once per order and sender (fraud spec 3.44.0 Rule 7). The flag never holds the message text. The
+at most once per order and sender, and at most once per sender and UTC hour (fraud spec 3.44.0 Rule 7). The flag never holds the message text. The
 answer is unchanged.
 
 ## Read API (`MessageFunction`, authenticated)
