@@ -4750,6 +4750,12 @@ abstract class AppLocalizations {
   /// **'= {count} quintals'**
   String quintalEquivalent(String count);
 
+  /// Design canvas page M (specs/design-canvas): kilograms lead everywhere and the quintals follow in parentheses, in smaller muted text ("2,800 kg left (28 quintals)"). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'({count} quintals)'**
+  String quintalsInParens(String count);
+
   /// Error under the order quantity field when the buyer asks for more kg than the listing has
   ///
   /// In en, this message translates to:

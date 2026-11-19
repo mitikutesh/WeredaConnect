@@ -2596,6 +2596,11 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String quintalsInParens(String count) {
+    return '(kuntaala $count)';
+  }
+
+  @override
   String orderQuantityExceedsStock(String available) {
     return 'Kan jiru kg $available qofa. Baay\'ina xiqqaa galchi.';
   }

@@ -2499,6 +2499,7 @@
   "markFulfilled": "እንደተሟላ ምልክት አድርግ",
   "requestFulfilled": "ጥያቄው እንደተሟላ ምልክት ተደርጓል",
   "quintalEquivalent": "= {count} ኩንታል",
+  "quintalsInParens": "({count} ኩንታል)",
   "orderQuantityExceedsStock": "የሚገኘው {available} ኪ.ግ ብቻ ነው። ያነሰ መጠን ያስገቡ።",
   "orderQuantityAvailable": "{available} ኪ.ግ ይገኛል",
   "cropFormPriceHighWarning": "ይህ ዋጋ የ1 ኪ.ግ ነው፣ በጣም ከፍተኛ ይመስላል። የኩንታል ዋጋ ካስገቡ በ100 ያካፍሉት።",

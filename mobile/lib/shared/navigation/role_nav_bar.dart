@@ -265,48 +265,53 @@ class RoleCreateButton extends StatelessWidget {
         label: name,
         excludeSemantics: true,
         onTap: onPressed,
-        child: Material(
-          color: AppTheme.orange,
-          elevation: floating ? 4 : 0,
-          shadowColor: const Color(0x661A1516),
-          shape: const StadiumBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onPressed,
-            // A black ring for keyboard focus (A-7).
-            focusColor: const Color(0x331A1516),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: floating ? 54 : 46,
-                minWidth: floating ? 54 : 46,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 13),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.add, size: 20, color: foreground),
-                    _FoldingLabel(
-                      shown: showLabel,
-                      child: Padding(
-                        padding: const EdgeInsetsDirectional.only(
-                          start: 5,
-                          end: 5,
-                        ),
-                        child: Text(
-                          shortLabelFor(l10n, role),
-                          maxLines: 1,
-                          softWrap: false,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: foreground,
+        // The pill is 46 tall on the boards; its hit area is Material's
+        // 48 by 48 minimum, and so is the box a screen reader gets.
+        child: FwTapTarget(
+          onTap: onPressed,
+          child: Material(
+            color: AppTheme.orange,
+            elevation: floating ? 4 : 0,
+            shadowColor: const Color(0x661A1516),
+            shape: const StadiumBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onPressed,
+              // A black ring for keyboard focus (A-7).
+              focusColor: const Color(0x331A1516),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: floating ? 54 : 46,
+                  minWidth: floating ? 54 : 46,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 13),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.add, size: 20, color: foreground),
+                      _FoldingLabel(
+                        shown: showLabel,
+                        child: Padding(
+                          padding: const EdgeInsetsDirectional.only(
+                            start: 5,
+                            end: 5,
+                          ),
+                          child: Text(
+                            shortLabelFor(l10n, role),
+                            maxLines: 1,
+                            softWrap: false,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: foreground,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -340,6 +345,10 @@ class _FoldingLabel extends StatelessWidget {
           child: Align(
             alignment: AlignmentDirectional.centerStart,
             widthFactor: open,
+            // As tall as the label: without it the Align fills the height
+            // it is offered, and the bar (or the floating pill) grows to
+            // cover the page.
+            heightFactor: 1,
             child: child,
           ),
         ),

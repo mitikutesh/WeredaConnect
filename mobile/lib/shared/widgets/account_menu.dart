@@ -117,7 +117,7 @@ class _Avatar extends StatelessWidget {
         onTap: onTap,
         child: Material(
           key: const Key('account_button'),
-          color: dark ? const Color(0xFF22302A) : const Color(0xFFE6ECF5),
+          color: dark ? AppTheme.inkCard : AppTheme.paper,
           shape: const CircleBorder(),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
@@ -132,7 +132,7 @@ class _Avatar extends StatelessWidget {
                   Icon(
                     Icons.person,
                     size: 22,
-                    color: dark ? Colors.white : const Color(0xFF2E4C7D),
+                    color: dark ? Colors.white : AppTheme.ink,
                   ),
                   if (unread)
                     Positioned(
@@ -146,9 +146,7 @@ class _Avatar extends StatelessWidget {
                           color: AppTheme.orange,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: dark
-                                ? const Color(0xFF22302A)
-                                : const Color(0xFFE6ECF5),
+                            color: dark ? AppTheme.inkCard : AppTheme.paper,
                             width: 2,
                           ),
                         ),

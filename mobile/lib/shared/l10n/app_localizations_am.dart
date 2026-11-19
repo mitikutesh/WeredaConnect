@@ -2507,6 +2507,11 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String quintalsInParens(String count) {
+    return '($count ኩንታል)';
+  }
+
+  @override
   String orderQuantityExceedsStock(String available) {
     return 'የሚገኘው $available ኪ.ግ ብቻ ነው። ያነሰ መጠን ያስገቡ።';
   }

@@ -1,5 +1,6 @@
 import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Birr the way the Fieldway boards write it: grouped thousands and no
@@ -44,3 +45,13 @@ String etbAmountText(num amount, AppLocalizations l10n) =>
 /// real order never reads "0 kg".
 String kgQuantityText(num kg, AppLocalizations l10n) =>
     isRealKgQuantity(kg) ? l10n.quantityKg(_kgFormat.format(kg)) : noValueMark;
+
+/// "(28 quintals)" for [kg] kilograms: the boards lead with kilograms and
+/// put the quintals after them in parentheses, smaller and muted (design
+/// canvas page M). Part of a quintal keeps up to two decimals ("(0.5
+/// quintals)"). Empty for a quantity that cannot be real
+/// ([isRealKgQuantity]), so nothing trails a [noValueMark].
+String quintalsInParensText(num kg, AppLocalizations l10n) =>
+    isRealKgQuantity(kg)
+        ? l10n.quintalsInParens(_kgFormat.format(kg / kgPerQuintal))
+        : '';

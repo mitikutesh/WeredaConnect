@@ -684,7 +684,7 @@ class _SidebarItem extends StatelessWidget {
             color: selected
                 ? accentTint
                 : hovered
-                    ? const Color(0xFFF3F1EB)
+                    ? AppTheme.paper
                     : Colors.transparent,
             borderRadius: borderRadius,
           ),
@@ -797,15 +797,15 @@ class _SidebarFooter extends StatelessWidget {
                         Container(
                           width: 36,
                           height: 36,
-                          decoration: const BoxDecoration(
+                          decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Color(0xFFE6ECF5),
+                            color: context.roleColors.tint,
                           ),
                           alignment: Alignment.center,
                           child: Text(
                             initials,
-                            style: const TextStyle(
-                              color: Color(0xFF2E4C7D),
+                            style: TextStyle(
+                              color: context.roleColors.primary,
                               fontSize: 13,
                               fontWeight: FontWeight.w800,
                             ),
@@ -845,15 +845,15 @@ class _SidebarFooter extends StatelessWidget {
                         child: Container(
                           width: 34,
                           height: 34,
-                          decoration: const BoxDecoration(
+                          decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Color(0xFFE6ECF5),
+                            color: context.roleColors.tint,
                           ),
                           alignment: Alignment.center,
                           child: Text(
                             initials,
-                            style: const TextStyle(
-                              color: Color(0xFF2E4C7D),
+                            style: TextStyle(
+                              color: context.roleColors.primary,
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
                             ),
@@ -907,7 +907,7 @@ class _SidebarFooterButton extends StatelessWidget {
           color: isActive
               ? context.roleColors.tint
               : hovered
-                  ? const Color(0xFFF3F1EB)
+                  ? AppTheme.paper
                   : Colors.transparent,
           borderRadius: borderRadius,
         ),

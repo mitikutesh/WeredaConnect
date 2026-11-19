@@ -54,4 +54,20 @@ void main() {
       expect(kgQuantityText(maxOrderKg, en), '1,000,000 kg');
     });
   });
+
+  group('quintals after the kilograms (design canvas page M)', () {
+    final en = lookupAppLocalizations(const Locale('en'));
+
+    test('whole and part quintals, grouped', () {
+      expect(quintalsInParensText(2800, en), '(28 quintals)');
+      expect(quintalsInParensText(50, en), '(0.5 quintals)');
+      expect(quintalsInParensText(250000, en), '(2,500 quintals)');
+    });
+
+    test('nothing trails a quantity that cannot be real', () {
+      for (final kg in [0, -1, double.nan, double.infinity, maxOrderKg + 1]) {
+        expect(quintalsInParensText(kg, en), isEmpty, reason: '$kg');
+      }
+    });
+  });
 }

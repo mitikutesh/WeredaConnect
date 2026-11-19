@@ -2505,6 +2505,7 @@
   "markFulfilled": "Akka guutametti mallatteessi",
   "requestFulfilled": "Gaaffiin akka guutametti mallatteeffameera",
   "quintalEquivalent": "= kuntaala {count}",
+  "quintalsInParens": "(kuntaala {count})",
   "orderQuantityExceedsStock": "Kan jiru kg {available} qofa. Baay'ina xiqqaa galchi.",
   "orderQuantityAvailable": "kg {available} ni jira",
   "cropFormPriceHighWarning": "Gatiin kun kan kg 1 ti, baay'ee ol'aanaa fakkaata. Gatii kuntaala tokkoo yoo galchite, 100n hiri.",

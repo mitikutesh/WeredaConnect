@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
 /// Building blocks every board repeats (design canvas page M,
 /// specs/design-canvas; the Fw prefix is from the earlier Fieldway boards):
@@ -18,14 +20,49 @@ class FwPageHeader extends StatelessWidget {
   final Widget? trailing;
   final EdgeInsetsGeometry padding;
 
+  /// Draws this role's sketch at the header's end, beside the title, when
+  /// the title leaves it room (the canvas's sketch rules, [RoleSketch]).
+  final UserRole? sketchRole;
+
   const FwPageHeader({
     required this.title,
     this.eyebrow,
     this.eyebrowWidget,
     this.trailing,
+    this.sketchRole,
     this.padding = const EdgeInsets.fromLTRB(20, 16, 20, 12),
     super.key,
   });
+
+  /// The header sketch's widest and narrowest size, and the gap it keeps
+  /// from the title.
+  static const double _sketchWidth = 84;
+  static const double _sketchMinWidth = 56;
+  static const double _sketchGap = 16;
+
+  /// How wide the sketch may be beside [title] in a header [width] wide,
+  /// or null when the title leaves it no room: the sketch is never under
+  /// the title, and never squeezed below [_sketchMinWidth].
+  static double? _sketchWidthFor(
+    BuildContext context,
+    String title,
+    double width,
+  ) {
+    if (!RoleSketch.sketchesShown(context)) return null;
+    final painter = TextPainter(
+      text: TextSpan(
+        text: title,
+        style: DefaultTextStyle.of(context).style.merge(FwText.pageTitle),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final room = width - painter.width - _sketchGap;
+    painter.dispose();
+    if (room < _sketchMinWidth) return null;
+    return room < _sketchWidth ? room : _sketchWidth;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +79,7 @@ class FwPageHeader extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ));
-    final heading = Column(
+    final text = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (eyebrowWidget != null) ...[
@@ -58,6 +95,26 @@ class FwPageHeader extends StatelessWidget {
         ),
       ],
     );
+    final sketchRole = this.sketchRole;
+    // The sketch sits at the end of the title's own column, on the
+    // title's line: before the trailing buttons, never under them.
+    final heading = sketchRole == null
+        ? text
+        : LayoutBuilder(
+            builder: (context, constraints) {
+              final sketchWidth =
+                  _sketchWidthFor(context, title, constraints.maxWidth);
+              if (sketchWidth == null) return text;
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(child: text),
+                  const SizedBox(width: _sketchGap),
+                  RoleSketch(role: sketchRole, width: sketchWidth),
+                ],
+              );
+            },
+          );
     final trailing = this.trailing;
     return Padding(
       padding: padding,
