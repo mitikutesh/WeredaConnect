@@ -51,6 +51,18 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// same reason: a second Save after a lost response on web, or a second run of a short route, meets it.
     /// </summary>
     internal const string DuplicateTripSignal = "DUPLICATE_TRIP";
+
+    // Rule 7 (persona simulation 2026-11-19): review-only flags of things honest users also do. Each is
+    // weight 0 and soft, written on the user whose own request it observes, and refuses nothing.
+
+    /// <summary>A trucker's pickup confirmed without a GPS fix (FUP-448); the delivery is the entity.</summary>
+    internal const string PickupNoFixSignal = "PICKUP_NO_FIX";
+
+    /// <summary>A buyer's order on a trip that does not start where the listing is; the order is the entity.</summary>
+    internal const string OrderRouteMismatchSignal = "ORDER_ROUTE_MISMATCH";
+
+    /// <summary>A phone number in an order or delivery chat before the order was delivered; the order is the entity.</summary>
+    internal const string ChatContactBeforeDeliverySignal = "CHAT_CONTACT_BEFORE_DELIVERY";
     internal const int PriceAnomalyMinSamples = 5;
     internal const int PriceAnomalySampleSize = 50;
 
@@ -1041,6 +1053,9 @@ public sealed class FraudDetectionService : IFraudDetectionService
         TripSameDaySignal => 0,
         DuplicateLotSignal => 0,
         DuplicateTripSignal => 0,
+        PickupNoFixSignal => 0,
+        OrderRouteMismatchSignal => 0,
+        ChatContactBeforeDeliverySignal => 0,
         _ => 10
     };
 
@@ -1061,7 +1076,8 @@ public sealed class FraudDetectionService : IFraudDetectionService
             or DisputeRateSignal or ImpossibleDeliveryTimeSignal
             or SharedDeviceTradeSignal or RepeatedPairSignal
             or BuyerDeclinePatternSignal
-            or TripSameDaySignal or DuplicateLotSignal or DuplicateTripSignal;
+            or TripSameDaySignal or DuplicateLotSignal or DuplicateTripSignal
+            or PickupNoFixSignal or OrderRouteMismatchSignal or ChatContactBeforeDeliverySignal;
 
     /// <summary>
     /// FRD-09: the transaction pattern types. Each is written with the order, escrow, delivery or trip

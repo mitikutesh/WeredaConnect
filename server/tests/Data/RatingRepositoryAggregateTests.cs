@@ -101,6 +101,75 @@ public class RatingRepositoryAggregateTests
         put.ConditionExpression.Should().Be("attribute_not_exists(ratingId)");
     }
 
+    // ── rating-api.md 1.7.0 (persona simulation BUG-3): a rating between linked accounts ──
+
+    [Fact]
+    public async Task CreateOutsideAggregate_PutsTheRatingAlone_AndNeverTouchesTheRateesSumOrHealMarker()
+    {
+        PutItemRequest? put = null;
+        _dynamoDb.PutItemAsync(Arg.Do<PutItemRequest>(r => put = r), Arg.Any<CancellationToken>()).Returns(new PutItemResponse());
+        var repo = new RatingRepository(_dynamoDb, "ratings", "users", "reputation-events");
+        var data = Data();
+        data["aggregateExclusion"] = "a client cannot set it";
+
+        var result = await repo.CreateOutsideAggregateAsync("order-1:farmer-1", data, RatingRepository.LinkedAccountsExclusion);
+
+        result.IsSuccess.Should().BeTrue();
+        // The answer is the one a counted rating gets: neither server-only field goes back.
+        result.Value!.Should().NotContainKey("inAggregate").And.NotContainKey("aggregateExclusion");
+        result.Value!["ratingId"].Should().Be("order-1:farmer-1");
+        put!.TableName.Should().Be("ratings");
+        put.ConditionExpression.Should().Be("attribute_not_exists(ratingId)");
+        // inAggregate is present and false: the backfill and the heal read only rows without it.
+        put.Item["inAggregate"].IsBOOLSet.Should().BeTrue();
+        put.Item["inAggregate"].BOOL.Should().BeFalse();
+        put.Item["aggregateExclusion"].S.Should().Be("linked_accounts");
+        put.Item["stars"].N.Should().Be("4");
+        await _dynamoDb.DidNotReceive().TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>());
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateOutsideAggregate_RatingExists_IsTheUsualConflict()
+    {
+        _dynamoDb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("exists"));
+        var repo = new RatingRepository(_dynamoDb, "ratings", "users", "reputation-events");
+
+        var result = await repo.CreateOutsideAggregateAsync("order-1:farmer-1", Data(), RatingRepository.LinkedAccountsExclusion);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Code.Should().Be("SYNC_CONFLICT");
+    }
+
+    [Fact]
+    public async Task Summary_TheWalk_LeavesOutARatingStoredOutsideTheAggregateOnPurpose()
+    {
+        // An unstamped ratee is still read by the walk: the excluded 5 stars must not count there either.
+        // A rating put alone because the role changed (inAggregate false, no exclusion) stays in the walk.
+        _dynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>()).Returns(new QueryResponse
+        {
+            Items = new List<Dictionary<string, AttributeValue>>
+            {
+                new() { ["ratingId"] = new() { S = "o1:farmer-1" }, ["stars"] = new() { N = "3" }, ["inAggregate"] = new() { BOOL = true, IsBOOLSet = true } },
+                new() { ["ratingId"] = new() { S = "o2:farmer-1" }, ["stars"] = new() { N = "2" }, ["inAggregate"] = new() { BOOL = false, IsBOOLSet = true } },
+                new()
+                {
+                    ["ratingId"] = new() { S = "o3:farmer-1" }, ["stars"] = new() { N = "5" },
+                    ["inAggregate"] = new() { BOOL = false, IsBOOLSet = true },
+                    ["aggregateExclusion"] = new() { S = "linked_accounts" }
+                }
+            },
+            LastEvaluatedKey = new Dictionary<string, AttributeValue>()
+        });
+        var repo = new RatingRepository(_dynamoDb, "ratings", "users", "reputation-events");
+
+        var (average, count) = await repo.GetSummaryAsync("farmer-1");
+
+        count.Should().Be(2);
+        average.Should().Be(2.5);
+    }
+
     private static TransactionCanceledException UsersRowConflict() => new("x")
     {
         CancellationReasons = new List<CancellationReason> { new() { Code = "None" }, new() { Code = "TransactionConflict" }, new() { Code = "None" } }

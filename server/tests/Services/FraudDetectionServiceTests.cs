@@ -1046,6 +1046,42 @@ public class FraudDetectionServiceTests
             ScoreOf(Enumerable.Range(1, 5).Select(h => (h, "FRAUD_DUPLICATE_LISTING", (string?)$"entity-{h}")).ToArray()).Tier);
     }
 
+    [Theory]
+    [InlineData("PICKUP_NO_FIX")]
+    [InlineData("ORDER_ROUTE_MISMATCH")]
+    [InlineData("CHAT_CONTACT_BEFORE_DELIVERY")]
+    public void ReviewOnlyFlags_OfThingsHonestUsersAlsoDo_NeverScore_HoweverManyRows(string type)
+    {
+        // Rule 7 (persona simulation 2026-11-19): a trucker in a valley without a fix at every pickup, a
+        // buyer whose trips are named after the town and not the woreda, a farmer who gives a number
+        // in every chat. Twenty rows on twenty entities: a score of 0, tier LOW.
+        Assert.Equal(0, FraudDetectionService.SignalWeight(type));
+        Assert.True(FraudDetectionService.IsSoftSignal(type));
+        var rows = Enumerable.Range(1, 20).Select(h => (h, type, (string?)$"entity-{h}")).ToArray();
+
+        var result = ScoreOf(rows);
+
+        Assert.Equal(0, result.Score);
+        Assert.Equal(RiskTier.Low, result.Tier);
+        // The default weight of an unknown type (10) would have made the same rows CRITICAL.
+        Assert.Equal(RiskTier.Critical,
+            ScoreOf(Enumerable.Range(1, 20).Select(h => (h, "SOME_UNLISTED_TYPE", (string?)$"entity-{h}")).ToArray()).Tier);
+    }
+
+    [Fact]
+    public void ReviewOnlyFlags_AddNothingToAUserWhoAlreadyScores()
+    {
+        // One hard signal (20) with and without the three flags beside it: the same score and tier.
+        var alone = ScoreOf((1, "FRAUD_DUPLICATE_LISTING", "crop-1"));
+
+        var withFlags = ScoreOf(
+            (1, "FRAUD_DUPLICATE_LISTING", "crop-1"), (2, "PICKUP_NO_FIX", "del-1"),
+            (3, "ORDER_ROUTE_MISMATCH", "order-1"), (4, "CHAT_CONTACT_BEFORE_DELIVERY", "order-2"));
+
+        Assert.Equal(alone.Score, withFlags.Score);
+        Assert.Equal(alone.Tier, withFlags.Tier);
+    }
+
     [Fact]
     public async Task CheckListingCreation_TheSameLotListedDaysAgo_IsStillRefused()
     {

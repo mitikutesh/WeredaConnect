@@ -271,6 +271,137 @@ public class SyncFunctionRatingTests
         await _ratings.Received(1).CreateAsync("order-1:farmer-1", Arg.Any<Dictionary<string, object>>());
     }
 
+    // Persona sim 2026-11-19, BUG-3: a buyer account on the farmer's own phone bought from that
+    // farmer and left a public 5 star rating. The rating is stored, but outside the aggregate.
+
+    private static UserDto User(string userId, string role, string phone, string? faydaId = null, params string[] devices) => new()
+    {
+        UserId = userId,
+        PhoneNumber = phone,
+        Role = role,
+        Woreda = "Debre Birhan",
+        IsPhoneVerified = true,
+        FaydaId = faydaId,
+        KnownDevices = devices.ToList(),
+        CreatedAt = "2026-01-01T00:00:00Z",
+        UpdatedAt = "2026-01-01T00:00:00Z",
+        Version = 1,
+    };
+
+    private SyncFunction WithParties(UserDto rater, UserDto ratee)
+    {
+        var users = Substitute.For<IUserRepository>();
+        users.GetUserByIdAsync(rater.UserId).Returns(rater);
+        users.GetUserByIdAsync(ratee.UserId).Returns(ratee);
+        _ratings.CreateOutsideAggregateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<string>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(
+                new Dictionary<string, object> { { "ratingId", "order-1:farmer-1" }, { "version", "1" } }));
+        return new SyncFunction(_meta, _crop, _ddb, "trips", "deliveries",
+            userRepo: users, orderRepo: _orders, ratingRepo: _ratings);
+    }
+
+    [Fact]
+    public async Task RatingBetweenAccountsOnOneDevice_IsStoredOutsideTheAggregate_AndAnsweredLikeAnyOther()
+    {
+        OrderReturns(status: "settled");
+        var fn = WithParties(
+            User("buyer-1", "buyer", "+251900000001", null, "device-other", "device-shared"),
+            User("farmer-1", "farmer", "+251900000002", null, "device-shared"));
+
+        var linked = await fn.FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        await _ratings.Received(1).CreateOutsideAggregateAsync(
+            "order-1:farmer-1", Arg.Any<Dictionary<string, object>>(), "linked_accounts");
+        await _ratings.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+
+        // No hint to the rater: the answer is byte for byte the one a counted rating gets.
+        var counted = await WithParties(
+                User("buyer-1", "buyer", "+251900000001", null, "device-a"),
+                User("farmer-1", "farmer", "+251900000002", null, "device-b"))
+            .FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+        Assert.Contains("success", linked.Body);
+        Assert.Equal(counted.Body, linked.Body);
+    }
+
+    [Theory]
+    [InlineData("+251900000002", "FAYDA-9", "FAYDA-9")] // one Fayda ID on both rows
+    [InlineData("+251900000001", null, null)] // one phone number on both rows
+    public async Task RatingBetweenTwoAccountsOfOneIdentity_IsStoredOutsideTheAggregate(
+        string farmerPhone, string? buyerFayda, string? farmerFayda)
+    {
+        OrderReturns(status: "delivered");
+        var fn = WithParties(
+            User("buyer-1", "buyer", "+251900000001", buyerFayda),
+            User("farmer-1", "farmer", farmerPhone, farmerFayda));
+
+        var response = await fn.FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("success", response.Body);
+        await _ratings.Received(1).CreateOutsideAggregateAsync(
+            "order-1:farmer-1", Arg.Any<Dictionary<string, object>>(), "linked_accounts");
+        await _ratings.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task RatingBetweenUnrelatedAccounts_StillCounts()
+    {
+        OrderReturns(status: "settled");
+        var fn = WithParties(
+            User("buyer-1", "buyer", "+251900000001", "FAYDA-1", "device-a"),
+            User("farmer-1", "farmer", "+251900000002", "FAYDA-2", "device-b"));
+
+        var response = await fn.FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("success", response.Body);
+        await _ratings.Received(1).CreateAsync("order-1:farmer-1", Arg.Any<Dictionary<string, object>>());
+        await _ratings.DidNotReceive().CreateOutsideAggregateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task RatingByAccountsThatNeverSentADeviceId_StillCounts()
+    {
+        // Apps from before X-Device-Id have no knownDevices: two empty lists share nothing.
+        OrderReturns(status: "settled");
+        var fn = WithParties(User("buyer-1", "buyer", "+251900000001"), User("farmer-1", "farmer", "+251900000002"));
+
+        await fn.FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        await _ratings.Received(1).CreateAsync("order-1:farmer-1", Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task RatingOfATruckerOnTheRatersDevice_IsStoredOutsideTheAggregateToo()
+    {
+        OrderReturns(status: "settled");
+        var fn = WithParties(
+            User("buyer-1", "buyer", "+251900000001", null, "device-shared"),
+            User("trucker-1", "trucker", "+251900000003", null, "device-shared"));
+
+        var response = await fn.FunctionHandler(
+            Req(RatingOp(rateeId: "trucker-1", rateeRole: "trucker"), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("success", response.Body);
+        await _ratings.Received(1).CreateOutsideAggregateAsync(
+            "order-1:trucker-1", Arg.Any<Dictionary<string, object>>(), "linked_accounts");
+    }
+
+    [Fact]
+    public async Task ARaterRowThatCannotBeRead_CountsTheRating_AndNeverFailsIt()
+    {
+        OrderReturns(status: "settled");
+        var users = Substitute.For<IUserRepository>();
+        users.GetUserByIdAsync("farmer-1").Returns(User("farmer-1", "farmer", "+251900000002", null, "device-shared"));
+        users.GetUserByIdAsync("buyer-1").Returns<UserDto?>(_ => throw new InvalidOperationException("users down"));
+        var fn = new SyncFunction(_meta, _crop, _ddb, "trips", "deliveries",
+            userRepo: users, orderRepo: _orders, ratingRepo: _ratings);
+
+        var response = await fn.FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("success", response.Body);
+        await _ratings.Received(1).CreateAsync("order-1:farmer-1", Arg.Any<Dictionary<string, object>>());
+    }
+
     // Persona sim 2026-11-19, BUG-1: the order read delivered while its escrow was disputed (a
     // dispute raised in transit), and the rating went through.
 
