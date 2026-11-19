@@ -133,7 +133,7 @@ Accounts (7): `+251900198331` Abebe, `+251900192210` Dawit, `+251900195076` Tolo
 Left open on dev: 2 escrows in dispute (`escrow-order-4b42c185...`, `escrow-order-20f8171e...`) in the admin dispute queue; funded or accepted orders `d49a52f9`, `1fd6a372`, `d0d2ad9e`, `3fafa226`, `64ad1f63`; delivered orders `81c5e034`, `4ccb6d42` that will auto-release; several `created` orders that auto-cancel in 24 hours; 9 listings and 6 trips.
 
 ## Fix status (added 2026-11-19, after the run)
-The findings were fixed in six pull requests, grouped by area. None is merged yet.
+The findings were fixed in six pull requests, grouped by area. #444, #445 and #446 are merged; #447, #448 and #450 are open.
 
 | PR | Group | Findings |
 |---|---|---|
