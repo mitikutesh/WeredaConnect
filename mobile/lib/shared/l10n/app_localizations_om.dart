@@ -3194,6 +3194,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Imalli kun ajajoota qabame waan qabuuf, jijjiiramni kun hin danda\'amu.';
 
   @override
+  String get errorDuplicateTrip =>
+      'Karaa kana irratti guyyaa sana imala duraan qabdu, kanaaf imalli kun hin maxxanfamne. Imala sana sirreessaa. Kun konkolaataa lammaffaa yoo ta\'e, lakkoofsa gabatee isaa itti dabalaa.';
+
+  @override
   String get errorCropHasActiveOrders =>
       'Tarreen kun ajajoota banaa qaba. Dura isaan xumuraa.';
 

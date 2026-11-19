@@ -164,6 +164,11 @@ enum AppErrorCode {
   /// its capacity (`TRIP_HAS_BOOKINGS`); the local change was undone.
   tripHasBookings,
 
+  /// The trucker already has an open trip on this route, departure day and
+  /// vehicle (`FRAUD_DUPLICATE_LISTING` on a trip create, trip-listing-api
+  /// 2.10.0); the new trip was not posted and its local copy was removed.
+  duplicateTrip,
+
   /// A listing with active orders cannot be removed or reduced
   /// (`CROP_HAS_ACTIVE_ORDERS`); the local change was undone.
   cropHasActiveOrders,
@@ -510,6 +515,7 @@ String localizeErrorCode(
     AppErrorCode.reputationRestricted => l10n.errorReputationRestricted,
     AppErrorCode.counterpartyRestricted => l10n.errorCounterpartyRestricted,
     AppErrorCode.tripHasBookings => l10n.errorTripHasBookings,
+    AppErrorCode.duplicateTrip => l10n.errorDuplicateTrip,
     AppErrorCode.cropHasActiveOrders => l10n.errorCropHasActiveOrders,
     AppErrorCode.appUpdateRequired => l10n.errorAppUpdateRequired,
     AppErrorCode.appUpdateRequiredKept => l10n.errorAppUpdateRequiredKept,
@@ -639,6 +645,10 @@ AppErrorCode syncRejectionErrorCode({
   }
   if (isTripHasBookingsMessage(message)) {
     return AppErrorCode.tripHasBookings;
+  }
+  // The code is shared with crop listings, which keep the listing wording.
+  if (entityType == 'trip' && isDuplicateListingMessage(message)) {
+    return AppErrorCode.duplicateTrip;
   }
   if (isCropHasActiveOrdersMessage(message)) {
     return AppErrorCode.cropHasActiveOrders;

@@ -5710,6 +5710,12 @@ abstract class AppLocalizations {
   /// **'This trip has booked orders, so this change can\'t be made.'**
   String get errorTripHasBookings;
 
+  /// The server refused a trip create because the trucker already has an open trip on the same route, departure day and vehicle (FRAUD_DUPLICATE_LISTING on a trip); on mobile the local copy of the new trip was removed
+  ///
+  /// In en, this message translates to:
+  /// **'You already have a trip on this route on that day, so this one was not posted. Edit that trip instead. If this is a second truck, add its plate number.'**
+  String get errorDuplicateTrip;
+
   /// The server refused to remove or reduce a listing that has funded or accepted orders (CROP_HAS_ACTIVE_ORDERS); on mobile the local listing went back to the server's
   ///
   /// In en, this message translates to:

@@ -3070,6 +3070,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String get errorTripHasBookings => 'ይህ ጉዞ የተያዙ ትዕዛዞች ስላሉት ይህ ለውጥ ሊደረግ አይችልም።';
 
   @override
+  String get errorDuplicateTrip =>
+      'በዚህ መስመር በዚያ ቀን ጉዞ አስቀድመው አለዎት፣ ስለዚህ ይህ ጉዞ አልተለጠፈም። ያንን ጉዞ ያስተካክሉ። ይህ ሁለተኛ መኪና ከሆነ የሰሌዳ ቁጥሩን ያክሉ።';
+
+  @override
   String get errorCropHasActiveOrders =>
       'ይህ ዝርዝር ክፍት ትዕዛዞች አሉት። መጀመሪያ እነሱን ያስተናግዱ።';
 

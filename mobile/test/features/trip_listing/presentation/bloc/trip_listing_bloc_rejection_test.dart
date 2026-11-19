@@ -108,6 +108,12 @@ void main() {
     for (final (message, code) in [
       ('REPUTATION_RESTRICTED: restricted', AppErrorCode.reputationRestricted),
       ('APP_UPDATE_REQUIRED: minimum 2.0.0', AppErrorCode.appUpdateRequired),
+      // trip-listing-api 2.10.0: the trucker already has that trip.
+      (
+        'FRAUD_DUPLICATE_LISTING: You already have a trip on this route on '
+            'that day. Please update your existing trip instead.',
+        AppErrorCode.duplicateTrip,
+      ),
     ]) {
       test('create: ${code.name}, never TripCreated', () async {
         refuseWith(message);
