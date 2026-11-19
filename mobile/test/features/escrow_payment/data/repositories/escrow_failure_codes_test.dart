@@ -197,6 +197,86 @@ void main() {
     });
   });
 
+  group('a "not delivered" dispute while the goods are on the road (BUG-8)',
+      () {
+    const onTheWay = 'The goods are still on the way. You can report them as '
+        'not delivered after 2026-11-22 08:46 UTC. For any other problem, '
+        'choose another reason.';
+
+    test('escrowCodeOf reads it from the server text of the 422', () {
+      expect(
+        escrowCodeOf(
+          const ServerException(onTheWay, 422, 'ESCROW_INVALID_TRANSITION'),
+          '',
+        ),
+        escrowDisputeGoodsOnTheWayCode,
+      );
+      // A queued dispute stores the same code, and never retries a 422.
+      expect(
+        escrowFailureCodeOf(
+          const ServerException(onTheWay, 422, 'ESCROW_INVALID_TRANSITION'),
+        ),
+        escrowDisputeGoodsOnTheWayCode,
+      );
+      expect(
+        isPermanentEscrowRefusal(
+          const ServerException(onTheWay, 422, 'ESCROW_INVALID_TRANSITION'),
+        ),
+        isTrue,
+      );
+    });
+
+    test(
+        'any other invalid transition, and the wording under another code, '
+        'keep their code', () {
+      expect(
+        escrowCodeOf(
+          const ServerException(
+            "Cannot dispute escrow in 'released' state. Must be 'escrowed'.",
+            422,
+            'ESCROW_INVALID_TRANSITION',
+          ),
+          '',
+        ),
+        'ESCROW_INVALID_TRANSITION',
+      );
+      expect(
+        escrowCodeOf(const ServerException(onTheWay, 422, 'ESCROW_041'), ''),
+        'ESCROW_041',
+      );
+      // The scheduled refund keeps its own code.
+      expect(
+        escrowCodeOf(
+          const ConflictException(
+            _refundScheduled,
+            409,
+            'ESCROW_INVALID_TRANSITION',
+          ),
+          'ESCROW_009',
+        ),
+        escrowDisputeRefundScheduledCode,
+      );
+    });
+
+    test('has its own text in en, am and om', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final text =
+            localizeEscrowError(l10n, escrowDisputeGoodsOnTheWayCode, 'raw');
+        expect(text, l10n.escrowErrorDisputeGoodsOnTheWay, reason: locale);
+        expect(text.trim(), isNotEmpty, reason: locale);
+        expect(text, isNot(l10n.escrowErrorInvalidTransition), reason: locale);
+        expect(
+          text,
+          isNot(l10n.escrowErrorDisputeBeforePickup),
+          reason: locale,
+        );
+        expect(text, isNot(l10n.escrowErrorGeneric), reason: locale);
+        expect(text, isNot(contains('ESCROW_')), reason: locale);
+      }
+    });
+  });
+
   group('WebEscrowRepository', () {
     late _MockApiClient api;
     late WebEscrowRepository repo;

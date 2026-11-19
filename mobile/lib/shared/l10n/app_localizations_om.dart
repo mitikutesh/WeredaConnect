@@ -1289,6 +1289,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Kaffaltii kanaaf maallaqni bitataaf akka deebi\'u duraan qabameera, kanaaf amma komiin itti ka\'uu hin danda\'u. Yoo itti hin walii galle deeggarsa qunnamaa.';
 
   @override
+  String get escrowErrorDisputeGoodsOnTheWay =>
+      'Meeshaan ammayyuu karaa irra jira. Hin geenye jettanii gabaasuu kan dandeessan erga yeroon geejjibsiisaaf murtaa\'e darbee booda. Rakkoo biraatiif sababa biraa filadhaa.';
+
+  @override
   String get escrowErrorInvalidTransition =>
       'Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.';
 

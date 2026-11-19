@@ -1649,6 +1649,10 @@
   "@escrowErrorDisputeRefundScheduled": {
     "description": "A dispute was refused because the refund to the buyer is already scheduled for this payment (409 ESCROW_INVALID_TRANSITION with that reason, FUP-77)"
   },
+  "escrowErrorDisputeGoodsOnTheWay": "The goods are still on the way. You can report them as not delivered once the delivery deadline has passed. For another problem, choose another reason.",
+  "@escrowErrorDisputeGoodsOnTheWay": {
+    "description": "A buyer's dispute with the reason not delivered was refused because the goods are picked up and still on the road and the delivery deadline has not passed (422 ESCROW_INVALID_TRANSITION with that reason, persona simulation BUG-8)"
+  },
   "escrowErrorInvalidTransition": "This action is not allowed in the current payment state.",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"

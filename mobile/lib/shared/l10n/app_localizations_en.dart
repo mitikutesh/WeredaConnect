@@ -1282,6 +1282,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'A refund to the buyer is already scheduled for this payment, so it can no longer be disputed. Contact support if you disagree.';
 
   @override
+  String get escrowErrorDisputeGoodsOnTheWay =>
+      'The goods are still on the way. You can report them as not delivered once the delivery deadline has passed. For another problem, choose another reason.';
+
+  @override
   String get escrowErrorInvalidTransition =>
       'This action is not allowed in the current payment state.';
 

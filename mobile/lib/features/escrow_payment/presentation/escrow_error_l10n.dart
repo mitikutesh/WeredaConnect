@@ -53,6 +53,10 @@ String localizeEscrowError(
     // (escrowCodeOf reads it from the server's text).
     'ESCROW_INVALID_TRANSITION_REFUND_SCHEDULED' =>
       l10n.escrowErrorDisputeRefundScheduled,
+    // Persona simulation BUG-8: a buyer's "not delivered" dispute while the
+    // goods are on the road (escrowCodeOf reads it from the server's text).
+    'ESCROW_INVALID_TRANSITION_GOODS_ON_THE_WAY' =>
+      l10n.escrowErrorDisputeGoodsOnTheWay,
     'ESCROW_OFFLINE' => l10n.escrowErrorOffline,
     // The account is under review (403 on initiate and order checkout).
     'FRAUD_ACCOUNT_HELD' => l10n.fraudAccountHeld,

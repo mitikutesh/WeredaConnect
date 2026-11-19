@@ -1597,6 +1597,7 @@
     "description": "Error when a dispute is raised before the goods are picked up (ESCROW_041)"
   },
   "escrowErrorDisputeRefundScheduled": "Kaffaltii kanaaf maallaqni bitataaf akka deebi'u duraan qabameera, kanaaf amma komiin itti ka'uu hin danda'u. Yoo itti hin walii galle deeggarsa qunnamaa.",
+  "escrowErrorDisputeGoodsOnTheWay": "Meeshaan ammayyuu karaa irra jira. Hin geenye jettanii gabaasuu kan dandeessan erga yeroon geejjibsiisaaf murtaa'e darbee booda. Rakkoo biraatiif sababa biraa filadhaa.",
   "escrowErrorInvalidTransition": "Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"
