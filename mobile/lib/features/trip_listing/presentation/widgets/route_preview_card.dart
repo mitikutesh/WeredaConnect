@@ -27,7 +27,8 @@ int? routeDistanceKm(Place? from, Place? to) {
   return (meters / 1000).round();
 }
 
-/// Up to [limit] towns from [places] near the straight line from [from] to
+/// Up to [limit] towns (places with a known population) from [places] near
+/// the straight line from [from] to
 /// [to] (within [corridorKm] of it, between the two ends), largest first,
 /// returned in order along the route. Roads bend, so the corridor is wide
 /// enough for towns like Dukem, about 15 km off the Meki to Addis line.
@@ -51,6 +52,11 @@ List<Place> townsOnTheWay(
   for (final place in places) {
     if (place.lat == null || place.lng == null) continue;
     if (place.id == from.id || place.id == to.id) continue;
+    // Only a town with a known population is named on the way. The list
+    // also holds small localities without one, some named like a well-known
+    // town far away: the "Gimbi" near Debre Birhan was read as Gimbi in
+    // West Wellega (BUG-28).
+    if (place.population <= 0) continue;
     final t =
         ((x(place) - x(from)) * dx + (y(place) - y(from)) * dy) / lengthSquared;
     if (t <= 0.08 || t >= 0.92) continue;

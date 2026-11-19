@@ -1669,7 +1669,10 @@ class _RecentActivityListState extends State<_RecentActivityList> {
   @override
   void didUpdateWidget(covariant _RecentActivityList oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.userId != widget.userId) {
+    // The line's text is built when it loads: another language needs it
+    // built again, or it keeps the old one until a reload (BUG-24).
+    if (oldWidget.userId != widget.userId ||
+        oldWidget.l10n.localeName != widget.l10n.localeName) {
       setState(() {
         _activityFuture = _loadActivity();
       });
