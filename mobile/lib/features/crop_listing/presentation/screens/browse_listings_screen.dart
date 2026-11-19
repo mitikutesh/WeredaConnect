@@ -641,10 +641,20 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                           listings.isEmpty &&
                           state.listings.isNotEmpty) {
                         // The picked segment is empty; the others are not.
+                        // Nobody searched (BUG-39): a plain empty state,
+                        // unless the crop chip narrowed the list.
+                        final narrowed = _selectedCropType != null;
                         return _NoMatch(
+                          key: const Key('my_crops_segment_empty'),
                           onClear: null,
-                          title: l10n.noListingsMatchFilters,
-                          hint: l10n.noListingsMatchFiltersHint,
+                          icon:
+                              narrowed ? Icons.search_off : Icons.eco_outlined,
+                          title: narrowed
+                              ? l10n.noListingsMatchFilters
+                              : l10n.myCropsSegmentEmpty,
+                          hint: narrowed
+                              ? l10n.noListingsMatchFiltersHint
+                              : l10n.myCropsSegmentEmptyHint,
                           clearLabel: l10n.clearFilters,
                         );
                       }
@@ -1043,12 +1053,15 @@ class _NoMatch extends StatelessWidget {
   final String title;
   final String hint;
   final String clearLabel;
+  final IconData icon;
 
   const _NoMatch({
     required this.onClear,
     required this.title,
     required this.hint,
     required this.clearLabel,
+    this.icon = Icons.search_off,
+    super.key,
   });
 
   @override
@@ -1059,8 +1072,8 @@ class _NoMatch extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.search_off,
+            Icon(
+              icon,
               size: 64,
               color: AppTheme.textMuted,
             ),

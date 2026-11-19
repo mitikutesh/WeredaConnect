@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.23.0
+2.23.1
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -188,7 +188,7 @@ Client previews of an order total (place order, the listing detail price breakdo
 
 ### Units (1.2.0)
 
-`order.quantity` is **kilograms** on the wire (mobile and web send `listing.quantity × 100` by default) and `pricePerUnit` is ETB per kg. Listing `quantity` and trip `capacity` are quintals; `pricePerQuintal` is ETB per quintal. Every conversion between the two divides or multiplies by 100: stock check at create, transport pricing, and the stock decrement at funding (`ICropRepository.TryDecrementStockAsync` subtracts `quantity / 100` quintals, SIM-07). A 500 kg order on a 60-quintal listing leaves 55.
+`order.quantity` is **kilograms** on the wire and `pricePerUnit` is ETB per kg. Since 2.23.1 the place-order form on mobile and web starts with an empty quantity and names what can be ordered (`listing.quantity × 100` kg, or the chosen truck's room when that is less); the buyer types the kg or taps "All" for that amount. An order placed from a buying request still starts at the request's quantity. Before 2.23.1 the form started at the whole stock. Listing `quantity` and trip `capacity` are quintals; `pricePerQuintal` is ETB per quintal. Every conversion between the two divides or multiplies by 100: stock check at create, transport pricing, and the stock decrement at funding (`ICropRepository.TryDecrementStockAsync` subtracts `quantity / 100` quintals, SIM-07). A 500 kg order on a 60-quintal listing leaves 55.
 
 ## Order Update Rules (server-enforced, 1.3.0)
 
@@ -1117,6 +1117,7 @@ only with `COMMITMENTS_ENABLED`; before it goes on, the client FUP-336 and the b
 
 ## Changelog
 
+- **2.23.1 (2026-11-19)**: Client only, no server change (persona simulation BUG-20): the place-order form no longer starts at the listing's whole stock. The quantity starts empty, the form names the kg that can be ordered and offers "All"; an order from a buying request still starts at the request's quantity (Units). A typed drop-off place that was not picked from the list now blocks Place Order instead of silently falling back to the trip's destination (BUG-18); an empty field still means the trip's destination.
 - **2.23.0 (2026-11-13)**: Check-in reminders and pushes (FUP-286 and FUP-338, `notifications-api.md` 1.6.0), behind `pickupClassification` and `dropoffClassification`: the order cron stamps the new stored-only markers `pickupReminderAt` (once, `reminder-lead-hours` before `pickupDeadlineAt`, never before the window opens, while the pickup judgement is pending and a party has not checked in) and `dropoffReminderAt` (once, `reminder-lead-hours` before T9, while the drop-off judgement is pending with a counted check-in), each a marker write with no version bump conditioned on the status and the pending judgement; the order notifier tells the parties from them. New deadline kinds `pickup_reminder` and `silent_buyer_reminder` (swept, before their judgement). With a flag off, a reminder that falls due is never stamped: the cron clears the judgement's stamp then. An admin's `pending` re-open removes `pickupReminderAt`, so the new window has its own reminder. The admin's Stuck Orders takes both reminders as sent, as the others, and lists the judgement they come before. Both markers are server-only (dropped from client payloads, not in `GET /orders`). No status, money or client-model change. 2.22.0 is FUP-370.
 - **2.22.0 (2026-11-13)**: T9 on the order (FUP-370, behind `dropoffClassification`): `GET /orders`, `GET /orders/{id}` and the order rows of `/sync` results gain `dropoffConfirmAt`, the silent-buyer deadline (the counted drop-off check-in's receipt plus SSM `silent-buyer-hours`, the cron's T9 without its margin), computed on every read for the order's three parties while the drop-off waits for T9; omitted otherwise. The orders Lambda gains `DROPOFF_CLASSIFICATION_ENABLED` and `COMMITMENTS_ENABLED`. The clients (Isar schema and web mirror) store it and show it on the drop-off card instead of the 48 hour estimate. No money moves; no rule changes.
 - **2.21.0 (2026-11-13)**: Gaps of the trucker no-show re-open (FUP-363, `delivery-verification-api.md` 2.12.0, `trip-listing-api.md` 2.7.0): the re-open opens again, in the re-open's transaction, a trip the order cron closed as `expired` once the judgement's release left it empty (usual for a single-order trip, closed within 15 minutes), instead of refusing it with `PICKUP_REOPEN_TRIP_UNAVAILABLE`; the cron's close is unchanged. A confirmed handoff brings back only the delivery the judgement's own cancel stamped (`cancelledByJudgementAt`), so a judgement the cron retried after a failed order write still gets its delivery back. No money moves; no client change.

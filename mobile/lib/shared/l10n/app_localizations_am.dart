@@ -2475,6 +2475,21 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String orderQuantityAvailable(String available) {
+    return '$available ኪ.ግ ይገኛል';
+  }
+
+  @override
+  String get cropFormPriceHighWarning =>
+      'ይህ ዋጋ የ1 ኪ.ግ ነው፣ በጣም ከፍተኛ ይመስላል። የኩንታል ዋጋ ካስገቡ በ100 ያካፍሉት።';
+
+  @override
+  String get myCropsSegmentEmpty => 'እዚህ ምንም ዝርዝር የለም';
+
+  @override
+  String get myCropsSegmentEmptyHint => 'በዚህ ሁኔታ ያሉ ዝርዝሮች እዚህ ይታያሉ።';
+
+  @override
   String get neededByDate => 'የሚያስፈልግበት ቀን (አማራጭ)';
 
   @override

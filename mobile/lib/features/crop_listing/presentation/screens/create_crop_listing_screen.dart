@@ -410,6 +410,19 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
             style: LabeledField.helperStyle,
           ),
         ],
+        // BUG-26: a price that looks typed per quintal is questioned. Save
+        // still works.
+        if (isUnlikelyPricePerKg(double.tryParse(_priceController.text))) ...[
+          const SizedBox(height: 6),
+          Text(
+            l10n.cropFormPriceHighWarning,
+            key: const Key('create_listing_price_warning'),
+            style: LabeledField.helperStyle.copyWith(
+              color: AppTheme.statusWarning,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
         const SizedBox(height: 18),
 
         // Location: the place, then the board's card with the farm drawn

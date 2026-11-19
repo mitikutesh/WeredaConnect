@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
@@ -110,20 +112,21 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   @override
   void initState() {
     super.initState();
-    // Pre-fill in kg (listing/intent quantities are quintals). When arriving
-    // from a buying request, start from what the buyer NEEDS, capped by what
-    // the listing has — not the listing's full quantity.
-    final listingKg = widget.listing.quantity * 100;
-    final neededKg =
-        widget.intent != null ? widget.intent!.quantityNeeded * 100 : listingKg;
-    var kgQuantity = neededKg < listingKg ? neededKg : listingKg;
-    // B-2: and no more than the chosen truck has room for.
+    // BUG-20: the quantity starts empty, with what can be ordered named
+    // under the field. It used to start at the listing's whole stock, one
+    // tap away from buying all of it. Only a buying request pre-fills: with
+    // what the buyer said they NEED (quintals there, kg here), capped by
+    // what can be ordered.
+    final intent = widget.intent;
     final trip = widget.selectedTrip;
-    final roomKg = trip == null ? 0.0 : tripRoomLeft(trip) * 100;
-    if (roomKg > 0 && roomKg < kgQuantity) kgQuantity = roomKg;
-    // Grouped as the field groups what is typed ("1,500").
-    _quantityController =
-        TextEditingController(text: formatGroupedNumber(kgQuantity));
+    _quantityController = TextEditingController(
+      text: intent == null
+          ? ''
+          // Grouped as the field groups what is typed ("1,500").
+          : formatGroupedNumber(
+              math.min(intent.quantityNeeded * 100, _availableKg),
+            ),
+    );
     _loadTruckerRating();
     if (trip != null) _startFromDefaultPlace();
   }
@@ -211,6 +214,29 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   /// mobile order is saved and the rejection only surfaces later in sync.
   double get _stockKg => widget.listing.quantity * 100;
 
+  /// What one order can take, in kg: the listing's stock, and with a chosen
+  /// truck no more than it has room for (B-2).
+  double get _availableKg {
+    final trip = widget.selectedTrip;
+    final roomKg = trip == null ? 0.0 : tripRoomLeft(trip) * 100;
+    return roomKg > 0 && roomKg < _stockKg ? roomKg : _stockKg;
+  }
+
+  /// The quick action under the quantity: order everything available.
+  void _orderAll() {
+    _quantityController.text = formatGroupedNumber(_availableKg);
+    setState(() {});
+  }
+
+  /// BUG-18: a typed drop-off place that was not picked from the list has
+  /// no point to send, and the order would silently fall back to the truck's
+  /// destination. Place Order waits until the buyer picks a place or clears
+  /// the field (an empty field means the truck's destination, LT-14).
+  bool get _deliveryPlaceBlocks =>
+      widget.selectedTrip != null &&
+      _deliveryPlace == null &&
+      _deliveryPlaceController.text.trim().isNotEmpty;
+
   /// Same 0.001 kg slack as the server's stock check, so float noise from the
   /// quintal-to-kg conversion never blocks ordering the whole listing.
   bool get _exceedsStock => _quantity > _stockKg + 0.001;
@@ -282,7 +308,12 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
     if (authState is! AuthAuthenticated) return;
 
     final quantity = _quantity;
-    if (quantity <= 0 || _exceedsStock || _dropoffNoteBlocks) return;
+    if (quantity <= 0 ||
+        _exceedsStock ||
+        _dropoffNoteBlocks ||
+        _deliveryPlaceBlocks) {
+      return;
+    }
 
     // B-2: the truck again, at the moment the order is placed: it may have
     // left, filled up or closed since it was chosen (a cached trip offline).
@@ -447,13 +478,41 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                                     : null,
                               ),
                               const SizedBox(height: 6),
+                              // BUG-20: what can be ordered, and one tap to
+                              // order all of it.
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      l10n.orderQuantityAvailable(
+                                        _kgFormat.format(_availableKg),
+                                      ),
+                                      key: const Key(
+                                        'place_order_available',
+                                      ),
+                                      style: LabeledField.helperStyle,
+                                    ),
+                                  ),
+                                  TextButton(
+                                    key: const Key('place_order_all'),
+                                    onPressed: _orderAll,
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: AppTheme.money,
+                                      minimumSize: const Size(48, 48),
+                                    ),
+                                    child: Text(l10n.all),
+                                  ),
+                                ],
+                              ),
                               // Listings and requests are quoted in quintals;
                               // show the conversion so the kg entry isn't a
                               // unit trap.
-                              Text(
-                                _quantityNote(l10n),
-                                style: LabeledField.helperStyle,
-                              ),
+                              if (_quantity > 0)
+                                Text(
+                                  _quantityNote(l10n),
+                                  key: const Key('place_order_quantity_note'),
+                                  style: LabeledField.helperStyle,
+                                ),
                             ],
                           ),
                         ),
@@ -493,8 +552,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                           DeliveryPlaceField(
                             controller: _deliveryPlaceController,
                             repository: widget.placeRepository,
-                            showPickHint: _deliveryPlace == null &&
-                                _deliveryPlaceController.text.trim().isNotEmpty,
+                            showPickHint: _deliveryPlaceBlocks,
                             onPlaceSelected: (place) =>
                                 setState(() => _deliveryPlace = place),
                             onChanged: _deliveryPlaceTyped,
@@ -600,7 +658,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                 onPressed: isLoading ||
                         _quantity <= 0 ||
                         _exceedsStock ||
-                        _dropoffNoteBlocks
+                        _dropoffNoteBlocks ||
+                        _deliveryPlaceBlocks
                     ? null
                     : _placeOrder,
                 style: FilledButton.styleFrom(

@@ -2547,6 +2547,21 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String orderQuantityAvailable(String available) {
+    return '$available kg available';
+  }
+
+  @override
+  String get cropFormPriceHighWarning =>
+      'This price is for 1 kg and looks very high. If you typed the price of a quintal, divide it by 100.';
+
+  @override
+  String get myCropsSegmentEmpty => 'No listings here';
+
+  @override
+  String get myCropsSegmentEmptyHint => 'Listings with this status show here.';
+
+  @override
   String get neededByDate => 'Needed by (optional)';
 
   @override

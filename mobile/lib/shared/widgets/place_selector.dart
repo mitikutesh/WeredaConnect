@@ -53,8 +53,14 @@ class PlaceSelector extends StatefulWidget {
     this.prefix,
     this.showSearchIcon = true,
     this.pickerLook = false,
+    this.selectAllOnFocus = false,
     super.key,
   });
+
+  /// Selects the whole text when the field gains focus, for a field that
+  /// starts prefilled: typing then replaces the name instead of landing in
+  /// the middle of it (BUG-18).
+  final bool selectAllOnFocus;
 
   /// Caller-owned controller. Holds the canonical English name after a pick
   /// (with " · region" in [pickerLook]), or the raw free text otherwise.
@@ -114,7 +120,8 @@ class PlaceSelector extends StatefulWidget {
   State<PlaceSelector> createState() => _PlaceSelectorState();
 }
 
-class _PlaceSelectorState extends State<PlaceSelector> {
+class _PlaceSelectorState extends State<PlaceSelector>
+    with WidgetsBindingObserver {
   late final PlaceRepository _repository;
   final FocusNode _focusNode = FocusNode();
 
@@ -131,6 +138,38 @@ class _PlaceSelectorState extends State<PlaceSelector> {
     _repository = widget.repository ?? PlaceRepository.instance;
     // Lazy-load the dataset on first focus rather than at app boot.
     _focusNode.addListener(_handleFocusChange);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  /// The window changed, for one when the on-screen keyboard comes up.
+  @override
+  void didChangeMetrics() => _liftAboveKeyboard();
+
+  /// After the frame, so the tap that gave the focus has placed its caret.
+  void _selectAllAfterFocus() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_focusNode.hasFocus) return;
+      final text = widget.controller.text;
+      if (text.isEmpty) return;
+      widget.controller.selection =
+          TextSelection(baseOffset: 0, extentOffset: text.length);
+    });
+  }
+
+  /// BUG-38: the suggestions open under the field. On a phone the keyboard
+  /// covers the lower half of the page, so a field that only just clears it
+  /// shows no suggestion. While the keyboard is up and the field has the
+  /// focus, the field is scrolled to the top of its scroll view so the list
+  /// has room. Nothing moves without an on-screen keyboard (desktop web) or
+  /// outside a scroll view (the sheets).
+  void _liftAboveKeyboard() {
+    if (!mounted || !_focusNode.hasFocus) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_focusNode.hasFocus) return;
+      if (View.of(context).viewInsets.bottom <= 0) return;
+      if (Scrollable.maybeOf(context) == null) return;
+      Scrollable.ensureVisible(context, alignment: 0.05).ignore();
+    });
   }
 
   void _handleFocusChange() {
@@ -142,10 +181,16 @@ class _PlaceSelectorState extends State<PlaceSelector> {
     if (!_focusNode.hasFocus && _showNoResultsHint) {
       setState(() => _showNoResultsHint = false);
     }
+    if (_focusNode.hasFocus) {
+      if (widget.selectAllOnFocus) _selectAllAfterFocus();
+      // The keyboard may already be up (focus moved from another field).
+      _liftAboveKeyboard();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _debounceTimer?.cancel();
     _focusNode.removeListener(_handleFocusChange);
     _focusNode.dispose();
