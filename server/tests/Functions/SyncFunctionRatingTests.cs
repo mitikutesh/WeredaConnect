@@ -270,4 +270,78 @@ public class SyncFunctionRatingTests
         Assert.Contains("success", response.Body);
         await _ratings.Received(1).CreateAsync("order-1:farmer-1", Arg.Any<Dictionary<string, object>>());
     }
+
+    // Persona sim 2026-11-19, BUG-1: the order read delivered while its escrow was disputed (a
+    // dispute raised in transit), and the rating went through.
+
+    private SyncFunction WithOrderEscrow(IEscrowRepository escrows)
+        => new(_meta, _crop, _ddb, "trips", "deliveries",
+            orderRepo: _orders, escrowRepo: escrows, ratingRepo: _ratings);
+
+    private static IEscrowRepository EscrowIn(string status)
+    {
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.GetByIdAsync("escrow-order-order-1", true).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-order-order-1" }, { "orderId", "order-1" }, { "status", status },
+        });
+        return escrows;
+    }
+
+    [Theory]
+    [InlineData("disputed")]
+    [InlineData("dispute_resolved")]
+    public async Task RatingOfADeliveredOrder_WhoseEscrowIsInDispute_IsRefused(string escrowStatus)
+    {
+        OrderReturns(status: "delivered");
+
+        var response = await WithOrderEscrow(EscrowIn(escrowStatus))
+            .FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("RATING_FORBIDDEN: This order is in dispute and cannot be rated.", response.Body);
+        await _ratings.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Theory]
+    [InlineData("escrowed")]
+    [InlineData("released")]
+    public async Task RatingOfADeliveredOrder_WhoseEscrowIsNotInDispute_Succeeds(string escrowStatus)
+    {
+        OrderReturns(status: "delivered");
+
+        var response = await WithOrderEscrow(EscrowIn(escrowStatus))
+            .FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("success", response.Body);
+        await _ratings.Received(1).CreateAsync("order-1:farmer-1", Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task RatingOfADeliveredOrder_WithoutAnEscrowRecord_Succeeds()
+    {
+        // A cash order, or one from before order escrows: nothing says it is in dispute.
+        OrderReturns(status: "delivered");
+
+        var response = await WithOrderEscrow(Substitute.For<IEscrowRepository>())
+            .FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("success", response.Body);
+    }
+
+    [Fact]
+    public async Task RatingOfADeliveredOrder_WhoseEscrowCannotBeRead_IsRefusedForNow_WithoutACode()
+    {
+        // Unprefixed, so the clients retry it: RATING_FORBIDDEN would be permanent.
+        OrderReturns(status: "delivered");
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.GetByIdAsync("escrow-order-order-1", true)
+            .Returns<Dictionary<string, object>?>(_ => throw new InvalidOperationException("throttled"));
+
+        var response = await WithOrderEscrow(escrows).FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("\"status\":\"error\"", response.Body);
+        Assert.Contains("payment could not be read. Please try again later.", response.Body);
+        Assert.DoesNotContain("RATING_", response.Body);
+        await _ratings.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
 }

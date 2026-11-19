@@ -6599,6 +6599,102 @@ public partial class SyncFunctionTests
         }
     }
 
+    // --- Persona sim 2026-11-19, BUG-1: an escrow dispute raised in transit, then the buyer confirms ---
+
+    /// <summary>
+    /// The finding's state before the confirm: the escrow disputed by the buyer while the truck drove
+    /// (no deliveryConfirmedAt), the order still in_transit, the delivery inTransit at version 2. The
+    /// order mock keeps its row, so each write is seen by the next read. Returns the order statuses
+    /// written, in order.
+    /// </summary>
+    private (DisputeRig Rig, List<string> OrderStatuses) DisputedInTransitRig(string escrowStatus = "disputed")
+    {
+        var escrow = OrderEscrowRow(status: escrowStatus);
+        escrow.Remove("deliveryConfirmedAt");
+        escrow["disputedBy"] = "buyer";
+        escrow["disputeReason"] = "not_delivered";
+        var rig = DisputeFunction(escrow, orderStatus: "in_transit");
+        rig.EscrowRepo.GetByDeliveryIdAsync("del-001").Returns(escrow);
+
+        var order = SetupExistingOrder(status: "in_transit", version: 4);
+        var orderStatuses = new List<string>();
+        _mockOrderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(ci =>
+            {
+                if (ci.ArgAt<int>(2).ToString() != order["version"].ToString())
+                {
+                    return AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict.");
+                }
+
+                foreach (var (key, value) in ci.ArgAt<Dictionary<string, object>>(1))
+                {
+                    order[key] = value;
+                }
+
+                order["version"] = (ci.ArgAt<int>(2) + 1).ToString();
+                orderStatuses.Add(order["status"].ToString()!);
+                return AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>(order));
+            });
+
+        // The stored delivery, the row the confirm writes, and the row the dispute mirror leaves.
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "inTransit", 2, "nonce-bug1", orderId: "order-001");
+        var delivered = DeliveryItemForOrder(status: "delivered", version: 3, confirmedAt: DateTime.UtcNow.ToString("o"));
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>()).Returns(new UpdateItemResponse { Attributes = delivered });
+        rig.DeliveryRepo.TryMarkDisputedAsync("del-001", Arg.Any<string>(), Arg.Any<string?>()).Returns(_ =>
+        {
+            var disputed = DeliveryItemForOrder(status: "disputed", version: 4, confirmedAt: DateTime.UtcNow.ToString("o"));
+            _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table"))
+                .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { disputed } });
+            return true;
+        });
+        return (rig, orderStatuses);
+    }
+
+    private Task<APIGatewayProxyResponse> ConfirmInTransitDeliveryAsync(SyncFunction function)
+        => function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "delivered" }, { "version", 2 }, { "scannedQrNonce", "nonce-bug1" }
+            })), "buyer-001", "buyer"), _context);
+
+    [Fact]
+    public async Task DeliveryConfirmed_UnderAnEscrowDisputedInTransit_TakesTheDeliveryAndTheOrderToDisputed()
+    {
+        // Before: the delivery and the order read delivered over frozen money, and a rating went through.
+        var (rig, orderStatuses) = DisputedInTransitRig();
+
+        var response = await ConfirmInTransitDeliveryAsync(rig.Function);
+
+        var result = JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0];
+        Assert.Equal("success", result.GetProperty("status").GetString());
+        // The answer carries the row as the mirror left it.
+        Assert.Equal("disputed", result.GetProperty("serverData").GetProperty("status").GetString());
+        Assert.Equal(4, result.GetProperty("serverVersion").GetInt32());
+        await rig.DeliveryRepo.Received(1).TryMarkDisputedAsync("del-001", "buyer", "not_delivered");
+        // The order follows its delivery to delivered, then the dispute.
+        Assert.Equal(new[] { "delivered", "disputed" }, orderStatuses);
+        // The frozen escrow is not stamped as confirmed and not written at all.
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+    }
+
+    [Theory]
+    [InlineData("escrowed")]
+    [InlineData("dispute_resolved")]
+    public async Task DeliveryConfirmed_UnderAnEscrowThatIsNotDisputed_IsNotMirrored(string escrowStatus)
+    {
+        // An escrowed escrow is stamped as before; after a verdict the verdict mirror moves the order.
+        var (rig, orderStatuses) = DisputedInTransitRig(escrowStatus);
+
+        var response = await ConfirmInTransitDeliveryAsync(rig.Function);
+
+        var result = JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0];
+        Assert.Equal("success", result.GetProperty("status").GetString());
+        Assert.Equal("delivered", result.GetProperty("serverData").GetProperty("status").GetString());
+        Assert.Equal(3, result.GetProperty("serverVersion").GetInt32());
+        await rig.DeliveryRepo.DidNotReceive().TryMarkDisputedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        Assert.Equal(new[] { "delivered" }, orderStatuses);
+    }
+
     // ===== Self-pickup + QR handoff hardening =====
 
     private void SetupDeliveryQuery(Dictionary<string, AttributeValue> item)

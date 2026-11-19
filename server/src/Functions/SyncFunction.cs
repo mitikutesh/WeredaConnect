@@ -1801,6 +1801,14 @@ public partial class SyncFunction
             };
         }
 
+        // A dispute raised while the goods were moving freezes the escrow but may leave the order
+        // reading delivered (rows from before the confirm mirrored it, or a mirror hop that failed).
+        // The money says whether the trade is in dispute: no rating while it is, or after a verdict.
+        if (orderStatus == "delivered" && await RefuseRatingOfDisputedEscrowAsync(operation, orderId, context) is { } disputedEscrow)
+        {
+            return disputedEscrow;
+        }
+
         var orderFarmerId = order.TryGetValue("farmerId", out var fObj) ? fObj?.ToString() : null;
         var orderTruckerId = order.TryGetValue("truckerId", out var tObj) ? tObj?.ToString() : null;
         var validRatee = (rateeRole == "farmer" && rateeId == orderFarmerId)
@@ -1862,6 +1870,49 @@ public partial class SyncFunction
                 Status = "conflict",
                 Message = createResult.Error?.Message ?? "Rating already exists."
             };
+    }
+
+    /// <summary>
+    /// The refusal for a rating of a <c>delivered</c> order whose own escrow
+    /// (<c>escrow-order-{orderId}</c>, read strongly consistent) is <c>disputed</c> or
+    /// <c>dispute_resolved</c>: <c>RATING_FORBIDDEN</c>. An escrow that cannot be read refuses for
+    /// now with an unprefixed, retryable message. Null when the rating may go ahead (no escrow
+    /// repository, no escrow for the order, or one in any other status).
+    /// </summary>
+    private async Task<SyncOperationResult?> RefuseRatingOfDisputedEscrowAsync(
+        SyncOperationRequest operation, string orderId, ILambdaContext context)
+    {
+        if (_escrowRepo == null)
+        {
+            return null;
+        }
+
+        string? escrowStatus;
+        try
+        {
+            var escrow = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true);
+            escrowStatus = escrow != null && escrow.TryGetValue("status", out var es) ? es?.ToString() : null;
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Rating for order {MoneyAlarmLog.LogId(orderId)} not decided: its escrow could not be read: [{ex.GetType().Name}]");
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "The order's payment could not be read. Please try again later."
+            };
+        }
+
+        return escrowStatus is "disputed" or "dispute_resolved"
+            ? new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "RATING_FORBIDDEN: This order is in dispute and cannot be rated."
+            }
+            : null;
     }
 
     /// <summary>
@@ -6199,9 +6250,18 @@ public partial class SyncFunction
                             && operation.Data.TryGetValue("status", out var confirmedStatusObj)
                             && confirmedStatusObj?.ToString() == "delivered")
                         {
-                            await StampEscrowDeliveryConfirmedAsync(operation.EntityId, now,
+                            var disputeMirrored = await StampEscrowDeliveryConfirmedAsync(operation.EntityId, now,
                                 existing.TryGetValue("truckerId", out var stampTruckerAttr) ? stampTruckerAttr.S : null,
                                 context, deliveryOrderId);
+
+                            // The escrow was disputed while the goods were moving: the delivery and the
+                            // order followed it to disputed, so the answer carries the row as it is now.
+                            if (disputeMirrored
+                                && await GetDeliveryItemAsync(operation.EntityId, consistentRead: true) is { } mirroredRow)
+                            {
+                                result = ScrubDeliveryForClient(CropRepository.FromItem(mirroredRow));
+                                newVersion = ItemVersion(mirroredRow);
+                            }
                         }
 
                         await TryRecordDeliveryPatternSignalsAsync(
@@ -6605,14 +6665,18 @@ public partial class SyncFunction
     /// FUP-66: when the <c>DeliveryIndex</c> names no escrow, the order's own escrow
     /// (<c>escrow-order-{orderId}</c>) is stamped if its link to the delivery never landed
     /// (<see cref="FindUnlinkedOrderEscrowAsync"/>).
+    /// An escrow already <c>disputed</c> (a party's dispute raised between pickup and this confirm)
+    /// is not stamped: the delivery and the order follow it to <c>disputed</c> through the dispute
+    /// mirror, as after a dispute raised once delivered, so the order never reads <c>delivered</c>
+    /// over frozen money. True when that mirror ran.
     /// </summary>
-    private async Task StampEscrowDeliveryConfirmedAsync(
+    private async Task<bool> StampEscrowDeliveryConfirmedAsync(
         string deliveryId, string confirmedAt, string? deliveryTruckerId, ILambdaContext context,
         string? deliveryOrderId = null)
     {
         if (_escrowRepo == null)
         {
-            return;
+            return false;
         }
 
         try
@@ -6621,7 +6685,7 @@ public partial class SyncFunction
                 ?? await FindUnlinkedOrderEscrowAsync(deliveryOrderId, deliveryId);
             if (escrow == null)
             {
-                return; // no escrow pays for this delivery (e.g. cash order)
+                return false; // no escrow pays for this delivery (e.g. cash order)
             }
 
             var status = escrow.TryGetValue("status", out var st) ? st?.ToString() : null;
@@ -6629,14 +6693,17 @@ public partial class SyncFunction
                 && !string.IsNullOrEmpty(dc?.ToString());
             if (status != "escrowed" || alreadyConfirmed)
             {
-                return; // not settleable, or already stamped (idempotent replay)
+                // Not settleable, or already stamped (idempotent replay). A disputed escrow takes
+                // the confirmed delivery and its order with it.
+                return status == "disputed"
+                    && await MirrorOpenDisputeOnConfirmAsync(escrow, deliveryOrderId, deliveryId, context);
             }
 
             var escrowId = escrow.TryGetValue("escrowId", out var eid) ? eid?.ToString() ?? "" : "";
             var createdAt = escrow.TryGetValue("createdAt", out var ca) ? ca?.ToString() ?? "" : "";
             if (string.IsNullOrEmpty(escrowId) || string.IsNullOrEmpty(createdAt))
             {
-                return;
+                return false;
             }
 
             // Base the dispute window on the same confirmation timestamp so the two
@@ -6686,6 +6753,45 @@ public partial class SyncFunction
                 $"{MoneyAlarmLog.EscrowDeliveryStampFailedToken} deliveryId={MoneyAlarmLog.LogId(deliveryId)} source=sync "
                 + $"reason=[{ex.GetType().Name}]: delivery confirmed but its escrow is not marked delivery-confirmed; "
                 + "the hourly order-money sweep retries the stamp.");
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// A delivery confirmed while its escrow is already <c>disputed</c>: the delivery
+    /// (<c>delivered</c> to <c>disputed</c>) and the order (to <c>delivered</c>, then
+    /// <c>disputed</c>) follow through <see cref="EscrowService.MirrorDisputeAsync"/>, with the
+    /// escrow's own <c>disputedBy</c> and reason. Best-effort like every dispute mirror: the money
+    /// is frozen already, the verdict mirror repairs a failed hop, and a failure never fails the
+    /// confirm. False when no escrow service is configured or the mirror threw.
+    /// </summary>
+    private async Task<bool> MirrorOpenDisputeOnConfirmAsync(
+        Dictionary<string, object> escrow, string? orderId, string deliveryId, ILambdaContext context)
+    {
+        string? Field(string name) => escrow.TryGetValue(name, out var value) ? value?.ToString() : null;
+        var escrowId = Field("escrowId");
+        if (_orderEscrowService == null || string.IsNullOrEmpty(escrowId))
+        {
+            return false;
+        }
+
+        try
+        {
+            var disputedBy = Field("disputedBy");
+            await _orderEscrowService.MirrorDisputeAsync(
+                escrowId, orderId ?? Field("orderId"), deliveryId,
+                string.IsNullOrEmpty(disputedBy) ? EscrowService.SystemActor : disputedBy,
+                Field("disputeReason"), markDelivery: true);
+            context.Logger.LogInformation(
+                $"Delivery {MoneyAlarmLog.LogId(deliveryId)} confirmed under disputed escrow {MoneyAlarmLog.LogId(escrowId)}: delivery and order follow to disputed.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Dispute mirror for confirmed delivery {MoneyAlarmLog.LogId(deliveryId)} failed: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
+            return false;
         }
     }
 
