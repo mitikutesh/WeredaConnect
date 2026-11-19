@@ -1244,6 +1244,11 @@ class AppLocalizationsAm extends AppLocalizations {
       'እቃው ገና በመንገድ ላይ ነው። አልደረሰም ብለው ማሳወቅ የሚችሉት የማድረሻው የጊዜ ገደብ ካለፈ በኋላ ነው። ለሌላ ችግር ሌላ ምክንያት ይምረጡ።';
 
   @override
+  String escrowErrorDisputeGoodsOnTheWayAfter(String time) {
+    return 'እቃው ገና በመንገድ ላይ ነው። አልደረሰም ብለው ማሳወቅ የሚችሉት ከ$time በኋላ ነው። ለሌላ ችግር ሌላ ምክንያት ይምረጡ።';
+  }
+
+  @override
   String get escrowErrorInvalidTransition => 'ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።';
 
   @override

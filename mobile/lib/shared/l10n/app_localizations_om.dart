@@ -1293,6 +1293,11 @@ class AppLocalizationsOm extends AppLocalizations {
       'Meeshaan ammayyuu karaa irra jira. Hin geenye jettanii gabaasuu kan dandeessan erga yeroon geejjibsiisaaf murtaa\'e darbee booda. Rakkoo biraatiif sababa biraa filadhaa.';
 
   @override
+  String escrowErrorDisputeGoodsOnTheWayAfter(String time) {
+    return 'Meeshaan ammayyuu karaa irra jira. Hin geenye jettanii gabaasuu kan dandeessan $time booda. Rakkoo biraatiif sababa biraa filadhaa.';
+  }
+
+  @override
   String get escrowErrorInvalidTransition =>
       'Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.';
 

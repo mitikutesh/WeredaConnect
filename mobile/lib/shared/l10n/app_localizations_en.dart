@@ -1286,6 +1286,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'The goods are still on the way. You can report them as not delivered once the delivery deadline has passed. For another problem, choose another reason.';
 
   @override
+  String escrowErrorDisputeGoodsOnTheWayAfter(String time) {
+    return 'The goods are still on the way. You can report them as not delivered after $time. For another problem, choose another reason.';
+  }
+
+  @override
   String get escrowErrorInvalidTransition =>
       'This action is not allowed in the current payment state.';
 

@@ -258,6 +258,37 @@ void main() {
       );
     });
 
+    test('shows the time the server names, in Ethiopia time', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final text = localizeEscrowError(
+          l10n,
+          escrowDisputeGoodsOnTheWayCode,
+          onTheWay,
+        );
+        // 08:46 UTC is 11:46 in Addis Ababa.
+        expect(text, contains('11:46'), reason: locale);
+        expect(text, isNot(contains('UTC')), reason: locale);
+        expect(
+          text,
+          isNot(l10n.escrowErrorDisputeGoodsOnTheWay),
+          reason: locale,
+        );
+      }
+      expect(
+        goodsOnTheWayOpensAt(onTheWay),
+        DateTime.utc(2026, 11, 22, 8, 46),
+      );
+    });
+
+    test('falls back to the text without a time when none can be read', () {
+      expect(goodsOnTheWayOpensAt('The goods are still on the way.'), isNull);
+      expect(
+        goodsOnTheWayOpensAt('... after 2026-13-40 25:61 UTC. ...'),
+        isNull,
+      );
+    });
+
     test('has its own text in en, am and om', () async {
       for (final locale in ['en', 'am', 'om']) {
         final l10n = await AppLocalizations.delegate.load(Locale(locale));
