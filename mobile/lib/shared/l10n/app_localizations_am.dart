@@ -2634,7 +2634,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get authNetworkTooSlow =>
-      'ኔትወርኩ በጣም ቀርፋፋ ስለሆነ አገልጋዩን ማግኘት አልተቻለም። የተሻለ ኔትወርክ ወዳለበት ቦታ ሄደው እንደገና ይሞክሩ።';
+      'ኔትወርኩ አሁን በጣም ቀርፋፋ ነው። የተሻለ ኔትወርክ ወዳለበት ቦታ ሄደው እንደገና ይሞክሩ።';
 
   @override
   String get orderAcceptedSent => 'ትዕዛዙን ተቀብለዋል።';

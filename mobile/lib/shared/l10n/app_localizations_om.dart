@@ -2731,7 +2731,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get authNetworkTooSlow =>
-      'Neetworkiin baay\'ee suuta waan ta\'eef server argachuun hin danda\'amne. Bakka neetworkiin gaarii jirutti deemaatii irra deebi\'aa yaalaa.';
+      'Neetworkiin amma baay\'ee suuta jira. Bakka neetworkiin gaarii jirutti deemaatii irra deebi\'aa yaalaa.';
 
   @override
   String get orderAcceptedSent => 'Ajajicha fudhattaniittu.';

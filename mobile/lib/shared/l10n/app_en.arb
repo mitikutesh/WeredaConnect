@@ -3327,7 +3327,7 @@
   "@listingNotSentYetNote": {"description": "BUG-36 (persona sim 2026-11-19). Crop detail, farmer's own listing, under the 'Not sent yet' pill: the new listing or the edit is on the phone only. am and om machine drafted, native review owed"},
   "myCropsNotSentNote": "Listings marked \"Not sent yet\" are saved on this phone only. Buyers see them once they are sent.",
   "@myCropsNotSentNote": {"description": "BUG-36 (persona sim 2026-11-19). My Crops, note under the list when a listing is marked 'Not sent yet' (the listingNotSentYet text, quoted). am and om machine drafted, native review owed"},
-  "authNetworkTooSlow": "The network is too slow to reach the server. Move to a place with better signal and try again.",
+  "authNetworkTooSlow": "The network is too slow right now. Move to a place with better signal and try again.",
   "@authNetworkTooSlow": {"description": "BUG-35 (persona sim 2026-11-19). Login error on a phone that is online but the server did not answer in time, and that has never logged in before (no offline login possible). Not the 'log in online first' text. am and om machine drafted, native review owed"},
   "orderAcceptedSent": "You accepted the order.",
   "@orderAcceptedSent": {"description": "Snackbar (E-5) after the farmer accepted an order with a network"},

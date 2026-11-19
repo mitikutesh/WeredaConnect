@@ -2548,7 +2548,7 @@
   "listingNotSentYet": "Ammallee hin ergamne",
   "listingNotSentYetNote": "Bilbila kana irratti qofa olkaa'ameera. Erga ergamee booda bitoonni ni argu.",
   "myCropsNotSentNote": "Tarreewwan \"Ammallee hin ergamne\" jedhan bilbila kana irratti qofa olkaa'amaniiru. Erga ergamanii booda bitoonni ni argu.",
-  "authNetworkTooSlow": "Neetworkiin baay'ee suuta waan ta'eef server argachuun hin danda'amne. Bakka neetworkiin gaarii jirutti deemaatii irra deebi'aa yaalaa.",
+  "authNetworkTooSlow": "Neetworkiin amma baay'ee suuta jira. Bakka neetworkiin gaarii jirutti deemaatii irra deebi'aa yaalaa.",
   "orderAcceptedSent": "Ajajicha fudhattaniittu.",
   "orderRejectedSent": "Ajajicha diddaniittu. Maallaqni bitataaf ni deebi'a.",
   "homeTilesLoadFailed": "Lakkoofsonni kun fe'amuu hin dandeenye.",

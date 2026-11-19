@@ -2713,7 +2713,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get authNetworkTooSlow =>
-      'The network is too slow to reach the server. Move to a place with better signal and try again.';
+      'The network is too slow right now. Move to a place with better signal and try again.';
 
   @override
   String get orderAcceptedSent => 'You accepted the order.';

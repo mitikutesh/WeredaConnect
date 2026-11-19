@@ -4945,7 +4945,7 @@ abstract class AppLocalizations {
   /// BUG-35 (persona sim 2026-11-19). Login error on a phone that is online but the server did not answer in time, and that has never logged in before (no offline login possible). Not the 'log in online first' text. am and om machine drafted, native review owed
   ///
   /// In en, this message translates to:
-  /// **'The network is too slow to reach the server. Move to a place with better signal and try again.'**
+  /// **'The network is too slow right now. Move to a place with better signal and try again.'**
   String get authNetworkTooSlow;
 
   /// Snackbar (E-5) after the farmer accepted an order with a network

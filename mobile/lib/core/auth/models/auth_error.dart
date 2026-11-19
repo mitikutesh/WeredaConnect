@@ -192,7 +192,7 @@ extension AuthErrorCodeExtension on String {
       case AuthErrorCode.secureConnectionFailed:
         return 'Could not make a secure connection to the server. Update the app or try another network';
       case AuthErrorCode.networkTooSlow:
-        return 'The network is too slow to reach the server. Please try again';
+        return 'The network is too slow right now. Please try again';
       case AuthErrorCode.offlineNotAvailable:
         return 'Please log in online first to enable offline mode';
       case AuthErrorCode.secureStorageError:
