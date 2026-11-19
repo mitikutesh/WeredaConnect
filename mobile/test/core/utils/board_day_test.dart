@@ -39,8 +39,10 @@ void main() {
       expect(formatBoardDay(day), 'ሐሙስ 29 ኦክቶ');
       expect(formatBoardDate(day), 'ሐሙስ 29 ኦክቶ 2026');
 
+      // BUG-L2: Afaan Oromoo names, not English ones.
       applyDateLocale(const Locale('om'));
-      expect(formatBoardDay(day), 'Thu 29 Oct');
+      expect(formatBoardDay(day), 'Kam 29 Onk');
+      expect(formatBoardDate(day), 'Kam 29 Onk 2026');
 
       applyDateLocale(const Locale('en'));
       expect(formatBoardDate(day), 'Thu 29 Oct 2026');
