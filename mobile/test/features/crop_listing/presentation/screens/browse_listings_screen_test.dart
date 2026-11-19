@@ -1060,7 +1060,12 @@ void main() {
 
       await tester.tap(find.text('Sold'));
       await tester.pumpAndSettle();
-      expect(find.text(l10n.noListingsMatchFilters), findsOneWidget);
+      // BUG-39: an empty tab is a plain empty state. Nobody searched, so
+      // nothing says "no listings match your search".
+      expect(find.text(l10n.myCropsSegmentEmpty), findsOneWidget);
+      expect(find.text(l10n.myCropsSegmentEmptyHint), findsOneWidget);
+      expect(find.text(l10n.noListingsMatchFilters), findsNothing);
+      expect(find.byIcon(Icons.search_off), findsNothing);
       expect(find.text(l10n.clearFilters), findsNothing);
 
       await tester.tap(find.text('Active · 1'));

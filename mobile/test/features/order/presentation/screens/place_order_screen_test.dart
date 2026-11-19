@@ -97,6 +97,13 @@ void main() {
         ..pricePerQuintal = pricePerQuintal
         ..status = status;
 
+  /// Taps "All" under the quantity: everything that can be ordered.
+  Future<void> tapAll(WidgetTester tester) async {
+    await tester.ensureVisible(find.byKey(const Key('place_order_all')));
+    await tester.tap(find.byKey(const Key('place_order_all')));
+    await tester.pump();
+  }
+
   Future<void> open(
     WidgetTester tester, {
     required double quintals,
@@ -104,6 +111,7 @@ void main() {
     Trip? selectedTrip,
     String farmerName = 'Kedir',
     String locationName = 'Bahir Dar',
+    bool orderAll = true,
   }) async {
     await tester.pumpWidget(
       MultiBlocProvider(
@@ -128,10 +136,36 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    // BUG-20: the quantity starts empty; most tests order all there is.
+    if (orderAll) await tapAll(tester);
   }
 
   FilledButton placeOrderButton(WidgetTester tester) =>
       tester.widget<FilledButton>(find.byType(FilledButton));
+
+  // BUG-20: nothing is pre-filled, so the whole stock is never one tap on
+  // Place Order away.
+  testWidgets('the quantity starts empty and names what is available',
+      (tester) async {
+    await open(tester, quintals: 20, orderAll: false);
+
+    final field = tester.widget<TextField>(
+      find.byKey(const Key('place_order_quantity')),
+    );
+    expect(field.controller!.text, isEmpty);
+    expect(find.text('2,000 kg available'), findsOneWidget);
+    expect(find.byKey(const Key('place_order_quantity_note')), findsNothing);
+    expect(placeOrderButton(tester).onPressed, isNull);
+    await tester.ensureVisible(find.byType(FilledButton));
+    await tester.tap(find.byType(FilledButton), warnIfMissed: false);
+    await tester.pump();
+    expect(created, isEmpty);
+
+    // "All" fills in what is available, and the order can be placed.
+    await tapAll(tester);
+    expect(field.controller!.text, '2,000');
+    expect(placeOrderButton(tester).onPressed, isNotNull);
+  });
 
   // SIM-33: the listing line never shows an id for the farmer or a junk
   // place.
@@ -153,7 +187,7 @@ void main() {
     await open(tester, quintals: 10000);
 
     expect(find.text('1,000,000'), findsOneWidget);
-    expect(find.textContaining('kg available'), findsNothing);
+    expect(find.textContaining('Enter a smaller quantity'), findsNothing);
 
     await tester.ensureVisible(find.byType(FilledButton));
     await tester.tap(find.byType(FilledButton));
@@ -196,7 +230,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pump();
     expect(find.text('255.5'), findsOneWidget);
-    expect(find.textContaining('kg available'), findsNothing);
+    expect(find.textContaining('Enter a smaller quantity'), findsNothing);
     expect(placeOrderButton(tester).onPressed, isNotNull);
   });
 
@@ -222,7 +256,7 @@ void main() {
     await open(tester, quintals: 12.34);
 
     expect(find.text('1,234'), findsOneWidget);
-    expect(find.textContaining('kg available'), findsNothing);
+    expect(find.textContaining('Enter a smaller quantity'), findsNothing);
     expect(placeOrderButton(tester).onPressed, isNotNull);
   });
 
@@ -301,6 +335,7 @@ void main() {
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
+      await tapAll(tester);
       return closedWith;
     }
 
@@ -311,8 +346,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('starts at no more than the truck has room for',
-        (tester) async {
+    testWidgets('"All" is no more than the truck has room for', (tester) async {
       await open(
         tester,
         quintals: 30,
@@ -573,6 +607,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tapAll(tester);
     await tester.ensureVisible(find.byType(FilledButton));
     await tester.tap(find.byType(FilledButton));
     await tester.pump();

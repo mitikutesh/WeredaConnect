@@ -183,6 +183,11 @@ Future<void> _runWeb({
     languageProvider: languageProvider,
   );
 
+  // One router for the app's life. It used to be built inside the language
+  // Consumer below, so every language change made a new router that started
+  // again at Home (BUG-24).
+  final router = createWebRouter(authBloc);
+
   runApp(
     MultiProvider(
       providers: [
@@ -274,7 +279,6 @@ Future<void> _runWeb({
         ],
         child: Consumer<LanguageProvider>(
           builder: (context, langProvider, child) {
-            final router = createWebRouter(authBloc);
             return MaterialApp.router(
               title: 'WeredaConnect',
               locale: langProvider.locale,

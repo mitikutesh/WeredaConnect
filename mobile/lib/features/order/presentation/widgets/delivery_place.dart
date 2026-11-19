@@ -52,6 +52,8 @@ class DeliveryPlaceField extends StatelessWidget {
             controller: controller,
             labelAbove: true,
             showSearchIcon: false,
+            // The field starts with the buyer's place: a tap selects it.
+            selectAllOnFocus: true,
             repository: repository,
             onPlaceSelected: onPlaceSelected,
             onChanged: onChanged,

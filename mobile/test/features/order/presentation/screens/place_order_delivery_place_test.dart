@@ -142,6 +142,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    // BUG-20: the quantity starts empty; these orders take all there is.
+    await tester.tap(find.byKey(const Key('place_order_all')));
+    await tester.pump();
   }
 
   Future<void> placeOrder(WidgetTester tester) async {
@@ -212,20 +215,47 @@ void main() {
     expect(created.single.deliveryPoint, (latitude: 8.54, longitude: 39.27));
   });
 
+  // BUG-18: the order used to go through under the red "Pick a place from
+  // the list." and fall back to the truck's destination without saying so.
   testWidgets(
-      'a typed name that is not picked asks for a pick and sends no '
-      'point', (tester) async {
+      'a typed name that is not picked asks for a pick and blocks Place '
+      'Order until the field is cleared', (tester) async {
     signedIn();
     await open(tester, selectedTrip: trip());
+    final button = find.widgetWithText(FilledButton, 'Place Order');
 
     await tester.enterText(field, 'Kality');
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
 
     expect(find.text(en.deliveryPlacePickFromList), findsOneWidget);
+    expect(tester.widget<FilledButton>(button).onPressed, isNull);
+    await tester.ensureVisible(button);
+    await tester.tap(button, warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(created, isEmpty);
+
+    // An empty field is the truck's destination: allowed, and no point.
+    await tester.enterText(field, '');
+    await tester.pumpAndSettle();
+    expect(find.text(en.deliveryPlacePickFromList), findsNothing);
     await placeOrder(tester);
-    // The order still goes: the trip's destination is the drop-off.
     expect(created.single.deliveryPoint, isNull);
+  });
+
+  // BUG-18: a tap into the prefilled field selects the name, so typing
+  // replaces it instead of landing inside it.
+  testWidgets('focusing the prefilled place selects all of it', (tester) async {
+    signedIn();
+    await open(tester, selectedTrip: trip());
+    expect(fieldText(tester), 'Addis Ababa');
+
+    await tester.tap(field);
+    await tester.pumpAndSettle();
+
+    final selection = tester.widget<TextFormField>(field).controller!.selection;
+    expect(selection.start, 0);
+    expect(selection.end, 'Addis Ababa'.length);
   });
 
   testWidgets('a registered place off the list starts empty', (tester) async {

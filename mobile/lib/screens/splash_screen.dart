@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/join_chrome.dart';
@@ -19,6 +21,9 @@ class SplashScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    // BUG-40: the language is chosen here, before anything else is read.
+    // Null where no provider sits above (a bare test).
+    final languages = context.watch<LanguageProvider?>();
 
     return Scaffold(
       backgroundColor: AppTheme.chalkBackground,
@@ -86,6 +91,11 @@ class SplashScreen extends StatelessWidget {
                     height: 1.5,
                   ),
                 ),
+
+                if (languages != null) ...[
+                  const SizedBox(height: 28),
+                  _LanguageChoice(languages: languages),
+                ],
               ],
             ),
 
@@ -101,6 +111,87 @@ class SplashScreen extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The first screen's language choice (BUG-40): one button per language,
+/// each named in its own script so it reads without knowing another. The
+/// pick applies at once and is kept as this device's language.
+class _LanguageChoice extends StatelessWidget {
+  final LanguageProvider languages;
+
+  const _LanguageChoice({required this.languages});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 12),
+          child: Icon(Icons.language, size: 22, color: AppTheme.mutedSteel),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final entry in languages.availableLanguages)
+                _LanguageButton(
+                  key: Key('splash_language_${entry.key.languageCode}'),
+                  name: entry.value,
+                  selected: entry.key == languages.locale,
+                  onPressed: () => languages.setLocale(entry.key),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LanguageButton extends StatelessWidget {
+  final String name;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  const _LanguageButton({
+    required this.name,
+    required this.selected,
+    required this.onPressed,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      selected: selected,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          backgroundColor:
+              selected ? AppTheme.fieldGreenTint : AppTheme.surfaceWhite,
+          foregroundColor: AppTheme.soilDark,
+          side: BorderSide(
+            color: selected ? AppTheme.fieldGreen : AppTheme.borderLight,
+            width: selected ? 2 : 1,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          textStyle: const TextStyle(
+            fontFamily: AppTheme.fontFamily,
+            fontFamilyFallback: AppTheme.ethiopicFontFallback,
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        child: Text(name),
       ),
     );
   }

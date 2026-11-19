@@ -299,6 +299,18 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
             style: LabeledField.helperStyle,
           ),
         ],
+        // BUG-26: as on Create listing.
+        if (isUnlikelyPricePerKg(double.tryParse(_priceController.text))) ...[
+          const SizedBox(height: 6),
+          Text(
+            l10n.cropFormPriceHighWarning,
+            key: const Key('edit_listing_price_warning'),
+            style: LabeledField.helperStyle.copyWith(
+              color: AppTheme.statusWarning,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
         const SizedBox(height: 18),
         LabeledField(
           label: l10n.description,

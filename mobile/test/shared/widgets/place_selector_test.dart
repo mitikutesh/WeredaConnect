@@ -275,4 +275,81 @@ void main() {
     expect(find.text('Meki'), findsWidgets); // field text + tile title
     expect(find.text('መቂ'), findsOneWidget);
   });
+
+  // BUG-38: the suggestions open under the field, where the on-screen
+  // keyboard is. With the keyboard up the focused field moves to the top of
+  // its scroll view; without one (desktop web) nothing moves.
+  group('room for the suggestions above the keyboard', () {
+    late ScrollController scroll;
+
+    Widget form(TextEditingController controller) => MaterialApp(
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            FallbackMaterialLocalizationsDelegate(),
+            GlobalWidgetsLocalizations.delegate,
+            FallbackCupertinoLocalizationsDelegate(),
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              controller: scroll,
+              child: Column(
+                children: [
+                  const SizedBox(height: 300),
+                  PlaceSelector(
+                    controller: controller,
+                    repository: _loadRepo(),
+                    debounce: const Duration(milliseconds: 10),
+                  ),
+                  const SizedBox(height: 1200),
+                ],
+              ),
+            ),
+          ),
+        );
+
+    setUp(() => scroll = ScrollController());
+    tearDown(() => scroll.dispose());
+
+    testWidgets('the keyboard coming up lifts the focused field',
+        (tester) async {
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(form(TextEditingController()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(TextField));
+      await tester.pumpAndSettle();
+      expect(scroll.offset, 0);
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 900);
+      await tester.pumpAndSettle();
+
+      expect(scroll.offset, greaterThan(100));
+      // The field sits near the top, the list has the room under it.
+      expect(tester.getTopLeft(find.byType(TextField)).dy, lessThan(120));
+    });
+
+    testWidgets('no keyboard, no scroll', (tester) async {
+      await tester.pumpWidget(form(TextEditingController()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(TextField));
+      await tester.pumpAndSettle();
+
+      expect(scroll.offset, 0);
+    });
+
+    testWidgets('a field without the focus is left where it is',
+        (tester) async {
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(form(TextEditingController()));
+      await tester.pumpAndSettle();
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 900);
+      await tester.pumpAndSettle();
+
+      expect(scroll.offset, 0);
+    });
+  });
 }
