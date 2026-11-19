@@ -36,7 +36,8 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// The role FAB shows only on a tab root: it hides on non-tab routes
 /// (profile, settings) and while [pushedRoutes] reports a screen pushed on
 /// top of the shell's navigator, so it never covers that screen's own
-/// actions (SIM-44).
+/// actions (SIM-44). Floating, it folds to its plus while the tab page
+/// scrolls toward its end, as on the device (BUG-27).
 class AdaptiveShell extends StatelessWidget {
   final Widget child;
 
@@ -168,28 +169,34 @@ class AdaptiveShell extends StatelessWidget {
       // their own pinned actions.
       final detailRoute = selectedIndex >= 0 && !onTabRoot;
 
-      return ValueListenableBuilder<int>(
-        valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
-        builder: (context, pushed, _) {
-          final fullPage = detailRoute || pushed > 0;
-          return Scaffold(
-            body: child,
-            floatingActionButton: _fab(context, role, onTabRoot: onTabRoot),
-            floatingActionButtonLocation:
-                FloatingActionButtonLocation.centerFloat,
-            bottomNavigationBar: fullPage
-                ? null
-                : RoleNavBar(
-                    role: role,
-                    tabs: [for (final d in dests) d.tab],
-                    // Profile and settings sit outside the bar: nothing
-                    // selected.
-                    currentIndex: selectedIndex < 0 ? null : selectedIndex,
-                    onSelected: (i) =>
-                        _onDestinationSelected(context, i, dests),
-                  ),
-          );
-        },
+      return CreateButtonScrollScope(
+        resetKey: selectedIndex,
+        child: ValueListenableBuilder<int>(
+          valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
+          builder: (context, pushed, _) {
+            final fullPage = detailRoute || pushed > 0;
+            return Scaffold(
+              body: CreateButtonScrollBody(
+                enabled: onTabRoot && pushed == 0,
+                child: child,
+              ),
+              floatingActionButton: _fab(context, role, onTabRoot: onTabRoot),
+              floatingActionButtonLocation:
+                  FloatingActionButtonLocation.centerFloat,
+              bottomNavigationBar: fullPage
+                  ? null
+                  : RoleNavBar(
+                      role: role,
+                      tabs: [for (final d in dests) d.tab],
+                      // Profile and settings sit outside the bar: nothing
+                      // selected.
+                      currentIndex: selectedIndex < 0 ? null : selectedIndex,
+                      onSelected: (i) =>
+                          _onDestinationSelected(context, i, dests),
+                    ),
+            );
+          },
+        ),
       );
     }
 
@@ -199,32 +206,45 @@ class AdaptiveShell extends StatelessWidget {
     final selectedIndex = _currentIndex(context, dests);
     final onTabRoot = _onTabRoot(context, dests);
 
-    return Scaffold(
-      backgroundColor: AppTheme.chalkBackground,
-      // The rail has no room for the labelled button: it floats over the
-      // content as on the phone.
-      floatingActionButton:
-          isDesktop ? null : _fab(context, role, onTabRoot: onTabRoot),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      body: _SidebarThenPage(
-        sidebar: _Sidebar(
-          expanded: isDesktop,
-          selectedIndex: selectedIndex,
-          destinations: dests,
-          accent: AppTheme.roleAccent(role),
-          accentTint: AppTheme.roleAccentTint(role),
-          currentLocation: GoRouterState.of(context).matchedLocation,
-          onSelected: (i) => _onDestinationSelected(context, i, dests),
-          onProfileTap: () => context.go('/profile'),
-          onSettingsTap: () => context.go('/settings'),
-          actionButton: isDesktop
-              ? _fab(context, role, onTabRoot: onTabRoot, expanded: true)
-              : null,
-          role: role,
+    return CreateButtonScrollScope(
+      resetKey: selectedIndex,
+      child: Scaffold(
+        backgroundColor: AppTheme.chalkBackground,
+        // The rail has no room for the labelled button: it floats over the
+        // content as on the phone.
+        floatingActionButton:
+            isDesktop ? null : _fab(context, role, onTabRoot: onTabRoot),
+        floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+        body: _SidebarThenPage(
+          sidebar: _Sidebar(
+            expanded: isDesktop,
+            selectedIndex: selectedIndex,
+            destinations: dests,
+            accent: AppTheme.roleAccent(role),
+            accentTint: AppTheme.roleAccentTint(role),
+            currentLocation: GoRouterState.of(context).matchedLocation,
+            onSelected: (i) => _onDestinationSelected(context, i, dests),
+            onProfileTap: () => context.go('/profile'),
+            onSettingsTap: () => context.go('/settings'),
+            actionButton: isDesktop
+                ? _fab(context, role, onTabRoot: onTabRoot, expanded: true)
+                : null,
+            role: role,
+          ),
+          // Content: the sidebar lists the account pages, so headers leave
+          // out their account button. Only the page folds the floating
+          // button, not the rail beside it.
+          page: SidebarScope(
+            child: ValueListenableBuilder<int>(
+              valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
+              child: child,
+              builder: (context, pushed, page) => CreateButtonScrollBody(
+                enabled: onTabRoot && pushed == 0,
+                child: page!,
+              ),
+            ),
+          ),
         ),
-        // Content: the sidebar lists the account pages, so headers leave
-        // out their account button.
-        page: SidebarScope(child: child),
       ),
     );
   }
