@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.67.2
+1.70.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -149,6 +149,7 @@ This format ensures:
 7. **The same for a change that reaches a finished entity (1.45.0, FUP-128).** A delivery update that reaches a delivery already `cancelled` (or soft-deleted before `delivery-verification-api.md` 1.9.0) with a version lower than the stored one is answered `conflict` with the row, by rule 6's caller rule (the trucker for `pickedUp` and `inTransit`, the buyer for `delivered`, any party for `disputed`; for an update without a status the trucker, or the farmer storing `qrNonce`). A trip update or delete that reaches a trip already `cancelled`, `delivered` or deleted has answered that way to its trucker since `trip-listing-api.md` 2.4.0. In every other case the errors stand (`DELIVERY_ALREADY_CANCELLED`, `TRIP_TERMINAL_STATE`, `TRIP_ALREADY_CANCELLED`), and clients no longer resend them (see Changes to a finished delivery or trip).
 8. **A deleted crop listing never changes again (1.66.0, FUP-152).** A `crop_listing` `update` that reaches a listing already deleted (`deletedAt` set, or `status: deleted`) writes nothing and is answered `conflict` with `serverVersion` and the stored row in `serverData` to the listing's farmer, whatever version it carries and with or without a `status`, message `CROP_ALREADY_DELETED: The listing is already deleted.` (`crop-listing-api.md` 1.14.0, rule 11). Anyone else keeps `CROP_UNAUTHORIZED` and gets no row. The write's own condition carries the check, so a delete that lands between the server's read and its write gets the same answer. Before, an update without a `status` sent at the version the delete left was written onto the hidden row (its version moved), and one with a `status` at that version got `CROP_INVALID_TRANSITION`, which the mobile queue retried. No client change: the mobile queue resolves the conflict server-wins (the deleted row removes the local listing with the FUP-149 client, 1.65.0; an older app keeps it as a local `draft`), and web treats it as a failed save.
 9. **A deleted crop listing is not deleted again, and a sold one is not edited (1.67.0, FUP-494 and FUP-495).** A `crop_listing` `delete` that reaches a listing already deleted writes nothing and is answered `success` with the stored version to the listing's farmer, whatever version it carries (not a conflict: an app older than the FUP-149 client would keep a conflict's deleted row as a local `draft`). A `crop_listing` `update` that reaches a `sold` listing writes nothing and is answered `conflict` with the stored row, message `CROP_SOLD: The listing is sold.`, as rule 8 answers a deleted one (`crop-listing-api.md` 1.15.0, rules 11 and 12). Both checks are in the write's condition too, so a delete or a `sold` that lands between the server's read and its write gets the same answer. Anyone else keeps `CROP_UNAUTHORIZED`. No client change.
+10. **A caller who is no party to a delivery learns nothing from a refusal (1.70.0).** A `delivery` `update` from a caller who is not the delivery's buyer, farmer or trucker is answered `DELIVERY_UNAUTHORIZED` before any rule that reads the row: `Only the trucker can mark as <status>.` for `pickedUp` and `inTransit`, `Only the buyer can confirm delivery.` for `delivered`, `Only participants can dispute a delivery.` for `disputed`, `You can only update your own deliveries.` for anything else. Before, an invalid transition was checked first and answered `DELIVERY_INVALID_TRANSITION: Cannot transition from '<stored>' to '<requested>'.`, which told the stored status to anyone who guessed an id; a cancelled delivery answered `DELIVERY_ALREADY_CANCELLED` and an old one `DELIVERY_DISPUTE_EXPIRED` the same way. Rules 6 and 7 are unchanged for parties: the errors that "stand" there now stand for parties only. A cancel already checked the party first. Orders, trips and crop listings already check the party or owner before the transition. Clients need no change (`DELIVERY_UNAUTHORIZED` is permanent since 1.43.0).
 
 ### Client-Side Conflict Resolution (Mobile)
 
@@ -186,10 +187,28 @@ with no read, while a `crop_listing` operation of it is pending, on its way, or 
 sent again, checked before the list is read and again when the removal is written, and when the
 server refused its create for good (it never held the listing). A listing deleted on this phone,
 shown there as `expired`, leaves the same way once its delete reached the server. A page that
-fails removes nothing. The pull stores none of the listed rows, never touches another user's
-listings, sends nothing when the phone holds no listing of the farmer it could remove, and runs at
-most once per 30 seconds per farmer. Buyers and truckers never run it. Web reads the server and
-needs no change. The photo files of a removed listing stay on the phone (FUP-488). No wire change.
+fails removes nothing. The pull never touches another user's listings and runs at most once per 30
+seconds per farmer. Buyers and truckers never run it. Web reads the server and needs no change. The
+photo files of a removed listing stay on the phone (FUP-488). No wire change. (Until 1.68.0 the
+pull stored none of the listed rows and sent nothing when the phone held no listing of the farmer
+it could remove; see the next paragraph.)
+
+**The farmer's own listings reach the phone (1.68.0, BUG-31, FUP-520).** The same pull now stores
+the rows it lists, so a farmer who logs in on a phone that holds none of their listings (a new
+install, a second phone) sees them, and a listing the server moved without an upload from this
+phone (`reserved` or `sold` when orders take stock, stock back after a cancel, an edit made on the
+web or another phone) shows the server's state. Before 1.68.0 the pull returned before its request
+when the phone held no listing of the farmer, so My Crops stayed empty. Every row of the answer
+whose `farmerId` is the farmer's is stored, whatever its status; a deleted row and a row that names
+another farmer are never stored, and a listing id the phone holds under another farmer is left
+alone. Server wins, as for the trucker's own trips (`trip-listing-api.md` 2.8.0): a row with a
+`crop_listing` operation pending, on its way, or failed and to be sent again is skipped (checked
+inside the write, so a change queued while the list was read wins), and a server copy with a lower
+`version` than the stored row is skipped (the farmer index lags a change just synced). The place
+id and the photo files only this phone keeps stay on the row. A page that fails stores nothing. The
+list is read again only when a listing was removed, added or changed. The pull now always sends
+its list request (one small `GET /crops?farmerId=` per page, at most once per 30 seconds), and the
+farmer's Home tiles run it too, after the stored numbers painted. No wire change.
 
 **Rationale**:
 - Solo farmers rarely have conflicts (one user per device)
@@ -266,7 +285,7 @@ These rules must always hold:
 - 5xx server errors (500, 502, 503, 504)
 
 **When to Revert to Pending (no `retryCount` increment)**:
-- Network errors (timeout, connection refused, DNS failure) — the operation payload is valid, only the transport failed. `syncNow()` exits immediately; the periodic worker (15 min) or connectivity listener triggers a fresh attempt.
+- Network errors (timeout, connection refused, DNS failure): the operation payload is valid, only the transport failed. `syncNow()` exits immediately; the early retries below (1.68.0), the periodic worker (15 min) or the connectivity listener trigger a fresh attempt.
 - 429 Too Many Requests (rate limiting) — revert and wait
 - 401/403 Unauthorized — revert (AuthInterceptor should refresh token)
 
@@ -291,6 +310,12 @@ These rules must always hold:
 - `retryCount` field in `SyncOperation` entity tracks attempts (only incremented by server errors, not network failures)
 - Max retries: 3 (configurable in `SyncExecutor`)
 - Failed operations remain in queue for manual inspection
+
+**Early retries after a sync that did not reach the server (1.68.0, BUG-32, mobile only)**:
+- A sync run that ends because the health check failed (`GET /health`) or the `/sync` request hit a network error, while the phone reports a network and operations wait, is tried again by the `SyncWorker` after 10 s, 30 s, 1 min, 2 min and 5 min (at most five attempts, about nine minutes in all). Before 1.68.0 one failed health check right after the signal came back left the queue untouched until the 15 minute timer.
+- The retries stop at once when the queue is empty or the phone reports no network (the connectivity listener starts a sync when it is back), and the count starts again when a run reaches the server, at each periodic sync and at each app resume. An attempt that still cannot reach the server costs one health check; no operation's `retryCount` moves.
+- The health check has a deadline of 10 s for the whole request, connecting included (BUG-35). Before, only its send and receive phases were bounded (3 s) and a connection that never opened held the sync for the client's connect timeout (30 s in dev).
+- Not retried early: a run that only held operations back (a listing whose photo upload failed, a deferral, a step-up). Those wait for the next sync trigger as before.
 
 **Crash Recovery**:
 - If the app is killed during sync, operations stuck in `syncing` status are recovered by `recoverStaleSyncing()` at the start of each `syncNow()` call. They are reset to `pending` with `retryCount = 0`.
@@ -392,6 +417,26 @@ farmer, the trip's trucker, the order's buyer, farmer or trucker, the delivery's
 farmer or trucker. Anyone else gets the conflict status with `serverData: null`
 (role-visibility rule). The client treats a null `serverData` as "already exists, not
 yours" and drops the operation.
+
+Since 1.70.0 a `crop_listing` create looks the id up before the listing fraud rules
+(velocity, duplicate, price), with a strongly consistent read. A create for an id that already exists is answered by this
+conflict and the rules are not asked: before, the farmer's own re-queued create, sent with a
+new idempotency key, was called a duplicate of the listing it had already made
+(`FRAUD_DUPLICATE_LISTING`, with a fraud signal on an honest farmer).
+
+## Updates with nothing to write (1.70.0)
+
+An `order` or `delivery` update whose payload holds nothing the server stores, once the fields
+it owns, the echo keys and unchanged echoes are dropped, writes nothing and is answered
+`success` with the stored `serverVersion` and the stored row (scrubbed as in every answer). The
+version does not move. That holds only when the client sent the stored version: with any other
+version the answer is the usual `conflict` with `serverVersion` and the row, as the write's
+version check gave before, because a phone that is behind applies the row of a `conflict` and
+ignores the row of a `success`. Examples: an order update that holds only `orderTotal`; a trucker's
+delivery update that holds only `qrNonce` (only the farmer sets it, so it is dropped). The
+caller must still pass the entity's party and role rules, and an order update still needs its
+`version`. Before 1.70.0 such an update was written empty and the version moved, which made the
+next queued change of another party conflict. Clients need no change.
 
 ## Operation errors added (1.4.0)
 
@@ -653,7 +698,8 @@ Mobile client (sync queue):
 | Any of the five codes (`APP_UPDATE_REQUIRED` only on an `order`) | Mark the operation rejected: never sent again, a reconnect does not reset it. |
 | Refused `crop_listing` with `REPUTATION_RESTRICTED` or `CROP_HAS_ACTIVE_ORDERS`; refused `trip` with `REPUTATION_RESTRICTED` or `TRIP_HAS_BOOKINGS`; since 1.43.0 (FUP-51) also a `crop_listing` with `CROP_CONTACT_IN_TEXT` and a `trip` with `TRIP_CONTACT_IN_TEXT`, and either with `FRAUD_ACCOUNT_HELD` | Reverted with the order rules. A refused `create` was never stored: remove the local row. A refused update or delete: re-read `GET /crops/{id}` or `GET /trips/{id}` (the owner's own read: only a farmer sends crop operations and only a trucker trip operations) and replace the local row (server wins), unless another operation for it is still queued. A 404 (deleted, or for a trip cancelled) or 403 removes the local row. Any other failed read puts the local version back to the lowest version the refused operations sent and clears the pull stamp, so the next crop or trip pull overwrites the row. |
 | Reverted crop listing or trip | Once the revert returned (a failed read included, since the next pull settles the row), its rejected operations are flagged `reverted` and leave the "Sync failed" count: nothing is left for the user to act on. A revert that threw keeps them counted. Since 1.43.0 (FUP-25) the same holds for a reverted delivery and for a message removed because its thread is closed. |
-| Any other refusal of a crop listing or trip (`FRAUD_*` other than `FRAUD_ACCOUNT_HELD`, `SYNC_VALIDATION`, `*_UNAUTHORIZED`, a changed immutable field, a code meant for another entity, a whole batch refused) | Unchanged: not reverted, still counted. When one entity has several refused operations in a batch, the first one whose code undoes the change drives the revert; the first refusal is what the user is told. |
+| Refused `trip` `create` with `FRAUD_DUPLICATE_LISTING` (1.69.0, `trip-listing-api.md` 2.10.0 rule 14: the trucker already has an open trip on that route, departure day and vehicle) | Reverted like the row above: the create was never stored, so the local trip is removed without a read and its operation leaves the "Sync failed" count. Before 1.69.0 the local trip stayed in My Trips, which has no mark for a trip that failed to sync, so it looked posted. Explained with a sentence of its own in en, am and om (`errorDuplicateTrip`: "You already have a trip on this route on that day, so this one was not posted. Edit that trip instead. If this is a second truck, add its plate number."), not the listing-form wording. Web: the create fails with the same sentence and the form stays open. A `crop_listing` with this code is unchanged (next row). |
+| Any other refusal of a crop listing or trip (`FRAUD_*` other than `FRAUD_ACCOUNT_HELD` and, on a trip, `FRAUD_DUPLICATE_LISTING`; `SYNC_VALIDATION`, `*_UNAUTHORIZED`, a changed immutable field, a code meant for another entity, a whole batch refused) | Unchanged: not reverted, still counted. When one entity has several refused operations in a batch, the first one whose code undoes the change drives the revert; the first refusal is what the user is told. |
 | Refused delivery `create` that reaches the delivery revert (any code that undoes a delivery change) | The server never stored it: the local delivery is removed without a read. Every other refused delivery change is still re-read and never removed (1.11.0). |
 | Order operation refused with one of the five codes | Reverted like any permanent order rejection (1.10.0), not counted. |
 | `APP_UPDATE_REQUIRED` on anything but an `order` (`crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent`, `match_event`) | Kept pending without burning a retry and never reverted or removed (a create included): the same payload goes through once the app is updated. Not counted as failed. This build does not send it, or any operation queued behind it for the same entity, again while it runs (an in-memory hold, cleared by a restart or an update); every other entity keeps syncing. Explained once per entity, except background match events. |
@@ -1800,6 +1846,9 @@ without a reason as permanent with the generic text.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.70.0 | 2026-11-19 | Persona simulation fixes (server only, no client change; `order-lifecycle.md` 2.24.0, `delivery-verification-api.md` 2.17.0, `crop-listing-api.md` 1.17.0, `rating-api.md` 1.6.0): a `delivery` update from a caller who is no party is `DELIVERY_UNAUTHORIZED` before the transition, cancelled and dispute-window rules (conflict rule 10); an `order` or `delivery` update with nothing left to write answers `success` at the stored version and writes nothing (Updates with nothing to write); a `crop_listing` create for an existing id is answered by the create-conflict echo before the listing fraud rules; the delivery's buyer who sends `qrNonce` reads `DELIVERY_UNAUTHORIZED: Only the farmer sets the pickup code.`; a delivery confirm under a disputed escrow answers with the delivery as the dispute mirror left it (`disputed`); a `payment_submitted` for an order the listing can no longer fill is `ORDER_VALIDATION`; a rating of an order whose escrow is in dispute is `RATING_FORBIDDEN` |
+| 1.69.0 | 2026-11-19 | A refused duplicate trip create (persona simulation 2026-11-19 BUG-4, `trip-listing-api.md` 2.10.0 rule 14, fraud spec 3.43.0 Rule 6). Server: a trip `create` can now be answered `FRAUD_DUPLICATE_LISTING:` (the trucker already has an open trip on that route, departure day and vehicle), and a `crop_listing` `create` gets the same code for a lot the farmer already lists at any price (`crop-listing-api.md` 1.16.0 rule 13); both are permanent on every shipped client under the `FRAUD_*` rule. Clients: on mobile a trip create refused with it is reverted (the local trip is removed without a read, its operation leaves the failed count) and explained with its own sentence in en, am and om (`errorDuplicateTrip`); on web the create trip form shows the same sentence. A crop listing refused with the code is unchanged (not reverted, the listing-form wording) |
+| 1.68.0 | 2026-11-19 | Mobile client only, no wire change (persona simulation 2026-11-19). The farmer's own listings reach the phone (BUG-31, FUP-520): the own-listing pull of 1.67.2 now stores the rows it lists (every status, `reserved` and `sold` too), server wins, skipping a row with a `crop_listing` operation still on its way and a server copy older than the stored row, never a row of another farmer; it no longer returns before its request when the phone holds none of the farmer's listings. Early retries (BUG-32): a sync that did not reach the server while the phone has a network and operations wait is tried again after 10 s, 30 s, 1 min, 2 min and 5 min, stopping when the queue is empty or the phone is offline; the health check has a 10 s deadline, connecting included (BUG-35). See "Client-Side Conflict Resolution (Mobile)" and "Retry Logic and Exponential Backoff" |
 | 1.67.2 | 2026-11-17 | A listing deleted elsewhere leaves the farmer's phone (FUP-498, mobile only, no wire change): when My Crops opens, the phone reads the farmer's own list (`GET /crops?farmerId=`, every page, no `status`) and removes a listing of that farmer it holds that the list leaves out once `GET /crops/{id}` answers 404, 403 or a deleted row; a listing with a `crop_listing` operation still on its way, or whose create the server refused for good, stays, and a failed page removes nothing. A listing deleted on this phone (`expired` there) leaves the same way once its delete reached the server. The listed rows are not stored; buyers and truckers never run it; web needs no change. See "Client-Side Conflict Resolution (Mobile)" |
 | 1.67.1 | 2026-11-16 | The trucker's status change behind a refused pickup is matched when its own answer arrives (FUP-493, mobile only, no wire change): a `delivery` operation that sets a `status`, answered `DELIVERY_INVALID_TRANSITION` from `pending`, is rejected when the queue holds a pickup of that delivery refused for good in an earlier batch, by the same user and queued before it; the drop-off code registration and status changes still waiting behind that pickup go with it, the delivery is put back from the server and leaves the "Sync failed" count, nothing new is announced. Covers a mark tapped while the pickup's sync ran and one left by an app killed before the refusal was settled. See "GPS refusals of a handoff" |
 | 1.67.0 | 2026-11-16 | Deleted and sold crop listings (FUP-494, FUP-495, `crop-listing-api.md` 1.15.0): a `crop_listing` `delete` of a listing already deleted writes nothing and answers its farmer `success` with the stored version (before, it was written again and its `deletedAt` and version moved); a `crop_listing` `update` of a `sold` listing writes nothing and answers `conflict` with the stored row, message `CROP_SOLD: The listing is sold.` (before, an update without a `status` was written onto it). Both checks are in the write's condition. Anyone else keeps `CROP_UNAUTHORIZED`. No client change. New conflict resolution rule 9 |
@@ -1873,5 +1922,5 @@ without a reason as permanent with the generic text.
 
 ---
 
-**Last Updated**: 2026-11-17
-**Version**: 1.67.2
+**Last Updated**: 2026-11-19
+**Version**: 1.70.0

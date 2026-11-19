@@ -90,7 +90,7 @@ public partial class SyncFunctionTests
     /// The stored delivery before the confirm: picked up four hours ago by trucker-001 at <paramref name="pickup"/>
     /// (the trucker's scan point), the rig of <c>SetupExistingDeliveryWithQrNonce</c> plus the pickup fields.
     /// </summary>
-    private DateTime GivenPickedUpDelivery(TrackPoint pickup, string? orderId = null)
+    private DateTime GivenPickedUpDelivery(TrackPoint? pickup, string? orderId = null)
     {
         var pickedUpAt = DateTime.UtcNow.AddHours(-4);
         var item = new Dictionary<string, AttributeValue>
@@ -107,11 +107,16 @@ public partial class SyncFunctionTests
             { "dropoffPhotoVersionId", new AttributeValue { S = "photo-version-dropoff-1" } },
             { "status", new AttributeValue { S = "pickedUp" } },
             { "pickedUpAt", new AttributeValue { S = pickedUpAt.ToString("o", CultureInfo.InvariantCulture) } },
-            { "gpsPickup", GpsPoint(pickup.Latitude, pickup.Longitude) },
             { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
             { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
             { "version", new AttributeValue { N = "1" } }
         };
+        // FUP-448: null is a pickup scan that carried no fix.
+        if (pickup != null)
+        {
+            item["gpsPickup"] = GpsPoint(pickup.Latitude, pickup.Longitude);
+        }
+
         if (orderId != null)
         {
             item["orderId"] = new AttributeValue { S = orderId };
@@ -263,6 +268,64 @@ public partial class SyncFunctionTests
         await _truckerCheckIns.Received(1).ListBetweenAsync(
             "trip-001", LocationPingRules.FormatUtc(pickedUpAt), Arg.Is<string>(to => to.EndsWith("#~", StringComparison.Ordinal)),
             TruckerGpsEvidence.MaxWindowPages);
+    }
+
+    [Fact]
+    public async Task GpsAnomaly_FUP448_APickupScanWithoutAFix_IsJudgedAgainstTheListingsPoint()
+    {
+        // The trucker turned GPS off for the pickup scan only and shared afterwards: the check-ins are judged
+        // against the farm (the listing's point), where a pickup with a fix has to be.
+        var function = GpsAnomalyFunction();
+        WithTheRealBuyerRule4();
+        GivenGpsTrip(GpsAddis);
+        GivenPickedUpDelivery(pickup: null);
+        _mockCropRepo.GetByIdAsync("listing-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "listing-001" }, { "latitude", GpsJimma.Latitude }, { "longitude", GpsJimma.Longitude }
+        });
+        GivenTruckerCheckIns(CheckInRow(TimeSpan.FromMinutes(10), new TrackPoint(7.6705, 36.8302)));
+
+        var body = await ConfirmWithDropoffAsync(function, gpsDropoff: GpsAddis);
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _patternFraud.Received(1).RecordAttributedSignalAsync(
+            "trucker-001", "buyer-001", "GPS_ANOMALY", "del-001", "delivery",
+            Arg.Is<string?>(d => d!.StartsWith("Trucker check-in 10 min before the confirmation: 0.06 km from the pickup point")));
+    }
+
+    [Fact]
+    public async Task GpsAnomaly_FUP448_APickupWithoutAFix_ATruckThatReachedTheDropoff_NoTruckerRow()
+    {
+        // The honest case: no fix at the farm (a valley), then the road check-ins show the truck at the drop-off.
+        var function = GpsAnomalyFunction();
+        WithTheRealBuyerRule4();
+        GivenGpsTrip(GpsAddis);
+        GivenPickedUpDelivery(pickup: null);
+        _mockCropRepo.GetByIdAsync("listing-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "listing-001" }, { "latitude", GpsJimma.Latitude }, { "longitude", GpsJimma.Longitude }
+        });
+        GivenTruckerCheckIns(CheckInRow(TimeSpan.FromMinutes(10), GpsAddis));
+
+        Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: GpsAddis));
+
+        await NoTruckerRowAsync();
+    }
+
+    [Fact]
+    public async Task GpsAnomaly_FUP448_NoFixAtThePickup_AndAListingWithoutAPoint_NoTruckerRow()
+    {
+        // Nothing to measure from: no row, and the check-ins are not even read.
+        var function = GpsAnomalyFunction();
+        GivenGpsTrip(GpsAddis);
+        GivenPickedUpDelivery(pickup: null);
+        _mockCropRepo.GetByIdAsync("listing-001").Returns(new Dictionary<string, object> { { "cropId", "listing-001" } });
+        GivenTruckerCheckIns(CheckInRow(TimeSpan.FromMinutes(10), new TrackPoint(7.6705, 36.8302)));
+
+        Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: null));
+
+        await NoTruckerRowAsync();
+        await _truckerCheckIns.DidNotReceiveWithAnyArgs().ListBetweenAsync(default!, default!, default!, default);
     }
 
     [Fact]

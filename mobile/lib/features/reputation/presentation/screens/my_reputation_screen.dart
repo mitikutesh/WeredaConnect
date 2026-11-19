@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
 import 'package:wereda_connect/features/reputation/domain/models/own_reputation.dart';
@@ -280,8 +280,7 @@ class _MyReputationScreenState extends State<MyReputationScreen> {
 }
 
 /// "Nov 7, 2026" for the Ethiopia calendar day of [instant].
-String _day(DateTime instant) =>
-    DateFormat.yMMMd().format(dayInEthiopia(instant));
+String _day(DateTime instant) => formatDate(dayInEthiopia(instant));
 
 /// One decimal, as ratings are written everywhere.
 String _stars(double value) => value.toStringAsFixed(1);

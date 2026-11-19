@@ -33,7 +33,7 @@
   "@offlineMode": {
     "description": "Indicator that the app is currently offline"
   },
-  "syncPending": "ማመሳሰል በመጠባበቅ ላይ",
+  "syncPending": "ለመላክ እየጠበቀ ነው",
   "@syncPending": {
     "description": "Indicator that there are pending sync operations"
   },
@@ -45,15 +45,15 @@
   "@telebirrPayment": {
     "description": "Feature description for Telebirr payment"
   },
-  "syncInProgress": "በማመሳሰል ላይ...",
+  "syncInProgress": "በመላክ ላይ...",
   "@syncInProgress": {
     "description": "Indicator that sync is currently in progress"
   },
-  "syncComplete": "ማመሳሰል ተጠናቅቋል",
+  "syncComplete": "ሁሉም ተልኳል",
   "@syncComplete": {
     "description": "Indicator that sync has completed successfully"
   },
-  "syncFailed": "ማመሳሰል አልተሳካም",
+  "syncFailed": "አልተላከም",
   "@syncFailed": {
     "description": "Indicator that sync has failed"
   },
@@ -61,7 +61,7 @@
   "@retry": {
     "description": "Button to retry a failed operation"
   },
-  "syncNow": "አሁን አመሳስል",
+  "syncNow": "አሁን ላክ",
   "@syncNow": {
     "description": "Button to trigger an immediate sync"
   },
@@ -69,7 +69,7 @@
   "@selectLanguagePrompt": {
     "description": "Language selection prompt on welcome screen"
   },
-  "cancel": "ሰርዝ",
+  "cancel": "ይቅር",
   "@cancel": {
     "description": "Button to cancel an operation"
   },
@@ -125,7 +125,7 @@
   "@errorNoPermission": {
     "description": "Shown when the server refuses a read with 403 for the signed-in role"
   },
-  "errorSecureConnectionFailed": "ከአገልጋዩ ጋር ደህንነቱ የተጠበቀ ግንኙነት መፍጠር አልተቻለም። መተግበሪያውን ያዘምኑ ወይም ሌላ አውታረ መረብ ይሞክሩ።",
+  "errorSecureConnectionFailed": "ደህንነቱ የተጠበቀ ግንኙነት መፍጠር አልተቻለም። መተግበሪያውን ያዘምኑ ወይም ሌላ ኔትወርክ ይሞክሩ።",
   "@errorSecureConnectionFailed": {
     "description": "Shown when the TLS handshake or certificate pin check fails while the device is online"
   },
@@ -137,13 +137,15 @@
   "errorConflict": "ይህ በሌላ ቦታ ተቀይሯል። እባክዎ አድሰው እንደገና ይሞክሩ።",
   "errorOrderRefused": "ይህ የትዕዛዝ እርምጃ አሁን አይፈቀድም፣ ስለዚህ ምንም አልተቀየረም።",
   "errorOrderNotPlaced": "ይህ ትዕዛዝ ሊገባ አልቻለም፣ ስለዚህ ተወግዷል። እባክዎ እንደገና ይዘዙ።",
-  "errorChangeNotSaved": "ይህ ለውጥ በአገልጋዩ ላይ ሊቀመጥ አልቻለም።",
+  "errorChangeNotSaved": "ይህ ለውጥ ተቀባይነት አላገኘም።",
+  "errorListingDetailsNotAccepted": "የሰብል ዝርዝርዎ መረጃ ተቀባይነት አላገኘም። መረጃውን አረጋግጠው እንደገና ይሞክሩ።",
+  "errorTripDetailsNotAccepted": "የጉዞዎ መረጃ ተቀባይነት አላገኘም። መረጃውን አረጋግጠው እንደገና ይሞክሩ።",
   "showingCachedResults": "የተቀመጡ ውጤቶችን በማሳየት ላይ — ማደስ አልተቻለም።",
   "dataWillSyncWhenOnline": "መስመር ላይ ሲሆኑ መረጃዎ ይመሳሰላል",
   "@dataWillSyncWhenOnline": {
     "description": "Reassurance message for offline operations"
   },
-  "offlineReady": "ከመስመር ውጭ ዝግጁ",
+  "offlineReady": "ያለ ኔትወርክ ይሰራል",
   "@offlineReady": {
     "description": "Indicator that the app is ready to work offline"
   },
@@ -252,6 +254,8 @@
   "@password": {
     "description": "Password input label"
   },
+  "showPassword": "የይለፍ ቃል አሳይ",
+  "hidePassword": "የይለፍ ቃል ደብቅ",
   "confirmPassword": "የይለፍ ቃል አረጋግጥ",
   "@confirmPassword": {
     "description": "Confirm password input label"
@@ -344,7 +348,7 @@
   "@loginOffline": {
     "description": "Offline login button"
   },
-  "offlineModeIndicator": "ከመስመር ውጭ ነዎት",
+  "offlineModeIndicator": "ኔትወርክ የለም። ስራዎ በስልክዎ ላይ ተቀምጧል።",
   "@offlineModeIndicator": {
     "description": "Offline mode indicator message"
   },
@@ -388,7 +392,7 @@
   "@authRateLimitExceeded": {
     "description": "Error message when rate limit exceeded during auth"
   },
-  "authServerError": "የሰርቨር ስህተት። እባክዎ ቆይተው እንደገና ይሞክሩ።",
+  "authServerError": "በእኛ በኩል ችግር ተፈጥሯል። እባክዎ ቆይተው እንደገና ይሞክሩ።",
   "@authServerError": {
     "description": "Error message for generic server error during auth"
   },
@@ -947,7 +951,7 @@
   },
   "deliveryConfirmDelivery": "ማድረሻን አረጋግጥ",
   "deliverySelfPickupConfirm": "ለመረከብ የገበሬውን ኪዩአር ይቃኙ",
-  "deliverySelfPickupPayFirst": "መጀመሪያ ወደ ኤስክሮው ይክፈሉ፣ ከዚያ በእርሻው ላይ ለመረከብ ይቃኙ።",
+  "deliverySelfPickupPayFirst": "መጀመሪያ ወደ ኢስክሮ ይክፈሉ፣ ከዚያ በእርሻው ላይ ለመረከብ ይቃኙ።",
   "orderOpenDelivery": "ማድረሻውን ክፈት",
   "orderCollectMyself": "ራሴ እወስዳለሁ",
   "@deliveryConfirmDelivery": {
@@ -1305,7 +1309,7 @@
   "@escrowConfirmPayment": {
     "description": "Button label to confirm and initiate escrow payment"
   },
-  "escrowConfirmPaymentDialog": "ብር {amount} ለ{farmerName} ይከፈል?",
+  "escrowConfirmPaymentDialog": "{amount} ብር ለ{farmerName} ይከፈል?",
   "@escrowConfirmPaymentDialog": {
     "description": "Confirmation dialog message before payment",
     "placeholders": {
@@ -1319,7 +1323,7 @@
       }
     }
   },
-  "escrowFaydaWarning": "ከብር 10,000 በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።",
+  "escrowFaydaWarning": "ከ10,000 ብር በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።",
   "@escrowFaydaWarning": {
     "description": "Warning shown when payment amount exceeds Fayda ID threshold"
   },
@@ -1513,11 +1517,11 @@
   "@escrowReasonOther": {
     "description": "Dispute reason: other reason not listed"
   },
-  "escrowErrorInvalidAmount": "መጠን ከብር 100 እስከ ብር 500,000 መሆን አለበት።",
+  "escrowErrorInvalidAmount": "መጠን ከ100 ብር እስከ 500,000 ብር መሆን አለበት።",
   "@escrowErrorInvalidAmount": {
     "description": "Error when payment amount is outside allowed range"
   },
-  "escrowErrorFaydaRequired": "ከብር 10,000 በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።",
+  "escrowErrorFaydaRequired": "ከ10,000 ብር በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።",
   "@escrowErrorFaydaRequired": {
     "description": "Error when Fayda ID is required but not verified"
   },
@@ -1598,11 +1602,13 @@
     "description": "Error when a dispute is raised before the goods are picked up (ESCROW_041)"
   },
   "escrowErrorDisputeRefundScheduled": "ለዚህ ክፍያ ገንዘቡ ለገዢው እንዲመለስ አስቀድሞ ተይዟል፣ ስለዚህ ከእንግዲህ ክርክር ማንሳት አይቻልም። ካልተስማሙ ድጋፍ ሰጪን ያግኙ።",
+  "escrowErrorDisputeGoodsOnTheWay": "እቃው ገና በመንገድ ላይ ነው። አልደረሰም ብለው ማሳወቅ የሚችሉት የማድረሻው የጊዜ ገደብ ካለፈ በኋላ ነው። ለሌላ ችግር ሌላ ምክንያት ይምረጡ።",
+  "escrowErrorDisputeGoodsOnTheWayAfter": "እቃው ገና በመንገድ ላይ ነው። አልደረሰም ብለው ማሳወቅ የሚችሉት ከ{time} በኋላ ነው። ለሌላ ችግር ሌላ ምክንያት ይምረጡ።",
   "escrowErrorInvalidTransition": "ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"
   },
-  "escrowEtbAmount": "ብር {amount}",
+  "escrowEtbAmount": "{amount} ብር",
   "@escrowEtbAmount": {
     "description": "Formatted ETB currency amount",
     "placeholders": {
@@ -1716,7 +1722,7 @@
   "@dataUsageTrackingSince": {
     "description": "Label prefix shown before the tracking start date"
   },
-  "dataUsageScopeNote": "በዚህ መሣሪያ ላይ ይህ መለያ ወደ WeredaConnect አገልጋዮች የላካቸውን ጥያቄዎች ብቻ ይቆጥራል። የስልክዎ ጠቅላላ የውሂብ አጠቃቀም (የመተግበሪያ ዝማኔዎች፣ ምስሎች፣ ሌሎች መተግበሪያዎች) ከዚህ ሊበልጥ ይችላል። የመግቢያ ትራፊክ አይካተትም።",
+  "dataUsageScopeNote": "በዚህ መሣሪያ ላይ ይህ መለያ ወደ WeredaConnect የላካቸውን ጥያቄዎች ብቻ ይቆጥራል። የስልክዎ ጠቅላላ የውሂብ አጠቃቀም (የመተግበሪያ ዝማኔዎች፣ ምስሎች፣ ሌሎች መተግበሪያዎች) ከዚህ ሊበልጥ ይችላል። የመግቢያ ትራፊክ አይካተትም።",
   "@dataUsageScopeNote": {
     "description": "Explains that data usage counts only this account's API traffic on this device"
   },
@@ -1725,7 +1731,7 @@
   "@conflictTitle": {
     "description": "Title shown on conflict resolution modal when server overwrites local data"
   },
-  "conflictExplanation": "ሌላ መሳሪያ ወይም አገልጋይ ይህን መዝገብ ዘምኗል። የአካባቢ ቅጂዎ ተዘምኗል።",
+  "conflictExplanation": "ይህ መረጃ በሌላ ስልክ ወይም በወረዳ ኮነክት ላይ ተቀይሯል። በዚህ ስልክ ላይ ያለውም አብሮ ተስተካክሏል።",
   "@conflictExplanation": {
     "description": "Explanation of what happened during a sync conflict"
   },
@@ -1905,6 +1911,7 @@
   "@copiedToClipboard": {
     "description": "Snackbar message after copying text to clipboard"
   },
+  "ratingStarsOf": "ከ{max} ኮከብ {count}",
   "forgotPasswordContactSupport": "የይለፍ ቃልዎን ለማስቀየር እባክዎ በ +251-111-234567 ድጋፍን ያግኙ።",
   "@forgotPasswordContactSupport": {
     "description": "Message shown in forgot password dialog with support contact info"
@@ -1961,7 +1968,7 @@
   },
   "escrowDescHeld": "መድረኩ እስኪገመግመው ድረስ ክፍያው ቆሟል። ገንዘቡ በጥበቃ ላይ ነው።",
   "escrowDescUnknown": "የዚህን ክፍያ የቅርብ ጊዜ ሁኔታ ለማየት መተግበሪያውን ያዘምኑ።",
-  "escrowPayoutExpectedOn": "ክፍያው በ{date} ይጠበቃል",
+  "escrowPayoutExpectedOn": "ገንዘብዎ በ{date} ይደርስዎታል ተብሎ ይጠበቃል",
   "@escrowPayoutExpectedOn": {
     "description": "Escrow detail and payment list, farmer and trucker only: the earliest day the payout is sent (FRD-13). Never says why the day is later than usual",
     "placeholders": {
@@ -2051,7 +2058,7 @@
       }
     }
   },
-  "escrowPaymentAmount": "ክፍያ: ETB {amount}",
+  "escrowPaymentAmount": "ክፍያ፦ {amount} ብር",
   "@escrowPaymentAmount": {
     "description": "Payment amount display",
     "placeholders": {
@@ -2145,7 +2152,7 @@
     "description": "Generic delivery error message"
   },
   "deliveryErrorNotFound": "ማድረስ አልተገኘም",
-  "deliveryErrorQrPending": "የገበሬው QR ኮድ ገና ወደ አገልጋዩ አልደረሰም። ገበሬው በኢንተርኔት ላይ ሆኖ QR ኮዱን እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።",
+  "deliveryErrorQrPending": "የገበሬው QR ኮድ ገና አልደረሰንም። ገበሬው በኢንተርኔት ላይ ሆኖ QR ኮዱን እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።",
   "deliveryErrorCancelNotAllowed": "ሰብሉ ስለተነሳ ይህ ማድረስ ከእንግዲህ ሊሰረዝ አይችልም። ችግር ካለ ድጋፍ ሰጪን ያግኙ።",
   "@deliveryErrorNotFound": {
     "description": "Error when delivery cannot be found"
@@ -2321,8 +2328,8 @@
   "myDeliveries": "ማድረሻዎቼ",
   "myPayments": "ክፍያዎቼ",
   "trackDeliveries": "የሰብል ማጓጓዣዎን ይከታተሉ",
-  "trackPayments": "ገቢዎን እና ኤስክሮ ይከታተሉ",
-  "trackBuyerPayments": "ክፍያዎን እና ኤስክሮ ይከታተሉ",
+  "trackPayments": "ገቢዎን እና ኢስክሮ ይከታተሉ",
+  "trackBuyerPayments": "ክፍያዎን እና ኢስክሮ ይከታተሉ",
   "listsPaymentsNote": "እያንዳንዱ ረድፍ አንድ ኢስክሮ ነው። የጊዜ መስመሩን ለማየት ይንኩት።",
   "noDeliveries": "ገና ማድረሻ የለም",
   "noPayments": "ገና ክፍያ የለም",
@@ -2340,7 +2347,7 @@
   "acceptOrder": "ተቀበል",
   "rejectOrder": "ውድቅ አድርግ",
   "splashHeadline": "አምርተው። አጓጉዘው።\nገዝተው። ተጠናቀቀ።",
-  "splashSubtitle": "ለገበሬዎች፣ ለመኪና ሹፌሮች እና ለገዢዎች አንድ መድረክ — በተረጋገጠ ኤስክሮ።",
+  "splashSubtitle": "ለገበሬዎች፣ ለመኪና ሹፌሮች እና ለገዢዎች አንድ መድረክ፣ በተረጋገጠ ኢስክሮ።",
   "orderFunded": "ገንዘብ ተከፍሏል",
   "orderCancelled": "ተሰርዟል",
   "orderCompleted": "ተጠናቅቋል",
@@ -2378,18 +2385,18 @@
   "statusDisputeResolved": "ክርክር ተፈቷል",
   "statusCreatedInfo": "ገዢው ይህን ትዕዛዝ አስገብቷል። እስካሁን ምንም ገንዘብ አልተከፈለም።",
   "statusPendingPaymentInfo": "ገዢው ክፍያ እንዲጀምር በመጠበቅ ላይ። ያልተከፈሉ ትዕዛዞች ከ24 ሰዓት በኋላ በራስ-ሰር ይሰረዛሉ።",
-  "statusPaymentSubmittedInfo": "ገዢው ክፍያውን ልኳል፤ በማረጋገጥ ላይ ነው። ገንዘቡ ገና በአደራ (ኤስክሮ) አልተረጋገጠም።",
-  "statusFundedInfo": "ክፍያው ተረጋግጦ በአደራ (ኤስክሮ) በደህና ተይዟል። የታዘዘው መጠን ከገበሬው ዝርዝር ተይዟል።",
+  "statusPaymentSubmittedInfo": "ገዢው ክፍያውን ልኳል፤ በማረጋገጥ ላይ ነው። ገንዘቡ ገና በአደራ (ኢስክሮ) አልተረጋገጠም።",
+  "statusFundedInfo": "ክፍያው ተረጋግጦ በአደራ (ኢስክሮ) በደህና ተይዟል። የታዘዘው መጠን ከገበሬው ዝርዝር ተይዟል።",
   "orderAcceptedInfo": "ገበሬው ትዕዛዙን ተቀብሎ ሰብሉን ለርክክብ ያዘጋጃል።",
   "statusPickupConfirmedInfo": "ከገበሬው መረከብ በQR ኮድ ስካን ተረጋግጧል።",
   "statusInTransitInfo": "ሰብሉ ወደ ገዢው በመጓዝ ላይ ነው።",
-  "statusDeliveredInfo": "ርክክብ በገዢው ተረጋግጧል። አደራው (ኤስክሮ) ክፍያውን ለገበሬው ይለቃል።",
-  "statusDisbursingInfo": "ገንዘቡ ከአደራ (ኤስክሮ) በመውጣት ላይ ነው፤ ለገበሬው እና ካለ ለጭነት መኪና ሹፌሩ እየተከፈለ ነው።",
+  "statusDeliveredInfo": "ርክክብ በገዢው ተረጋግጧል። አደራው (ኢስክሮ) ክፍያውን ለገበሬው ይለቃል።",
+  "statusDisbursingInfo": "ገንዘቡ ከአደራ (ኢስክሮ) በመውጣት ላይ ነው፤ ለገበሬው እና ካለ ለጭነት መኪና ሹፌሩ እየተከፈለ ነው።",
   "statusSettledInfo": "ሁሉም ተከፍሏል፤ ገበሬው እና ካለ የጭነት መኪና ሹፌሩ። ትዕዛዙ ተጠናቅቋል።",
-  "orderCancelledInfo": "ትዕዛዙ ተሰርዟል። በአደራ (ኤስክሮ) የተያዘ ገንዘብ ካለ ለገዢው ይመለሳል።",
-  "orderRejectedInfo": "ገበሬው ይህን ትዕዛዝ አልተቀበለም። በአደራ (ኤስክሮ) የተያዘ ገንዘብ ለገዢው ይመለሳል።",
+  "orderCancelledInfo": "ትዕዛዙ ተሰርዟል። በአደራ (ኢስክሮ) የተያዘ ገንዘብ ካለ ለገዢው ይመለሳል።",
+  "orderRejectedInfo": "ገበሬው ይህን ትዕዛዝ አልተቀበለም። በአደራ (ኢስክሮ) የተያዘ ገንዘብ ለገዢው ይመለሳል።",
   "statusPaymentFailedInfo": "ክፍያውን ማረጋገጥ አልተቻለም። ገዢው እንደገና መክፈል ይችላል።",
-  "statusDisputedInfo": "ክርክር ቀርቧል። ክርክሩ እስኪፈታ ድረስ ገንዘቡ በአደራ (ኤስክሮ) ተይዞ ይቆያል።",
+  "statusDisputedInfo": "ክርክር ቀርቧል። ክርክሩ እስኪፈታ ድረስ ገንዘቡ በአደራ (ኢስክሮ) ተይዞ ይቆያል።",
   "statusDisputeResolvedInfo": "ክርክሩ ተፈቷል፤ ገንዘቡ ላሸነፈው ወገን ተላልፏል።",
   "cancelOrder": "ትዕዛዝ ሰርዝ",
   "cancelReason": "የሰረዙበት ምክንያት",
@@ -2408,6 +2415,9 @@
   "paymentInstructions": "የክፍያ መመሪያዎች",
   "transactionIdRequired": "የግብይት መታወቂያ ያስፈልጋል",
   "orderTimeline": "የትዕዛዝ ሂደት",
+  "orderTimelineStepDone": "ተጠናቋል",
+  "orderTimelineStepNow": "አሁን",
+  "orderTimelineStepLater": "ገና",
   "quantityKg": "{amount} ኪግ",
   "@quantityKg": {
     "placeholders": {
@@ -2459,7 +2469,7 @@
   "cropCostLabel": "የሰብል ዋጋ",
   "transportCostLabel": "የትራንስፖርት ዋጋ",
   "commissionLabel": "ኮሚሽን (5%)",
-  "syncedAgo": "ከ{time} በፊት ተመሳስሏል",
+  "syncedAgo": "ከ{time} በፊት ታድሷል",
   "@syncedAgo": {
     "placeholders": {
       "time": {
@@ -2490,6 +2500,10 @@
   "requestFulfilled": "ጥያቄው እንደተሟላ ምልክት ተደርጓል",
   "quintalEquivalent": "= {count} ኩንታል",
   "orderQuantityExceedsStock": "የሚገኘው {available} ኪ.ግ ብቻ ነው። ያነሰ መጠን ያስገቡ።",
+  "orderQuantityAvailable": "{available} ኪ.ግ ይገኛል",
+  "cropFormPriceHighWarning": "ይህ ዋጋ የ1 ኪ.ግ ነው፣ በጣም ከፍተኛ ይመስላል። የኩንታል ዋጋ ካስገቡ በ100 ያካፍሉት።",
+  "myCropsSegmentEmpty": "እዚህ ምንም ዝርዝር የለም",
+  "myCropsSegmentEmptyHint": "በዚህ ሁኔታ ያሉ ዝርዝሮች እዚህ ይታያሉ።",
   "neededByDate": "የሚያስፈልግበት ቀን (አማራጭ)",
   "neededByDateHint": "በጊዜው ማድረስ የሚችል መጓጓዣን እናስቀድማለን",
   "selectDate": "ቀን ይምረጡ",
@@ -2517,9 +2531,9 @@
   "sellCrops": "ሰብል ይሸጡ",
   "sellYourHarvest": "ምርትዎን ይሸጡ",
   "tapToListCrops": "ሰብልዎን ዘርዝረው ገዢዎችን በቀጥታ ያግኙ",
-  "synced": "ተመሳስሏል",
-  "offline": "ከመስመር ውጭ",
-  "syncFailureCount": "{count} ስራዎች ትኩረት ይፈልጋሉ",
+  "synced": "ሁሉም ተልኳል",
+  "offline": "ኔትወርክ የለም",
+  "syncFailureCount": "{count} ሊላኩ አልቻሉም",
   "@syncFailureCount": {
     "description": "Subtitle for failed sync notification",
     "placeholders": {
@@ -2528,7 +2542,7 @@
       }
     }
   },
-  "syncPendingCount": "{count} ለማመሳሰል ይጠብቃሉ",
+  "syncPendingCount": "{count} ለመላክ እየጠበቁ ነው",
   "@syncPendingCount": {
     "description": "Subtitle for pending sync notification",
     "placeholders": {
@@ -2543,6 +2557,11 @@
   "logoutOfflineNeedsInternet": "ከመስመር ውጭ ነዎት። እንደገና ለመግባት ኢንተርኔት ያስፈልጋል።",
   "logoutAnyway": "ቢሆንም ውጣ",
   "savedOnPhoneWillSend": "በስልክዎ ላይ ተቀምጧል። ኔትወርክ ሲኖር ይላካል።",
+  "syncStillWaiting": "{count, plural, =1{1 ለውጥ አሁንም በመጠባበቅ ላይ ነው። በራሱ እንደገና ይላካል።} other{{count} ለውጦች አሁንም በመጠባበቅ ላይ ናቸው። በራሳቸው እንደገና ይላካሉ።}}",
+  "listingNotSentYet": "ገና አልተላከም",
+  "listingNotSentYetNote": "በዚህ ስልክ ላይ ብቻ ተቀምጧል። ከተላከ በኋላ ገዢዎች ያዩታል።",
+  "myCropsNotSentNote": "\"ገና አልተላከም\" የሚል ምልክት ያላቸው ዝርዝሮች በዚህ ስልክ ላይ ብቻ ተቀምጠዋል። ከተላኩ በኋላ ገዢዎች ያዩዋቸዋል።",
+  "authNetworkTooSlow": "ኔትወርኩ አሁን በጣም ቀርፋፋ ነው። የተሻለ ኔትወርክ ወዳለበት ቦታ ሄደው እንደገና ይሞክሩ።",
   "orderAcceptedSent": "ትዕዛዙን ተቀብለዋል።",
   "orderRejectedSent": "ትዕዛዙን ውድቅ አድርገዋል። ገዢው ገንዘቡ ይመለስለታል።",
   "homeTilesLoadFailed": "እነዚህ ቁጥሮች ሊጫኑ አልቻሉም።",
@@ -2650,7 +2669,7 @@
   "payWithTelebirr": "በቴሌብር ይክፈሉ",
   "telebirrLivePayInstructions": "{amount} በቴሌብር ይከፍላሉ። ሲጨርሱ ወደዚህ መተግበሪያ ይመለሱ። ክፍያው በራስ-ሰር ይረጋገጣል።",
   "orderCheckoutTitle": "የቴሌብር ክፍያ",
-  "orderCheckoutWaitingToSend": "ክፍያዎ ለመላክ እየጠበቀ ነው። ወደ ሰርቨሩ ሲደርስ ቴሌብር ይከፈታል።",
+  "orderCheckoutWaitingToSend": "ክፍያዎ ለመላክ እየጠበቀ ነው። ሲላክ ቴሌብር ይከፈታል።",
   "orderCheckoutOpenUntil": "ይህን ክፍያ በቴሌብር እስከ {time} ድረስ ማጠናቀቅ ይችላሉ።",
   "orderCheckoutWindowClosed": "ይህ የቴሌብር ክፍያ ገጽ ተዘግቷል። ለመክፈል አዲስ ይጀምሩ።",
   "orderCheckoutStartNew": "አዲስ የቴሌብር ክፍያ ይጀምሩ",
@@ -2662,7 +2681,7 @@
   "orderCheckoutConfirmedAutomatically": "እዚህ ክፍያዎች በራስ-ሰር ይረጋገጣሉ። ትዕዛዝዎን በማረጋገጥ ላይ...",
   "orderCheckoutAlreadyOpen": "ለዚህ ትዕዛዝ የቴሌብር ክፍያ እየተዘጋጀ ነው ወይም ተቋርጧል። አስቀድመው ከከፈሉ፣ እዚህ ይረጋገጣል። ካልሆነ ቆይተው እንደገና ይሞክሩ (እስከ 2 ሰዓት ሊወስድ ይችላል)።",
   "orderCheckoutGatewayProblem": "ቴሌብር ክፍያውን መጀመር አልቻለም። አስቀድመው ከከፈሉ፣ እዚህ ይረጋገጣል። ካልሆነ እንደገና ይሞክሩ።",
-  "orderCheckoutOrderMissing": "ይህ ትዕዛዝ ገና ሰርቨሩ ላይ የለም። ከተመሳሰለ በኋላ እንደገና ይሞክሩ።",
+  "orderCheckoutOrderMissing": "ይህ ትዕዛዝ ገና አልተላከም። ከተላከ በኋላ እንደገና ይሞክሩ።",
   "orderCheckoutPaymentFailed": "ይህ ክፍያ በጊዜው ሊረጋገጥ አልቻለም። እንደገና መክፈል ይችላሉ።",
   "orderCheckoutNotSent": "ክፍያዎ አልተላከም። ማንነትዎን እንዲያረጋግጡ ከተጠየቁ፣ ካረጋገጡ በኋላ እንደገና ይላካል፤ ካልሆነ እንደገና ለመክፈል ትዕዛዙን ይክፈቱ።",
   "orderCheckoutCheckingPayment": "ክፍያዎን በማረጋገጥ ላይ...",
@@ -2683,6 +2702,7 @@
   "errorReputationRestricted": "መለያዎ ለጊዜው ይህን ማድረግ አይችልም፣ ስለዚህ ይህ ለውጥ አልተቀመጠም። ያሉዎት ትዕዛዞች ይቀጥላሉ።",
   "errorCounterpartyRestricted": "ይህ ገበሬ ወይም የጭነት መኪና ሹፌር አሁን አዲስ ትዕዛዝ መቀበል አይችልም፣ ስለዚህ ትዕዛዙ አልገባም። እባክዎ ሌላ ይምረጡ።",
   "errorTripHasBookings": "ይህ ጉዞ የተያዙ ትዕዛዞች ስላሉት ይህ ለውጥ ሊደረግ አይችልም።",
+  "errorDuplicateTrip": "በዚህ መስመር በዚያ ቀን ጉዞ አስቀድመው አለዎት፣ ስለዚህ ይህ ጉዞ አልተለጠፈም። ያንን ጉዞ ያስተካክሉ። ይህ ሁለተኛ መኪና ከሆነ የሰሌዳ ቁጥሩን ያክሉ።",
   "errorCropHasActiveOrders": "ይህ ዝርዝር ክፍት ትዕዛዞች አሉት። መጀመሪያ እነሱን ያስተናግዱ።",
   "errorAppUpdateRequired": "ለመቀጠል እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ አልተቀመጠም።",
   "errorAppUpdateRequiredKept": "እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ በስልክዎ ላይ ተቀምጧል፣ ከዝማኔው በኋላ ይላካል።",
@@ -2713,7 +2733,7 @@
   "deleteAccountFinishing": "ስረዛው እየተጠናቀቀ ነው...",
   "deleteAccountDone": "መለያዎ ተሰርዟል።",
   "deleteAccountOffline": "ከመስመር ውጭ ነዎት። መለያዎን ለመሰረዝ ከኢንተርኔት ጋር ይገናኙ።",
-  "deleteAccountNetworkError": "ሰርቨሩን ማግኘት አልቻልንም፣ ስለዚህ መለያዎ መሰረዙን ማወቅ አንችልም። ግንኙነትዎን አረጋግጠው እንደገና ይሞክሩ።",
+  "deleteAccountNetworkError": "መገናኘት አልቻልንም፣ ስለዚህ መለያዎ መሰረዙን ማወቅ አንችልም። ግንኙነትዎን አረጋግጠው እንደገና ይሞክሩ።",
   "deleteAccountIncomplete": "ስረዛው ተጀምሯል ግን ገና አልተጠናቀቀም። ከትንሽ ቆይታ በኋላ እንደገና ይሞክሩ።",
   "deleteAccountSuspended": "ይህ መለያ ታግዷል፣ ስለዚህ እዚህ ሊሰረዝ አይችልም። ድጋፍ ሰጪን ያግኙ።",
   "deleteAccountFailed": "መለያዎ ሊሰረዝ አልቻለም። ቆይተው እንደገና ይሞክሩ።",
@@ -3210,8 +3230,8 @@
   "qrTypeCodeCheck": "ኮዱን አረጋግጥ",
   "qrTypeCodeTypo": "ይህ ኮድ የትየባ ስህተት አለበት። እያንዳንዱን አሃዝ አረጋግጠው እንደገና ይተይቡ።",
   "qrTypeCodeIncomplete": "9ኙንም አሃዞች ይተይቡ።",
-  "deliveryQrReadCheckedOnline": "QR ኮዱ ተነቧል። ስልክዎ ከኢንተርኔት ሲገናኝ አገልጋዩ ያረጋግጠዋል።",
-  "deliveryCodeTypedCheckedOnline": "ኮዱ ተተይቧል። ስልክዎ ከኢንተርኔት ሲገናኝ አገልጋዩ ያረጋግጠዋል።",
+  "deliveryQrReadCheckedOnline": "QR ኮዱ ተነቧል። ስልክዎ ከኢንተርኔት ሲገናኝ ይረጋገጣል።",
+  "deliveryCodeTypedCheckedOnline": "ኮዱ ተተይቧል። ስልክዎ ከኢንተርኔት ሲገናኝ ይረጋገጣል።",
   "qrTypedCodeNeedsGps": "የተተየበ ኮድ አካባቢዎን ይፈልጋል። የቦታ አገልግሎትን ያብሩ፣ ከዚያ \"ቦታን እንደገና ሞክር\" የሚለውን ይንኩ።",
   "qrRetryLocation": "ቦታን እንደገና ሞክር",
   "qrSelfPickupNeedsGps": "እርሻው ላይ ማንሳቱን ለማረጋገጥ አካባቢዎ ያስፈልጋል።",
@@ -3247,8 +3267,8 @@
   "deliveryErrorCodeLockedDropoff": "ለዚህ ማውረጃ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። ሹፌሩ የማውረጃ QR ካለው ይቃኙት። ከሌለው ድጋፍ ሰጪን ያግኙ፤ ርክክቡን ከእርስዎና ከሹፌሩ ጋር ማረጋገጥ ይችላሉ።",
   "deliveryDropoffQrOwnNote": "ለዚህ ርክክብ በዚህ ስልክ የተሰራ ነው። ያለ ኢንተርኔት ይሰራል፣ የገዢው ቅኝት ወይም የተተየበ ኮድ ርክክቡን ያረጋግጣል። ከጠፋ ወይም ከተቆለፈ አዲስ ኮድ ይስሩ።",
   "deliveryDropoffNewCode": "አዲስ የማውረጃ ኮድ",
-  "deliveryDropoffQrNotSent": "ገና ወደ አገልጋዩ አልደረሰም። ይህን QR በኢንተርኔት ላይ ሆነው በከፈቱ ቁጥር እንደገና ይላካል፤ የገዢው ማረጋገጫም እስኪደርስ ይጠብቃል።",
-  "deliveryErrorDropoffQrPending": "የሹፌሩ የማውረጃ ኮድ ገና ወደ አገልጋዩ አልደረሰም። ሹፌሩ በኢንተርኔት ላይ ሆኖ የማውረጃ QR እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።",
+  "deliveryDropoffQrNotSent": "ገና አልተላከም። ይህን QR በኢንተርኔት ላይ ሆነው በከፈቱ ቁጥር እንደገና ይላካል፤ የገዢው ማረጋገጫም እስኪደርስ ይጠብቃል።",
+  "deliveryErrorDropoffQrPending": "የሹፌሩ የማውረጃ ኮድ ገና አልደረሰንም። ሹፌሩ በኢንተርኔት ላይ ሆኖ የማውረጃ QR እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።",
   "deliveryErrorDropoffCodeLocked": "ለዚህ ማውረጃ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ የሹፌሩን የማውረጃ QR ይቃኙ፣ ወይም ሹፌሩ አዲስ ኮድ እንዲሰራ ይጠይቁ።",
   "deliveryDropoffNoCodeHere": "ይህ ስልክ ለዚህ ርክክብ የማውረጃ ኮድ የለውም። በሌላ ስልክ ወይም አሳሽ ላይ ሰርተው ከሆነ ያንን ያሳዩ። ወይም እዚህ አዲስ ኮድ ይስሩ።",
   "deliveryDropoffQrSuperseded": "በሌላ ስልክ ወይም አሳሽ ላይ አዲስ የማውረጃ ኮድ ስለተሰራ ይህኛው አይሰራም። ያንን ያሳዩ፣ ወይም እዚህ አዲስ ኮድ ይስሩ።",
@@ -3408,7 +3428,7 @@
   "checkInSentFromPhone": "የተላከው {time}",
   "checkInNotYet": "ገና አልሆነም",
   "checkInOpensAt": "ከ{time} ጀምሮ ማረጋገጥ ይችላሉ።",
-  "checkInPendingNote": "QR ኮዱ እስከ ማንሳቻው የመጨረሻ ጊዜ ካልተቃኘ፣ እነዚህ ማረጋገጫዎች የሚሆነውን ይወስናሉ። የሚቆጠረው እያንዳንዱ ሰርቨሩ ጋር የደረሰበት ጊዜ ነው።",
+  "checkInPendingNote": "QR ኮዱ እስከ ማንሳቻው የመጨረሻ ጊዜ ካልተቃኘ፣ እነዚህ ማረጋገጫዎች የሚሆነውን ይወስናሉ። የሚቆጠረው እያንዳንዱ እኛ ጋር የደረሰበት ጊዜ ነው።",
   "checkInDeadlinePassedNote": "የማንሳቻው የመጨረሻ ጊዜ አልፏል። ውጤቱ በቅርቡ ይገለጻል።",
   "checkInArrivedButton": "ደርሻለሁ",
   "checkInCropsReadyButton": "ምርቱ ዝግጁ ነው",
@@ -3429,7 +3449,7 @@
   "errorCheckInNotParty": "ምርቱ ዝግጁ መሆኑን የሚናገረው የትዕዛዙ ገበሬ ብቻ ነው፤ መድረሱን የሚናገረው ደግሞ ሹፌሩ (ወይም ራሱ የሚወስደው ገዢ) ብቻ ነው። ማረጋገጫዎ አልተቀመጠም።",
   "errorCheckInTooEarly": "ገና ነው፤ ማረጋገጫ የሚከፈተው ከማንሳቻው ቀን 24 ሰዓት በፊት ነው። ማረጋገጫዎ አልተቀመጠም፤ ያኔ እንደገና ያረጋግጡ።",
   "errorCheckInTooFar": "ከእርሻው ከ5 ኪ.ሜ በላይ ርቀዋል። ማረጋገጫዎ አልተቀመጠም፤ ሲደርሱ እንደገና ያረጋግጡ።",
-  "errorCheckInTooLate": "ማረጋገጫዎ ሰርቨሩ ጋር የደረሰው ከማንሳቻው የመጨረሻ ጊዜ በኋላ ስለሆነ አይቆጠርም። ለግምገማ ተቀምጧል።",
+  "errorCheckInTooLate": "ማረጋገጫዎ እኛ ጋር የደረሰው ከማንሳቻው የመጨረሻ ጊዜ በኋላ ስለሆነ አይቆጠርም። ለግምገማ ተቀምጧል።",
   "errorCheckInValidation": "ማረጋገጫዎ አልተቀመጠም። እንደገና ይሞክሩ፤ ደጋግሞ ከሆነ መተግበሪያውን ያዘምኑ።",
   "errorCheckInClosed": "የማንሳቻው የመጨረሻ ጊዜ ስላለፈ ማረጋገጫ ተዘግቷል። ማረጋገጫዎ አልተቀመጠም።",
   "checkInLocationBlocked": "ለዚህ መተግበሪያ የቦታ ፈቃድ ተከልክሏል። በመተግበሪያው ቅንብሮች ውስጥ ይፍቀዱ፣ ከዚያ እርሻው ላይ እንደገና ይሞክሩ።",
@@ -3457,12 +3477,12 @@
   "dropoffJudgementOutOfRange": "የሹፌሩ ማረጋገጫ ከትዕዛዙ ማውረጃ ቦታ ከ5 ኪ.ሜ በላይ ርቆ ነበር። ድጋፍ ሰጪዎች እያጣሩት ነው፤ ገንዘቡ እንደተያዘ ይቆያል።",
   "dropoffJudgementQueued": "ድጋፍ ሰጪዎች ይህን ማድረሻ እየገመገሙ ነው። ገንዘቡ እንደተያዘ ይቆያል።",
   "dropoffJudgementOther": "የማድረሱ ውሳኔ ተሰጥቷል።",
-  "errorCheckInPhotoRequired": "የመድረሻ ፎቶው ሰርቨሩ ጋር አልደረሰም። መጀመሪያ የመድረሻ ፎቶውን ያንሱ፣ ከዚያ ማውረጃ ቦታ ላይ እንደገና ያረጋግጡ።",
+  "errorCheckInPhotoRequired": "የመድረሻ ፎቶው ገና አልደረሰንም። መጀመሪያ የመድረሻ ፎቶውን ያንሱ፣ ከዚያ ማውረጃ ቦታ ላይ እንደገና ያረጋግጡ።",
   "errorDropoffCheckInNotOpen": "ለዚህ ማድረሻ የማውረጃ ቦታ ማረጋገጫ አልተከፈተም፤ ስለዚህ ማረጋገጫዎ አልተቀመጠም።",
   "errorDropoffCheckInNotParty": "ማውረጃ ቦታ መድረሱን የሚያረጋግጠው የትዕዛዙ ሹፌር ብቻ ነው። ማረጋገጫዎ አልተቀመጠም።",
   "errorDropoffCheckInTooFar": "ማረጋገጫዎ ከትዕዛዙ ማውረጃ ቦታ ከ5 ኪ.ሜ በላይ ርቆ ስለነበር አልተቀመጠም። ወደዚያ ቦታ ሲቀርቡ እንደገና ያረጋግጡ።",
   "errorDropoffCheckInTooFarKept": "ማረጋገጫዎ ከትዕዛዙ ማውረጃ ቦታ ከ5 ኪ.ሜ በላይ ርቆ ስለነበር አልተቀመጠም፣ ነገር ግን ይህ ሙከራ ለግምገማ ተቀምጧል። ወደዚያ ቦታ ሲቀርቡ እንደገና ያረጋግጡ።",
-  "errorDropoffCheckInTooLate": "ማረጋገጫዎ ሰርቨሩ ጋር የደረሰው ከማድረሻው የመጨረሻ ጊዜ በኋላ ስለሆነ አይቆጠርም። ለግምገማ ተቀምጧል።",
+  "errorDropoffCheckInTooLate": "ማረጋገጫዎ እኛ ጋር የደረሰው ከማድረሻው የመጨረሻ ጊዜ በኋላ ስለሆነ አይቆጠርም። ለግምገማ ተቀምጧል።",
   "errorDropoffCheckInClosed": "የማድረሻው የመጨረሻ ጊዜ ስላለፈ ማረጋገጫ ተዘግቷል። ማረጋገጫዎ አልተቀመጠም።",
   "deliveryErrorGpsPickupFar": "ማንሳቱ አልተቀመጠም፤ ቦታዎ ከእርሻው ከ5 ኪ.ሜ በላይ ርቆ ነበር። እቃውን ይዘው ከመሄድዎ በፊት እርሻው ላይ የገበሬውን QR ኮድ እንደገና ይቃኙ።",
   "deliveryErrorGpsSelfPickupNoFix": "ማንሳቱ አልተረጋገጠም፤ ስልክዎ ቦታ አልላከም፣ ገበሬውም ገና አልተከፈለውም። የቦታ አገልግሎትን አብርተው እርሻው ላይ የገበሬውን QR ኮድ እንደገና ይቃኙ።",

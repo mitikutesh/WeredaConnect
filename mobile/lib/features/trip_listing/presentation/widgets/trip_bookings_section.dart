@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
@@ -403,6 +403,7 @@ class _BookingCard extends StatelessWidget {
     return StatusChip(
       label: orderStatusLabel(order.status, l10n),
       kind: orderStatusKind(order.status),
+      icon: orderStatusIcon(order.status),
     );
   }
 }
@@ -432,7 +433,7 @@ class _TransportRequest extends StatelessWidget {
         ? ClockLabel.text(l10n.actionAnswerTransport)
         : clockFormatOf(context).deadline(
             deadline,
-            date: DateFormat.MMMd(),
+            date: formatMonthDay,
             sentence: l10n.detailFarmerAcceptedAnswerBy,
           );
     return Column(

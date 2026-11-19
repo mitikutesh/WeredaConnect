@@ -606,6 +606,15 @@ export class ApiStack extends cdk.Stack {
     // Transaction audit is append-only: write-only grant. Order/delivery
     // lifecycle transitions are logged here for the admin monitor.
     props.transactionAuditTable.grantWriteData(syncFn.function);
+
+    // Persona simulation BUG-6 (escrow-protocol.md 2.28.0): a new dispute reads the delivery's audit rows for
+    // its handoff evidence. Query on the entity index only.
+    syncFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${props.transactionAuditTable.tableArn}/index/EntityIndex`],
+      }),
+    );
     // QR handoff secrets: sync writes the farmer's nonce and reads it to verify a
     // scanner's echo (and marks it consumed). Never echoed back to any client.
     props.deliveryQrSecretsTable.grantReadWriteData(syncFn.function);
@@ -1720,6 +1729,15 @@ export class ApiStack extends cdk.Stack {
     props.ordersTable.grant(escrowFn.function, "dynamodb:UpdateItem");
     // Transaction audit is append-only: PutItem, never an update or delete.
     props.transactionAuditTable.grant(escrowFn.function, "dynamodb:PutItem");
+
+    // Persona simulation BUG-6 (escrow-protocol.md 2.28.0): a new dispute reads the delivery's audit rows for
+    // its handoff evidence. Query on the entity index only.
+    escrowFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${props.transactionAuditTable.tableArn}/index/EntityIndex`],
+      }),
+    );
     props.usersTable.grantReadData(escrowFn.function);
     props.cropsTable.grantReadData(escrowFn.function);
     // ESC-03: a buyer_wins refund before pickup gives the cancelled order's stock back
@@ -1813,6 +1831,15 @@ export class ApiStack extends cdk.Stack {
     // (UpdateItem only, never a put or delete).
     props.deliveriesTable.grant(escrowCronFn.function, "dynamodb:UpdateItem");
     props.transactionAuditTable.grant(escrowCronFn.function, "dynamodb:PutItem");
+
+    // Persona simulation BUG-6 (escrow-protocol.md 2.28.0): a new dispute reads the delivery's audit rows for
+    // its handoff evidence. Query on the entity index only.
+    escrowCronFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${props.transactionAuditTable.tableArn}/index/EntityIndex`],
+      }),
+    );
     // Read the order behind an order-funded escrow before refunding; write to
     // cancel a stale-funded order after its escrow refunds.
     props.ordersTable.grantReadWriteData(escrowCronFn.function);
@@ -2191,6 +2218,15 @@ export class ApiStack extends cdk.Stack {
     props.ordersTable.grantReadWriteData(orderCronFn.function);
     // Auto-cancel writes an order lifecycle event to the audit trail.
     props.transactionAuditTable.grantWriteData(orderCronFn.function);
+
+    // Persona simulation BUG-6 (escrow-protocol.md 2.28.0): a new dispute reads the delivery's audit rows for
+    // its handoff evidence. Query on the entity index only.
+    orderCronFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${props.transactionAuditTable.tableArn}/index/EntityIndex`],
+      }),
+    );
     // ESC-15: the commitment walk's side effects, in the escrow-cron grant style. The escrow is
     // read through its OrderIndex and expired (refund scheduled), every escrow mutation is
     // ledgered, the listing and the trip take conditional updates, the pending delivery is

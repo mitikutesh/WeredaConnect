@@ -54,6 +54,14 @@ const SOFT_SIGNAL_TYPES = new Set([
   "REPEATED_PAIR",
   // ESC-33 (not NO_SHOW or DELIVERY_OVERDUE, which are hard)
   "BUYER_DECLINE_PATTERN",
+  // Fraud spec Rules 1 and 6 (3.43.0): weight 0, review only
+  "TRIP_SAME_DAY",
+  "DUPLICATE_LOT",
+  "DUPLICATE_TRIP",
+  // Fraud spec Rule 7 (3.44.0): weight 0, review only
+  "PICKUP_NO_FIX",
+  "ORDER_ROUTE_MISMATCH",
+  "CHAT_CONTACT_BEFORE_DELIVERY",
 ]);
 
 /* FRD-19: the AI reviewer's row (fraud-detection-architecture.md section 21). Its description is the model's

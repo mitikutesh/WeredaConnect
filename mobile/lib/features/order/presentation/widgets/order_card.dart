@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
@@ -61,7 +61,7 @@ class OrderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final day = DateFormat.yMMMd().format(dayInEthiopia(order.createdAt));
+    final day = formatDate(dayInEthiopia(order.createdAt));
     // A legacy order without cropCost: the crop subtotal, never the total.
     // A trucker order without a transport cost shows no amount, not 0.
     final (double? value, String? amountLabel) = isFarmerView
@@ -186,6 +186,7 @@ class OrderCard extends StatelessWidget {
               StatusChip(
                 label: orderStatusLabel(order.status, l10n),
                 kind: orderStatusKind(order.status),
+                icon: orderStatusIcon(order.status),
               ),
               if (underReview)
                 const EscrowStatusBadge(status: PaymentStatus.held),
@@ -269,6 +270,17 @@ StatusKind orderStatusKind(OrderStatus status) {
     OrderStatus.disputeResolved => StatusKind.neutral,
     OrderStatus.awaitingTransport => StatusKind.warning,
     OrderStatus.unknown => StatusKind.neutral,
+  };
+}
+
+/// The chip icon of an order status whose kind's default glyph would not
+/// tell it apart (BUG-L5): a new order and a cancelled one are both neutral
+/// and shared the empty circle. Null keeps the kind's default.
+IconData? orderStatusIcon(OrderStatus status) {
+  return switch (status) {
+    OrderStatus.created => Icons.receipt_long_outlined,
+    OrderStatus.cancelled => Icons.block,
+    _ => null,
   };
 }
 

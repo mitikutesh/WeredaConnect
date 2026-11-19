@@ -1,9 +1,8 @@
-import 'package:intl/intl.dart';
-
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/listing_report_rules.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -164,6 +163,11 @@ enum AppErrorCode {
   /// its capacity (`TRIP_HAS_BOOKINGS`); the local change was undone.
   tripHasBookings,
 
+  /// The trucker already has an open trip on this route, departure day and
+  /// vehicle (`FRAUD_DUPLICATE_LISTING` on a trip create, trip-listing-api
+  /// 2.10.0); the new trip was not posted and its local copy was removed.
+  duplicateTrip,
+
   /// A listing with active orders cannot be removed or reduced
   /// (`CROP_HAS_ACTIVE_ORDERS`); the local change was undone.
   cropHasActiveOrders,
@@ -259,6 +263,14 @@ enum AppErrorCode {
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
+
+  /// `CROP_VALIDATION` on a queued crop listing change: the details the
+  /// farmer entered were not accepted (BUG-L9).
+  listingDetailsNotAccepted,
+
+  /// `TRIP_VALIDATION` on a queued trip change: the details the trucker
+  /// entered were not accepted (BUG-L9).
+  tripDetailsNotAccepted,
   unknown,
 }
 
@@ -460,7 +472,7 @@ String localizeErrorCode(
     final until = reputationRestrictedUntil(message);
     if (until != null) {
       return l10n.errorReputationRestrictedUntil(
-        DateFormat.yMMMd().format(dayInEthiopia(until)),
+        formatDate(dayInEthiopia(until)),
       );
     }
   }
@@ -510,6 +522,7 @@ String localizeErrorCode(
     AppErrorCode.reputationRestricted => l10n.errorReputationRestricted,
     AppErrorCode.counterpartyRestricted => l10n.errorCounterpartyRestricted,
     AppErrorCode.tripHasBookings => l10n.errorTripHasBookings,
+    AppErrorCode.duplicateTrip => l10n.errorDuplicateTrip,
     AppErrorCode.cropHasActiveOrders => l10n.errorCropHasActiveOrders,
     AppErrorCode.appUpdateRequired => l10n.errorAppUpdateRequired,
     AppErrorCode.appUpdateRequiredKept => l10n.errorAppUpdateRequiredKept,
@@ -538,6 +551,9 @@ String localizeErrorCode(
     AppErrorCode.dropoffCheckInNeedsLocation =>
       l10n.dropoffCheckInNeedsLocation,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
+    AppErrorCode.listingDetailsNotAccepted =>
+      l10n.errorListingDetailsNotAccepted,
+    AppErrorCode.tripDetailsNotAccepted => l10n.errorTripDetailsNotAccepted,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
     AppErrorCode.server ||
@@ -640,6 +656,10 @@ AppErrorCode syncRejectionErrorCode({
   if (isTripHasBookingsMessage(message)) {
     return AppErrorCode.tripHasBookings;
   }
+  // The code is shared with crop listings, which keep the listing wording.
+  if (entityType == 'trip' && isDuplicateListingMessage(message)) {
+    return AppErrorCode.duplicateTrip;
+  }
   if (isCropHasActiveOrdersMessage(message)) {
     return AppErrorCode.cropHasActiveOrders;
   }
@@ -664,10 +684,26 @@ AppErrorCode syncRejectionErrorCode({
   if (isContactInTextMessage(message)) {
     return AppErrorCode.contactInText;
   }
+  // BUG-L9: the listing or trip itself was refused; say what to check.
+  if (_isDetailsRefusal(message, 'CROP_VALIDATION')) {
+    return AppErrorCode.listingDetailsNotAccepted;
+  }
+  if (_isDetailsRefusal(message, 'TRIP_VALIDATION')) {
+    return AppErrorCode.tripDetailsNotAccepted;
+  }
   return isRevertableRejectionMessage(message)
       ? AppErrorCode.orderRefused
       : AppErrorCode.changeNotSaved;
 }
+
+/// Whether [message] is a [code] refusal (`CROP_VALIDATION`,
+/// `TRIP_VALIDATION`) for the details the user entered. Not the two the same
+/// codes also carry and no correction on the form can pass: a field the app
+/// never lets the user change, and the server failing to read the profile.
+bool _isDetailsRefusal(String message, String code) =>
+    message.startsWith('$code:') &&
+    !message.contains('is immutable and cannot be changed') &&
+    !message.contains('profile could not be read');
 
 /// The code of an arrival check-in refusal ([isCheckInRefusalMessage],
 /// FUP-285): one per `CHECKIN_*` code; the unsupported-entity answer of a

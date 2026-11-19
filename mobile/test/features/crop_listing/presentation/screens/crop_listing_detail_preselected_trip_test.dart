@@ -273,6 +273,9 @@ void main() {
     await tester.tap(find.text('Place Order + Transport'));
     await tester.pumpAndSettle();
     expect(find.byType(PlaceOrderScreen), findsOneWidget);
+    // BUG-20: the quantity starts empty.
+    await tester.tap(find.byKey(const Key('place_order_all')));
+    await tester.pump();
 
     // Filled up while the buyer was choosing the quantity.
     chosen.status = TripStatus.matched;

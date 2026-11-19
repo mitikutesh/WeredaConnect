@@ -88,8 +88,14 @@ public partial class SyncFunction
         var tripId = AttrString(existing, "tripId");
         if (string.IsNullOrEmpty(tripId)
             || !LocationPingRules.TryParseUtc(AttrString(existing, "pickedUpAt"), out var pickedUpAt)
-            || !LocationPingRules.TryParseUtc(confirmedAtText, out var confirmedAt)
-            || StoredPoint(existing, "gpsPickup") is not { } pickup)
+            || !LocationPingRules.TryParseUtc(confirmedAtText, out var confirmedAt))
+        {
+            return null;
+        }
+
+        // FUP-448: a pickup scan without a fix is judged against the listing's point, where a pickup
+        // with a fix has to be (within 5 km). Without either there is nothing to measure from.
+        if ((StoredPoint(existing, "gpsPickup") ?? await ListingPointAsync(existing)) is not { } pickup)
         {
             return null;
         }
@@ -147,6 +153,15 @@ public partial class SyncFunction
         var maxTruckKmh = PatternRules?.Settings.MaxDeliveryKmh ?? TransactionPatternSettings.Default.MaxDeliveryKmh;
         return TruckerGpsEvidence.Judge(
             checkIns, pickup, confirmedAt, fromWoreda, toWoreda, tripDestination, orderPoint, maxTruckKmh);
+    }
+
+    /// <summary>The point of the delivery's listing (the farm), or null when the listing or its point is missing.</summary>
+    private async Task<TrackPoint?> ListingPointAsync(Dictionary<string, AttributeValue> existing)
+    {
+        var listingId = AttrString(existing, "listingId");
+        return string.IsNullOrEmpty(listingId)
+            ? null
+            : TripTrack.PointOf(await _cropRepo.GetByIdAsync(listingId), "latitude", "longitude");
     }
 
     /// <summary>A stored map point (<c>{latitude, longitude}</c>, numbers), such as <c>gpsPickup</c>; null when missing.</summary>

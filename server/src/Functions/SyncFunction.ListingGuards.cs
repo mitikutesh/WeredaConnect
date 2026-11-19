@@ -134,4 +134,81 @@ public partial class SyncFunction
             Status = "success",
             ServerVersion = stored != null ? OrderVersionOf(stored) : 0
         };
+
+    /// <summary>
+    /// The lot of a crop listing create for the duplicate lot check (fraud-detection-architecture.md
+    /// Rule 1), read from a payload that already passed <see cref="ValidateCropFields"/>. Null when the
+    /// quantity or the woreda cannot be read: the lot check is then skipped, the other checks still run.
+    /// </summary>
+    private static ListingLot? ListingLotOf(SyncOperationRequest operation)
+    {
+        var data = operation.Data;
+        if (data == null
+            || !decimal.TryParse(data.GetValueOrDefault("quantity")?.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var quantity)
+            || data.GetValueOrDefault("woreda")?.ToString() is not { Length: > 0 } woreda)
+        {
+            return null;
+        }
+
+        if (TryReadOptionalDouble(data, "latitude", out var latitude, out var latitudeInvalid) && !latitudeInvalid
+            && TryReadOptionalDouble(data, "longitude", out var longitude, out var longitudeInvalid) && !longitudeInvalid)
+        {
+            return new ListingLot(operation.EntityId, quantity, woreda, latitude, longitude);
+        }
+
+        return new ListingLot(operation.EntityId, quantity, woreda, null, null);
+    }
+
+    /// <summary>
+    /// Rule 6 (fraud-detection-architecture.md, trip-listing-api.md rule 14): check a trip create that
+    /// passed the field rules, its <c>departureDate</c> already normalized, against the trucker's other
+    /// open and matched trips. A duplicate (same route, day and vehicle) comes back as the refusal
+    /// (<c>FRAUD_DUPLICATE_LISTING</c> on the wire), with its <c>DUPLICATE_TRIP</c> signal recorded (weight 0). Another trip of the same day comes back as the
+    /// flag, for the caller to record once the trip is written. A check that cannot run (no fraud
+    /// service, an unreadable date, a failed read) lets the create go on: the rule never blocks a trucker
+    /// because a read failed.
+    /// </summary>
+    private async Task<(SyncOperationResult? Refusal, FraudCheckResult? Flag)> CheckTripCreationFraudAsync(
+        SyncOperationRequest operation, string truckerId, ILambdaContext context)
+    {
+        if (_fraudService == null || operation.Data == null
+            || !TryParseDepartureDateUtc(
+                operation.Data.GetValueOrDefault("departureDate")?.ToString(), requireIsoShape: false, out var departureUtc))
+        {
+            return (null, null);
+        }
+
+        FraudCheckResult? check;
+        try
+        {
+            check = await _fraudService.CheckTripCreationAsync(new TripPlan(
+                truckerId, operation.EntityId,
+                operation.Data.GetValueOrDefault("fromWoreda")?.ToString() ?? "",
+                operation.Data.GetValueOrDefault("toWoreda")?.ToString() ?? "",
+                departureUtc,
+                operation.Data.GetValueOrDefault("vehiclePlate")?.ToString()));
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Trip fraud check skipped for trip {MoneyAlarmLog.LogId(operation.EntityId)}: [{ex.GetType().Name}]");
+            return (null, null);
+        }
+
+        if (check is { IsAllowed: false })
+        {
+            await TryRecordFraudSignalAsync(
+                truckerId, check.FlagReason ?? check.ErrorCode ?? "FRAUD_REJECTED", operation.EntityId, "trip",
+                check.Message, context);
+            return (new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"{check.ErrorCode}: {check.Message}"
+            }, null);
+        }
+
+        return (null, check is { IsFlagged: true } ? check : null);
+    }
 }

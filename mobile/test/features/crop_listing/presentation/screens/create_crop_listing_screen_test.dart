@@ -176,6 +176,39 @@ void main() {
       expect(total, findsNothing);
     });
 
+    // BUG-26: 2,800 typed as a price per kg is a per-quintal price. From
+    // 500 ETB per kg the form asks; it never blocks.
+    testWidgets('questions a price per kg that looks typed per quintal',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      final warning = find.byKey(const Key('create_listing_price_warning'));
+      final price = find.byKey(const Key('create_listing_price'));
+
+      await tester.enterText(price, '28');
+      await tester.pump();
+      expect(warning, findsNothing);
+
+      await tester.enterText(price, '499.99');
+      await tester.pump();
+      expect(warning, findsNothing);
+
+      await tester.enterText(price, '500');
+      await tester.pump();
+      expect(warning, findsOneWidget);
+
+      await tester.enterText(price, '2800');
+      await tester.pump();
+      expect(
+        tester.widget<Text>(warning).data,
+        'This price is for 1 kg and looks very high. If you typed the price '
+        'of a quintal, divide it by 100.',
+      );
+      // A warning, not a validation error: the field itself stays valid.
+      final field = tester.state<FormFieldState<String>>(price);
+      expect(field.validate(), isTrue);
+    });
+
     testWidgets('shows GPS captured indicator when GPS succeeds',
         (tester) async {
       await tester.pumpWidget(buildTestWidget());

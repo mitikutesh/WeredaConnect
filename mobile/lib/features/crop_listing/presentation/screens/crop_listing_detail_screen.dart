@@ -4,10 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/trip_departure.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
-import 'package:intl/intl.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
@@ -16,6 +16,8 @@ import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/sync/listing_report_rules.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
@@ -129,6 +131,53 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     PlaceRepository.instance.ensureLoaded().then((_) {
       if (mounted) setState(() {});
     }).ignore();
+    _watchNotSent();
+  }
+
+  @override
+  void dispose() {
+    _queueSub?.cancel();
+    super.dispose();
+  }
+
+  /// BUG-36: the farmer's own listing has a create or an edit that has not
+  /// reached the server yet. The status pill then says "Not sent yet" and a
+  /// note says buyers do not see it, instead of looking like a synced
+  /// listing. Never on web (no queue) nor for another role.
+  bool _notSent = false;
+  StreamSubscription<({int pending, int failed})>? _queueSub;
+
+  bool get _isOwnListing =>
+      widget.currentUserRole == UserRole.farmer &&
+      _listing.farmerId == widget.currentUserId;
+
+  /// Reads [_notSent] now and again whenever the phone's queue changes, so
+  /// the mark goes once the listing was sent.
+  void _watchNotSent() {
+    if (!_isOwnListing) return;
+    _loadNotSent();
+    if (kIsWeb) return;
+    try {
+      _queueSub = context.read<SyncQueue>().watchCounts().listen(
+            (_) => _loadNotSent(),
+            onError: (Object _) {},
+          );
+    } on Object {
+      // No queue above this screen (widget tests): read once.
+    }
+  }
+
+  Future<void> _loadNotSent() async {
+    if (!mounted) return;
+    final CropListingBloc bloc;
+    try {
+      bloc = context.read<CropListingBloc>();
+    } on Object {
+      // No listing bloc above this screen: nothing is marked.
+      return;
+    }
+    final waiting = await _changeWaiting(bloc);
+    if (mounted && waiting != _notSent) setState(() => _notSent = waiting);
   }
 
   /// B-2: the truck the buyer came from, when it can still carry an order
@@ -354,9 +403,30 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                     children: [
                       const FwBackButton(),
                       const Spacer(),
-                      _StatusChip(status: _listing.status),
+                      if (_notSent)
+                        FwPill(
+                          key: const Key('listing_not_sent_pill'),
+                          label: l10n.listingNotSentYet,
+                          icon: Icons.cloud_upload_outlined,
+                          foreground: AppTheme.actionInk,
+                        )
+                      else
+                        _StatusChip(status: _listing.status),
                     ],
                   ),
+                  if (_notSent) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      l10n.listingNotSentYetNote,
+                      key: const Key('listing_not_sent_note'),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.actionInk,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 20),
                   // The photos first: the full 1024 px renditions, read
                   // when the detail opens (the list only has thumbs).
@@ -860,7 +930,7 @@ class _HeaderSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final listed = l10n.myCropsListedOn(
-      DateFormat.MMMd().format(dayInEthiopia(listing.createdAt)),
+      formatMonthDay(dayInEthiopia(listing.createdAt)),
     );
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -1153,7 +1223,7 @@ class _FarmerCardState extends State<_FarmerCard> {
                         const SizedBox(height: 2),
                         Text(
                           l10n.reputationAsOf(
-                            DateFormat.yMMMd().format(dayInEthiopia(asOf)),
+                            formatDate(dayInEthiopia(asOf)),
                           ),
                           style: muted,
                         ),

@@ -234,6 +234,7 @@ class _StepUpDialogState extends State<_StepUpDialog> {
               errorText: _error,
               errorMaxLines: 3,
               suffixIcon: IconButton(
+                tooltip: _obscure ? l10n.showPassword : l10n.hidePassword,
                 icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
                 onPressed: () => setState(() => _obscure = !_obscure),
               ),

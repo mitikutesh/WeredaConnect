@@ -241,6 +241,166 @@ void main() {
     test('constants have expected values', () {
       expect(SyncWorker.syncInterval, const Duration(minutes: 15));
       expect(SyncWorker.purgeInterval, const Duration(hours: 24));
+      // BUG-32: few attempts, growing waits.
+      expect(SyncWorker.retryDelays, const [
+        Duration(seconds: 10),
+        Duration(seconds: 30),
+        Duration(minutes: 1),
+        Duration(minutes: 2),
+        Duration(minutes: 5),
+      ]);
+    });
+
+    // BUG-32: one failed health check after the signal came back used to
+    // leave the queue untouched until the 15 minute timer.
+    group('BUG-32: early retries after a sync that did not reach the server',
+        () {
+      const tick = Duration(milliseconds: 30);
+      late int healthChecks;
+
+      /// How many health checks fail before one succeeds.
+      late int failFirst;
+
+      SyncWorker retrying({List<Duration> delays = const [tick, tick]}) =>
+          worker = SyncWorker(
+            executor: executor,
+            syncQueue: syncQueue,
+            connectivityMonitor: connectivityMonitor,
+            retryDelays: delays,
+          );
+
+      Future<void> enqueueListing() => syncQueue.enqueue(
+            userId: 'user-001',
+            entityType: 'crop_listing',
+            entityId: 'listing-retry',
+            action: 'create',
+            data: '{"cropType":"teff"}',
+            operationId: 'op-retry',
+          );
+
+      Future<SyncStatus> opStatus() async =>
+          (await syncQueue.getOperation('op-retry'))!.status;
+
+      setUp(() {
+        healthChecks = 0;
+        failFirst = 0;
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              if (options.path != '/health') return handler.next(options);
+              healthChecks++;
+              if (healthChecks <= failFirst) {
+                return handler.reject(
+                  DioException(
+                    requestOptions: options,
+                    type: DioExceptionType.connectionTimeout,
+                  ),
+                );
+              }
+              handler.resolve(
+                Response<dynamic>(requestOptions: options, statusCode: 200),
+              );
+            },
+          ),
+        );
+        dioAdapter.onPost(
+          '/sync',
+          (server) => server.reply(200, {
+            'syncBatchId': 'batch-retry',
+            'results': [
+              {
+                'operationId': 'op-retry',
+                'status': 'success',
+                'serverVersion': 1,
+              }
+            ],
+          }),
+          data: Matchers.any,
+        );
+      });
+
+      test(
+          'a waiting change goes up by itself once the health check passes '
+          'again', () async {
+        failFirst = 2;
+        await enqueueListing();
+
+        retrying().start();
+        for (var i = 0; i < 100 && await opStatus() != SyncStatus.synced; i++) {
+          await Future<void>.delayed(tick);
+        }
+
+        expect(await opStatus(), SyncStatus.synced);
+        expect(healthChecks, 3, reason: 'the first sync and two retries');
+      });
+
+      test('the retries are bounded: they stop after the last wait', () async {
+        failFirst = 1000;
+        await enqueueListing();
+
+        retrying().start();
+        await Future<void>.delayed(tick * 15);
+
+        expect(healthChecks, 3, reason: 'the first sync and two retries');
+        expect(await opStatus(), SyncStatus.pending);
+      });
+
+      test('an app resume starts a new round of retries', () async {
+        failFirst = 1000;
+        await enqueueListing();
+        final worker = retrying()..start();
+        await Future<void>.delayed(tick * 15);
+        expect(healthChecks, 3);
+
+        await worker.onAppResumed();
+        await Future<void>.delayed(tick * 15);
+
+        expect(healthChecks, 6);
+      });
+
+      test('nothing waiting: no retry', () async {
+        failFirst = 1000;
+
+        retrying().start();
+        await Future<void>.delayed(tick * 10);
+
+        expect(healthChecks, 1);
+      });
+
+      test('the phone is offline: no health check and no retry', () async {
+        fakeSource.currentResults = [ConnectivityResult.none];
+        await enqueueListing();
+
+        retrying().start();
+        await Future<void>.delayed(tick * 10);
+
+        expect(healthChecks, 0);
+        expect(await opStatus(), SyncStatus.pending);
+      });
+
+      test('stop cancels a retry that was scheduled', () async {
+        failFirst = 1000;
+        await enqueueListing();
+        final worker = retrying(delays: const [Duration(milliseconds: 200)])
+          ..start();
+        await Future<void>.delayed(tick * 2);
+        expect(healthChecks, 1);
+
+        worker.stop();
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+
+        expect(healthChecks, 1);
+      });
+
+      test('without a connectivity monitor nothing is retried early', () async {
+        failFirst = 1000;
+        await enqueueListing();
+
+        worker.start();
+        await Future<void>.delayed(tick * 10);
+
+        expect(healthChecks, 1);
+      });
     });
   });
 }

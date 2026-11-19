@@ -28,6 +28,40 @@ Map<String, String> _arbValues(String locale) {
   };
 }
 
+/// The top-level keys of the JSON object [json] in file order, repeats
+/// included: a JSON decoder keeps only the last copy of a repeated key, so
+/// the raw text is scanned instead.
+List<String> _topLevelKeys(String json) {
+  final keys = <String>[];
+  var depth = 0;
+  var i = 0;
+  while (i < json.length) {
+    final c = json[i];
+    if (c == '"') {
+      final start = ++i;
+      while (json[i] != '"') {
+        // Skip the escaped character too.
+        if (json[i] == r'\') i++;
+        i++;
+      }
+      final text = json.substring(start, i++);
+      var next = i;
+      while (next < json.length && ' \t\r\n'.contains(json[next])) {
+        next++;
+      }
+      // A key is a string followed by a colon.
+      if (depth == 1 && next < json.length && json[next] == ':') {
+        keys.add(text);
+      }
+      continue;
+    }
+    if (c == '{' || c == '[') depth++;
+    if (c == '}' || c == ']') depth--;
+    i++;
+  }
+  return keys;
+}
+
 /// Lists every `key: U+XXXX` whose code point [allowed] rejects.
 List<String> _offenders(
   Map<String, String> values,
@@ -92,20 +126,150 @@ void main() {
       expect(en.difference(om), isEmpty, reason: 'en keys missing from om');
     });
 
+    // Five keys were in app_en.arb and app_om.arb twice; the later copy won
+    // silently, and in app_om.arb the two copies disagreed.
+    test('no arb file has a key twice', () {
+      expect(
+        _topLevelKeys('{"a": "x", "b": {"a": "{\\"y"}, "c": [{"a": 1}], '
+            '"a": "z"}'),
+        ['a', 'b', 'c', 'a'],
+      );
+      for (final locale in ['en', 'am', 'om']) {
+        final raw = File('lib/shared/l10n/app_$locale.arb').readAsStringSync();
+        final keys = _topLevelKeys(raw);
+        final seen = <String>{};
+        final repeated = [
+          for (final key in keys)
+            if (!seen.add(key)) key,
+        ];
+        expect(repeated, isEmpty, reason: 'twice in app_$locale.arb');
+        // The scan found every key the decoder sees.
+        expect(seen, (jsonDecode(raw) as Map<String, dynamic>).keys.toSet());
+      }
+    });
+
     test('am tapToListCrops uses the Ethiopic le, not a Thai character', () {
       final am = lookupAppLocalizations(const Locale('am'));
       expect(am.tapToListCrops, contains('ሰብልዎን'));
     });
 
+    // BUG-L8 reworded both from "synced" to "updated".
     test('om syncedAgo is spelled in Latin letters', () {
       final om = lookupAppLocalizations(const Locale('om'));
-      expect(om.syncedAgo('5 min'), '5 min dura walsimame');
+      expect(om.syncedAgo('5 min'), '5 min dura haaromfame');
     });
 
-    test('am syncedAgo matches the synced badge wording', () {
+    test('am syncedAgo is spelled in Ethiopic letters', () {
       final am = lookupAppLocalizations(const Locale('am'));
-      expect(am.syncedAgo('5 min'), 'ከ5 min በፊት ተመሳስሏል');
-      expect(am.syncedAgo('5 min'), endsWith(am.synced));
+      expect(am.syncedAgo('5 min'), 'ከ5 min በፊት ታድሷል');
+    });
+  });
+
+  // The persona simulation of 2026-11-19: one word, one spelling.
+  group('one wording per term', () {
+    final am = _arbValues('am');
+    final om = _arbValues('om');
+    final en = _arbValues('en');
+
+    List<String> keysWith(Map<String, String> values, RegExp pattern) => [
+          for (final entry in values.entries)
+            if (pattern.hasMatch(entry.value)) entry.key,
+        ];
+
+    test('BUG-L1: Amharic Cancel is not the word for Delete', () {
+      expect(am['cancel'], isNot(am['delete']));
+      expect(am['cancel'], 'ይቅር');
+      // A destructive button never reads like the button that backs out.
+      for (final key in ['delete', 'deleteAccountButton', 'cancelOrder']) {
+        expect(am[key], isNot(contains(am['cancel']!)), reason: key);
+      }
+    });
+
+    test('BUG-L10: escrow has one spelling per language', () {
+      expect(keysWith(am, RegExp('ኤስክሮ|እስክሮ')), isEmpty);
+      expect(am['escrow'], 'ኢስክሮ');
+      expect(
+        keysWith(
+          om,
+          RegExp(r'escrow|eesciroo|\beskiroo', caseSensitive: false),
+        ),
+        isEmpty,
+      );
+      expect(om['escrow'], 'Eeskiroo');
+    });
+
+    test('BUG-L11: one quintal spelling and Birrii in Afaan Oromoo', () {
+      expect(
+        keysWith(
+          om,
+          RegExp('kuintaal|kuuntaal|kuntaalli', caseSensitive: false),
+        ),
+        isEmpty,
+      );
+      expect(
+        keysWith(om, RegExp(r'\bETB\b|qarshii', caseSensitive: false)),
+        isEmpty,
+      );
+      // The unit comes before the number, as in "Birrii 500".
+      expect(keysWith(om, RegExp(r'[}0-9] (Birrii|kuntaala)\b')), isEmpty);
+    });
+
+    test('BUG-L11: birr in Ethiopic after the amount in Amharic', () {
+      expect(keysWith(am, RegExp(r'\bETB\b')), isEmpty);
+      expect(keysWith(am, RegExp(r'ብር (\{|[0-9])')), isEmpty);
+    });
+
+    test('BUG-L12: the short price unit names the quintal', () {
+      expect(om['detailEtbPerQuintalShort'], 'Birrii/kuntaala');
+      expect(om['detailEtbPerQuintalShort'], isNot(endsWith('/k')));
+    });
+
+    test('BUG-L9, BUG-25: no server, offline or online jargon left', () {
+      expect(keysWith(am, RegExp('አገልጋ|ሰርቨ')), isEmpty);
+      expect(
+        keysWith(
+          om,
+          RegExp('sarvar|server|offline|oflaayin', caseSensitive: false),
+        ),
+        isEmpty,
+      );
+    });
+
+    test('BUG-L14: the payout line speaks of money that arrives', () {
+      expect(am['escrowPayoutExpectedOn'], contains('ገንዘብዎ'));
+      expect(om['escrowPayoutExpectedOn'], contains('Maallaqni keessan'));
+      for (final values in [am, om]) {
+        expect(values['escrowPayoutExpectedOn'], contains('{date}'));
+      }
+    });
+
+    test('BUG-L8: sync status says sent or waiting, never sync', () {
+      const keys = [
+        'syncPending',
+        'syncInProgress',
+        'syncComplete',
+        'syncFailed',
+        'syncNow',
+        'synced',
+        'syncFailureCount',
+        'syncPendingCount',
+        'offline',
+        'offlineModeIndicator',
+      ];
+      for (final key in keys) {
+        expect(
+          en[key]!.toLowerCase(),
+          isNot(anyOf(contains('sync'), contains('offline'))),
+          reason: 'en $key',
+        );
+        expect(am[key], isNot(contains('ማመሳሰል')), reason: 'am $key');
+        expect(am[key], isNot(contains('ከመስመር ውጭ')), reason: 'am $key');
+        expect(
+          om[key]!.toLowerCase(),
+          isNot(contains('walsims')),
+          reason: 'om $key',
+        );
+      }
     });
   });
 

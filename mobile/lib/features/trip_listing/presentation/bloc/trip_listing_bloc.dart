@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
@@ -132,7 +133,17 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
       );
       emit(TripCreated(trip: trip));
     } on Object catch (e) {
-      emit(TripListingError(message: e.toString(), code: mapErrorToCode(e)));
+      // Web sends the create at once: a duplicate of a trip the trucker
+      // already has comes back here (trip-listing-api 2.10.0). On mobile the
+      // queue reports it later (SyncOperationRejected).
+      final duplicate =
+          e is SyncRejectedException && isDuplicateListingMessage(e.message);
+      emit(
+        TripListingError(
+          message: e.toString(),
+          code: duplicate ? AppErrorCode.duplicateTrip : mapErrorToCode(e),
+        ),
+      );
     }
   }
 

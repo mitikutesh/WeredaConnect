@@ -178,6 +178,58 @@ void main() {
   const edit = Key('crop_detail_edit');
   const delete = Key('crop_detail_delete');
 
+  // BUG-36: the detail of a listing saved offline said "Active" like a
+  // synced one.
+  group('BUG-36: the "Not sent yet" mark on the detail', () {
+    const pill = Key('listing_not_sent_pill');
+    const note = Key('listing_not_sent_note');
+
+    testWidgets(
+        'the owner of a listing whose change still waits sees the mark and '
+        'the note instead of "Active"', (tester) async {
+      when(() => cropRepo.hasChangeWaiting('listing-1'))
+          .thenAnswer((_) async => true);
+
+      await open(tester);
+
+      expect(find.byKey(pill), findsOneWidget);
+      expect(find.text('Not sent yet'), findsOneWidget);
+      expect(
+        find.text(
+          'Saved on this phone only. Buyers will see it once it is sent.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Active'), findsNothing);
+    });
+
+    testWidgets('a listing that was sent keeps its status', (tester) async {
+      await open(tester);
+
+      expect(find.byKey(pill), findsNothing);
+      expect(find.byKey(note), findsNothing);
+      expect(find.text('Active'), findsOneWidget);
+    });
+
+    for (final (role, userId) in [
+      (UserRole.buyer, 'buyer-1'),
+      (UserRole.trucker, 'trucker-1'),
+      (UserRole.farmer, 'farmer-002'),
+    ]) {
+      testWidgets('never for ${role.name} $userId, and the queue is not read',
+          (tester) async {
+        when(() => cropRepo.hasChangeWaiting(any()))
+            .thenAnswer((_) async => true);
+
+        await open(tester, userId: userId, role: role);
+
+        expect(find.byKey(pill), findsNothing);
+        expect(find.byKey(note), findsNothing);
+        verifyNever(() => cropRepo.hasChangeWaiting(any()));
+      });
+    }
+  });
+
   group('who sees Edit and Delete', () {
     testWidgets('the owner of an active listing', (tester) async {
       await open(tester);

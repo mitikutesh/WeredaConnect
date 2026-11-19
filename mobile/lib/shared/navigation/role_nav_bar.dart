@@ -226,18 +226,201 @@ class RoleCreateButton extends StatelessWidget {
       );
     }
 
-    return FloatingActionButton.extended(
-      heroTag: 'role_fab',
-      onPressed: onPressed,
-      backgroundColor: background,
-      foregroundColor: foreground,
-      elevation: 4,
-      highlightElevation: 6,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+    // BUG-27: folded to its plus while the tab scrolls toward its end, so
+    // at rest it no longer hides the status chip of the last card in view.
+    final showLabel = CreateButtonScrollScope.showsLabel(context);
+    final name = labelFor(l10n, role);
+    return Tooltip(
+      // Names the plus on a long press or hover. The button's own
+      // semantics carry the name, so a screen reader hears it once.
+      message: name,
+      excludeFromSemantics: true,
+      child: FloatingActionButton.extended(
+        heroTag: 'role_fab',
+        onPressed: onPressed,
+        backgroundColor: background,
+        foregroundColor: foreground,
+        elevation: 4,
+        highlightElevation: 6,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        // 17 + 22 + 17: folded, a 56 dp square like the plain button.
+        // Unfolded, as wide as before (the label adds 7 and 3).
+        extendedPadding: const EdgeInsetsDirectional.symmetric(horizontal: 17),
+        extendedIconLabelSpacing: 0,
+        icon: Icon(
+          Icons.add,
+          size: 22,
+          semanticLabel: showLabel ? null : name,
+        ),
+        label: _FoldingLabel(
+          shown: showLabel,
+          child: Padding(
+            padding: const EdgeInsetsDirectional.only(start: 7, end: 3),
+            child: label,
+          ),
+        ),
       ),
-      icon: const Icon(Icons.add, size: 22),
-      label: label,
     );
+  }
+}
+
+/// The create button's label, sliding shut from its end when [shown] turns
+/// false and open again when it turns true.
+class _FoldingLabel extends StatelessWidget {
+  final bool shown;
+  final Widget child;
+
+  const _FoldingLabel({required this.shown, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final still = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    return ExcludeSemantics(
+      // Folded, the plus carries the name instead.
+      excluding: !shown,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(end: shown ? 1 : 0),
+        duration: still ? Duration.zero : const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        child: child,
+        builder: (context, open, child) => ClipRect(
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            widthFactor: open,
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Folds the floating [RoleCreateButton] to its plus while the tab under it
+/// scrolls toward its end, and unfolds it when the tab scrolls back toward
+/// its top or rests there (BUG-27: at rest the labelled pill covered the
+/// status chip of the last card in view).
+///
+/// A shell wraps its Scaffold in this scope and the tab body, only the
+/// body, in a [CreateButtonScrollBody]. Only the button rebuilds, and only
+/// when the scroll turns, never for each scrolled pixel.
+class CreateButtonScrollScope extends StatefulWidget {
+  /// A new value (another tab) unfolds the button: that page opens at its
+  /// top.
+  final Object? resetKey;
+  final Widget child;
+
+  const CreateButtonScrollScope({
+    required this.child,
+    this.resetKey,
+    super.key,
+  });
+
+  /// Whether the create button under [context] shows its label. Rebuilds
+  /// [context] when that changes. True with no scope above it.
+  static bool showsLabel(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<_CreateButtonFoldScope>()
+          ?.notifier
+          ?.value ??
+      true;
+
+  @override
+  State<CreateButtonScrollScope> createState() =>
+      _CreateButtonScrollScopeState();
+}
+
+class _CreateButtonScrollScopeState extends State<CreateButtonScrollScope> {
+  final _CreateButtonFold _fold = _CreateButtonFold();
+
+  @override
+  void didUpdateWidget(CreateButtonScrollScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.resetKey != widget.resetKey) _fold.unfold();
+  }
+
+  @override
+  void dispose() {
+    _fold.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      _CreateButtonFoldScope(notifier: _fold, child: widget.child);
+}
+
+/// Hears the tab body's scrolling for the [CreateButtonScrollScope] above.
+class CreateButtonScrollBody extends StatelessWidget {
+  /// False while the button is hidden (a screen pushed over the tab, a page
+  /// under it): that screen's scrolling says nothing about the tab's list.
+  final bool enabled;
+  final Widget child;
+
+  const CreateButtonScrollBody({
+    required this.child,
+    this.enabled = true,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fold = context
+        .getInheritedWidgetOfExactType<_CreateButtonFoldScope>()
+        ?.notifier;
+    // Only the tab's own vertical list: not a row of chips, not a list
+    // inside a card.
+    bool own(ViewportNotificationMixin n, ScrollMetrics metrics) =>
+        enabled && n.depth == 0 && metrics.axis == Axis.vertical;
+    return NotificationListener<ScrollMetricsNotification>(
+      // A list that just opened, or grew or shrank, reports where it is.
+      onNotification: (n) {
+        if (own(n, n.metrics)) fold?.follow(n.metrics, 0);
+        return false;
+      },
+      child: NotificationListener<ScrollUpdateNotification>(
+        onNotification: (n) {
+          if (own(n, n.metrics)) fold?.follow(n.metrics, n.scrollDelta ?? 0);
+          return false;
+        },
+        child: child,
+      ),
+    );
+  }
+}
+
+class _CreateButtonFoldScope extends InheritedNotifier<_CreateButtonFold> {
+  const _CreateButtonFoldScope({required super.notifier, required super.child});
+}
+
+/// True while the create button shows its label.
+class _CreateButtonFold extends ValueNotifier<bool> {
+  _CreateButtonFold() : super(true);
+
+  /// How far the list must move one way before the button follows, so a
+  /// finger's tremor mid-drag does not flicker it.
+  static const double _turn = 12;
+
+  /// Distance scrolled toward the end (positive) or the top (negative)
+  /// since the direction last changed.
+  double _travel = 0;
+
+  void unfold() {
+    _travel = 0;
+    value = true;
+  }
+
+  /// Follows one scroll of [delta] pixels that left the list at [metrics].
+  void follow(ScrollMetrics metrics, double delta) {
+    if (metrics.pixels <= metrics.minScrollExtent) {
+      // At the top, or pulled past it.
+      unfold();
+    } else if (delta != 0 &&
+        // A bounce past the end settling back is not the user turning.
+        metrics.pixels - delta <= metrics.maxScrollExtent) {
+      _travel = _travel.sign == delta.sign ? _travel + delta : delta;
+      if (_travel.abs() >= _turn) value = _travel < 0;
+    }
   }
 }

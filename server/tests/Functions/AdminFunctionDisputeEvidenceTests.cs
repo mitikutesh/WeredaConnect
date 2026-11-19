@@ -167,6 +167,55 @@ public sealed class AdminFunctionDisputeEvidenceTests
         response.StatusCode.Should().Be(200, response.Body);
     }
 
+    [Fact]
+    public async Task TheHandoffEvidenceStampedAtTheDispute_IsOnTheAdminsDispute()
+    {
+        // Persona simulation BUG-6: what the server held when the dispute was created, for the admin only.
+        _escrow!["disputeHandoffEvidence"] = new AttributeValue
+        {
+            M = new Dictionary<string, AttributeValue>
+            {
+                ["deliveryId"] = S(DeliveryId),
+                ["deliveryStatus"] = S("delivered"),
+                ["selfPickup"] = new AttributeValue { BOOL = false, IsBOOLSet = true },
+                ["pickedUpAt"] = S("2026-11-05T09:10:00Z"),
+                ["pickupMethod"] = S("qr"),
+                ["pickupBy"] = S(Trucker),
+                ["pickupFix"] = new AttributeValue { BOOL = false, IsBOOLSet = true },
+                ["confirmedAt"] = S("2026-11-05T12:00:00Z"),
+                ["confirmMethod"] = S("qr"),
+                ["confirmedBy"] = S(Buyer),
+                ["dropoffFix"] = new AttributeValue { BOOL = true, IsBOOLSet = true },
+                ["confirmedByDisputer"] = new AttributeValue { BOOL = true, IsBOOLSet = true },
+            }
+        };
+
+        var response = await Function().FunctionHandler(Request(AdminGroup()), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var evidence = JsonDocument.Parse(response.Body).RootElement
+            .GetProperty("escrow").GetProperty("dispute").GetProperty("handoffEvidence");
+        evidence.GetProperty("deliveryId").GetString().Should().Be(DeliveryId);
+        evidence.GetProperty("pickupMethod").GetString().Should().Be("qr");
+        evidence.GetProperty("pickupBy").GetString().Should().Be(Trucker);
+        evidence.GetProperty("pickupFix").GetBoolean().Should().BeFalse();
+        evidence.GetProperty("confirmedAt").GetString().Should().Be("2026-11-05T12:00:00Z");
+        evidence.GetProperty("confirmMethod").GetString().Should().Be("qr");
+        evidence.GetProperty("confirmedBy").GetString().Should().Be(Buyer);
+        evidence.GetProperty("dropoffFix").GetBoolean().Should().BeTrue();
+        evidence.GetProperty("confirmedByDisputer").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ADisputeFromBeforeTheStamp_HasNoHandoffEvidence()
+    {
+        var response = await Function().FunctionHandler(Request(AdminGroup()), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        JsonDocument.Parse(response.Body).RootElement.GetProperty("escrow").GetProperty("dispute")
+            .TryGetProperty("handoffEvidence", out _).Should().BeFalse();
+    }
+
     // ===== What it stitches =====
 
     [Fact]

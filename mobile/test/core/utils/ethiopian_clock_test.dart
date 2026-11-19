@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -152,14 +154,15 @@ void main() {
       expect(enWindow.time24, isNull);
     });
 
-    test('dates stay Gregorian, only the time changes', () {
+    test('the date follows the date locale, the time the clock', () {
+      // No date locale applied (a bare unit test): the date is English.
       expect(
         ClockFormat.resolve(am, ClockPreference.auto).dateTime(instant),
         '${DateFormat.yMMMd().format(DateTime.utc(2026, 10, 28))} ከቀኑ 7:20',
       );
       expect(
         ClockFormat.resolve(en, ClockPreference.auto)
-            .dateTime(instant, date: DateFormat.MMMd()),
+            .dateTime(instant, date: formatMonthDay),
         'Oct 28 13:20',
       );
     });
@@ -174,7 +177,7 @@ void main() {
     test('a deadline in a sentence keeps the text around the time', () {
       final label = ClockFormat.resolve(am, ClockPreference.auto).deadline(
         instant,
-        date: DateFormat.MMMd(),
+        date: formatMonthDay,
         sentence: am.commitmentAnswerBy,
       );
       final whole = am.commitmentAnswerBy('Oct 28 ከቀኑ 7:20');
@@ -202,6 +205,89 @@ void main() {
         sentence: (_) => 'no slot',
       );
       expect(label.toString(), 'no slot');
+    });
+  });
+
+  // FUP-545: with the app's date locale applied, Amharic and Afaan Oromoo
+  // dates carry the Ethiopian date first; the clock setting changes only
+  // the time.
+  group('ClockFormat dates in the app language', () {
+    // 13:20 in Ethiopia on October 28, 2026: Tikimt 18, 2019.
+    final instant = DateTime.utc(2026, 10, 28, 10, 20);
+
+    setUpAll(() async {
+      await GlobalMaterialLocalizations.delegate.load(const Locale('en'));
+    });
+
+    tearDown(() => Intl.defaultLocale = null);
+
+    test('Amharic', () {
+      applyDateLocale(const Locale('am'));
+      final clock = ClockFormat.resolve(am, ClockPreference.auto);
+      expect(
+        clock.dateTime(instant),
+        'ጥቅምት 18፣ 2019 (ኦክቶ 28) ከቀኑ 7:20',
+      );
+      expect(
+        clock.dateTime(instant, date: formatMonthDay),
+        'ጥቅምት 18 (ኦክቶ 28) ከቀኑ 7:20',
+      );
+      final label = clock.deadline(
+        instant,
+        date: formatMonthDay,
+        sentence: am.commitmentAnswerBy,
+      );
+      expect(label.time, 'ጥቅምት 18 (ኦክቶ 28) ከቀኑ 7:20');
+      expect(label.time24, '13:20');
+    });
+
+    test('Afaan Oromoo', () {
+      applyDateLocale(const Locale('om'));
+      final clock = ClockFormat.resolve(om, ClockPreference.auto);
+      expect(
+        clock.dateTime(instant),
+        'Onkoloolessa 18, 2019 (Onk 28) 7:20 waaree booda',
+      );
+      expect(
+        clock.deadline(instant, date: formatMonthDay).toString(),
+        'Onkoloolessa 18 (Onk 28) 7:20 waaree booda (13:20)',
+      );
+    });
+
+    test('the 24-hour clock keeps the Ethiopian date in Amharic', () {
+      applyDateLocale(const Locale('am'));
+      expect(
+        ClockFormat.resolve(am, ClockPreference.international)
+            .dateTime(instant),
+        'ጥቅምት 18፣ 2019 (ኦክቶ 28) 13:20',
+      );
+    });
+
+    test('English is unchanged', () {
+      applyDateLocale(const Locale('en'));
+      final clock = ClockFormat.resolve(en, ClockPreference.auto);
+      expect(clock.dateTime(instant), 'Oct 28, 2026 13:20');
+      expect(
+        clock.deadline(instant, date: formatMonthDay).toString(),
+        'Oct 28 13:20',
+      );
+    });
+
+    test('a deadline at 23:00 UTC is the next day in Ethiopia', () {
+      // 02:00 on November 20 in Ethiopia: Hidar 11.
+      final late = DateTime.utc(2026, 11, 19, 23);
+      applyDateLocale(const Locale('am'));
+      final label = ClockFormat.resolve(am, ClockPreference.auto)
+          .deadline(late, date: formatMonthDay);
+      expect(label.time, 'ኅዳር 11 (ኖቬም 20) ከሌሊቱ 8:00');
+      expect(label.time24, '02:00');
+      applyDateLocale(const Locale('en'));
+      expect(
+        ClockFormat.resolve(en, ClockPreference.auto)
+            .deadline(late, date: formatMonthDay)
+            .toString(),
+        'Nov 20 02:00',
+      );
     });
   });
 

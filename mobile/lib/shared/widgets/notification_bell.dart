@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+    show TargetPlatform, defaultTargetPlatform, kIsWeb, visibleForTesting;
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -681,6 +681,39 @@ class _NotifCard extends StatelessWidget {
   }
 }
 
+/// The line the sync sheet shows under its header after a sync run; null
+/// when the run says nothing new.
+///
+/// BUG-34: a run that ended without an error but left [pendingCount] changes
+/// in the queue (a listing whose photo upload failed is held back and
+/// counted as neither sent nor failed) used to read "Sync Complete". It now
+/// says that they still wait and will be sent again.
+@visibleForTesting
+String? syncResultMessage(
+  AppLocalizations l10n,
+  SyncBatchResult result, {
+  required int pendingCount,
+}) {
+  String finished() => pendingCount > 0
+      ? l10n.syncStillWaiting(pendingCount)
+      : l10n.syncComplete;
+  return switch (result.status) {
+    SyncBatchStatus.success => finished(),
+    SyncBatchStatus.partial =>
+      '${result.succeeded} synced, ${result.failed} failed',
+    SyncBatchStatus.empty => finished(),
+    SyncBatchStatus.skipped => null, // another sync in progress, no change
+    SyncBatchStatus.noInternet => l10n.offlineModeIndicator,
+    SyncBatchStatus.networkError => 'Network error',
+    SyncBatchStatus.authError => 'Authentication error',
+    SyncBatchStatus.rateLimited => 'Rate limited, try later',
+    SyncBatchStatus.error => result.errorMessage ?? 'Error',
+    // The account is being deleted: the AuthBloc wipes or the user
+    // finishes the deletion from Profile.
+    SyncBatchStatus.accountDeleted => null,
+  };
+}
+
 /// Bottom sheet showing live sync queue status with Sync Now / Retry actions.
 class SyncStatusSheet extends StatefulWidget {
   final bool isOnline;
@@ -721,26 +754,18 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
     super.dispose();
   }
 
-  void _onSyncResult(SyncBatchResult result) {
+  Future<void> _onSyncResult(SyncBatchResult result) async {
     if (!mounted) return;
-    _loadCounts();
+    // The counts first: the message depends on what still waits (BUG-34).
+    await _loadCounts();
+    if (!mounted) return;
     setState(() {
       _isSyncing = widget.executor.isSyncing;
-      _lastStatusMessage = switch (result.status) {
-        SyncBatchStatus.success => widget.l10n.syncComplete,
-        SyncBatchStatus.partial =>
-          '${result.succeeded} synced, ${result.failed} failed',
-        SyncBatchStatus.empty => widget.l10n.syncComplete,
-        SyncBatchStatus.skipped => null, // another sync in progress, no change
-        SyncBatchStatus.noInternet => widget.l10n.offlineModeIndicator,
-        SyncBatchStatus.networkError => 'Network error',
-        SyncBatchStatus.authError => 'Authentication error',
-        SyncBatchStatus.rateLimited => 'Rate limited — try later',
-        SyncBatchStatus.error => result.errorMessage ?? 'Error',
-        // The account is being deleted: the AuthBloc wipes or the user
-        // finishes the deletion from Profile.
-        SyncBatchStatus.accountDeleted => null,
-      };
+      _lastStatusMessage = syncResultMessage(
+        widget.l10n,
+        result,
+        pendingCount: _pendingCount,
+      );
     });
   }
 
@@ -765,7 +790,7 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
     try {
       final result = await widget.executor.syncNow();
       if (mounted) {
-        _onSyncResult(result);
+        await _onSyncResult(result);
         widget.onSyncComplete?.call();
       }
     } on Object {

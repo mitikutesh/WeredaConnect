@@ -2546,6 +2546,7 @@ public sealed partial class EscrowService
         //     transport-failure cancel, ESC-06). A confirmed delivery needs no read.
         //     FUP-53: the order that read judged is checked again inside the freeze's transaction.
         Dictionary<string, object>? judgedOrder = null;
+        Dictionary<string, object>? judgedDelivery = null;
         if (deliveryConfirmedAt == null)
         {
             var pickup = await RefuseDisputeBeforePickupAsync(escrowItem);
@@ -2555,7 +2556,22 @@ public sealed partial class EscrowService
             }
 
             judgedOrder = pickup.Order;
+            judgedDelivery = pickup.Delivery;
+
+            // 11a. Persona simulation BUG-8: the buyer cannot report goods that are still on the
+            //      road as not delivered before the delivery's deadline. Every other reason, and
+            //      the farmer, are not held back.
+            if (string.Equals(request.Reason, NotDeliveredReason, StringComparison.Ordinal)
+                && string.Equals(request.DisputedBy, buyerId, StringComparison.Ordinal)
+                && NotDeliveredOpensAt(judgedOrder, judgedDelivery, OrderTimings.Current.DeliveryOverdue) is { } opensAt
+                && DateTime.UtcNow < opensAt)
+            {
+                return DisputeRefusedGoodsOnTheWay(opensAt);
+            }
         }
+
+        // BUG-6: the handoff evidence the server holds, stamped with the dispute. Best effort.
+        var handoffEvidence = await TryBuildHandoffEvidenceAsync(escrowItem, judgedDelivery, request.DisputedBy);
 
         var now = DateTime.UtcNow;
         var disputeId = $"dispute-{Guid.NewGuid():N}";
@@ -2596,6 +2612,11 @@ public sealed partial class EscrowService
         if (request.EvidenceRefs is { Count: > 0 })
         {
             additionalFields["disputeEvidenceRefs"] = string.Join(",", request.EvidenceRefs);
+        }
+
+        if (handoffEvidence != null)
+        {
+            additionalFields[DisputeHandoffEvidence.Field] = handoffEvidence;
         }
 
         try
@@ -2745,13 +2766,14 @@ public sealed partial class EscrowService
     /// no delivery that can be read has nothing to judge by and is allowed, as before 1.21.0. Null when
     /// the dispute may go ahead.
     /// </summary>
-    private async Task<(EscrowResult<DisputeEscrowResponse>? Refusal, Dictionary<string, object>? Order)> RefuseDisputeBeforePickupAsync(
+    private async Task<(EscrowResult<DisputeEscrowResponse>? Refusal, Dictionary<string, object>? Order, Dictionary<string, object>? Delivery)> RefuseDisputeBeforePickupAsync(
         Dictionary<string, object> escrow)
     {
         var escrowId = GetString(escrow, "escrowId");
         string? orderStatus = null;
         string? deliveryStatus = null;
         Dictionary<string, object>? order = null;
+        Dictionary<string, object>? delivery = null;
         try
         {
             var orderId = GetStringOrNull(escrow, "orderId");
@@ -2766,7 +2788,7 @@ public sealed partial class EscrowService
 
             if (_deliveryRepo != null && !string.IsNullOrEmpty(deliveryId))
             {
-                var delivery = await _deliveryRepo.GetByIdAsync(deliveryId, consistentRead: true);
+                delivery = await _deliveryRepo.GetByIdAsync(deliveryId, consistentRead: true);
                 deliveryStatus = delivery != null ? GetStringOrNull(delivery, "status") : null;
             }
         }
@@ -2774,22 +2796,118 @@ public sealed partial class EscrowService
         {
             Console.WriteLine($"ESCROW_DISPUTE_PICKUP_UNREAD escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
             return (EscrowResult<DisputeEscrowResponse>.Failure(503, "ESCROW_012",
-                "The order behind this escrow could not be read. Nothing was disputed; try again."), null);
+                "The order behind this escrow could not be read. Nothing was disputed; try again."), null, null);
         }
 
         if (orderStatus == null && deliveryStatus == null)
         {
-            return (null, order);
+            return (null, order, delivery);
         }
 
         if ((orderStatus != null && PickedUpOrderStatuses.Contains(orderStatus))
             || (deliveryStatus != null && PickedUpDeliveryStatuses.Contains(deliveryStatus)))
         {
-            return (null, order);
+            return (null, order, delivery);
         }
 
         return (EscrowResult<DisputeEscrowResponse>.Failure(422, "ESCROW_041",
-            "A dispute can be opened only after the goods are picked up. Before pickup, cancel or reject the order instead."), null);
+            "A dispute can be opened only after the goods are picked up. Before pickup, cancel or reject the order instead."), null, null);
+    }
+
+    /// <summary>The dispute reason the on-the-way rule holds back (persona simulation BUG-8).</summary>
+    internal const string NotDeliveredReason = "not_delivered";
+
+    /// <summary>
+    /// The pinned start of the on-the-way refusal. The clients tell it from the other
+    /// <c>ESCROW_INVALID_TRANSITION</c> answers by this text (escrow-protocol.md 2.28.0), as they do for
+    /// the scheduled refund (FUP-77).
+    /// </summary>
+    internal const string GoodsOnTheWayText = "The goods are still on the way.";
+
+    /// <summary>
+    /// Persona simulation BUG-8 (escrow-protocol.md 2.28.0): when a buyer may report a delivery that is
+    /// on the road as not delivered, or null when the rule does not apply. It applies only while the
+    /// delivery is <c>pickedUp</c> or <c>inTransit</c>. The time is the order's stamped drop-off
+    /// deadline (<c>dropoffDeadlineAt</c>, T8 of order-lifecycle.md) when it carries one, else the
+    /// delivery's <c>pickedUpAt</c> plus <paramref name="deliveryOverdue"/> (T8 as the contract computes
+    /// it, 72 hours by default). A delivery with neither is not held back.
+    /// </summary>
+    internal static DateTime? NotDeliveredOpensAt(
+        Dictionary<string, object>? order, Dictionary<string, object>? delivery, TimeSpan deliveryOverdue)
+    {
+        if (delivery == null || GetStringOrNull(delivery, "status") is not ("pickedUp" or "inTransit"))
+        {
+            return null;
+        }
+
+        if (order != null && TryParseUtc(GetStringOrNull(order, DropoffJudgement.DeadlineField), out var deadline))
+        {
+            return deadline;
+        }
+
+        return TryParseUtc(GetStringOrNull(delivery, "pickedUpAt"), out var pickedUpAt)
+            ? pickedUpAt + deliveryOverdue
+            : null;
+    }
+
+    private static bool TryParseUtc(string? text, out DateTime utc)
+        => DateTime.TryParse(text, CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out utc);
+
+    /// <summary>
+    /// 422 for a buyer's <c>not_delivered</c> dispute of goods on the road before the delivery deadline.
+    /// The code is <c>ESCROW_INVALID_TRANSITION</c>, not a new one: every released app shows an unknown
+    /// escrow code as "Something went wrong. Please try again.", and this one as "This action is not
+    /// allowed in the current payment state." Nothing was written.
+    /// </summary>
+    internal static EscrowResult<DisputeEscrowResponse> DisputeRefusedGoodsOnTheWay(DateTime opensAtUtc) =>
+        EscrowResult<DisputeEscrowResponse>.Failure(422, "ESCROW_INVALID_TRANSITION",
+            $"{GoodsOnTheWayText} You can report them as not delivered after "
+            + $"{opensAtUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC. "
+            + "For any other problem, choose another reason.");
+
+    /// <summary>
+    /// Persona simulation BUG-6: the handoff evidence to stamp on a new dispute
+    /// (<see cref="DisputeHandoffEvidence"/>). The delivery is the one the pickup rule read, else the
+    /// escrow's, read here; who confirmed and how come from the delivery's transaction-audit rows. Best
+    /// effort: a missing repository or a failed read stamps less or nothing and never fails the dispute.
+    /// </summary>
+    private async Task<Dictionary<string, object>?> TryBuildHandoffEvidenceAsync(
+        Dictionary<string, object> escrow, Dictionary<string, object>? delivery, string disputedBy)
+    {
+        try
+        {
+            if (delivery == null && _deliveryRepo != null
+                && GetStringOrNull(escrow, "deliveryId") is { Length: > 0 } deliveryId)
+            {
+                delivery = await _deliveryRepo.GetByIdAsync(deliveryId, consistentRead: true);
+            }
+
+            if (delivery == null || GetStringOrNull(delivery, "deliveryId") is not { Length: > 0 } id)
+            {
+                return null;
+            }
+
+            IReadOnlyList<Dictionary<string, object>> auditRows = Array.Empty<Dictionary<string, object>>();
+            if (_transactionAuditRepo != null)
+            {
+                try
+                {
+                    auditRows = await _transactionAuditRepo.GetByEntityAsync(id);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"DISPUTE_EVIDENCE_AUDIT_UNREAD escrowId={MoneyAlarmLog.LogId(GetString(escrow, "escrowId"))} error={ex.GetType().Name}");
+                }
+            }
+
+            return DisputeHandoffEvidence.Build(delivery, auditRows, disputedBy);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"DISPUTE_EVIDENCE_UNREAD escrowId={MoneyAlarmLog.LogId(GetString(escrow, "escrowId"))} error={ex.GetType().Name}");
+            return null;
+        }
     }
 
     /// <summary>
@@ -3665,6 +3783,14 @@ public sealed partial class EscrowService
             fields["disputeDescription"] = description.Length > MaxDisputeDescriptionLength
                 ? description[..MaxDisputeDescriptionLength]
                 : description;
+        }
+
+        // BUG-6: the same handoff evidence as POST /escrow/dispute stamps. Best effort.
+        var handoffEvidence = await TryBuildHandoffEvidenceAsync(
+            new Dictionary<string, object> { ["escrowId"] = escrowId, ["deliveryId"] = deliveryId }, null, disputedBy);
+        if (handoffEvidence != null)
+        {
+            fields[DisputeHandoffEvidence.Field] = handoffEvidence;
         }
 
         try

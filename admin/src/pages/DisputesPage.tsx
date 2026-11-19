@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Badge } from "@/components/ui/Badge";
+import { confirmContradictsReason } from "@/lib/evidence";
 import { DispositionChoiceCard, VerdictMessages } from "@/components/disputes/DisputeVerdict";
 import { type Verdict, useDisputeVerdict } from "@/components/disputes/verdictFlow";
 import { useLocale } from "@/hooks/useLocale";
@@ -69,7 +70,21 @@ export function DisputesPage() {
     {
       key: "reason",
       header: t("disputes.reason"),
-      render: (row: Row) => String((row.dispute as Row | undefined)?.reason ?? ""),
+      render: (row: Row) => {
+        const dispute = row.dispute as Row | undefined;
+        // BUG-6: the disputer is the one who confirmed receipt (stamped when the dispute was opened).
+        const confirmedByDisputer = (dispute?.handoffEvidence as Row | undefined)?.confirmedByDisputer === true;
+        return (
+          <span className="inline-flex flex-wrap items-center gap-2">
+            {String(dispute?.reason ?? "")}
+            {confirmedByDisputer && (
+              <Badge variant={confirmContradictsReason(dispute) ? "warning" : "default"}>
+                {t("evidence.confirmedByDisputerShort")}
+              </Badge>
+            )}
+          </span>
+        );
+      },
     },
     {
       key: "createdAt",

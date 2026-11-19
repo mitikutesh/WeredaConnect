@@ -32,6 +32,25 @@ class FakeConnectivitySource implements ConnectivitySource {
   }
 }
 
+/// A network that never connects: the request stays open until it is
+/// cancelled.
+class _NeverAnswers implements HttpClientAdapter {
+  bool cancelled = false;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelFuture,
+  ) {
+    cancelFuture?.then((_) => cancelled = true);
+    return Completer<ResponseBody>().future;
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 void main() {
   group('ConnectivityMonitor', () {
     late FakeConnectivitySource fakeSource;
@@ -123,6 +142,38 @@ void main() {
     });
 
     group('hasInternetAccess', () {
+      test(
+          'BUG-35: a check that never connects ends at the deadline as no '
+          'internet, and the request is cancelled', () async {
+        final never = _NeverAnswers();
+        final slowDio = Dio(
+          BaseOptions(
+            baseUrl: 'https://api.test.com',
+            // The client's own connect timeout, far beyond the deadline.
+            connectTimeout: const Duration(seconds: 30),
+          ),
+        )..httpClientAdapter = never;
+        final slow = ConnectivityMonitor(
+          source: fakeSource,
+          dio: slowDio,
+          healthCheckDeadline: const Duration(milliseconds: 50),
+        );
+        final watch = Stopwatch()..start();
+
+        expect(await slow.hasInternetAccess(), isFalse);
+
+        expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+        expect(never.cancelled, isTrue);
+        slow.dispose();
+      });
+
+      test('the deadline is 10 seconds', () {
+        expect(
+          ConnectivityMonitor.healthCheckDeadline,
+          const Duration(seconds: 10),
+        );
+      });
+
       test('returns true when /health responds with 200', () async {
         dioAdapter.onGet(
           '/health',

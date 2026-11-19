@@ -187,6 +187,9 @@ public partial class SyncFunction
     /// </summary>
     private const decimal MaxOrderKg = MaxListingQuintals * 100m;
 
+    /// <summary>Smallest order, in kilograms (order-lifecycle.md, Order Create Validation).</summary>
+    private const decimal MinOrderKg = 0.01m;
+
     private static readonly HashSet<string> AllowedCropFields = new()
     {
         "farmerId", "farmerName", "farmerPhone", "cropType", "quantity", "pricePerKg",
@@ -696,7 +699,10 @@ public partial class SyncFunction
             _dynamoDb,
             cropsTable,
             fraudSignalsTable,
-            new RateLimitRepository(_dynamoDb, rateLimitTable));
+            new RateLimitRepository(_dynamoDb, rateLimitTable))
+        {
+            TripsTable = _tripsTable
+        };
         // FUP-317: a profile edit writes its transaction-audit row in the same transaction.
         _userRepo = new UserRepository(_dynamoDb, usersTable, Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE"));
 
@@ -1801,6 +1807,14 @@ public partial class SyncFunction
             };
         }
 
+        // A dispute raised while the goods were moving freezes the escrow but may leave the order
+        // reading delivered (rows from before the confirm mirrored it, or a mirror hop that failed).
+        // The money says whether the trade is in dispute: no rating while it is, or after a verdict.
+        if (orderStatus == "delivered" && await RefuseRatingOfDisputedEscrowAsync(operation, order, orderId, context) is { } disputedEscrow)
+        {
+            return disputedEscrow;
+        }
+
         var orderFarmerId = order.TryGetValue("farmerId", out var fObj) ? fObj?.ToString() : null;
         var orderTruckerId = order.TryGetValue("truckerId", out var tObj) ? tObj?.ToString() : null;
         var validRatee = (rateeRole == "farmer" && rateeId == orderFarmerId)
@@ -1840,7 +1854,19 @@ public partial class SyncFunction
             };
         }
 
-        var createResult = await _ratingRepo.CreateAsync(operation.EntityId, operation.Data);
+        // BUG-3: a rating between linked accounts (one identity, or one install) is stored but never
+        // enters the ratee's aggregate. The answer is the same either way.
+        var linkedReason = await RatingLinkedAccountsReasonAsync(authenticatedUserId!, rateeId, ratee, context);
+        var createResult = linkedReason == null
+            ? await _ratingRepo.CreateAsync(operation.EntityId, operation.Data)
+            : await _ratingRepo.CreateOutsideAggregateAsync(
+                operation.EntityId, operation.Data, RatingRepository.LinkedAccountsExclusion);
+        if (createResult.IsSuccess && linkedReason != null)
+        {
+            context.Logger.LogWarning(
+                $"RATING_OUTSIDE_AGGREGATE orderId={MoneyAlarmLog.LogId(orderId)} reason={linkedReason}");
+        }
+
         if (createResult.IsSuccess)
         {
             // FUP-162: an unstamped ratee gets their full aggregate first, so the refresh reads it.
@@ -1862,6 +1888,64 @@ public partial class SyncFunction
                 Status = "conflict",
                 Message = createResult.Error?.Message ?? "Rating already exists."
             };
+    }
+
+    /// <summary>
+    /// The refusal for a rating of a <c>delivered</c> order whose escrow is <c>disputed</c> or
+    /// <c>dispute_resolved</c>: <c>RATING_FORBIDDEN</c>. The escrow is found as the delivery confirm
+    /// and the QR gate find it: the order's own (<c>escrow-order-{orderId}</c>, strongly consistent),
+    /// else, when the order has none, the one the <c>DeliveryIndex</c> names for the order's active
+    /// delivery (paid through <c>POST /escrow/initiate</c>, which is refused once an order escrow
+    /// exists, so there is never one of each). An escrow <c>held</c> for review counts by the status
+    /// it was held from: a hold on a recorded verdict is still a dispute. An escrow that cannot be
+    /// read refuses for now with an unprefixed, retryable message. Null when the rating may go ahead
+    /// (no escrow repository, no escrow, or one in any other status).
+    /// </summary>
+    private async Task<SyncOperationResult?> RefuseRatingOfDisputedEscrowAsync(
+        SyncOperationRequest operation, Dictionary<string, object> order, string orderId, ILambdaContext context)
+    {
+        if (_escrowRepo == null)
+        {
+            return null;
+        }
+
+        string? escrowStatus;
+        try
+        {
+            var escrow = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true);
+            if (escrow == null
+                && order.TryGetValue("activeDeliveryId", out var activeDelivery)
+                && activeDelivery?.ToString() is { Length: > 0 } activeDeliveryId)
+            {
+                escrow = await _escrowRepo.GetByDeliveryIdAsync(activeDeliveryId);
+            }
+
+            escrowStatus = escrow != null && escrow.TryGetValue("status", out var es) ? es?.ToString() : null;
+            if (escrowStatus == EscrowHoldFields.Status)
+            {
+                escrowStatus = escrow!.TryGetValue(EscrowHoldFields.HeldFromStatus, out var heldFrom) ? heldFrom?.ToString() : null;
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Rating for order {MoneyAlarmLog.LogId(orderId)} not decided: its escrow could not be read: [{ex.GetType().Name}]");
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "The order's payment could not be read. Please try again later."
+            };
+        }
+
+        return escrowStatus is "disputed" or "dispute_resolved"
+            ? new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "RATING_FORBIDDEN: This order is in dispute and cannot be rated."
+            }
+            : null;
     }
 
     /// <summary>
@@ -2040,6 +2124,13 @@ public partial class SyncFunction
         operation.Data["recipientName"] = recipient.DisplayName ?? recipient.FullName ?? "";
 
         var createResult = await _messageRepo.CreateAsync(operation.EntityId, operation.Data);
+        if (createResult.IsSuccess)
+        {
+            // BUG-14: a phone number in the chat before delivery, flagged for review (weight 0).
+            await TryRecordChatContactAsync(
+                contextType, contextId, senderId, operation.Data["body"]?.ToString(), context);
+        }
+
         return createResult.IsSuccess
             ? new SyncOperationResult
             {
@@ -2884,8 +2975,14 @@ public partial class SyncFunction
                         return AccountHeldResult(operation);
                     }
 
+                    // A create for an id that already exists (an honest re-queued create under a new
+                    // idempotency key) is answered by the create-conflict echo below: the listing rules
+                    // would call it a duplicate of itself and record a fraud signal.
+                    // Strongly consistent: the re-queued create may come right after the first one.
+                    var createIdExists = await _cropRepo.GetByIdConsistentAsync(operation.EntityId) != null;
+
                     // ── Fraud detection (F-14) ──
-                    if (_fraudService != null)
+                    if (_fraudService != null && !createIdExists)
                     {
                         var cropType = operation.Data.GetValueOrDefault("cropType")?.ToString() ?? "";
                         var pricePerKg = 0m;
@@ -2895,12 +2992,14 @@ public partial class SyncFunction
                         }
 
                         var fraudCheck = await _fraudService.CheckListingCreationAsync(
-                            authenticatedUserId!, cropType, pricePerKg);
+                            authenticatedUserId!, cropType, pricePerKg, ListingLotOf(operation));
 
                         if (!fraudCheck.IsAllowed)
                         {
+                            // A refusal honest farmers also meet names its own signal type (the
+                            // duplicate lot, weight 0); the others are recorded under their code.
                             await TryRecordFraudSignalAsync(
-                                authenticatedUserId!, fraudCheck.ErrorCode ?? "FRAUD_REJECTED",
+                                authenticatedUserId!, fraudCheck.FlagReason ?? fraudCheck.ErrorCode ?? "FRAUD_REJECTED",
                                 operation.EntityId, "crop", fraudCheck.Message, context);
 
                             return new SyncOperationResult
@@ -3396,6 +3495,15 @@ public partial class SyncFunction
 
                     NormalizeDepartureDate(operation.Data);
 
+                    // Rule 6 (fraud-detection-architecture.md): a duplicate trip is refused, another
+                    // trip of the same day is flagged once this one is written.
+                    var (duplicateTrip, sameDayTrip) = await CheckTripCreationFraudAsync(
+                        operation, authenticatedUserId!, context);
+                    if (duplicateTrip != null)
+                    {
+                        return duplicateTrip;
+                    }
+
                     var now = DateTime.UtcNow.ToString("o");
 
                     var item = new Dictionary<string, AttributeValue>
@@ -3469,6 +3577,13 @@ public partial class SyncFunction
                         }
 
                         await _dynamoDb.PutItemAsync(request);
+
+                        if (sameDayTrip != null)
+                        {
+                            await TryRecordFraudSignalAsync(
+                                authenticatedUserId!, sameDayTrip.FlagReason ?? FraudDetectionService.TripSameDaySignal,
+                                operation.EntityId, "trip", sameDayTrip.Message, context);
+                        }
 
                         var result = CropRepository.FromItem(item);
                         return new SyncOperationResult
@@ -5164,6 +5279,20 @@ public partial class SyncFunction
                         return await CancelDeliveryAsync(operation, existing, authenticatedUserId, "update", context);
                     }
 
+                    // The party check comes before every rule that reads the row, so a caller who is
+                    // no party to the delivery never learns its status from a refusal (an invalid
+                    // transition, a cancelled delivery, an expired dispute window).
+                    if (!IsParty(existing, authenticatedUserId, "buyerId", "farmerId", "truckerId"))
+                    {
+                        return await RefuseWithSignalAsync(new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = NonPartyDeliveryRefusal(
+                                operation.Data.TryGetValue("status", out var strangerStatusObj) ? strangerStatusObj?.ToString() : null)
+                        }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
+                    }
+
                     // Block updates to cancelled/deleted deliveries. FUP-128: a party who is behind
                     // the stored version (the delivery was cancelled under it) gets the stored row
                     // as a conflict, like the loser of any status race (SIM-28).
@@ -5205,10 +5334,8 @@ public partial class SyncFunction
                     // confirm pickup with a QR code he made himself.
                     var deliveryFarmerId = existing.TryGetValue("farmerId", out var nonceFarmerAttr)
                         ? nonceFarmerAttr.S : null;
-                    if (authenticatedUserId != deliveryFarmerId)
-                    {
-                        operation.Data.Remove("qrNonce");
-                    }
+                    var droppedPickupNonce = authenticatedUserId != deliveryFarmerId
+                        && operation.Data.Remove("qrNonce");
 
                     // ESC-35: the drop-off nonce proves the trucker handed over the goods, so only
                     // the delivery's trucker may author it, on an update without a status. Anyone
@@ -5399,11 +5526,14 @@ public partial class SyncFunction
                             && authenticatedUserId == existingFarmerIdForNonce;
                         if (authenticatedUserId != existingTruckerId && !isFarmerNoncePersist)
                         {
+                            // A party (the buyer) who sent the pickup code is told whose it is.
                             return await RefuseWithSignalAsync(new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
                                 Status = "error",
-                                Message = "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
+                                Message = droppedPickupNonce
+                                    ? "DELIVERY_UNAUTHORIZED: Only the farmer sets the pickup code."
+                                    : "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
                             }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                         }
 
@@ -5939,6 +6069,29 @@ public partial class SyncFunction
                         }
                     }
 
+                    // An update without a status that holds nothing the write below would store (only
+                    // dropped or echoed fields, such as a trucker's qrNonce) writes nothing and keeps
+                    // the version; the caller passed the role checks above and gets the stored row.
+                    // Only at the stored version: any other gets the conflict the write's version
+                    // condition gave, so a phone that is behind still takes the row.
+                    if (resolvedNewStatus == null && !HasStorableDeliveryField(operation.Data))
+                    {
+                        TryGetClientVersion(operation, out var noWriteVersion);
+                        if (noWriteVersion != ItemVersion(existing))
+                        {
+                            return StaleVersionConflict(operation, ItemVersion(existing), noWriteVersion,
+                                ScrubDeliveryForClient(CropRepository.FromItem(existing)));
+                        }
+
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = ItemVersion(existing),
+                            ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing))
+                        };
+                    }
+
                     // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
                     TryGetClientVersion(operation, out var clientVersion);
 
@@ -6142,6 +6295,11 @@ public partial class SyncFunction
                         {
                             await TryRecordTruckerGpsAnomalyAsync(operation, existing, now, authenticatedUserId, context);
                         }
+                        else if (resolvedNewStatus == "pickedUp")
+                        {
+                            // BUG-5: accepted without a fix, flagged for review (weight 0).
+                            await TryRecordPickupWithoutFixAsync(operation, existing, handoffMethod, authenticatedUserId, context);
+                        }
 
                         // Audit the delivery transition (who/when; GPS is joined at
                         // read time from the delivery record) for the monitor.
@@ -6199,9 +6357,18 @@ public partial class SyncFunction
                             && operation.Data.TryGetValue("status", out var confirmedStatusObj)
                             && confirmedStatusObj?.ToString() == "delivered")
                         {
-                            await StampEscrowDeliveryConfirmedAsync(operation.EntityId, now,
+                            var disputeMirrored = await StampEscrowDeliveryConfirmedAsync(operation.EntityId, now,
                                 existing.TryGetValue("truckerId", out var stampTruckerAttr) ? stampTruckerAttr.S : null,
                                 context, deliveryOrderId);
+
+                            // The escrow was disputed while the goods were moving: the delivery and the
+                            // order followed it to disputed, so the answer carries the row as it is now.
+                            if (disputeMirrored
+                                && await GetDeliveryItemAsync(operation.EntityId, consistentRead: true) is { } mirroredRow)
+                            {
+                                result = ScrubDeliveryForClient(CropRepository.FromItem(mirroredRow));
+                                newVersion = ItemVersion(mirroredRow);
+                            }
                         }
 
                         await TryRecordDeliveryPatternSignalsAsync(
@@ -6605,14 +6772,18 @@ public partial class SyncFunction
     /// FUP-66: when the <c>DeliveryIndex</c> names no escrow, the order's own escrow
     /// (<c>escrow-order-{orderId}</c>) is stamped if its link to the delivery never landed
     /// (<see cref="FindUnlinkedOrderEscrowAsync"/>).
+    /// An escrow already <c>disputed</c> (a party's dispute raised between pickup and this confirm)
+    /// is not stamped: the delivery and the order follow it to <c>disputed</c> through the dispute
+    /// mirror, as after a dispute raised once delivered, so the order never reads <c>delivered</c>
+    /// over frozen money. True when that mirror ran.
     /// </summary>
-    private async Task StampEscrowDeliveryConfirmedAsync(
+    private async Task<bool> StampEscrowDeliveryConfirmedAsync(
         string deliveryId, string confirmedAt, string? deliveryTruckerId, ILambdaContext context,
         string? deliveryOrderId = null)
     {
         if (_escrowRepo == null)
         {
-            return;
+            return false;
         }
 
         try
@@ -6621,7 +6792,7 @@ public partial class SyncFunction
                 ?? await FindUnlinkedOrderEscrowAsync(deliveryOrderId, deliveryId);
             if (escrow == null)
             {
-                return; // no escrow pays for this delivery (e.g. cash order)
+                return false; // no escrow pays for this delivery (e.g. cash order)
             }
 
             var status = escrow.TryGetValue("status", out var st) ? st?.ToString() : null;
@@ -6629,14 +6800,17 @@ public partial class SyncFunction
                 && !string.IsNullOrEmpty(dc?.ToString());
             if (status != "escrowed" || alreadyConfirmed)
             {
-                return; // not settleable, or already stamped (idempotent replay)
+                // Not settleable, or already stamped (idempotent replay). A disputed escrow takes
+                // the confirmed delivery and its order with it.
+                return status == "disputed"
+                    && await MirrorOpenDisputeOnConfirmAsync(escrow, deliveryOrderId, deliveryId, context);
             }
 
             var escrowId = escrow.TryGetValue("escrowId", out var eid) ? eid?.ToString() ?? "" : "";
             var createdAt = escrow.TryGetValue("createdAt", out var ca) ? ca?.ToString() ?? "" : "";
             if (string.IsNullOrEmpty(escrowId) || string.IsNullOrEmpty(createdAt))
             {
-                return;
+                return false;
             }
 
             // Base the dispute window on the same confirmation timestamp so the two
@@ -6686,6 +6860,45 @@ public partial class SyncFunction
                 $"{MoneyAlarmLog.EscrowDeliveryStampFailedToken} deliveryId={MoneyAlarmLog.LogId(deliveryId)} source=sync "
                 + $"reason=[{ex.GetType().Name}]: delivery confirmed but its escrow is not marked delivery-confirmed; "
                 + "the hourly order-money sweep retries the stamp.");
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// A delivery confirmed while its escrow is already <c>disputed</c>: the delivery
+    /// (<c>delivered</c> to <c>disputed</c>) and the order (to <c>delivered</c>, then
+    /// <c>disputed</c>) follow through <see cref="EscrowService.MirrorDisputeAsync"/>, with the
+    /// escrow's own <c>disputedBy</c> and reason. Best-effort like every dispute mirror: the money
+    /// is frozen already, the verdict mirror repairs a failed hop, and a failure never fails the
+    /// confirm. False when no escrow service is configured or the mirror threw.
+    /// </summary>
+    private async Task<bool> MirrorOpenDisputeOnConfirmAsync(
+        Dictionary<string, object> escrow, string? orderId, string deliveryId, ILambdaContext context)
+    {
+        string? Field(string name) => escrow.TryGetValue(name, out var value) ? value?.ToString() : null;
+        var escrowId = Field("escrowId");
+        if (_orderEscrowService == null || string.IsNullOrEmpty(escrowId))
+        {
+            return false;
+        }
+
+        try
+        {
+            var disputedBy = Field("disputedBy");
+            await _orderEscrowService.MirrorDisputeAsync(
+                escrowId, orderId ?? Field("orderId"), deliveryId,
+                string.IsNullOrEmpty(disputedBy) ? EscrowService.SystemActor : disputedBy,
+                Field("disputeReason"), markDelivery: true);
+            context.Logger.LogInformation(
+                $"Delivery {MoneyAlarmLog.LogId(deliveryId)} confirmed under disputed escrow {MoneyAlarmLog.LogId(escrowId)}: delivery and order follow to disputed.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Dispute mirror for confirmed delivery {MoneyAlarmLog.LogId(deliveryId)} failed: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
+            return false;
         }
     }
 
@@ -6950,6 +7163,7 @@ public partial class SyncFunction
 
         var clientTransportCost = ParseDoubleOrNull(operation.Data, "transportCost");
         var transportCost = 0.0;
+        Dictionary<string, AttributeValue>? orderTrip = null;
         if (!string.IsNullOrEmpty(tripId))
         {
             var trip = await GetTripItemAsync(tripId);
@@ -6957,6 +7171,8 @@ public partial class SyncFunction
             {
                 return OrderValidationError(operation, "Trip not found.");
             }
+
+            orderTrip = trip;
 
             var tripError = BindOrderToTrip(
                 operation.Data, trip, truckerId!, quantityKg, clientTransportCost, DateTime.UtcNow,
@@ -7006,6 +7222,9 @@ public partial class SyncFunction
         {
             await EmitTxAuditAsync(context, operation.EntityId, "order", operation.EntityId,
                 "order_created", null, "created");
+
+            // BUG-7: a trip that does not start where the listing is, flagged for review (weight 0).
+            await TryRecordOrderRouteMismatchAsync(operation, listing, orderTrip, authenticatedUserId, context);
             return new SyncOperationResult
             {
                 OperationId = operation.OperationId,
@@ -7326,6 +7545,15 @@ public partial class SyncFunction
                     return OrderValidationError(operation, tripGate);
                 }
 
+                // No money for an order the listing can no longer fill: the funding would end it
+                // and send the money back (ESC-18), which with the live gateway is a real payment
+                // and a real refund. The funding's own conditional write stays the race guard.
+                var stockGate = await CheckListingStockForPaymentAsync(existingOrder, context);
+                if (stockGate != null)
+                {
+                    return OrderValidationError(operation, stockGate);
+                }
+
                 var riskTier = await CallerRiskTierAsync(authenticatedUserId!);
                 if (riskTier == RiskTier.Critical)
                 {
@@ -7504,6 +7732,26 @@ public partial class SyncFunction
         }
 
         operation.Data.Remove("version"); // consumed here; the repository handles the check
+
+        // Nothing is left to write: the payload held only fields the server owns (stripped above)
+        // or unchanged echoes. No write and no version move; the caller, a party, gets the stored row.
+        // Only at the stored version: any other version gets the conflict the write's own version
+        // check gave, so a phone that is behind still takes the row (it ignores it on a success).
+        if (operation.Data.Count == 0)
+        {
+            if (version != OrderVersionOf(existingOrder))
+            {
+                return OrderConflict(operation, existingOrder, version);
+            }
+
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "success",
+                ServerVersion = OrderVersionOf(existingOrder),
+                ServerData = existingOrder
+            };
+        }
 
         // FUP-53: a funded order's reject or cancel and its refund arm are one transaction.
         var storedStatus = existingOrder.TryGetValue("status", out var storedStatusObj) ? storedStatusObj?.ToString() : null;
@@ -9480,6 +9728,29 @@ public partial class SyncFunction
         };
 
     /// <summary>
+    /// True when a delivery update's payload holds a field the update write stores: an allowed,
+    /// mutable field that is not an echo (the write loop's own skip rules).
+    /// </summary>
+    private static bool HasStorableDeliveryField(Dictionary<string, object>? data)
+        => data != null && data.Keys.Any(k =>
+            k is not ("deliveryId" or "version" or "createdAt" or "updatedAt" or "qrToken")
+            && AllowedDeliveryFields.Contains(k)
+            && !ImmutableDeliveryFields.Contains(k));
+
+    /// <summary>
+    /// The refusal for a delivery update from a caller who is no party to the delivery: always
+    /// <c>DELIVERY_UNAUTHORIZED</c>, with the role sentence of the requested status and nothing
+    /// about the delivery itself.
+    /// </summary>
+    private static string NonPartyDeliveryRefusal(string? requestedStatus) => requestedStatus switch
+    {
+        "pickedUp" or "inTransit" => $"DELIVERY_UNAUTHORIZED: Only the trucker can mark as {requestedStatus}.",
+        "delivered" => "DELIVERY_UNAUTHORIZED: Only the buyer can confirm delivery.",
+        "disputed" => "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery.",
+        _ => "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
+    };
+
+    /// <summary>
     /// SIM-28: whether <paramref name="userId"/> may ask for <paramref name="status"/> on this delivery
     /// (the role rules of the delivery update): the trucker picks up and drives, the buyer confirms,
     /// any party disputes.
@@ -9758,7 +10029,7 @@ public partial class SyncFunction
         if (data.TryGetValue("quantity", out var qObj))
         {
             if (!decimal.TryParse(qObj?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var qty)
-                || qty <= 0 || qty > MaxOrderKg)
+                || qty < MinOrderKg || qty > MaxOrderKg)
             {
                 errors.Add("quantity must be between 0.01 and 1000000 kg.");
             }

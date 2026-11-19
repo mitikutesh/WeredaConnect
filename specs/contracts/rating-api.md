@@ -1,7 +1,7 @@
 # Rating API
 
 ## Version
-1.5.0
+1.7.0
 
 ## Parties
 Mobile, Web, Backend, Infrastructure, Admin
@@ -203,6 +203,24 @@ Built in FUP-162 (1.5.0): the users Scan and `scanFrom` of
 The wire shape of the create is unchanged; the mobile and web clients change
 nothing for it.
 
+### Ratings between linked accounts (1.7.0, persona simulation BUG-3)
+
+A rating create whose rater and ratee are linked accounts is stored outside the aggregate:
+
+- linked means one identity (the same user id, phone number or Fayda ID on both users rows, the rule of
+  `SELF_TRADE`) or a common install (`knownDevices`, the `X-Device-Id` of each sign-in, the rule of
+  `SHARED_DEVICE_TRADE`; fraud spec 15.2). Decided at the create from the two users rows; the fraud signal
+  rows are not read. A rater row that cannot be read counts the rating (the check never fails a rating).
+- The rating is put alone (`attribute_not_exists(ratingId)`, the same conflict) with `inAggregate: false`
+  and the server-only `aggregateExclusion: linked_accounts`. The ratee's `ratingSum`, `ratingCount` and
+  `HEAL` row are not touched.
+- The backfill (step 4) and the create's heal read only ratings without `inAggregate`, so they never add
+  it; the 1.1.0 summary walk skips a row with `aggregateExclusion`. A future role rebuild (step 5) must
+  skip it too.
+- The answer is the `success` every rating gets, with the same `serverData`; neither field is returned.
+  The row stays readable (`GET /ratings` lists it to buyers and the ratee) and visible to admins.
+- A family or cooperative phone loses only the effect of its members rating each other.
+
 ## Read rules (1.2.0; BUILT in 1.4.0, ESC-29)
 
 | Caller | `GET /ratings?rateeId=` | `GET /ratings/{id}` |
@@ -261,7 +279,7 @@ As built (1.4.0, `Functions/RatingFunction.cs`):
 |------|------|---------|
 | `RATING_VALIDATION` | 400 | Missing/invalid fields; unknown fields; `stars` out of 1–5; bad `rateeRole`; `ratee` is not the order's farmer/trucker; order not found; malformed `ratingId`; bad `limit`/`nextToken` |
 | `RATING_UNAUTHORIZED` | 200 (sync op `error`) | Caller is not a buyer, or `raterId` ≠ authenticated user |
-| `RATING_FORBIDDEN` | 200 (sync op `error`) | Order is not the buyer's, or order not `delivered`, `disbursing` or `settled` (1.1.0) |
+| `RATING_FORBIDDEN` | 200 (sync op `error`) | Order is not the buyer's, or order not `delivered`, `disbursing` or `settled` (1.1.0), or a `delivered` order whose escrow is `disputed` or `dispute_resolved` (1.6.0) |
 | `RATING_FORBIDDEN` | 403 (1.2.0, `GET`) | The caller may not read this ratee's ratings (Read rules) |
 | `RATING_UNAVAILABLE` | 200 (sync op `error`) | Ratings table not provisioned in this environment |
 | `RATING_NOT_FOUND` | 404 | `GET /ratings/{id}`: no such rating |
@@ -273,6 +291,7 @@ As built (1.4.0, `Functions/RatingFunction.cs`):
    plus a create-time `attribute_not_exists(ratingId)` condition.
 2. **Only the buyer of an order may rate**, and only its farmer or trucker.
 3. **Order must be `delivered`, `disbursing` or `settled`** at rating time (1.1.0: the order follows its money after delivery, and `disbursing` can last days while a manual payout waits, `order-lifecycle.md` 1.17.0).
+   **And its money must not be in dispute (1.6.0):** for a `delivered` order the server reads the order's escrow (`escrow-order-{orderId}`, strongly consistent; when the order has none, the escrow the `DeliveryIndex` names for the order's active delivery, paid through `POST /escrow/initiate`). An escrow `held` for review counts by the status it was held from. An escrow that is `disputed` or `dispute_resolved` refuses the create with `RATING_FORBIDDEN: This order is in dispute and cannot be rated.`, whatever the order status says (a dispute raised between pickup and delivery could leave the order reading `delivered`, `order-lifecycle.md` 2.24.0). No escrow record, or one in any other status, changes nothing. An escrow that cannot be read refuses for now with the unprefixed `The order's payment could not be read. Please try again later.`, which clients retry. Clients need no change: they treat this `RATING_FORBIDDEN` like the not-delivered one.
 4. **Ratings are immutable** — no update/delete.
 5. `stars ∈ [1,5]` (integer); `comment` ≤ 500 chars.
 6. `createdAt`, `updatedAt`, `version` are server-stamped (client values ignored).
@@ -293,8 +312,12 @@ As built (1.4.0, `Functions/RatingFunction.cs`):
 - `inAggregate` (BOOL, 1.2.0): written by the create transaction and the
   backfill; `true` when the stars are in the ratee's stored aggregate. Never
   returned to clients.
+- `aggregateExclusion` (STRING, 1.7.0): `linked_accounts` on a rating kept out of
+  the aggregate on purpose (with `inAggregate: false`). Never returned to clients.
 
 ## Changelog
+- **1.7.0** (2026-11-19): BUILT (persona simulation BUG-3, fraud spec 3.44.0 Rule 7): a rating between linked accounts (one identity, or one install in `knownDevices`) is stored with `inAggregate: false` and `aggregateExclusion: linked_accounts`, never added to the ratee's sum and count by the create, the backfill or the heal, and skipped by the summary walk. The answer is unchanged (`success`). Wire shapes unchanged.
+- **1.6.0** (2026-11-19): BUILT (persona simulation BUG-1): a rating create for a `delivered` order whose escrow is `disputed` or `dispute_resolved` is refused with `RATING_FORBIDDEN: This order is in dispute and cannot be rated.`; an escrow that cannot be read refuses for now without a code (retried). Create and read wire shapes unchanged.
 - **1.5.0** (2026-11-12): BUILT (FUP-162): the farmers and truckers without `ratingsAggregatedAt` (no `woreda`, so the ESC-28 backfill skipped them) get stamped. `reputation_backfill_ratings` Scans the users table once after the index walk (manual action only; time budget; `scanCursor` in the answer, `scanFrom` in the request to resume; new `unindexed` count), and a successful `/sync` rating create stamps an unstamped ratee's full aggregate (bounded, best effort, before the reputation refresh). Both count each rating once through the per-rating `inAggregate` condition. A create cancelled by `TransactionConflict` on the ratee's row is sent once more. Create and read wire shapes unchanged; the reads stay read-only.
 - **1.4.0** (2026-11-11): BUILT (ESC-29): the read rules. `GET /ratings` and `GET /ratings/{id}` only for buyers (farmer and trucker ratees) and the ratee, else `403 RATING_FORBIDDEN`, decided from the caller's role claim before any read; new optional `rateeRole` filter (`400 RATING_VALIDATION` for another value), default the ratee's current role; the summary from the users row when the role is current and the row carries `ratingsAggregatedAt`, else the walk filtered by role; `summary.rateeRole`; `summary.effectiveRating` and the `reputation` block behind `reputationPublicTags` (off everywhere). Create unchanged.
 - **1.3.0** (2026-11-07): BUILT (ESC-28): the stored aggregate. The `/sync` rating create is the transaction of "Stored aggregate" (rating, `ADD ratingSum, ratingCount`, heal marker), a changed role puts the rating alone with `inAggregate: false`, registration stamps `ratingSum: 0`, `ratingCount: 0`, `ratingsAggregatedAt`, and the order-cron action `reputation_backfill_ratings` runs the one-time backfill. The best-effort refresh after the commit runs only with `reputationPenalties` on. Read rules stay PLANNED (ESC-29). Create wire shape unchanged.

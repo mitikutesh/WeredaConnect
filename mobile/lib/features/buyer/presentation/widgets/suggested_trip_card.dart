@@ -65,6 +65,8 @@ class SuggestedTripCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Two lines, so the day with its Ethiopian date
+                      // (FUP-545) is not cut.
                       Text(
                         '${trip.truckerName} · $day',
                         style: const TextStyle(
@@ -72,7 +74,7 @@ class SuggestedTripCard extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                           color: AppTheme.soilDark,
                         ),
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 2),

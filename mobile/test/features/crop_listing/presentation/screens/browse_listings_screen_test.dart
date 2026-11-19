@@ -10,6 +10,7 @@ import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
@@ -33,6 +34,9 @@ import 'package:wereda_connect/shared/widgets/listing_card.dart';
 class MockAuthBloc extends Mock implements AuthBloc {}
 
 class MockCropListingBloc extends Mock implements CropListingBloc {}
+
+class MockCropListingRepository extends Mock
+    implements BaseCropListingRepository {}
 
 class MockRatingRepository extends Mock implements BaseRatingRepository {}
 
@@ -274,6 +278,97 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text(privacyNote), findsOneWidget);
+    });
+
+    // BUG-36: a listing saved offline looked the same as a synced one.
+    group('BUG-36: My Crops marks a listing that is not sent yet', () {
+      const notSentNote = Key('my_crops_not_sent_note');
+      const pendingIcon = Key('listing_card_pending_icon');
+      late MockCropListingRepository crops;
+
+      setUp(() {
+        crops = MockCropListingRepository();
+        when(() => cropListingBloc.repository).thenReturn(crops);
+        when(() => crops.hasChangeWaiting(any()))
+            .thenAnswer((_) async => false);
+      });
+
+      testWidgets(
+          'the waiting listing says "Not sent yet" with an upload icon, the '
+          'sent one stays "Active", and a note says buyers do not see it yet',
+          (tester) async {
+        when(() => crops.hasChangeWaiting('queued'))
+            .thenAnswer((_) async => true);
+        loaded([_listing(id: 'queued'), _listing(id: 'sent')]);
+
+        await tester.pumpWidget(buildTestWidget(ownerMode: true));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Not sent yet'), findsOneWidget);
+        expect(find.byKey(pendingIcon), findsOneWidget);
+        final cards = tester.widgetList<ListingCard>(find.byType(ListingCard));
+        expect(cards.map((c) => c.status), ['Not sent yet', 'Active']);
+        expect(cards.map((c) => c.statusPending), [true, false]);
+        expect(find.byKey(notSentNote), findsOneWidget);
+        expect(
+          find.text(
+            'Listings marked "Not sent yet" are saved on this phone only. '
+            'Buyers see them once they are sent.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.text(privacyNote), findsOneWidget);
+      });
+
+      testWidgets('nothing waiting: no mark and no note', (tester) async {
+        loaded([_listing(id: 'sent')]);
+
+        await tester.pumpWidget(buildTestWidget(ownerMode: true));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Not sent yet'), findsNothing);
+        expect(find.byKey(pendingIcon), findsNothing);
+        expect(find.byKey(notSentNote), findsNothing);
+      });
+
+      testWidgets('a queue that cannot be read leaves the cards unmarked',
+          (tester) async {
+        when(() => crops.hasChangeWaiting(any())).thenThrow(Exception('isar'));
+        loaded([_listing(id: 'queued')]);
+
+        await tester.pumpWidget(buildTestWidget(ownerMode: true));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Not sent yet'), findsNothing);
+        expect(find.byType(ListingCard), findsOneWidget);
+      });
+
+      testWidgets('the buyer market never reads the queue or shows the mark',
+          (tester) async {
+        when(() => crops.hasChangeWaiting(any())).thenAnswer((_) async => true);
+        loaded([_listing(id: 'queued')]);
+
+        await tester.pumpWidget(buildTestWidget());
+        await tester.pumpAndSettle();
+
+        expect(find.text('Not sent yet'), findsNothing);
+        expect(find.byKey(pendingIcon), findsNothing);
+        verifyNever(() => crops.hasChangeWaiting(any()));
+      });
+
+      testWidgets('the mark is translated', (tester) async {
+        when(() => crops.hasChangeWaiting(any())).thenAnswer((_) async => true);
+        loaded([_listing(id: 'queued')]);
+
+        await tester.pumpWidget(
+          buildTestWidget(ownerMode: true, locale: const Locale('am')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('ገና አልተላከም'), findsOneWidget);
+        final om = await AppLocalizations.delegate.load(const Locale('om'));
+        expect(om.listingNotSentYet, 'Ammallee hin ergamne');
+      });
     });
 
     group('ESC-31: the owner reputation copy on the cards', () {
@@ -965,7 +1060,12 @@ void main() {
 
       await tester.tap(find.text('Sold'));
       await tester.pumpAndSettle();
-      expect(find.text(l10n.noListingsMatchFilters), findsOneWidget);
+      // BUG-39: an empty tab is a plain empty state. Nobody searched, so
+      // nothing says "no listings match your search".
+      expect(find.text(l10n.myCropsSegmentEmpty), findsOneWidget);
+      expect(find.text(l10n.myCropsSegmentEmptyHint), findsOneWidget);
+      expect(find.text(l10n.noListingsMatchFilters), findsNothing);
+      expect(find.byIcon(Icons.search_off), findsNothing);
       expect(find.text(l10n.clearFilters), findsNothing);
 
       await tester.tap(find.text('Active · 1'));

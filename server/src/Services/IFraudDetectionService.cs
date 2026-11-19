@@ -11,10 +11,19 @@ public interface IFraudDetectionService
 {
     /// <summary>
     /// Run all listing-related fraud checks (velocity, duplicate, price anomaly).
-    /// Call BEFORE _cropRepo.CreateAsync().
+    /// Call BEFORE _cropRepo.CreateAsync(). With a <paramref name="lot"/> the duplicate check also
+    /// refuses a lot the farmer already lists (same crop type, quantity and place) at any price.
     /// </summary>
     Task<FraudCheckResult> CheckListingCreationAsync(
-        string farmerId, string cropType, decimal pricePerKg);
+        string farmerId, string cropType, decimal pricePerKg, ListingLot? lot = null);
+
+    /// <summary>
+    /// Rule 6: check a trip create against the trucker's open and matched trips of the same departure
+    /// day in Ethiopia. Rejected (<c>FRAUD_DUPLICATE_LISTING</c>) for the same route with the same
+    /// vehicle; flagged (<c>TRIP_SAME_DAY</c>) for any other trip that day; allowed otherwise, and when
+    /// the trips table is not configured. Call BEFORE the trip is written. Throws on a failed read.
+    /// </summary>
+    Task<FraudCheckResult> CheckTripCreationAsync(TripPlan plan);
 
     /// <summary>
     /// Check payment velocity before escrow initiation.

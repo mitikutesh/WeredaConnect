@@ -358,8 +358,9 @@ public class SyncFunctionDeliveryLocationTests
 
         var result = await UpdateAsync(BuyerId, StoredLat, StoredLng);
 
+        // The echo is dropped and nothing is left: a success at the stored version, no write.
         result.GetProperty("status").GetString().Should().Be("success", result.ToString());
-        _written.Should().NotContainKey("deliveryLatitude");
+        await NothingWritten();
     }
 
     [Fact]

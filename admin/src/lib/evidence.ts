@@ -95,3 +95,15 @@ export function photosOf(evidence: DisputeEvidence | undefined): { leg: PhotoLeg
     .map((leg) => ({ leg, url: delivery[`${leg}PhotoUrl`] }))
     .filter((p): p is { leg: PhotoLeg; url: string } => typeof p.url === "string" && p.url !== "");
 }
+
+/**
+ * The dispute reasons for which a confirmation by the disputer contradicts the complaint itself (the goods
+ * never came, or came short). For damage, quality or the wrong crop the buyer confirms first and complains
+ * after: that is the normal path, so it is shown as a plain fact, never as a warning.
+ */
+const CONTRADICTED_BY_OWN_CONFIRM = new Set(["not_delivered", "wrong_quantity"]);
+
+/** Whether the disputer's own confirmation of receipt is a warning for this dispute (see above). */
+export function confirmContradictsReason(dispute: Record<string, unknown> | undefined): boolean {
+  return CONTRADICTED_BY_OWN_CONFIRM.has(String(dispute?.reason ?? ""));
+}

@@ -268,9 +268,13 @@ def seed_listings(s: State):
                 "departureDate": dep, "status": "open", **trip}
         r = sync_create(t, "trip", tid, data)
         ok = r.status == 200 and r.json().get("results", [{}])[0].get("status") == "success"
+        # A second run on one day posts the same route and departure day again: refused as a duplicate
+        # trip (trip-listing-api.md rule 14). The earlier trip is picked up by the refresh below.
+        dup = "FRAUD_DUPLICATE" in r.body
         if ok:
             s.trips.append((tid, t))
-        s.check(f"trip {trip['fromWoreda']}->{trip['toWoreda']}", ok, "" if ok else r.body[:120])
+        s.check(f"trip {trip['fromWoreda']}->{trip['toWoreda']}", ok or dup,
+                "(dup ok)" if dup and not ok else "" if ok else r.body[:120])
         time.sleep(0.5)
 
     # Refresh refs from the API so later phases work even when creates were fraud-dups.

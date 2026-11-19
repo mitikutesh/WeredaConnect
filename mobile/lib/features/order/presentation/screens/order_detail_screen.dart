@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
@@ -18,6 +17,7 @@ import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart'
     if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -44,6 +44,7 @@ import 'package:wereda_connect/features/messaging/presentation/screens/conversat
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
+import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/delivery_place.dart';
@@ -290,7 +291,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   ? l10n.orderAcceptedSent
                   : l10n.orderRejectedSent,
             ).ignore();
-            Navigator.of(context).pop();
+            leaveOrderDetail(context);
           } else if (state is TruckerResponded) {
             // ESC-15: stay on the order, which now shows the next step
             // (Create Delivery after an accept); said only when it waits.
@@ -322,7 +323,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(l10n.orderCancelledSuccess)),
             );
-            Navigator.of(context).pop();
+            leaveOrderDetail(context);
           } else if (state is OrderError) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -361,14 +362,19 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const FwDetailHeader(),
+                FwDetailHeader(onBack: () => leaveOrderDetail(context)),
                 Expanded(
                   child: Center(
                     child: state is OrderError
                         ? Padding(
                             padding: const EdgeInsets.all(24),
                             child: Text(
-                              localizeErrorCode(state.code, l10n),
+                              // BUG-30: someone else's order (the server
+                              // answers 403) says so, not "an error".
+                              state.code == AppErrorCode.forbidden
+                                  ? l10n.unauthorizedAccess
+                                  : localizeErrorCode(state.code, l10n),
+                              key: const Key('order_detail_load_error'),
                               textAlign: TextAlign.center,
                             ),
                           )
@@ -536,7 +542,7 @@ class _OrderDetailBody extends StatelessWidget {
                           child: ClockText(
                             clock.deadline(
                               answerDeadline,
-                              date: DateFormat.MMMd(),
+                              date: formatMonthDay,
                               sentence: l10n.commitmentAnswerBy,
                             ),
                             style: const TextStyle(
@@ -572,7 +578,7 @@ class _OrderDetailBody extends StatelessWidget {
                                 child: ClockText(
                                   clock.deadline(
                                     order.pickupDeadlineAt!,
-                                    date: DateFormat.yMMMd(),
+                                    date: formatDate,
                                   ),
                                   textAlign: TextAlign.end,
                                 ),
@@ -738,7 +744,12 @@ class _OrderDetailBody extends StatelessWidget {
                 MaterialPageRoute<void>(
                   builder: (_) => order.status == OrderStatus.paymentSubmitted
                       ? OrderCheckoutScreen(order: order)
-                      : PaymentInstructionsScreen(order: order),
+                      // This page stays under the payment: a paid order
+                      // comes back here (BUG-17).
+                      : PaymentInstructionsScreen(
+                          order: order,
+                          fromOrderDetail: true,
+                        ),
                 ),
               );
               // The payment may have moved the order on.
@@ -1348,6 +1359,8 @@ class _OrderHeader extends StatelessWidget {
 
     return FwDetailHeader(
       key: const Key('order_summary_hero'),
+      // Back also works on an order opened by its own address (BUG-17).
+      onBack: () => leaveOrderDetail(context),
       title: title,
       subtitle: subtitle,
       trailing: farmerAnswering
@@ -1355,6 +1368,7 @@ class _OrderHeader extends StatelessWidget {
           : StatusChip(
               label: orderStatusLabel(order.status, l10n),
               kind: orderStatusKind(order.status),
+              icon: orderStatusIcon(order.status),
             ),
     );
   }
@@ -1595,10 +1609,49 @@ class _BuyerTotalRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final held = escrowHeldOrderStatuses.contains(order.status);
+    // BUG-22: what the total is made of, from the order's own server
+    // fields. An order without them (a legacy row, or one not yet answered
+    // by the server) shows the total alone. Only the buyer sees this card:
+    // the farmer and the trucker see their own leg, never the commission.
+    final cropCost = order.cropCost;
+    final commission = order.commissionAmount;
+    final transport = order.transportCost ?? 0;
+    final split = cropCost != null && commission != null;
     return FwCard(
       key: const Key('order_buyer_total'),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (split) ...[
+            FwMoneyRow(
+              key: const Key('order_buyer_crop_cost'),
+              label: l10n.cropCost,
+              amount: l10n.etbCurrency(formatEtbAmount(cropCost)),
+            ),
+            if (transport > 0) ...[
+              const SizedBox(height: 9),
+              FwMoneyRow(
+                key: const Key('order_buyer_transport_cost'),
+                label: l10n.transportCost,
+                amount: l10n.etbCurrency(formatEtbAmount(transport)),
+              ),
+            ],
+            const SizedBox(height: 9),
+            FwMoneyRow(
+              key: const Key('order_buyer_commission'),
+              label: l10n.platformCommission,
+              amount: l10n.etbCurrency(formatEtbAmount(commission)),
+            ),
+            const Divider(height: 22),
+          ],
+          _totalLine(l10n, held),
+        ],
+      ),
+    );
+  }
+
+  Widget _totalLine(AppLocalizations l10n, bool held) => Row(
         children: [
           Icon(
             held ? Icons.lock_outline : Icons.receipt_long_outlined,
@@ -1626,9 +1679,7 @@ class _BuyerTotalRow extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
+      );
 }
 
 class _OrderDeliveryActions extends StatefulWidget {
@@ -2119,8 +2170,11 @@ const TextStyle _cardTitle = TextStyle(
   color: AppTheme.soilDark,
 );
 
-/// One step of the timeline: a 4 px bar over its name. What the step means
-/// shows on hover (web, desktop) or tap (touch).
+/// One step of the timeline: its state icon and a 4 px bar over its name.
+/// The icon says the state without colour or reading (BUG-L5): a check for a
+/// finished step, a filled dot for the step the order is at, an empty circle
+/// for one still ahead; a screen reader hears the state as the value. What
+/// the step means shows on hover (web, desktop) or tap (touch).
 class _TimelineStepTile extends StatelessWidget {
   final _TimelineStep step;
   final bool done;
@@ -2144,6 +2198,14 @@ class _TimelineStepTile extends StatelessWidget {
         : done
             ? AppTheme.soilDark
             : AppTheme.mutedSteel;
+    final l10n = AppLocalizations.of(context)!;
+    // The status chips' glyphs: done is their success check, a step ahead
+    // their neutral empty circle, and the current step that circle filled.
+    final (icon, state) = done
+        ? (StatusKind.success.defaultIcon, l10n.orderTimelineStepDone)
+        : current
+            ? (Icons.radio_button_checked, l10n.orderTimelineStepNow)
+            : (StatusKind.neutral.defaultIcon, l10n.orderTimelineStepLater);
     return Tooltip(
       message: step.info,
       triggerMode: TooltipTriggerMode.tap,
@@ -2152,15 +2214,28 @@ class _TimelineStepTile extends StatelessWidget {
       child: Semantics(
         button: true,
         selected: current,
+        value: state,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              height: 4,
-              decoration: BoxDecoration(
-                color: bar,
-                borderRadius: BorderRadius.circular(999),
-              ),
+            Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: done ? AppTheme.fieldGreen : ink,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Container(
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: bar,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             Text(

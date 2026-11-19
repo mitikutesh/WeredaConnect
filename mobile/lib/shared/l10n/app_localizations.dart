@@ -145,7 +145,7 @@ abstract class AppLocalizations {
   /// Indicator that there are pending sync operations
   ///
   /// In en, this message translates to:
-  /// **'Sync Pending'**
+  /// **'Waiting to be sent'**
   String get syncPending;
 
   /// Short tagline for welcome screen
@@ -163,19 +163,19 @@ abstract class AppLocalizations {
   /// Indicator that sync is currently in progress
   ///
   /// In en, this message translates to:
-  /// **'Syncing...'**
+  /// **'Sending...'**
   String get syncInProgress;
 
   /// Indicator that sync has completed successfully
   ///
   /// In en, this message translates to:
-  /// **'Sync Complete'**
+  /// **'Everything is sent'**
   String get syncComplete;
 
   /// Indicator that sync has failed
   ///
   /// In en, this message translates to:
-  /// **'Sync Failed'**
+  /// **'Not sent'**
   String get syncFailed;
 
   /// Button to retry a failed operation
@@ -187,7 +187,7 @@ abstract class AppLocalizations {
   /// Button to trigger an immediate sync
   ///
   /// In en, this message translates to:
-  /// **'Sync Now'**
+  /// **'Send now'**
   String get syncNow;
 
   /// Language selection prompt on welcome screen
@@ -319,8 +319,20 @@ abstract class AppLocalizations {
   /// The server refused a queued change for good (listing, trip, delivery, rating, message); it stays on this phone but was never saved
   ///
   /// In en, this message translates to:
-  /// **'This change could not be saved on the server.'**
+  /// **'This change was not accepted.'**
   String get errorChangeNotSaved;
+
+  /// BUG-L9: a queued crop listing change was refused for its contents (CROP_VALIDATION); says what to do, never the word server
+  ///
+  /// In en, this message translates to:
+  /// **'Your crop listing details were not accepted. Check them and try again.'**
+  String get errorListingDetailsNotAccepted;
+
+  /// BUG-L9: a queued trip change was refused for its contents (TRIP_VALIDATION); says what to do, never the word server
+  ///
+  /// In en, this message translates to:
+  /// **'Your trip details were not accepted. Check them and try again.'**
+  String get errorTripDetailsNotAccepted;
 
   /// Banner when a marketplace refresh failed and cached data is shown
   ///
@@ -337,7 +349,7 @@ abstract class AppLocalizations {
   /// Indicator that the app is ready to work offline
   ///
   /// In en, this message translates to:
-  /// **'Offline Ready'**
+  /// **'Works without network'**
   String get offlineReady;
 
   /// Home navigation tab
@@ -496,6 +508,18 @@ abstract class AppLocalizations {
   /// **'Password'**
   String get password;
 
+  /// BUG-L16: tooltip and screen reader label of the eye button on a hidden password field
+  ///
+  /// In en, this message translates to:
+  /// **'Show password'**
+  String get showPassword;
+
+  /// BUG-L16: tooltip and screen reader label of the eye button on a shown password field
+  ///
+  /// In en, this message translates to:
+  /// **'Hide password'**
+  String get hidePassword;
+
   /// Confirm password input label
   ///
   /// In en, this message translates to:
@@ -637,7 +661,7 @@ abstract class AppLocalizations {
   /// Offline mode indicator message
   ///
   /// In en, this message translates to:
-  /// **'You are in offline mode'**
+  /// **'No network. Your work is saved on your phone.'**
   String get offlineModeIndicator;
 
   /// Password requirements message
@@ -2440,6 +2464,18 @@ abstract class AppLocalizations {
   /// **'A refund to the buyer is already scheduled for this payment, so it can no longer be disputed. Contact support if you disagree.'**
   String get escrowErrorDisputeRefundScheduled;
 
+  /// A buyer's dispute with the reason not delivered was refused because the goods are picked up and still on the road and the delivery deadline has not passed (422 ESCROW_INVALID_TRANSITION with that reason, persona simulation BUG-8)
+  ///
+  /// In en, this message translates to:
+  /// **'The goods are still on the way. You can report them as not delivered once the delivery deadline has passed. For another problem, choose another reason.'**
+  String get escrowErrorDisputeGoodsOnTheWay;
+
+  /// The same refusal as escrowErrorDisputeGoodsOnTheWay, with the time (Ethiopia time) from which the buyer can report the goods as not delivered
+  ///
+  /// In en, this message translates to:
+  /// **'The goods are still on the way. You can report them as not delivered after {time}. For another problem, choose another reason.'**
+  String escrowErrorDisputeGoodsOnTheWayAfter(String time);
+
   /// Error when escrow state transition is invalid
   ///
   /// In en, this message translates to:
@@ -2997,6 +3033,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Copied to clipboard'**
   String get copiedToClipboard;
+
+  /// BUG-L16: tooltip and screen reader label of one star of the rating picker
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of {max} stars'**
+  String ratingStarsOf(int count, int max);
 
   /// Message shown in forgot password dialog with support contact info
   ///
@@ -4384,6 +4426,24 @@ abstract class AppLocalizations {
   /// **'Order Timeline'**
   String get orderTimeline;
 
+  /// BUG-L5: screen reader state of an order timeline step that is finished (check icon)
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get orderTimelineStepDone;
+
+  /// BUG-L5: screen reader state of the order timeline step the order is at (filled dot icon)
+  ///
+  /// In en, this message translates to:
+  /// **'Now'**
+  String get orderTimelineStepNow;
+
+  /// BUG-L5: screen reader state of an order timeline step still ahead (empty circle icon)
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet'**
+  String get orderTimelineStepLater;
+
   /// Ethiopian Birr currency format
   ///
   /// In en, this message translates to:
@@ -4555,7 +4615,7 @@ abstract class AppLocalizations {
   /// Stale data indicator
   ///
   /// In en, this message translates to:
-  /// **'Synced {time} ago'**
+  /// **'Updated {time} ago'**
   String syncedAgo(String time);
 
   /// Link to browse all crop listings
@@ -4695,6 +4755,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Only {available} kg available. Enter a smaller quantity.'**
   String orderQuantityExceedsStock(String available);
+
+  /// BUG-20. am and om machine drafted, native review owed. Place order: helper under the empty quantity field naming how many kg can be ordered (the listing's stock, or the chosen truck's room when smaller); a grouped number
+  ///
+  /// In en, this message translates to:
+  /// **'{available} kg available'**
+  String orderQuantityAvailable(String available);
+
+  /// BUG-26. am and om machine drafted, native review owed. Create and edit crop listing: warning (it does not block Save) under the price when the price per kg is 500 ETB or more, which usually means the farmer typed a price per quintal (100 kg)
+  ///
+  /// In en, this message translates to:
+  /// **'This price is for 1 kg and looks very high. If you typed the price of a quintal, divide it by 100.'**
+  String get cropFormPriceHighWarning;
+
+  /// BUG-39. am and om machine drafted, native review owed. My Crops: title of the empty state of a status tab (active, reserved, sold) that has no listing while other tabs have some; nobody searched
+  ///
+  /// In en, this message translates to:
+  /// **'No listings here'**
+  String get myCropsSegmentEmpty;
+
+  /// BUG-39. am and om machine drafted, native review owed. My Crops: line under myCropsSegmentEmpty
+  ///
+  /// In en, this message translates to:
+  /// **'Listings with this status show here.'**
+  String get myCropsSegmentEmptyHint;
 
   /// Label for the optional delivery-deadline field on the create-intent screen
   ///
@@ -4861,25 +4945,25 @@ abstract class AppLocalizations {
   /// Sync status badge when data is up to date
   ///
   /// In en, this message translates to:
-  /// **'Synced'**
+  /// **'All sent'**
   String get synced;
 
   /// Sync status badge when device is offline
   ///
   /// In en, this message translates to:
-  /// **'Offline'**
+  /// **'No network'**
   String get offline;
 
   /// Subtitle for failed sync notification
   ///
   /// In en, this message translates to:
-  /// **'{count} operations need attention'**
+  /// **'{count} could not be sent'**
   String syncFailureCount(int count);
 
   /// Subtitle for pending sync notification
   ///
   /// In en, this message translates to:
-  /// **'{count} waiting to sync'**
+  /// **'{count} waiting to be sent'**
   String syncPendingCount(int count);
 
   /// Create crop listing (F-3): live line under the quantity (quintals) and price (ETB per kg): what the whole listing sells for, then the price per kg as a price per quintal (100 kg); both are grouped numbers
@@ -4917,6 +5001,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Saved on your phone. It will be sent when you have network.'**
   String get savedOnPhoneWillSend;
+
+  /// BUG-34 (persona sim 2026-11-19). Sync sheet, under the header, after a sync run that ended without an error but left changes in the queue (a listing whose photo upload failed): replaces 'Sync Complete'. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 change is still waiting. It will be sent again by itself.} other{{count} changes are still waiting. They will be sent again by themselves.}}'**
+  String syncStillWaiting(int count);
+
+  /// BUG-36 (persona sim 2026-11-19). My Crops card status and crop detail pill, with an upload icon, for the farmer's own listing whose create or edit is still in this phone's sync queue: replaces 'Active'. Short. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Not sent yet'**
+  String get listingNotSentYet;
+
+  /// BUG-36 (persona sim 2026-11-19). Crop detail, farmer's own listing, under the 'Not sent yet' pill: the new listing or the edit is on the phone only. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on this phone only. Buyers will see it once it is sent.'**
+  String get listingNotSentYetNote;
+
+  /// BUG-36 (persona sim 2026-11-19). My Crops, note under the list when a listing is marked 'Not sent yet' (the listingNotSentYet text, quoted). am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Listings marked \"Not sent yet\" are saved on this phone only. Buyers see them once they are sent.'**
+  String get myCropsNotSentNote;
+
+  /// BUG-35 (persona sim 2026-11-19). Login error on a phone that is online but the server did not answer in time, and that has never logged in before (no offline login possible). Not the 'log in online first' text. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'The network is too slow right now. Move to a place with better signal and try again.'**
+  String get authNetworkTooSlow;
 
   /// Snackbar (E-5) after the farmer accepted an order with a network
   ///
@@ -5709,6 +5823,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This trip has booked orders, so this change can\'t be made.'**
   String get errorTripHasBookings;
+
+  /// The server refused a trip create because the trucker already has an open trip on the same route, departure day and vehicle (FRAUD_DUPLICATE_LISTING on a trip); on mobile the local copy of the new trip was removed
+  ///
+  /// In en, this message translates to:
+  /// **'You already have a trip on this route on that day, so this one was not posted. Edit that trip instead. If this is a second truck, add its plate number.'**
+  String get errorDuplicateTrip;
 
   /// The server refused to remove or reduce a listing that has funded or accepted orders (CROP_HAS_ACTIVE_ORDERS); on mobile the local listing went back to the server's
   ///

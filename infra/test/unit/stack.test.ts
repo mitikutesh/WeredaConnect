@@ -1451,8 +1451,9 @@ describe('ApiStack', () => {
     expect(cronDeliveries).not.toContain('dynamodb:DeleteItem');
 
     for (const rolePrefix of ['EscrowFunctionServiceRole', 'EscrowCronFunctionServiceRole']) {
-      // Append-only: PutItem and nothing else.
-      expect(actionsOn(rolePrefix, 'TransactionAuditTable')).toEqual(['dynamodb:PutItem']);
+      // Append-only: PutItem and no other write. The Query is the BUG-6 dispute evidence read, on the
+      // EntityIndex only (dispute-evidence-iam.test.ts).
+      expect([...actionsOn(rolePrefix, 'TransactionAuditTable')].sort()).toEqual(['dynamodb:PutItem', 'dynamodb:Query']);
     }
 
     for (const functionName of ['wereda-connect-dev-escrow', 'wereda-connect-dev-escrow-cron']) {

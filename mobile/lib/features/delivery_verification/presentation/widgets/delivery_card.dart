@@ -175,7 +175,7 @@ class DeliveryCard extends StatelessWidget {
                       ClockText(
                         clockFormatOf(context).deadline(
                           windowEnd,
-                          date: DateFormat.E(),
+                          date: DateFormat.E().format,
                           sentence: l10n.liveTripReportProblemUntil,
                         ),
                         style: FwText.body,
@@ -255,9 +255,11 @@ class DeliveryCard extends StatelessWidget {
       final waiting = planned == null
           ? l10n.liveTripWaitingForPickup
           : l10n.delivWaitingForPickupOn(boardDayInEthiopia(planned));
+      // Two lines here and below: a day with its Ethiopian date (FUP-545)
+      // is longer in Amharic and Afaan Oromoo.
       line = Text(
         '$waiting · ${l10n.delivMapStartsAtPickup}',
-        maxLines: 1,
+        maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: style,
       );
@@ -272,7 +274,7 @@ class DeliveryCard extends StatelessWidget {
               clockFormatOf(context)
                   .deadline(
                     windowEnd,
-                    date: DateFormat.E(),
+                    date: DateFormat.E().format,
                     sentence: l10n.delivReportProblemUntil,
                   )
                   .prefixed('$deliveredOn · '),
@@ -282,14 +284,14 @@ class DeliveryCard extends StatelessWidget {
             )
           : Text(
               '$parties · $deliveredOn',
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: style,
             );
     } else {
       line = Text(
         subtitle,
-        maxLines: 1,
+        maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: style,
       );

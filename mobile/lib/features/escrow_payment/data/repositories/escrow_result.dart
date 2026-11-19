@@ -114,12 +114,19 @@ OrderCheckoutFailed orderCheckoutFailureOf(ApiException e) {
 /// One refinement (FUP-77): a dispute refused because the buyer's refund is
 /// already scheduled comes as the shared `ESCROW_INVALID_TRANSITION`; it is
 /// told apart by the server's text and read as
-/// [escrowDisputeRefundScheduledCode], so the screen can say why.
+/// [escrowDisputeRefundScheduledCode], so the screen can say why. The same
+/// for a buyer's "not delivered" dispute of goods still on the road
+/// (persona simulation BUG-8, escrow-protocol.md 2.28.0):
+/// [escrowDisputeGoodsOnTheWayCode].
 String escrowCodeOf(ApiException e, String fallback) {
   final code = e.code;
   if (code == 'ESCROW_INVALID_TRANSITION' &&
       e.message.contains(_refundScheduledToken)) {
     return escrowDisputeRefundScheduledCode;
+  }
+  if (code == 'ESCROW_INVALID_TRANSITION' &&
+      e.message.contains(_goodsOnTheWayToken)) {
+    return escrowDisputeGoodsOnTheWayCode;
   }
   return code != null &&
           (code.startsWith('ESCROW_') || code == fraudAccountHeldCode)
@@ -135,6 +142,17 @@ const String escrowDisputeRefundScheduledCode =
     'ESCROW_INVALID_TRANSITION_REFUND_SCHEDULED';
 
 const String _refundScheduledToken = 'refund to the buyer is scheduled';
+
+/// Client-side code for `422 ESCROW_INVALID_TRANSITION` on
+/// `POST /escrow/dispute` when a buyer reports goods that are still on the
+/// road as not delivered before the delivery deadline (escrow-protocol.md
+/// 2.28.0 pins the start of the wording). The server reuses the shared code
+/// because apps released before this one show an unknown code as a generic
+/// failure.
+const String escrowDisputeGoodsOnTheWayCode =
+    'ESCROW_INVALID_TRANSITION_GOODS_ON_THE_WAY';
+
+const String _goodsOnTheWayToken = 'The goods are still on the way';
 
 /// Whether the server's answer to a queued escrow call can never change for
 /// the same request, so sending it again only burns retries (FUP-70).

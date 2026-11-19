@@ -31,6 +31,7 @@ import 'package:wereda_connect/features/order/presentation/screens/order_detail_
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
@@ -609,6 +610,148 @@ void main() {
       for (final label in payLabels) {
         expect(find.text(label), findsNothing);
       }
+    });
+
+    // BUG-17: the payment knows the order's page is under it, so a paid
+    // order closes the payment only (never the order's page too).
+    testWidgets('Pay Now opens the payment over this page', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(_makeOrder(status: OrderStatus.created)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Pay Now'));
+      await tester.pumpAndSettle();
+
+      final payment = tester.widget<PaymentInstructionsScreen>(
+        find.byType(PaymentInstructionsScreen),
+      );
+      expect(payment.fromOrderDetail, isTrue);
+    });
+  });
+
+  // BUG-22: the buyer sees what the total is made of, from the order's own
+  // server fields. The farmer and the trucker keep their own card and never
+  // see the buyer's commission.
+  group('OrderDetailScreen price breakdown (BUG-22)', () {
+    Order pricedOrder({bool withTrip = true}) => _makeOrder(
+          status: OrderStatus.funded,
+          tripId: withTrip ? _tripId : null,
+          truckerId: withTrip ? _truckerId : null,
+          truckerName: withTrip ? 'Trucker Tesfaye' : null,
+        )
+          ..cropCost = 2800
+          ..transportCost = withTrip ? 120 : null
+          ..commissionRate = 0.05
+          ..commissionAmount = 140
+          ..orderTotal = withTrip ? 3060 : 2940;
+
+    const cropKey = Key('order_buyer_crop_cost');
+    const transportKey = Key('order_buyer_transport_cost');
+    const commissionKey = Key('order_buyer_commission');
+
+    String amountOf(WidgetTester tester, Key key) =>
+        tester.widget<FwMoneyRow>(find.byKey(key)).amount;
+
+    testWidgets('buyer: crop, transport, commission and the total',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(buildScreen(pricedOrder()));
+      await tester.pumpAndSettle();
+
+      expect(amountOf(tester, cropKey), '2,800 ETB');
+      expect(amountOf(tester, transportKey), '120 ETB');
+      expect(amountOf(tester, commissionKey), '140 ETB');
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('order_buyer_total')),
+          matching: find.text('3,060 ETB'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('buyer of a self-pickup order: no transport row',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(buildScreen(pricedOrder(withTrip: false)));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(cropKey), findsOneWidget);
+      expect(find.byKey(transportKey), findsNothing);
+      expect(find.byKey(commissionKey), findsOneWidget);
+    });
+
+    testWidgets('an order without the server split shows the total alone',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(_makeOrder(status: OrderStatus.funded)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('order_buyer_total')), findsOneWidget);
+      expect(find.byKey(cropKey), findsNothing);
+      expect(find.byKey(commissionKey), findsNothing);
+    });
+
+    for (final (role, userId) in [
+      (UserRole.farmer, _farmerId),
+      (UserRole.trucker, _truckerId),
+    ]) {
+      testWidgets('${role.name} sees no buyer breakdown and no commission',
+          (tester) async {
+        stubAuth(role, userId);
+        await tester.pumpWidget(buildScreen(pricedOrder()));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('order_buyer_total')), findsNothing);
+        expect(find.byKey(commissionKey), findsNothing);
+        expect(find.text('140 ETB'), findsNothing);
+        expect(find.text('3,060 ETB'), findsNothing);
+      });
+    }
+  });
+
+  group('OrderDetailScreen load failures', () {
+    Widget failed(AppErrorCode code) {
+      when(() => orderBloc.state)
+          .thenReturn(OrderError(message: 'x', code: code));
+      return MultiBlocProvider(
+        providers: [
+          BlocProvider<OrderBloc>.value(value: orderBloc),
+          BlocProvider<AuthBloc>.value(value: authBloc),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: Locale('en'),
+          home: OrderDetailScreen(orderId: 'order-001'),
+        ),
+      );
+    }
+
+    // BUG-30: the server answers 403 for someone else's order.
+    testWidgets("someone else's order says so, not \"an error occurred\"",
+        (tester) async {
+      stubAuth(UserRole.trucker, 'another-trucker');
+      await tester.pumpWidget(failed(AppErrorCode.forbidden));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('You are not authorized to view this order.'),
+        findsOneWidget,
+      );
+      expect(find.text('An error occurred'), findsNothing);
+    });
+
+    testWidgets('no connection says so', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(failed(AppErrorCode.network));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No internet connection'), findsOneWidget);
     });
   });
 

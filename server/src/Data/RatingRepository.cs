@@ -42,6 +42,16 @@ public sealed class RatingRepository : IRatingRepository
     /// <summary>The server-only flag on a rating row (rating-api.md 1.2.0); never returned to clients.</summary>
     public const string InAggregateField = "inAggregate";
 
+    /// <summary>
+    /// The server-only reason a rating was stored outside the aggregate on purpose (rating-api.md 1.7.0);
+    /// never returned to clients. A row with it is skipped by the summary walk, and no backfill, heal or
+    /// rebuild may add it.
+    /// </summary>
+    public const string AggregateExclusionField = "aggregateExclusion";
+
+    /// <summary>The rater and the ratee are linked accounts: one identity, or one install (persona simulation BUG-3).</summary>
+    public const string LinkedAccountsExclusion = "linked_accounts";
+
     public RatingRepository(
         IAmazonDynamoDB dynamoDb, string tableName, string? usersTable = null, string? reputationEventsTable = null)
     {
@@ -57,8 +67,37 @@ public sealed class RatingRepository : IRatingRepository
         Dictionary<string, object> data)
     {
         var nowUtc = DateTime.UtcNow;
-        var now = nowUtc.ToString("o");
+        var item = NewItem(ratingId, data, nowUtc);
 
+        if (_usersTable != null
+            && data.TryGetValue("rateeId", out var rateeObj) && rateeObj?.ToString() is { Length: > 0 } rateeId
+            && data.TryGetValue("rateeRole", out var roleObj) && roleObj?.ToString() is { Length: > 0 } rateeRole
+            && data.TryGetValue("stars", out var starsObj)
+            && int.TryParse(starsObj?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var stars))
+        {
+            return await CreateWithAggregateAsync(item, rateeId, rateeRole, stars, nowUtc);
+        }
+
+        return await PutAsync(item);
+    }
+
+    /// <inheritdoc />
+    public async Task<AuthResult<Dictionary<string, object>>> CreateOutsideAggregateAsync(
+        string ratingId,
+        Dictionary<string, object> data,
+        string reason)
+    {
+        var item = NewItem(ratingId, data, DateTime.UtcNow);
+        item[InAggregateField] = new AttributeValue { BOOL = false, IsBOOLSet = true };
+        item[AggregateExclusionField] = new AttributeValue { S = reason };
+        return await PutAsync(item);
+    }
+
+    /// <summary>The rating row of a create: the payload without the fields only the server sets.</summary>
+    private static Dictionary<string, AttributeValue> NewItem(
+        string ratingId, Dictionary<string, object> data, DateTime nowUtc)
+    {
+        var now = nowUtc.ToString("o");
         var item = new Dictionary<string, AttributeValue>
         {
             { "ratingId", new AttributeValue { S = ratingId } },
@@ -77,18 +116,10 @@ public sealed class RatingRepository : IRatingRepository
             item[kvp.Key] = DynamoDbHelper.ToAttributeValue(kvp.Value);
         }
 
-        item.Remove(InAggregateField); // server-only: never taken from the payload
-
-        if (_usersTable != null
-            && data.TryGetValue("rateeId", out var rateeObj) && rateeObj?.ToString() is { Length: > 0 } rateeId
-            && data.TryGetValue("rateeRole", out var roleObj) && roleObj?.ToString() is { Length: > 0 } rateeRole
-            && data.TryGetValue("stars", out var starsObj)
-            && int.TryParse(starsObj?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var stars))
-        {
-            return await CreateWithAggregateAsync(item, rateeId, rateeRole, stars, nowUtc);
-        }
-
-        return await PutAsync(item);
+        // Server-only: never taken from the payload.
+        item.Remove(InAggregateField);
+        item.Remove(AggregateExclusionField);
+        return item;
     }
 
     /// <summary>
@@ -212,6 +243,7 @@ public sealed class RatingRepository : IRatingRepository
     {
         var view = DynamoDbHelper.FromItem(item);
         view.Remove(InAggregateField);
+        view.Remove(AggregateExclusionField);
         return view;
     }
 
@@ -309,6 +341,12 @@ public sealed class RatingRepository : IRatingRepository
             response = await _dynamoDb.QueryAsync(request);
             foreach (var raw in response.Items)
             {
+                // 1.7.0: a rating stored outside the aggregate on purpose is not in the walk either.
+                if (raw.ContainsKey(AggregateExclusionField))
+                {
+                    continue;
+                }
+
                 if (raw.TryGetValue("stars", out var starsAttr) && starsAttr.N != null
                     && int.TryParse(starsAttr.N, NumberStyles.Integer, CultureInfo.InvariantCulture, out var stars))
                 {
