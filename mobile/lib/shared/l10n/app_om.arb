@@ -25,15 +25,15 @@
       }
     }
   },
-  "worksOffline": "Oflaayiniin Hojjeta",
+  "worksOffline": "Neetworkii malee ni hojjeta",
   "@worksOffline": {
     "description": "Feature description for offline capability"
   },
-  "offlineMode": "Haalata Offline",
+  "offlineMode": "Neetworkii malee",
   "@offlineMode": {
     "description": "Indicator that the app is currently offline"
   },
-  "syncPending": "Walsimsiisuun Eegaa Jira",
+  "syncPending": "Ergamuuf eegaa jira",
   "@syncPending": {
     "description": "Indicator that there are pending sync operations"
   },
@@ -45,15 +45,15 @@
   "@telebirrPayment": {
     "description": "Feature description for Telebirr payment"
   },
-  "syncInProgress": "Walsimsiisuun Itti Fufeera...",
+  "syncInProgress": "Ergamaa jira...",
   "@syncInProgress": {
     "description": "Indicator that sync is currently in progress"
   },
-  "syncComplete": "Walsimsiisuun Xumurameera",
+  "syncComplete": "Hundi ergameera",
   "@syncComplete": {
     "description": "Indicator that sync has completed successfully"
   },
-  "syncFailed": "Walsimsiisuun Hin Milkoofne",
+  "syncFailed": "Hin ergamne",
   "@syncFailed": {
     "description": "Indicator that sync has failed"
   },
@@ -61,7 +61,7 @@
   "@retry": {
     "description": "Button to retry a failed operation"
   },
-  "syncNow": "Amma Walsimsisi",
+  "syncNow": "Amma ergi",
   "@syncNow": {
     "description": "Button to trigger an immediate sync"
   },
@@ -125,7 +125,7 @@
   "@errorNoPermission": {
     "description": "Shown when the server refuses a read with 403 for the signed-in role"
   },
-  "errorSecureConnectionFailed": "Server waliin walqunnamtii nageenya qabu uumuun hin danda'amne. Appii haaromsaa yookiin neetworkii biraa yaalaa.",
+  "errorSecureConnectionFailed": "Walqunnamtii nageenya qabu uumuun hin danda'amne. Appii haaromsaa yookiin neetworkii biraa yaalaa.",
   "@errorSecureConnectionFailed": {
     "description": "Shown when the TLS handshake or certificate pin check fails while the device is online"
   },
@@ -137,13 +137,15 @@
   "errorConflict": "Kun bakka biraatti jijjiirameera. Maaloo haaromsaa irra deebi'aa yaalaa.",
   "errorOrderRefused": "Tarkaanfiin ajaja kanaa amma hin hayyamamu, kanaaf wanti jijjiirame hin jiru.",
   "errorOrderNotPlaced": "Ajajni kun galmaa'uu hin dandeenye, kanaaf haqameera. Maaloo irra deebi'aa ajajaa.",
-  "errorChangeNotSaved": "Jijjiiramni kun sarvarii irratti olkaa'amuu hin dandeenye.",
+  "errorChangeNotSaved": "Jijjiiramni kun hin fudhatamne.",
+  "errorListingDetailsNotAccepted": "Odeeffannoon tarree midhaanii keessanii hin fudhatamne. Sirreessaatii irra deebi'aa yaalaa.",
+  "errorTripDetailsNotAccepted": "Odeeffannoon imala keessanii hin fudhatamne. Sirreessaatii irra deebi'aa yaalaa.",
   "showingCachedResults": "Bu'aawwan kuufaman agarsiisaa jira — haaromsuun hin dandaʼamne.",
-  "dataWillSyncWhenOnline": "Yeroo online taatan deetaan keessan walsimsifama",
+  "dataWillSyncWhenOnline": "Yeroo neetworkiin jiru daataan keessan ni ergama",
   "@dataWillSyncWhenOnline": {
     "description": "Reassurance message for offline operations"
   },
-  "offlineReady": "Offline Qophaa'eera",
+  "offlineReady": "Neetworkii malee ni hojjeta",
   "@offlineReady": {
     "description": "Indicator that the app is ready to work offline"
   },
@@ -223,7 +225,7 @@
   "@dataSaverDescription": {
     "description": "Description for data saver mode"
   },
-  "aboutDescription": "Waltajjii loojistikii qonnaa offline-first",
+  "aboutDescription": "Waltajjii loojistikii qonnaa neetworkii malee hojjetu",
   "@aboutDescription": {
     "description": "About dialog description"
   },
@@ -252,6 +254,8 @@
   "@password": {
     "description": "Password input label"
   },
+  "showPassword": "Jecha icciitii agarsiisi",
+  "hidePassword": "Jecha icciitii dhoksi",
   "confirmPassword": "Jecha Icciitii Mirkaneessi",
   "@confirmPassword": {
     "description": "Confirm password input label"
@@ -336,15 +340,15 @@
   "@getStarted": {
     "description": "Get started button"
   },
-  "loginOnline": "Online ta'ii Seeni",
+  "loginOnline": "Interneetiin seeni",
   "@loginOnline": {
     "description": "Online login button"
   },
-  "loginOffline": "Offline ta'ii Seeni",
+  "loginOffline": "Neetworkii malee seeni",
   "@loginOffline": {
     "description": "Offline login button"
   },
-  "offlineModeIndicator": "Haalata offline keessa jirtu",
+  "offlineModeIndicator": "Neetworkiin hin jiru. Hojiin keessan bilbila keessan irratti olkaa'ameera.",
   "@offlineModeIndicator": {
     "description": "Offline mode indicator message"
   },
@@ -388,7 +392,7 @@
   "@authRateLimitExceeded": {
     "description": "Error message when rate limit exceeded during auth"
   },
-  "authServerError": "Dogoggora sarvaraa. Maaloo booda irra deebi'ii yaali.",
+  "authServerError": "Rakkoon gama keenyaan uumameera. Maaloo booda irra deebi'ii yaali.",
   "@authServerError": {
     "description": "Error message for generic server error during auth"
   },
@@ -439,7 +443,7 @@
   "@authApiNotConfigured": {
     "description": "Error message when API credentials are not configured at build time"
   },
-  "authOfflineNotAvailable": "Haalata offline dandeessisuuf dursa online seenaa.",
+  "authOfflineNotAvailable": "Neetworkii malee seenuuf, dursa interneetiin seenaa.",
   "@authOfflineNotAvailable": {
     "description": "Error message when user tries offline login without prior online login"
   },
@@ -499,11 +503,11 @@
   "@myOrders": {
     "description": "My orders menu item"
   },
-  "clearOfflineData": "Daataa offline haqamuu?",
+  "clearOfflineData": "Daataa bilbila irratti olkaa'ame haquu?",
   "@clearOfflineData": {
     "description": "Option to clear cached data on logout"
   },
-  "clearOfflineDataDescription": "Yoo daataa kana hin haqiin offline ta'anii seenuu dandeessu",
+  "clearOfflineDataDescription": "Yoo daataa kana hin haqiin neetworkii malee seenuu dandeessu",
   "@clearOfflineDataDescription": {
     "description": "Description for clear offline data option"
   },
@@ -555,7 +559,7 @@
   "@selectCropType": {
     "description": "Crop type selection label"
   },
-  "quantityInQuintals": "Hamma (kuuntaalii)",
+  "quantityInQuintals": "Hamma (kuntaala)",
   "@quantityInQuintals": {
     "description": "Quantity input label in quintals"
   },
@@ -639,7 +643,7 @@
   "@allCrops": {
     "description": "Filter label for all crop types"
   },
-  "quintals": "kuuntaalii",
+  "quintals": "kuntaala",
   "@quintals": {
     "description": "Unit of measurement (100kg)"
   },
@@ -743,11 +747,11 @@
   "@departureDate": {
     "description": "Label for departure date picker"
   },
-  "capacity": "Dandeettii (Kuintaalii)",
+  "capacity": "Dandeettii (Kuntaala)",
   "@capacity": {
     "description": "Label for truck capacity input in quintals"
   },
-  "pricePerQuintal": "Gatii Kuintaalii (ETB)",
+  "pricePerQuintal": "Gatii Kuntaala Tokkoo (Birrii)",
   "@pricePerQuintal": {
     "description": "Label for price per quintal input in Ethiopian Birr"
   },
@@ -819,11 +823,11 @@
   "@priceRequired": {
     "description": "Validation error when price is not entered"
   },
-  "invalidCapacity": "Dandeettiin 0.1 hanga 1000 kuintaalii ta'uu qaba",
+  "invalidCapacity": "Dandeettiin kuntaala 0.1 hanga 1000 ta'uu qaba",
   "@invalidCapacity": {
     "description": "Validation error for out-of-range capacity value"
   },
-  "invalidPrice": "Gatiin 0.01 hanga 10000 ETB ta'uu qaba",
+  "invalidPrice": "Gatiin Birrii 0.01 hanga Birrii 10000 ta'uu qaba",
   "@invalidPrice": {
     "description": "Validation error for out-of-range price value"
   },
@@ -937,7 +941,7 @@
   },
   "deliveryConfirmDelivery": "Geejjiba Mirkaneessi",
   "deliverySelfPickupConfirm": "Fudhachuuf QR qonnaan bulaa iskaanii godhi",
-  "deliverySelfPickupPayFirst": "Duraan escrow keessa kaffali, ergasii qonnaan bulaa biratti fudhachuuf iskaanii godhi.",
+  "deliverySelfPickupPayFirst": "Duraan eeskiroo keessa kaffali, ergasii qonnaan bulaa biratti fudhachuuf iskaanii godhi.",
   "orderOpenDelivery": "Geejjiba bani",
   "orderCollectMyself": "Ani ofiin nan fudhadha",
   "@deliveryConfirmDelivery": {
@@ -1524,7 +1528,7 @@
   "@escrowErrorAlreadyExists": {
     "description": "Error when escrow payment already exists for delivery"
   },
-  "escrowErrorOrderAlreadyFunded": "Kaffaltiin ajaja kanaa duraan eskiroo keessatti qabamee jira.",
+  "escrowErrorOrderAlreadyFunded": "Kaffaltiin ajaja kanaa duraan eeskiroo keessatti qabamee jira.",
   "@escrowErrorOrderAlreadyFunded": {
     "description": "Error when the buyer tries to pay again for an order whose money is already held in escrow (ESCROW_024)"
   },
@@ -1718,7 +1722,7 @@
   "@dataUsageTrackingSince": {
     "description": "Label prefix shown before the tracking start date"
   },
-  "dataUsageScopeNote": "Kun gaaffii herregni kun meeshaa kana irraa gara sarvaroota WeredaConnect ergu qofa lakkaa'a. Itti fayyadamni daataa bilbila keessanii waliigalaa (haaromsa appii, suuraalee, appiiwwan biroo) kana caaluu danda'a. Daataan seensaa (sign-in) hin dabalamne.",
+  "dataUsageScopeNote": "Kun gaaffii herregni kun meeshaa kana irraa gara WeredaConnect ergu qofa lakkaa'a. Itti fayyadamni daataa bilbila keessanii waliigalaa (haaromsa appii, suuraalee, appiiwwan biroo) kana caaluu danda'a. Daataan seensaa (sign-in) hin dabalamne.",
   "@dataUsageScopeNote": {
     "description": "Explains that data usage counts only this account's API traffic on this device"
   },
@@ -1729,7 +1733,7 @@
   "@conflictTitle": {
     "description": "Title shown on conflict resolution modal when server overwrites local data"
   },
-  "conflictExplanation": "Meeshaan biraa ykn serveriin galmee kana haaromse. Kophi naannoo kee haaromfameera.",
+  "conflictExplanation": "Odeeffannoon kun bilbila biraa ykn WeredaConnect irratti jijjiirameera. Kan bilbila kana irra jirus sirreeffameera.",
   "@conflictExplanation": {
     "description": "Explanation of what happened during a sync conflict"
   },
@@ -1912,6 +1916,7 @@
   "@copiedToClipboard": {
     "description": "Snackbar message after copying text to clipboard"
   },
+  "ratingStarsOf": "Urjii {max} keessaa {count}",
   "forgotPasswordContactSupport": "Jecha darbii keessan haaromsuuf gargaarsa +251-111-234567 irratti quunnamaa.",
   "@forgotPasswordContactSupport": {
     "description": "Message shown in forgot password dialog with support contact info"
@@ -1970,7 +1975,7 @@
   },
   "escrowDescHeld": "Hanga waltajjiin ilaalutti kaffaltiin dhaabbateera. Maallaqni nagaan jira.",
   "escrowDescUnknown": "Haala kaffaltii kanaa isa dhiyoo ilaaluuf appii haaromsaa.",
-  "escrowPayoutExpectedOn": "Kaffaltiin {date} irratti eegama",
+  "escrowPayoutExpectedOn": "Maallaqni keessan {date} isin ga'a jedhamee eegama",
   "@escrowPayoutExpectedOn": {
     "description": "Escrow detail and payment list, farmer and trucker only: the earliest day the payout is sent (FRD-13). Never says why the day is later than usual",
     "placeholders": {
@@ -2064,7 +2069,7 @@
       }
     }
   },
-  "escrowPaymentAmount": "Kaffaltii: ETB {amount}",
+  "escrowPaymentAmount": "Kaffaltii: Birrii {amount}",
   "@escrowPaymentAmount": {
     "description": "Payment amount display",
     "placeholders": {
@@ -2111,7 +2116,7 @@
   "@authErrorLoginFailed": {
     "description": "Fallback error for failed login"
   },
-  "authErrorOfflineLoginFailed": "Oflaayiniin seenuu hin milkoofne. Maaloo dursa onlaayiniin seeni.",
+  "authErrorOfflineLoginFailed": "Neetworkii malee seenuun hin milkoofne. Maaloo dursa interneetiin seeni.",
   "@authErrorOfflineLoginFailed": {
     "description": "Fallback error for failed offline login"
   },
@@ -2160,7 +2165,7 @@
     "description": "Generic delivery error message"
   },
   "deliveryErrorNotFound": "Geejjibsiisni hin argamne",
-  "deliveryErrorQrPending": "Koodiin QR qonnaan bulaa hanga ammaatti sarvarii hin geenye. Qonnaan bulaan interneetii irratti koodii QR akka banu gaafadhaa, achiis irra deebi'aa yaalaa.",
+  "deliveryErrorQrPending": "Koodiin QR qonnaan bulaa hanga ammaatti nu hin geenye. Qonnaan bulaan interneetii irratti koodii QR akka banu gaafadhaa, achiis irra deebi'aa yaalaa.",
   "deliveryErrorCancelNotAllowed": "Midhaan waan fudhatameef geejjibni kun amma haqamuu hin danda'u. Rakkoon yoo jiraate deeggarsa qunnamaa.",
   "@deliveryErrorNotFound": {
     "description": "Error when delivery cannot be found"
@@ -2241,7 +2246,7 @@
   "ordersWillAppear": "Daldalaan kee as ni mul'ata",
   "trades": "Daldalaa",
   "rating": "Sadarkaa",
-  "inEscrowEtb": "Eeskiroo Keessaa (ETB)",
+  "inEscrowEtb": "Eeskiroo Keessaa (Birrii)",
   "wallet": "Waaleetii",
   "escrowHistory": "Seenaa Eeskiroo",
   "ratings": "Sadarkaalee",
@@ -2340,8 +2345,8 @@
   "myDeliveries": "Geejjiba Koo",
   "myPayments": "Kaffaltii Koo",
   "trackDeliveries": "Geejjiba midhaanii kee hordofi",
-  "trackPayments": "Galii fi eesciroo kee hordofi",
-  "trackBuyerPayments": "Kaffaltii fi eesciroo kee hordofi",
+  "trackPayments": "Galii fi eeskiroo kee hordofi",
+  "trackBuyerPayments": "Kaffaltii fi eeskiroo kee hordofi",
   "listsPaymentsNote": "Sararri tokkoon tokkoon eeskiroo tokko. Seenaa isaa ilaaluuf tuqi.",
   "noDeliveries": "Hanga ammaatti geejjibni hin jiru",
   "noPayments": "Hanga ammaatti kaffaltiin hin jiru",
@@ -2361,7 +2366,7 @@
   "buyer": "Bitaa",
   "farmer": "Qotee Bulaa",
   "splashHeadline": "Oomishtuu. Geejjibsiistuu.\nBituu. Xumurameera.",
-  "splashSubtitle": "Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf — eesciroo nageenya qabuun.",
+  "splashSubtitle": "Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf, eeskiroo nageenya qabuun.",
   "orderFunded": "Kaffaltii",
   "orderCancelled": "Haqame",
   "orderCompleted": "Xumurameera",
@@ -2401,18 +2406,18 @@
   "statusDisputeResolved": "Falmiin Furameera",
   "statusCreatedInfo": "Bitataan ajaja kana galcheera. Hanga ammaatti maallaqni hin kaffalamne.",
   "statusPendingPaymentInfo": "Bitataan kaffaltii akka jalqabu eegamaa jira. Ajajni hin kaffalamin sa'aatii 24 booda ofumaan haqama.",
-  "statusPaymentSubmittedInfo": "Bitataan kaffaltii ergeera; mirkanaa'aa jira. Maallaqni ammallee eskiroo keessatti hin mirkanoofne.",
-  "statusFundedInfo": "Kaffaltiin mirkanaa'ee eskiroo keessatti nagaan qabameera. Hangi ajajame tarree qonnaan bulaa irraa qabameera.",
+  "statusPaymentSubmittedInfo": "Bitataan kaffaltii ergeera; mirkanaa'aa jira. Maallaqni ammallee eeskiroo keessatti hin mirkanoofne.",
+  "statusFundedInfo": "Kaffaltiin mirkanaa'ee eeskiroo keessatti nagaan qabameera. Hangi ajajame tarree qonnaan bulaa irraa qabameera.",
   "orderAcceptedInfo": "Qonnaan bulaan ajaja fudhatee midhaan fuudhamuuf qopheessa.",
   "statusPickupConfirmedInfo": "Qonnaan bulaa irraa fuudhuun iskaanii koodii QR tiin mirkanaa'eera.",
   "statusInTransitInfo": "Midhaan gara bitataatti imalaa jira.",
-  "statusDeliveredInfo": "Ga'umsi bitataadhaan mirkanaa'eera. Eskiroon kaffaltii qonnaan bulaaf gadhiisa.",
-  "statusDisbursingInfo": "Maallaqni eskiroo irraa ba'aa jira: qonnaan bulaa fi, yoo jiraate, konkolaataa fe'aatiif kaffalamaa jira.",
+  "statusDeliveredInfo": "Ga'umsi bitataadhaan mirkanaa'eera. Eeskiroon kaffaltii qonnaan bulaaf gadhiisa.",
+  "statusDisbursingInfo": "Maallaqni eeskiroo irraa ba'aa jira: qonnaan bulaa fi, yoo jiraate, konkolaataa fe'aatiif kaffalamaa jira.",
   "statusSettledInfo": "Hundi kaffalameera: qonnaan bulaa fi, yoo jiraate, konkolaataa fe'aa. Ajajni xumurameera.",
-  "orderCancelledInfo": "Ajajni haqameera. Maallaqni eskiroo keessatti qabame yoo jiraate bitataaf deebi'a.",
-  "orderRejectedInfo": "Qonnaan bulaan ajaja kana hin fudhanne. Maallaqni eskiroo keessatti qabame bitataaf deebi'a.",
+  "orderCancelledInfo": "Ajajni haqameera. Maallaqni eeskiroo keessatti qabame yoo jiraate bitataaf deebi'a.",
+  "orderRejectedInfo": "Qonnaan bulaan ajaja kana hin fudhanne. Maallaqni eeskiroo keessatti qabame bitataaf deebi'a.",
   "statusPaymentFailedInfo": "Kaffaltiin mirkaneessuun hin dandeenye. Bitataan irra deebi'ee kaffaluu ni danda'a.",
-  "statusDisputedInfo": "Falmiin dhiyaateera. Hanga falmiin furamutti maallaqni eskiroo keessatti qabamee tura.",
+  "statusDisputedInfo": "Falmiin dhiyaateera. Hanga falmiin furamutti maallaqni eeskiroo keessatti qabamee tura.",
   "statusDisputeResolvedInfo": "Falmiin furameera; maallaqni gara garee mo'ateetti darbeera.",
   "cancelOrder": "Ajaja Haquu",
   "cancelReason": "Sababa haquuf",
@@ -2431,6 +2436,9 @@
   "paymentInstructions": "Qajeelfama Kaffaltii",
   "transactionIdRequired": "Lakkoofsi daldala barbaachisaadha",
   "orderTimeline": "Sarara Yeroo Ajajaa",
+  "orderTimelineStepDone": "Xumurameera",
+  "orderTimelineStepNow": "Amma",
+  "orderTimelineStepLater": "Ammallee miti",
   "etbCurrency": "Birrii {amount}",
   "@etbCurrency": {
     "placeholders": {
@@ -2456,7 +2464,7 @@
   "whatDoYouNeed": "Maal barbaaddu?",
   "whatDoYouNeedSubtitle": "Waan barbaaddan nutti himaa waan walsimatu isiniif barbaanna",
   "findMatches": "Walsimatu Barbaadi",
-  "quantityNeeded": "Hamma barbaadamu (kuuntaalii)",
+  "quantityNeeded": "Hamma barbaadamu (kuntaala)",
   "maxPrice": "Gatii ol'aanaa (Birrii/kg)",
   "deliverTo": "Bakka geejjibaa",
   "restMatchesFor": "Walsimatoota {crop}",
@@ -2479,7 +2487,7 @@
   "cropCostLabel": "Gatii Midhaan",
   "transportCostLabel": "Gatii Geejjibaa",
   "commissionLabel": "Komishinii (5%)",
-  "syncedAgo": "{time} dura walsimame",
+  "syncedAgo": "{time} dura haaromfame",
   "@syncedAgo": { "placeholders": { "time": { "type": "String" } } },
   "browseAllListings": "Tarree Hunda Ilaali",
   "browseAllTrips": "Imala Hunda Ilaali",
@@ -2534,14 +2542,14 @@
   "sellCrops": "Midhaan Gurguri",
   "sellYourHarvest": "OOMISHA KEESSAN GURGURAA",
   "tapToListCrops": "Midhaan keessan galmeessaa bittoota kallattiin argadhaa",
-  "synced": "Walsimame",
-  "offline": "Oflaayinii",
-  "syncFailureCount": "{count} hojiiwwan xiyyeeffannoo barbaadu",
-  "syncPendingCount": "{count} walsimsisuuf eeggataa jiru",
+  "synced": "Hundi ergameera",
+  "offline": "Neetworkiin hin jiru",
+  "syncFailureCount": "{count} ergamuu hin dandeenye",
+  "syncPendingCount": "{count} ergamuuf eegaa jiru",
   "cropFormTotalLine": "Waliigala: Birrii {total} (kuntaala tokkoof Birrii {perQuintal})",
   "logoutUnsentChanges": "{count, plural, =1{Jijjiiramni 1 bilbila kana irra jiru ammallee hin ergamne. Yoo baatan ni haqama.} other{Jijjiiramni {count} bilbila kana irra jiran ammallee hin ergamne. Yoo baatan ni haqamu.}}",
   "logoutUnpaidPayments": "{count, plural, =1{Kaffaltiin 1 erguuf eeggatu ni haqama.} other{Kaffaltiiwwan {count} erguuf eeggatan ni haqamu.}}",
-  "logoutOfflineNeedsInternet": "Oflaayinii jirtu. Irra deebitanii seenuuf interneetiin barbaachisa.",
+  "logoutOfflineNeedsInternet": "Neetworkiin hin jiru. Irra deebitanii seenuuf interneetiin barbaachisa.",
   "logoutAnyway": "Haa ta'u malee ba'i",
   "savedOnPhoneWillSend": "Bilbila keessan irratti olkaa'ameera. Yeroo neetworkiin jiru ni ergama.",
   "orderAcceptedSent": "Ajajicha fudhattaniittu.",
@@ -2592,7 +2600,7 @@
   "messageContextDelivery": "Geejjiba",
   "contextUnavailable": "Bal'inaaleen amma hin argaman",
   "stepUpRequiredMessage": "Nageenya keessaniif, kaffaltii kana dura isin ta'uu keessan mirkaneessaa.",
-  "kycRequiredFaydaMessage": "Kaffaltiin qarshii 10,000 ol ta'e ID Faayidaa mirkanaa'e barbaada. Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti ni ergama.",
+  "kycRequiredFaydaMessage": "Kaffaltiin Birrii 10,000 ol ta'e ID Faayidaa mirkanaa'e barbaada. Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti ni ergama.",
   "kycRequiredPhoneMessage": "Lakkoofsi bilbila keessanii ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti ni ergama.",
   "kycRequiredTitle": "Mirkaneessuun barbaachisa",
   "authRateLimitRetryIn": "Yaaliin baay'ee ta'eera. Sekondii {seconds} booda irra deebi'aa yaalaa.",
@@ -2612,7 +2620,7 @@
   "faydaStateMismatch": "Yeroon Faayidaa darbeera. Maaloo mirkaneessa irra deebi'aa jalqabaa.",
   "faydaStillWaiting": "Ammallee Faayidaa eeggachaa jira. Brawuzara keessatti xumuraa, achii as deebifamtu.",
   "faydaLinkSuccess": "ID Faayidaa keessan amma herrega keessan waliin walqabateera.",
-  "faydaNotVerifiedSubtitle": "Kaffaltii qarshii 10,000 ol ta'eef barbaachisa",
+  "faydaNotVerifiedSubtitle": "Kaffaltii Birrii 10,000 ol ta'eef barbaachisa",
   "appLockTitle": "Cufaa appii",
   "appLockSubtitle": "Yeroo appii bantan quba ykn PIN bilbilaa gaafadhu",
   "appLockLockedTitle": "WeredaConnect cufameera",
@@ -2626,7 +2634,7 @@
   "faydaRequiredToRegister": "Mirkaneessi Faayidaa keessan hin jiru ykn yeroon isaa darbeera. Herrega keessan xumuruuf maaloo Faayidaan irra deebi'aa mirkaneessaa.",
   "faydaRetrying": "Ammas Faayidaa argachuuf yaalaa jirra ({attempt}/{total})...",
   "kycFarmerPhoneMessage": "Lakkoofsi bilbila qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
-  "kycFarmerFaydaMessage": "Kaffaltiin qarshii 10,000 ol ta'e qonnaan bulaanis ID Faayidaa mirkanaa'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
+  "kycFarmerFaydaMessage": "Kaffaltiin Birrii 10,000 ol ta'e qonnaan bulaanis ID Faayidaa mirkanaa'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
   "kycFarmerNotVerifiedMessage": "Eenyummaan qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
   "kycUnknownReasonMessage": "Mirkaneessi eenyummaa ammallee waan hafeef kaffaltiin kun hin ergamne. Maal akka barbaachisu ilaaluuf appii haaromsaa ykn deeggarsa qunnamaa.",
   "kycUnavailableMessage": "Amma mirkaneessa eenyummaa ilaaluu hin dandeenye, kanaaf kaffaltiin kun hin ergamne. Maaloo booda irra deebi'aa yaalaa.",
@@ -2643,7 +2651,7 @@
   "payWithTelebirr": "Telebirr'n kaffalaa",
   "telebirrLivePayInstructions": "{amount} Telebirr'n ni kaffaltu. Yeroo xumurtan gara appii kanaatti deebi'aa. Kaffaltiin ofumaan ni mirkanaa'a.",
   "orderCheckoutTitle": "Kaffaltii Telebirr",
-  "orderCheckoutWaitingToSend": "Kaffaltiin keessan ergamuuf eegaa jira. Yeroo sarvarii bira gahu Telebirr ni banama.",
+  "orderCheckoutWaitingToSend": "Kaffaltiin keessan ergamuuf eegaa jira. Yeroo ergamu Telebirr ni banama.",
   "orderCheckoutOpenUntil": "Kaffaltii kana Telebirr keessatti hanga {time} tti xumuruu dandeessu.",
   "orderCheckoutWindowClosed": "Fuulli kaffaltii Telebirr kun cufameera. Kaffaluuf haaraa jalqabaa.",
   "orderCheckoutStartNew": "Kaffaltii Telebirr haaraa jalqabaa",
@@ -2655,11 +2663,11 @@
   "orderCheckoutConfirmedAutomatically": "Asitti kaffaltiin ofumaan mirkanaa'a. Ajaja keessan ilaalaa jirra...",
   "orderCheckoutAlreadyOpen": "Kaffaltiin Telebirr ajaja kanaa qophaa'aa jira ykn addaan citeera. Yoo duraan kaffaltan, asitti ni mirkanaa'a. Yoo hin taane, booda irra deebi'aa yaalaa (hanga sa'aatii 2 fudhachuu danda'a).",
   "orderCheckoutGatewayProblem": "Telebirr kaffaltii jalqabuu hin dandeenye. Yoo duraan kaffaltan, asitti ni mirkanaa'a. Yoo hin taane, irra deebi'aa yaalaa.",
-  "orderCheckoutOrderMissing": "Ajajni kun ammallee sarvarii irra hin jiru. Erga walsimee booda irra deebi'aa yaalaa.",
+  "orderCheckoutOrderMissing": "Ajajni kun ammallee hin ergamne. Erga ergamee booda irra deebi'aa yaalaa.",
   "orderCheckoutPaymentFailed": "Kaffaltiin kun yeroon mirkanaa'uu hin dandeenye. Irra deebitanii kaffaluu dandeessu.",
   "orderCheckoutNotSent": "Kaffaltiin keessan hin ergamne. Yoo eenyummaa keessan akka mirkaneessitan gaafatamtan, erga mirkaneessitanii booda irra deebi'ee ni ergama; yoo hin taane, irra deebitanii kaffaluuf ajaja banaa.",
   "orderCheckoutCheckingPayment": "Kaffaltii keessan ilaalaa jirra...",
-  "paymentTotalOutOfRange": "Telebirr kaffaltii tokkoon qarshii 100 hanga 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta'eef, Telebirr'n kaffalamuu hin danda'u.",
+  "paymentTotalOutOfRange": "Telebirr kaffaltii tokkoon Birrii 100 hanga Birrii 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta'eef, Telebirr'n kaffalamuu hin danda'u.",
   "paymentMethodUnavailable": "Malli kaffaltii kun ammaaf hin jiru. Telebirr'n kaffalaa.",
   "continuePayment": "Kaffaltii itti fufaa",
   "payAgain": "Irra deebi'aa kaffalaa",
@@ -2706,7 +2714,7 @@
   "deleteAccountFinishing": "Haquun xumuramaa jira...",
   "deleteAccountDone": "Herregni keessan haqameera.",
   "deleteAccountOffline": "Interneetii hin qabdan. Herrega keessan haquuf interneetiin walqunnamaa.",
-  "deleteAccountNetworkError": "Sarvarii argachuu hin dandeenye, kanaaf herregni keessan haqamuu isaa beekuu hin dandeenyu. Walqunnamtii keessan mirkaneessaatii irra deebi'aa yaalaa.",
+  "deleteAccountNetworkError": "Wal qunnamuu hin dandeenye, kanaaf herregni keessan haqamuu isaa beekuu hin dandeenyu. Walqunnamtii keessan mirkaneessaatii irra deebi'aa yaalaa.",
   "deleteAccountIncomplete": "Haquun jalqabameera garuu ammallee hin xumuramne. Yeroo muraasa booda irra deebi'aa yaalaa.",
   "deleteAccountSuspended": "Herregni kun dhorkameera, kanaaf asitti haqamuu hin danda'u. Deeggarsa qunnamaa.",
   "deleteAccountFailed": "Herregni keessan haqamuu hin dandeenye. Booda irra deebi'aa yaalaa.",
@@ -3136,9 +3144,9 @@
   "detailQuintalsLeft": "kuntaala {quintals} hafe",
   "detailKmToYou": "Gara km {km} hanga isinitti",
   "detailForQuantity": "{quantity} tiif",
-  "detailEtbPerQuintalShort": "ETB/k",
+  "detailEtbPerQuintalShort": "Birrii/kuntaala",
   "detailFitsTrip": "imala kana keessa gala (kuntaala {quintals} hafe)",
-  "detailExceedsTrip": "iddoo imalli kun qabuu ol ({quintals} kuntaala hafe)",
+  "detailExceedsTrip": "iddoo imalli kun qabuu ol (kuntaala {quintals} hafe)",
   "detailChange": "Jijjiiri",
   "detailLess": "Hir'isi",
   "detailMore": "Dabali",
@@ -3167,7 +3175,7 @@
   "marketTransportOn": "Geejjiba {day}",
   "marketFootnote": "Tarree qonnaan bultoota hundaa, walsimannaa {place}f hunda caaluun tartiibeffame.",
   "marketFootnoteNoPlace": "Tarree qonnaan bultoota hundaa, walsimannaa geejjibaa hunda caaluun tartiibeffame.",
-  "marketQuintalsLeft": "{quantity} kuntaalli hafe",
+  "marketQuintalsLeft": "kuntaala {quantity} hafe",
   "marketSearchToggle": "Barbaacha fi gingilchaa gatii",
   "marketTripsThisWeek": "{count, plural, =1{Torban kana imala 1} other{Torban kana imala {count}}}",
   "marketNoTripYet": "Hanga ammaatti imalli hin jiru",
@@ -3203,8 +3211,8 @@
   "qrTypeCodeCheck": "Koodii mirkaneessi",
   "qrTypeCodeTypo": "Koodiin kun dogoggora barreeffamaa qaba. Lakkoofsa tokkoon tokkoon mirkaneessiitii irra deebi'ii barreessi.",
   "qrTypeCodeIncomplete": "Lakkoofsota 9 hunda barreessi.",
-  "deliveryQrReadCheckedOnline": "Koodiin QR dubbifameera. Yeroo bilbilli kee interneetii irra jiru sarvariin ni mirkaneessa.",
-  "deliveryCodeTypedCheckedOnline": "Koodiin barreeffameera. Yeroo bilbilli kee interneetii irra jiru sarvariin ni mirkaneessa.",
+  "deliveryQrReadCheckedOnline": "Koodiin QR dubbifameera. Yeroo bilbilli kee interneetii irra jiru ni mirkanaa'a.",
+  "deliveryCodeTypedCheckedOnline": "Koodiin barreeffameera. Yeroo bilbilli kee interneetii irra jiru ni mirkanaa'a.",
   "qrTypedCodeNeedsGps": "Koodiin barreeffame bakka kee barbaada. Tajaajila bakkaa bani, achiis \"Bakka irra deebi'ii yaali\" tuqi.",
   "qrRetryLocation": "Bakka irra deebi'ii yaali",
   "qrSelfPickupNeedsGps": "Fudhachuu maasii irratti mirkaneessuuf bakki kee barbaachisa.",
@@ -3240,8 +3248,8 @@
   "deliveryErrorCodeLockedDropoff": "Buusuu kanaaf koodiiwwan dogoggoraa baay'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Konkolaachisaan QR buusuu yoo qabaate iskaanii godhi. Yoo hin qabne, deeggarsa qunnami: isaan si fi konkolaachisaa waliin dabarsuu ni mirkaneessu.",
   "deliveryDropoffQrOwnNote": "Geejjiba kanaaf bilbila kana irratti hojjetame. Interneetii malee hojjata, iskaaniin ykn koodiin barreeffame bitaa geejjiba ni mirkaneessa. Yoo bade ykn cufame, koodii haaraa hojjedhu.",
   "deliveryDropoffNewCode": "Koodii buusuu haaraa",
-  "deliveryDropoffQrNotSent": "Ammaaf sarvarii hin geenye. Yeroo QR kana interneetii irratti banattu hundaa irra deebi'ee ergama, mirkaneessi bitaas hanga inni ga'utti eeggata.",
-  "deliveryErrorDropoffQrPending": "Koodiin buusuu konkolaachisaa hanga ammaatti sarvarii hin geenye. Konkolaachisaan interneetii irratti QR buusuu akka banu gaafadhaa, achiis irra deebi'aa yaalaa.",
+  "deliveryDropoffQrNotSent": "Ammaaf hin ergamne. Yeroo QR kana interneetii irratti banattu hundaa irra deebi'ee ergama, mirkaneessi bitaas hanga inni ga'utti eeggata.",
+  "deliveryErrorDropoffQrPending": "Koodiin buusuu konkolaachisaa hanga ammaatti nu hin geenye. Konkolaachisaan interneetii irratti QR buusuu akka banu gaafadhaa, achiis irra deebi'aa yaalaa.",
   "deliveryErrorDropoffCodeLocked": "Buusuu kanaaf koodiiwwan dogoggoraa baay'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa QR buusuu konkolaachisaa iskaanii godhi, yookaan konkolaachisaan koodii haaraa akka hojjetu gaafadhu.",
   "deliveryDropoffNoCodeHere": "Bilbilli kun geejjiba kanaaf koodii buusuu hin qabu. Yoo bilbila ykn browser biraa irratti hojjette, sana agarsiisi. Yookaan asitti koodii haaraa hojjedhu.",
   "deliveryDropoffQrSuperseded": "Koodiin buusuu haaraan bilbila ykn browser biraa irratti waan hojjetameef, kun hin hojjetu. Sana agarsiisi, yookaan asitti koodii haaraa hojjedhu.",
@@ -3345,7 +3353,7 @@
   "reputationAppealPhotoProblem": "Suuraan kun baay'ee guddaa dha yookiin fayyadamuun hin danda'amu. Kan biraa yaalaa, yookiin suuraa malee ergaa.",
   "reputationAppealUnavailable": "Ol'iyyannoon amma hin argamu.",
   "reputationOfflineNoCopy": "Amanamummaa keessan ilaaluuf interneetiitti walqunnamaa.",
-  "reputationShowingSaved": "Oflaayinii jirtu. Kan {date} olkaa'ame agarsiifamaa jira.",
+  "reputationShowingSaved": "Neetworkiin hin jiru. Kan {date} olkaa'ame agarsiifamaa jira.",
   "reputationLoadMore": "Dabalata agarsiisi",
   "reputationHistoryNeedsConnection": "Seenaa keessan ilaaluuf interneetiitti walqunnamaa.",
   "profileRatingNone": "Hin jiru",
@@ -3401,7 +3409,7 @@
   "checkInSentFromPhone": "Kan ergame {time}",
   "checkInNotYet": "Ammallee miti",
   "checkInOpensAt": "{time} irraa eegaltee mirkaneessuu dandeessa.",
-  "checkInPendingNote": "Koodiin QR hanga yeroo dhumaa fudhannaatti yoo hin iskaanamne, mirkaneessonni kunneen waan ta'u murteessu. Kan lakkaa'amu yeroo tokkoon tokkoon isaanii sarvarii bira ga'u dha.",
+  "checkInPendingNote": "Koodiin QR hanga yeroo dhumaa fudhannaatti yoo hin iskaanamne, mirkaneessonni kunneen waan ta'u murteessu. Kan lakkaa'amu yeroo tokkoon tokkoon isaanii nu bira ga'u dha.",
   "checkInDeadlinePassedNote": "Yeroon dhumaa fudhannaa darbeera. Bu'aan isaa dhiyootti ni beekama.",
   "checkInArrivedButton": "Ga'eera",
   "checkInCropsReadyButton": "Midhaan qophaa'eera",
@@ -3422,7 +3430,7 @@
   "errorCheckInNotParty": "Midhaan qophaa'uu kan dubbatu qonnaan bulaa ajajaa qofa; ga'uu kan dubbatu immoo konkolaachisaa (ykn bitaa ofii fudhatu) qofa. Mirkaneessi kee hin olkaa'amne.",
   "errorCheckInTooEarly": "Ammallee dafee jira: mirkaneessi guyyaa fudhannaa sa'aatii 24 dura banama. Mirkaneessi kee hin olkaa'amne; yeroo sana irra deebi'ii mirkaneessi.",
   "errorCheckInTooFar": "Maasii irraa km 5 ol fagaattee jirta. Mirkaneessi kee hin olkaa'amne; yeroo achi geessu irra deebi'ii mirkaneessi.",
-  "errorCheckInTooLate": "Mirkaneessi kee yeroo dhumaa fudhannaa booda sarvarii bira waan ga'eef hin lakkaa'amu. Gamaaggamaaf olkaa'ameera.",
+  "errorCheckInTooLate": "Mirkaneessi kee yeroo dhumaa fudhannaa booda nu bira waan ga'eef hin lakkaa'amu. Gamaaggamaaf olkaa'ameera.",
   "errorCheckInValidation": "Mirkaneessi kee hin olkaa'amne. Irra deebi'ii yaali; yoo itti fufe appii haaromsi.",
   "errorCheckInClosed": "Yeroon dhumaa fudhannaa waan darbeef mirkaneessi cufameera. Mirkaneessi kee hin olkaa'amne.",
   "checkInLocationBlocked": "Appii kanaaf hayyamni bakkaa dhorkameera. Qindaa'ina appii keessatti hayyami, sana booda maasii irratti irra deebi'ii yaali.",
@@ -3450,12 +3458,12 @@
   "dropoffJudgementOutOfRange": "Mirkaneessi konkolaachisaa bakka buusuu ajajichaa irraa km 5 ol fagaatee ture. Deeggarsi ni qorata; maallaqni qabamee tura.",
   "dropoffJudgementQueued": "Deeggarsi geejjiba kana gamaaggamaa jira. Maallaqni qabamee tura.",
   "dropoffJudgementOther": "Murtiin geejjibaa kennameera.",
-  "errorCheckInPhotoRequired": "Suuraan ga'umsaa sarvarii bira hin geenye. Jalqaba suuraa ga'umsaa kaasi, sana booda bakka buusuu irratti irra deebi'ii mirkaneessi.",
+  "errorCheckInPhotoRequired": "Suuraan ga'umsaa nu bira hin geenye. Jalqaba suuraa ga'umsaa kaasi, sana booda bakka buusuu irratti irra deebi'ii mirkaneessi.",
   "errorDropoffCheckInNotOpen": "Geejjiba kanaaf mirkaneessi bakka buusuu hin banamne; kanaaf mirkaneessi kee hin olkaa'amne.",
   "errorDropoffCheckInNotParty": "Bakka buusuu ga'uu kan mirkaneessu konkolaachisaa ajajaa qofa. Mirkaneessi kee hin olkaa'amne.",
   "errorDropoffCheckInTooFar": "Mirkaneessi kee bakka buusuu ajajichaa irraa km 5 ol fagaatee waan tureef hin olkaa'amne. Bakka sanatti yeroo dhiyaattu irra deebi'ii mirkaneessi.",
   "errorDropoffCheckInTooFarKept": "Mirkaneessi kee bakka buusuu ajajichaa irraa km 5 ol fagaatee waan tureef hin olkaa'amne, garuu yaaliin kun gamaaggamaaf olkaa'ameera. Bakka sanatti yeroo dhiyaattu irra deebi'ii mirkaneessi.",
-  "errorDropoffCheckInTooLate": "Mirkaneessi kee yeroo dhumaa geejjibaa booda sarvarii bira waan ga'eef hin lakkaa'amu. Gamaaggamaaf olkaa'ameera.",
+  "errorDropoffCheckInTooLate": "Mirkaneessi kee yeroo dhumaa geejjibaa booda nu bira waan ga'eef hin lakkaa'amu. Gamaaggamaaf olkaa'ameera.",
   "errorDropoffCheckInClosed": "Yeroon dhumaa geejjibaa waan darbeef mirkaneessi cufameera. Mirkaneessi kee hin olkaa'amne.",
   "deliveryErrorGpsPickupFar": "Fudhachuun hin olkaa'amne: bakki kee maasii irraa km 5 ol fagaatee ture. Meeshaa qabattee osoo hin deemin maasii irratti koodii QR qonnaan bulaa irra deebi'ii iskaanii godhi.",
   "deliveryErrorGpsSelfPickupNoFix": "Fudhachuun hin mirkanoofne: bilbilli kee bakka hin ergine, qonnaan bulaanis hanga ammaatti hin kaffalamne. Tajaajila bakkaa banii maasii irratti koodii QR qonnaan bulaa irra deebi'ii iskaanii godhi.",

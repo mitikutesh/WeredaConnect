@@ -210,8 +210,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Welcome back, '), findsOneWidget);
-    expect(find.text('Synced'), findsNothing);
-    expect(find.text('Offline'), findsOneWidget);
+    expect(find.text('All sent'), findsNothing);
+    expect(find.text('No network'), findsOneWidget);
     expect(find.byIcon(Icons.notifications_outlined), findsOneWidget);
     expect(find.text('AT A GLANCE'), findsOneWidget);
     expect(find.text('My Crops'), findsOneWidget);
@@ -392,17 +392,17 @@ void main() {
         counts.add((pending: 3, failed: 0));
         await tester.pump();
         await tester.pump();
-        expect(chipLabel(tester), '3 waiting to sync');
+        expect(chipLabel(tester), '3 waiting to be sent');
 
         counts.add((pending: 0, failed: 0));
         await tester.pump();
         await tester.pump();
-        expect(chipLabel(tester), 'Synced');
+        expect(chipLabel(tester), 'All sent');
 
         counts.add((pending: 0, failed: 2));
         await tester.pump();
         await tester.pump();
-        expect(chipLabel(tester), 'Sync Failed');
+        expect(chipLabel(tester), 'Not sent');
       });
     }
 
@@ -413,12 +413,12 @@ void main() {
         buildHomeScreen(UserRole.farmer, syncQueue: queue),
       );
       await tester.pump();
-      expect(chipLabel(tester), 'Offline');
+      expect(chipLabel(tester), 'No network');
 
       counts.add((pending: 2, failed: 0));
       await tester.pump();
       await tester.pump();
-      expect(chipLabel(tester), '2 waiting to sync');
+      expect(chipLabel(tester), '2 waiting to be sent');
     });
 
     // The chip grows with the text and is a 48 by 48 dp button named by
@@ -446,7 +446,7 @@ void main() {
         final label = find.byKey(const Key('home_sync_chip_label'));
         // The text is not clipped by a fixed chip height.
         expect(tester.getSize(label).height, greaterThan(24));
-        expect(find.bySemanticsLabel('3 waiting to sync'), findsOneWidget);
+        expect(find.bySemanticsLabel('3 waiting to be sent'), findsOneWidget);
         semantics.dispose();
       });
     }

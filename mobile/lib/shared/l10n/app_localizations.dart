@@ -145,7 +145,7 @@ abstract class AppLocalizations {
   /// Indicator that there are pending sync operations
   ///
   /// In en, this message translates to:
-  /// **'Sync Pending'**
+  /// **'Waiting to be sent'**
   String get syncPending;
 
   /// Short tagline for welcome screen
@@ -163,19 +163,19 @@ abstract class AppLocalizations {
   /// Indicator that sync is currently in progress
   ///
   /// In en, this message translates to:
-  /// **'Syncing...'**
+  /// **'Sending...'**
   String get syncInProgress;
 
   /// Indicator that sync has completed successfully
   ///
   /// In en, this message translates to:
-  /// **'Sync Complete'**
+  /// **'Everything is sent'**
   String get syncComplete;
 
   /// Indicator that sync has failed
   ///
   /// In en, this message translates to:
-  /// **'Sync Failed'**
+  /// **'Not sent'**
   String get syncFailed;
 
   /// Button to retry a failed operation
@@ -187,7 +187,7 @@ abstract class AppLocalizations {
   /// Button to trigger an immediate sync
   ///
   /// In en, this message translates to:
-  /// **'Sync Now'**
+  /// **'Send now'**
   String get syncNow;
 
   /// Language selection prompt on welcome screen
@@ -319,8 +319,20 @@ abstract class AppLocalizations {
   /// The server refused a queued change for good (listing, trip, delivery, rating, message); it stays on this phone but was never saved
   ///
   /// In en, this message translates to:
-  /// **'This change could not be saved on the server.'**
+  /// **'This change was not accepted.'**
   String get errorChangeNotSaved;
+
+  /// BUG-L9: a queued crop listing change was refused for its contents (CROP_VALIDATION); says what to do, never the word server
+  ///
+  /// In en, this message translates to:
+  /// **'Your crop listing details were not accepted. Check them and try again.'**
+  String get errorListingDetailsNotAccepted;
+
+  /// BUG-L9: a queued trip change was refused for its contents (TRIP_VALIDATION); says what to do, never the word server
+  ///
+  /// In en, this message translates to:
+  /// **'Your trip details were not accepted. Check them and try again.'**
+  String get errorTripDetailsNotAccepted;
 
   /// Banner when a marketplace refresh failed and cached data is shown
   ///
@@ -337,7 +349,7 @@ abstract class AppLocalizations {
   /// Indicator that the app is ready to work offline
   ///
   /// In en, this message translates to:
-  /// **'Offline Ready'**
+  /// **'Works without network'**
   String get offlineReady;
 
   /// Home navigation tab
@@ -496,6 +508,18 @@ abstract class AppLocalizations {
   /// **'Password'**
   String get password;
 
+  /// BUG-L16: tooltip and screen reader label of the eye button on a hidden password field
+  ///
+  /// In en, this message translates to:
+  /// **'Show password'**
+  String get showPassword;
+
+  /// BUG-L16: tooltip and screen reader label of the eye button on a shown password field
+  ///
+  /// In en, this message translates to:
+  /// **'Hide password'**
+  String get hidePassword;
+
   /// Confirm password input label
   ///
   /// In en, this message translates to:
@@ -637,7 +661,7 @@ abstract class AppLocalizations {
   /// Offline mode indicator message
   ///
   /// In en, this message translates to:
-  /// **'You are in offline mode'**
+  /// **'No network. Your work is saved on your phone.'**
   String get offlineModeIndicator;
 
   /// Password requirements message
@@ -2998,6 +3022,12 @@ abstract class AppLocalizations {
   /// **'Copied to clipboard'**
   String get copiedToClipboard;
 
+  /// BUG-L16: tooltip and screen reader label of one star of the rating picker
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of {max} stars'**
+  String ratingStarsOf(int count, int max);
+
   /// Message shown in forgot password dialog with support contact info
   ///
   /// In en, this message translates to:
@@ -4384,6 +4414,24 @@ abstract class AppLocalizations {
   /// **'Order Timeline'**
   String get orderTimeline;
 
+  /// BUG-L5: screen reader state of an order timeline step that is finished (check icon)
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get orderTimelineStepDone;
+
+  /// BUG-L5: screen reader state of the order timeline step the order is at (filled dot icon)
+  ///
+  /// In en, this message translates to:
+  /// **'Now'**
+  String get orderTimelineStepNow;
+
+  /// BUG-L5: screen reader state of an order timeline step still ahead (empty circle icon)
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet'**
+  String get orderTimelineStepLater;
+
   /// Ethiopian Birr currency format
   ///
   /// In en, this message translates to:
@@ -4555,7 +4603,7 @@ abstract class AppLocalizations {
   /// Stale data indicator
   ///
   /// In en, this message translates to:
-  /// **'Synced {time} ago'**
+  /// **'Updated {time} ago'**
   String syncedAgo(String time);
 
   /// Link to browse all crop listings
@@ -4861,25 +4909,25 @@ abstract class AppLocalizations {
   /// Sync status badge when data is up to date
   ///
   /// In en, this message translates to:
-  /// **'Synced'**
+  /// **'All sent'**
   String get synced;
 
   /// Sync status badge when device is offline
   ///
   /// In en, this message translates to:
-  /// **'Offline'**
+  /// **'No network'**
   String get offline;
 
   /// Subtitle for failed sync notification
   ///
   /// In en, this message translates to:
-  /// **'{count} operations need attention'**
+  /// **'{count} could not be sent'**
   String syncFailureCount(int count);
 
   /// Subtitle for pending sync notification
   ///
   /// In en, this message translates to:
-  /// **'{count} waiting to sync'**
+  /// **'{count} waiting to be sent'**
   String syncPendingCount(int count);
 
   /// Create crop listing (F-3): live line under the quantity (quintals) and price (ETB per kg): what the whole listing sells for, then the price per kg as a price per quintal (100 kg); both are grouped numbers

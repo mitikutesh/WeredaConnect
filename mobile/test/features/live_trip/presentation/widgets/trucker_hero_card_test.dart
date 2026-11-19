@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
@@ -501,6 +502,34 @@ void main() {
 
     expect(find.text(l10n.homeTripLoadFailed), findsNothing);
     expect(find.text('Meki → Addis Ababa'), findsOneWidget);
+  });
+
+  // BUG-L2: the departure day was "Mar 5" for an Afaan Oromoo trucker.
+  testWidgets('the departure day is written in Afaan Oromoo', (tester) async {
+    addTearDown(() => Intl.defaultLocale = null);
+    when(() => repository.getMostRelevantTrip('trucker-001'))
+        .thenAnswer((_) async => trip());
+
+    await tester.pumpWidget(
+      BlocProvider<TripListingBloc>.value(
+        value: bloc,
+        child: const MaterialApp(
+          localizationsDelegates: [
+            AppLocalizations.delegate,
+            FallbackMaterialLocalizationsDelegate(),
+            GlobalWidgetsLocalizations.delegate,
+            FallbackCupertinoLocalizationsDelegate(),
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: Locale('om'),
+          home: Scaffold(body: TruckerHeroCard(userId: 'trucker-001')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bit 5'), findsOneWidget);
+    expect(find.text('Mar 5'), findsNothing);
   });
 
   // Afaan Oromo at 200% on a 360 dp phone: "Irra Deebi'ii Yaali" wraps in
