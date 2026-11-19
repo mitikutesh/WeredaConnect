@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -416,10 +416,6 @@ class _PaymentCard extends StatelessWidget {
 
   const _PaymentCard({required this.payment, this.viewerRole, this.onTap});
 
-  // A getter: a formatter keeps the locale it was made in, and the app
-  // language can change while the app runs.
-  static DateFormat get _dateFormat => DateFormat.yMMMd();
-
   static String _short(String id) => id.length > 8 ? id.substring(0, 8) : id;
 
   /// The delivery when one is linked, else the backing order (an order-funded
@@ -438,7 +434,7 @@ class _PaymentCard extends StatelessWidget {
 
   String _subtitle(AppLocalizations l10n) {
     final reference = _reference(l10n);
-    final date = _dateFormat.format(dayInEthiopia(payment.createdAt));
+    final date = formatDate(dayInEthiopia(payment.createdAt));
     return reference == null ? date : '$reference · $date';
   }
 

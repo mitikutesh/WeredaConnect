@@ -9,6 +9,7 @@ import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
@@ -458,7 +459,7 @@ class _TripHeader extends StatelessWidget {
       final today = dayInEthiopia(DateTime.now().toUtc());
       final day = DateUtils.isSameDay(departure, today)
           ? l10n.homeToday
-          : DateFormat.MMMd().format(departure);
+          : formatMonthDay(departure);
       final capacity = trip.capacity;
       final loaded = (capacity - tripRoomLeft(trip)).clamp(0, capacity);
       sub = [

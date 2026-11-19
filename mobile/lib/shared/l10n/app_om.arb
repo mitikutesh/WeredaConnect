@@ -280,7 +280,7 @@
   "@selectRole": {
     "description": "Role selection label"
   },
-  "farmer": "Qonnaan Bultaa",
+  "farmer": "Qotee Bulaa",
   "@farmer": {
     "description": "Farmer role"
   },
@@ -595,9 +595,9 @@
   "@quantityRequired": {
     "description": "Validation error for missing quantity"
   },
-  "priceRequired": "Maaloo gatii galchaa",
+  "priceRequired": "Gatiin barbaachisaadha",
   "@priceRequired": {
-    "description": "Validation error for missing price"
+    "description": "Validation error when price is not entered"
   },
   "locationRequired": "Maaloo bakka galchaa",
   "@locationRequired": {
@@ -818,10 +818,6 @@
   "capacityRequired": "Dandeettiin barbaachisaadha",
   "@capacityRequired": {
     "description": "Validation error when capacity is not entered"
-  },
-  "priceRequired": "Gatiin barbaachisaadha",
-  "@priceRequired": {
-    "description": "Validation error when price is not entered"
   },
   "invalidCapacity": "Dandeettiin kuntaala 0.1 hanga 1000 ta'uu qaba",
   "@invalidCapacity": {
@@ -2279,11 +2275,11 @@
   "personalInfoDescription": "Herrega uumuuf odeeffannoo kee galchi",
   "verified": "Mirkanaa'e",
   "scanLicense": "Hayyama Iskaani",
-  "statusFunded": "Maallaqi Galmeera",
+  "statusFunded": "Maallaqni Galee",
   "statusPlaced": "Ajajamame",
   "statusAssigned": "Ramadame",
   "statusTransit": "Daandii Irra",
-  "statusDisputed": "Waldhabdee",
+  "statusDisputed": "Falmiirra Jira",
   "deliveryTitle": "Geejjiba #{id}",
   "@deliveryTitle": {
     "placeholders": {
@@ -2363,8 +2359,6 @@
   "orderRejected": "Didame",
   "acceptOrder": "Fudhuu",
   "rejectOrder": "Diduu",
-  "buyer": "Bitaa",
-  "farmer": "Qotee Bulaa",
   "splashHeadline": "Oomishtuu. Geejjibsiistuu.\nBituu. Xumurameera.",
   "splashSubtitle": "Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf, eeskiroo nageenya qabuun.",
   "orderFunded": "Kaffaltii",
@@ -2395,14 +2389,12 @@
   "statusCreated": "Uumame",
   "statusPendingPayment": "Kaffaltii Eeggataa",
   "statusPaymentSubmitted": "Kaffaltiin Galmeeffame",
-  "statusFunded": "Maallaqni Galee",
   "statusPickupConfirmed": "Fudhannaan Mirkanaa'e",
   "statusInTransit": "Geejjibarra Jira",
   "statusDelivered": "Ga'eera",
   "statusDisbursing": "Raabsamaa Jira",
   "statusSettled": "Xumurameera",
   "statusPaymentFailed": "Kaffaltiin Hin Milkoofne",
-  "statusDisputed": "Falmiirra Jira",
   "statusDisputeResolved": "Falmiin Furameera",
   "statusCreatedInfo": "Bitataan ajaja kana galcheera. Hanga ammaatti maallaqni hin kaffalamne.",
   "statusPendingPaymentInfo": "Bitataan kaffaltii akka jalqabu eegamaa jira. Ajajni hin kaffalamin sa'aatii 24 booda ofumaan haqama.",

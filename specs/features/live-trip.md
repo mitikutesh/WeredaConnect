@@ -35,7 +35,7 @@ After pickup, the trucker's phone reports where the truck is. The buyer and the 
 | D1 | The map is drawn on the phone from shipped data (the bundled place list, later an optional roads file). No map tiles, no map data cost. | User, 2026-10-27 |
 | D2 | Location sharing is optional for drivers ("Scans only" when declined). | User, 2026-10-28 |
 | D3 | Amharic and Afaan Oromo use the Ethiopian clock, always with the part of the day; English keeps the 24-hour clock. A Clock setting follows the language until the person picks one. | User, 2026-10-28 |
-| D4 | Dates stay on the Gregorian calendar. | Default (the user was told; not asked for) |
+| D4 | Dates stay on the Gregorian calendar. Superseded 2026-11-19: Amharic and Afaan Oromoo show the Ethiopian date first with the Gregorian month and day in brackets (FUP-545); the date picker stays Gregorian. | Default (the user was told; not asked for); changed by the owner's decision of 2026-11-19 |
 | D5 | Cadence: hourly, at each scan, every 15 min within 10 km of a drop-off, and on tap. | Design |
 | D6 | Live location is never stored on trip rows (every buyer can browse every trip). It lives only behind the delivery's track endpoint. | Design (role rule) |
 | D7 | Each party sees the trail only from their own pickup until their delivery; other stops on the truck are never named. | Design (privacy) |
@@ -240,7 +240,7 @@ One PR per ticket, stacked in this order (each PR's base is the previous ticket'
 
 - Restyling the existing screens to the canvas look (the canvas draws them in the new look only to show nothing is lost). A separate decision.
 - The roads layer, road-snapped routes and turn-by-turn navigation.
-- The Ethiopian calendar.
+- An Ethiopian date picker (dates are shown in both calendars since FUP-545; the picker stays Gregorian).
 - iOS background location (the app targets Android 8+ and web).
 
 ## 16. Risks

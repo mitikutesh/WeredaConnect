@@ -1,9 +1,8 @@
-import 'package:intl/intl.dart';
-
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/listing_report_rules.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -473,7 +472,7 @@ String localizeErrorCode(
     final until = reputationRestrictedUntil(message);
     if (until != null) {
       return l10n.errorReputationRestrictedUntil(
-        DateFormat.yMMMd().format(dayInEthiopia(until)),
+        formatDate(dayInEthiopia(until)),
       );
     }
   }

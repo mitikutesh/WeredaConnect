@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -19,17 +19,13 @@ class PayoutExpectedText extends StatelessWidget {
     super.key,
   });
 
-  // A getter: a formatter keeps the locale it was made in, and the app
-  // language can change while the app runs.
-  static DateFormat get _dateFormat => DateFormat.yMMMd();
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final color = theme.colorScheme.onSurface.withValues(alpha: 0.7);
     final l10n = AppLocalizations.of(context)!;
     final text = l10n.escrowPayoutExpectedOn(
-      _dateFormat.format(dayInEthiopia(payoutAt)),
+      formatDate(dayInEthiopia(payoutAt)),
     );
 
     return Row(

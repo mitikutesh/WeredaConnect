@@ -4,10 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/trip_departure.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
-import 'package:intl/intl.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
@@ -930,7 +930,7 @@ class _HeaderSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final listed = l10n.myCropsListedOn(
-      DateFormat.MMMd().format(dayInEthiopia(listing.createdAt)),
+      formatMonthDay(dayInEthiopia(listing.createdAt)),
     );
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -1223,7 +1223,7 @@ class _FarmerCardState extends State<_FarmerCard> {
                         const SizedBox(height: 2),
                         Text(
                           l10n.reputationAsOf(
-                            DateFormat.yMMMd().format(dayInEthiopia(asOf)),
+                            formatDate(dayInEthiopia(asOf)),
                           ),
                           style: muted,
                         ),
