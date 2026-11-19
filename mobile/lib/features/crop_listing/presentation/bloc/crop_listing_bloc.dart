@@ -22,8 +22,9 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
   /// Mobile-only: pulls all active crops into Isar before the Buyer browses
   /// the marketplace ([LoadActiveListings]). Null on web (API-backed reads).
   /// Owner-scoped events (a Farmer's own listings) never pull the market:
-  /// [LoadCropListings] pulls only the farmer's own list, to remove the
-  /// listings deleted elsewhere (FUP-498, [MarketplaceSync.pullOwnCrops]).
+  /// [LoadCropListings] pulls only the farmer's own list
+  /// ([MarketplaceSync.pullOwnCrops]: FUP-498 removes the listings deleted
+  /// elsewhere, BUG-31 stores the farmer's own rows).
   final MarketplaceSync? _marketplaceSync;
 
   CropListingBloc({
@@ -51,8 +52,8 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
       final shown = CropListingsLoaded(listings: listings);
       emit(shown);
       // FUP-498: the stored list paints first; it is read again only when
-      // the pull removed a listing, and only while nothing else (a filter,
-      // a delete) painted since.
+      // the pull removed, added or changed a listing (BUG-31), and only
+      // while nothing else (a filter, a delete) painted since.
       if (!await _refreshOwnListings(event.farmerId)) return;
       if (!identical(state, shown)) return;
       emit(
@@ -66,9 +67,10 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
   }
 
   /// FUP-498: take the farmer's listings deleted on the web or another phone
-  /// off this phone. Best effort like [_refreshMarketplace]: offline the
+  /// off this phone, and (BUG-31) store the farmer's own listings as the
+  /// server holds them. Best effort like [_refreshMarketplace]: offline the
   /// stored list stands. No-op on web (null sync), whose list reads the
-  /// server. True when a listing was removed.
+  /// server. True when a listing was removed, added or changed.
   Future<bool> _refreshOwnListings(String farmerId) async {
     final sync = _marketplaceSync;
     if (sync == null) return false;

@@ -2639,6 +2639,32 @@ class AppLocalizationsAm extends AppLocalizations {
   String get savedOnPhoneWillSend => 'በስልክዎ ላይ ተቀምጧል። ኔትወርክ ሲኖር ይላካል።';
 
   @override
+  String syncStillWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ለውጦች አሁንም በመጠባበቅ ላይ ናቸው። በራሳቸው እንደገና ይላካሉ።',
+      one: '1 ለውጥ አሁንም በመጠባበቅ ላይ ነው። በራሱ እንደገና ይላካል።',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get listingNotSentYet => 'ገና አልተላከም';
+
+  @override
+  String get listingNotSentYetNote =>
+      'በዚህ ስልክ ላይ ብቻ ተቀምጧል። ከተላከ በኋላ ገዢዎች ያዩታል።';
+
+  @override
+  String get myCropsNotSentNote =>
+      '\"ገና አልተላከም\" የሚል ምልክት ያላቸው ዝርዝሮች በዚህ ስልክ ላይ ብቻ ተቀምጠዋል። ከተላኩ በኋላ ገዢዎች ያዩዋቸዋል።';
+
+  @override
+  String get authNetworkTooSlow =>
+      'ኔትወርኩ አሁን በጣም ቀርፋፋ ነው። የተሻለ ኔትወርክ ወዳለበት ቦታ ሄደው እንደገና ይሞክሩ።';
+
+  @override
   String get orderAcceptedSent => 'ትዕዛዙን ተቀብለዋል።';
 
   @override

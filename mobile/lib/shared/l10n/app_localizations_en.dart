@@ -2717,6 +2717,33 @@ class AppLocalizationsEn extends AppLocalizations {
       'Saved on your phone. It will be sent when you have network.';
 
   @override
+  String syncStillWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count changes are still waiting. They will be sent again by themselves.',
+      one: '1 change is still waiting. It will be sent again by itself.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get listingNotSentYet => 'Not sent yet';
+
+  @override
+  String get listingNotSentYetNote =>
+      'Saved on this phone only. Buyers will see it once it is sent.';
+
+  @override
+  String get myCropsNotSentNote =>
+      'Listings marked \"Not sent yet\" are saved on this phone only. Buyers see them once they are sent.';
+
+  @override
+  String get authNetworkTooSlow =>
+      'The network is too slow right now. Move to a place with better signal and try again.';
+
+  @override
   String get orderAcceptedSent => 'You accepted the order.';
 
   @override

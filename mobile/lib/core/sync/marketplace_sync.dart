@@ -47,12 +47,20 @@ abstract class MarketplaceSync {
   /// listing but the deleted ones) to the last page; a stored listing it
   /// leaves out is read by id and removed when the server says it is gone or
   /// deleted. A listing with a `crop_listing` upload still on its way, or
-  /// whose create the server refused, stays. Stores none of the listed rows,
-  /// never touches another user's listings and sends nothing when the phone
-  /// holds no listing of the farmer it could remove. True when it removed a
-  /// listing; false when nothing went or the pull was throttled. A call
-  /// while one for the same farmer is on its way gets that one's answer.
-  /// Errors (offline, a failed page) propagate, with nothing removed.
+  /// whose create the server refused, stays.
+  ///
+  /// BUG-31 (FUP-520): the listed rows are stored as well, every status the
+  /// server lists for the owner (`reserved` and `sold` too), so a phone that
+  /// holds none of the farmer's listings (a new install) gets them and a
+  /// listing the server moved shows its state. Server wins, as for
+  /// [pullOwnTrips]: a row with a `crop_listing` upload still on its way is
+  /// skipped, a server copy older than the stored row is skipped, and the
+  /// place id and the photo files only this phone keeps stay on the row. A
+  /// row of another farmer is never stored and another user's listings are
+  /// never touched. True when it removed, added or changed a listing; false
+  /// when nothing moved or the pull was throttled. A call while one for the
+  /// same farmer is on its way gets that one's answer. Errors (offline, a
+  /// failed page) propagate, with nothing removed or stored.
   Future<bool> pullOwnCrops({required String farmerId});
 
   /// Fetch the current user's deliveries from the server into local storage.

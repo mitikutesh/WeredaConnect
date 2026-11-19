@@ -2736,6 +2736,34 @@ class AppLocalizationsOm extends AppLocalizations {
       'Bilbila keessan irratti olkaa\'ameera. Yeroo neetworkiin jiru ni ergama.';
 
   @override
+  String syncStillWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Jijjiiramni $count ammallee eegaa jiru. Ofumaan irra deebi\'anii ni ergamu.',
+      one:
+          'Jijjiiramni 1 ammallee eegaa jira. Ofumaan irra deebi\'ee ni ergama.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get listingNotSentYet => 'Ammallee hin ergamne';
+
+  @override
+  String get listingNotSentYetNote =>
+      'Bilbila kana irratti qofa olkaa\'ameera. Erga ergamee booda bitoonni ni argu.';
+
+  @override
+  String get myCropsNotSentNote =>
+      'Tarreewwan \"Ammallee hin ergamne\" jedhan bilbila kana irratti qofa olkaa\'amaniiru. Erga ergamanii booda bitoonni ni argu.';
+
+  @override
+  String get authNetworkTooSlow =>
+      'Neetworkiin amma baay\'ee suuta jira. Bakka neetworkiin gaarii jirutti deemaatii irra deebi\'aa yaalaa.';
+
+  @override
   String get orderAcceptedSent => 'Ajajicha fudhattaniittu.';
 
   @override
