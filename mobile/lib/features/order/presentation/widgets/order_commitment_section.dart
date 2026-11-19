@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -98,7 +98,7 @@ class OrderCommitmentSection extends StatelessWidget {
               ),
               state: _RowState.label(
                 ClockLabel.text(
-                  clock.dateTime(paidAt, date: DateFormat.MMMd()),
+                  clock.dateTime(paidAt, date: formatMonthDay),
                 ),
                 _Tone.idle,
               ),
@@ -249,7 +249,7 @@ class OrderCommitmentSection extends StatelessWidget {
             ? ClockLabel.text(l10n.commitmentWaiting)
             : clock.deadline(
                 deadline,
-                date: DateFormat.MMMd(),
+                date: formatMonthDay,
                 sentence: l10n.commitmentWaitingUntil,
               ),
         _Tone.waiting,
@@ -265,7 +265,7 @@ class OrderCommitmentSection extends StatelessWidget {
             ? ClockLabel.text(l10n.transportFailedBuyerBodyNoDeadline)
             : clock.deadline(
                 deadline,
-                date: DateFormat.MMMd(),
+                date: formatMonthDay,
                 sentence: l10n.transportFailedBuyerBody,
               );
       }
@@ -281,7 +281,7 @@ class OrderCommitmentSection extends StatelessWidget {
       if (hideViewerDeadline) return null;
       return clock.deadline(
         deadline,
-        date: DateFormat.MMMd(),
+        date: formatMonthDay,
         sentence: l10n.commitmentAnswerBy,
       );
     }

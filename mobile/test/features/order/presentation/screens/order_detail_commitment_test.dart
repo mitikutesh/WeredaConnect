@@ -531,8 +531,9 @@ void main() {
         'farmer-001',
         locale: const Locale('am'),
       );
-      // The date in Amharic too, now that dates follow the app language.
-      const time = 'ኦክቶ 27 ከጠዋቱ 5:00';
+      // FUP-545: the Ethiopian date (Tikimt 17) first, the Gregorian one in
+      // brackets.
+      const time = 'ጥቅምት 17 (ኦክቶ 27) ከጠዋቱ 5:00';
       expect(
         find.text(withSmall24h(am.commitmentAnswerBy(time), time, '11:00')),
         findsOneWidget,
@@ -548,8 +549,8 @@ void main() {
         'trucker-001',
         locale: const Locale('am'),
       );
-      // The date in Amharic too, now that dates follow the app language.
-      const time = 'ኦክቶ 28 ከጠዋቱ 5:00';
+      // FUP-545: the Ethiopian date (Tikimt 18) first.
+      const time = 'ጥቅምት 18 (ኦክቶ 28) ከጠዋቱ 5:00';
       expect(
         find.text(withSmall24h(am.commitmentAnswerBy(time), time, '11:00')),
         findsOneWidget,
@@ -565,8 +566,9 @@ void main() {
         'buyer-001',
         locale: const Locale('om'),
       );
-      // BUG-L2: the month is Onkoloolessa, not "Oct".
-      const time = 'Onk 27 5:00 ganama';
+      // BUG-L2: Oromo month names, not "Oct". FUP-545: the Ethiopian date
+      // (Tikimt 17, Onkoloolessa in Afaan Oromoo) first.
+      const time = 'Onkoloolessa 17 (Onk 27) 5:00 ganama';
       expect(
         find.text(withSmall24h(om.commitmentWaitingUntil(time), time, '11:00')),
         findsOneWidget,
@@ -587,8 +589,8 @@ void main() {
         'buyer-001',
         locale: const Locale('am'),
       );
-      // The date in Amharic too, now that dates follow the app language.
-      const time = 'ኦክቶ 29 ከጠዋቱ 5:00';
+      // FUP-545: the Ethiopian date (Tikimt 19) first.
+      const time = 'ጥቅምት 19 (ኦክቶ 29) ከጠዋቱ 5:00';
       expect(
         find.textContaining(
           withSmall24h(am.transportFailedBuyerBody(time), time, '11:00'),

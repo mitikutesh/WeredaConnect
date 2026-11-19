@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
@@ -61,7 +61,7 @@ class OrderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final day = DateFormat.yMMMd().format(dayInEthiopia(order.createdAt));
+    final day = formatDate(dayInEthiopia(order.createdAt));
     // A legacy order without cropCost: the crop subtotal, never the total.
     // A trucker order without a transport cost shows no amount, not 0.
     final (double? value, String? amountLabel) = isFarmerView

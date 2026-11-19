@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
@@ -231,7 +231,6 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final dateFormat = DateFormat.yMMMd();
     final delivery = widget.delivery;
 
     // Self-pickup: the buyer scans it at the farm, there is no trucker.
@@ -355,8 +354,7 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              dateFormat
-                                  .format(dayInEthiopia(delivery.createdAt)),
+                              formatDate(dayInEthiopia(delivery.createdAt)),
                               style: const TextStyle(
                                 fontSize: 12,
                                 color: AppTheme.mutedSteel,

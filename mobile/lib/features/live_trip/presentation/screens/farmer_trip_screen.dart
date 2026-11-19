@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
@@ -487,7 +487,7 @@ class _PaymentSteps extends StatelessWidget {
         delivery.status == DeliveryStatus.disputed;
     final settled = o?.status == OrderStatus.settled;
     final windowEnd = confirmedAt?.add(DeliveryConstants.disputeWindow);
-    final date = DateFormat.MMMd();
+    const date = formatMonthDay;
     final steps = <({String label, ClockLabel? when, bool done})>[
       (
         label: l10n.liveTripPayStepPaid,

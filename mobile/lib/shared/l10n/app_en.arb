@@ -292,7 +292,7 @@
   },
   "farmer": "Farmer",
   "@farmer": {
-    "description": "Farmer role"
+    "description": "Label for farmer name in order card"
   },
   "trucker": "Trucker",
   "@trucker": {
@@ -304,7 +304,7 @@
   },
   "buyer": "Buyer",
   "@buyer": {
-    "description": "Buyer/wholesaler role"
+    "description": "Label for buyer name in order card"
   },
   "enterOtp": "Enter Verification Code",
   "@enterOtp": {
@@ -605,9 +605,9 @@
   "@quantityRequired": {
     "description": "Validation error for missing quantity"
   },
-  "priceRequired": "Please enter the price",
+  "priceRequired": "Price is required",
   "@priceRequired": {
-    "description": "Validation error for missing price"
+    "description": "Validation error when price is not entered"
   },
   "locationRequired": "Please enter the location",
   "@locationRequired": {
@@ -850,10 +850,6 @@
   "capacityRequired": "Capacity is required",
   "@capacityRequired": {
     "description": "Validation error when capacity is not entered"
-  },
-  "priceRequired": "Price is required",
-  "@priceRequired": {
-    "description": "Validation error when price is not entered"
   },
   "invalidCapacity": "Capacity must be between 0.1 and 1000 quintals",
   "@invalidCapacity": {
@@ -2673,7 +2669,7 @@
   },
   "statusFunded": "Funded",
   "@statusFunded": {
-    "description": "Order status label for funded/escrowed"
+    "description": "Order status label for funded orders"
   },
   "statusPlaced": "Placed",
   "@statusPlaced": {
@@ -2689,7 +2685,7 @@
   },
   "statusDisputed": "Disputed",
   "@statusDisputed": {
-    "description": "Order status label for disputed"
+    "description": "Order status label for disputed orders"
   },
   "deliveryTitle": "Delivery #{id}",
   "@deliveryTitle": {
@@ -2850,14 +2846,6 @@
   "@rejectOrder": {
     "description": "Button label to reject an order"
   },
-  "buyer": "Buyer",
-  "@buyer": {
-    "description": "Label for buyer name in order card"
-  },
-  "farmer": "Farmer",
-  "@farmer": {
-    "description": "Label for farmer name in order card"
-  },
   "splashHeadline": "Grow it. Move it.\nBuy it. Done.",
   "@splashHeadline": {
     "description": "Main headline on splash/landing screen"
@@ -2970,10 +2958,6 @@
   "@statusPaymentSubmitted": {
     "description": "Order status label for orders with submitted payment"
   },
-  "statusFunded": "Funded",
-  "@statusFunded": {
-    "description": "Order status label for funded orders"
-  },
   "statusPickupConfirmed": "Pickup Confirmed",
   "@statusPickupConfirmed": {
     "description": "Order status label for orders with confirmed pickup"
@@ -2997,10 +2981,6 @@
   "statusPaymentFailed": "Payment Failed",
   "@statusPaymentFailed": {
     "description": "Order status label for failed payment orders"
-  },
-  "statusDisputed": "Disputed",
-  "@statusDisputed": {
-    "description": "Order status label for disputed orders"
   },
   "statusDisputeResolved": "Dispute Resolved",
   "@statusDisputeResolved": {

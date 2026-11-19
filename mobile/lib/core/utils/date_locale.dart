@@ -5,6 +5,8 @@ import 'package:intl/date_symbols.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/number_symbols_data.dart';
 
+import 'package:wereda_connect/core/utils/ethiopian_calendar.dart';
+
 /// The intl locale dates are written in for the app language
 /// [languageCode]: Amharic month and day names in Amharic, Afaan Oromoo
 /// ones in Afaan Oromoo (intl ships none, [registerOromoDateData] adds
@@ -60,6 +62,89 @@ bool _dateLocaleExists(String locale) {
     return false;
   }
 }
+
+/// FUP-545: [day]'s date with its year, as the app language writes it.
+/// English as before, "Nov 19, 2026". Amharic and Afaan Oromoo put the
+/// Ethiopian calendar date first and the Gregorian month and day in
+/// brackets: "ኅዳር 10፣ 2019 (ኖቬም 19)", "Sadaasa 10, 2019 (Sad 19)".
+///
+/// The date is [day]'s own year, month and day, as for a [DateFormat]: pass
+/// `dayInEthiopia(instant)` for a server instant, so both calendars show the
+/// day it is in Ethiopia.
+String formatDate(DateTime day) =>
+    formatDualDate(day, DateFormat.yMMMd(), year: true);
+
+/// [day]'s month and day, the same way: "Nov 19", "ኅዳር 10 (ኖቬም 19)",
+/// "Sadaasa 10 (Sad 19)".
+String formatMonthDay(DateTime day) =>
+    formatDualDate(day, DateFormat.MMMd(), year: false);
+
+/// [day] as [gregorian] writes it, when its locale (the app language for a
+/// formatter built without one) reads the Gregorian calendar. In Amharic and
+/// Afaan Oromoo the Ethiopian date instead, with the Ethiopian [year] and
+/// the [weekday] when asked, then the Gregorian month and day in brackets
+/// (`MMMd` in the same language), so the date on a receipt or a phone
+/// calendar can still be matched.
+///
+/// Built on each call, not once: a formatter keeps the locale it was made
+/// in, and the app language can change while the app runs. The conversion
+/// is a few integer operations.
+String formatDualDate(
+  DateTime day,
+  DateFormat gregorian, {
+  required bool year,
+  bool weekday = false,
+}) {
+  final locale = Intl.shortLocale(gregorian.locale);
+  final months = ethiopianMonthNames[locale];
+  if (months == null) return gregorian.format(day);
+  final ethiopian = EthiopianDate.fromDateTime(day);
+  final monthDay = '${months[ethiopian.month - 1]} ${ethiopian.day}';
+  // Amharic separates the year with the Ethiopic comma.
+  final date = year
+      ? '$monthDay${locale == 'am' ? '፣' : ','} ${ethiopian.year}'
+      : monthDay;
+  final shown = weekday ? '${DateFormat.E(locale).format(day)} $date' : date;
+  return '$shown (${DateFormat.MMMd(locale).format(day)})';
+}
+
+/// The Ethiopian month names, Meskerem first and Pagume last, of each app
+/// language that shows the Ethiopian date. Amharic: the Unicode CLDR `am`
+/// Ethiopic calendar names. Afaan Oromoo: the Oromo month names as used
+/// for the Ethiopian calendar (Fulbaana for Meskerem, Qaammee for Pagume),
+/// spelled as the CLDR `om` Gregorian names below where they share one.
+const Map<String, List<String>> ethiopianMonthNames = {
+  'am': [
+    'መስከረም',
+    'ጥቅምት',
+    'ኅዳር',
+    'ታኅሣሥ',
+    'ጥር',
+    'የካቲት',
+    'መጋቢት',
+    'ሚያዝያ',
+    'ግንቦት',
+    'ሰኔ',
+    'ሐምሌ',
+    'ነሐሴ',
+    'ጳጉሜን',
+  ],
+  'om': [
+    'Fulbaana',
+    'Onkoloolessa',
+    'Sadaasa',
+    'Mudde',
+    'Amajjii',
+    'Guraandhala',
+    'Bitootessa',
+    'Eebila',
+    'Caamsaa',
+    'Waxabajjii',
+    'Adoolessa',
+    'Hagayya',
+    'Qaammee',
+  ],
+};
 
 // The names below are the Unicode CLDR `om` locale's (CLDR 46, read from
 // ICU 76): months, weekdays and the AM/PM markers. One deviation: CLDR's

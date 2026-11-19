@@ -35,17 +35,28 @@ void main() {
       final day = DateTime.utc(2026, 10, 29);
       expect(formatBoardDay(day), 'Thu 29 Oct');
 
+      // FUP-545: the Ethiopian date (Tikimt 19, 2019) first, the Gregorian
+      // month and day in brackets.
       applyDateLocale(const Locale('am'));
-      expect(formatBoardDay(day), 'ሐሙስ 29 ኦክቶ');
-      expect(formatBoardDate(day), 'ሐሙስ 29 ኦክቶ 2026');
+      expect(formatBoardDay(day), 'ሐሙስ ጥቅምት 19 (ኦክቶ 29)');
+      expect(formatBoardDate(day), 'ሐሙስ ጥቅምት 19፣ 2019 (ኦክቶ 29)');
 
       // BUG-L2: Afaan Oromoo names, not English ones.
       applyDateLocale(const Locale('om'));
-      expect(formatBoardDay(day), 'Kam 29 Onk');
-      expect(formatBoardDate(day), 'Kam 29 Onk 2026');
+      expect(formatBoardDay(day), 'Kam Onkoloolessa 19 (Onk 29)');
+      expect(formatBoardDate(day), 'Kam Onkoloolessa 19, 2019 (Onk 29)');
 
       applyDateLocale(const Locale('en'));
       expect(formatBoardDate(day), 'Thu 29 Oct 2026');
+    });
+
+    test('a trip departure is the Ethiopian day it falls on in Ethiopia', () {
+      // Local midnight on 25 Oct in Addis Ababa (Tikimt 15), stored as UTC.
+      final departure = DateTime.parse('2026-10-24T21:00:00.000Z');
+      applyDateLocale(const Locale('am'));
+      expect(boardDayInEthiopia(departure), 'እሑድ ጥቅምት 15 (ኦክቶ 25)');
+      applyDateLocale(const Locale('om'));
+      expect(boardDayInEthiopia(departure), 'Dil Onkoloolessa 15 (Onk 25)');
     });
   });
 }

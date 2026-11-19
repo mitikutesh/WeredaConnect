@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 
 /// Dates follow the app language: Amharic month and day names in Amharic,
 /// Afaan Oromoo ones in Afaan Oromoo (BUG-L2: intl ships none, the app adds
@@ -100,5 +101,114 @@ void main() {
           .parseUtc('04 Nov 2026 10:00:00'),
       DateTime.utc(2026, 11, 4, 10),
     );
+  });
+
+  // FUP-545: Amharic and Afaan Oromoo show the Ethiopian date first, the
+  // Gregorian month and day in brackets; English is unchanged.
+  group('the Ethiopian date next to the Gregorian one', () {
+    // A Thursday: Hidar 10, 2019.
+    final today = DateTime.utc(2026, 11, 19);
+
+    test('English stays Gregorian', () {
+      applyDateLocale(const Locale('en'));
+      expect(formatDate(today), 'Nov 19, 2026');
+      expect(formatMonthDay(today), 'Nov 19');
+      expect(formatDate(today), DateFormat.yMMMd().format(today));
+      expect(formatMonthDay(today), DateFormat.MMMd().format(today));
+    });
+
+    test('before a language is applied it is English', () {
+      // A bare unit test, or the first frame before the localizations load.
+      expect(formatDate(today), 'Nov 19, 2026');
+    });
+
+    test('Amharic', () {
+      applyDateLocale(const Locale('am'));
+      expect(formatDate(today), 'ኅዳር 10፣ 2019 (ኖቬም 19)');
+      expect(formatMonthDay(today), 'ኅዳር 10 (ኖቬም 19)');
+    });
+
+    test('Afaan Oromoo', () {
+      applyDateLocale(const Locale('om'));
+      expect(formatDate(today), 'Sadaasa 10, 2019 (Sad 19)');
+      expect(formatMonthDay(today), 'Sadaasa 10 (Sad 19)');
+    });
+
+    test('Pagume, New Year and the Gregorian New Year', () {
+      final pagume = DateTime.utc(2026, 9, 8);
+      final pagume6 = DateTime.utc(2027, 9, 11);
+      final newYear = DateTime.utc(2026, 9, 11);
+      final january = DateTime.utc(2027);
+
+      applyDateLocale(const Locale('am'));
+      expect(formatDate(pagume), 'ጳጉሜን 3፣ 2018 (ሴፕቴ 8)');
+      expect(formatDate(pagume6), 'ጳጉሜን 6፣ 2019 (ሴፕቴ 11)');
+      expect(formatDate(newYear), 'መስከረም 1፣ 2019 (ሴፕቴ 11)');
+      expect(formatDate(january), 'ታኅሣሥ 23፣ 2019 (ጃንዩ 1)');
+
+      applyDateLocale(const Locale('om'));
+      expect(formatDate(pagume), 'Qaammee 3, 2018 (Ful 8)');
+      expect(formatDate(pagume6), 'Qaammee 6, 2019 (Ful 11)');
+      expect(formatDate(newYear), 'Fulbaana 1, 2019 (Ful 11)');
+      expect(formatDate(january), 'Mudde 23, 2019 (Ama 1)');
+
+      applyDateLocale(const Locale('en'));
+      expect(formatDate(pagume), 'Sep 8, 2026');
+      expect(formatDate(newYear), 'Sep 11, 2026');
+    });
+
+    test('a late deadline shows the day it is in Ethiopia', () {
+      // 23:00 UTC on November 19 is 02:00 on November 20 in Ethiopia.
+      final deadline = DateTime.utc(2026, 11, 19, 23);
+      applyDateLocale(const Locale('am'));
+      expect(formatMonthDay(dayInEthiopia(deadline)), 'ኅዳር 11 (ኖቬም 20)');
+      applyDateLocale(const Locale('om'));
+      expect(formatMonthDay(dayInEthiopia(deadline)), 'Sadaasa 11 (Sad 20)');
+    });
+
+    test('with the weekday, in the boards\' layout', () {
+      applyDateLocale(const Locale('am'));
+      expect(
+        formatDualDate(
+          today,
+          DateFormat('EEE d MMM'),
+          year: false,
+          weekday: true,
+        ),
+        'ሐሙስ ኅዳር 10 (ኖቬም 19)',
+      );
+      applyDateLocale(const Locale('en'));
+      expect(
+        formatDualDate(
+          today,
+          DateFormat('EEE d MMM'),
+          year: false,
+          weekday: true,
+        ),
+        'Thu 19 Nov',
+      );
+    });
+
+    test('the formatter\'s own locale decides, not only the app language', () {
+      applyDateLocale(const Locale('am'));
+      // A formatter pinned to English stays Gregorian.
+      expect(
+        formatDualDate(today, DateFormat.yMMMd('en'), year: true),
+        'Nov 19, 2026',
+      );
+    });
+
+    test('13 month names in each language, each its own', () {
+      for (final language in ['am', 'om']) {
+        final names = ethiopianMonthNames[language]!;
+        expect(names, hasLength(13), reason: language);
+        expect(names.toSet(), hasLength(13), reason: language);
+      }
+      expect(ethiopianMonthNames['am']!.first, 'መስከረም');
+      expect(ethiopianMonthNames['am']!.last, 'ጳጉሜን');
+      expect(ethiopianMonthNames['om']!.first, 'Fulbaana');
+      expect(ethiopianMonthNames['om']!.last, 'Qaammee');
+      expect(ethiopianMonthNames.containsKey('en'), isFalse);
+    });
   });
 }

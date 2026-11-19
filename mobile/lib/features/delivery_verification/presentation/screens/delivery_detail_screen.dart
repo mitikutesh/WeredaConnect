@@ -10,6 +10,7 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_dropoff_check_in.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -218,7 +219,7 @@ class DeliveryDetailScreen extends StatelessWidget {
                                   child: ClockText(
                                     clock.deadline(
                                       delivery.autoConfirmedAt!,
-                                      date: DateFormat.MMMd(),
+                                      date: formatMonthDay,
                                       sentence: l10n.deliveryAutoConfirmedAt,
                                     ),
                                   ),

@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
@@ -10,6 +9,7 @@ import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
@@ -454,24 +454,34 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${trip.fromWoreda} → ${trip.toWoreda}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.2,
-                    color: Colors.white,
+          LayoutBuilder(
+            builder: (context, constraints) => Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${trip.fromWoreda} → ${trip.toWoreda}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.2,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              slot,
-            ],
+                const SizedBox(width: 8),
+                // Under half the row, so the route keeps its room: the
+                // departure day carries the Ethiopian date in Amharic and
+                // Afaan Oromoo (FUP-545) and wraps instead.
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: constraints.maxWidth * 0.45,
+                  ),
+                  child: slot,
+                ),
+              ],
+            ),
           ),
           if (trip.capacity > 0) ...[
             const SizedBox(height: 10),
@@ -499,13 +509,19 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
     );
   }
 
-  /// "Today", or the trip's departure day ("Oct 30").
+  /// "Today", or the trip's departure day ("Oct 30", "ጥቅምት 20 (ኦክቶ 30)").
   static String _departureDay(AppLocalizations l10n, Trip trip) {
     final departure = dayInEthiopia(trip.departureDate);
     final today = dayInEthiopia(DateTime.now().toUtc());
-    return DateUtils.isSameDay(departure, today)
-        ? l10n.homeToday
-        : DateFormat.MMMd().format(departure);
+    if (DateUtils.isSameDay(departure, today)) return l10n.homeToday;
+    final day = formatMonthDay(departure);
+    // The slot wraps before the Gregorian date in brackets, never inside
+    // them (FUP-545).
+    final bracket = day.indexOf(' (');
+    return bracket < 0
+        ? day
+        : '${day.substring(0, bracket)} '
+            '${day.substring(bracket + 1).replaceAll(' ', '\u00A0')}';
   }
 }
 
@@ -600,14 +616,17 @@ class _SlotText extends StatelessWidget {
           ),
           const SizedBox(width: 6),
         ],
-        Text(
-          text,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: color,
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.end,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
           ),
         ),
       ],

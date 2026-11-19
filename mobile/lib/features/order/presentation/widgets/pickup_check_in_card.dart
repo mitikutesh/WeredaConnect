@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_check_in.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -182,7 +182,7 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
               ClockText(
                 clock.deadline(
                   opensAt,
-                  date: DateFormat.MMMd(),
+                  date: formatMonthDay,
                   sentence: l10n.checkInOpensAt,
                 ),
                 key: const Key('check_in_opens_at'),
@@ -239,7 +239,7 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
       return _RowState(
         clock.deadline(
           at,
-          date: DateFormat.MMMd(),
+          date: formatMonthDay,
           sentence:
               received.isLate ? l10n.checkInReceivedLate : l10n.checkInReceived,
         ),
@@ -251,7 +251,7 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
       return _RowState(
         clock.deadline(
           queued.madeAt,
-          date: DateFormat.MMMd(),
+          date: formatMonthDay,
           sentence: queued.sent
               ? l10n.checkInSentFromPhone
               : l10n.checkInSavedOnPhone,
