@@ -1,4 +1,5 @@
 import 'package:intl/intl.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -77,7 +78,10 @@ final RegExp _opensAtPattern =
 String _goodsOnTheWay(AppLocalizations l10n, String serverMessage) {
   final opensAt = goodsOnTheWayOpensAt(serverMessage);
   if (opensAt == null) return l10n.escrowErrorDisputeGoodsOnTheWay;
-  final time = DateFormat.MMMd().add_Hm().format(instantInEthiopia(opensAt));
+  // The day through the dual-date helper (FUP-545: the Ethiopian date first in
+  // Amharic and Afaan Oromoo), the time as the 24-hour Ethiopia time.
+  final time = '${formatMonthDay(dayInEthiopia(opensAt))} '
+      '${DateFormat.Hm().format(instantInEthiopia(opensAt))}';
   return l10n.escrowErrorDisputeGoodsOnTheWayAfter(time);
 }
 

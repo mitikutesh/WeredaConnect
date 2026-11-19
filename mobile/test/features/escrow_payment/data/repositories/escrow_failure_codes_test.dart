@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/web_escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
@@ -279,6 +282,32 @@ void main() {
         goodsOnTheWayOpensAt(onTheWay),
         DateTime.utc(2026, 11, 22, 8, 46),
       );
+    });
+
+    test(
+        'names the day in both calendars in Amharic and Afaan Oromoo (FUP-545)',
+        () async {
+      // What MaterialApp does at start: intl's date data for its languages.
+      await GlobalMaterialLocalizations.delegate.load(const Locale('en'));
+      addTearDown(() => Intl.defaultLocale = null);
+      // 2026-11-22 08:46 UTC is 11:46 on 22 November in Addis Ababa, which is
+      // Hidar 13, 2019 in the Ethiopian calendar.
+      final expected = {
+        'am': '\u1285\u12f3\u122d 13',
+        'om': 'Sadaasa 13',
+        'en': 'Nov 22',
+      };
+      for (final entry in expected.entries) {
+        applyDateLocale(Locale(entry.key));
+        final l10n = await AppLocalizations.delegate.load(Locale(entry.key));
+        final text = localizeEscrowError(
+          l10n,
+          escrowDisputeGoodsOnTheWayCode,
+          onTheWay,
+        );
+        expect(text, contains(entry.value), reason: entry.key);
+        expect(text, contains('11:46'), reason: entry.key);
+      }
     });
 
     test('falls back to the text without a time when none can be read', () {
