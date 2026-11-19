@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Badge } from "@/components/ui/Badge";
+import { confirmContradictsReason } from "@/lib/evidence";
 import { DispositionChoiceCard, VerdictMessages } from "@/components/disputes/DisputeVerdict";
 import { type Verdict, useDisputeVerdict } from "@/components/disputes/verdictFlow";
 import { useLocale } from "@/hooks/useLocale";
@@ -76,7 +77,11 @@ export function DisputesPage() {
         return (
           <span className="inline-flex flex-wrap items-center gap-2">
             {String(dispute?.reason ?? "")}
-            {confirmedByDisputer && <Badge variant="warning">{t("evidence.confirmedByDisputerShort")}</Badge>}
+            {confirmedByDisputer && (
+              <Badge variant={confirmContradictsReason(dispute) ? "warning" : "default"}>
+                {t("evidence.confirmedByDisputerShort")}
+              </Badge>
+            )}
           </span>
         );
       },

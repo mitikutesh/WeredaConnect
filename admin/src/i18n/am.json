@@ -218,6 +218,7 @@
     "stampedTitle": "ክርክሩ ሲከፈት የነበሩ ርክክቦች",
     "confirmedByDisputer": "ይህን ክርክር የከፈተው ተጠቃሚ እቃውን መቀበሉን ራሱ ያረጋገጠ ነው።",
     "confirmedByDisputerShort": "ከራካሪው መቀበሉን አረጋግጧል",
+    "confirmedByDisputerFact": "ይህን ክርክር የከፈተው ተጠቃሚ እቃውን መቀበሉንም አረጋግጧል፤ ለዚህ ምክንያት ይህ የተለመደ ነው።",
     "gpsSent": "የGPS ቦታ ተልኳል",
     "notConfirmed": "ክርክሩ ሲከፈት እቃው መድረሱ አልተረጋገጠም ነበር።",
     "tabTimeline": "የጊዜ ሰሌዳ",

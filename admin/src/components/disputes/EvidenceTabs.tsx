@@ -6,7 +6,7 @@ import { HandoffPhoto, TransactionTimeline } from "@/components/transactions/Tra
 import { useLocale } from "@/hooks/useLocale";
 import { useDisputeMessages } from "@/hooks/useQuery";
 import type { DisputeEvidence, EvidenceMessage, Handoff } from "@/lib/evidence";
-import { partiesOf } from "@/lib/evidence";
+import { confirmContradictsReason, partiesOf } from "@/lib/evidence";
 import { formatDateTime } from "@/lib/i18n";
 import { formatGps } from "@/lib/transaction";
 import { fill } from "@/lib/trail";
@@ -95,6 +95,7 @@ function HandoffItem({ handoff, who }: { handoff: Handoff; who: (id: string | un
 
 type Row = Record<string, unknown>;
 
+
 /** One leg of the stamped evidence: when, how and by whom, and whether a GPS fix was sent. */
 function StampedLeg({
   legKey,
@@ -161,11 +162,14 @@ export function StampedHandoffEvidence({ escrow, evidence }: { escrow: Row; evid
   return (
     <Card className="mb-6">
       <h3 className="mb-3 font-semibold">{t("evidence.stampedTitle")}</h3>
-      {stamped.confirmedByDisputer === true && (
-        <p role="note" className="mb-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm font-semibold">
-          {t("evidence.confirmedByDisputer")}
-        </p>
-      )}
+      {stamped.confirmedByDisputer === true &&
+        (confirmContradictsReason(escrow.dispute as Row | undefined) ? (
+          <p role="note" className="mb-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm font-semibold">
+            {t("evidence.confirmedByDisputer")}
+          </p>
+        ) : (
+          <p className="mb-3 text-sm text-text-muted">{t("evidence.confirmedByDisputerFact")}</p>
+        ))}
       <ul className="space-y-3">
         {!selfPickup && text(stamped.pickedUpAt) && (
           <StampedLeg

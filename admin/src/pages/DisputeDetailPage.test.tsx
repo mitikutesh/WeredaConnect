@@ -594,6 +594,35 @@ describe("DisputeDetailPage evidence (FRD-14)", () => {
     expect(screen.queryByRole("note")).toBeNull();
   });
 
+  it("a disputer who confirmed receipt is a plain fact, not a warning, for damage or quality", () => {
+    const stamped = stampedEscrow({
+      deliveryId: "del-101",
+      deliveryStatus: "delivered",
+      selfPickup: false,
+      confirmedAt: "2026-10-27T08:00:00Z",
+      confirmMethod: "qr",
+      confirmedBy: "buyer-1",
+      dropoffFix: true,
+      confirmedByDisputer: true,
+    });
+    for (const reason of ["damaged_goods", "quality_mismatch", "wrong_crop", "other"]) {
+      mocks.escrow.data = { escrow: { ...stamped.escrow, dispute: { ...stamped.escrow.dispute, reason } } };
+      const { unmount } = renderPage();
+
+      expect(screen.queryByRole("note")).toBeNull();
+      expect(
+        screen.getByText("The user who opened this dispute also confirmed receipt, which is usual for this reason."),
+      ).toBeTruthy();
+      unmount();
+    }
+
+    mocks.escrow.data = { escrow: { ...stamped.escrow, dispute: { ...stamped.escrow.dispute, reason: "wrong_quantity" } } };
+    renderPage();
+    expect(screen.getByRole("note").textContent).toBe(
+      "The user who opened this dispute is the one who confirmed receipt.",
+    );
+  });
+
   it("a self-pickup shows one stamped leg at the farm, and a farmer's dispute carries no disputer note", () => {
     mocks.escrow.data = stampedEscrow({
       deliveryId: "del-101",

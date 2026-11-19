@@ -218,6 +218,7 @@
     "stampedTitle": "Handoffs when the dispute was opened",
     "confirmedByDisputer": "The user who opened this dispute is the one who confirmed receipt.",
     "confirmedByDisputerShort": "Disputer confirmed receipt",
+    "confirmedByDisputerFact": "The user who opened this dispute also confirmed receipt, which is usual for this reason.",
     "gpsSent": "GPS fix sent",
     "notConfirmed": "Receipt was not confirmed when the dispute was opened.",
     "tabTimeline": "Timeline",
