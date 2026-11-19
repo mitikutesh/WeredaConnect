@@ -641,6 +641,46 @@ public partial class SyncFunction
         return null;
     }
 
+    /// <summary>
+    /// The payment gate's stock check: the refusal text when the order's listing has less free stock
+    /// than the order asks for, in the words of the create check. Null when the stock is there, and
+    /// when it cannot be judged (no listing id, a listing that is gone or cannot be read, a row
+    /// without a quantity): those are left to the funding, which decides in its conditional write.
+    /// Lenient by <see cref="QuantityTolerance"/>, so nothing the funding would take is refused here.
+    /// </summary>
+    private async Task<string?> CheckListingStockForPaymentAsync(Dictionary<string, object> order, ILambdaContext context)
+    {
+        var listingId = ItemString(order, "listingId");
+        if (listingId.Length == 0)
+        {
+            return null;
+        }
+
+        Dictionary<string, object>? listing;
+        try
+        {
+            listing = await _cropRepo.GetByIdAsync(listingId);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Payment gate: listing {MoneyAlarmLog.LogId(listingId)} of order {MoneyAlarmLog.LogId(ItemString(order, "orderId"))} could not be read: [{ex.GetType().Name}]");
+            return null;
+        }
+
+        if (listing == null || !listing.ContainsKey("quantity"))
+        {
+            return null;
+        }
+
+        var stockKg = ReadDecimal(listing, "quantity") * (decimal)KgPerQuintal;
+        var quantityKg = ReadDecimal(order, "quantity");
+        return quantityKg > stockKg + (decimal)QuantityTolerance
+            ? $"quantity ({quantityKg.ToString("0.##", CultureInfo.InvariantCulture)} kg) exceeds "
+              + $"the listing stock ({stockKg.ToString("0.##", CultureInfo.InvariantCulture)} kg). Place a new order."
+            : null;
+    }
+
     /// <summary>Quintals the trip still has free: <c>remainingQuintals</c>, or the capacity for a row without bookings.</summary>
     private static double RemainingQuintalsOf(Dictionary<string, AttributeValue> trip)
     {

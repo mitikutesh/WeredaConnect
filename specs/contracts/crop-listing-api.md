@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.16.0
+1.17.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -435,6 +435,7 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
 8. **Account under review** (1.5.0, FRD-04):
    - A create from a farmer at risk tier CRITICAL (`specs/architecture/fraud-detection-architecture.md` sections 16 and 17) is refused with `FRAUD_ACCOUNT_HELD: Your account is under review. Some actions are paused. Contact support.` and nothing is written. The check runs after the field rules above (rule 6b included) and before the fraud listing checks (velocity, duplicate, price), so a held account writes no velocity signal either. Permanent on clients like every `FRAUD_*` code (`sync-protocol.md` 1.9.0, 1.25.0). The tier is never returned.
    - Updates and deletes of existing listings are not gated. A score that cannot be read is LOW (the create goes on).
+   - **An existing id (1.17.0):** after this check and before the fraud listing checks the server looks the listing id up (strongly consistent, so a create sent again right after the first one finds it). A create for an id that already exists skips those checks and is answered by the create-conflict echo (`sync-protocol.md`, `conflict` with the row for its farmer, without it for anyone else, who also gets the `IDOR_CREATE_CONFLICT` signal). Before, the farmer's own create sent again under a new idempotency key was refused as `FRAUD_DUPLICATE_LISTING` and a fraud signal was recorded on an honest farmer.
 9. **Photos** (1.6.0):
    - `photoIds` is required on create: a JSON array of 2 to 4 distinct UUID strings. Anything else (missing, not an array, a non-UUID or repeated id, fewer than 2, more than 4) is refused with `CROP_VALIDATION: photoIds must list 2 to 4 distinct photo ids.` and nothing is written. Permanent on clients like every `CROP_VALIDATION`.
    - On update `photoIds` is optional; when present the same rule applies.
@@ -643,9 +644,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.15.0 | 2026-11-16 | Deleted and sold listings are not written again (rule 11 extended, new rule 12, `sync-protocol.md` 1.67.0). A `delete` of a listing already deleted writes nothing and its farmer gets `success` with the stored version (FUP-494); the write's condition carries the check, so a second delete between the read and the write gets the same answer. Before, a delete at the stored version was written again (`deletedAt` and the version moved). An `update` of a `sold` listing writes nothing and its farmer gets `conflict` with the stored row, message `CROP_SOLD: The listing is sold.` (FUP-495), also in the write's condition. Before, an update without a `status` wrote onto a sold listing. Anyone else keeps `CROP_UNAUTHORIZED`. Server only, no client change |
 | 1.14.0 | 2026-11-13 | A deleted listing never changes again (FUP-152, rule 11, `sync-protocol.md` 1.66.0): a `crop_listing` `update` of a deleted listing (`deletedAt` or `status: deleted`) writes nothing, with or without a `status` and at any version, and its farmer gets `conflict` with the stored row, message `CROP_ALREADY_DELETED: The listing is already deleted.`; the write's condition carries the check too, so a delete between the read and the write gets the same answer. Before, an update without a `status` at the version the delete left was written onto the hidden row and moved its version, and one with a `status` got `CROP_INVALID_TRANSITION`. Anyone else keeps `CROP_UNAUTHORIZED`. Server only, no client change |
 | 1.16.0 | 2026-11-19 | One listing per lot (new rule 13, persona simulation 2026-11-19 BUG-2, fraud spec 3.43.0 Rule 1): a `create` of a lot the farmer already lists (an active listing of the same crop type, quantity and place: the woreda, and within 1 km when both carry a point) is refused with `FRAUD_DUPLICATE_LISTING` at any price and age; the price band of the last hour stays. Another quantity, woreda or field, and a sold or deleted listing, pass. Server only; clients already treat the code as permanent and explain it |
+| 1.17.0 | 2026-11-19 | A create for an existing id is a conflict, not a fraud refusal (persona simulation BUG-13, rule 8, `sync-protocol.md` 1.70.0): the id is looked up before the fraud listing checks, which are skipped for an id that exists; the farmer's re-queued create gets the create-conflict echo with the row and no fraud signal. No client change. |
 
 ---
 
 **Last Updated**: 2026-11-19
-**Version**: 1.16.0
+**Version**: 1.17.0
 **Status**: Implemented (Phase R3)

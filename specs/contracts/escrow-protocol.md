@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.26.1
+2.27.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -3681,6 +3681,26 @@ money and produces a `farmer_wins` with nothing to settle. Decision record:
 The apps show `ESCROW_041` with its own message in en, am and om (mobile and web,
 `escrowErrorDisputeBeforePickup`).
 
+### Dispute between pickup and delivery (2.27.0)
+A dispute that passes the pickup rule while the goods are still moving (order `pickup_confirmed` or
+`in_transit`, delivery `pickedUp` or `inTransit`) freezes the escrow as any dispute does. The mirror
+(`MirrorDisputeAsync`) has nothing to move then: the delivery is not `delivered` and the order is not
+behind a `delivered` or `disputed` delivery. The truck can still deliver, and the admin decides with
+the dispositions of 1.21.0.
+
+When the buyer later confirms that delivery (`POST /sync`, delivery `delivered`), the sync Lambda finds
+the escrow `disputed` and, instead of the confirmation stamp, runs the mirror with the escrow's own
+`disputedBy` and `disputeReason`: the delivery moves `delivered` to `disputed`, the order to `delivered`
+and then `disputed` (`order-lifecycle.md` 2.24.0). The escrow row is not written: `deliveryConfirmedAt`
+stays unset on it, the delivery's `confirmedAt` holds the confirm time. Best effort like every mirror
+call: a failed leg logs `DISPUTE_PROPAGATION_FAILED` from the sync Lambda and the verdict mirror
+repairs it before any settlement. Before 2.27.0 the delivery and the order read `delivered` while the
+escrow stayed `disputed`, and the buyer could rate the order. An escrow that is `dispute_resolved` at
+the confirm is not mirrored here: the verdict's own mirror moves the order. The window between the
+dispute's read of the delivery and a confirm that lands in the same instant is not closed by a
+transaction; the verdict mirror and the rating rule (`rating-api.md` 1.6.0, which reads the escrow)
+cover it.
+
 ### Admin
 The Disputes page has two tabs: open disputes, and recorded verdicts awaiting settlement (the existing
 `GET /admin/escrows?status=dispute_resolved`), each with "Load more". The awaiting tab shows the recorded
@@ -6502,6 +6522,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.27.0 | 2026-11-19 | A dispute between pickup and delivery (persona simulation BUG-1, §Dispute between pickup and delivery; `order-lifecycle.md` 2.24.0, `rating-api.md` 1.6.0): a delivery confirmed while its escrow is already `disputed` is not stamped as confirmed; the sync Lambda runs the dispute mirror instead, so the delivery and the order end `disputed` and not `delivered` over frozen money. `POST /escrow/dispute` itself is unchanged. No client change. |
 | 2.26.1 | 2026-11-17 | Two order deadline alarms in the money alarm table (FUP-255, monitoring only, no API or behaviour change): `order-deadline-unstamped` (`ORDER_DEADLINE_STAMP_FAILED` from every Lambda that writes orders, `ORDER_DEADLINE_REPAIR_FAILED` from order-cron; any line in an hour) and `order-deadline-stuck` (`ORDER_DEADLINE_STUCK`, three of four hourly periods) |
 | 2.26.0 | 2026-11-13 | Missing members on the admin and checkout bodies (FUP-148, as 2.3.0 did for initiate and dispute; 2.25.0 belongs to a change in flight). `POST /escrow/order-checkout`: an absent `orderId` answers `400 ESCROW_033` `"orderId is required."` with `field: orderId`, as a `null` or blank one already did. `POST /admin/disputes/{id}/resolve`: an absent `resolution` or `action` answers `400 ADMIN_014` with its `field`, as a `null` or wrong one already did. `POST /admin/fraud-signals/{id}/action` and `POST /admin/users/{id}/action`: an absent, `null` or blank `action` answers `400 ADMIN_009` `"action is required."` with `field: action` (`fraud-detection-architecture.md` 3.40.0, section 19); a `null` one was `ADMIN_009` without a `field`. Each is checked right after the body is read, before any read or write. Before, an absent member failed deserialization and answered `400 ESCROW_033` or `400 ADMIN_005` `"Invalid JSON in request body."` without a `field`. A body that is not JSON keeps that answer. The apps and the admin always send these members; every code is one they already map; no app change |
 | 2.25.0 | 2026-11-13 | Newly overdue lines for the trucker leg, the blocked release and the ledger row (FUP-436, from FUP-06; §Additions in 2.25.0). escrow-cron logs `TRUCKER_PAYOUT_NEWLY_OVERDUE`, `RELEASE_BLOCKED_NEWLY_OVERDUE` and `LEDGER_ROW_NEWLY_OVERDUE` (the fields of their level lines) once per item, on the first run that reports it overdue, each after a conditional marker write keyed on the item's since-time: on the escrow row `truckerPayoutOverdueLoggedFor` (`truckerPayoutPendingSince` for a 1.x leg, `releasedAt` for a ledger transport leg) and `settlementBlockOverdueLoggedFor` (`settlementBlockReasonAt`), on an open ledger row `overdueLoggedFor` (`createdAt`); no version or `updatedAt` change; a write that fails for a reason other than its condition logs the line anyway. New filters and edge-triggered alarms `trucker-payouts-newly-overdue`, `releases-blocked-newly-overdue` and `ledger-rows-newly-overdue` (5 minute periods, 2 evaluation periods, 1 datapoint), which notify even while their level alarms are in ALARM. Run summaries `truckerLegsNewlyOverdue`, `ledgerTransportLegsNewlyOverdue` and `newlyOverdue`. `admin-queue-overdue` and `dispute-verdict-wait-overdue` keep no twin (Not in 2.25.0). No endpoint, DTO, status, amount or client change |

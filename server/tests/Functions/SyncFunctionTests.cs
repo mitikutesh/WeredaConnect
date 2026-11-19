@@ -5553,10 +5553,10 @@ public partial class SyncFunctionTests
                 { "truckerName", "Tadesse" }, { "truckerPhone", "0922222222" }, { "version", 1 }
             })), "trucker-001"), _context);
 
-        Assert.Contains("success", response.Body);
-        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
-            !r.ExpressionAttributeNames.Values.Contains("truckerName")
-            && !r.ExpressionAttributeNames.Values.Contains("truckerPhone")));
+        // The echoes are stripped; nothing else was sent, so nothing is written and the version stays.
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.Contains("\"serverVersion\":1", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
     }
 
     [Fact]
@@ -6597,6 +6597,261 @@ public partial class SyncFunctionTests
         {
             Environment.SetEnvironmentVariable("TELEBIRR_MOCK", null);
         }
+    }
+
+    // --- Persona sim 2026-11-19, BUG-1: an escrow dispute raised in transit, then the buyer confirms ---
+
+    /// <summary>
+    /// The finding's state before the confirm: the escrow disputed by the buyer while the truck drove
+    /// (no deliveryConfirmedAt), the order still in_transit, the delivery inTransit at version 2. The
+    /// order mock keeps its row, so each write is seen by the next read. Returns the order statuses
+    /// written, in order.
+    /// </summary>
+    private (DisputeRig Rig, List<string> OrderStatuses) DisputedInTransitRig(string escrowStatus = "disputed")
+    {
+        var escrow = OrderEscrowRow(status: escrowStatus);
+        escrow.Remove("deliveryConfirmedAt");
+        escrow["disputedBy"] = "buyer";
+        escrow["disputeReason"] = "not_delivered";
+        var rig = DisputeFunction(escrow, orderStatus: "in_transit");
+        rig.EscrowRepo.GetByDeliveryIdAsync("del-001").Returns(escrow);
+
+        var order = SetupExistingOrder(status: "in_transit", version: 4);
+        var orderStatuses = new List<string>();
+        _mockOrderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(ci =>
+            {
+                if (ci.ArgAt<int>(2).ToString() != order["version"].ToString())
+                {
+                    return AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict.");
+                }
+
+                foreach (var (key, value) in ci.ArgAt<Dictionary<string, object>>(1))
+                {
+                    order[key] = value;
+                }
+
+                order["version"] = (ci.ArgAt<int>(2) + 1).ToString();
+                orderStatuses.Add(order["status"].ToString()!);
+                return AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>(order));
+            });
+
+        // The stored delivery, the row the confirm writes, and the row the dispute mirror leaves.
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "inTransit", 2, "nonce-bug1", orderId: "order-001");
+        var delivered = DeliveryItemForOrder(status: "delivered", version: 3, confirmedAt: DateTime.UtcNow.ToString("o"));
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>()).Returns(new UpdateItemResponse { Attributes = delivered });
+        rig.DeliveryRepo.TryMarkDisputedAsync("del-001", Arg.Any<string>(), Arg.Any<string?>()).Returns(_ =>
+        {
+            var disputed = DeliveryItemForOrder(status: "disputed", version: 4, confirmedAt: DateTime.UtcNow.ToString("o"));
+            _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table"))
+                .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { disputed } });
+            return true;
+        });
+        return (rig, orderStatuses);
+    }
+
+    private Task<APIGatewayProxyResponse> ConfirmInTransitDeliveryAsync(SyncFunction function)
+        => function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "delivered" }, { "version", 2 }, { "scannedQrNonce", "nonce-bug1" }
+            })), "buyer-001", "buyer"), _context);
+
+    [Fact]
+    public async Task DeliveryConfirmed_UnderAnEscrowDisputedInTransit_TakesTheDeliveryAndTheOrderToDisputed()
+    {
+        // Before: the delivery and the order read delivered over frozen money, and a rating went through.
+        var (rig, orderStatuses) = DisputedInTransitRig();
+
+        var response = await ConfirmInTransitDeliveryAsync(rig.Function);
+
+        var result = JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0];
+        Assert.Equal("success", result.GetProperty("status").GetString());
+        // The answer carries the row as the mirror left it.
+        Assert.Equal("disputed", result.GetProperty("serverData").GetProperty("status").GetString());
+        Assert.Equal(4, result.GetProperty("serverVersion").GetInt32());
+        await rig.DeliveryRepo.Received(1).TryMarkDisputedAsync("del-001", "buyer", "not_delivered");
+        // The order follows its delivery to delivered, then the dispute.
+        Assert.Equal(new[] { "delivered", "disputed" }, orderStatuses);
+        // The frozen escrow is not stamped as confirmed and not written at all.
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+    }
+
+    [Theory]
+    [InlineData("escrowed")]
+    [InlineData("dispute_resolved")]
+    public async Task DeliveryConfirmed_UnderAnEscrowThatIsNotDisputed_IsNotMirrored(string escrowStatus)
+    {
+        // An escrowed escrow is stamped as before; after a verdict the verdict mirror moves the order.
+        var (rig, orderStatuses) = DisputedInTransitRig(escrowStatus);
+
+        var response = await ConfirmInTransitDeliveryAsync(rig.Function);
+
+        var result = JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0];
+        Assert.Equal("success", result.GetProperty("status").GetString());
+        Assert.Equal("delivered", result.GetProperty("serverData").GetProperty("status").GetString());
+        Assert.Equal(3, result.GetProperty("serverVersion").GetInt32());
+        await rig.DeliveryRepo.DidNotReceive().TryMarkDisputedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        Assert.Equal(new[] { "delivered" }, orderStatuses);
+    }
+
+    // --- Persona sim 2026-11-19, BUG-10: the smallest order is 0.01 kg ---
+
+    [Theory]
+    [InlineData(0.009)]
+    [InlineData(0.001)]
+    [InlineData(0)]
+    public async Task OrderCreate_QuantityBelowTheMinimum_ReturnsValidationError(double quantityKg)
+    {
+        SetupListing();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", quantityKg }
+        }));
+
+        Assert.Contains("ORDER_VALIDATION: quantity must be between 0.01 and 1000000 kg.", body);
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_QuantityAtTheMinimum_Succeeds()
+    {
+        SetupListing();
+        SetupOrderCreateSucceeds();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", 0.01 }
+        }));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        Assert.NotNull(_createdOrder);
+    }
+
+    // --- Persona sim 2026-11-19, BUG-11: an order update with nothing left to write ---
+
+    [Theory]
+    [InlineData("orderTotal", 1.0)]
+    [InlineData("commissionAmount", 0.0)]
+    [InlineData("quantity", 50.0)]
+    public async Task OrderUpdate_HoldingOnlyStrippedOrEchoedFields_WritesNothing_AndKeepsTheVersion(string field, double value)
+    {
+        // A server-owned field is stripped, an unchanged immutable field is an echo: before, the empty
+        // update was still written and the version moved.
+        SetupExistingOrder(status: "funded", version: 7);
+
+        var body = await UpdateOrderAs("farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { field, value }, { "version", 7 }
+        });
+
+        var result = JsonDocument.Parse(body).RootElement.GetProperty("results")[0];
+        Assert.Equal("success", result.GetProperty("status").GetString());
+        Assert.Equal(7, result.GetProperty("serverVersion").GetInt32());
+        Assert.Equal("funded", result.GetProperty("serverData").GetProperty("status").GetString());
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(9)]
+    public async Task OrderUpdate_WithNothingToWrite_AtAnotherVersion_IsAConflictWithTheRow(int sent)
+    {
+        // The phone is behind (or ahead): it gets the stored row as a conflict, which it applies; a
+        // success would leave it on its old copy.
+        SetupExistingOrder(status: "funded", version: 7);
+
+        var body = await UpdateOrderAs("farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { "quantity", 50.0 }, { "version", sent }
+        });
+
+        var result = JsonDocument.Parse(body).RootElement.GetProperty("results")[0];
+        Assert.Equal("conflict", result.GetProperty("status").GetString());
+        Assert.Equal(7, result.GetProperty("serverVersion").GetInt32());
+        Assert.Equal("funded", result.GetProperty("serverData").GetProperty("status").GetString());
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_HoldingOnlyAStrippedField_FromANonParty_IsStillUnauthorized()
+    {
+        SetupExistingOrder(status: "funded", version: 7);
+
+        var body = await UpdateOrderAs("buyer-999", "buyer", new Dictionary<string, object>
+        {
+            { "orderTotal", 1.0 }, { "version", 7 }
+        });
+
+        Assert.Contains("ORDER_UNAUTHORIZED", body);
+        Assert.DoesNotContain("serverData", body);
+    }
+
+    // --- Persona sim 2026-11-19, BUG-9: no payment for an order the listing can no longer fill ---
+
+    private SyncFunction StockGateFunction(IOrderRepository orderRepo)
+    {
+        orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-001" }, { "listingId", "listing-001" },
+            { "buyerId", "buyer-001" }, { "farmerId", "farmer-001" },
+            { "quantity", 50.0 }, { "status", "created" }, { "orderTotal", "500.00" }, { "version", "1" }
+        });
+        orderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" }, { "status", "payment_submitted" }, { "version", "2" }
+            }));
+        return new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: orderRepo);
+    }
+
+    private Task<APIGatewayProxyResponse> PayOrderAsync(SyncFunction function)
+        => function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeOrderUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "payment_submitted" }, { "paymentMethod", "telebirr" }, { "version", 1 }
+            })), "buyer-001", "buyer", authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+    [Fact]
+    public async Task PaymentSubmitted_ListingStockBelowTheOrder_IsRefusedBeforeAnyMoneyMoves()
+    {
+        // 0.3 quintal = 30 kg left for a 50 kg order: the funding would cancel it and refund.
+        SetupListing(quantityQuintals: 0.3);
+        var orderRepo = Substitute.For<IOrderRepository>();
+
+        var response = await PayOrderAsync(StockGateFunction(orderRepo));
+
+        Assert.Contains(
+            "ORDER_VALIDATION: quantity (50 kg) exceeds the listing stock (30 kg). Place a new order.", response.Body);
+        await orderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_ListingStockExactlyTheOrder_GoesAhead()
+    {
+        SetupListing(quantityQuintals: 0.5);
+        var orderRepo = Substitute.For<IOrderRepository>();
+
+        var response = await PayOrderAsync(StockGateFunction(orderRepo));
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await orderRepo.Received(1).UpdateAsync(
+            "order-001", Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "payment_submitted"), 1);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_ListingUnreadable_IsLeftToTheFunding()
+    {
+        // The gate is a cheap pre-check: a failed read never blocks a payment, the funding decides.
+        _mockCropRepo.GetByIdAsync("listing-001").ThrowsAsync(new ProvisionedThroughputExceededException("slow down"));
+        var orderRepo = Substitute.For<IOrderRepository>();
+
+        var response = await PayOrderAsync(StockGateFunction(orderRepo));
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
     }
 
     // ===== Self-pickup + QR handoff hardening =====
