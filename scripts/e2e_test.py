@@ -447,6 +447,21 @@ def phase_create_crops(state: TestState):
 # Phase 3: Create Trip Listings
 # ---------------------------------------------------------------------------
 
+def _existing_trip(trucker, trip_def: dict, dep_date: str) -> Optional[dict]:
+    """The trucker's own open or matched trip on this route and departure day, if any."""
+    resp = api("GET", "/trips", token=trucker.access_token)
+    if resp.status_code != 200:
+        return None
+    data = resp.json()
+    for trip in data.get("trips", data.get("items", [])):
+        if (trip.get("status") in ("open", "matched")
+                and trip.get("fromWoreda") == trip_def["fromWoreda"]
+                and trip.get("toWoreda") == trip_def["toWoreda"]
+                and str(trip.get("departureDate", ""))[:10] == dep_date[:10]):
+            return trip
+    return None
+
+
 def phase_create_trips(state: TestState):
     print_header("PHASE 3: Create Trip Listings (Truckers)")
 
@@ -499,7 +514,17 @@ def phase_create_trips(state: TestState):
                 state.record(f"Create trip {route}", True, f"tripId={trip_id[:12]}...")
             else:
                 msg = results[0].get("message", "unknown") if results else "no results"
-                state.record(f"Create trip {route}", False, msg)
+                # A second run on one day posts the same route and departure day again: refused as a
+                # duplicate trip (trip-listing-api.md rule 14). Use the trip the earlier run left.
+                existing = _existing_trip(trucker, trip_def, dep_date) if "FRAUD_DUPLICATE" in msg else None
+                if existing:
+                    state.trip_ids.append(existing["tripId"])
+                    state.trips.append(TripRecord(
+                        trip_id=existing["tripId"], trucker_idx=trip_def["trucker_idx"],
+                        from_woreda=trip_def["fromWoreda"], to_woreda=trip_def["toWoreda"],
+                        price_per_quintal=float(existing.get("pricePerQuintal") or trip_def["pricePerQuintal"])))
+                state.record(f"Create trip {route}", existing is not None,
+                             f"(duplicate ok) {msg}" if existing else msg)
         else:
             state.record(f"Create trip {route}", False, f"{resp.status_code}: {resp.body[:200]}")
 

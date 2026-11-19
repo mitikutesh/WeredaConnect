@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.15.0
+1.16.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -463,6 +463,13 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
    - Only the `/sync` `update` is guarded. A `delete` of a sold listing stays allowed (rule 10 still applies), and the order flow's stock writes (the decrement on order create, the restore on cancel or refund) have their own conditions and are not touched.
    - Before 1.15.0 an update without a `status` wrote price, quantity or text onto a sold listing; trips refuse any change to a finished trip (`TRIP_TERMINAL_STATE`). The apps offer the edit only on an `active` listing, so only an old queued edit or a hand-made request reaches this. No client change: the mobile queue resolves the conflict server-wins (it stores the sold row), and web treats it as a failed save.
 
+13. **One listing per lot** (1.16.0; `specs/architecture/fraud-detection-architecture.md` 3.43.0, Rule 1):
+   - A `create` is refused with `FRAUD_DUPLICATE_LISTING: A similar listing already exists. Please update your existing listing instead.` and nothing is written when the farmer already has an active listing (`available` or `reserved`, not deleted) of the same `cropType` with the same `quantity` at the same place: the same `woreda` (outer spaces and case ignored) and, when both listings carry `latitude` and `longitude`, points at most 1 km apart. The price and the listing's age are not compared. Before 1.16.0 only a price within 5 percent of a listing of the same crop type created in the last hour was refused (still refused), so one stock could be listed several times at prices further apart and sold more than once.
+   - A farmer with two lots lists both: another quantity, another woreda, or another field more than 1 km away. A `sold` or deleted listing frees its lot. To sell the same lot at another price, or to add stock, the farmer edits the listing (Edit and delete in the apps).
+   - Refused by design: two lots of the same crop type and quantity in one woreda, unless both listings carry a point and the points are more than 1 km apart; and a harvest of the same size as an old listing that is still `available` (nothing expires a listing). The farmer edits or deletes the existing listing. This refusal adds nothing to the farmer's risk score (the server records it as `DUPLICATE_LOT`, weight 0, for review); the price-band refusal still records `FRAUD_DUPLICATE_LISTING`.
+   - The check runs after the field rules, rule 6b and rule 8, with the other fraud listing checks. A retried create of the same `cropId` is not its own duplicate and gets the usual `conflict`. Updates are not checked.
+   - Clients need no change: `FRAUD_DUPLICATE_LISTING` is permanent and explained with this sentence in en, am and om since `sync-protocol.md` 1.9.0; the refused create keeps its local row and counts as failed, as before.
+
 ### Client-Side Validation
 
 - Same as server-side, plus:
@@ -635,9 +642,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.13.0 | 2026-11-12 | Listing removal guarded everywhere, and the farmer's edit and delete in the apps (SIM-56). Server: the rule 10 check (`CROP_HAS_ACTIVE_ORDERS` on a `delete` or an update to `status: deleted` while an order is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`) runs whatever `COMMITMENTS_ENABLED` says, so staging and prod too; an app without `X-App-Build` still gets the `SYNC_VALIDATION` sentence (FUP-241). Apps ("The farmer's edit and delete" under Validation Rules): the owner of an `active` listing edits `quantity`, `pricePerKg` and `description` with a `crop_listing` `update` of the changed fields at the version the form showed (a conflict, not an overwrite, when an order took stock meanwhile), and deletes it after a device-side check of the rule 10 order statuses that fails closed when the orders cannot be read. No wire change |
 | 1.15.0 | 2026-11-16 | Deleted and sold listings are not written again (rule 11 extended, new rule 12, `sync-protocol.md` 1.67.0). A `delete` of a listing already deleted writes nothing and its farmer gets `success` with the stored version (FUP-494); the write's condition carries the check, so a second delete between the read and the write gets the same answer. Before, a delete at the stored version was written again (`deletedAt` and the version moved). An `update` of a `sold` listing writes nothing and its farmer gets `conflict` with the stored row, message `CROP_SOLD: The listing is sold.` (FUP-495), also in the write's condition. Before, an update without a `status` wrote onto a sold listing. Anyone else keeps `CROP_UNAUTHORIZED`. Server only, no client change |
 | 1.14.0 | 2026-11-13 | A deleted listing never changes again (FUP-152, rule 11, `sync-protocol.md` 1.66.0): a `crop_listing` `update` of a deleted listing (`deletedAt` or `status: deleted`) writes nothing, with or without a `status` and at any version, and its farmer gets `conflict` with the stored row, message `CROP_ALREADY_DELETED: The listing is already deleted.`; the write's condition carries the check too, so a delete between the read and the write gets the same answer. Before, an update without a `status` at the version the delete left was written onto the hidden row and moved its version, and one with a `status` got `CROP_INVALID_TRANSITION`. Anyone else keeps `CROP_UNAUTHORIZED`. Server only, no client change |
+| 1.16.0 | 2026-11-19 | One listing per lot (new rule 13, persona simulation 2026-11-19 BUG-2, fraud spec 3.43.0 Rule 1): a `create` of a lot the farmer already lists (an active listing of the same crop type, quantity and place: the woreda, and within 1 km when both carry a point) is refused with `FRAUD_DUPLICATE_LISTING` at any price and age; the price band of the last hour stays. Another quantity, woreda or field, and a sold or deleted listing, pass. Server only; clients already treat the code as permanent and explain it |
 
 ---
 
-**Last Updated**: 2026-11-16
-**Version**: 1.15.0
+**Last Updated**: 2026-11-19
+**Version**: 1.16.0
 **Status**: Implemented (Phase R3)

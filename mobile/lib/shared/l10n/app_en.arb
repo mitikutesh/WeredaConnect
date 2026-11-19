@@ -3911,6 +3911,10 @@
   "@errorTripHasBookings": {
     "description": "The server refused a trip change because orders are booked on it (TRIP_HAS_BOOKINGS); on mobile the local trip went back to the server's"
   },
+  "errorDuplicateTrip": "You already have a trip on this route on that day, so this one was not posted. Edit that trip instead. If this is a second truck, add its plate number.",
+  "@errorDuplicateTrip": {
+    "description": "The server refused a trip create because the trucker already has an open trip on the same route, departure day and vehicle (FRAUD_DUPLICATE_LISTING on a trip); on mobile the local copy of the new trip was removed"
+  },
   "errorCropHasActiveOrders": "This listing has open orders. Handle them first.",
   "@errorCropHasActiveOrders": {
     "description": "The server refused to remove or reduce a listing that has funded or accepted orders (CROP_HAS_ACTIVE_ORDERS); on mobile the local listing went back to the server's"

@@ -283,8 +283,13 @@ def seed_trip(s: State, trucker: User, capacity: float, label: str) -> Optional[
     trip_id = uid()
     # Five days out: an order is refused on a trip leaving within 24 hours.
     departure = time.strftime("%Y-%m-%dT06:00:00Z", time.gmtime(time.time() + 5 * 86400))
+    # A plate of its own per trip: the scenarios post the same route and day several times, and a second
+    # trip on a route and day with the same plate, or with none, is refused as a duplicate
+    # (trip-listing-api.md rule 14). Two plates are two trucks.
+    plate = f"3-AA-{uuid.uuid4().int % 90000 + 10000}"
     res = sync(trucker, "trip", trip_id, "create", {
         "truckerId": trucker.user_id, "truckerName": trucker.name, "truckerPhone": trucker.phone,
+        "vehiclePlate": plate,
         "fromWoreda": "Debre Birhan", "toWoreda": "Dire Dawa", "capacity": capacity,
         "pricePerQuintal": 90.0 + int(time.time()) % 10, "departureDate": departure, "status": "open",
     })

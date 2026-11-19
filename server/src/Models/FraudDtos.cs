@@ -46,6 +46,20 @@ public sealed record FraudCheckResult
 }
 
 /// <summary>
+/// The lot of a crop listing create, for the duplicate lot check (fraud-detection-architecture.md Rule 1):
+/// the listing's own id (a replayed create is not its own duplicate), the quantity as sent, the woreda and
+/// the listing's point when it has one.
+/// </summary>
+public sealed record ListingLot(string CropId, decimal Quantity, string Woreda, double? Latitude, double? Longitude);
+
+/// <summary>
+/// The plan of a trip create, for the duplicate and same-day trip checks (fraud-detection-architecture.md
+/// Rule 6): the trip's own id, the route, the departure as a UTC instant and the vehicle plate when sent.
+/// </summary>
+public sealed record TripPlan(
+    string TruckerId, string TripId, string FromWoreda, string ToWoreda, DateTime DepartureUtc, string? VehiclePlate);
+
+/// <summary>
 /// ESC-33 (fraud-detection-architecture.md section 14.3): how the guarded write of a signal onto a user
 /// other than the caller ended. Only <see cref="Written"/> wrote a row.
 /// </summary>

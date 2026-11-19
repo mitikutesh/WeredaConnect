@@ -56,7 +56,7 @@ Each contract file follows this structure:
 
 | Contract | File | Version | Parties |
 |----------|------|---------|---------|
-| Sync Protocol | `sync-protocol.md` | 1.68.0 | Mobile, Backend |
+| Sync Protocol | `sync-protocol.md` | 1.69.0 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 2.16.0 | Mobile, Backend, Infrastructure |
 | User Entity (profile read and edit: `GET /user/profile`, the `/sync` `user` entity) | `user-entity.md` | 2.3.0 | Mobile, Web, Backend, Admin, Infrastructure |
 | Rating API | `rating-api.md` | 1.5.0 | Mobile, Web, Backend, Infrastructure, Admin |
@@ -65,8 +65,8 @@ Each contract file follows this structure:
 | Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.26.1 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 2.16.1 | Mobile, Web, Backend, Infrastructure, Admin |
 | Account Deletion | `account-deletion.md` | 1.7.3 | Mobile, Backend, Infrastructure, Admin |
-| Crop Listing API | `crop-listing-api.md` | 1.15.0 | Mobile, Web, Backend, Infrastructure |
-| Trip Listing API | `trip-listing-api.md` | 2.9.0 | Mobile, Backend |
+| Crop Listing API | `crop-listing-api.md` | 1.16.0 | Mobile, Web, Backend, Infrastructure |
+| Trip Listing API | `trip-listing-api.md` | 2.10.0 | Mobile, Backend |
 | Buyer Match API | `match-api.md` | 1.5.1 | Mobile, Backend |
 | Match Events (`match_event` sync entity) | `match-events.md` | n/a | Mobile, Backend |
 | Push Alerts API (device tokens, `buyer_intent` sync, `GET /intents`) | `push-alerts-api.md` | 1.5.0 | Mobile, Web, Backend, Infrastructure |

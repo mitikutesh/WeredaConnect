@@ -77,6 +77,38 @@ void main() {
   });
 
   group('syncRejectionErrorCode', () {
+    test(
+        'a duplicate trip has its own text; the same code on a crop '
+        'listing does not take it', () {
+      const message =
+          'FRAUD_DUPLICATE_LISTING: You already have a trip on this route on '
+          'that day. Please update your existing trip instead.';
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'trip',
+          action: 'create',
+          message: message,
+        ),
+        AppErrorCode.duplicateTrip,
+      );
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'crop_listing',
+          action: 'create',
+          message: 'FRAUD_DUPLICATE_LISTING: A similar listing already exists.',
+        ),
+        AppErrorCode.changeNotSaved,
+      );
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = lookupAppLocalizations(Locale(locale));
+        expect(
+          localizeErrorCode(AppErrorCode.duplicateTrip, l10n),
+          l10n.errorDuplicateTrip,
+        );
+        expect(l10n.errorDuplicateTrip, isNot(l10n.fraudDuplicateListing));
+      }
+    });
+
     test('a refused order create removed the order', () {
       expect(
         syncRejectionErrorCode(
@@ -976,9 +1008,16 @@ void main() {
         // FUP-51
         'TRIP_CONTACT_IN_TEXT: x',
         'FRAUD_ACCOUNT_HELD: x',
+        // trip-listing-api 2.10.0: a duplicate of a trip the trucker has.
+        'FRAUD_DUPLICATE_LISTING: You already have a trip on this route.',
       ]) {
         expect(isRevertableTripRejectionMessage(message), isTrue);
       }
+      // The same code on a crop listing keeps the local listing, as before.
+      expect(
+        isRevertableListingRejectionMessage('FRAUD_DUPLICATE_LISTING: dup'),
+        isFalse,
+      );
       // CROP_VALIDATION and TRIP_VALIDATION also wrap a failed profile read
       // on the server, so a prefix alone is not deterministic, and the same
       // payload goes through once the app is updated.
@@ -990,7 +1029,6 @@ void main() {
         'CROP_UNAUTHORIZED: not yours',
         'TRIP_VALIDATION: bad',
         'TRIP_UNAUTHORIZED: not yours',
-        'FRAUD_DUPLICATE_LISTING: dup',
         'FRAUD_VELOCITY_EXCEEDED: x',
         'TRIP_CAPACITY_EXCEEDED: x',
         'ORDER_CONTACT_IN_TEXT: x',
