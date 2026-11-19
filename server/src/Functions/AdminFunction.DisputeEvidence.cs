@@ -311,24 +311,7 @@ public partial class AdminFunction
             .LastOrDefault();
 
     /// <summary><c>qr</c> or <c>code</c> from the transition's audit metadata (<c>handoff=qr</c>); null otherwise.</summary>
-    internal static string? HandoffMethodOf(string? metadata)
-    {
-        if (string.IsNullOrEmpty(metadata))
-        {
-            return null;
-        }
-
-        foreach (var part in metadata.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            if (part.StartsWith("handoff=", StringComparison.Ordinal))
-            {
-                var method = part["handoff=".Length..];
-                return method is "qr" or "code" ? method : null;
-            }
-        }
-
-        return null;
-    }
+    internal static string? HandoffMethodOf(string? metadata) => DisputeHandoffEvidence.MethodOf(metadata);
 
     /// <summary>The great-circle km between the two points, 2 decimals; null without both, or at (0, 0) (no fix).</summary>
     internal static double? DistanceKm(LatLngDto? gps, LatLngDto? planned)
