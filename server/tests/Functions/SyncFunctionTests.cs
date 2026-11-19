@@ -6695,6 +6695,144 @@ public partial class SyncFunctionTests
         Assert.Equal(new[] { "delivered" }, orderStatuses);
     }
 
+    // --- Persona sim 2026-11-19, BUG-10: the smallest order is 0.01 kg ---
+
+    [Theory]
+    [InlineData(0.009)]
+    [InlineData(0.001)]
+    [InlineData(0)]
+    public async Task OrderCreate_QuantityBelowTheMinimum_ReturnsValidationError(double quantityKg)
+    {
+        SetupListing();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", quantityKg }
+        }));
+
+        Assert.Contains("ORDER_VALIDATION: quantity must be between 0.01 and 1000000 kg.", body);
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_QuantityAtTheMinimum_Succeeds()
+    {
+        SetupListing();
+        SetupOrderCreateSucceeds();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", 0.01 }
+        }));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        Assert.NotNull(_createdOrder);
+    }
+
+    // --- Persona sim 2026-11-19, BUG-11: an order update with nothing left to write ---
+
+    [Theory]
+    [InlineData("orderTotal", 1.0)]
+    [InlineData("commissionAmount", 0.0)]
+    [InlineData("quantity", 50.0)]
+    public async Task OrderUpdate_HoldingOnlyStrippedOrEchoedFields_WritesNothing_AndKeepsTheVersion(string field, double value)
+    {
+        // A server-owned field is stripped, an unchanged immutable field is an echo: before, the empty
+        // update was still written and the version moved.
+        SetupExistingOrder(status: "funded", version: 7);
+
+        var body = await UpdateOrderAs("farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { field, value }, { "version", 7 }
+        });
+
+        var result = JsonDocument.Parse(body).RootElement.GetProperty("results")[0];
+        Assert.Equal("success", result.GetProperty("status").GetString());
+        Assert.Equal(7, result.GetProperty("serverVersion").GetInt32());
+        Assert.Equal("funded", result.GetProperty("serverData").GetProperty("status").GetString());
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_HoldingOnlyAStrippedField_FromANonParty_IsStillUnauthorized()
+    {
+        SetupExistingOrder(status: "funded", version: 7);
+
+        var body = await UpdateOrderAs("buyer-999", "buyer", new Dictionary<string, object>
+        {
+            { "orderTotal", 1.0 }, { "version", 7 }
+        });
+
+        Assert.Contains("ORDER_UNAUTHORIZED", body);
+        Assert.DoesNotContain("serverData", body);
+    }
+
+    // --- Persona sim 2026-11-19, BUG-9: no payment for an order the listing can no longer fill ---
+
+    private SyncFunction StockGateFunction(IOrderRepository orderRepo)
+    {
+        orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-001" }, { "listingId", "listing-001" },
+            { "buyerId", "buyer-001" }, { "farmerId", "farmer-001" },
+            { "quantity", 50.0 }, { "status", "created" }, { "orderTotal", "500.00" }, { "version", "1" }
+        });
+        orderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" }, { "status", "payment_submitted" }, { "version", "2" }
+            }));
+        return new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: orderRepo);
+    }
+
+    private Task<APIGatewayProxyResponse> PayOrderAsync(SyncFunction function)
+        => function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeOrderUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "payment_submitted" }, { "paymentMethod", "telebirr" }, { "version", 1 }
+            })), "buyer-001", "buyer", authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+    [Fact]
+    public async Task PaymentSubmitted_ListingStockBelowTheOrder_IsRefusedBeforeAnyMoneyMoves()
+    {
+        // 0.3 quintal = 30 kg left for a 50 kg order: the funding would cancel it and refund.
+        SetupListing(quantityQuintals: 0.3);
+        var orderRepo = Substitute.For<IOrderRepository>();
+
+        var response = await PayOrderAsync(StockGateFunction(orderRepo));
+
+        Assert.Contains(
+            "ORDER_VALIDATION: quantity (50 kg) exceeds the listing stock (30 kg). Place a new order.", response.Body);
+        await orderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_ListingStockExactlyTheOrder_GoesAhead()
+    {
+        SetupListing(quantityQuintals: 0.5);
+        var orderRepo = Substitute.For<IOrderRepository>();
+
+        var response = await PayOrderAsync(StockGateFunction(orderRepo));
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await orderRepo.Received(1).UpdateAsync(
+            "order-001", Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "payment_submitted"), 1);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_ListingUnreadable_IsLeftToTheFunding()
+    {
+        // The gate is a cheap pre-check: a failed read never blocks a payment, the funding decides.
+        _mockCropRepo.GetByIdAsync("listing-001").ThrowsAsync(new ProvisionedThroughputExceededException("slow down"));
+        var orderRepo = Substitute.For<IOrderRepository>();
+
+        var response = await PayOrderAsync(StockGateFunction(orderRepo));
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+    }
+
     // ===== Self-pickup + QR handoff hardening =====
 
     private void SetupDeliveryQuery(Dictionary<string, AttributeValue> item)

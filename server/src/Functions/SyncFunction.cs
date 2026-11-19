@@ -187,6 +187,9 @@ public partial class SyncFunction
     /// </summary>
     private const decimal MaxOrderKg = MaxListingQuintals * 100m;
 
+    /// <summary>Smallest order, in kilograms (order-lifecycle.md, Order Create Validation).</summary>
+    private const decimal MinOrderKg = 0.01m;
+
     private static readonly HashSet<string> AllowedCropFields = new()
     {
         "farmerId", "farmerName", "farmerPhone", "cropType", "quantity", "pricePerKg",
@@ -7432,6 +7435,15 @@ public partial class SyncFunction
                     return OrderValidationError(operation, tripGate);
                 }
 
+                // No money for an order the listing can no longer fill: the funding would end it
+                // and send the money back (ESC-18), which with the live gateway is a real payment
+                // and a real refund. The funding's own conditional write stays the race guard.
+                var stockGate = await CheckListingStockForPaymentAsync(existingOrder, context);
+                if (stockGate != null)
+                {
+                    return OrderValidationError(operation, stockGate);
+                }
+
                 var riskTier = await CallerRiskTierAsync(authenticatedUserId!);
                 if (riskTier == RiskTier.Critical)
                 {
@@ -7610,6 +7622,19 @@ public partial class SyncFunction
         }
 
         operation.Data.Remove("version"); // consumed here; the repository handles the check
+
+        // Nothing is left to write: the payload held only fields the server owns (stripped above)
+        // or unchanged echoes. No write and no version move; the caller, a party, gets the stored row.
+        if (operation.Data.Count == 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "success",
+                ServerVersion = OrderVersionOf(existingOrder),
+                ServerData = existingOrder
+            };
+        }
 
         // FUP-53: a funded order's reject or cancel and its refund arm are one transaction.
         var storedStatus = existingOrder.TryGetValue("status", out var storedStatusObj) ? storedStatusObj?.ToString() : null;
@@ -9864,7 +9889,7 @@ public partial class SyncFunction
         if (data.TryGetValue("quantity", out var qObj))
         {
             if (!decimal.TryParse(qObj?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var qty)
-                || qty <= 0 || qty > MaxOrderKg)
+                || qty < MinOrderKg || qty > MaxOrderKg)
             {
                 errors.Add("quantity must be between 0.01 and 1000000 kg.");
             }
